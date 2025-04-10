@@ -167,13 +167,20 @@ async function main() {
           }
         });
 
-        // Store prices and check for alerts
+        // Store prices and perform analysis
         for (const price of data.data) {
           await storage.storePrice(price);
           
-          // Analyze and check for alerts
-          const analysis = analyzer.analyzeData(price);
+          // Get previous day data for better analysis
+          const previousDayData = storage.getPreviousDayPrice(price.id);
           
+          // Analyze price data
+          const analysis = analyzer.analyzeData(price, previousDayData);
+          
+          // Store analysis results
+          await storage.storeAnalysis(analysis);
+          
+          // Check for volatility alerts
           const threshold = analyzer.getAlertThreshold(price.id);
           if (threshold !== undefined && analysis.signals.isVolatile) {
             await storage.storeAlert(
@@ -182,7 +189,27 @@ async function main() {
               threshold,
               'volatility'
             );
-            await alertManager.sendTelegramMessage(`Alert for ${price.id}: Price change exceeded threshold`);
+            await alertManager.sendTelegramMessage(
+              `🚨 Alert for ${price.id}: Price change exceeded ${threshold}% threshold!\n` +
+              `Current price: $${price.current_price.toFixed(2)}\n` +
+              `24h change: ${analysis.metrics.priceChange24h.toFixed(2)}%\n` +
+              `Trend: ${analysis.signals.trendDirection === 'up' ? '📈' : analysis.signals.trendDirection === 'down' ? '📉' : '➡️'}`
+            );
+          }
+          
+          // Check for volume alerts
+          if (analysis.signals.volumeAlert) {
+            await storage.storeAlert(
+              price.id,
+              price.current_price,
+              0, // No specific threshold for volume alerts
+              'volume'
+            );
+            await alertManager.sendTelegramMessage(
+              `📊 Volume Alert for ${price.id}!\n` +
+              `Volume increased by ${analysis.metrics.volumeChange24h.toFixed(2)}%\n` +
+              `Current price: $${price.current_price.toFixed(2)}`
+            );
           }
         }
 

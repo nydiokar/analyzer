@@ -24,26 +24,80 @@ export class CryptoAnalyzer {
     this.saveAlerts();
   }
 
-  analyzeData(current: CryptoPrice): AnalysisResult {
+  analyzeData(current: CryptoPrice, previousDay?: CryptoPrice): AnalysisResult {
     const initialPrice = this.initialPrices[current.id];
-    const priceChange = ((current.current_price - initialPrice) / initialPrice) * 100;
+    
+    // Use CoinGecko's reported price change if available, otherwise calculate our own
+    let priceChange24h = current.price_change_percentage_24h;
+    
+    // If CoinGecko's data is not available, calculate from our stored data
+    if (priceChange24h === undefined || isNaN(priceChange24h)) {
+      if (previousDay && previousDay.current_price) {
+        priceChange24h = ((current.current_price - previousDay.current_price) / previousDay.current_price) * 100;
+      } else if (initialPrice) {
+        // Fallback to using initial price if no previous day data
+        priceChange24h = ((current.current_price - initialPrice) / initialPrice) * 100;
+      } else {
+        // If all else fails, default to zero
+        priceChange24h = 0;
+      }
+    }
+    
+    // Calculate our threshold comparison (always against initial price)
+    const thresholdChange = initialPrice ? ((current.current_price - initialPrice) / initialPrice) * 100 : 0;
     const threshold = this.alertThresholds[current.id];
+    
+    // Check if price movement exceeds threshold
+    const isVolatile = threshold !== undefined && Math.abs(thresholdChange) > threshold.percentage;
 
-    const isVolatile = threshold !== undefined && Math.abs(priceChange) > threshold.percentage;
+    // Calculate other metrics
+    let volatility24h = 0;
+    let volumeChange24h = 0;
+    let marketCapChange24h = 0;
+    let trendDirection: 'up' | 'down' | 'neutral' = 'neutral';
+    let volumeAlert = false;
+
+    // Set trend direction based on 24h price change
+    if (priceChange24h > 1) trendDirection = 'up';
+    else if (priceChange24h < -1) trendDirection = 'down';
+    
+    // Use CoinGecko's reported data for other metrics when available
+    if (current.price_change_percentage_24h !== undefined) {
+      // CoinGecko already provides these metrics
+      volatility24h = Math.abs(current.price_change_percentage_24h);
+      
+      if (current.market_cap_change_percentage_24h !== undefined) {
+        marketCapChange24h = current.market_cap_change_percentage_24h;
+      }
+      
+      // Calculate volume change if we have previous data
+      if (previousDay && previousDay.total_volume && previousDay.total_volume > 0) {
+        volumeChange24h = ((current.total_volume - previousDay.total_volume) / previousDay.total_volume) * 100;
+        volumeAlert = volumeChange24h > 50;
+      }
+      
+      // Use high/low range for additional volatility measurement
+      if (current.high_24h && current.low_24h && current.low_24h > 0) {
+        const highLowRange = current.high_24h - current.low_24h;
+        const rangePercentage = (highLowRange / current.low_24h) * 100;
+        // Combine both volatility metrics
+        volatility24h = Math.max(volatility24h, rangePercentage);
+      }
+    }
 
     return {
       coin: current.id,
       timestamp: new Date().toISOString(),
       metrics: {
-        volatility24h: 0,
-        priceChange24h: 0,
-        volumeChange24h: 0,
-        marketCapChange24h: 0
+        volatility24h,
+        priceChange24h,
+        volumeChange24h,
+        marketCapChange24h
       },
       signals: {
         isVolatile,
-        trendDirection: 'neutral',
-        volumeAlert: false
+        trendDirection,
+        volumeAlert
       }
     };
   }
