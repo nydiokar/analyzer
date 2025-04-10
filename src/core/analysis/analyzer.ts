@@ -1,73 +1,89 @@
 import { CryptoPrice, AnalysisResult } from '../../types/crypto';
 import { createLogger } from '../../utils/logger';
+import fs from 'fs';
 
 const logger = createLogger('Analyzer');
 
 export class CryptoAnalyzer {
-  // Threshold for considering price movement volatile (in percentage)
-  private readonly VOLATILITY_THRESHOLD = 5;
-  // Threshold for significant volume change (in percentage)
-  private readonly VOLUME_ALERT_THRESHOLD = 50;
+  private initialPrices: Record<string, number> = {};
+  private alertThresholds: Record<string, { percentage: number, addedAt: string }> = {};
+
+  constructor() {
+    this.loadAlerts();
+  }
+
+  setInitialPrice(coinId: string, price: number) {
+    this.initialPrices[coinId] = price;
+  }
+
+  setAlertThreshold(coinId: string, threshold: number) {
+    this.alertThresholds[coinId] = {
+      percentage: threshold,
+      addedAt: new Date().toISOString()
+    };
+    this.saveAlerts();
+  }
 
   analyzeData(current: CryptoPrice): AnalysisResult {
+    const initialPrice = this.initialPrices[current.id];
+    const priceChange = ((current.current_price - initialPrice) / initialPrice) * 100;
+    const threshold = this.alertThresholds[current.id];
+
+    const isVolatile = threshold !== undefined && Math.abs(priceChange) > threshold.percentage;
+
+    return {
+      coin: current.id,
+      timestamp: new Date().toISOString(),
+      metrics: {
+        volatility24h: 0,
+        priceChange24h: 0,
+        volumeChange24h: 0,
+        marketCapChange24h: 0
+      },
+      signals: {
+        isVolatile,
+        trendDirection: 'neutral',
+        volumeAlert: false
+      }
+    };
+  }
+
+  getInitialPrice(coinId: string): number | undefined {
+    return this.initialPrices[coinId];
+  }
+
+  getAlertThreshold(coinId: string): number | undefined {
+    const alert = this.alertThresholds[coinId];
+    return alert ? alert.percentage : undefined;
+  }
+
+  getAlertThresholds() {
+    return this.alertThresholds;
+  }
+
+  removeAlertThreshold(coinId: string) {
+    delete this.alertThresholds[coinId];
+    this.saveAlerts();
+  }
+
+  public loadAlerts() {
+    if (fs.existsSync('alerts.json')) {
+      this.alertThresholds = JSON.parse(fs.readFileSync('alerts.json', 'utf-8'));
+    }
+  }
+
+  private saveAlerts() {
+    fs.writeFileSync('alerts.json', JSON.stringify(this.alertThresholds, null, 2));
+  }
+
+  async isValidCoin(coinId: string): Promise<boolean> {
     try {
-      const volatility24h = this.calculateVolatility(current);
-      const volumeChange = this.calculateVolumeChange(current);
-      
-      const analysis: AnalysisResult = {
-        coin: current.id,
-        timestamp: new Date().toISOString(),
-        metrics: {
-          volatility24h,
-          priceChange24h: current.price_change_24h,
-          volumeChange24h: volumeChange,
-          marketCapChange24h: this.calculateMarketCapChange(current)
-        },
-        signals: {
-          isVolatile: Math.abs(volatility24h) > this.VOLATILITY_THRESHOLD,
-          trendDirection: this.determineTrend(current.price_change_percentage_24h),
-          volumeAlert: Math.abs(volumeChange) > this.VOLUME_ALERT_THRESHOLD
-        }
-      };
-
-      logger.info(`Analysis completed for ${current.id}`, {
-        volatility: volatility24h,
-        trend: analysis.signals.trendDirection
-      });
-
-      return analysis;
+      const response = await fetch('https://api.coingecko.com/api/v3/coins/list');
+      const coins = await response.json();
+      return coins.some((coin: { id: string }) => coin.id === coinId);
     } catch (error) {
-      logger.error(`Analysis failed for ${current.id}`, {
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      throw error;
+      logger.error('Error validating coin', { error });
+      return false;
     }
-  }
-
-  private calculateVolatility(data: CryptoPrice): number {
-    if (data.high_24h && data.low_24h) {
-      const range = data.high_24h - data.low_24h;
-      const average = (data.high_24h + data.low_24h) / 2;
-      return (range / average) * 100;
-    }
-    // Fallback to price change percentage if high/low not available
-    return Math.abs(data.price_change_percentage_24h);
-  }
-
-  private calculateVolumeChange(data: CryptoPrice): number {
-    // This is a simplified calculation as we don't have historical volume
-    // In a real implementation, we would compare with previous period
-    return data.total_volume ? (data.total_volume / data.market_cap) * 100 : 0;
-  }
-
-  private calculateMarketCapChange(data: CryptoPrice): number {
-    // In a real implementation, we would compare with previous period
-    return data.market_cap ? (data.price_change_percentage_24h * data.market_cap) / 100 : 0;
-  }
-
-  private determineTrend(priceChange: number): 'up' | 'down' | 'neutral' {
-    if (priceChange > 1) return 'up';
-    if (priceChange < -1) return 'down';
-    return 'neutral';
   }
 }
