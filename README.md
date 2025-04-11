@@ -72,6 +72,20 @@ Example:
 npm run manage-alerts -- removealert bitcoin
 ```
 
+### Market Summary
+
+Get a summary of the market for the last N hours:
+
+```bash
+npm run manage-alerts -- market [hours]
+```
+
+Example:
+```bash
+npm run manage-alerts -- market 12
+```
+This shows the market summary for the last 12 hours, including top gainers, losers, and coins with highest volatility.
+
 ## Telegram Bot Commands
 
 The application also provides a Telegram bot for managing alerts:
@@ -79,6 +93,7 @@ The application also provides a Telegram bot for managing alerts:
 - `/addcoin <coin_id> <percentage>` - Add an alert for a coin with threshold
 - `/removecoin <coin_id>` - Remove an alert for a coin
 - `/listcoins` - List all monitored coins with their thresholds
+- `/market [hours]` - Show market summary for the last N hours (default: 24)
 - `/help` - Show help message with available commands
 
 Example:

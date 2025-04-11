@@ -42,6 +42,19 @@ export class CryptoBot {
       await this.commands.listCoins(ctx);
     });
 
+    // Market summary command
+    this.bot.command('market', async (ctx) => {
+      const parts = ctx.message.text.split(' ');
+      const hours = parts.length > 1 ? parseInt(parts[1]) : 24;
+      
+      if (isNaN(hours) || hours <= 0) {
+        await ctx.reply('❌ Please provide a valid number of hours. Usage: /market [hours]');
+        return;
+      }
+      
+      await this.commands.showMarketSummary(ctx, hours);
+    });
+
     // Help command
     this.bot.command('help', async (ctx) => {
       const helpMessage = `
@@ -49,6 +62,7 @@ export class CryptoBot {
 /addcoin <coin_id> <percentage> - Add an alert for a coin with threshold
 /removecoin <coin_id> - Remove an alert for a coin
 /listcoins - List all monitored coins with their thresholds
+/market [hours] - Show market summary for the last N hours (default: 24)
 /help - Show this help message
       `;
       await ctx.reply(helpMessage);
