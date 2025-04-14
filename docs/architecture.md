@@ -1,13 +1,14 @@
-# Crypto Price Monitor - Architecture Overview
+# Crypto Price Monitor & Staking Calculator - Architecture Overview
 
 ## System Architecture
 
-The Crypto Price Monitor is a TypeScript-based application that follows a modular architecture with clear separation of concerns. The system is composed of several core components that work together to provide real-time cryptocurrency price monitoring and alerting capabilities.
+The system is a TypeScript-based application that follows a modular architecture with clear separation of concerns. It provides both real-time cryptocurrency price monitoring with alerting capabilities and advanced staking calculations.
 
 ### Core Components
 
 1. **Data Fetcher (`src/core/fetcher/`)**
    - Responsible for fetching cryptocurrency data from CoinGecko API
+   - Retrieves protocol-specific staking data (Marinade, etc.)
    - Implements rate limiting to respect API constraints
    - Handles data transformation and validation
 
@@ -19,7 +20,8 @@ The Crypto Price Monitor is a TypeScript-based application that follows a modula
 3. **Analysis Engine (`src/core/analysis/`)**
    - Processes and analyzes cryptocurrency data
    - Calculates price changes and trends
-   - Generates market insights
+   - Performs staking return calculations
+   - Generates market insights and risk assessments
 
 4. **Alert System (`src/core/alerts/`)**
    - Manages alert configurations
@@ -30,10 +32,17 @@ The Crypto Price Monitor is a TypeScript-based application that follows a modula
    - Provides interactive interface for users
    - Handles command processing
    - Manages alert subscriptions
+   - Offers quick staking calculations via commands
+
+6. **Staking Calculator (`src/scripts/`)**
+   - Calculates potential staking returns
+   - Integrates with protocol-specific APIs
+   - Generates detailed staking reports
+   - Provides risk assessments
 
 ### Data Flow
 
-1. **Data Collection**
+1. **Price Data Collection**
    ```
    CoinGecko API -> Data Fetcher -> Storage Manager -> SQLite Database
    ```
@@ -48,6 +57,11 @@ The Crypto Price Monitor is a TypeScript-based application that follows a modula
    Telegram Bot <-> Alert System <-> Storage Manager
    ```
 
+4. **Staking Calculations**
+   ```
+   Protocol APIs -> Data Fetcher -> Staking Calculator -> Report Generation
+   ```
+
 ### Key Features
 
 - Real-time price monitoring
@@ -57,11 +71,16 @@ The Crypto Price Monitor is a TypeScript-based application that follows a modula
 - Data verification and integrity checks
 - Telegram bot integration
 - CLI interface for management
+- Staking return calculations
+- Protocol-specific integrations
+- Risk assessment reporting
 
 ### Dependencies
 
 - **External APIs**
   - CoinGecko API for cryptocurrency data
+  - Marinade Finance API for staking data
+  - Other protocol-specific APIs
 
 - **Core Libraries**
   - `axios`: HTTP client for API requests
@@ -77,6 +96,8 @@ The Crypto Price Monitor is a TypeScript-based application that follows a modula
 - Data verification mechanisms
 - Process locking to prevent multiple instances
 - Secure storage of sensitive data
+- Conservative fallback values for staking
+- Protocol-specific risk handling
 
 ### Scalability
 
@@ -85,4 +106,6 @@ The system is designed to be scalable through:
 - Configurable update intervals
 - Efficient database operations
 - Rate-limited API access
-- Asynchronous processing 
+- Asynchronous processing
+- Protocol-agnostic interfaces
+- Extensible calculation engine

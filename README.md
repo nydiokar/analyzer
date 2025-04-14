@@ -144,6 +144,57 @@ Run the test suite:
 npm test
 ```
 
+## Solana Staking Calculator
+
+The project now includes a powerful Solana staking calculator that helps you estimate potential returns from staking SOL.
+
+### Quick Start
+```bash
+# Calculate returns for native staking
+.\run-staking.bat 100 365 native
+
+# Calculate returns for Marinade liquid staking
+.\run-staking.bat 100 365 marinade
+```
+
+### Options
+```bash
+npm run calc-staking -- --help
+
+Options:
+  --amount, -a  Amount of SOL to stake              [number] [required]
+  --days, -d    Staking duration in days            [number] [default: 365]
+  --type        Staking type (native or marinade)   [choices: "native", "marinade"]
+```
+
+### Sample Output
+```
+=== Solana Staking Calculator Report ===
+
+Input Parameters:
+  Amount: 100 SOL
+  Duration: 365 days
+  Staking Method: Marinade Liquid Staking
+
+Current Market Data:
+  SOL Price: $133.07
+  Initial Value: $13,307.00
+
+Projected Returns:
+  APY: 6.8% (Live Rate)
+  Total SOL: 106.8000 SOL
+  Earned SOL: 6.8000 SOL
+  Projected Value: $14,211.88
+  Profit (USD): $904.88
+```
+
+### Features
+- Real-time SOL price data from CoinGecko
+- Live Marinade protocol APY rates
+- Compound interest calculations
+- Detailed risk assessment
+- Support for both native and liquid staking
+
 ## License
 
 ISC 
