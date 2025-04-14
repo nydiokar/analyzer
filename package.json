@@ -1,6 +1,6 @@
 {
   "name": "crypto-data-analyzer",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A script to fetch and analyze live crypto exchange data from CoinGecko with verifiable storage",
   "main": "dist/index.js",
   "scripts": {
@@ -15,7 +15,8 @@
     "view": "ts-node src/utils/view-data.ts",
     "view:watch": "ts-node-dev --respawn src/utils/view-data.ts",
     "setalert": "ts-node src/index.ts setalert",
-    "manage-alerts": "ts-node src/manage-alerts.ts"
+    "manage-alerts": "ts-node src/manage-alerts.ts",
+    "calc-staking": "ts-node src/scripts/staking-calc.ts"
   },
   "keywords": [
     "crypto",
@@ -41,8 +42,8 @@
     "@types/crypto-js": "^4.2.2",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.30",
-    "@types/yargs": "^17.0.33",
     "@types/winston": "^2.4.4",
+    "@types/yargs": "^17.0.33",
     "chai": "^4.4.1",
     "mocha": "^10.3.0",
     "ts-node": "^10.9.2",
