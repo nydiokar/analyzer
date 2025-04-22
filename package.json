@@ -16,7 +16,8 @@
     "view:watch": "ts-node-dev --respawn src/utils/view-data.ts",
     "setalert": "ts-node src/index.ts setalert",
     "manage-alerts": "ts-node src/manage-alerts.ts",
-    "calc-staking": "ts-node src/scripts/staking-calc.ts"
+    "calc-staking": "ts-node src/scripts/staking-calc.ts",
+    "analyze-transfers": "ts-node src/scripts/transfer-analyzer.ts"
   },
   "keywords": [
     "crypto",
@@ -42,10 +43,12 @@
     "@types/crypto-js": "^4.2.2",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.30",
+    "@types/papaparse": "^5.3.15",
     "@types/winston": "^2.4.4",
     "@types/yargs": "^17.0.33",
     "chai": "^4.4.1",
     "mocha": "^10.3.0",
+    "papaparse": "^5.5.2",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.4.3"
