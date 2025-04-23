@@ -136,4 +136,43 @@ export class CoinGeckoClient {
       throw new Error(`Failed to fetch market chart for ${coinId}`);
     }
   }
+
+  // Added method to fetch OHLC data
+  async getOhlcData(coinId: string, currency: string, days: number): Promise<Array<[number, number, number, number, number]>> {
+    try {
+      await this.enforceRateLimit();
+      const response = await this.api.get(
+        `/coins/${coinId}/ohlc`, {
+          params: {
+            vs_currency: currency,
+            days: days,
+          }
+        }
+      );
+      // Return the OHLC data array
+      // Expected format: [ [timestamp, open, high, low, close], [...] ]
+      return response.data as Array<[number, number, number, number, number]>;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        logger.error(`Failed to fetch OHLC data for ${coinId}`, { error: error.message });
+      }
+      throw new Error(`Failed to fetch OHLC data for ${coinId}`);
+    }
+  }
+
+  // Added method to get the full list of coins
+  async getCoinsList(): Promise<{ id: string; symbol: string; name: string }[]> {
+    try {
+      await this.enforceRateLimit(); // Apply rate limiting here too
+      // The '/coins/list' endpoint doesn't seem to require parameters
+      const response = await this.api.get('/coins/list');
+      // Expected format: [ { id: "bitcoin", symbol: "btc", name: "Bitcoin" }, ... ]
+      return response.data as { id: string; symbol: string; name: string }[];
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        logger.error('Failed to fetch coins list', { error: error.message });
+      }
+      throw new Error('Failed to fetch coins list from CoinGecko');
+    }
+  }
 }

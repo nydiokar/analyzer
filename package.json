@@ -17,7 +17,9 @@
     "setalert": "ts-node src/index.ts setalert",
     "manage-alerts": "ts-node src/manage-alerts.ts",
     "calc-staking": "ts-node src/scripts/staking-calc.ts",
-    "analyze-transfers": "ts-node src/scripts/transfer-analyzer.ts"
+    "analyze-transfers": "ts-node src/scripts/transfer-analyzer.ts",
+    "analyze-changes": "ts-node src/scripts/price-change-reporter.ts",
+    "find-coin": "ts-node src/scripts/find-coin-id.ts"
   },
   "keywords": [
     "crypto",
