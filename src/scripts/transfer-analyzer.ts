@@ -18,11 +18,13 @@ interface TransferRecord {
     Value: string; // Keep as string for now, parse later
     Decimals: string; // Keep as string for now, parse later
     TokenAddress: string;
+    TokenSymbol?: string; // Add optional TokenSymbol field
 }
 
 // Define the structure for calculated results
 interface AnalysisResults {
     tokenAddress: string;
+    tokenSymbol?: string; // Added field for token symbol if available
     // inputFile: string; // Input file is global now, not per-token result
     totalAmountIn: number;
     totalAmountOut: number;
@@ -36,6 +38,30 @@ interface AnalysisResults {
     lastTransferTime?: Date;
     processedRecords: number;
     filteredRecords: number;
+    possiblyAirdrop: boolean; // Flag for potential airdrops/spam
+}
+
+// Tokens to exclude from top gainers/losers
+const excludeFromRankings = [
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+    'So11111111111111111111111111111111111111112'  // SOL
+];
+
+// Helper to detect if a token is likely an airdrop - improved to be less aggressive
+function isLikelyAirdrop(records: TransferRecord[]): boolean {
+    // Only consider very low activity tokens
+    if (records.length === 1) {
+        const inFlows = records.filter(r => r.Flow.toLowerCase() === 'in');
+        const outFlows = records.filter(r => r.Flow.toLowerCase() === 'out');
+        
+        // If only one record and it's incoming with very small value, possibly an airdrop
+        if (inFlows.length === 1 && outFlows.length === 0) {
+            const value = parseFloat(inFlows[0].Value.replace(/[^0-9.-]+/g,""));
+            // Only mark as airdrop if value is very small (under $1)
+            return !isNaN(value) && value < 1.0;
+        }
+    }
+    return false;
 }
 
 // Updated function to analyze all tokens in the file
@@ -100,7 +126,7 @@ async function analyzeWalletTransfers(inputFile: string): Promise<AnalysisResult
                 Flow: flowRaw, 
                 parsedAmount: isNaN(amount) ? 0 : amount,
                 parsedValue: isNaN(value) ? 0 : value,
-                parsedTime: isNaN(time.getTime()) ? undefined : time,
+                parsedTime: isNaN(time.getTime()) ? undefined : time
             };
         }).filter(r => r.parsedTime); // Remove records with invalid dates
 
@@ -119,13 +145,13 @@ async function analyzeWalletTransfers(inputFile: string): Promise<AnalysisResult
         let totalValueOut = 0;
         let transferCountIn = 0;
         let transferCountOut = 0;
-        
+
         for (const record of preparedRecords) {
-             if (record.Flow === 'in') {
+            if (record.Flow.toLowerCase() === 'in') {
                 totalAmountIn += record.parsedAmount;
                 totalValueIn += record.parsedValue;
                 transferCountIn++;
-            } else if (record.Flow === 'out') {
+            } else if (record.Flow.toLowerCase() === 'out') {
                 totalAmountOut += record.parsedAmount; 
                 totalValueOut += record.parsedValue;
                 transferCountOut++;
@@ -134,10 +160,14 @@ async function analyzeWalletTransfers(inputFile: string): Promise<AnalysisResult
         
         const netAmountChange = totalAmountIn - Math.abs(totalAmountOut); 
         const netValueChange = totalValueOut - totalValueIn; // User preferred calculation
+        
+        // Determine if token is likely an airdrop
+        const possiblyAirdrop = isLikelyAirdrop(records);
 
         // --- 5. Store Results (per token) ---
         analysisResults.push({
             tokenAddress,
+            tokenSymbol: records[0]?.TokenSymbol, // Now properly typed
             totalAmountIn,
             totalAmountOut,
             netAmountChange,
@@ -150,6 +180,7 @@ async function analyzeWalletTransfers(inputFile: string): Promise<AnalysisResult
             lastTransferTime: preparedRecords[preparedRecords.length - 1]?.parsedTime,
             processedRecords: records.length, // Raw records for this token
             filteredRecords: preparedRecords.length, // Valid records after prep
+            possiblyAirdrop
         });
     } // End loop through tokens
 
@@ -157,15 +188,68 @@ async function analyzeWalletTransfers(inputFile: string): Promise<AnalysisResult
     return analysisResults;
 }
 
-// Function to display results for multiple tokens
+// Function to display results for multiple tokens - simplified version
 function displayMultiTokenResults(results: AnalysisResults[], inputFile: string) {
-    console.log('\n--- Wallet Transfer Analysis Report ---');
-    console.log(`Source File: ${inputFile}`);
-    console.log(`Unique Tokens Analyzed: ${results.length}`);
-    console.log('----------------------------------------');
+    console.log('\n=== WALLET TRANSFER ANALYSIS SUMMARY ===');
+    console.log(`Source File: ${path.basename(inputFile)}`);
+    console.log(`Total Tokens Analyzed: ${results.length}`);
+    
+    // Count likely airdrops/spam tokens
+    const airdropCount = results.filter(r => r.possiblyAirdrop).length;
+    console.log(`Potential Airdrops/Spam: ${airdropCount}`);
+    console.log('=======================================');
 
-    results.sort((a, b) => b.netValueChange - a.netValueChange); // Sort by net value change descending
+    // Exclude likely airdrops/spam tokens and SOL/USDC for ranking
+    const filteredResults = results.filter(r => 
+        !r.possiblyAirdrop && 
+        !excludeFromRankings.includes(r.tokenAddress)
+    );
 
+    // Get top gainers and losers
+    const topGainers = [...filteredResults]
+        .sort((a, b) => b.netValueChange - a.netValueChange)
+        .slice(0, 5);
+    
+    const topLosers = [...filteredResults]
+        .sort((a, b) => a.netValueChange - b.netValueChange)
+        .slice(0, 5);
+
+    // Display top gainers
+    console.log('\n=== TOP 5 GAINERS (Excluding USDC/SOL) ===');
+    if (topGainers.length === 0) {
+        console.log('No qualifying tokens found');
+    } else {
+        topGainers.forEach((result, index) => {
+            console.log(`${index + 1}. Token: ${result.tokenAddress}`);
+            console.log(`   Net Realized Value: $${result.netValueChange.toFixed(2)}`);
+            console.log(`   Trades: ${result.transferCountIn} in / ${result.transferCountOut} out`);
+            console.log(`   Time Range: ${result.firstTransferTime?.toLocaleDateString() ?? 'N/A'} to ${result.lastTransferTime?.toLocaleDateString() ?? 'N/A'}`);
+        });
+    }
+
+    // Display top losers
+    console.log('\n=== TOP 5 LOSERS (Excluding USDC/SOL) ===');
+    if (topLosers.length === 0) {
+        console.log('No qualifying tokens found');
+    } else {
+        topLosers.forEach((result, index) => {
+            console.log(`${index + 1}. Token: ${result.tokenAddress}`);
+            console.log(`   Net Realized Value: $${result.netValueChange.toFixed(2)}`);
+            console.log(`   Trades: ${result.transferCountIn} in / ${result.transferCountOut} out`);
+            console.log(`   Time Range: ${result.firstTransferTime?.toLocaleDateString() ?? 'N/A'} to ${result.lastTransferTime?.toLocaleDateString() ?? 'N/A'}`);
+        });
+    }
+    
+    // Add an option to see detailed results
+    console.log('\nDetailed results have been written to CSV. Use --verbose flag to see full console report.');
+}
+
+// New function for detailed output if requested
+function displayDetailedResults(results: AnalysisResults[]) {
+    console.log('\n=== DETAILED TOKEN ANALYSIS ===');
+    // Sort tokens by net value change
+    results.sort((a, b) => b.netValueChange - a.netValueChange);
+    
     for (const result of results) {
         console.log(`\nToken Address: ${result.tokenAddress}`);
         console.log(`  Time Range: ${result.firstTransferTime?.toISOString() ?? 'N/A'} to ${result.lastTransferTime?.toISOString() ?? 'N/A'}`);
@@ -175,12 +259,12 @@ function displayMultiTokenResults(results: AnalysisResults[], inputFile: string)
         console.log(`  Net Amount (Remaining): ${result.netAmountChange.toFixed(0)}`);
         const percentageRemaining = result.totalAmountIn !== 0 
             ? ((result.netAmountChange / result.totalAmountIn) * 100).toFixed(2)
-            : (result.netAmountChange !== 0 ? '-Inf' : 'N/A'); // Handle cases where In=0 but Out exists
+            : (result.netAmountChange !== 0 ? '-Inf' : 'N/A');
         console.log(`  Percentage Remaining: ${percentageRemaining}%`);
         console.log(`  Value In ($): ${result.totalValueIn.toFixed(2)}, Value Out ($): ${result.totalValueOut.toFixed(2)}`);
-        console.log(`  Net Realized Value ($): ${result.netValueChange.toFixed(2)}`); // User preferred
+        console.log(`  Net Realized Value ($): ${result.netValueChange.toFixed(2)}`);
+        console.log(`  Possible Airdrop: ${result.possiblyAirdrop ? 'Yes' : 'No'}`);
     }
-    console.log('\n----------------------------------------');
 }
 
 // Function to write multi-token results to CSV
@@ -215,10 +299,11 @@ function writeMultiTokenResultsToCsv(results: AnalysisResults[], inputFile: stri
         'Last Transfer Time': result.lastTransferTime?.toISOString() ?? '',
         'Records Found': result.processedRecords,
         'Valid Records': result.filteredRecords,
+        'Possible Airdrop': result.possiblyAirdrop ? 'Yes' : 'No'
     }));
 
-    // Sort data for CSV consistency (e.g., by Token Address)
-    csvData.sort((a, b) => a['Token Address'].localeCompare(b['Token Address']));
+    // Sort data for CSV consistency (e.g., by Net Realized Value)
+    csvData.sort((a, b) => parseFloat(b['Net Realized Value ($)']) - parseFloat(a['Net Realized Value ($)']));
 
     try {
         const csvString = Papa.unparse(csvData, {
@@ -242,13 +327,18 @@ function writeMultiTokenResultsToCsv(results: AnalysisResults[], inputFile: stri
             type: 'string',
             default: defaultInputFile, 
         })
-        // REMOVED tokenAddress option
-        // .option('tokenAddress', {
-        //     alias: 't',
-        //     description: 'Token mint address to analyze',
-        //     type: 'string',
-        //     demandOption: true, // Still required
-        // })
+        .option('excludeAirdrops', {
+            alias: 'e',
+            description: 'Exclude likely airdrop/spam tokens',
+            type: 'boolean',
+            default: true,
+        })
+        .option('verbose', {
+            alias: 'v',
+            description: 'Show detailed token analysis in console',
+            type: 'boolean',
+            default: false,
+        })
         .help()
         .alias('help', 'h')
         .argv;
@@ -263,10 +353,24 @@ function writeMultiTokenResultsToCsv(results: AnalysisResults[], inputFile: stri
     try {
         // Call the updated analysis function
         const results = await analyzeWalletTransfers(inputFileToUse);
-        // Call the updated display function
-        displayMultiTokenResults(results, inputFileToUse);
+        
+        // Filter out airdrops if requested
+        const filteredResults = argv.excludeAirdrops 
+            ? results.filter(r => !r.possiblyAirdrop) 
+            : results;
+            
+        // Display results based on verbosity setting
+        displayMultiTokenResults(filteredResults, inputFileToUse);
+        
+        // Show detailed results only if verbose flag is set
+        if (argv.verbose) {
+            displayDetailedResults(filteredResults);
+        }
+        
         // Call the updated CSV writing function
-        writeMultiTokenResultsToCsv(results, inputFileToUse);
+        writeMultiTokenResultsToCsv(filteredResults, inputFileToUse);
+        
+        console.log(`\nAnalysis complete. CSV report saved to ./analysis_reports/`);
     } catch (error) {
         console.error('Error during analysis:', error);
         process.exit(1);
