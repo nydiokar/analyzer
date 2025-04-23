@@ -69,7 +69,10 @@ async function runAnalysis(coinId: string, days: number) {
     const ohlcData = await client.getOhlcData(coinId, 'usd', days);
 
     if (!ohlcData || ohlcData.length === 0) {
-      logger.warn(`No OHLC data found for ${coinId}. Exiting.`);
+      logger.error(`No OHLC data found for coin ID: "${coinId}".`);
+      logger.info(`If you're unsure about the correct coin ID, try using the find-coin-id utility:`);
+      logger.info(`  npm run find-coin-id <query>    (search by symbol or name)`);
+      logger.info(`Example: npm run find-coin-id BTC`);
       return;
     }
     logger.info(`Fetched ${ohlcData.length} OHLC records from CoinGecko.`);
@@ -290,9 +293,16 @@ async function runAnalysis(coinId: string, days: number) {
     logger.info(`Summary appended to: ${SUMMARY_FILE}`);
 
   } catch (error) {
-    logger.error(`Error during analysis for ${coinId}:`, error instanceof Error ? error.message : error);
-    if (error instanceof Error && (error as any).response) {
-        logger.error('API Response Error Data:', (error as any).response.data);
+    logger.error(`Error analyzing price changes for "${coinId}":`, error instanceof Error ? error.message : error);
+    // If the error might be related to invalid coin ID
+    if (error instanceof Error && 
+        (error.message.includes('not found') || 
+         error.message.includes('invalid') || 
+         error.message.includes('coin'))) {
+      logger.info(`This error might be related to an invalid coin ID.`);
+      logger.info(`Use the find-coin-id utility to find the correct CoinGecko ID:`);
+      logger.info(`  npm run find-coin-id <query>    (search by symbol or name)`);
+      logger.info(`Example: npm run find-coin-id BTC`);
     }
   } finally {
     logger.info(`Analysis finished for ${coinId}.`);
@@ -315,7 +325,10 @@ yargs(hideBin(process.argv))
           type: 'number',
           description: 'Number of past days to fetch data for',
           default: 30, // Changed from 90 to 30 for better data quality
-        });
+        })
+        .example('npm run analyze-changes bitcoin', 'Analyze Bitcoin price data for the last 30 days')
+        .example('npm run analyze-changes ethereum --days 14', 'Analyze Ethereum price data for the last 14 days')
+        .example('npm run find-coin-id BTC', 'Find the correct CoinGecko ID for BTC if you\'re unsure');
     },
     async (argv) => {
       const coinId = argv.coinId as string;
@@ -325,4 +338,5 @@ yargs(hideBin(process.argv))
   )
   .help()
   .alias('help', 'h')
+  .epilogue('For more information, check the README.md file or visit the project homepage.')
   .parse();

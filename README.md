@@ -10,6 +10,7 @@ A simple script that retrieves real-time cryptocurrency price data, stores it in
 - Automatic tracking of top 50 cryptocurrencies
 - Rate limiting to respect API constraints
 - CLI and Telegram bot interfaces for alert management
+- Daily OHLC analysis with technical indicators and trading signals
 
 ## Setup
 
@@ -31,6 +32,76 @@ TELEGRAM_CHAT_ID=your_chat_id
 3. Run the application:
 ```bash
 npm start
+```
+
+## Price Change Analyzer
+
+The project includes a powerful price change analysis tool that processes OHLC (Open, High, Low, Close) data with technical indicators to identify potential trading opportunities.
+
+### Quick Start
+```bash
+# Analyze recent price changes for a specific cryptocurrency (e.g., bitcoin)
+npm run analyze-changes bitcoin
+
+# Analyze with custom time period
+npm run analyze-changes ethereum --days 14
+
+# Find the correct CoinGecko ID for a cryptocurrency
+npm run find-coin-id BTC        # search by symbol
+npm run find-coin-id bitcoin    # search by name
+```
+
+### Finding Coin IDs
+
+If you're unsure of the exact CoinGecko ID for a cryptocurrency, use the built-in search utility:
+
+```bash
+npm run find-coin-id <query>
+```
+
+Example output:
+```
+Found 3 potential match(es) for "BTC":
+  - ID: bitcoin                    Symbol: btc       Name: Bitcoin
+  - ID: bitcoin-cash               Symbol: bch       Name: Bitcoin Cash
+  - ID: bitcoin-cash-sv            Symbol: bsv       Name: Bitcoin SV
+
+Use the 'ID' value with the analyze-changes script.
+```
+
+### Features
+- Daily OHLC data analysis with technical indicators (SMA, RSI)
+- Automatic identification of buy/sell signals based on price movements
+- Technical trend analysis and pattern recognition
+- Comprehensive CSV reports for detailed analysis
+- Concise summary reports highlighting recent trading opportunities
+
+### Sample Output
+```
+## Daily OHLC & Indicator Analysis
+*   Coin: ethereum (Requested period: 30 days)
+*   Analysis Period: 2025-03-24 to 2025-04-23 (180 data points)
+*   Latest Data (2025-04-23):
+*     OHLC: Open=$1695.26, High=$1761.19, Low=$1695.26, Close=$1759.71
+*     Indicators: SMA(20)=1620.47, SMA(50)=1606.73, RSI(14)=75.4
+*   Interpretation: RSI Overbought (>70); Trend Up (SMA20>SMA50)
+*   Recent Signals:
+*     2025-04-10: Sell signal at $1501.95 (-5.60% change)
+*     2025-04-09: Buy signal at $1640.06 (10.40% change)
+*     2025-04-07: Sell signal at $1455.24 (-5.73% change)
+*     2025-04-06: Sell signal at $1623.55 (-7.58% change)
+*     2025-04-03: Sell signal at $1795.76 (-6.03% change)
+*   Signal Summary: Found 1 Buy and 4 Sell signals during analyzed period
+```
+
+### Options
+```bash
+npm run analyze-changes -- --help
+
+Options:
+  --days, -d     Number of past days to fetch data for  [number] [default: 30]
+  --coinId       Coin ID from CoinGecko (e.g., bitcoin, ethereum, solana)
+                                                        [string] [required]
 ```
 
 ## Command Line Interface
@@ -128,9 +199,10 @@ This sets an alert for Bitcoin when its price changes by 5% or more.
    - Integrate news feeds
 
 2. **Advanced Analytics**
-   - Technical analysis indicators
+   - Additional technical analysis indicators
+   - Automated pattern detection
    - Machine learning predictions
-   - Pattern recognition
+   - Custom trading strategy backtesting
 
 3. **Notification Systems**
    - Email notifications

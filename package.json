@@ -1,6 +1,6 @@
 {
   "name": "crypto-data-analyzer",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A script to fetch and analyze live crypto exchange data from CoinGecko with verifiable storage",
   "main": "dist/index.js",
   "scripts": {
@@ -19,7 +19,7 @@
     "calc-staking": "ts-node src/scripts/staking-calc.ts",
     "analyze-transfers": "ts-node src/scripts/transfer-analyzer.ts",
     "analyze-changes": "ts-node src/scripts/price-change-reporter.ts",
-    "find-coin": "ts-node src/scripts/find-coin-id.ts"
+    "find-coin-id": "ts-node src/scripts/find-coin-id.ts"
   },
   "keywords": [
     "crypto",
