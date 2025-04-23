@@ -92,4 +92,4 @@ yargs(hideBin(process.argv))
   })
   .help()
   .alias('help', 'h')
-  .parse(); 
+  .parse();
