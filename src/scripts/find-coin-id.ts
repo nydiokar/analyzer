@@ -1,3 +1,6 @@
+
+// This script is used to find the correct CoinGecko ID for a cryptocurrency by symbol or name
+
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { CoinGeckoClient } from '../core/fetcher/coingecko-client';

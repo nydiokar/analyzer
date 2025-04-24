@@ -8,3 +8,8 @@ test/
 .json
 alerts/
 analysis_reports/
+.cache/
+.vscode/
+.idea/
+.DS_Store
+.venv/

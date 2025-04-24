@@ -18,6 +18,7 @@
     "manage-alerts": "ts-node src/manage-alerts.ts",
     "calc-staking": "ts-node src/scripts/staking-calc.ts",
     "analyze-transfers": "ts-node src/scripts/transfer-analyzer.ts",
+    "analyze-helius": "ts-node src/scripts/helius-analyzer.ts",
     "analyze-changes": "ts-node src/scripts/price-change-reporter.ts",
     "find-coin-id": "ts-node src/scripts/find-coin-id.ts"
   },
@@ -35,6 +36,7 @@
     "axios": "^1.8.4",
     "better-sqlite3": "^11.9.1",
     "crypto-js": "^4.2.0",
+    "csv-stringify": "^6.5.2",
     "dotenv": "^16.4.5",
     "telegraf": "^4.16.3",
     "winston": "^3.12.0",

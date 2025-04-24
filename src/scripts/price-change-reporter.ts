@@ -1,3 +1,6 @@
+// This script is used to analyze the price changes of a cryptocurrency over a given number of days
+// It calculates technical indicators and generates basic report of potential buy and sell signals on % change
+
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import fs from 'fs';
