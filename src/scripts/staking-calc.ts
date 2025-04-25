@@ -1,3 +1,5 @@
+// This script is used to calculate the returns of staking SOL on Solana in both native and Marinade
+
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { DataFetcher } from '../core/fetcher/data-fetcher';

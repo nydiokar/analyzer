@@ -6,7 +6,7 @@ dist/
 cline_docs/
 test/
 .json
-alerts/
+active_alerts/
 analysis_reports/
 .cache/
 .vscode/

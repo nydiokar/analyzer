@@ -180,22 +180,18 @@ export interface IntermediateSwapRecord {
 }
 
 /**
- * Results structure for Phase 1 SOL P/L Analysis.
+ * Results structure for On-Chain Swap Analysis, including SOL P/L.
  */
-export interface SolPnlAnalysisResult {
-  splMint: string;         // The SPL token mint address
-  totalSplAmountIn: number; // Total SPL received (adjusted for decimals)
-  totalSplAmountOut: number;// Total SPL sent (adjusted for decimals)
-  netSplAmountChange: number;// Net SPL change (adjusted for decimals)
-  totalSolSpent: number;    // Total SOL paid (when receiving SPL)
-  totalSolReceived: number; // Total SOL received (when sending SPL)
-  netSolProfitLoss: number; // Net SOL P/L (SOL Received - SOL Spent)
-  swapCountIn: number;      // Number of times SPL was received
-  swapCountOut: number;     // Number of times SPL was sent
-  firstSwapTimestamp: number; // Unix timestamp of first swap involving this SPL
-  lastSwapTimestamp: number;  // Unix timestamp of last swap involving this SPL
+export interface OnChainAnalysisResult {
+  tokenAddress: string;         // SPL Token mint address
+  totalAmountIn: number;        // Total SPL received (adjusted for decimals)
+  totalAmountOut: number;       // Total SPL sent (adjusted for decimals)
+  netAmountChange: number;      // Net SPL change (adjusted for decimals)
+  totalSolSpent: number;        // Total SOL paid (when receiving SPL)
+  totalSolReceived: number;     // Total SOL received (when sending SPL)
+  netSolProfitLoss: number;     // Net SOL P/L (SOL Received - SOL Spent)
+  transferCountIn: number;      // Number of times SPL was received
+  transferCountOut: number;     // Number of times SPL was sent
+  firstTransferTimestamp: number; // Unix timestamp of first swap involving this SPL
+  lastTransferTimestamp: number;  // Unix timestamp of last swap involving this SPL
 }
-
-// Remove old interfaces no longer needed for Phase 1
-// export interface TransferRecord { ... } 
-// export interface AnalysisResults { ... } 

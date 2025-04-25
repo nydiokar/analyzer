@@ -5,12 +5,12 @@ import { stringify } from 'csv-stringify/sync';
 import {
   HeliusTransaction,
   IntermediateSwapRecord,
-  AccountData, // Keep AccountData if needed for decimals
-  TokenBalanceChange // Keep TokenBalanceChange if needed for decimals
+  AccountData,
 } from '../types/helius-api';
 
 // Logger instance for this module
 const logger = createLogger('HeliusTransactionMapper');
+
 
 /**
  * Extracts token decimals from accountData for a given mint.
@@ -33,11 +33,10 @@ function getTokenDecimals(mint: string, accountData: AccountData[] | undefined):
 }
 
 /**
- * Maps Helius SWAP transactions (pre-filtered to contain token transfers) 
- * to the IntermediateSwapRecord format.
- * Focuses ONLY on token transfers within the swap.
+ * Maps Helius transactions to the IntermediateSwapRecord format,
+ * including both SPL token transfers and native SOL transfers.
  * @param walletAddress The wallet address being analyzed
- * @param transactions Helius API transactions (SWAPs with token transfers)
+ * @param transactions Helius API transactions 
  * @returns Array of intermediate swap records
  */
 export function mapHeliusTransactionsToIntermediateRecords(
@@ -45,69 +44,62 @@ export function mapHeliusTransactionsToIntermediateRecords(
   transactions: HeliusTransaction[],
 ): IntermediateSwapRecord[] {
   const intermediateRecords: IntermediateSwapRecord[] = [];
-  const processedSignatures = new Set<string>(); // Avoid duplicating records within this mapping if a tx appears twice
+  const processedSignatures = new Set<string>(); // Avoid processing the same TX twice
 
   logger.info(`Mapping ${transactions.length} Helius transactions to intermediate format...`);
 
+  const lowerCaseWalletAddress = walletAddress.toLowerCase();
+
   for (const tx of transactions) {
-    // Basic check if already processed (though HeliusApiClient should handle upstream dedup)
     if (processedSignatures.has(tx.signature)) continue;
     
+    let transactionMapped = false; // Flag to track if any record was created for this tx
     try {
-      // We only care about token transfers within these pre-filtered SWAP transactions
+      // 1. Process Token Transfers (SPL)
       if (tx.tokenTransfers?.length) {
+        logger.debug(`Processing ${tx.tokenTransfers.length} token transfers for tx: ${tx.signature}`);
         for (const transfer of tx.tokenTransfers) {
-          const lowerCaseWalletAddress = walletAddress.toLowerCase();
-          const fromAddress = transfer.fromUserAccount?.toLowerCase();
-          const toAddress = transfer.toUserAccount?.toLowerCase();
-
+          const fromAddress = transfer.fromUserAccount?.toLowerCase() ?? 'unknown';
+          const toAddress = transfer.toUserAccount?.toLowerCase() ?? 'unknown';
           let direction: 'in' | 'out' | null = null;
           
-          if (toAddress === lowerCaseWalletAddress) {
-            direction = 'in';
-          } else if (fromAddress === lowerCaseWalletAddress) {
-            direction = 'out';
-          }
+          if (toAddress === lowerCaseWalletAddress) direction = 'in';
+          else if (fromAddress === lowerCaseWalletAddress) direction = 'out';
 
-          // Only create a record if the wallet was directly involved in the token transfer
           if (direction) {
             const decimals = getTokenDecimals(transfer.mint, tx.accountData);
-            
-            // Ensure amount is treated as a number
-            const amount = typeof transfer.tokenAmount === 'number' 
-                            ? transfer.tokenAmount 
-                            : parseFloat(transfer.tokenAmount || '0');
+            const amount = typeof transfer.tokenAmount === 'number' ? transfer.tokenAmount : parseFloat(transfer.tokenAmount || '0');
 
-            if (isNaN(amount)) {
-                logger.warn(`Could not parse tokenAmount for mint ${transfer.mint} in tx ${tx.signature}. Skipping transfer.`);
-                continue; // Skip this transfer if amount is invalid
+            if (!isNaN(amount) && amount !== 0) { // Ensure non-zero amount
+                intermediateRecords.push({
+                  signature: tx.signature,
+                  timestamp: tx.timestamp,
+                  mint: transfer.mint,
+                  amount: amount, // Use direct amount
+                  decimals: decimals, // Store for context
+                  direction: direction,
+                });
+                transactionMapped = true;
+            } else if (isNaN(amount)) {
+                logger.warn(`Could not parse tokenAmount for mint ${transfer.mint} in tx ${tx.signature}. Skipping SPL transfer.`);
             }
-
-            intermediateRecords.push({
-              signature: tx.signature,
-              timestamp: tx.timestamp,
-              mint: transfer.mint,
-              amount: amount, // Use the parsed amount
-              decimals: decimals,
-              direction: direction,
-            });
           }
         }
-        processedSignatures.add(tx.signature);
-      } else {
-          // This case should ideally not happen due to upstream filtering in HeliusApiClient
-          logger.warn(`Transaction ${tx.signature} was expected to have tokenTransfers but none found.`);
+      } // End tokenTransfers processing
+
+      if (transactionMapped) {
+           processedSignatures.add(tx.signature);
       }
+      
     } catch (error) {
       logger.error('Error mapping transaction to intermediate record', { 
-        error,
+        error: error instanceof Error ? error.message : String(error),
         signature: tx.signature
       });
-      // Optionally skip this transaction on error
     }
   }
 
-  logger.info(`Mapped to ${intermediateRecords.length} intermediate swap records.`);
+  logger.info(`Mapped to ${intermediateRecords.length} intermediate records based on tokenTransfers.`);
   return intermediateRecords;
 }
 

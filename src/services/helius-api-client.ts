@@ -4,6 +4,15 @@ import { HeliusApiConfig, HeliusTransaction } from '../types/helius-api';
 import fs from 'fs';
 import path from 'path';
 
+// Interface for the signature information returned by the Solana RPC
+interface SignatureInfo {
+    signature: string;
+    slot: number;
+    err: any; 
+    memo: string | null;
+    blockTime?: number | null;
+}
+
 // Logger instance for this module
 const logger = createLogger('HeliusApiClient');
 
@@ -25,6 +34,8 @@ export class HeliusApiClient {
   private readonly BATCH_SIZE = 100; // Maximum signatures to process in one batch
   private lastRequestTime: number = 0;
   private readonly MIN_REQUEST_INTERVAL = 550; // Minimum 550ms between requests (for ~2 req/s free tier)
+  private readonly SOLANA_RPC_URL_MAINNET = 'https://mainnet.helius-rpc.com/'; // Using Helius RPC for consistency
+  private readonly RPC_SIGNATURE_LIMIT = 1000; // Max limit for getSignaturesForAddress
 
   constructor(config: HeliusApiConfig) {
     this.apiKey = config.apiKey;
@@ -99,64 +110,48 @@ export class HeliusApiClient {
   }
 
   /**
-   * Get SWAP transaction signatures for an address with retries.
+   * Fetches a page of transaction signatures using the Solana JSON-RPC `getSignaturesForAddress`.
    */
-  private async getSwapSignaturesForAddress(address: string, limit: number, before?: string): Promise<string[]> {
-    let retries = 0;
-    while (retries <= MAX_RETRIES) {
-      try {
-        await this.rateLimit(); // Apply rate limit before each attempt
-        logger.debug(`Attempt ${retries + 1}: Fetching SWAP signatures`, { address, limit, before });
-        
-        let endpoint = `/v0/addresses/${address}/transactions?api-key=${this.apiKey}`;
-        endpoint += `&type=SWAP`; 
-        endpoint += `&limit=${limit}`;
-        if (before) {
-          endpoint += `&before=${before}`;
-        }
-
-        const response = await this.api.get(endpoint);
-        const signatures = response.data.map((tx: { signature: string }) => tx.signature);
-        logger.debug(`Attempt ${retries + 1}: Retrieved ${signatures.length} signatures`);
-        return signatures; // Success
-
-      } catch (error) {
-        const isAxiosError = axios.isAxiosError(error);
-        const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
-        const attempt = retries + 1;
-
-        logger.warn(`Attempt ${attempt} failed: Error fetching SWAP signatures`, { 
-            error: this.sanitizeError(error), address, status 
-        });
-
-        if (attempt > MAX_RETRIES) {
-           logger.error('Max retries reached fetching signatures. Aborting.', { address });
-           throw new Error(`Failed to fetch SWAP signatures for ${address} after ${MAX_RETRIES + 1} attempts: ${error}`);
-        }
-
-        // Decide whether to retry based on status code
-        if (isAxiosError && status) {
-            if (status === 429 || status >= 500) { // Retry on rate limit or server error
-                const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries);
-                logger.info(`Attempt ${attempt}: Rate limit or server error (${status}). Retrying in ${backoffTime}ms...`);
-                await delay(backoffTime);
-                retries++;
-            } else { // Don't retry for client errors (4xx except 429)
-                logger.error(`Attempt ${attempt}: Unrecoverable client error (${status}). Aborting fetch signatures.`, { address });
-                throw error; // Re-throw original error
+  private async getSignaturesViaRpcPage(
+    address: string, 
+    limit: number, 
+    before?: string | null
+  ): Promise<SignatureInfo[]> {
+    // Using Helius RPC endpoint but calling standard Solana method
+    const url = `${this.SOLANA_RPC_URL_MAINNET}?api-key=${this.apiKey}`;
+    const payload = {
+        jsonrpc: '2.0',
+        id: `fetch-rpc-signatures-${address}-${before || 'first'}`,
+        method: 'getSignaturesForAddress',
+        params: [
+            address,
+            {
+                limit: limit,
+                before: before || undefined // Only include 'before' if it has a value
             }
-        } else { // Handle non-HTTP errors (e.g., network issues)
-             const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries);
-             logger.info(`Attempt ${attempt}: Network or unknown error. Retrying in ${backoffTime}ms...`);
-             await delay(backoffTime);
-             retries++;
+        ]
+    };
+
+    logger.info(`Fetching RPC signatures page: limit=${limit}, before=${before || 'N/A'}`);
+    try {
+        await this.rateLimit(); // Apply rate limit before RPC call too
+        const response = await this.api.post<{ result: SignatureInfo[] }>(url, payload); // Use the internal axios instance
+
+        if (response.data && Array.isArray(response.data.result)) {
+            logger.info(`Received ${response.data.result.length} signatures via RPC.`);
+            return response.data.result;
+        } else {
+            logger.warn('Received unexpected response structure from getSignaturesForAddress RPC.', { responseData: response.data });
+            return [];
         }
-      } // end catch
-    } // end while
-    // Should not be reachable if logic is correct, but satisfies TypeScript
-    throw new Error(`Failed to fetch SWAP signatures for ${address} unexpectedly.`); 
+    } catch (error) {
+        logger.error(`Error fetching RPC signatures page`, { 
+            error: this.sanitizeError(error) 
+        });
+        throw error; // Re-throw to stop the process
+    }
   }
-  
+
   /**
    * Get full transaction details from a batch of signatures with retries.
    */
@@ -223,66 +218,64 @@ export class HeliusApiClient {
   }
 
   /**
-   * Get all SWAP transactions for an address using the recommended two-step process.
-   * Includes robust error handling and retries.
+   * Get all transactions for an address using the recommended two-step process:
+   * 1. Fetch all signatures via Solana RPC `getSignaturesForAddress`.
+   * 2. Fetch parsed transaction details from Helius `/v0/transactions` endpoint.
    */
-  async getAllTransactionsForAddress(address: string, batchLimit: number = 100): Promise<HeliusTransaction[]> {
-    let allNewSignatures: string[] = [];
+  async getAllTransactionsForAddress(
+    address: string, 
+    parseBatchLimit: number = this.BATCH_SIZE, // Limit for Helius parsing step
+    maxSignatures: number | null = null // Optional limit for signature fetching
+  ): Promise<HeliusTransaction[]> {
+    let allRpcSignatures: SignatureInfo[] = [];
     let newTransactions: HeliusTransaction[] = [];
     const cachedTransactions = this.loadFromCache(address);
     const cachedSignatures = new Set(cachedTransactions.map(tx => tx.signature));
     logger.info(`Loaded ${cachedTransactions.length} transactions from cache.`);
 
+    // === PHASE 1: Fetch Signatures via RPC ===
+    logger.info(`Starting Phase 1: Fetching all signatures via Solana RPC for ${address}`);
+    let lastRpcSignature: string | null = null;
+    let hasMoreSignatures = true;
+    let fetchedSignaturesCount = 0;
+    const rpcLimit = this.RPC_SIGNATURE_LIMIT;
+
     try {
-      logger.info(`Starting SWAP transaction fetch for address: ${address} using two-step process`);
-      
-      // Step 2: Get all SWAP signatures not in cache
-      let lastSignature: string | undefined = undefined;
-      let hasMoreSignatures = true;
-      let fetchedSignaturesCount = 0;
-      const MAX_SIGNATURES_TO_FETCH = 5000; // Limit total signatures
-
-      while (hasMoreSignatures && fetchedSignaturesCount < MAX_SIGNATURES_TO_FETCH) {
-        // Fetch signatures - this will now throw on persistent error after retries
-        const signatures = await this.getSwapSignaturesForAddress(address, batchLimit, lastSignature);
+      while (hasMoreSignatures) {
+        const signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
         
-        if (signatures.length > 0) {
-          const newSigs = signatures.filter(sig => !cachedSignatures.has(sig) && !allNewSignatures.includes(sig));
-          
-          if (newSigs.length > 0) {
-             allNewSignatures.push(...newSigs);
-             fetchedSignaturesCount += newSigs.length;
-             logger.info(`Collected ${newSigs.length} new SWAP signatures (total new: ${allNewSignatures.length})`);
-          }
+        if (signatureInfos.length > 0) {
+            allRpcSignatures.push(...signatureInfos);
+            fetchedSignaturesCount += signatureInfos.length;
+            lastRpcSignature = signatureInfos[signatureInfos.length - 1].signature;
 
-          lastSignature = signatures[signatures.length - 1];
-          
-          if (signatures.length < batchLimit) {
-            hasMoreSignatures = false;
-            logger.info('Reached end of SWAP signatures from API.');
-          } else if (newSigs.length === 0 && fetchedSignaturesCount > 0) {
-             hasMoreSignatures = false;
-             logger.info('No new unique SWAP signatures found in the last batch, stopping signature fetch.');
-           }
+            // Stop if we hit the maxSignatures limit, if provided
+            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures) {
+                logger.info(`Reached maxSignatures limit (${maxSignatures}). Stopping signature fetch.`);
+                hasMoreSignatures = false;
+            } else if (signatureInfos.length < rpcLimit) {
+                // Stop if the API returned fewer than requested (last page)
+                logger.info('Last page of RPC signatures reached (received less than limit).');
+                hasMoreSignatures = false;
+            }
         } else {
-          hasMoreSignatures = false;
-          logger.info('API returned no more SWAP signatures.');
+            // Stop if API returned zero signatures
+            logger.info('Last page of RPC signatures reached (received 0 items).');
+            hasMoreSignatures = false;
         }
       }
+      logger.info(`Finished Phase 1. Total signatures retrieved via RPC: ${allRpcSignatures.length}`);
+      const uniqueSignaturesToParse = Array.from(new Set(allRpcSignatures.map(s => s.signature)));
+      const signaturesToFetchDetails = uniqueSignaturesToParse.filter(sig => !cachedSignatures.has(sig));
 
-      if (fetchedSignaturesCount >= MAX_SIGNATURES_TO_FETCH) {
-         logger.warn(`Reached MAX_SIGNATURES_TO_FETCH limit (${MAX_SIGNATURES_TO_FETCH}). May not have fetched all history.`);
-      }
-      logger.info(`Finished fetching signatures. Total new SWAP signatures to process: ${allNewSignatures.length}`);
-      // Log first few for debug
-      if (allNewSignatures.length > 0) {
-        logger.debug('First few new signatures:', allNewSignatures.slice(0, 10));
-      }
+      logger.info(`Total unique signatures from RPC: ${uniqueSignaturesToParse.length}`);
+      logger.info(`Signatures needing details from Helius (not in cache): ${signaturesToFetchDetails.length}`);
 
       // Step 3: Fetch full transaction details for new signatures in batches
-      for (let i = 0; i < allNewSignatures.length; i += this.BATCH_SIZE) {
-        const batchSignatures = allNewSignatures.slice(i, i + this.BATCH_SIZE);
-        logger.info(`Processing batch ${Math.floor(i/this.BATCH_SIZE) + 1}/${Math.ceil(allNewSignatures.length/this.BATCH_SIZE)} of signatures.`);
+      logger.info(`Starting Phase 2: Fetching parsed details from Helius for ${signaturesToFetchDetails.length} new signatures.`);
+      for (let i = 0; i < signaturesToFetchDetails.length; i += parseBatchLimit) {
+        const batchSignatures = signaturesToFetchDetails.slice(i, i + parseBatchLimit);
+        logger.info(`Processing Helius parse batch ${Math.floor(i/parseBatchLimit) + 1}/${Math.ceil(signaturesToFetchDetails.length/parseBatchLimit)} (Size: ${batchSignatures.length})`);
         logger.debug('Requesting full transactions for signatures:', batchSignatures);
 
         // Fetch transactions - this will now throw on persistent error after retries
@@ -297,30 +290,24 @@ export class HeliusApiClient {
         }
 
         // Log signatures BEFORE client-side filtering
-        logger.debug(`Signatures before tokenTransfer filter (batch ${Math.floor(i/this.BATCH_SIZE) + 1}):`, receivedSignatures);
+        logger.debug(`Signatures before any client-side filtering (batch ${Math.floor(i/parseBatchLimit) + 1}):`, receivedSignatures);
 
         // Filter for swaps with token transfers
-        const swapsWithTokenTransfers = batchTransactions.filter(tx => 
-            tx.tokenTransfers && tx.tokenTransfers.length > 0
-        );
-        
-        // Log signatures AFTER client-side filtering
-        const filteredSignatures = swapsWithTokenTransfers.map(tx => tx.signature);
-        logger.debug(`Signatures after tokenTransfer filter (batch ${Math.floor(i/this.BATCH_SIZE) + 1}):`, filteredSignatures);
+        const relevantTransactions = batchTransactions; // Process all fetched
 
-        if(swapsWithTokenTransfers.length > 0) {
-            newTransactions.push(...swapsWithTokenTransfers);
-            logger.info(`Added ${swapsWithTokenTransfers.length} SWAPs with token transfers from batch.`);
+        if(relevantTransactions.length > 0) {
+            newTransactions.push(...relevantTransactions);
+            logger.info(`Added ${relevantTransactions.length} transactions from batch to be mapped.`);
         } else {
-            logger.info('No SWAPs with token transfers found in this batch.');
+            logger.info('No transactions returned in this batch?'); // Should be rare if signatures were found
         }
         
         // Delay applied within rateLimit() before next batch request
       }
       
-    } catch (error) {
+    } catch (rpcError) {
       // Catch errors specifically from the signature/transaction fetching process
-      logger.error('Failed to complete transaction fetching process due to error:', { error: this.sanitizeError(error), address });
+      logger.error('Failed during RPC signature fetching phase:', { error: this.sanitizeError(rpcError), address });
       // Optionally re-throw, or return partial data (current + cache)
       // For now, let's return what we have + cache, but log clearly it might be incomplete.
       logger.warn('Returning potentially incomplete results due to fetching error.');
@@ -341,8 +328,24 @@ export class HeliusApiClient {
       logger.info('No new transactions fetched, cache remains unchanged.');
     }
     
-    logger.info(`Process finished. Returning ${combinedTransactions.length} total SWAP transactions with token transfers.`);
-    return combinedTransactions;
+    logger.info(`Process finished. Returning ${combinedTransactions.length} total transactions.`);
+    // Final filter: Only return transactions that have *some* token or native transfer involving the target address
+    // This helps filter out pure fee payments or system instructions if they slip through API filters
+    const lowerCaseAddress = address.toLowerCase();
+    const relevantCombined = combinedTransactions.filter(tx => {
+        const hasTokenTransfer = tx.tokenTransfers?.some(t => 
+            t.fromUserAccount?.toLowerCase() === lowerCaseAddress || 
+            t.toUserAccount?.toLowerCase() === lowerCaseAddress
+        );
+        const hasNativeTransfer = tx.nativeTransfers?.some(t => 
+            t.fromUserAccount?.toLowerCase() === lowerCaseAddress || 
+            t.toUserAccount?.toLowerCase() === lowerCaseAddress
+        );
+        return hasTokenTransfer || hasNativeTransfer;
+    });
+
+    logger.info(`Filtered down to ${relevantCombined.length} transactions involving the target address.`);
+    return relevantCombined;
   }
 
   private sanitizeError(error: any): any {

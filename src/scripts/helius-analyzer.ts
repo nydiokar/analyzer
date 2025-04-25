@@ -2,27 +2,43 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
+import fs from 'fs'; // Import fs for file checks
+import path from 'path'; // Import path for joining paths
+import Papa from 'papaparse'; // Import papaparse for reading CSV
 import { createLogger } from '../utils/logger';
 import { HeliusApiClient } from '../services/helius-api-client';
 import {
   mapHeliusTransactionsToIntermediateRecords,
-  saveIntermediateRecordsToCsv
+  saveIntermediateRecordsToCsv, // Keep for explicit saving option
+  // getIntermediateCsvCachePath // Removed incorrect import placeholder
 } from '../services/helius-transaction-mapper';
 import { 
-  analyzeSolPnl, 
-  writeSolPnlAnalysisToCsv,
-  writeSolPnlAnalysisToTxt
+  analyzeSwapRecords,
+  writeOnChainAnalysisToCsv,
+  writeOnChainAnalysisToTxt
 } from '../services/transfer-analyzer-service';
+import { IntermediateSwapRecord, HeliusTransaction } from '../types/helius-api'; // Correct import location
 import { displaySummary, displayDetailedResults } from '../cli/display-utils';
 
 // Initialize environment variables
 dotenv.config();
 
 // Create logger for this module
-const logger = createLogger('HeliusAnalyzer');
+const logger = createLogger('HeliusAnalyzerScript');
+
+// --- Helper Function --- 
+// Path logic based on where saveIntermediateRecordsToCsv saves by default.
+// Adjust if the actual internal cache location is different.
+function getIntermediateCsvCachePath_Local(walletAddress: string): string {
+  const dataDir = path.resolve('./data'); // Changed from ./cache to ./data
+  // Ensure the filename pattern matches the one used for caching/saving
+  return path.join(dataDir, `intermediate_swaps_${walletAddress}.csv`); 
+}
+// --- End Helper --- 
+
 
 /**
- * Main function updated for SOL P/L analysis
+ * Main function to orchestrate the Helius API-based swap analysis with SOL P/L.
  */
 async function analyzeWalletWithHelius(
   walletAddress: string,
@@ -31,68 +47,173 @@ async function analyzeWalletWithHelius(
     fetchAll: boolean;
     saveIntermediateCsv: boolean;
     verbose: boolean;
+    skipApi: boolean;
+    maxSignatures?: number | null;
   }
 ): Promise<void> {
   try {
-    logger.info(`Starting SOL P/L SWAP analysis for wallet: ${walletAddress}`);
+    logger.info(`Starting On-Chain SWAP & SOL P/L analysis for wallet: ${walletAddress}`);
+    logger.info(`Options: BatchLimit=${options.limit}, FetchAll=${options.fetchAll}, SaveIntermediate=${options.saveIntermediateCsv}, Verbose=${options.verbose}, SkipApi=${options.skipApi}, MaxSignatures=${options.maxSignatures || 'none'}`);
 
-    // Validate Helius API key
     const heliusApiKey = process.env.HELIUS_API_KEY;
     if (!heliusApiKey) {
       throw new Error('HELIUS_API_KEY environment variable is required. Please add it to your .env file.');
     }
 
-    // Initialize Helius API client
     const heliusClient = new HeliusApiClient({
       apiKey: heliusApiKey,
-      network: 'mainnet', // Default to mainnet
+      network: 'mainnet',
     });
 
-    // 1. Fetch Helius transactions (SWAPs containing token transfers)
-    // Note: fetchAll logic might need review based on Helius limits and performance
-    const fetchLimit = options.fetchAll ? 5000 : options.limit; // Use a reasonable upper limit if fetchAll
-    logger.info(`Fetching SWAP transactions from Helius API for address: ${walletAddress} (batchLimit: ${options.limit}, fetchAll-Max: ${fetchLimit})`);
-    const transactions = await heliusClient.getAllTransactionsForAddress(walletAddress, options.limit); // Pass batch limit
-    logger.info(`Retrieved ${transactions.length} raw Helius SWAP transactions (containing token transfers)`);
+    let intermediateRecords: IntermediateSwapRecord[] = []; // Explicitly typed
+    const intermediateCachePath = getIntermediateCsvCachePath_Local(walletAddress);
 
-    // 2. Map Helius transactions to intermediate format
-    const intermediateRecords = mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
-    logger.info(`Mapped to ${intermediateRecords.length} intermediate swap records (token/SOL movements)`);
+    if (options.skipApi) {
+      logger.info('Skipping API call (--skip-api). Attempting to load intermediate data from cache file...');
+      if (fs.existsSync(intermediateCachePath)) {
+        try {
+          const csvContent = fs.readFileSync(intermediateCachePath, 'utf8');
+          // Parse with header:true, dynamicTyping:true ensures numbers are parsed correctly
+          const parseResult = Papa.parse<IntermediateSwapRecord>(csvContent, { 
+              header: true, 
+              dynamicTyping: true, 
+              skipEmptyLines: true,
+              transformHeader: (header) => header.trim(), // Trim headers
+              // Explicitly transform to ensure correct types if needed
+              transform: (value, header) => {
+                 if (header === 'timestamp' || header === 'amount' || header === 'decimals') {
+                    return typeof value === 'string' ? parseFloat(value) || 0 : value ?? 0;
+                 }
+                 return value;
+              }
+          });
+          if (parseResult.errors.length > 0) {
+             logger.warn('Encountered errors parsing cached intermediate CSV:', parseResult.errors);
+          }
+          // Filter out potential empty rows or rows that didn't parse correctly
+          intermediateRecords = parseResult.data.filter(row => row.signature && row.mint && row.direction);
+          
+          if (intermediateRecords.length > 0) {
+             logger.info(`Successfully loaded ${intermediateRecords.length} records from intermediate cache: ${intermediateCachePath}`);
+          } else {
+             logger.error(`Cache file exists but parsing yielded no valid records: ${intermediateCachePath}`);
+             return; 
+          }
+        } catch (err) {
+            logger.error(`Error reading or parsing intermediate cache file ${intermediateCachePath}:`, err);
+            return; 
+        }
+      } else {
+          logger.error(`Intermediate cache file not found: ${intermediateCachePath}. Cannot proceed with --skip-api.`);
+          return; 
+      }
+    } else {
+        logger.info(`Fetching all relevant transactions from Helius API for address: ${walletAddress} (Batch Limit: ${options.limit}, FetchAll: ${options.fetchAll})`);
+        
+        logger.debug(`Wallet address type: ${typeof walletAddress}, value: ${walletAddress}`);
+        if (typeof walletAddress !== 'string') {
+            logger.error('Critical: walletAddress is not a string before calling HeliusApiClient!');
+            throw new Error('Wallet address is not a string.');
+        }
 
-    // 3. Save intermediate records to CSV if requested
-    let intermediateCsvPath = '';
-    if (options.saveIntermediateCsv && intermediateRecords.length > 0) {
-      intermediateCsvPath = saveIntermediateRecordsToCsv(intermediateRecords, walletAddress);
-      if (intermediateCsvPath) {
-          console.log(`Intermediate swap data saved to: ${intermediateCsvPath}`);
+        // Removed loop over types - fetch all relevant transactions in one go
+        let allFetchedTransactions: HeliusTransaction[] = [];
+        try {
+           // Call getAllTransactionsForAddress with address, parse batch limit, and optional max signatures
+           allFetchedTransactions = await heliusClient.getAllTransactionsForAddress(
+               walletAddress, 
+               options.limit, // Use the command-line limit as the Helius PARSE batch limit
+               options.maxSignatures // Pass the new optional limit for signature fetching
+           ); 
+           logger.info(`Fetched ${allFetchedTransactions.length} total raw transactions from Helius.`);
+        } catch (error) {
+            logger.error(`Failed to fetch transactions from Helius.`, { error: error instanceof Error ? error.message : String(error) });
+            // Decide if we should proceed with potentially cached data or exit
+            // For now, let's attempt to use cache as fallback, similar to existing logic
+            allFetchedTransactions = []; // Ensure it's empty if fetch failed
+        }
+
+        // logger.info(`Total unique raw Helius transactions fetched across types: ${allFetchedTransactions.length}`);
+
+        const transactions = allFetchedTransactions; // Use the fetched list
+
+        if (transactions.length > 0) {
+            logger.info('Mapping relevant transactions to intermediate swap record format...');
+            intermediateRecords = mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
+            logger.info(`Mapped to ${intermediateRecords.length} intermediate swap records (token/SOL movements).`);
+        } else {
+            logger.info('No new transactions fetched. Attempting to load from intermediate cache file as fallback...');
+            if (fs.existsSync(intermediateCachePath)) {
+                 try {
+                    const csvContent = fs.readFileSync(intermediateCachePath, 'utf8');
+                    const parseResult = Papa.parse<IntermediateSwapRecord>(csvContent, { 
+                        header: true, 
+                        dynamicTyping: true, 
+                        skipEmptyLines: true,
+                        transformHeader: (header) => header.trim(),
+                         transform: (value, header) => {
+                            if (header === 'timestamp' || header === 'amount' || header === 'decimals') {
+                               return typeof value === 'string' ? parseFloat(value) || 0 : value ?? 0;
+                            }
+                            return value;
+                         }
+                     });
+                     if (parseResult.errors.length > 0) {
+                         logger.warn('Encountered errors parsing cached intermediate CSV:', parseResult.errors);
+                     }
+                    intermediateRecords = parseResult.data.filter(row => row.signature && row.mint && row.direction);
+                    if (intermediateRecords.length > 0) {
+                        logger.info(`Successfully loaded ${intermediateRecords.length} records from intermediate cache: ${intermediateCachePath}`);
+                    } else {
+                         logger.warn(`Cache file exists but parsing yielded no valid records: ${intermediateCachePath}`);
+                         intermediateRecords = []; // Ensure empty if no valid records
+                    }
+                 } catch (err) {
+                    logger.error(`Error reading or parsing intermediate cache file ${intermediateCachePath}, continuing without cached data:`, err);
+                    intermediateRecords = []; 
+                 }
+            } else {
+                logger.warn('No new transactions and no intermediate cache file found.');
+                intermediateRecords = [];
+            }
+        }
+    }
+
+    if (!intermediateRecords || intermediateRecords.length === 0) {
+        logger.warn('No intermediate swap records available to analyze. Exiting.');
+        return;
+    }
+    
+    let userIntermediateCsvPath = '';
+    if (options.saveIntermediateCsv) {
+      userIntermediateCsvPath = saveIntermediateRecordsToCsv(intermediateRecords, walletAddress); 
+      if (userIntermediateCsvPath) {
+          console.log(`User-requested intermediate swap data saved to: ${userIntermediateCsvPath}`);
       }
     }
-    
-    // 4. Analyze intermediate records for SOL P/L metrics
-    const solPnlResults = analyzeSolPnl(intermediateRecords);
-    
-    // 5. Display summary results to console (displaySummary needs update for SolPnlAnalysisResult)
-    // displaySummary(solPnlResults, walletAddress); // Assuming displaySummary is updated separately
-    // For now, log basic info
-    const overallNetSolPL = solPnlResults.reduce((sum, r) => sum + r.netSolProfitLoss, 0);
-    console.log(`\n=== ANALYSIS SUMMARY ===`);
-    console.log(`Wallet: ${walletAddress}`);
-    console.log(`Unique SPL Tokens Swapped: ${solPnlResults.length}`);
-    console.log(`Total Net SOL P/L: ${overallNetSolPL.toFixed(6)} SOL`);
-    console.log(`(Detailed SOL P/L report saved)`);
 
-    // 6. Show detailed results if requested (displayDetailedResults needs update)
+    logger.info('Analyzing intermediate records for SOL P/L...'); 
+    const analysisResults = analyzeSwapRecords(intermediateRecords);
+    logger.info(`Analysis complete. Found ${analysisResults.length} unique SPL tokens involved in swaps.`);
+    
+    if (analysisResults.length === 0) {
+        logger.warn('Analysis did not yield any results (e.g., no paired swaps found).');
+        return; 
+    }
+
+    logger.info('Displaying analysis summary...');
+    displaySummary(analysisResults, walletAddress);
+    
     if (options.verbose) {
-      // displayDetailedResults(solPnlResults); // Assuming displayDetailedResults is updated
-      console.log(`\n(Verbose console output for SOL P/L to be implemented in display-utils)`);
+      logger.info('Displaying detailed results...');
+      displayDetailedResults(analysisResults);
     }
     
-    // 7. Write SOL P/L analysis results to CSV and TXT reports
-    const csvReportPath = writeSolPnlAnalysisToCsv(solPnlResults, walletAddress);
-    const txtReportPath = writeSolPnlAnalysisToTxt(solPnlResults, walletAddress);
+    logger.info('Writing SOL P/L analysis reports...'); 
+    const csvReportPath = writeOnChainAnalysisToCsv(analysisResults, walletAddress);
+    const txtReportPath = writeOnChainAnalysisToTxt(analysisResults, walletAddress);
     
     console.log(`\nAnalysis complete.`);
-    if(intermediateCsvPath) console.log(`Intermediate swap data saved to: ${intermediateCsvPath}`);
     console.log(`SOL P/L analysis CSV report saved to: ${csvReportPath}`);
     console.log(`SOL P/L analysis TXT summary saved to: ${txtReportPath}`);
 
@@ -122,40 +243,63 @@ async function analyzeWalletWithHelius(
     })
     .option('fetchAll', {
       alias: 'fa',
-      description: 'Attempt to fetch all available SWAP signatures (up to internal limit)',
+      description: 'Attempt to fetch all available relevant SWAP transactions (respects internal limits)',
       type: 'boolean',
       default: false
     })
     .option('saveIntermediateCsv', {
       alias: 's',
-      description: 'Save intermediate token swap data to a CSV file in ./data',
+      description: 'Save intermediate token/SOL swap data to a CSV file in ./data',
       type: 'boolean',
       default: true
     })
     .option('verbose', {
       alias: 'v',
-      description: 'Show detailed token swap activity in console',
+      description: 'Show detailed token swap activity (Top 10 by P/L) in console',
       type: 'boolean',
       default: false
     })
-    .example('$0 -a 8z5awGJDDYVy1j2oeKP1nUauPDkhxnNGEZDkX8tNSQdb', 'Analyze a wallet with default settings')
-    .example('$0 -a 8z5awGJDDYVy1j2oeKP1nUauPDkhxnNGEZDkX8tNSQdb -l 500', 'Analyze with larger batch size')
-    .example('$0 -a 8z5awGJDDYVy1j2oeKP1nUauPDkhxnNGEZDkX8tNSQdb --fetchAll', 'Attempt to fetch all SWAP signatures')
+    .option('skipApi', {
+        description: 'Skip Helius API calls entirely, rely solely on reading cached intermediate CSV file from ./data',
+        type: 'boolean',
+        default: false
+    })
+    .option('maxSignatures', {
+        alias: 'ms',
+        description: 'Optional maximum number of signatures to fetch via RPC (fetches all if omitted)',
+        type: 'number',
+        demandOption: false
+    })
+    .example('$0 -a <WALLET_ADDRESS>', 'Analyze a wallet (fetches API data)')
+    .example('$0 -a <WALLET_ADDRESS> --skipApi', 'Analyze using only cached intermediate data from ./data')
     .wrap(yargs.terminalWidth())
     .help()
     .alias('help', 'h')
     .version()
     .alias('version', 'V')
-    .epilogue('Focuses on Phase 1: On-chain swap analysis via Helius.')
-    .argv;
+    .epilogue('Analyzes wallet swaps for SOL Profit/Loss using Helius API.')
+    .parse();
+
+  const typedArgv = argv as {
+      address: string;
+      limit: number;
+      fetchAll: boolean;
+      saveIntermediateCsv: boolean;
+      verbose: boolean;
+      skipApi: boolean;
+      maxSignatures?: number | null;
+      [key: string]: unknown; 
+  };
 
   await analyzeWalletWithHelius(
-    argv.address,
+    typedArgv.address,
     {
-      limit: argv.limit,
-      fetchAll: argv.fetchAll,
-      saveIntermediateCsv: argv.saveIntermediateCsv,
-      verbose: argv.verbose,
+      limit: typedArgv.limit,
+      fetchAll: typedArgv.fetchAll,
+      saveIntermediateCsv: typedArgv.saveIntermediateCsv,
+      verbose: typedArgv.verbose,
+      skipApi: typedArgv.skipApi, 
+      maxSignatures: typedArgv.maxSignatures || null
     }
   );
 })(); 

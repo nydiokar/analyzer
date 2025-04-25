@@ -1,9 +1,11 @@
+// This script is used to analyze the transfers of a Solana wallet address
+// from Solscan export CSV and print out report 
+
 import fs from 'fs';
 import path from 'path';
 import Papa from 'papaparse';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-// Assuming logger setup exists in utils - adjust path if necessary
 // import logger from '../utils/logger'; 
 
 // Define the expected structure of a row in the CSV
