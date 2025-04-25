@@ -5,32 +5,10 @@ import { stringify } from 'csv-stringify/sync';
 import {
   HeliusTransaction,
   IntermediateSwapRecord,
-  AccountData,
 } from '../types/helius-api';
 
 // Logger instance for this module
 const logger = createLogger('HeliusTransactionMapper');
-
-
-/**
- * Extracts token decimals from accountData for a given mint.
- * @param mint The token mint address
- * @param accountData Array of account data from HeliusTransaction
- * @returns The number of decimals, or 0 if not found.
- */
-function getTokenDecimals(mint: string, accountData: AccountData[] | undefined): number {
-  if (!accountData) return 0;
-  for (const account of accountData) {
-    for (const tokenChange of account.tokenBalanceChanges || []) {
-      if (tokenChange.mint.toLowerCase() === mint.toLowerCase()) {
-        // Ensure decimals is a number, default to 0 if undefined or invalid
-        return tokenChange.rawTokenAmount?.decimals ?? 0;
-      }
-    }
-  }
-  logger.warn(`Decimals not found for mint: ${mint}. Defaulting to 0.`);
-  return 0; // Default to 0 if not found
-}
 
 /**
  * Maps Helius transactions to the IntermediateSwapRecord format,
@@ -46,7 +24,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
   const intermediateRecords: IntermediateSwapRecord[] = [];
   const processedSignatures = new Set<string>(); // Avoid processing the same TX twice
 
-  logger.info(`Mapping ${transactions.length} Helius transactions to intermediate format...`);
+  logger.debug(`Mapping ${transactions.length} Helius transactions to intermediate format...`);
 
   const lowerCaseWalletAddress = walletAddress.toLowerCase();
 
@@ -67,7 +45,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
           else if (fromAddress === lowerCaseWalletAddress) direction = 'out';
 
           if (direction) {
-            const decimals = getTokenDecimals(transfer.mint, tx.accountData);
+            // Use the already decimal-adjusted amount from Helius
             const amount = typeof transfer.tokenAmount === 'number' ? transfer.tokenAmount : parseFloat(transfer.tokenAmount || '0');
 
             if (!isNaN(amount) && amount !== 0) { // Ensure non-zero amount
@@ -76,7 +54,6 @@ export function mapHeliusTransactionsToIntermediateRecords(
                   timestamp: tx.timestamp,
                   mint: transfer.mint,
                   amount: amount, // Use direct amount
-                  decimals: decimals, // Store for context
                   direction: direction,
                 });
                 transactionMapped = true;
@@ -120,7 +97,6 @@ export function saveIntermediateRecordsToCsv(records: IntermediateSwapRecord[], 
     'timestamp',
     'mint',
     'amount',
-    'decimals',
     'direction'
   ];
 
@@ -136,8 +112,11 @@ export function saveIntermediateRecordsToCsv(records: IntermediateSwapRecord[], 
     // Use csv-stringify to handle potential complexities (quotes, commas)
     // Ensure amount is outputted reliably (stringify might convert large numbers to scientific notation otherwise)
     const csvData = records.map(r => ({
-        ...r,
-        amount: r.amount.toString() // Convert amount to string for reliable CSV output
+        signature: r.signature,
+        timestamp: r.timestamp,
+        mint: r.mint,
+        amount: r.amount.toString(), // Convert amount to string for reliable CSV output
+        direction: r.direction
     }));
     const output = stringify(csvData, { header: true, columns: headers });
 

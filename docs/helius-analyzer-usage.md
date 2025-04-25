@@ -2,18 +2,17 @@
 
 ## Overview
 
-The Helius Transaction Analyzer integrates with the Helius API to fetch and analyze Solana wallet transaction history. Unlike the original analyzer that required a pre-exported CSV file from Solscan, this version fetches transaction data directly from the blockchain using the Helius API.
+The Helius Transaction Analyzer integrates with the Helius API to fetch and analyze Solana wallet transaction history, focusing on SOL Profit/Loss from token swaps. Unlike analyzers requiring pre-exported CSV files, this version fetches transaction data directly from the blockchain using the Helius API.
 
 ## Features
 
-- Direct blockchain data access via Helius API
-- Filters out NFT-only transactions (as requested)
-- Handles both SOL and token transfers
-- Groups transactions by token for analysis
-- Generates detailed reports for wallet activity
-- Calculates net changes in token amount and value
-- Identifies potential airdrop/spam tokens
-- Date filtering to analyze specific time periods
+- Direct blockchain data access via Helius API (Signatures via RPC, Details via Helius Parse API)
+- Maps SOL and SPL token transfers from Helius transaction data.
+- Calculates SOL Profit/Loss attributed to SPL token swaps.
+- Groups results by SPL token for analysis.
+- Generates CSV and TXT reports summarizing P/L per token.
+- Caches Helius API responses locally (`./.cache/helius/`) to speed up subsequent runs.
+- Optionally saves intermediate token/SOL transfer records to CSV (`./data/`).
 
 ## Code Organization
 
@@ -22,128 +21,140 @@ The analyzer is organized into a modular structure:
 ```
 src/
 ├── types/
-│   └── helius-api.ts            # Type definitions for API responses and analysis
+│   └── helius-api.ts            # Type definitions for API responses and analysis results
 ├── services/
-│   ├── helius-api-client.ts     # Client for interacting with Helius API
-│   ├── helius-transaction-mapper.ts  # Maps API responses to transfer records
-│   └── transfer-analyzer-service.ts  # Core analysis functionality
+│   ├── helius-api-client.ts     # Client for interacting with Helius API & Solana RPC
+│   ├── helius-transaction-mapper.ts  # Maps Helius TX data to intermediate records
+│   └── transfer-analyzer-service.ts  # Core SOL P/L analysis logic & reporting
 ├── cli/
-│   └── display-utils.ts         # Console output utilities
+│   └── display-utils.ts         # Console output formatting utilities
 └── scripts/
-    └── helius-analyzer.ts       # Main CLI entry point
+    └── helius-analyzer.ts       # Main CLI script entry point using yargs
 ```
 
 This modular design ensures separation of concerns and reusability of components.
 
 ## Prerequisites
 
-1. **Helius API Key**
-   - Sign up for a free API key at [https://dev.helius.xyz/](https://dev.helius.xyz/)
-   - The free tier allows 100 transactions per request and has a decent rate limit for testing
+1.  **Helius API Key**
+    *   Sign up for an API key at [https://dev.helius.xyz/](https://dev.helius.xyz/)
+    *   The free tier is generally sufficient for moderate usage.
 
-2. **Environment Setup**
-   - Create a `.env` file in the project root with your Helius API key:
-     ```
-     HELIUS_API_KEY=your_helius_api_key_here
-     ```
+2.  **Environment Setup**
+    *   Create a `.env` file in the project root.
+    *   Add your Helius API key to the `.env` file:
+        ```dotenv
+        HELIUS_API_KEY=your_helius_api_key_here
+        ```
 
 ## Usage
 
-Run the analyzer with the following command:
+Run the analyzer directly using `ts-node` (recommended via `npx`):
 
 ```bash
-npm run analyze-helius -- --address=WALLET_ADDRESS [options]
+npx ts-node src/scripts/helius-analyzer.ts --address <WALLET_ADDRESS> [options]
 ```
 
 ### Required Parameters:
 
-- `--address` or `-a`: The Solana wallet address to analyze
+*   `--address`, `-a`: (String) The Solana wallet address to analyze.
 
 ### Optional Parameters:
 
-- `--limit` or `-l`: Maximum number of transactions to fetch (default: 100)
-- `--saveCsv` or `-s`: Save raw transaction data to a CSV file (default: true)
-- `--excludeAirdrops` or `-e`: Exclude likely airdrop/spam tokens (default: true)
-- `--verbose` or `-v`: Show detailed token analysis in console (default: false)
-- `--last30Days` or `--30d`: Only analyze transactions from the last 30 days (default: false)
-- `--startDate`: Start date for filtering transactions (format: YYYY-MM-DD)
-- `--endDate`: End date for filtering transactions (format: YYYY-MM-DD)
+*   `--limit`, `-l`: (Number, Default: 100) The batch size used when fetching *parsed transaction details* from the Helius API `/v0/transactions` endpoint. Does **not** limit the total number of transactions fetched.
+*   `--fetchAll`, `--fa`: (Boolean, Default: false) If set, attempts to fetch all available transaction signatures via RPC. By default (false), it relies on Helius's default limits unless `--maxSignatures` is used. *Use with caution for wallets with very long histories.*
+*   `--saveIntermediateCsv`, `-s`: (Boolean, Default: true) Save the intermediate list of SOL and SPL token movements (used as input for the P/L analysis) to a CSV file in the `./data/` directory. Useful for debugging the mapping step.
+*   `--verbose`, `-v`: (Boolean, Default: false) Show detailed P/L results (Top 10 Gainers/Losers by SOL P/L) in the console output, in addition to the summary.
+*   `--skipApi`: (Boolean, Default: false) Completely skip fetching data from Helius/RPC. The script will attempt to load data *only* from a previously saved intermediate CSV file in `./data/`. Fails if no suitable file is found.
+*   `--maxSignatures`, `--ms`: (Number) Optionally limit the maximum number of transaction *signatures* to fetch via the Solana RPC `getSignaturesForAddress` method during Phase 1. If omitted, the script attempts to fetch all signatures up to RPC limits or Helius limits (unless `--fetchAll` is true).
+*   `--help`, `-h`: Show help message.
+*   `--version`, `-V`: Show script version.
 
 ### Examples:
 
-Basic analysis of a wallet with default settings:
+**1. Basic Analysis (Recommended starting point):**
+Fetch recent transactions (up to RPC/Helius limits), analyze SOL P/L of SPL trades, save reports.
+
 ```bash
-npm run analyze-helius -- -a 8z5awGJDDYVy1j2oeKP1nUauPDkhxnNGEZDkX8tNSQdb
+npx ts-node src/scripts/helius-analyzer.ts --address YOUR_WALLET_ADDRESS_HERE
 ```
 
-Fetch more transactions (up to 1000, may be limited by API):
+**2. Analyze with a Limit on Fetched Signatures:**
+Fetch up to 5000 transaction signatures, then fetch details & analyze. Good for active wallets to limit initial scope.
+
 ```bash
-npm run analyze-helius -- -a 8z5awGJDDYVy1j2oeKP1nUauPDkhxnNGEZDkX8tNSQdb -l 500
+npx ts-node src/scripts/helius-analyzer.ts --address 8z5awGJDDYVy1j2oeKP1nUauPDkhxnNGEZDkX8tNSQdb --ms 5000
 ```
 
-Only analyze transactions from the last 30 days (faster and less resource-intensive):
+**3. Analyze with Verbose Console Output:**
+Show the Top 10 gainers/losers by SOL P/L directly in the console.
+
 ```bash
-npm run analyze-helius -- -a 8z5awGJDDYVy1j2oeKP1nUauPDkhxnNGEZDkX8tNSQdb --last30Days
+npx ts-node src/scripts/helius-analyzer.ts --address YOUR_WALLET_ADDRESS_HERE --verbose
+```
+*Or using aliases:*
+```bash
+npx ts-node src/scripts/helius-analyzer.ts -a YOUR_WALLET_ADDRESS_HERE -v
 ```
 
-Analyze transactions within a specific date range:
+**4. Skip API Fetch & Analyze Cached Intermediate Data:**
+If you previously ran with `-s` (default), this re-runs the P/L analysis using the intermediate CSV from `./data/` without hitting the API again.
+
 ```bash
-npm run analyze-helius -- -a 8z5awGJDDYVy1j2oeKP1nUauPDkhxnNGEZDkX8tNSQdb --startDate 2023-01-01 --endDate 2023-03-31
+npx ts-node src/scripts/helius-analyzer.ts --address YOUR_WALLET_ADDRESS_HERE --skipApi
 ```
 
-Include detailed analysis output:
+**5. Disable Saving of Intermediate CSV:**
+Run the analysis and generate final reports, but don't save the intermediate data file.
+
 ```bash
-npm run analyze-helius -- -a 8z5awGJDDYVy1j2oeKP1nUauPDkhxnNGEZDkX8tNSQdb -v
+npx ts-node src/scripts/helius-analyzer.ts --address YOUR_WALLET_ADDRESS_HERE -s false
 ```
 
 ## Limitations
 
-1. **Historical Token Values**
-   - The Helius API doesn't provide historical USD values for tokens at transaction time
-   - The current implementation sets all token values to 0, which affects "Net Realized Value" calculations
-   - Future enhancements could integrate a price API to estimate historical values
+1.  **SOL P/L Attribution Complexity:**
+    *   In transactions involving multiple SPL token movements alongside SOL movement (e.g., complex swaps, routing through multiple pools), precisely attributing the SOL cost/proceeds to *each specific* SPL token can be ambiguous solely based on transfer data.
+    *   The current implementation attributes the *total* SOL change in such signatures to *each* involved SPL token's P/L calculation. This is noted in the logs (`Found X signatures with multiple SPL tokens...`) and means the per-token SOL P/L might be approximate in these complex cases. The overall SOL P/L remains accurate.
 
-2. **API Rate Limits**
-   - The free tier of Helius API has rate limitations
-   - Consider implementing backoff strategies for larger transaction histories
-   - Use the date filtering options to reduce the number of transactions processed
+2.  **API Rate Limits & Performance:**
+    *   Fetching and parsing data for wallets with extensive history can be time-consuming and may hit API rate limits.
+    *   The script includes basic rate limiting (`MIN_REQUEST_INTERVAL`) and retry logic.
+    *   Use `--maxSignatures` to limit the scope for very active wallets initially.
+    *   Concurrency (`Promise.all`) is used for fetching transaction details to improve speed.
 
-3. **Transaction Types**
-   - The analyzer focuses on transfer transactions and may not capture all DeFi interactions
-   - Swap data is available in the API response but requires additional parsing logic
+3.  **Transaction Type Focus:**
+    *   The analyzer primarily focuses on SOL and SPL token *transfers* as recorded by Helius to calculate P/L from swaps. It may not interpret all possible DeFi interactions (e.g., providing liquidity, complex derivatives) correctly for P/L purposes.
 
 ## Performance Tips
 
-To improve performance and reduce resource usage:
-
-1. **Use date filtering**: The `--last30Days` option significantly reduces processing time by filtering out older transactions.
-2. **Set appropriate limits**: Only fetch as many transactions as you need with the `--limit` option.
-3. **Exclude airdrops**: Using `--excludeAirdrops` filters out spam tokens that don't provide meaningful analysis.
+*   **Use `--maxSignatures`:** Limit the initial signature fetch for very active wallets to get a faster preliminary analysis.
+*   **Utilize Cache:** Subsequent runs for the same wallet will be much faster as API responses are cached in `./.cache/helius/`.
+*   **Use `--skipApi`:** If you only want to re-run the analysis/reporting step on existing intermediate data, use this flag.
 
 ## Output Files
 
-The analyzer generates two types of files:
+The analyzer generates report files in the `./analysis_reports/` directory:
 
-1. **Raw Transaction Data** (if `--saveCsv` is enabled)
-   - Located in: `./data/export_transfer_WALLET_ADDRESS_TIMESTAMP.csv`
-   - Format matches the original Solscan CSV format for compatibility
+1.  **SOL P/L CSV Report:**
+    *   Filename: `onchain_sol_pnl_report_WALLET_ADDRESS_TIMESTAMP.csv`
+    *   Contains per-token analysis detailing SOL spent/received and net P/L attributed to swaps involving that token.
 
-2. **Analysis Report**
-   - Located in: `./analysis_reports/wallet_analysis_report_WALLET_ADDRESS_TIMESTAMP.csv`
-   - Contains per-token analysis with metrics like amounts, transfers, and value changes
+2.  **SOL P/L Text Summary:**
+    *   Filename: `onchain_sol_pnl_summary_WALLET_ADDRESS_TIMESTAMP.txt`
+    *   Provides a high-level summary including overall net SOL P/L and lists the top gainers/losers by token.
+
+*(Optional) Intermediate Data:*
+If run with `--saveIntermediateCsv true` (default):
+3.  **Intermediate CSV:**
+    *   Filename: `intermediate_swaps_WALLET_ADDRESS_TIMESTAMP.csv`
+    *   Located in: `./data/`
+    *   Contains the raw list of SOL and SPL token movements extracted from Helius transactions, used as input for the P/L analysis.
 
 ## Extending the Analyzer
 
-The modular design makes it easy to extend the analyzer:
+The modular design facilitates extensions:
 
-1. Adding price API integration:
-   - Create a new service in `services/price-api-service.ts`
-   - Call this service from the transaction mapper
-
-2. Supporting new transaction types:
-   - Extend the `mapHeliusTransactionsToTransferRecords` function to handle additional transaction types
-
-3. Implementing additional analysis metrics:
-   - Add new fields to the `AnalysisResults` interface
-   - Update the analysis logic in `transfer-analyzer-service.ts`
-   - Modify the CSV output and display utilities 
+1.  **Refining SOL Attribution:** Modify the logic in `transfer-analyzer-service.ts` to implement more sophisticated methods for attributing SOL costs in multi-token swaps (e.g., attempting value estimation).
+2.  **Supporting New Transaction Interpretations:** Extend the `mapHeliusTransactionsToIntermediateRecords` function in `helius-transaction-mapper.ts` if Helius adds more detailed event types relevant to P/L.
+3.  **Adding Value Calculation:** Integrate a price API service to fetch historical token prices and calculate approximate USD P/L (currently only SOL P/L is calculated). 

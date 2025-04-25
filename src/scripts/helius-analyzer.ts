@@ -140,7 +140,6 @@ async function analyzeWalletWithHelius(
         if (transactions.length > 0) {
             logger.info('Mapping relevant transactions to intermediate swap record format...');
             intermediateRecords = mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
-            logger.info(`Mapped to ${intermediateRecords.length} intermediate swap records (token/SOL movements).`);
         } else {
             logger.info('No new transactions fetched. Attempting to load from intermediate cache file as fallback...');
             if (fs.existsSync(intermediateCachePath)) {
@@ -193,25 +192,34 @@ async function analyzeWalletWithHelius(
     }
 
     logger.info('Analyzing intermediate records for SOL P/L...'); 
-    const analysisResults = analyzeSwapRecords(intermediateRecords);
-    logger.info(`Analysis complete. Found ${analysisResults.length} unique SPL tokens involved in swaps.`);
+    // Capture the full analysis summary object
+    const analysisSummary = analyzeSwapRecords(intermediateRecords);
     
-    if (analysisResults.length === 0) {
+    if (analysisSummary.results.length === 0) {
         logger.warn('Analysis did not yield any results (e.g., no paired swaps found).');
         return; 
     }
 
     logger.info('Displaying analysis summary...');
-    displaySummary(analysisResults, walletAddress);
+    // Pass only the results array to display functions
+    displaySummary(analysisSummary.results, walletAddress);
     
     if (options.verbose) {
       logger.info('Displaying detailed results...');
-      displayDetailedResults(analysisResults);
+      displayDetailedResults(analysisSummary.results);
     }
     
     logger.info('Writing SOL P/L analysis reports...'); 
-    const csvReportPath = writeOnChainAnalysisToCsv(analysisResults, walletAddress);
-    const txtReportPath = writeOnChainAnalysisToTxt(analysisResults, walletAddress);
+    // Pass only results to CSV writer (keeping its structure simple)
+    const csvReportPath = writeOnChainAnalysisToCsv(analysisSummary.results, walletAddress);
+    // Pass full summary info to TXT writer
+    const txtReportPath = writeOnChainAnalysisToTxt(
+        analysisSummary.results,
+        walletAddress,
+        analysisSummary.totalSignaturesProcessed,
+        analysisSummary.overallFirstTimestamp,
+        analysisSummary.overallLastTimestamp
+    );
     
     console.log(`\nAnalysis complete.`);
     console.log(`SOL P/L analysis CSV report saved to: ${csvReportPath}`);
@@ -270,8 +278,8 @@ async function analyzeWalletWithHelius(
         type: 'number',
         demandOption: false
     })
-    .example('$0 -a <WALLET_ADDRESS>', 'Analyze a wallet (fetches API data)')
-    .example('$0 -a <WALLET_ADDRESS> --skipApi', 'Analyze using only cached intermediate data from ./data')
+    .example('npx ts-node analyze-helius -- --address <WALLET_ADDRESS>', 'Analyze a wallet (fetches API data)')
+    .example('npx ts-node analyze-helius -- --address <WALLET_ADDRESS> --skipApi', 'Analyze using only cached intermediate data from ./data')
     .wrap(yargs.terminalWidth())
     .help()
     .alias('help', 'h')

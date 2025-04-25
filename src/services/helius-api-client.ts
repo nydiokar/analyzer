@@ -185,7 +185,10 @@ export class HeliusApiClient {
             const attempt = retries + 1;
             const signatureCount = signatures.length;
 
-            logger.warn(`Attempt ${attempt} failed: Error fetching transactions by signatures`, { 
+            // Log initial failure as info, subsequent retry attempts as warn?
+            // Let's log the initial failure that triggers retry as info, keep final failure as error.
+            const logLevel = retries === 0 ? 'info' : 'warn'; 
+            logger[logLevel](`Attempt ${attempt} failed: Error fetching transactions by signatures`, { 
                 error: this.sanitizeError(error), signatureCount, status 
             });
 
@@ -271,66 +274,65 @@ export class HeliusApiClient {
       logger.info(`Total unique signatures from RPC: ${uniqueSignaturesToParse.length}`);
       logger.info(`Signatures needing details from Helius (not in cache): ${signaturesToFetchDetails.length}`);
 
-      // Step 3: Fetch full transaction details for new signatures in batches
-      logger.info(`Starting Phase 2: Fetching parsed details from Helius for ${signaturesToFetchDetails.length} new signatures.`);
+      // === PHASE 2: Fetch Parsed Transaction Details Concurrently ===
+      logger.info(`Starting Phase 2: Fetching parsed details from Helius concurrently for ${signaturesToFetchDetails.length} new signatures.`);
+      
+      const batchPromises: Promise<HeliusTransaction[]>[] = [];
+      const totalBatches = Math.ceil(signaturesToFetchDetails.length / parseBatchLimit);
+
       for (let i = 0; i < signaturesToFetchDetails.length; i += parseBatchLimit) {
         const batchSignatures = signaturesToFetchDetails.slice(i, i + parseBatchLimit);
-        logger.info(`Processing Helius parse batch ${Math.floor(i/parseBatchLimit) + 1}/${Math.ceil(signaturesToFetchDetails.length/parseBatchLimit)} (Size: ${batchSignatures.length})`);
-        logger.debug('Requesting full transactions for signatures:', batchSignatures);
-
-        // Fetch transactions - this will now throw on persistent error after retries
-        const batchTransactions = await this.getTransactionsBySignatures(batchSignatures);
+        const batchNumber = Math.floor(i / parseBatchLimit) + 1;
+        logger.debug(`Preparing Helius parse batch ${batchNumber}/${totalBatches} (Size: ${batchSignatures.length})`);
         
-        // Log received signatures for verification
-        const receivedSignatures = batchTransactions.map(tx => tx.signature);
-        logger.debug(`Received full transactions for ${receivedSignatures.length} signatures:`, receivedSignatures);
-        if (receivedSignatures.length !== batchSignatures.length) {
-            const missingSigs = batchSignatures.filter(sig => !receivedSignatures.includes(sig));
-            logger.warn('Mismatch between requested and received signatures for batch. Missing:', missingSigs);
-        }
-
-        // Log signatures BEFORE client-side filtering
-        logger.debug(`Signatures before any client-side filtering (batch ${Math.floor(i/parseBatchLimit) + 1}):`, receivedSignatures);
-
-        // Filter for swaps with token transfers
-        const relevantTransactions = batchTransactions; // Process all fetched
-
-        if(relevantTransactions.length > 0) {
-            newTransactions.push(...relevantTransactions);
-            logger.info(`Added ${relevantTransactions.length} transactions from batch to be mapped.`);
-        } else {
-            logger.info('No transactions returned in this batch?'); // Should be rare if signatures were found
-        }
-        
-        // Delay applied within rateLimit() before next batch request
+        // Create a promise for fetching this batch, don't await here
+        const batchPromise = this.getTransactionsBySignatures(batchSignatures)
+          .then(batchTransactions => {
+              // Log received signatures for verification within the promise resolution
+              const receivedSignatures = batchTransactions.map(tx => tx.signature);
+              logger.debug(`Batch ${batchNumber}/${totalBatches}: Received full transactions for ${receivedSignatures.length} signatures.`);
+              if (receivedSignatures.length !== batchSignatures.length) {
+                  const missingSigs = batchSignatures.filter(sig => !receivedSignatures.includes(sig));
+                  logger.warn(`Batch ${batchNumber}/${totalBatches}: Mismatch between requested (${batchSignatures.length}) and received (${receivedSignatures.length}) signatures. Missing:`, missingSigs);
+              }
+              logger.info(`Batch ${batchNumber}/${totalBatches} completed successfully with ${batchTransactions.length} transactions.`);
+              return batchTransactions; // Return the result for Promise.all
+          })
+          .catch(error => {
+              // Log error for this specific batch but return empty array to allow others to complete
+              logger.error(`Batch ${batchNumber}/${totalBatches}: Failed to fetch transactions after retries.`, { error: this.sanitizeError(error), batchSignatures });
+              return []; // Return empty array for this failed batch
+          });
+          
+        batchPromises.push(batchPromise);
       }
+
+      // Execute all batch promises concurrently
+      logger.debug(`Executing ${batchPromises.length} batch requests concurrently...`);
+      const results = await Promise.all(batchPromises);
+      logger.info('All concurrent batch requests finished.');
+
+      // Flatten the results from all batches into a single array
+      newTransactions = results.flat();
+      logger.info(`Successfully fetched details for ${newTransactions.length} new transactions concurrently.`);
       
     } catch (rpcError) {
-      // Catch errors specifically from the signature/transaction fetching process
-      logger.error('Failed during RPC signature fetching phase:', { error: this.sanitizeError(rpcError), address });
+      // Catch errors specifically from the signature fetching phase (Phase 1)
+      logger.error('Failed during RPC signature fetching phase (Phase 1):', { error: this.sanitizeError(rpcError), address });
       // Optionally re-throw, or return partial data (current + cache)
       // For now, let's return what we have + cache, but log clearly it might be incomplete.
-      logger.warn('Returning potentially incomplete results due to fetching error.');
+      logger.warn('Returning potentially incomplete results due to fetching error during Phase 1.');
       // Proceed to combine and save what was successfully fetched + cached data
     }
 
-    // Step 4/5: Combine and Save Cache (always attempt this even if fetching failed partway)
-    logger.info(`Combining ${newTransactions.length} newly fetched transactions with ${cachedTransactions.length} cached transactions.`);
+    // Step 4/5: Combine, Filter, and Save Cache
+    logger.debug(`Combining ${newTransactions.length} newly fetched transactions with ${cachedTransactions.length} cached transactions.`);
     const combinedMap = new Map<string, HeliusTransaction>();
     cachedTransactions.forEach(tx => combinedMap.set(tx.signature, tx));
     newTransactions.forEach(tx => combinedMap.set(tx.signature, tx)); // Overwrite cache with new if fetched
     const combinedTransactions = Array.from(combinedMap.values());
     
-    if (newTransactions.length > 0) {
-      // Save even if the fetch was interrupted, includes newly fetched ones
-      this.saveToCache(address, combinedTransactions);
-    } else {
-      logger.info('No new transactions fetched, cache remains unchanged.');
-    }
-    
-    logger.info(`Process finished. Returning ${combinedTransactions.length} total transactions.`);
-    // Final filter: Only return transactions that have *some* token or native transfer involving the target address
-    // This helps filter out pure fee payments or system instructions if they slip through API filters
+    // Filter *before* logging final return count and saving cache
     const lowerCaseAddress = address.toLowerCase();
     const relevantCombined = combinedTransactions.filter(tx => {
         const hasTokenTransfer = tx.tokenTransfers?.some(t => 
@@ -343,9 +345,18 @@ export class HeliusApiClient {
         );
         return hasTokenTransfer || hasNativeTransfer;
     });
+    logger.info(`Filtered combined transactions down to ${relevantCombined.length} involving the target address.`);
 
-    logger.info(`Filtered down to ${relevantCombined.length} transactions involving the target address.`);
-    return relevantCombined;
+    // Save the combined *and filtered* results if new ones were fetched
+    if (newTransactions.length > 0) { 
+      this.saveToCache(address, relevantCombined); // Save filtered results
+    } else {
+      logger.info('No new transactions fetched, cache remains unchanged.');
+    }
+    
+    // Log the count of transactions being *returned* (which are the filtered ones)
+    logger.info(`Helius API client process finished. Returning ${relevantCombined.length} total relevant transactions.`);
+    return relevantCombined; // Return the filtered list
   }
 
   private sanitizeError(error: any): any {

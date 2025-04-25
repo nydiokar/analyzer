@@ -175,7 +175,6 @@ export interface IntermediateSwapRecord {
   timestamp: number;      // Unix timestamp of the transaction
   mint: string;           // Token mint address
   amount: number;         // Raw token amount (smallest unit, e.g., lamports for SPL tokens)
-  decimals: number;       // Token decimals
   direction: 'in' | 'out'; // Direction relative to the analyzed wallet
 }
 
@@ -194,4 +193,14 @@ export interface OnChainAnalysisResult {
   transferCountOut: number;     // Number of times SPL was sent
   firstTransferTimestamp: number; // Unix timestamp of first swap involving this SPL
   lastTransferTimestamp: number;  // Unix timestamp of last swap involving this SPL
+}
+
+/**
+ * Represents the overall summary returned by the analysis service.
+ */
+export interface SwapAnalysisSummary {
+  results: OnChainAnalysisResult[];
+  totalSignaturesProcessed: number;
+  overallFirstTimestamp: number;
+  overallLastTimestamp: number;
 }
