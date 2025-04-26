@@ -18,12 +18,19 @@ import {
   writeOnChainAnalysisToTxt
 } from '../services/transfer-analyzer-service';
 import { IntermediateSwapRecord, HeliusTransaction } from '../types/helius-api'; // Correct import location
+import { calculateAdvancedStats } from '../services/advanced-stats-service'; // Import the new service
 import { displaySummary, displayDetailedResults } from '../cli/display-utils';
 
 // Initialize environment variables
 dotenv.config();
 
-// Create logger for this module
+// --- Set Log Level based on --verbose ---
+// This needs to be done BEFORE any logger is created.
+const verboseLogging = process.argv.includes('-v') || process.argv.includes('--verbose');
+process.env.LOG_LEVEL = verboseLogging ? 'debug' : 'info';
+// --- End Log Level Setup ---
+
+// Create logger for this module (NOW uses the configured level)
 const logger = createLogger('HeliusAnalyzerScript');
 
 // --- Helper Function --- 
@@ -200,6 +207,17 @@ async function analyzeWalletWithHelius(
         return; 
     }
 
+    // --- Calculate Advanced Stats ---
+    logger.info('Calculating advanced trading statistics...');
+    const advancedStats = calculateAdvancedStats(analysisSummary.results);
+    if (advancedStats) {
+        analysisSummary.advancedStats = advancedStats; // Store stats in the summary object
+        logger.info('Successfully calculated advanced stats.');
+    } else {
+        logger.warn('Could not calculate advanced stats (likely insufficient data).');
+    }
+    // --- End Advanced Stats Calculation ---
+
     logger.info('Displaying analysis summary...');
     // Pass only the results array to display functions
     displaySummary(analysisSummary.results, walletAddress);
@@ -212,13 +230,14 @@ async function analyzeWalletWithHelius(
     logger.info('Writing SOL P/L analysis reports...'); 
     // Pass only results to CSV writer (keeping its structure simple)
     const csvReportPath = writeOnChainAnalysisToCsv(analysisSummary.results, walletAddress);
-    // Pass full summary info to TXT writer
+    // Pass full summary info (including advanced stats) to TXT writer
     const txtReportPath = writeOnChainAnalysisToTxt(
-        analysisSummary.results,
-        walletAddress,
-        analysisSummary.totalSignaturesProcessed,
-        analysisSummary.overallFirstTimestamp,
-        analysisSummary.overallLastTimestamp
+        analysisSummary.results, // Pass results array
+        walletAddress, // Pass wallet address
+        analysisSummary.totalSignaturesProcessed, // Pass count
+        analysisSummary.overallFirstTimestamp, // Pass first timestamp
+        analysisSummary.overallLastTimestamp, // Pass last timestamp
+        analysisSummary.advancedStats // Pass optional advanced stats object
     );
     
     console.log(`\nAnalysis complete.`);

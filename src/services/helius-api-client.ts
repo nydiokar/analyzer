@@ -274,47 +274,53 @@ export class HeliusApiClient {
       logger.info(`Total unique signatures from RPC: ${uniqueSignaturesToParse.length}`);
       logger.info(`Signatures needing details from Helius (not in cache): ${signaturesToFetchDetails.length}`);
 
-      // === PHASE 2: Fetch Parsed Transaction Details Concurrently ===
-      logger.info(`Starting Phase 2: Fetching parsed details from Helius concurrently for ${signaturesToFetchDetails.length} new signatures.`);
+      // === PHASE 2: Fetch Parsed Transaction Details SEQUENTIALLY ===
+      logger.info(`Starting Phase 2: Fetching parsed details from Helius sequentially for ${signaturesToFetchDetails.length} new signatures.`);
       
-      const batchPromises: Promise<HeliusTransaction[]>[] = [];
+      // Removed batchPromises array
       const totalBatches = Math.ceil(signaturesToFetchDetails.length / parseBatchLimit);
+      newTransactions = []; // Initialize array to store results
+      let lastLoggedBatch = 0; // Track last logged batch for progress update
 
       for (let i = 0; i < signaturesToFetchDetails.length; i += parseBatchLimit) {
         const batchSignatures = signaturesToFetchDetails.slice(i, i + parseBatchLimit);
         const batchNumber = Math.floor(i / parseBatchLimit) + 1;
-        logger.debug(`Preparing Helius parse batch ${batchNumber}/${totalBatches} (Size: ${batchSignatures.length})`);
         
-        // Create a promise for fetching this batch, don't await here
-        const batchPromise = this.getTransactionsBySignatures(batchSignatures)
-          .then(batchTransactions => {
-              // Log received signatures for verification within the promise resolution
-              const receivedSignatures = batchTransactions.map(tx => tx.signature);
-              logger.debug(`Batch ${batchNumber}/${totalBatches}: Received full transactions for ${receivedSignatures.length} signatures.`);
-              if (receivedSignatures.length !== batchSignatures.length) {
-                  const missingSigs = batchSignatures.filter(sig => !receivedSignatures.includes(sig));
-                  logger.warn(`Batch ${batchNumber}/${totalBatches}: Mismatch between requested (${batchSignatures.length}) and received (${receivedSignatures.length}) signatures. Missing:`, missingSigs);
-              }
-              logger.info(`Batch ${batchNumber}/${totalBatches} completed successfully with ${batchTransactions.length} transactions.`);
-              return batchTransactions; // Return the result for Promise.all
-          })
-          .catch(error => {
-              // Log error for this specific batch but return empty array to allow others to complete
-              logger.error(`Batch ${batchNumber}/${totalBatches}: Failed to fetch transactions after retries.`, { error: this.sanitizeError(error), batchSignatures });
-              return []; // Return empty array for this failed batch
-          });
+        try {
+          // Await the result of fetching this batch directly
+          const batchTransactions = await this.getTransactionsBySignatures(batchSignatures);
           
-        batchPromises.push(batchPromise);
-      }
+          // Add successful results to the main array
+          newTransactions.push(...batchTransactions);
 
-      // Execute all batch promises concurrently
-      logger.debug(`Executing ${batchPromises.length} batch requests concurrently...`);
-      const results = await Promise.all(batchPromises);
-      logger.info('All concurrent batch requests finished.');
+          // Log progress periodically or on the last batch
+          if (batchNumber % 10 === 0 || batchNumber === totalBatches) {
+              // Clear previous line content and write new progress
+              process.stdout.write(`  Fetching details: Batch ${batchNumber}/${totalBatches} (${newTransactions.length} successful txns fetched so far)...\r`);
+              lastLoggedBatch = batchNumber;
+          }
 
-      // Flatten the results from all batches into a single array
-      newTransactions = results.flat();
-      logger.info(`Successfully fetched details for ${newTransactions.length} new transactions concurrently.`);
+        } catch (error) {
+            // Log error for this specific batch but continue to the next batch
+            // Ensure error log goes to a new line if progress was being written
+            if (lastLoggedBatch > 0) process.stdout.write('\n'); 
+            logger.error(`Batch ${batchNumber}/${totalBatches}: Failed to fetch transactions after retries. Skipping this batch.`, { 
+                error: this.sanitizeError(error), 
+                failedSignatures: batchSignatures // Use the enhanced logging
+            });
+            lastLoggedBatch = 0; // Reset log tracker after error
+            // Continue to the next iteration of the loop
+        }
+      } // End loop through batches
+      
+      // Ensure the final log message starts on a new line after the progress indicator
+      if (lastLoggedBatch > 0) process.stdout.write('\n'); 
+
+      logger.info('Sequential batch requests finished.');
+
+      // Flattening is no longer needed as we push directly
+      // newTransactions = results.flat(); // Removed
+      logger.info(`Successfully fetched details for ${newTransactions.length} new transactions sequentially.`);
       
     } catch (rpcError) {
       // Catch errors specifically from the signature fetching phase (Phase 1)
@@ -347,16 +353,20 @@ export class HeliusApiClient {
     });
     logger.info(`Filtered combined transactions down to ${relevantCombined.length} involving the target address.`);
 
+    // Sort the relevant transactions by timestamp (ascending - oldest first)
+    relevantCombined.sort((a, b) => a.timestamp - b.timestamp);
+    logger.debug(`Sorted ${relevantCombined.length} relevant transactions by timestamp.`);
+
     // Save the combined *and filtered* results if new ones were fetched
     if (newTransactions.length > 0) { 
-      this.saveToCache(address, relevantCombined); // Save filtered results
+      this.saveToCache(address, relevantCombined); // Save filtered & sorted results
     } else {
       logger.info('No new transactions fetched, cache remains unchanged.');
     }
     
-    // Log the count of transactions being *returned* (which are the filtered ones)
+    // Log the count of transactions being *returned* (which are the filtered & sorted ones)
     logger.info(`Helius API client process finished. Returning ${relevantCombined.length} total relevant transactions.`);
-    return relevantCombined; // Return the filtered list
+    return relevantCombined; // Return the filtered & sorted list
   }
 
   private sanitizeError(error: any): any {

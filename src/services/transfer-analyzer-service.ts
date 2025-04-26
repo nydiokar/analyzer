@@ -5,13 +5,27 @@ import { createLogger } from '../utils/logger';
 import {
   IntermediateSwapRecord,
   OnChainAnalysisResult,
-  SwapAnalysisSummary
+  SwapAnalysisSummary,
+  AdvancedTradeStats
 } from '../types/helius-api';
 
 // Logger instance for this module
 const logger = createLogger('TransferAnalyzerService');
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+// --- Known Token Addresses ---
+const KNOWN_TOKENS: Record<string, string> = {
+  [SOL_MINT]: 'SOL', // Use the constant for SOL
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'USDC',
+  // Add other known tokens here if needed
+  // 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'USDT',
+};
+
+function getTokenDisplayName(address: string): string {
+    return KNOWN_TOKENS[address] || address;
+}
+// --- End Known Token Addresses ---
 
 /**
  * Analyzes intermediate swap records (containing both SPL and SOL entries per sig)
@@ -160,14 +174,24 @@ export function analyzeSwapRecords(
       });
   }
 
-  logger.info(`Analysis complete for ${finalResults.length} SPL tokens.`);
+  logger.info(`Analysis complete for ${finalResults.length} SPL tokens initially.`);
+
+  // --- Filter out results with zero SOL interaction ---
+  const filteredResults = finalResults.filter(result => 
+      result.totalSolSpent > 0 || result.totalSolReceived > 0
+  );
+  const filteredCount = finalResults.length - filteredResults.length;
+  if (filteredCount > 0) {
+      logger.info(`Filtered out ${filteredCount} tokens with zero detected SOL interaction (potential spam/transfers).`);
+  }
+  // --- End Filtering ---
 
   // Reset timestamps if no records were processed
   if (overallFirstTimestamp === Infinity) overallFirstTimestamp = 0;
 
-  // Return the comprehensive summary object
+  // Return the comprehensive summary object with FILTERED results
   return {
-    results: finalResults,
+    results: filteredResults, // Use the filtered array
     totalSignaturesProcessed: processedSignaturesCount,
     overallFirstTimestamp: overallFirstTimestamp,
     overallLastTimestamp: overallLastTimestamp
@@ -192,7 +216,7 @@ export function writeOnChainAnalysisToCsv(results: OnChainAnalysisResult[], wall
   const csvOutputPath = path.join(outputDir, csvFilename);
 
   const headers = [
-      'Token Address',
+      'Token',
       'Total SPL In',
       'Total SPL Out',
       'Net SPL Change',
@@ -202,12 +226,13 @@ export function writeOnChainAnalysisToCsv(results: OnChainAnalysisResult[], wall
       'Swaps In Count',
       'Swaps Out Count',
       'First Swap (UTC)',
-      'Last Swap (UTC)'
+      'Last Swap (UTC)',
+      'Token Address'
   ];
 
   // Format data for CSV - Use appropriate precision
   const csvData = results.map(result => ({
-    'Token Address': result.tokenAddress,
+    'Token': getTokenDisplayName(result.tokenAddress),
     'Total SPL In': result.totalAmountIn.toFixed(6),
     'Total SPL Out': result.totalAmountOut.toFixed(6),
     'Net SPL Change': result.netAmountChange.toFixed(6),
@@ -217,7 +242,8 @@ export function writeOnChainAnalysisToCsv(results: OnChainAnalysisResult[], wall
     'Swaps In Count': result.transferCountIn,
     'Swaps Out Count': result.transferCountOut,
     'First Swap (UTC)': result.firstTransferTimestamp > 0 ? new Date(result.firstTransferTimestamp * 1000).toISOString() : 'N/A',
-    'Last Swap (UTC)': result.lastTransferTimestamp > 0 ? new Date(result.lastTransferTimestamp * 1000).toISOString() : 'N/A'
+    'Last Swap (UTC)': result.lastTransferTimestamp > 0 ? new Date(result.lastTransferTimestamp * 1000).toISOString() : 'N/A',
+    'Token Address': result.tokenAddress
   }));
 
   // Sort CSV data - by Net SOL P/L descending
@@ -236,13 +262,14 @@ export function writeOnChainAnalysisToCsv(results: OnChainAnalysisResult[], wall
 
 /**
  * Writes a text summary report based on On-Chain Analysis + SOL P/L.
- * Includes overall signature count and time frame.
+ * Includes overall signature count, time frame, and advanced metrics if available.
  * Assumes amounts in results are already adjusted for decimals.
  * @param results Array of OnChainAnalysisResult
  * @param walletAddress The wallet address being analyzed
  * @param totalSignaturesProcessed Total number of signatures processed
  * @param overallFirstTimestamp Earliest timestamp from processed records
  * @param overallLastTimestamp Latest timestamp from processed records
+ * @param advancedStats Optional advanced trade stats
  * @returns Path to the saved TXT file
  */
 export function writeOnChainAnalysisToTxt(
@@ -250,7 +277,8 @@ export function writeOnChainAnalysisToTxt(
     walletAddress: string,
     totalSignaturesProcessed: number,
     overallFirstTimestamp: number,
-    overallLastTimestamp: number
+    overallLastTimestamp: number,
+    advancedStats?: AdvancedTradeStats | null
 ): string {
   const outputDir = path.resolve('./analysis_reports');
   if (!fs.existsSync(outputDir)){
@@ -280,7 +308,7 @@ export function writeOnChainAnalysisToTxt(
   reportContent += `Total Net SOL P/L: ${overallNetSolPL.toFixed(6)} SOL\n`;
   reportContent += `=========================================\n`;
 
-  // Sort results by Net SOL P/L descending
+  // Sort results by Net SOL P/L descending for display
   const sortedResults = [...results].sort((a, b) => b.netSolProfitLoss - a.netSolProfitLoss);
 
   reportContent += '\n=== TOP 10 TOKENS BY SOL P/L ===\n';
@@ -288,7 +316,8 @@ export function writeOnChainAnalysisToTxt(
     reportContent += 'No swap activity found\n';
   } else {
     sortedResults.slice(0, 10).forEach((result, index) => {
-      reportContent += `${index + 1}. Token: ${result.tokenAddress}\n`;
+      const displayName = getTokenDisplayName(result.tokenAddress);
+      reportContent += `${index + 1}. Token: ${displayName}${displayName !== result.tokenAddress ? ' (' + result.tokenAddress.substring(0, 4) + '...)' : ''}\n`;
       reportContent += `   Net SOL P/L: ${result.netSolProfitLoss.toFixed(6)} SOL\n`;
       reportContent += `   Swaps: ${result.transferCountIn} In / ${result.transferCountOut} Out\n`;
       const firstDate = result.firstTransferTimestamp > 0 ? new Date(result.firstTransferTimestamp * 1000).toLocaleDateString() : 'N/A';
@@ -304,11 +333,35 @@ export function writeOnChainAnalysisToTxt(
       reportContent += 'No tokens with SOL loss found.\n';
   } else {
       topLosers.forEach((result, index) => {
-          reportContent += `${index + 1}. Token: ${result.tokenAddress}\n`;
+          const displayName = getTokenDisplayName(result.tokenAddress);
+          reportContent += `${index + 1}. Token: ${displayName}${displayName !== result.tokenAddress ? ' (' + result.tokenAddress.substring(0, 4) + '...)' : ''}\n`;
           reportContent += `   Net SOL P/L: ${result.netSolProfitLoss.toFixed(6)} SOL\n`;
           reportContent += `   Swaps: ${result.transferCountIn} In / ${result.transferCountOut} Out\n`;
       });
   }
+
+  // --- Add Advanced Stats Section ---
+  if (advancedStats) {
+    reportContent += `\n=== ADVANCED TRADING METRICS ===\n`;
+    reportContent += `Median PnL per Token: ${advancedStats.medianPnlPerToken.toFixed(6)} SOL\n`;
+    reportContent += `Trimmed Mean PnL (10%): ${advancedStats.trimmedMeanPnlPerToken.toFixed(6)} SOL\n`;
+    reportContent += `Token Win Rate (>0 SOL): ${advancedStats.tokenWinRatePercent.toFixed(2)}%\n`;
+    reportContent += `PnL Standard Deviation: ${advancedStats.standardDeviationPnl.toFixed(6)} SOL\n`;
+    // Handle Infinity for PCI
+    const pciDisplay = Number.isFinite(advancedStats.profitConsistencyIndex) 
+                       ? advancedStats.profitConsistencyIndex.toFixed(4) 
+                       : (advancedStats.profitConsistencyIndex > 0 ? '+Infinity' : '-Infinity');
+    reportContent += `Profit Consistency Index (PCI): ${pciDisplay}\n`;
+    reportContent += `Weighted Efficiency Score: ${advancedStats.weightedEfficiencyScore.toFixed(4)}\n`;
+    reportContent += `Avg PnL / Day Active (Approx): ${advancedStats.averagePnlPerDayActiveApprox.toFixed(6)} SOL/Day\n`;
+    reportContent += `(Note: Daily PnL uses time between first/last swap for a token, not precise holding time)\n`;
+    reportContent += `=========================================\n`;
+  } else {
+     reportContent += `\n=== ADVANCED TRADING METRICS ===\n`;
+     reportContent += `Insufficient data to calculate advanced metrics.\n`;
+     reportContent += `=========================================\n`;
+  }
+  // --- End Advanced Stats Section ---
 
   try {
     fs.writeFileSync(outputPath, reportContent, 'utf8');

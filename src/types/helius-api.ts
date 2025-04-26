@@ -196,11 +196,27 @@ export interface OnChainAnalysisResult {
 }
 
 /**
- * Represents the overall summary returned by the analysis service.
+ * Advanced metrics calculated from the primary analysis results.
+ */
+export interface AdvancedTradeStats {
+  medianPnlPerToken: number;
+  trimmedMeanPnlPerToken: number; // e.g., 10% trim
+  tokenWinRatePercent: number; // % of tokens with PnL > 0
+  standardDeviationPnl: number;
+  profitConsistencyIndex: number; // PCI
+  weightedEfficiencyScore: number;
+  // Proxy metric with caveats
+  averagePnlPerDayActiveApprox: number; // Average PnL per token / Average days between first/last tx
+}
+
+/**
+ * Represents the overall summary returned by the analysis service, potentially including advanced stats.
  */
 export interface SwapAnalysisSummary {
   results: OnChainAnalysisResult[];
   totalSignaturesProcessed: number;
   overallFirstTimestamp: number;
   overallLastTimestamp: number;
+  // Add the advanced stats
+  advancedStats?: AdvancedTradeStats; // Make it optional initially
 }
