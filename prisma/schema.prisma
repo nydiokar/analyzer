@@ -1,0 +1,111 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// --- Application Models ---
+
+// Stores metadata for each analyzed wallet, crucial for incremental fetching.
+model Wallet {
+  address                   String    @id @unique // Solana wallet address
+  // Oldest transaction timestamp ever processed for this wallet
+  firstProcessedTimestamp   Int?
+  // Signature of the absolute newest transaction processed for this wallet
+  newestProcessedSignature  String?
+  // Timestamp of the absolute newest transaction processed for this wallet
+  newestProcessedTimestamp  Int?
+  // Timestamp of the last time a fetch was successfully run for this wallet
+  lastSuccessfulFetchTimestamp DateTime?
+}
+
+// Stores raw Helius transaction details.
+model HeliusTransactionCache {
+  signature   String   @id @unique
+  timestamp   Int      
+  rawData     Json     
+  fetchedAt   DateTime @default(now())
+
+  @@index([timestamp])
+}
+
+// Stores mapped transfers used as input for analysis.
+model SwapAnalysisInput {
+  id            Int      @id @default(autoincrement())
+  walletAddress String   
+  signature     String   
+  timestamp     Int      // Unix seconds
+  mint          String   // Token mint address (SOL_MINT for SOL)
+  amount        Float    // Decimal-adjusted amount
+  direction     String   // "in" or "out" relative to walletAddress
+
+  // Indices for efficient querying by wallet, time, token, or signature
+  @@index([walletAddress, timestamp])
+  @@index([walletAddress, mint])
+  @@index([signature])
+}
+
+// Tracks metadata for each analysis execution.
+model AnalysisRun {
+  id                   Int       @id @default(autoincrement())
+  walletAddress        String
+  runTimestamp         DateTime  @default(now())
+  status               String    // e.g., 'completed', 'failed', 'in_progress'
+  // Time range covered by this specific analysis run
+  analysisStartTs      Int?      
+  analysisEndTs        Int?
+  signaturesProcessed  Int?      
+  errorMessage         String?   
+
+  results              AnalysisResult[]
+  advancedStats        AdvancedStatsResult?
+
+  @@index([walletAddress, runTimestamp])
+}
+
+// Stores calculated per-token results for an AnalysisRun.
+model AnalysisResult {
+  id                     Int      @id @default(autoincrement())
+  runId                  Int      
+  tokenAddress           String
+  totalAmountIn          Float
+  totalAmountOut         Float
+  netAmountChange        Float
+  totalSolSpent          Float
+  totalSolReceived       Float
+  netSolProfitLoss       Float
+  transferCountIn        Int
+  transferCountOut       Int
+  firstTransferTimestamp Int?
+  lastTransferTimestamp  Int?
+
+  run                    AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([runId, tokenAddress])
+  @@index([runId, netSolProfitLoss])
+}
+
+// Stores calculated advanced metrics for an AnalysisRun.
+model AdvancedStatsResult {
+  id                           Int     @id @default(autoincrement())
+  runId                        Int     @unique 
+  medianPnlPerToken            Float
+  trimmedMeanPnlPerToken       Float
+  tokenWinRatePercent          Float
+  standardDeviationPnl         Float
+  profitConsistencyIndex       Float
+  weightedEfficiencyScore      Float
+  averagePnlPerDayActiveApprox Float
+
+  run                          AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
