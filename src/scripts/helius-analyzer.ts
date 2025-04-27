@@ -7,14 +7,12 @@ import { createLogger } from '../utils/logger';
 import { HeliusApiClient } from '../services/helius-api-client';
 import {
   mapHeliusTransactionsToIntermediateRecords,
-  saveIntermediateRecordsToCsv,
 } from '../services/helius-transaction-mapper';
 import { 
   analyzeSwapRecords,
-  writeOnChainAnalysisToCsv,
-  writeOnChainAnalysisToTxt,
-  writeOnChainAnalysisToCsv_fromMemory,
-  writeOnChainAnalysisToTxt_fromMemory
+  writeAnalysisReportTxt,
+  writeAnalysisReportTxt_fromMemory,
+  saveAnalysisResultsToCsv
 } from '../services/transfer-analyzer-service';
 import { IntermediateSwapRecord, HeliusTransaction, OnChainAnalysisResult, AdvancedTradeStats } from '../types/helius-api'; // Correct import location
 import { calculateAdvancedStats } from '../services/advanced-stats-service'; // Import the new service
@@ -31,7 +29,6 @@ import {
     // Types needed for saving results (if not already exported/defined elsewhere)
     // These might need to be defined/exported in database-service.ts if not already
     // For now, assuming they are available or handled by Prisma types
-    AnalysisRunCreateData, // Type for AnalysisRun creation data
     AnalysisResultCreateData, // Type for AnalysisResult creation data
     AdvancedStatsCreateData, // Type for AdvancedStats creation data
     prisma // Import Prisma client instance for direct updates (e.g., updating run status)
@@ -65,7 +62,8 @@ async function performAnalysisForWallet(
   overallLastTimestamp?: number;
   advancedStats?: any;
 }> {
-  logger.info(`Performing analysis for wallet ${walletAddress}${timeRange ? ' with time constraints' : ' for all available data'}`);
+  logger.debug(`Performing analysis for wallet ${walletAddress} with time constraints`, { timeRange });
+  const isTimeRanged = timeRange && (timeRange.startTs || timeRange.endTs);
   
   // Fetch all records from the database for this wallet (with optional time filtering)
   const dbInputs: SwapAnalysisInput[] = await getSwapAnalysisInputs(
@@ -121,9 +119,10 @@ async function analyzeWalletWithHelius(
   options: {
     limit: number;
     fetchAll: boolean;
-    saveIntermediateCsv: boolean;
+    saveAnalysisCsv: boolean;
     verbose: boolean;
     skipApi: boolean;
+    fetchOlder: boolean;
     maxSignatures?: number | null;
     timeRange?: { startTs?: number, endTs?: number };
   }
@@ -132,7 +131,7 @@ async function analyzeWalletWithHelius(
     const isHistoricalView = !!options.timeRange;
     const mode = isHistoricalView ? 'Historical View' : 'Incremental Update & Full Analysis';
     logger.info(`Starting Mode: ${mode} for wallet: ${walletAddress}`);
-    logger.info(`Options: BatchLimit=${options.limit}, FetchAll=${options.fetchAll}, SaveIntermediate=${options.saveIntermediateCsv}, Verbose=${options.verbose}, SkipApi=${options.skipApi}, MaxSignatures=${options.maxSignatures || 'none'}`);
+    logger.info(`Options: BatchLimit=${options.limit}, FetchAll=${options.fetchAll}, Verbose=${options.verbose}, SkipApi=${options.skipApi}, MaxSignatures=${options.maxSignatures || 'none'}`);
     if (isHistoricalView) {
         logger.info(`Historical Time Range (Unix Ts): ${options.timeRange?.startTs} to ${options.timeRange?.endTs}`);
     }
@@ -157,10 +156,13 @@ async function analyzeWalletWithHelius(
       let newestProcessedTimestamp: number | undefined = undefined;
       let initialFetch = false;
       const walletState = await getWallet(walletAddress);
-      if (walletState) {
+      if (walletState && !options.fetchOlder) {
         stopAtSignature = walletState.newestProcessedSignature ?? undefined;
         newestProcessedTimestamp = walletState.newestProcessedTimestamp ?? undefined;
         logger.debug(`[Fetch Phase] Found existing wallet state. Fetching transactions newer than: ts=${newestProcessedTimestamp}, sig=${stopAtSignature}`);
+      } else if (options.fetchOlder) {
+        initialFetch = true; // Treat as initial fetch for state update logic later
+        logger.info('[Fetch Phase] --fetch-older flag detected. Ignoring saved state to fetch older history.');
       } else {
         initialFetch = true;
         logger.debug('[Fetch Phase] No existing wallet state found. Performing initial fetch.');
@@ -241,29 +243,9 @@ async function analyzeWalletWithHelius(
     }
     // --- End Step 1: Fetch/Save --- 
 
-    // Optional Intermediate CSV Export (always reads full current DB state)
-    if (options.saveIntermediateCsv) {
-        logger.info('[Export Phase] Retrieving all records from database for CSV export...');
-        const allDbRecords = await getSwapAnalysisInputs(walletAddress);
-        const allIntermediateRecords: IntermediateSwapRecord[] = allDbRecords.map(input => ({
-            signature: input.signature,
-            timestamp: input.timestamp,
-            mint: input.mint,
-            amount: input.amount,
-            direction: input.direction as "in" | "out"
-        }));
-        if (allIntermediateRecords.length > 0) {
-            const savedCsvPath = saveIntermediateRecordsToCsv(allIntermediateRecords, walletAddress);
-            if (savedCsvPath) {
-                console.log(`User-requested intermediate swap data saved to: ${savedCsvPath}`);
-            }
-        } else {
-            logger.warn('[Export Phase] No intermediate records found in DB to save to CSV.');
-        }
-    }
-
     // === Step 2: Perform Analysis (Full or Time-Ranged) ===
-    logger.info(`[Analysis Phase] Performing analysis for wallet ${walletAddress}${isHistoricalView ? ' (Historical View)' : ' (Full)'}...`);
+    const analysisMode = isHistoricalView ? 'Time-Ranged' : 'Full';
+    logger.info(`[Analysis Phase] Performing ${analysisMode} analysis for wallet ${walletAddress}...`);
     // Pass the timeRange to performAnalysisForWallet
     const analysisSummary = await performAnalysisForWallet(walletAddress, options.timeRange);
     
@@ -273,15 +255,16 @@ async function analyzeWalletWithHelius(
     }
     logger.info(`[Analysis Phase] Analysis complete. Found ${analysisSummary.results.length} tokens with P/L data.`);
 
-    // === Step 3: Display & Report ===
+    // === Step 3: Display & Save (if applicable) ===
     logger.info('[Reporting Phase] Displaying summary...');
     displaySummary(analysisSummary.results, walletAddress);
     if (options.verbose) {
-      logger.info('[Reporting Phase] Displaying detailed results...');
+      logger.debug('[Reporting Phase] Displaying detailed results...');
       displayDetailedResults(analysisSummary.results);
     }
 
     let analysisRunId: number | undefined = undefined;
+    let dbSaveOk = false; // Track if DB save was attempted and successful
     if (!isHistoricalView) {
         // --- Save Full Analysis Results to Database ---
         logger.info('[DB Save Phase] Saving full analysis results to database...');
@@ -301,25 +284,27 @@ async function analyzeWalletWithHelius(
             // 2. Save AnalysisResult records
             if (analysisSummary.results.length > 0) {
                 const resultsToSave: AnalysisResultCreateData[] = analysisSummary.results.map(res => ({
-                    runId: analysisRunId!, tokenAddress: res.tokenAddress, totalAmountIn: res.totalAmountIn,
-                    totalAmountOut: res.totalAmountOut, netAmountChange: res.netAmountChange,
-                    totalSolSpent: res.totalSolSpent, totalSolReceived: res.totalSolReceived,
-                    netSolProfitLoss: res.netSolProfitLoss, transferCountIn: res.transferCountIn,
-                    transferCountOut: res.transferCountOut, firstTransferTimestamp: res.firstTransferTimestamp,
-                    lastTransferTimestamp: res.lastTransferTimestamp,
+                    ...res,
+                    runId: analysisRunId!,
+                    walletAddress: walletAddress
                 }));
                 await saveAnalysisResults(resultsToSave);
             }
 
             // 3. Save AdvancedStatsResult record
             if (analysisSummary.advancedStats) {
-                const statsToSave: AdvancedStatsCreateData = { runId: analysisRunId!, ...analysisSummary.advancedStats };
+                const statsToSave: AdvancedStatsCreateData = {
+                     runId: analysisRunId!, 
+                     walletAddress: walletAddress,
+                     ...analysisSummary.advancedStats 
+                };
                 await saveAdvancedStats(statsToSave);
             }
 
             // 4. Update AnalysisRun status to completed
             await prisma.analysisRun.update({ where: { id: analysisRunId }, data: { status: 'completed' } });
             logger.info(`[DB Save Phase] Successfully saved full analysis results for Run ID: ${analysisRunId}`);
+            dbSaveOk = true; // Mark DB save as successful
 
         } catch (dbError) {
             logger.error('[DB Save Phase] Error saving full analysis results to database:', { error: dbError });
@@ -331,27 +316,27 @@ async function analyzeWalletWithHelius(
         // --- End DB Save Phase ---
     }
 
-    // --- Generate Report Files ---
-    logger.info('[Reporting Phase] Writing report files...');
-    let csvReportPath: string | null = null;
+    // --- Generate Report File (TXT only) ---
+    logger.info('[Reporting Phase] Writing analysis report file...');
     let txtReportPath: string | null = null;
+
     if (isHistoricalView) {
-        // Use memory-based reporting for historical views
-        csvReportPath = writeOnChainAnalysisToCsv_fromMemory(analysisSummary.results, walletAddress);
-        txtReportPath = writeOnChainAnalysisToTxt_fromMemory(
+        // Generate report from memory for historical/time-ranged views
+        logger.debug('[Reporting Phase] Generating TXT report from memory (time-ranged analysis)...');
+        txtReportPath = writeAnalysisReportTxt_fromMemory(
             analysisSummary.results, walletAddress, analysisSummary.totalSignaturesProcessed,
             analysisSummary.overallFirstTimestamp ?? 0, analysisSummary.overallLastTimestamp ?? 0,
             analysisSummary.advancedStats
         );
-    } else if (analysisRunId) {
+    } else if (dbSaveOk && analysisRunId) {
         // Use DB-based reporting for full runs that were successfully saved
-        csvReportPath = await writeOnChainAnalysisToCsv(analysisRunId, walletAddress);
-        txtReportPath = await writeOnChainAnalysisToTxt(analysisRunId, walletAddress);
+        logger.debug(`[Reporting Phase] Generating TXT report from database (Run ID: ${analysisRunId})...`);
+        txtReportPath = await writeAnalysisReportTxt(analysisRunId, walletAddress);
     } else {
-        // Fallback: If it was a full run but DB save failed, maybe still report from memory?
-        logger.warn('[Reporting Phase] Database save failed for full run. Generating reports from memory as fallback.');
-        csvReportPath = writeOnChainAnalysisToCsv_fromMemory(analysisSummary.results, walletAddress);
-        txtReportPath = writeOnChainAnalysisToTxt_fromMemory(
+        // Fallback: Generate report from memory if it was a full run but DB save failed
+        logger.warn('[Reporting Phase] Database save failed or skipped for full run. Generating report from memory as fallback.');
+        logger.debug('[Reporting Phase] Generating TXT report from memory (fallback)...');
+        txtReportPath = writeAnalysisReportTxt_fromMemory(
             analysisSummary.results, walletAddress, analysisSummary.totalSignaturesProcessed,
             analysisSummary.overallFirstTimestamp ?? 0, analysisSummary.overallLastTimestamp ?? 0,
             analysisSummary.advancedStats
@@ -363,11 +348,23 @@ async function analyzeWalletWithHelius(
     if (!isHistoricalView && analysisRunId) {
         console.log(`Analysis results saved to database with Run ID: ${analysisRunId}`);
     }
-    if (csvReportPath) {
-        console.log(`Report CSV saved to: ${csvReportPath}`);
-    }
     if (txtReportPath) {
-        console.log(`Report TXT saved to: ${txtReportPath}`);
+        console.log(`Analysis report TXT saved to: ${txtReportPath}`);
+    }
+
+    // --- Save Analysis Results CSV (if requested) ---
+    if (options.saveAnalysisCsv) {
+      logger.info('[Export Phase] --save-analysis-csv flag detected. Exporting aggregated P/L results...');
+      const csvPath = saveAnalysisResultsToCsv(
+          analysisSummary.results, // Use the results from the analysis summary
+          walletAddress, 
+          !isHistoricalView ? analysisRunId : undefined // Include runId if it was a full run
+      );
+      if (csvPath) {
+          console.log(`Aggregated analysis results CSV saved to: ${csvPath}`);
+      } else {
+          logger.warn('[Export Phase] Failed to save analysis results CSV.');
+      }
     }
 
   } catch (error) {
@@ -400,12 +397,6 @@ async function analyzeWalletWithHelius(
       type: 'boolean',
       default: false
     })
-    .option('saveIntermediateCsv', {
-      alias: 's',
-      description: 'Save intermediate swap data to CSV (optional export)',
-      type: 'boolean',
-      default: false
-    })
     .option('verbose', {
       alias: 'v',
       description: 'Show detailed token swap activity (Top 10 by P/L) in console',
@@ -414,6 +405,11 @@ async function analyzeWalletWithHelius(
     })
     .option('skipApi', {
         description: 'Skip Helius API calls entirely, rely solely on reading cached intermediate data from database',
+        type: 'boolean',
+        default: false
+    })
+    .option('fetchOlder', {
+        description: 'Ignore saved state and fetch older transaction history (respects --ms limit)',
         type: 'boolean',
         default: false
     })
@@ -434,6 +430,11 @@ async function analyzeWalletWithHelius(
         type: 'string',
         demandOption: false
     })
+    .option('saveAnalysisCsv', {
+        description: 'Save aggregated analysis results (per-token P/L) to CSV',
+        type: 'boolean',
+        default: false
+    })
     .example('npx ts-node analyze-helius -- --address <WALLET_ADDRESS>', 'Analyze a wallet (fetches API data)')
     .example('npx ts-node analyze-helius -- --address <WALLET_ADDRESS> --skipApi', 'Analyze using only cached data from database')
     .example('npx ts-node analyze-helius -- --address <WALLET_ADDRESS> --startDate 2023-06-01 --endDate 2023-12-31', 'Analyze specific date range')
@@ -449,9 +450,10 @@ async function analyzeWalletWithHelius(
       address: string;
       limit: number;
       fetchAll: boolean;
-      saveIntermediateCsv: boolean;
+      saveAnalysisCsv: boolean;
       verbose: boolean;
       skipApi: boolean;
+      fetchOlder: boolean;
       maxSignatures?: number | null;
       startDate?: string;
       endDate?: string;
@@ -460,11 +462,8 @@ async function analyzeWalletWithHelius(
 
   // --- Process date range options for on-demand analysis ---
   let timeRange: { startTs?: number, endTs?: number } | undefined = undefined;
-  let performHistoricalAnalysisOnly = false;
 
   if (typedArgv.startDate || typedArgv.endDate) {
-      performHistoricalAnalysisOnly = true;
-      logger.info('Start/End date provided. Performing historical analysis only (will not fetch new data or save results).');
       let startTs: number | undefined = undefined;
       let endTs: number | undefined = undefined;
 
@@ -496,67 +495,22 @@ async function analyzeWalletWithHelius(
   // --- End date range processing ---
 
   // Decide execution path
-  if (performHistoricalAnalysisOnly) {
-    // *** Historical Analysis Path ***
-    logger.info(`Starting historical analysis for wallet: ${typedArgv.address}`);
-    try {
-        // 1. Perform analysis using the time range
-        const analysisSummary = await performAnalysisForWallet(typedArgv.address, timeRange);
-        
-        if (analysisSummary.results.length === 0) {
-          logger.warn('Historical analysis did not yield any results for the specified time range.');
-          return;
-        }
-        
-        // 2. Display results (optional, based on verbose flag?)
-        logger.info('Displaying historical analysis summary...');
-        displaySummary(analysisSummary.results, typedArgv.address);
-        if (typedArgv.verbose) {
-            logger.info('Displaying detailed historical results...');
-            displayDetailedResults(analysisSummary.results);
-        }
-
-        // 3. Generate reports (using a temporary or dummy runId, or adapting report functions further?)
-        // For simplicity, let's generate reports directly from memory for this historical view,
-        // as we are not saving a new AnalysisRun record for it.
-        logger.info('Writing historical analysis reports...');
-        const histCsvReportPath = writeOnChainAnalysisToCsv_fromMemory(analysisSummary.results, typedArgv.address);
-        const histTxtReportPath = writeOnChainAnalysisToTxt_fromMemory(
-            analysisSummary.results,
-            typedArgv.address,
-            analysisSummary.totalSignaturesProcessed,
-            analysisSummary.overallFirstTimestamp ?? 0,
-            analysisSummary.overallLastTimestamp ?? 0,
-            analysisSummary.advancedStats
-        );
-        
-        console.log(`\nHistorical analysis complete.`);
-        if (histCsvReportPath) {
-            console.log(`Historical SOL P/L analysis CSV report saved to: ${histCsvReportPath}`);
-        }
-        if (histTxtReportPath) {
-            console.log(`Historical SOL P/L analysis TXT summary saved to: ${histTxtReportPath}`);
-        }
-
-    } catch(error) {
-        logger.error('Error during historical analysis', { error });
-        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
+  // The logic is now unified within analyzeWalletWithHelius, 
+  // which handles DB saving based on whether timeRange is provided.
+  
+  // Always call the main analysis function
+  // The function itself now handles DB saving and reporting based on whether timeRange exists
+  await analyzeWalletWithHelius(
+    typedArgv.address,
+    {
+      limit: typedArgv.limit,
+      fetchAll: typedArgv.fetchAll,
+      saveAnalysisCsv: typedArgv.saveAnalysisCsv,
+      verbose: typedArgv.verbose,
+      skipApi: typedArgv.skipApi,
+      fetchOlder: typedArgv.fetchOlder,
+      maxSignatures: typedArgv.maxSignatures || null,
+      timeRange: timeRange // Pass the processed timeRange here (will be undefined if no dates provided)
     }
-
-  } else {
-    // *** Normal Incremental Fetch & Analysis Path ***
-    await analyzeWalletWithHelius(
-      typedArgv.address,
-      {
-        limit: typedArgv.limit,
-        fetchAll: typedArgv.fetchAll,
-        saveIntermediateCsv: typedArgv.saveIntermediateCsv,
-        verbose: typedArgv.verbose,
-        skipApi: typedArgv.skipApi, 
-        maxSignatures: typedArgv.maxSignatures || null,
-        timeRange: timeRange // Pass the processed timeRange here
-      }
-    );
-  }
+  );
 })(); 

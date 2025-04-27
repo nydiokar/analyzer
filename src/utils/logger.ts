@@ -1,36 +1,68 @@
 import winston from 'winston';
+import chalk from 'chalk';
 
 const { createLogger: winstonCreateLogger, format, transports } = winston;
-const { combine, timestamp, printf, colorize } = format;
+const { combine, timestamp, printf, colorize, errors } = format;
 
-const logFormat = printf(({ level, message, timestamp, ...metadata }) => {
-  let msg = `${timestamp} [${level}] ${message}`;
+const levelColors: { [key: string]: (text: string) => string } = {
+  error: chalk.red,
+  warn: chalk.yellow,
+  info: chalk.cyan,
+  http: chalk.magenta,
+  verbose: chalk.blue,
+  debug: chalk.gray,
+  silly: chalk.white
+};
+
+const logFormat = printf(({ level, message, timestamp, module, stack, ...metadata }) => {
+  const ts = chalk.grey(new Date(timestamp as string).toISOString());
+  const levelString = level.toUpperCase();
+  const coloredLevel = levelColors[level] ? levelColors[level](levelString) : levelString;
+  const moduleString = module ? chalk.yellow(`[${module}]`) : '';
+  
+  // Color numbers white in the main message
+  let formattedMessage = String(message).replace(/\b(\d+(\.\d+)?)\b/g, chalk.white('$1'));
+
+  let msg = `${ts} ${coloredLevel} ${moduleString} ${formattedMessage}`;
+
   if (Object.keys(metadata).length > 0) {
-    msg += ` ${JSON.stringify(metadata)}`;
+    msg += ` ${chalk.grey(JSON.stringify(metadata))}`;
   }
+
+  if (stack) {
+    msg += `\n${chalk.red(stack)}`;
+  }
+
   return msg;
 });
 
-export const createLogger = (module: string) => {
+export const createLogger = (moduleName: string) => {
   return winstonCreateLogger({
+    level: process.env.LOG_LEVEL || 'debug',
     format: combine(
+      errors({ stack: true }),
       timestamp(),
-      colorize(),
       logFormat
     ),
     transports: [
       new transports.Console({
-        level: process.env.LOG_LEVEL || 'info'
+        format: combine(
+          colorize({ all: true }),
+          logFormat
+        ),
+        handleExceptions: true
       }),
       new transports.File({
         filename: `logs/error.log`,
-        level: 'error'
+        level: 'error',
+        handleExceptions: true
       }),
       new transports.File({
-        filename: `logs/combined.log`
+        filename: `logs/combined.log`,
+        handleExceptions: true
       })
     ],
-    defaultMeta: { module }
+    defaultMeta: { module: moduleName }
   });
 };
 

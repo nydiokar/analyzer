@@ -65,13 +65,11 @@ export async function updateWallet(walletAddress: string, data: WalletUpdateData
 // --- HeliusTransactionCache Functions ---
 
 export async function getCachedTransaction(signature: string): Promise<HeliusTransaction | null> {
-  logger.debug(`Querying cache for transaction: ${signature}`);
   try {
     const cached = await prisma.heliusTransactionCache.findUnique({
       where: { signature },
     });
     if (cached) {
-        logger.debug(`Cache hit for signature: ${signature}`);
         // We need to parse the JSON rawData back into the HeliusTransaction type
         // Assuming rawData is a valid JSON representation of HeliusTransaction
         // Add validation/error handling for JSON parsing if needed
@@ -83,7 +81,6 @@ export async function getCachedTransaction(signature: string): Promise<HeliusTra
             return null;
         }
     } else {
-        logger.debug(`Cache miss for signature: ${signature}`);
         return null;
     }
   } catch (error) {
@@ -97,39 +94,65 @@ export async function saveCachedTransactions(transactions: HeliusTransaction[]) 
         logger.debug('No transactions provided to save to cache.');
         return { count: 0 };
     }
-    logger.info(`Attempting to save/update ${transactions.length} transactions in cache...`);
-    let successCount = 0;
-    let errorCount = 0;
+    logger.info(`Attempting to save ${transactions.length} transactions to cache efficiently...`);
 
-    // Use upsert for each transaction to handle both create and update scenarios,
-    // and avoid issues with createMany + unique constraints in SQLite.
-    for (const tx of transactions) {
-        try {
-            await prisma.heliusTransactionCache.upsert({
-                where: { signature: tx.signature },
-                update: {
-                    timestamp: tx.timestamp,
-                    // Convert rawData object to JSON string for storage
-                    // Prisma handles JSON type conversion, but explicit stringify ensures format
-                    rawData: JSON.stringify(tx),
-                    fetchedAt: new Date(),
+    // 1. Get signatures from the incoming batch
+    const incomingSignatures = transactions.map(tx => tx.signature);
+
+    // 2. Find which of these signatures already exist in the database
+    let existingSignatures = new Set<string>();
+    try {
+        const existingRecords = await prisma.heliusTransactionCache.findMany({
+            where: {
+                signature: {
+                    in: incomingSignatures,
                 },
-                create: {
-                    signature: tx.signature,
-                    timestamp: tx.timestamp,
-                    rawData: JSON.stringify(tx),
-                    fetchedAt: new Date(), // Can omit if @default(now()) works reliably
-                },
-            });
-            successCount++;
-        } catch (error) {
-            logger.error(`Error upserting transaction ${tx.signature} into cache`, { error });
-            errorCount++;
-        }
+            },
+            select: {
+                signature: true, // Only select the signature field
+            },
+        });
+        existingSignatures = new Set(existingRecords.map(rec => rec.signature));
+        logger.debug(`Found ${existingSignatures.size} existing signatures in cache out of ${incomingSignatures.length} incoming.`);
+    } catch (error) {
+        logger.error('Error checking for existing signatures in cache', { error });
+        return { count: 0 }; // Abort if we cannot check existing signatures
     }
 
-    logger.info(`Cache save complete. Success: ${successCount}, Errors: ${errorCount}`);
-    return { count: successCount }; // Return the number successfully saved/updated
+    // 3. Filter the incoming transactions to find only the new ones
+    const newTransactions = transactions.filter(tx => !existingSignatures.has(tx.signature));
+
+    if (newTransactions.length === 0) {
+        logger.info('No new transactions to add to cache.');
+        return { count: 0 };
+    }
+
+    logger.info(`Identified ${newTransactions.length} new transactions to insert.`);
+
+    // 4. Prepare data for createMany (only new transactions)
+    const dataToSave = newTransactions.map(tx => ({
+        signature: tx.signature,
+        timestamp: tx.timestamp,
+        rawData: JSON.stringify(tx), // Ensure rawData is stringified
+        // fetchedAt is handled by @default(now())
+    }));
+
+    // 5. Insert the new transactions using createMany
+    try {
+        const result = await prisma.heliusTransactionCache.createMany({
+            data: dataToSave,
+            // No skipDuplicates needed here as we pre-filtered
+        });
+        logger.info(`Cache save complete. ${result.count} new transactions added to cache.`);
+        return result;
+    } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+            logger.error('Prisma Error saving new cached transactions', { code: error.code, meta: error.meta });
+        } else {
+            logger.error('Error saving new cached transactions', { error });
+        }
+        return { count: 0 }; // Indicate failure
+    }
 }
 
 // --- SwapAnalysisInput Functions ---
@@ -210,11 +233,11 @@ export async function getSwapAnalysisInputs(
 // Type for creating a new AnalysisRun (omit auto-generated id and relations)
 export type AnalysisRunCreateData = Omit<Prisma.AnalysisRunCreateInput, 'id' | 'results' | 'advancedStats'>;
 
-// Type for creating AnalysisResult records (omit auto-generated id, add runId explicitly)
-export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'id' | 'run' | 'runId'> & { runId: number };
+// Type for creating AnalysisResult records (omit auto-generated id, add runId and walletAddress explicitly)
+export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'id' | 'run' | 'runId' | 'walletAddress'> & { runId: number; walletAddress: string };
 
-// Type for creating an AdvancedStatsResult record (omit auto-generated id, add runId explicitly)
-export type AdvancedStatsCreateData = Omit<Prisma.AdvancedStatsResultCreateInput, 'id' | 'run' | 'runId'> & { runId: number };
+// Type for creating an AdvancedStatsResult record (omit auto-generated id, add runId and walletAddress explicitly)
+export type AdvancedStatsCreateData = Omit<Prisma.AdvancedStatsResultCreateInput, 'id' | 'run' | 'runId' | 'walletAddress'> & { runId: number; walletAddress: string };
 
 export async function createAnalysisRun(data: AnalysisRunCreateData): Promise<AnalysisRun | null> {
     logger.debug('Creating new AnalysisRun...', { wallet: data.walletAddress });
@@ -236,12 +259,13 @@ export async function saveAnalysisResults(results: AnalysisResultCreateData[]) {
         return { count: 0 };
     }
     const runId = results[0]?.runId; // Assume all results belong to the same run
-    logger.info(`Attempting to save ${results.length} analysis results for run ID: ${runId}...`);
+    const walletAddress = results[0]?.walletAddress; // Assume all results belong to the same wallet
+    logger.info(`Attempting to save ${results.length} analysis results for run ID: ${runId}, wallet: ${walletAddress}...`);
+    // NOTE: We assume the walletAddress is correctly populated in the input `results` array
     try {
         // Use createMany for performance
         const result = await prisma.analysisResult.createMany({
-            data: results,
-            // skipDuplicates: true, // Not available/needed here based on schema
+            data: results, // Input array already includes runId and walletAddress
         });
         logger.info(`Successfully saved ${result.count} analysis results for run ID: ${runId}.`);
         return result;
@@ -253,10 +277,12 @@ export async function saveAnalysisResults(results: AnalysisResultCreateData[]) {
 
 export async function saveAdvancedStats(statsData: AdvancedStatsCreateData): Promise<AdvancedStatsResult | null> {
     const runId = statsData.runId;
-    logger.info(`Attempting to save advanced stats for run ID: ${runId}...`);
+    const walletAddress = statsData.walletAddress;
+    logger.info(`Attempting to save advanced stats for run ID: ${runId}, wallet: ${walletAddress}...`);
+    // NOTE: We assume walletAddress is correctly populated in the input `statsData` object
     try {
         const savedStats = await prisma.advancedStatsResult.create({
-            data: statsData,
+            data: statsData, // Input object already includes runId and walletAddress
         });
         logger.info(`Successfully saved advanced stats for run ID: ${runId}.`);
         return savedStats;

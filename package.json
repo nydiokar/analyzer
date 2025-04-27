@@ -1,6 +1,6 @@
 {
   "name": "crypto-data-analyzer",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Array of analizers. Major assets live crypto exchange from CoinGecko with verifiable storage, wallet address analysis, staking calculator, price change reporter, and more.",
   "main": "dist/index.js",
   "scripts": {
@@ -37,6 +37,7 @@
     "@types/csv-stringify": "^1.4.3",
     "axios": "^1.8.4",
     "better-sqlite3": "^11.9.1",
+    "chalk": "^5.3.0",
     "crypto-js": "^4.2.0",
     "csv-stringify": "^6.5.2",
     "dotenv": "^16.4.5",

@@ -44,18 +44,29 @@ export function calculateAdvancedStats(
   // --- Median PnL (calculated on NON-ZERO PnLs only) ---
   const nonZeroPnlValues = pnlValues.filter(pnl => pnl !== 0);
   const nz_n = nonZeroPnlValues.length;
+  logger.debug(`Median PnL Calculation: Found ${nz_n} tokens with non-zero PnL out of ${n} total.`); // DEBUG LOG
   let medianPnlPerToken: number = 0; // Default to 0 if no non-zero PnLs
   if (nz_n > 0) {
+    // DEBUG LOG - Log first/last few values if array isn't huge
+    if (nz_n <= 20) { 
+        logger.debug(`Median PnL Calculation: Non-zero PnL values (sorted): ${nonZeroPnlValues.slice().sort((a, b) => a - b)}`); 
+    } else {
+        const sortedNonZero = nonZeroPnlValues.slice().sort((a, b) => a - b);
+        logger.debug(`Median PnL Calculation: Non-zero PnL values (sorted, first 5): ${sortedNonZero.slice(0, 5)} ... (last 5): ${sortedNonZero.slice(-5)}`);
+    }
+    
     if (nz_n % 2 === 0) {
       // Need to re-sort nonZeroPnlValues as filter doesn't preserve order relative to each other
       nonZeroPnlValues.sort((a, b) => a - b);
       const mid1 = nonZeroPnlValues[nz_n / 2 - 1];
       const mid2 = nonZeroPnlValues[nz_n / 2];
       medianPnlPerToken = (mid1 + mid2) / 2;
+      logger.debug(`Median PnL Calculation: Even count (${nz_n}), mid values: ${mid1}, ${mid2}. Median = ${medianPnlPerToken}`); // DEBUG LOG
     } else {
       // Sort is only needed if length is even, but doesn't hurt here
       nonZeroPnlValues.sort((a, b) => a - b);
       medianPnlPerToken = nonZeroPnlValues[Math.floor(nz_n / 2)];
+      logger.debug(`Median PnL Calculation: Odd count (${nz_n}), middle value: ${medianPnlPerToken}`); // DEBUG LOG
     }
   } else {
       logger.info('Median PnL is 0 because no tokens with non-zero P/L were found after filtering.');
@@ -82,9 +93,11 @@ export function calculateAdvancedStats(
 
   // --- Profit Consistency Index (PCI) - uses the potentially non-zero median now ---
   let profitConsistencyIndex = 0;
+  logger.debug(`PCI Calculation: Median PnL = ${medianPnlPerToken}, Win Rate = ${tokenWinRatePercent}%, Std Dev = ${standardDeviationPnl}`); // DEBUG LOG
   if (standardDeviationPnl > 0) {
     // Use win rate as percentage (0-100)
     profitConsistencyIndex = (medianPnlPerToken * tokenWinRatePercent) / standardDeviationPnl;
+    logger.debug(`PCI Calculation: PCI = (${medianPnlPerToken} * ${tokenWinRatePercent}) / ${standardDeviationPnl} = ${profitConsistencyIndex}`); // DEBUG LOG
   } else {
     // Handle edge case: If StdDev is 0, all PnLs are the same.
     // Assign based on the potentially non-zero median PnL now.

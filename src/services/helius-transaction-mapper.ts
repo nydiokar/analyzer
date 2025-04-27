@@ -35,7 +35,6 @@ export function mapHeliusTransactionsToIntermediateRecords(
     try {
       // 1. Process Token Transfers (SPL)
       if (tx.tokenTransfers?.length) {
-        logger.debug(`Processing ${tx.tokenTransfers.length} token transfers for tx: ${tx.signature}`);
         for (const transfer of tx.tokenTransfers) {
           const fromAddress = transfer.fromUserAccount?.toLowerCase() ?? 'unknown';
           const toAddress = transfer.toUserAccount?.toLowerCase() ?? 'unknown';
@@ -78,53 +77,4 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
   logger.info(`Mapped to ${intermediateRecords.length} intermediate records based on tokenTransfers.`);
   return intermediateRecords;
-}
-
-/**
- * Saves the intermediate swap records to a CSV file.
- * @param records Array of IntermediateSwapRecord
- * @param walletAddress The wallet address being analyzed
- * @returns The path to the saved CSV file
- */
-export function saveIntermediateRecordsToCsv(records: IntermediateSwapRecord[], walletAddress: string): string {
-  if (records.length === 0) {
-    logger.info('No intermediate records to save to CSV.');
-    return ''; // Return empty string or handle as needed
-  }
-
-  const headers = [
-    'signature',
-    'timestamp',
-    'mint',
-    'amount',
-    'direction'
-  ];
-
-  const dataDir = path.join(process.cwd(), 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-
-  const timestamp = Date.now();
-  const filePath = path.join(dataDir, `intermediate_swaps_${walletAddress}_${timestamp}.csv`);
-
-  try {
-    // Use csv-stringify to handle potential complexities (quotes, commas)
-    // Ensure amount is outputted reliably (stringify might convert large numbers to scientific notation otherwise)
-    const csvData = records.map(r => ({
-        signature: r.signature,
-        timestamp: r.timestamp,
-        mint: r.mint,
-        amount: r.amount.toString(), // Convert amount to string for reliable CSV output
-        direction: r.direction
-    }));
-    const output = stringify(csvData, { header: true, columns: headers });
-
-    fs.writeFileSync(filePath, output);
-    logger.info(`Successfully saved ${records.length} intermediate records to ${filePath}`);
-    return filePath;
-  } catch (error) {
-    logger.error('Failed to save intermediate records to CSV', { error, filePath });
-    throw new Error(`Failed to save intermediate CSV: ${error instanceof Error ? error.message : String(error)}`);
-  }
 } 

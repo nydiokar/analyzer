@@ -81,13 +81,13 @@ export class HeliusApiClient {
         ]
     };
 
-    logger.info(`Fetching RPC signatures page: limit=${limit}, before=${before || 'N/A'}`);
+    logger.debug(`Fetching RPC signatures page: limit=${limit}, before=${before || 'N/A'}`);
     try {
         await this.rateLimit(); // Apply rate limit before RPC call too
         const response = await this.api.post<{ result: SignatureInfo[] }>(url, payload); // Use the internal axios instance
 
         if (response.data && Array.isArray(response.data.result)) {
-            logger.info(`Received ${response.data.result.length} signatures via RPC.`);
+            logger.debug(`Received ${response.data.result.length} signatures via RPC.`);
             return response.data.result;
         } else {
             logger.warn('Received unexpected response structure from getSignaturesForAddress RPC.', { responseData: response.data });
@@ -241,19 +241,20 @@ export class HeliusApiClient {
     }
 
     const uniqueSignatures = Array.from(new Set(allRpcSignaturesInfo.map(s => s.signature)));
-    logger.info(`Total unique signatures from RPC: ${uniqueSignatures.length}`);
+    logger.debug(`Total unique signatures from RPC: ${uniqueSignatures.length}`);
 
     // === Check Cache to Identify Signatures to Fetch ===
-    logger.info(`Checking database cache existence for ${uniqueSignatures.length} signatures...`);
+    logger.debug(`Checking database cache existence for ${uniqueSignatures.length} signatures...`);
+    let cacheHits = 0; // <<< ADDED Counter for hits
     for (const sig of uniqueSignatures) {
-         const cachedTx = await getCachedTransaction(sig); // Use DB service
-         if (cachedTx) {
-             // Signature details already cached, do nothing here for incremental return
-         } else {
-             signaturesToFetchDetails.add(sig);
-         }
-     }
-    logger.info(`Identified ${signaturesToFetchDetails.size} signatures needing details fetched from API.`);
+      const cachedTx = await getCachedTransaction(sig);
+      if (cachedTx) {
+        cacheHits++;
+      } else {
+        signaturesToFetchDetails.add(sig);
+      }
+    }
+    logger.info(`Found ${cacheHits} signatures in cache. Need to fetch details for ${signaturesToFetchDetails.size} signatures.`);
 
     const signaturesToFetchArray = Array.from(signaturesToFetchDetails);
 
@@ -293,14 +294,14 @@ export class HeliusApiClient {
         } // End loop through batches
         
         if (lastLoggedBatch > 0) process.stdout.write('\n'); 
-        logger.info('Sequential batch requests finished.');
+        logger.debug('Sequential batch requests finished.');
         logger.info(`Successfully fetched details for ${newlyFetchedTransactions.length} new transactions sequentially.`);
 
         // --- Save newly fetched transactions to DB Cache --- 
         if (newlyFetchedTransactions.length > 0) {
-            logger.info(`Saving ${newlyFetchedTransactions.length} newly fetched transactions to database cache...`);
+            logger.debug(`Saving ${newlyFetchedTransactions.length} newly fetched transactions to database cache...`);
             await saveCachedTransactions(newlyFetchedTransactions); // Use DB service
-            logger.info('Finished saving new transactions to cache.');
+            logger.debug('Finished saving new transactions to cache.');
             // Do NOT combine with cached data here. newlyFetchedTransactions holds the results.
         } else {
              logger.info('No new transactions were successfully fetched in Phase 2.');

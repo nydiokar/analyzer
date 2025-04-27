@@ -45,7 +45,7 @@ model SwapAnalysisInput {
   signature     String   
   timestamp     Int      // Unix seconds
   mint          String   // Token mint address (SOL_MINT for SOL)
-  amount        Float    // Decimal-adjusted amount
+  amount        Float    // REVERTED: Back to Float for SQLite compatibility
   direction     String   // "in" or "out" relative to walletAddress
 
   // Indices for efficient querying by wallet, time, token, or signature
@@ -75,14 +75,15 @@ model AnalysisRun {
 // Stores calculated per-token results for an AnalysisRun.
 model AnalysisResult {
   id                     Int      @id @default(autoincrement())
-  runId                  Int      
+  runId                  Int
+  walletAddress          String   // KEPT: For easier querying
   tokenAddress           String
-  totalAmountIn          Float
-  totalAmountOut         Float
-  netAmountChange        Float
-  totalSolSpent          Float
-  totalSolReceived       Float
-  netSolProfitLoss       Float
+  totalAmountIn          Float    // REVERTED: Back to Float
+  totalAmountOut         Float    // REVERTED: Back to Float
+  netAmountChange        Float    // REVERTED: Back to Float
+  totalSolSpent          Float    // REVERTED: Back to Float
+  totalSolReceived       Float    // REVERTED: Back to Float
+  netSolProfitLoss       Float    // REVERTED: Back to Float
   transferCountIn        Int
   transferCountOut       Int
   firstTransferTimestamp Int?
@@ -91,6 +92,8 @@ model AnalysisResult {
   run                    AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@index([runId])
+  @@index([walletAddress]) // ADDED index
+  @@index([runId, walletAddress]) // ADDED composite index
   @@index([runId, tokenAddress])
   @@index([runId, netSolProfitLoss])
 }
@@ -99,13 +102,16 @@ model AnalysisResult {
 model AdvancedStatsResult {
   id                           Int     @id @default(autoincrement())
   runId                        Int     @unique 
-  medianPnlPerToken            Float
-  trimmedMeanPnlPerToken       Float
-  tokenWinRatePercent          Float
-  standardDeviationPnl         Float
-  profitConsistencyIndex       Float
-  weightedEfficiencyScore      Float
-  averagePnlPerDayActiveApprox Float
+  walletAddress                String  // KEPT: For easier querying
+  medianPnlPerToken            Float   // REVERTED: Back to Float
+  trimmedMeanPnlPerToken       Float   // REVERTED: Back to Float
+  tokenWinRatePercent          Float   // REVERTED: Back to Float
+  standardDeviationPnl         Float   // REVERTED: Back to Float
+  profitConsistencyIndex       Float   // REVERTED: Back to Float
+  weightedEfficiencyScore      Float   // REVERTED: Back to Float
+  averagePnlPerDayActiveApprox Float   // REVERTED: Back to Float
 
   run                          AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([walletAddress]) // KEPT index
 }
