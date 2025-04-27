@@ -8,6 +8,12 @@ import {
   SwapAnalysisSummary,
   AdvancedTradeStats
 } from '../types/helius-api';
+import { AnalysisResult, AdvancedStatsResult } from '@prisma/client';
+import { 
+    getAnalysisRun, 
+    getAnalysisResultsForRun, 
+    getAdvancedStatsForRun 
+} from './database-service'; // Import DB query functions
 
 // Logger instance for this module
 const logger = createLogger('TransferAnalyzerService');
@@ -199,176 +205,196 @@ export function analyzeSwapRecords(
 }
 
 /**
- * Writes the On-Chain Analysis (including SOL P/L) results to a CSV file.
- * Assumes amounts in results are already adjusted for decimals.
- * @param results Array of OnChainAnalysisResult
- * @param walletAddress The wallet address being analyzed
- * @returns Path to the saved CSV file
+ * Writes the On-Chain Analysis (including SOL P/L) results from a specific AnalysisRun to a CSV file.
+ * @param runId The ID of the AnalysisRun to report on.
+ * @param walletAddress The wallet address (used for filename).
+ * @returns Path to the saved CSV file, or null if data is missing.
  */
-export function writeOnChainAnalysisToCsv(results: OnChainAnalysisResult[], walletAddress: string): string {
+// REMOVED writeOnChainAnalysisToCsv function
+
+/**
+ * Writes a summary TXT report for a specific AnalysisRun.
+ * @param runId The ID of the AnalysisRun to report on.
+ * @param walletAddress The wallet address (used for filename).
+ * @returns Path to the saved TXT file, or null if data is missing.
+ */
+export async function writeAnalysisReportTxt( // Renamed from writeOnChainAnalysisToTxt
+    runId: number,
+    walletAddress: string
+): Promise<string | null> {
+  logger.info(`Generating TXT summary report for AnalysisRun ID: ${runId}`);
+
+  // Fetch data from database
+  const analysisRun = await getAnalysisRun(runId);
+  const results: AnalysisResult[] = await getAnalysisResultsForRun(runId);
+  const advancedStats: AdvancedStatsResult | null = await getAdvancedStatsForRun(runId);
+
+  if (!analysisRun) {
+      logger.warn(`AnalysisRun data not found for Run ID ${runId}. Cannot generate TXT report.`);
+      return null;
+  }
+  if (!results || results.length === 0) {
+      logger.warn(`No AnalysisResult data found for Run ID ${runId}. Cannot generate TXT report.`);
+      return null;
+  }
+  // advancedStats can be null, handle that later
+
   const outputDir = path.resolve('./analysis_reports');
-  if (!fs.existsSync(outputDir)){
+  if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
   const timestamp = Date.now();
-  const csvFilename = `onchain_sol_pnl_report_${walletAddress}_${timestamp}.csv`;
-  const csvOutputPath = path.join(outputDir, csvFilename);
+  // Updated filename
+  const txtFilename = `analysis_report_${walletAddress}_run${runId}_${timestamp}.txt`;
+  const txtOutputPath = path.join(outputDir, txtFilename);
 
-  const headers = [
-      'Token',
-      'Total SPL In',
-      'Total SPL Out',
-      'Net SPL Change',
-      'Total SOL Spent',
-      'Total SOL Received',
-      'Net SOL P/L',
-      'Swaps In Count',
-      'Swaps Out Count',
-      'First Swap (UTC)',
-      'Last Swap (UTC)',
-      'Token Address'
-  ];
+  let reportContent = `=== On-Chain SOL P/L Analysis Summary ===\\n\\n`;
+  reportContent += `Wallet Address: ${walletAddress}\n`;
+  reportContent += `Analysis Run ID: ${runId}\n`;
+  reportContent += `Run Timestamp: ${analysisRun.runTimestamp.toISOString()}\n`;
+  reportContent += `Analysis Period (UTC): ${analysisRun.analysisStartTs ? new Date(analysisRun.analysisStartTs * 1000).toISOString() : 'N/A'} to ${analysisRun.analysisEndTs ? new Date(analysisRun.analysisEndTs * 1000).toISOString() : 'N/A'}\n`;
+  reportContent += `Signatures Processed (estimate): ${analysisRun.signaturesProcessed || 'N/A'}\n`; // Use estimate from run record
+  reportContent += `Total Unique Tokens Analyzed (with SOL interaction): ${results.length}\n`;
+  reportContent += `\n--- Overall SOL P/L ---\n`;
 
-  // Format data for CSV - Use appropriate precision
-  const csvData = results.map(result => ({
-    'Token': getTokenDisplayName(result.tokenAddress),
-    'Total SPL In': result.totalAmountIn.toFixed(6),
-    'Total SPL Out': result.totalAmountOut.toFixed(6),
-    'Net SPL Change': result.netAmountChange.toFixed(6),
-    'Total SOL Spent': result.totalSolSpent.toFixed(9),
-    'Total SOL Received': result.totalSolReceived.toFixed(9),
-    'Net SOL P/L': result.netSolProfitLoss.toFixed(9),
-    'Swaps In Count': result.transferCountIn,
-    'Swaps Out Count': result.transferCountOut,
-    'First Swap (UTC)': result.firstTransferTimestamp > 0 ? new Date(result.firstTransferTimestamp * 1000).toISOString() : 'N/A',
-    'Last Swap (UTC)': result.lastTransferTimestamp > 0 ? new Date(result.lastTransferTimestamp * 1000).toISOString() : 'N/A',
-    'Token Address': result.tokenAddress
-  }));
+  const overallNetPnl = results.reduce((sum, r) => sum + r.netSolProfitLoss, 0);
+  const overallSolSpent = results.reduce((sum, r) => sum + r.totalSolSpent, 0);
+  const overallSolReceived = results.reduce((sum, r) => sum + r.totalSolReceived, 0);
 
-  // Sort CSV data - by Net SOL P/L descending
-  csvData.sort((a, b) => parseFloat(b['Net SOL P/L']) - parseFloat(a['Net SOL P/L']));
+  reportContent += `Total SOL Spent Across All Tokens: ${overallSolSpent.toFixed(9)}\n`;
+  reportContent += `Total SOL Received Across All Tokens: ${overallSolReceived.toFixed(9)}\n`;
+  reportContent += `Overall Net SOL P/L: ${overallNetPnl.toFixed(9)} SOL\n`;
+
+  reportContent += `\n--- Top 10 Tokens by Net SOL P/L ---\n`;
+  // Results are already sorted descending by P/L from the query
+  const topResults = results.slice(0, 10);
+  topResults.forEach((result, index) => {
+    reportContent += `${index + 1}. ${getTokenDisplayName(result.tokenAddress)} (${result.tokenAddress.substring(0, 6)}...): ${result.netSolProfitLoss.toFixed(6)} SOL\n`;
+  });
+
+  reportContent += `\n--- Bottom 5 Tokens by Net SOL P/L ---\n`;
+  const bottomResults = results.slice(-5).reverse(); // Get last 5, reverse to show biggest loss first
+  bottomResults.forEach((result, index) => {
+      reportContent += `${index + 1}. ${getTokenDisplayName(result.tokenAddress)} (${result.tokenAddress.substring(0, 6)}...): ${result.netSolProfitLoss.toFixed(6)} SOL\n`;
+  });
+  
+  // --- Advanced Stats Section ---
+  if (advancedStats) {
+    reportContent += `\n--- Advanced Trading Statistics ---\n`;
+    // Iterate over the keys of the advancedStats object (excluding id and runId)
+    Object.entries(advancedStats).forEach(([key, value]) => {
+      if (key !== 'id' && key !== 'runId' && value !== null) {
+        // Simple formatting: Convert camelCase to Title Case
+        const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
+        const formattedValue = typeof value === 'number' ? value.toFixed(4) : value;
+        reportContent += `${formattedKey}: ${formattedValue}\n`;
+      }
+    });
+  } else {
+    reportContent += `\n--- Advanced Trading Statistics ---\n`;
+    reportContent += `(Not calculated or available for this run)\n`;
+  }
+
+  reportContent += `=========================================\\n`;
 
   try {
-    const csvString = Papa.unparse(csvData, { header: true, columns: headers });
-    fs.writeFileSync(csvOutputPath, csvString, 'utf8');
-    logger.info(`Successfully wrote On-Chain+SOL P/L analysis CSV report to ${csvOutputPath}`);
-    return csvOutputPath;
+    fs.writeFileSync(txtOutputPath, reportContent);
+    logger.info(`Successfully wrote On-Chain SOL P/L TXT summary to: ${txtOutputPath}`);
+    return txtOutputPath;
   } catch (error) {
-    logger.error('Error writing On-Chain+SOL P/L analysis CSV report', { error });
-    throw new Error(`Failed to write On-Chain+SOL P/L analysis CSV report: ${error}`);
+    logger.error(`Error writing On-Chain SOL P/L TXT summary:`, { error });
+    return null;
   }
 }
 
+// --- ADD BACK Original (Memory-Based) Reporting Functions for Historical Analysis ---
+
 /**
- * Writes a text summary report based on On-Chain Analysis + SOL P/L.
- * Includes overall signature count, time frame, and advanced metrics if available.
- * Assumes amounts in results are already adjusted for decimals.
- * @param results Array of OnChainAnalysisResult
- * @param walletAddress The wallet address being analyzed
- * @param totalSignaturesProcessed Total number of signatures processed
- * @param overallFirstTimestamp Earliest timestamp from processed records
- * @param overallLastTimestamp Latest timestamp from processed records
- * @param advancedStats Optional advanced trade stats
- * @returns Path to the saved TXT file
+ * [MEMORY-BASED] Writes On-Chain Analysis results directly from memory to CSV.
+ * Used for historical analysis view where no new Run ID is created.
  */
-export function writeOnChainAnalysisToTxt(
+// REMOVED writeOnChainAnalysisToCsv_fromMemory function
+
+/**
+ * [MEMORY-BASED] Writes a text summary report directly from memory.
+ * Used for historical analysis view.
+ */
+export function writeAnalysisReportTxt_fromMemory( // Renamed from writeOnChainAnalysisToTxt_fromMemory
     results: OnChainAnalysisResult[],
     walletAddress: string,
-    totalSignaturesProcessed: number,
-    overallFirstTimestamp: number,
-    overallLastTimestamp: number,
+    totalSignaturesProcessed: number, // Approximated for the period
+    overallFirstTimestamp: number, // From the analyzed period
+    overallLastTimestamp: number,  // From the analyzed period
     advancedStats?: AdvancedTradeStats | null
-): string {
+): string | null {
+  logger.info(`[Memory] Generating TXT summary report for historical view...`);
+  if (!results || results.length === 0) {
+      logger.warn(`[Memory] No results provided. Cannot generate TXT summary.`);
+      return null;
+  }
+
   const outputDir = path.resolve('./analysis_reports');
   if (!fs.existsSync(outputDir)){
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
   const timestamp = Date.now();
-  const txtFilename = `onchain_sol_pnl_summary_${walletAddress}_${timestamp}.txt`;
+  // Updated filename
+  const txtFilename = `analysis_report_${walletAddress}_${timestamp}.txt`; // Historical doesn't have runId
   const outputPath = path.join(outputDir, txtFilename);
 
-  // Calculate Overall P/L and Volume
   const overallNetSolPL = results.reduce((sum, r) => sum + r.netSolProfitLoss, 0);
-  const overallSolSpent = results.reduce((sum, r) => sum + r.totalSolSpent, 0);     // Added calculation
-  const overallSolReceived = results.reduce((sum, r) => sum + r.totalSolReceived, 0); // Added calculation
+  const overallSolSpent = results.reduce((sum, r) => sum + r.totalSolSpent, 0);
+  const overallSolReceived = results.reduce((sum, r) => sum + r.totalSolReceived, 0);
 
-  // Format overall time frame
   const firstDateStr = overallFirstTimestamp > 0 ? new Date(overallFirstTimestamp * 1000).toISOString() : 'N/A';
   const lastDateStr = overallLastTimestamp > 0 ? new Date(overallLastTimestamp * 1000).toISOString() : 'N/A';
 
-  let reportContent = `=== ON-CHAIN SWAP & SOL P/L SUMMARY ===\n`;
+  let reportContent = `=== HISTORICAL On-Chain SOL P/L Analysis Summary ===\n`;
   reportContent += `Wallet: ${walletAddress}\n`;
-  reportContent += `Signatures Analyzed: ${totalSignaturesProcessed}\n`;
-  reportContent += `Time Frame (UTC): ${firstDateStr} to ${lastDateStr}\n`;
+  reportContent += `Signatures Analyzed (Estimate for Period): ${totalSignaturesProcessed}\n`;
+  reportContent += `Time Frame Analyzed (UTC): ${firstDateStr} to ${lastDateStr}\n`;
   reportContent += `Unique SPL Tokens Swapped: ${results.length}\n`;
-  reportContent += `Total SOL Spent: ${overallSolSpent.toFixed(6)} SOL\n`;       // Added line
-  reportContent += `Total SOL Received: ${overallSolReceived.toFixed(6)} SOL\n`; // Added line
-  reportContent += `Total Net SOL P/L: ${overallNetSolPL.toFixed(6)} SOL\n`;
+  reportContent += `Total SOL Spent (Period): ${overallSolSpent.toFixed(9)} SOL\n`;
+  reportContent += `Total SOL Received (Period): ${overallSolReceived.toFixed(9)} SOL\n`;
+  reportContent += `Total Net SOL P/L (Period): ${overallNetSolPL.toFixed(9)} SOL\n`;
   reportContent += `=========================================\n`;
 
-  // Sort results by Net SOL P/L descending for display
   const sortedResults = [...results].sort((a, b) => b.netSolProfitLoss - a.netSolProfitLoss);
 
-  reportContent += '\n=== TOP 10 TOKENS BY SOL P/L ===\n';
-  if (sortedResults.length === 0) {
-    reportContent += 'No swap activity found\n';
-  } else {
-    sortedResults.slice(0, 10).forEach((result, index) => {
-      const displayName = getTokenDisplayName(result.tokenAddress);
-      reportContent += `${index + 1}. Token: ${displayName}${displayName !== result.tokenAddress ? ' (' + result.tokenAddress.substring(0, 4) + '...)' : ''}\n`;
-      reportContent += `   Net SOL P/L: ${result.netSolProfitLoss.toFixed(6)} SOL\n`;
-      reportContent += `   Swaps: ${result.transferCountIn} In / ${result.transferCountOut} Out\n`;
-      const firstDate = result.firstTransferTimestamp > 0 ? new Date(result.firstTransferTimestamp * 1000).toLocaleDateString() : 'N/A';
-      const lastDate = result.lastTransferTimestamp > 0 ? new Date(result.lastTransferTimestamp * 1000).toLocaleDateString() : 'N/A';
-      reportContent += `   Activity: ${firstDate} to ${lastDate}\n`;
-    });
-  }
+  reportContent += '\n=== TOP 10 TOKENS BY SOL P/L (Period) ===\n';
+  sortedResults.slice(0, 10).forEach((result, index) => {
+      reportContent += `${index + 1}. ${getTokenDisplayName(result.tokenAddress)} (${result.tokenAddress.substring(0, 6)}...): ${result.netSolProfitLoss.toFixed(6)} SOL\n`;
+  });
 
-  // Add Top Losers section
-  const topLosers = sortedResults.filter(r => r.netSolProfitLoss < 0).slice(-5).reverse();
-  reportContent += '\n=== TOP 5 TOKENS BY SOL LOSS ===\n';
-  if (topLosers.length === 0) {
-      reportContent += 'No tokens with SOL loss found.\n';
-  } else {
-      topLosers.forEach((result, index) => {
-          const displayName = getTokenDisplayName(result.tokenAddress);
-          reportContent += `${index + 1}. Token: ${displayName}${displayName !== result.tokenAddress ? ' (' + result.tokenAddress.substring(0, 4) + '...)' : ''}\n`;
-          reportContent += `   Net SOL P/L: ${result.netSolProfitLoss.toFixed(6)} SOL\n`;
-          reportContent += `   Swaps: ${result.transferCountIn} In / ${result.transferCountOut} Out\n`;
-      });
-  }
+  reportContent += '\n=== BOTTOM 5 TOKENS BY SOL P/L (Period) ===\n';
+  const bottomResults = sortedResults.slice(-5).reverse();
+  bottomResults.forEach((result, index) => {
+      reportContent += `${index + 1}. ${getTokenDisplayName(result.tokenAddress)} (${result.tokenAddress.substring(0, 6)}...): ${result.netSolProfitLoss.toFixed(6)} SOL\n`;
+  });
 
-  // --- Add Advanced Stats Section ---
   if (advancedStats) {
-    reportContent += `\n=== ADVANCED TRADING METRICS ===\n`;
-    reportContent += `Median PnL per Token: ${advancedStats.medianPnlPerToken.toFixed(6)} SOL\n`;
-    reportContent += `Trimmed Mean PnL (10%): ${advancedStats.trimmedMeanPnlPerToken.toFixed(6)} SOL\n`;
-    reportContent += `Token Win Rate (>0 SOL): ${advancedStats.tokenWinRatePercent.toFixed(2)}%\n`;
-    reportContent += `PnL Standard Deviation: ${advancedStats.standardDeviationPnl.toFixed(6)} SOL\n`;
-    // Handle Infinity for PCI
-    const pciDisplay = Number.isFinite(advancedStats.profitConsistencyIndex) 
-                       ? advancedStats.profitConsistencyIndex.toFixed(4) 
-                       : (advancedStats.profitConsistencyIndex > 0 ? '+Infinity' : '-Infinity');
-    reportContent += `Profit Consistency Index (PCI): ${pciDisplay}\n`;
-    reportContent += `Weighted Efficiency Score: ${advancedStats.weightedEfficiencyScore.toFixed(4)}\n`;
-    reportContent += `Avg PnL / Day Active (Approx): ${advancedStats.averagePnlPerDayActiveApprox.toFixed(6)} SOL/Day\n`;
-    reportContent += `(Note: Daily PnL uses time between first/last swap for a token, not precise holding time)\n`;
-    reportContent += `=========================================\n`;
+    reportContent += `\n=== ADVANCED TRADING METRICS (Period) ===\n`;
+    Object.entries(advancedStats).forEach(([key, value]) => {
+        if (key !== 'id' && key !== 'runId' && value !== null) {
+            const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
+            const formattedValue = typeof value === 'number' ? value.toFixed(4) : value;
+            reportContent += `${formattedKey}: ${formattedValue}\n`;
+        }
+    });
   } else {
-     reportContent += `\n=== ADVANCED TRADING METRICS ===\n`;
-     reportContent += `Insufficient data to calculate advanced metrics.\n`;
-     reportContent += `=========================================\n`;
+    reportContent += `\n=== ADVANCED TRADING METRICS (Period) ===\n`;
+    reportContent += `(Not calculated or available)\n`;
   }
-  // --- End Advanced Stats Section ---
+  reportContent += `=========================================\n`;
 
   try {
-    fs.writeFileSync(outputPath, reportContent, 'utf8');
-    logger.info(`Successfully wrote On-Chain+SOL P/L analysis TXT summary to ${outputPath}`);
+    fs.writeFileSync(outputPath, reportContent);
+    logger.info(`[Memory] Successfully wrote HISTORICAL TXT summary to: ${outputPath}`);
     return outputPath;
   } catch (error) {
-    logger.error('Error writing On-Chain+SOL P/L analysis TXT summary', { error });
-    throw new Error(`Failed to write On-Chain+SOL P/L analysis TXT summary: ${error}`);
+    logger.error(`[Memory] Error writing HISTORICAL TXT summary:`, { error });
+    return null;
   }
 } 

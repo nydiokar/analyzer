@@ -1,8 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { createLogger } from '../utils/logger';
 import { HeliusApiConfig, HeliusTransaction } from '../types/helius-api';
-import fs from 'fs';
-import path from 'path';
+import { getCachedTransaction, saveCachedTransactions } from './database-service'; // Import DB functions
 
 // Interface for the signature information returned by the Solana RPC
 interface SignatureInfo {
@@ -29,8 +28,6 @@ export class HeliusApiClient {
   private readonly api: AxiosInstance;
   private readonly apiKey: string;
   private readonly baseUrl: string;
-  private readonly cacheDir: string;
-  private transactionCache: Map<string, HeliusTransaction>;
   private readonly BATCH_SIZE = 100; // Maximum signatures to process in one batch
   private lastRequestTime: number = 0;
   private readonly MIN_REQUEST_INTERVAL = 550; // Minimum 550ms between requests (for ~2 req/s free tier)
@@ -50,54 +47,6 @@ export class HeliusApiClient {
         'Content-Type': 'application/json'
       }
     });
-
-    // Initialize cache
-    this.cacheDir = path.join(process.cwd(), '.cache', 'helius');
-    this.transactionCache = new Map();
-    this.initializeCache();
-  }
-
-  private initializeCache(): void {
-    if (!fs.existsSync(this.cacheDir)) {
-      fs.mkdirSync(this.cacheDir, { recursive: true });
-    }
-  }
-
-  private getCacheFilePath(address: string): string {
-    return path.join(this.cacheDir, `${address.toLowerCase()}.json`);
-  }
-
-  private loadFromCache(address: string): HeliusTransaction[] {
-    const cacheFile = this.getCacheFilePath(address);
-    if (fs.existsSync(cacheFile)) {
-      try {
-        const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-        if (Array.isArray(cached)) {
-          this.transactionCache.clear();
-          cached.forEach(tx => this.transactionCache.set(tx.signature, tx));
-          return cached;
-        }
-      } catch (error) {
-        logger.warn('Failed to load cache', { error, address });
-      }
-    }
-    return [];
-  }
-
-  private saveToCache(address: string, transactions: HeliusTransaction[]): void {
-    const cacheFile = this.getCacheFilePath(address);
-    try {
-      const uniqueTransactions = Array.from(new Map(
-        transactions.map(tx => [tx.signature, tx])
-      ).values());
-      
-      fs.writeFileSync(cacheFile, JSON.stringify(uniqueTransactions, null, 2));
-      
-      this.transactionCache.clear();
-      uniqueTransactions.forEach(tx => this.transactionCache.set(tx.signature, tx));
-    } catch (error) {
-      logger.warn('Failed to save cache', { error, address });
-    }
   }
 
   private async rateLimit(): Promise<void> {
@@ -223,21 +172,25 @@ export class HeliusApiClient {
   /**
    * Get all transactions for an address using the recommended two-step process:
    * 1. Fetch all signatures via Solana RPC `getSignaturesForAddress`.
-   * 2. Fetch parsed transaction details from Helius `/v0/transactions` endpoint.
+   * 2. Check DB cache for existing transaction details.
+   * 3. Fetch details for uncached signatures from Helius `/v0/transactions` endpoint.
+   * 4. Save newly fetched transactions to DB cache.
    */
   async getAllTransactionsForAddress(
-    address: string, 
-    parseBatchLimit: number = this.BATCH_SIZE, // Limit for Helius parsing step
-    maxSignatures: number | null = null // Optional limit for signature fetching
+    address: string,
+    parseBatchLimit: number = this.BATCH_SIZE,
+    maxSignatures: number | null = null,
+    stopAtSignature?: string, // Optional signature to stop fetching pages at
+    newestProcessedTimestamp?: number // Optional timestamp to filter results (exclusive)
   ): Promise<HeliusTransaction[]> {
-    let allRpcSignatures: SignatureInfo[] = [];
-    let newTransactions: HeliusTransaction[] = [];
-    const cachedTransactions = this.loadFromCache(address);
-    const cachedSignatures = new Set(cachedTransactions.map(tx => tx.signature));
-    logger.info(`Loaded ${cachedTransactions.length} transactions from cache.`);
+    let allRpcSignaturesInfo: SignatureInfo[] = [];
+    // List to hold ONLY the transactions fetched from API in this run
+    let newlyFetchedTransactions: HeliusTransaction[] = []; 
+    // Set to hold signatures whose details need to be fetched from API
+    const signaturesToFetchDetails = new Set<string>();
 
     // === PHASE 1: Fetch Signatures via RPC ===
-    logger.info(`Starting Phase 1: Fetching all signatures via Solana RPC for ${address}`);
+    logger.info(`Starting Phase 1: Fetching signatures via Solana RPC for ${address}`);
     let lastRpcSignature: string | null = null;
     let hasMoreSignatures = true;
     let fetchedSignaturesCount = 0;
@@ -248,99 +201,131 @@ export class HeliusApiClient {
         const signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
         
         if (signatureInfos.length > 0) {
-            allRpcSignatures.push(...signatureInfos);
+            allRpcSignaturesInfo.push(...signatureInfos);
             fetchedSignaturesCount += signatureInfos.length;
             lastRpcSignature = signatureInfos[signatureInfos.length - 1].signature;
 
-            // Stop if we hit the maxSignatures limit, if provided
+            // Check if we need to stop based on stopAtSignature
+            if (stopAtSignature) {
+                const stopIndex = signatureInfos.findIndex(info => info.signature === stopAtSignature);
+                if (stopIndex !== -1) {
+                    logger.info(`Found stopAtSignature (${stopAtSignature}) in the current batch at index ${stopIndex}. Stopping signature fetch.`);
+                    // We have the batch containing the stop signature, no need to fetch older ones.
+                    hasMoreSignatures = false;
+                    // Note: We keep all signatures from this batch, including the stop one and potentially older ones within the same batch.
+                    // Further filtering might be needed later if strict exclusion is required.
+                }
+            }
+
             if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures) {
                 logger.info(`Reached maxSignatures limit (${maxSignatures}). Stopping signature fetch.`);
                 hasMoreSignatures = false;
             } else if (signatureInfos.length < rpcLimit) {
-                // Stop if the API returned fewer than requested (last page)
                 logger.info('Last page of RPC signatures reached (received less than limit).');
                 hasMoreSignatures = false;
             }
         } else {
-            // Stop if API returned zero signatures
             logger.info('Last page of RPC signatures reached (received 0 items).');
             hasMoreSignatures = false;
         }
       }
-      logger.info(`Finished Phase 1. Total signatures retrieved via RPC: ${allRpcSignatures.length}`);
-      const uniqueSignaturesToParse = Array.from(new Set(allRpcSignatures.map(s => s.signature)));
-      const signaturesToFetchDetails = uniqueSignaturesToParse.filter(sig => !cachedSignatures.has(sig));
+      logger.info(`Finished Phase 1. Total signatures retrieved via RPC: ${allRpcSignaturesInfo.length}`);
 
-      logger.info(`Total unique signatures from RPC: ${uniqueSignaturesToParse.length}`);
-      logger.info(`Signatures needing details from Helius (not in cache): ${signaturesToFetchDetails.length}`);
-
-      // === PHASE 2: Fetch Parsed Transaction Details SEQUENTIALLY ===
-      logger.info(`Starting Phase 2: Fetching parsed details from Helius sequentially for ${signaturesToFetchDetails.length} new signatures.`);
-      
-      // Removed batchPromises array
-      const totalBatches = Math.ceil(signaturesToFetchDetails.length / parseBatchLimit);
-      newTransactions = []; // Initialize array to store results
-      let lastLoggedBatch = 0; // Track last logged batch for progress update
-
-      for (let i = 0; i < signaturesToFetchDetails.length; i += parseBatchLimit) {
-        const batchSignatures = signaturesToFetchDetails.slice(i, i + parseBatchLimit);
-        const batchNumber = Math.floor(i / parseBatchLimit) + 1;
-        
-        try {
-          // Await the result of fetching this batch directly
-          const batchTransactions = await this.getTransactionsBySignatures(batchSignatures);
-          
-          // Add successful results to the main array
-          newTransactions.push(...batchTransactions);
-
-          // Log progress periodically or on the last batch
-          if (batchNumber % 10 === 0 || batchNumber === totalBatches) {
-              // Clear previous line content and write new progress
-              process.stdout.write(`  Fetching details: Batch ${batchNumber}/${totalBatches} (${newTransactions.length} successful txns fetched so far)...\r`);
-              lastLoggedBatch = batchNumber;
-          }
-
-        } catch (error) {
-            // Log error for this specific batch but continue to the next batch
-            // Ensure error log goes to a new line if progress was being written
-            if (lastLoggedBatch > 0) process.stdout.write('\n'); 
-            logger.error(`Batch ${batchNumber}/${totalBatches}: Failed to fetch transactions after retries. Skipping this batch.`, { 
-                error: this.sanitizeError(error), 
-                failedSignatures: batchSignatures // Use the enhanced logging
-            });
-            lastLoggedBatch = 0; // Reset log tracker after error
-            // Continue to the next iteration of the loop
-        }
-      } // End loop through batches
-      
-      // Ensure the final log message starts on a new line after the progress indicator
-      if (lastLoggedBatch > 0) process.stdout.write('\n'); 
-
-      logger.info('Sequential batch requests finished.');
-
-      // Flattening is no longer needed as we push directly
-      // newTransactions = results.flat(); // Removed
-      logger.info(`Successfully fetched details for ${newTransactions.length} new transactions sequentially.`);
-      
     } catch (rpcError) {
-      // Catch errors specifically from the signature fetching phase (Phase 1)
-      logger.error('Failed during RPC signature fetching phase (Phase 1):', { error: this.sanitizeError(rpcError), address });
-      // Optionally re-throw, or return partial data (current + cache)
-      // For now, let's return what we have + cache, but log clearly it might be incomplete.
-      logger.warn('Returning potentially incomplete results due to fetching error during Phase 1.');
-      // Proceed to combine and save what was successfully fetched + cached data
+       logger.error('Failed during RPC signature fetching phase (Phase 1): Returning empty list.', { 
+           error: this.sanitizeError(rpcError), 
+           address, 
+           signaturesFetchedBeforeError: allRpcSignaturesInfo.length 
+       });
+       return []; // Return empty if signature fetching fails critically
     }
 
-    // Step 4/5: Combine, Filter, and Save Cache
-    logger.debug(`Combining ${newTransactions.length} newly fetched transactions with ${cachedTransactions.length} cached transactions.`);
-    const combinedMap = new Map<string, HeliusTransaction>();
-    cachedTransactions.forEach(tx => combinedMap.set(tx.signature, tx));
-    newTransactions.forEach(tx => combinedMap.set(tx.signature, tx)); // Overwrite cache with new if fetched
-    const combinedTransactions = Array.from(combinedMap.values());
+    const uniqueSignatures = Array.from(new Set(allRpcSignaturesInfo.map(s => s.signature)));
+    logger.info(`Total unique signatures from RPC: ${uniqueSignatures.length}`);
+
+    // === Check Cache to Identify Signatures to Fetch ===
+    logger.info(`Checking database cache existence for ${uniqueSignatures.length} signatures...`);
+    for (const sig of uniqueSignatures) {
+         const cachedTx = await getCachedTransaction(sig); // Use DB service
+         if (cachedTx) {
+             // Signature details already cached, do nothing here for incremental return
+         } else {
+             signaturesToFetchDetails.add(sig);
+         }
+     }
+    logger.info(`Identified ${signaturesToFetchDetails.size} signatures needing details fetched from API.`);
+
+    const signaturesToFetchArray = Array.from(signaturesToFetchDetails);
+
+    // === PHASE 2: Fetch Uncached Details SEQUENTIALLY & Save to Cache ===
+    if (signaturesToFetchArray.length > 0) {
+        logger.info(`Starting Phase 2: Fetching parsed details from Helius sequentially for ${signaturesToFetchArray.length} new signatures.`);
+        
+        const totalBatches = Math.ceil(signaturesToFetchArray.length / parseBatchLimit);
+        // Reset newlyFetchedTransactions here as it only holds results from THIS phase
+        newlyFetchedTransactions = []; 
+        let lastLoggedBatch = 0; 
+
+        for (let i = 0; i < signaturesToFetchArray.length; i += parseBatchLimit) {
+          const batchSignatures = signaturesToFetchArray.slice(i, i + parseBatchLimit);
+          const batchNumber = Math.floor(i / parseBatchLimit) + 1;
+          
+          try {
+            // Await the result of fetching this batch directly
+            const batchTransactions = await this.getTransactionsBySignatures(batchSignatures);
+            
+            // Add successful results to the list of newly fetched
+            newlyFetchedTransactions.push(...batchTransactions);
+
+            if (batchNumber % 10 === 0 || batchNumber === totalBatches) {
+                process.stdout.write(`  Fetching details: Batch ${batchNumber}/${totalBatches} (${newlyFetchedTransactions.length} successful txns fetched so far)...\r`);
+                lastLoggedBatch = batchNumber;
+            }
+
+          } catch (error) {
+              if (lastLoggedBatch > 0) process.stdout.write('\n'); 
+              logger.error(`Batch ${batchNumber}/${totalBatches}: Failed to fetch transactions after retries. Skipping this batch.`, { 
+                  error: this.sanitizeError(error), 
+                  failedSignatures: batchSignatures 
+              });
+              lastLoggedBatch = 0; 
+          }
+        } // End loop through batches
+        
+        if (lastLoggedBatch > 0) process.stdout.write('\n'); 
+        logger.info('Sequential batch requests finished.');
+        logger.info(`Successfully fetched details for ${newlyFetchedTransactions.length} new transactions sequentially.`);
+
+        // --- Save newly fetched transactions to DB Cache --- 
+        if (newlyFetchedTransactions.length > 0) {
+            logger.info(`Saving ${newlyFetchedTransactions.length} newly fetched transactions to database cache...`);
+            await saveCachedTransactions(newlyFetchedTransactions); // Use DB service
+            logger.info('Finished saving new transactions to cache.');
+            // Do NOT combine with cached data here. newlyFetchedTransactions holds the results.
+        } else {
+             logger.info('No new transactions were successfully fetched in Phase 2.');
+        }
+    } // End if signaturesToFetchArray.length > 0
     
-    // Filter *before* logging final return count and saving cache
+    // === Filtering & Sorting of Newly Fetched Transactions ===
+
+    let filteredTransactions = newlyFetchedTransactions; // Start with the newly fetched ones
+
+    // --- Timestamp Filtering (Incremental Logic) ---
+    if (newestProcessedTimestamp !== undefined) {
+        const countBefore = filteredTransactions.length;
+        filteredTransactions = filteredTransactions.filter(tx => tx.timestamp > newestProcessedTimestamp);
+        const countAfter = filteredTransactions.length;
+        logger.info(`Filtered by newestProcessedTimestamp (${newestProcessedTimestamp}): ${countBefore} -> ${countAfter} transactions.`);
+    } else {
+        logger.debug('No newestProcessedTimestamp provided, skipping timestamp filter.');
+    }
+    
+    // --- Address Relevance Filtering ---
+    logger.debug(`Total transactions before address relevance filter: ${filteredTransactions.length}`);
+    // Filter *before* sorting 
     const lowerCaseAddress = address.toLowerCase();
-    const relevantCombined = combinedTransactions.filter(tx => {
+    const relevantFiltered = filteredTransactions.filter(tx => {
         const hasTokenTransfer = tx.tokenTransfers?.some(t => 
             t.fromUserAccount?.toLowerCase() === lowerCaseAddress || 
             t.toUserAccount?.toLowerCase() === lowerCaseAddress
@@ -349,24 +334,20 @@ export class HeliusApiClient {
             t.fromUserAccount?.toLowerCase() === lowerCaseAddress || 
             t.toUserAccount?.toLowerCase() === lowerCaseAddress
         );
-        return hasTokenTransfer || hasNativeTransfer;
+        const hasAccountDataChange = tx.accountData?.some(ad => 
+             ad.account?.toLowerCase() === lowerCaseAddress && 
+             (ad.nativeBalanceChange !== 0 || ad.tokenBalanceChanges?.length > 0)
+        );
+        return hasTokenTransfer || hasNativeTransfer || hasAccountDataChange; 
     });
-    logger.info(`Filtered combined transactions down to ${relevantCombined.length} involving the target address.`);
+    logger.info(`Filtered combined transactions down to ${relevantFiltered.length} involving the target address.`);
 
     // Sort the relevant transactions by timestamp (ascending - oldest first)
-    relevantCombined.sort((a, b) => a.timestamp - b.timestamp);
-    logger.debug(`Sorted ${relevantCombined.length} relevant transactions by timestamp.`);
+    relevantFiltered.sort((a, b) => a.timestamp - b.timestamp);
+    logger.debug(`Sorted ${relevantFiltered.length} newly fetched, relevant transactions by timestamp.`);
 
-    // Save the combined *and filtered* results if new ones were fetched
-    if (newTransactions.length > 0) { 
-      this.saveToCache(address, relevantCombined); // Save filtered & sorted results
-    } else {
-      logger.info('No new transactions fetched, cache remains unchanged.');
-    }
-    
-    // Log the count of transactions being *returned* (which are the filtered & sorted ones)
-    logger.info(`Helius API client process finished. Returning ${relevantCombined.length} total relevant transactions.`);
-    return relevantCombined; // Return the filtered & sorted list
+    logger.info(`Helius API client process finished. Returning ${relevantFiltered.length} newly fetched, relevant transactions.`);
+    return relevantFiltered; // Return the filtered & sorted list of NEW transactions
   }
 
   private sanitizeError(error: any): any {
