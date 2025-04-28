@@ -2,7 +2,6 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import path from 'path'; // Import path for joining paths
 import { createLogger } from '../utils/logger';
 import { HeliusApiClient } from '../services/helius-api-client';
 import {
@@ -14,10 +13,9 @@ import {
   writeAnalysisReportTxt_fromMemory,
   saveAnalysisResultsToCsv
 } from '../services/transfer-analyzer-service';
-import { IntermediateSwapRecord, HeliusTransaction, OnChainAnalysisResult, AdvancedTradeStats } from '../types/helius-api'; // Correct import location
+import { IntermediateSwapRecord, HeliusTransaction } from '../types/helius-api'; // Correct import location
 import { calculateAdvancedStats } from '../services/advanced-stats-service'; // Import the new service
 import { displaySummary, displayDetailedResults } from '../cli/display-utils';
-// --- Database Service Imports ---
 import {
     getWallet, 
     updateWallet, 
@@ -77,7 +75,9 @@ async function performAnalysisForWallet(
     timestamp: input.timestamp,
     mint: input.mint,
     amount: input.amount,
-    direction: input.direction as "in" | "out" // Type assertion
+    direction: input.direction as "in" | "out", // Type assertion
+    solSpentInTx: input.solSpentInTx ?? 0,     // Use nullish coalescing for safety with potentially old data
+    solReceivedInTx: input.solReceivedInTx ?? 0 // Use nullish coalescing 
   }));
 
   if (intermediateRecords.length === 0) {
@@ -199,7 +199,9 @@ async function analyzeWalletWithHelius(
               timestamp: rec.timestamp,
               mint: rec.mint,
               amount: rec.amount ?? 0,
-              direction: rec.direction
+              direction: rec.direction,
+              solSpentInTx: rec.solSpentInTx,
+              solReceivedInTx: rec.solReceivedInTx
             }));
             const saveResult = await saveSwapAnalysisInputs(recordsToSave);
             logger.info(`[Fetch Phase] Successfully saved ${saveResult.count} new records to SwapAnalysisInput table.`);

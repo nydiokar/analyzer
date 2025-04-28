@@ -44,9 +44,13 @@ model SwapAnalysisInput {
   walletAddress String   
   signature     String   
   timestamp     Int      // Unix seconds
-  mint          String   // Token mint address (SOL_MINT for SOL)
+  mint          String   // Token mint address 
   amount        Float    // REVERTED: Back to Float for SQLite compatibility
   direction     String   // "in" or "out" relative to walletAddress
+
+  // Add fields to store transaction-level SOL movement context
+  solSpentInTx  Float?   // Total SOL spent by the wallet in this specific transaction (optional for backward compatibility)
+  solReceivedInTx Float? // Total SOL received by the wallet in this specific transaction (optional for backward compatibility)
 
   // Indices for efficient querying by wallet, time, token, or signature
   @@index([walletAddress, timestamp])

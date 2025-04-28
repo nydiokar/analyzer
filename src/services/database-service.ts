@@ -165,14 +165,14 @@ export async function saveSwapAnalysisInputs(inputs: SwapAnalysisInputCreateData
         logger.debug('No swap analysis inputs provided to save.');
         return { count: 0 };
     }
-    logger.info(`Attempting to save ${inputs.length} swap analysis inputs...`);
+    logger.debug(`Attempting to save ${inputs.length} swap analysis inputs...`);
     try {
         // Use createMany for potentially better performance with SQLite
         const result = await prisma.swapAnalysisInput.createMany({
             data: inputs,
             // skipDuplicates: true, // Temporarily remove to resolve TS error - revisit if needed
         });
-        logger.info(`Successfully saved ${result.count} swap analysis inputs.`);
+        logger.debug(`Successfully saved ${result.count} swap analysis inputs.`);
         return result; // Contains the count of records created
     } catch (error) {
         logger.error('Error saving swap analysis inputs', { error });
@@ -213,6 +213,7 @@ export async function getSwapAnalysisInputs(
         if (hasTimestampFilter) {
             whereClause.timestamp = timestampFilter;
         }
+
 
         const inputs = await prisma.swapAnalysisInput.findMany({
             where: whereClause,

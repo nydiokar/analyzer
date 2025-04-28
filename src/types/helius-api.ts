@@ -176,6 +176,8 @@ export interface IntermediateSwapRecord {
   mint: string;           // Token mint address
   amount: number;         // Raw token amount (smallest unit, e.g., lamports for SPL tokens)
   direction: 'in' | 'out'; // Direction relative to the analyzed wallet
+  solSpentInTx?: number;   // Total SOL spent by wallet in this TX (from nativeBalanceChange)
+  solReceivedInTx?: number;// Total SOL received by wallet in this TX (from nativeBalanceChange)
 }
 
 /**
