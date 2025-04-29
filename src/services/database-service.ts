@@ -356,9 +356,30 @@ export async function saveAnalysisResults(results: AnalysisResultCreateData[]) {
     logger.info(`Attempting to save ${results.length} analysis results for run ID: ${runId}, wallet: ${walletAddress}...`);
     // NOTE: We assume the walletAddress is correctly populated in the input `results` array
     try {
+        // Filter out extra fields that aren't in the database schema to avoid validation errors
+        const filteredResults = results.map(result => {
+            // Only include fields that exist in the AnalysisResult schema
+            return {
+                runId: result.runId,
+                walletAddress: result.walletAddress,
+                tokenAddress: result.tokenAddress,
+                totalAmountIn: result.totalAmountIn,
+                totalAmountOut: result.totalAmountOut,
+                netAmountChange: result.netAmountChange,
+                totalSolSpent: result.totalSolSpent,
+                totalSolReceived: result.totalSolReceived,
+                netSolProfitLoss: result.netSolProfitLoss,
+                transferCountIn: result.transferCountIn,
+                transferCountOut: result.transferCountOut,
+                firstTransferTimestamp: result.firstTransferTimestamp,
+                lastTransferTimestamp: result.lastTransferTimestamp,
+                // Omit: adjustedNetSolProfitLoss, estimatedPreservedValue, isValuePreservation, preservationType
+            };
+        });
+        
         // Use createMany for performance
         const result = await prisma.analysisResult.createMany({
-            data: results, // Input array already includes runId and walletAddress
+            data: filteredResults, // Use the filtered results that match the schema
         });
         logger.info(`Successfully saved ${result.count} analysis results for run ID: ${runId}.`);
         return result;
