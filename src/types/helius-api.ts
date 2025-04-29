@@ -167,18 +167,6 @@ export interface CompressedNftEvent {
   oldLeafOwner: string;
 }
 
-/**
- * Intermediate format focusing on token transfers within swaps.
- * Designed to capture ALL transfers within relevant transactions for later analysis.
- */
-export interface IntermediateSwapRecord {
-  signature: string;      // Transaction signature
-  timestamp: number;      // Unix timestamp of the transaction
-  mint: string;           // Token mint address
-  amount: number;         // Raw token amount (needs decimal adjustment during analysis)
-  fromUserAccount: string | null; // ADDED: Source wallet/owner account
-  toUserAccount: string | null;   // ADDED: Destination wallet/owner account
-}
 
 /**
  * Results structure for On-Chain Swap Analysis, including SOL P/L.
@@ -195,6 +183,12 @@ export interface OnChainAnalysisResult {
   transferCountOut: number;     // Number of times SPL was sent
   firstTransferTimestamp: number; // Unix timestamp of first swap involving this SPL
   lastTransferTimestamp: number;  // Unix timestamp of last swap involving this SPL
+  
+  // Value preservation fields for stablecoins and HODL tokens 
+  isValuePreservation?: boolean;           // Indicates if token is treated as a value store (stablecoin, etc)
+  estimatedPreservedValue?: number;        // Estimated SOL value still preserved in the token
+  adjustedNetSolProfitLoss?: number;       // P/L adjusted for preserved value
+  preservationType?: 'stablecoin' | 'hodl'; // Type of value preservation
 }
 
 /**

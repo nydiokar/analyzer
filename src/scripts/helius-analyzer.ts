@@ -111,15 +111,51 @@ async function analyzeWalletWithHelius(
     fetchOlder: boolean;
     maxSignatures?: number | null;
     timeRange?: { startTs?: number, endTs?: number };
+    smartFetch?: boolean;
+    period?: string;
   }
 ): Promise<void> {
   try {
     const isHistoricalView = !!options.timeRange;
     const mode = isHistoricalView ? 'Historical View' : 'Incremental Update & Full Analysis';
     logger.info(`Starting Mode: ${mode} for wallet: ${walletAddress}`);
-    logger.info(`Options: BatchLimit=${options.limit}, FetchAll=${options.fetchAll}, Verbose=${options.verbose}, SkipApi=${options.skipApi}, MaxSignatures=${options.maxSignatures || 'none'}`);
+    logger.info(`Options: BatchLimit=${options.limit}, SmartFetch=${options.smartFetch || false}, Period=${options.period || 'none'}, FetchAll=${options.fetchAll}, Verbose=${options.verbose}, SkipApi=${options.skipApi}, MaxSignatures=${options.maxSignatures || 'none'}`);
     if (isHistoricalView) {
         logger.info(`Historical Time Range (Unix Ts): ${options.timeRange?.startTs} to ${options.timeRange?.endTs}`);
+    }
+
+    // Pre-convert period to timeRange if specified
+    if (options.period && !options.timeRange) {
+      const endDate = new Date();
+      const startDate = new Date();
+      
+      switch(options.period.toLowerCase()) {
+        case 'day':
+          startDate.setDate(startDate.getDate() - 1);
+          break;
+        case 'week':
+          startDate.setDate(startDate.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setMonth(startDate.getMonth() - 1);
+          break;
+        case 'quarter':
+          startDate.setMonth(startDate.getMonth() - 3);
+          break;
+        case 'year':
+          startDate.setFullYear(startDate.getFullYear() - 1);
+          break;
+        default:
+          logger.warn(`Unknown period value: ${options.period}. Using 'month' as default.`);
+          startDate.setMonth(startDate.getMonth() - 1);
+      }
+      
+      options.timeRange = {
+        startTs: Math.floor(startDate.getTime() / 1000),
+        endTs: Math.floor(endDate.getTime() / 1000)
+      };
+      
+      logger.info(`Period '${options.period}' converted to time range: ${new Date(startDate).toISOString().split('T')[0]} to ${new Date(endDate).toISOString().split('T')[0]}`);
     }
 
     // --- Step 1: Ensure Database is Up-to-Date (Incremental Fetch/Save) ---
@@ -137,92 +173,147 @@ async function analyzeWalletWithHelius(
         network: 'mainnet',
       });
 
-      // --- Get Wallet State for Incremental Fetch ---
-      let stopAtSignature: string | undefined = undefined;
-      let newestProcessedTimestamp: number | undefined = undefined;
-      let initialFetch = false;
-      const walletState = await getWallet(walletAddress);
-      if (walletState && !options.fetchOlder) {
-        stopAtSignature = walletState.newestProcessedSignature ?? undefined;
-        newestProcessedTimestamp = walletState.newestProcessedTimestamp ?? undefined;
-        logger.debug(`[Fetch Phase] Found existing wallet state. Fetching transactions newer than: ts=${newestProcessedTimestamp}, sig=${stopAtSignature}`);
-      } else if (options.fetchOlder) {
-        initialFetch = true; // Treat as initial fetch for state update logic later
-        logger.info('[Fetch Phase] --fetch-older flag detected. Ignoring saved state to fetch older history.');
-      } else {
-        initialFetch = true;
-        logger.debug('[Fetch Phase] No existing wallet state found. Performing initial fetch.');
-      }
-
-      logger.debug(`[Fetch Phase] Fetching relevant transactions from Helius API...`);
-      let newTransactions: HeliusTransaction[] = [];
+      // Get total transaction count from DB for this wallet
+      let dbTransactionCount = 0;
       try {
-        // Only include cached transactions if this is an initial fetch or we're fetching older transactions
-        // For incremental runs (newer transactions), we don't need cached ones
-        const includeCached = initialFetch || options.fetchOlder;
-        
-        newTransactions = await heliusClient.getAllTransactionsForAddress(
-          walletAddress, 
-          options.limit,
-          options.maxSignatures,
-          stopAtSignature,       
-          newestProcessedTimestamp,
-          includeCached // Add the includeCached parameter
-        );
-        logger.info(`[Fetch Phase] Fetched ${newTransactions.length} relevant transactions from Helius${includeCached ? ' (including cached)' : ' (new only)'}.`);
+        const existingInputs = await prisma.swapAnalysisInput.findMany({
+          where: { walletAddress },
+          select: { signature: true },
+          distinct: ['signature']
+        });
+        dbTransactionCount = existingInputs.length;
+        logger.info(`[Fetch Phase] Found ${dbTransactionCount} unique transactions for ${walletAddress} in database.`);
       } catch (error) {
-        logger.error(`[Fetch Phase] Failed to fetch transactions from Helius.`, { error: error instanceof Error ? error.message : String(error) });
-        logger.warn('[Fetch Phase] Cannot update database or wallet state due to API fetch failure.');
-        // Allow proceeding to analysis phase with existing DB data even if fetch fails
+        logger.error(`[Fetch Phase] Error counting existing transactions`, { error });
       }
 
-      // --- Process & Save New Transactions ---
-      if (newTransactions.length > 0) {
-        logger.debug('[Fetch Phase] Mapping and saving new transactions...');
-        // mapHeliusTransactionsToIntermediateRecords now returns SwapAnalysisInputCreateData[]
-        const analysisInputsToSave: Prisma.SwapAnalysisInputCreateInput[] = mapHeliusTransactionsToIntermediateRecords(walletAddress, newTransactions);
+      // --- Smart Fetch Logic ---
+      if (options.smartFetch && options.maxSignatures) {
+        // If smartFetch is enabled with maxSignatures, handle differently
+        logger.info(`[Fetch Phase] SmartFetch enabled with target of ${options.maxSignatures} transactions.`);
         
-        if (analysisInputsToSave.length > 0) {
-          logger.debug(`[Fetch Phase] Saving ${analysisInputsToSave.length} new analysis input records to database...`);
-          try {
-            // No extra mapping needed, analysisInputsToSave should match the create input type
-            // const recordsToSave: Prisma.SwapAnalysisInputCreateInput[] = analysisInputsToSave.map(rec => ({ ... })); 
-            const saveResult = await saveSwapAnalysisInputs(analysisInputsToSave);
-            logger.info(`[Fetch Phase] Successfully saved ${saveResult.count} new records to SwapAnalysisInput table.`);
-          } catch (dbError) {
-            logger.error('[Fetch Phase] Error saving new analysis input records to database:', dbError);
-          }
+        // Check if we need to fetch more transactions
+        if (dbTransactionCount >= options.maxSignatures) {
+          logger.info(`[Fetch Phase] Database already has ${dbTransactionCount} transactions, which meets or exceeds target of ${options.maxSignatures}. No need to fetch more.`);
         } else {
-          logger.debug('[Fetch Phase] Mapping resulted in 0 analysis input records to save.');
-        }
+          // Calculate how many more transactions we need
+          const neededTransactions = options.maxSignatures - dbTransactionCount;
+          logger.info(`[Fetch Phase] Need to fetch ${neededTransactions} more transactions to reach target of ${options.maxSignatures}.`);
+          
+          // First fetch newer transactions (if any)
+          const walletState = await getWallet(walletAddress);
+          let stopAtSignature: string | undefined = undefined;
+          let newestProcessedTimestamp: number | undefined = undefined;
+          
+          if (walletState) {
+            stopAtSignature = walletState.newestProcessedSignature ?? undefined;
+            newestProcessedTimestamp = walletState.newestProcessedTimestamp ?? undefined;
+            logger.debug(`[Fetch Phase] Fetching newer transactions first (newer than ts=${newestProcessedTimestamp}, sig=${stopAtSignature})`);
+          }
 
-        // --- Update Wallet State ---
-        const latestTx = newTransactions.reduce((latest, current) => {
-          return (!latest || current.timestamp > latest.timestamp) ? current : latest;
-        }, null as HeliusTransaction | null);
+          // First pass: Fetch newer transactions
+          let newTransactions: HeliusTransaction[] = [];
+          try {
+            newTransactions = await heliusClient.getAllTransactionsForAddress(
+              walletAddress, 
+              options.limit,
+              null, // No maxSignatures yet - get all newer ones
+              stopAtSignature,       
+              newestProcessedTimestamp,
+              false // Don't include cached yet
+            );
+            logger.info(`[Fetch Phase] Fetched ${newTransactions.length} new transactions.`);
+          } catch (error) {
+            logger.error(`[Fetch Phase] Failed to fetch newer transactions`, { error });
+          }
 
-        if (latestTx) {
-          logger.debug(`[Fetch Phase] Updating wallet state with newest processed transaction: ts=${latestTx.timestamp}, sig=${latestTx.signature}`);
-          const updateData: any = {
-            newestProcessedSignature: latestTx.signature,
-            newestProcessedTimestamp: latestTx.timestamp,
-            lastSuccessfulFetchTimestamp: new Date(),
-          };
-          if (initialFetch) {
-            const oldestTx = newTransactions.reduce((oldest, current) => {
-              return (!oldest || current.timestamp < oldest.timestamp) ? current : oldest;
-            }, null as HeliusTransaction | null);
-            if (oldestTx) {
-              updateData.firstProcessedTimestamp = oldestTx.timestamp;
+          // Process and save newer transactions
+          if (newTransactions.length > 0) {
+            await processAndSaveTransactions(walletAddress, newTransactions, true);
+          }
+
+          // Check if we still need older transactions
+          const remainingNeeded = neededTransactions - newTransactions.length;
+          if (remainingNeeded > 0 && walletState) {
+            logger.info(`[Fetch Phase] Still need ${remainingNeeded} more transactions. Fetching older transactions.`);
+            
+            // Second pass: Fetch older transactions if needed
+            let olderTransactions: HeliusTransaction[] = [];
+            try {
+              olderTransactions = await heliusClient.getAllTransactionsForAddress(
+                walletAddress, 
+                options.limit,
+                remainingNeeded, // Limit to what we need
+                undefined, // No stop signature for older fetch
+                undefined, // No timestamp filter
+                true, // Include cached to help identify what's older
+              );
+              
+              // Filter to only get transactions older than what we have
+              const oldestProcessedTimestamp = walletState.firstProcessedTimestamp;
+              if (oldestProcessedTimestamp) {
+                olderTransactions = olderTransactions.filter(tx => tx.timestamp < oldestProcessedTimestamp);
+                logger.info(`[Fetch Phase] Fetched ${olderTransactions.length} older transactions (before timestamp ${oldestProcessedTimestamp}).`);
+              } else {
+                logger.warn(`[Fetch Phase] Could not determine oldest processed timestamp. Older transaction fetch may include duplicates.`);
+              }
+            } catch (error) {
+              logger.error(`[Fetch Phase] Failed to fetch older transactions`, { error });
+            }
+
+            // Process and save older transactions
+            if (olderTransactions.length > 0) {
+              await processAndSaveTransactions(walletAddress, olderTransactions, false);
             }
           }
-          await updateWallet(walletAddress, updateData);
-          logger.info('[Fetch Phase] Wallet state updated successfully.');
-        } else {
-          logger.warn('[Fetch Phase] Failed to find latest transaction to update wallet state, though new transactions were fetched.');
         }
       } else {
-        logger.info('[Fetch Phase] No new transactions fetched from API.');
+        // Original fetch logic
+        // --- Get Wallet State for Incremental Fetch ---
+        let stopAtSignature: string | undefined = undefined;
+        let newestProcessedTimestamp: number | undefined = undefined;
+        let initialFetch = false;
+        const walletState = await getWallet(walletAddress);
+        if (walletState && !options.fetchOlder) {
+          stopAtSignature = walletState.newestProcessedSignature ?? undefined;
+          newestProcessedTimestamp = walletState.newestProcessedTimestamp ?? undefined;
+          logger.debug(`[Fetch Phase] Found existing wallet state. Fetching transactions newer than: ts=${newestProcessedTimestamp}, sig=${stopAtSignature}`);
+        } else if (options.fetchOlder) {
+          initialFetch = true; // Treat as initial fetch for state update logic later
+          logger.info('[Fetch Phase] --fetch-older flag detected. Ignoring saved state to fetch older history.');
+        } else {
+          initialFetch = true;
+          logger.debug('[Fetch Phase] No existing wallet state found. Performing initial fetch.');
+        }
+
+        logger.debug(`[Fetch Phase] Fetching relevant transactions from Helius API...`);
+        let newTransactions: HeliusTransaction[] = [];
+        try {
+          // Only include cached transactions if this is an initial fetch or we're fetching older transactions
+          // For incremental runs (newer transactions), we don't need cached ones
+          const includeCached = initialFetch || options.fetchOlder;
+          
+          newTransactions = await heliusClient.getAllTransactionsForAddress(
+            walletAddress, 
+            options.limit,
+            options.maxSignatures,
+            stopAtSignature,       
+            newestProcessedTimestamp,
+            includeCached // Add the includeCached parameter
+          );
+          logger.info(`[Fetch Phase] Fetched ${newTransactions.length} relevant transactions from Helius${includeCached ? ' (including cached)' : ' (new only)'}.`);
+        } catch (error) {
+          logger.error(`[Fetch Phase] Failed to fetch transactions from Helius.`, { error: error instanceof Error ? error.message : String(error) });
+          logger.warn('[Fetch Phase] Cannot update database or wallet state due to API fetch failure.');
+          // Allow proceeding to analysis phase with existing DB data even if fetch fails
+        }
+
+        // Process and save transactions
+        if (newTransactions.length > 0) {
+          await processAndSaveTransactions(walletAddress, newTransactions, initialFetch);
+        } else {
+          logger.info('[Fetch Phase] No new transactions fetched from API.');
+        }
       }
     } else {
       logger.info('Skipping API fetch (--skipApi). Analysis will use currently stored data.');
@@ -360,6 +451,86 @@ async function analyzeWalletWithHelius(
   }
 }
 
+/**
+ * Helper function to process and save transactions and update wallet state
+ */
+async function processAndSaveTransactions(
+  walletAddress: string, 
+  transactions: HeliusTransaction[], 
+  isNewerFetch: boolean
+): Promise<void> {
+  logger.debug('[Fetch Phase] Mapping and saving transactions...');
+  
+  // Map transactions to analysis inputs
+  const analysisInputsToSave: Prisma.SwapAnalysisInputCreateInput[] = 
+    mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
+  
+  if (analysisInputsToSave.length > 0) {
+    logger.debug(`[Fetch Phase] Saving ${analysisInputsToSave.length} analysis input records to database...`);
+    try {
+      const saveResult = await saveSwapAnalysisInputs(analysisInputsToSave);
+      logger.info(`[Fetch Phase] Successfully saved ${saveResult.count} new records to SwapAnalysisInput table.`);
+      
+      // Skip wallet stats update to avoid dependency issues
+      // Wallet stats can be recalculated separately
+    } catch (dbError) {
+      logger.error('[Fetch Phase] Error saving analysis input records to database:', dbError);
+    }
+  } else {
+    logger.debug('[Fetch Phase] Mapping resulted in 0 analysis input records to save.');
+  }
+
+  // --- Update Wallet State ---
+  if (transactions.length > 0) {
+    // Find latest and oldest transactions
+    const latestTx = transactions.reduce((latest, current) => {
+      return (!latest || current.timestamp > latest.timestamp) ? current : latest;
+    }, null as HeliusTransaction | null);
+
+    const oldestTx = transactions.reduce((oldest, current) => {
+      return (!oldest || current.timestamp < oldest.timestamp) ? current : oldest;
+    }, null as HeliusTransaction | null);
+
+    if (latestTx && oldestTx) {
+      const updateData: any = {
+        lastSuccessfulFetchTimestamp: new Date(),
+      };
+
+      // Update newest/first processed based on if this was newer or older fetch
+      if (isNewerFetch && latestTx) {
+        logger.debug(`[Fetch Phase] Updating wallet state with newest transaction: ts=${latestTx.timestamp}, sig=${latestTx.signature}`);
+        updateData.newestProcessedSignature = latestTx.signature;
+        updateData.newestProcessedTimestamp = latestTx.timestamp;
+      }
+
+      // Update oldest timestamp only if this is first fetch or fetching older data
+      if (!isNewerFetch && oldestTx) {
+        logger.debug(`[Fetch Phase] Updating wallet state with oldest transaction: ts=${oldestTx.timestamp}`);
+        updateData.firstProcessedTimestamp = oldestTx.timestamp;
+      }
+
+      await updateWallet(walletAddress, updateData);
+      logger.info('[Fetch Phase] Wallet state updated successfully.');
+    } else {
+      logger.warn('[Fetch Phase] Failed to find latest/oldest transaction for wallet state update.');
+    }
+  }
+}
+
+/**
+ * Count successful and failed transactions
+ */
+function getTransactionStats(transactions: HeliusTransaction[]) {
+  const successful = transactions.filter(tx => {
+    // Handle transactions that might not have a status property
+    const txStatus = (tx as any).status;
+    return txStatus && txStatus.toLowerCase() === 'success';
+  }).length;
+  const failed = transactions.length - successful;
+  
+  return { successful, failed };
+}
+
 // CLI setup with yargs
 (async () => {
   const argv = await yargs(hideBin(process.argv))
@@ -390,40 +561,52 @@ async function analyzeWalletWithHelius(
       default: false
     })
     .option('skipApi', {
-        description: 'Skip Helius API calls entirely, rely solely on reading cached intermediate data from database',
-        type: 'boolean',
-        default: false
+      description: 'Skip Helius API calls entirely, rely solely on reading cached intermediate data from database',
+      type: 'boolean',
+      default: false
+    })
+    .option('smartFetch', {
+      alias: 'sf',
+      description: 'Smart fetch mode: first fetches new transactions, then fills up to --ms with older ones',
+      type: 'boolean',
+      default: false
     })
     .option('fetchOlder', {
-        description: 'Ignore saved state and fetch older transaction history (respects --ms limit)',
-        type: 'boolean',
-        default: false
+      description: 'Legacy mode: Ignore saved state and fetch older transaction history (respects --ms limit)',
+      type: 'boolean',
+      default: false
     })
     .option('maxSignatures', {
-        alias: 'ms',
-        description: 'Optional maximum number of signatures to fetch via RPC (fetches all if omitted)',
-        type: 'number',
-        demandOption: false
+      alias: 'ms',
+      description: 'Maximum number of transactions to fetch in total. With --smartFetch, ensures DB has at least this many',
+      type: 'number',
+      demandOption: false
     })
-    // Prepare for Step 7 - Add time range options for on-demand analysis
+    .option('period', {
+      alias: 'p',
+      description: 'Time period to analyze (day, week, month, quarter, year)',
+      type: 'string',
+      choices: ['day', 'week', 'month', 'quarter', 'year']
+    })
     .option('startDate', {
-        description: 'Optional start date for analysis (format: YYYY-MM-DD)',
-        type: 'string',
-        demandOption: false
+      description: 'Optional start date for analysis (format: YYYY-MM-DD)',
+      type: 'string',
+      demandOption: false
     })
     .option('endDate', {
-        description: 'Optional end date for analysis (format: YYYY-MM-DD)',
-        type: 'string',
-        demandOption: false
+      description: 'Optional end date for analysis (format: YYYY-MM-DD)',
+      type: 'string',
+      demandOption: false
     })
     .option('saveAnalysisCsv', {
-        description: 'Save aggregated analysis results (per-token P/L) to CSV',
-        type: 'boolean',
-        default: false
+      description: 'Save aggregated analysis results (per-token P/L) to CSV',
+      type: 'boolean',
+      default: false
     })
-    .example('npx ts-node analyze-helius -- --address <WALLET_ADDRESS>', 'Analyze a wallet (fetches API data)')
-    .example('npx ts-node analyze-helius -- --address <WALLET_ADDRESS> --skipApi', 'Analyze using only cached data from database')
-    .example('npx ts-node analyze-helius -- --address <WALLET_ADDRESS> --startDate 2023-06-01 --endDate 2023-12-31', 'Analyze specific date range')
+    .example('npx ts-node src/scripts/helius-analyzer.ts --address <WALLET> --smartFetch --ms 3000', 'Fetch newer transactions first, then older ones to reach 3000 total')
+    .example('npx ts-node src/scripts/helius-analyzer.ts --address <WALLET> --period month', 'Analyze transactions from the past month')
+    .example('npx ts-node src/scripts/helius-analyzer.ts --address <WALLET> --skipApi', 'Analyze using only cached data from database')
+    .example('npx ts-node src/scripts/helius-analyzer.ts --address <WALLET> --startDate 2023-06-01 --endDate 2023-12-31', 'Analyze specific date range')
     .wrap(yargs.terminalWidth())
     .help()
     .alias('help', 'h')
@@ -440,6 +623,8 @@ async function analyzeWalletWithHelius(
       verbose: boolean;
       skipApi: boolean;
       fetchOlder: boolean;
+      smartFetch: boolean;
+      period?: string;
       maxSignatures?: number | null;
       startDate?: string;
       endDate?: string;
@@ -479,13 +664,7 @@ async function analyzeWalletWithHelius(
       }
   }
   // --- End date range processing ---
-
-  // Decide execution path
-  // The logic is now unified within analyzeWalletWithHelius, 
-  // which handles DB saving based on whether timeRange is provided.
   
-  // Always call the main analysis function
-  // The function itself now handles DB saving and reporting based on whether timeRange exists
   await analyzeWalletWithHelius(
     typedArgv.address,
     {
@@ -496,7 +675,9 @@ async function analyzeWalletWithHelius(
       skipApi: typedArgv.skipApi,
       fetchOlder: typedArgv.fetchOlder,
       maxSignatures: typedArgv.maxSignatures || null,
-      timeRange: timeRange // Pass the processed timeRange here (will be undefined if no dates provided)
+      timeRange: timeRange,
+      smartFetch: typedArgv.smartFetch,
+      period: typedArgv.period
     }
   );
 })(); 

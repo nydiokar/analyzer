@@ -93,8 +93,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
       const processedTokensInTx = new Set<string>();
       
       // -- STEP 1: Collect ALL SPL and WSOL transfers involving this wallet --
-      const tokensSent = new Map<string, number>(); // mint -> amount
-      const tokensReceived = new Map<string, number>(); // mint -> amount
+      const tokensSent = new Map<string, { amount: number, transfers: TokenTransfer[] }>(); // mint -> {amount, transfers}
+      const tokensReceived = new Map<string, { amount: number, transfers: TokenTransfer[] }>(); // mint -> {amount, transfers}
       
       // Collect token transfers where the user is directly involved
       for (const transfer of tx.tokenTransfers || []) {
@@ -102,8 +102,10 @@ export function mapHeliusTransactionsToIntermediateRecords(
         if (transfer.fromUserAccount?.toLowerCase() === lower) {
           const amount = safeParseAmount(transfer);
           if (amount > 0) {
-            const current = tokensSent.get(transfer.mint) || 0;
-            tokensSent.set(transfer.mint, current + amount);
+            const current = tokensSent.get(transfer.mint) || { amount: 0, transfers: [] };
+            current.amount += amount;
+            current.transfers.push(transfer);
+            tokensSent.set(transfer.mint, current);
           }
         }
         
@@ -111,8 +113,10 @@ export function mapHeliusTransactionsToIntermediateRecords(
         if (transfer.toUserAccount?.toLowerCase() === lower) {
           const amount = safeParseAmount(transfer);
           if (amount > 0) {
-            const current = tokensReceived.get(transfer.mint) || 0;
-            tokensReceived.set(transfer.mint, current + amount);
+            const current = tokensReceived.get(transfer.mint) || { amount: 0, transfers: [] };
+            current.amount += amount;
+            current.transfers.push(transfer);
+            tokensReceived.set(transfer.mint, current);
           }
         }
       }
@@ -137,18 +141,18 @@ export function mapHeliusTransactionsToIntermediateRecords(
       }
       
       // -- STEP 3: Get regular SPL tokens (excluding WSOL) that were transferred --
-      const regularSplSent = new Map<string, number>();
-      const regularSplReceived = new Map<string, number>();
+      const regularSplSent = new Map<string, { amount: number, transfers: TokenTransfer[] }>();
+      const regularSplReceived = new Map<string, { amount: number, transfers: TokenTransfer[] }>();
       
-      for (const [mint, amount] of tokensSent.entries()) {
+      for (const [mint, data] of tokensSent.entries()) {
         if (mint !== SOL_MINT) {
-          regularSplSent.set(mint, amount);
+          regularSplSent.set(mint, data);
         }
       }
       
-      for (const [mint, amount] of tokensReceived.entries()) {
+      for (const [mint, data] of tokensReceived.entries()) {
         if (mint !== SOL_MINT) {
-          regularSplReceived.set(mint, amount);
+          regularSplReceived.set(mint, data);
         }
       }
       
@@ -157,97 +161,137 @@ export function mapHeliusTransactionsToIntermediateRecords(
       const isDirectSwap = regularSplSent.size === 1 && regularSplReceived.size === 1;
       
       // Calculate direct WSOL movements for the user's wallet
-      const userWsolSent = tokensSent.get(SOL_MINT) || 0;
-      const userWsolReceived = tokensReceived.get(SOL_MINT) || 0;
+      const userWsolSent = tokensSent.has(SOL_MINT) ? tokensSent.get(SOL_MINT)!.amount : 0;
+      const userWsolReceived = tokensReceived.has(SOL_MINT) ? tokensReceived.get(SOL_MINT)!.amount : 0;
       
       // -- STEP 5: Create the records with proper associated SOL values --
       
-      // Handle tokens sent by the user
-      for (const [mint, amount] of regularSplSent.entries()) {
-        const key = `${tx.signature}:${mint}:out`;
-        if (!processedTokensInTx.has(key)) {
-          // Determine proceeds (associated SOL value for outgoing SPL)
-          let proceeds = 0;
+      // Detect potential fee transfers (typically small outgoing tokens to Jupiter Authority, etc.)
+      const potentialFeeTransfers = new Set<string>();
+      
+      // For SPL tokens with both incoming and outgoing transfers, mark the smaller amounts as potential fees
+      for (const [mint, sentData] of regularSplSent.entries()) {
+        if (regularSplReceived.has(mint)) {
+          const receivedData = regularSplReceived.get(mint)!;
           
-          if (isDirectSwap) {
-            // For direct SPL-to-SPL swaps, use the WSOL movements as the SOL value
-            // for both tokens, ensuring they get the same value
-            if (totalWsolTransferred > 0) {
-              // This is the key change - use HALF of the WSOL transfers as SOL value
-              // to avoid double-counting when analyzing token values
-              proceeds = totalWsolTransferred / 2;
-            } else if (userWsolReceived > 0) {
-              // Fallback to direct WSOL received by user
-              proceeds = userWsolReceived;
-            }
-          } else {
-            // For single-sided operations, or complex multi-token operations
-            if (userWsolReceived > 0) {
-              // WSOL was directly sent to the user
-              proceeds = userWsolReceived;
-            } else if (totalWsolTransferred > 0) {
-              // WSOL was involved indirectly, but not received by user
-              proceeds = totalWsolTransferred / 2; // Fair share estimate
+          // If we have tiny outgoing amount compared to received - this is likely a fee
+          if (sentData.amount < receivedData.amount * 0.05) { // Less than 5% = likely fee
+            for (const transfer of sentData.transfers) {
+              potentialFeeTransfers.add(`${tx.signature}:${mint}:${transfer.fromTokenAccount}:${transfer.toTokenAccount}`);
             }
           }
+        }
+      }
+      
+      // Handle tokens sent by the user
+      for (const [mint, data] of regularSplSent.entries()) {
+        // Process each outgoing transfer individually to properly handle fee transfers
+        for (const transfer of data.transfers) {
+          const transferKey = `${tx.signature}:${mint}:${transfer.fromTokenAccount}:${transfer.toTokenAccount}`;
+          const key = `${tx.signature}:${mint}:out:${transfer.toTokenAccount}`; // Include destination to differentiate fees
           
-          // Create record for outgoing SPL token
-          if (amount > 0) {
-            analysisInputs.push({
-              walletAddress,
-              signature: tx.signature,
-              timestamp: tx.timestamp,
-              mint: mint,
-              amount: amount,
-              direction: 'out',
-              associatedSolValue: proceeds,
-            });
-            processedTokensInTx.add(key);
+          if (!processedTokensInTx.has(key)) {
+            // Determine proceeds (associated SOL value for outgoing SPL)
+            let proceeds = 0;
+            const amount = safeParseAmount(transfer);
+            
+            // Check if this is a fee transfer
+            const isFeeTransfer = potentialFeeTransfers.has(transferKey);
+            
+            if (isFeeTransfer) {
+              // Fee transfers should have a very small or zero associated SOL value
+              // Only assign a tiny fraction of the WSOL value if it exists
+              if (totalWsolTransferred > 0) {
+                // For fees, use a proportionally smaller fraction based on amount ratio
+                proceeds = (amount / data.amount) * totalWsolTransferred * 0.01; // 1% of proportional value
+              } else {
+                proceeds = 0; // No SOL value for fees by default
+              }
+            } else if (isDirectSwap) {
+              // For direct SPL-to-SPL swaps, use the WSOL movements as the SOL value
+              if (totalWsolTransferred > 0) {
+                proceeds = totalWsolTransferred;
+              } else if (userWsolReceived > 0) {
+                // Fallback to direct WSOL received by user
+                proceeds = userWsolReceived;
+              }
+            } else {
+              // For single-sided operations, or complex multi-token operations
+              if (userWsolReceived > 0) {
+                // WSOL was directly sent to the user
+                proceeds = userWsolReceived;
+              } else if (totalWsolTransferred > 0) {
+                // WSOL was involved indirectly, but not received by user
+                // For non-fee transfers, assign full WSOL value
+                proceeds = totalWsolTransferred;
+              }
+            }
+            
+            // Create record for outgoing SPL token
+            if (amount > 0) {
+              analysisInputs.push({
+                walletAddress,
+                signature: tx.signature,
+                timestamp: tx.timestamp,
+                mint: mint,
+                amount: amount,
+                direction: 'out',
+                associatedSolValue: proceeds,
+              });
+              processedTokensInTx.add(key);
+              
+              // Debug logging for fee transfers
+              if (isFeeTransfer) {
+                logger.debug(`Identified fee transfer in ${tx.signature}: ${amount} ${mint} with SOL value ${proceeds}`);
+              }
+            }
           }
         }
       }
       
       // Handle tokens received by the user
-      for (const [mint, amount] of regularSplReceived.entries()) {
-        const key = `${tx.signature}:${mint}:in`;
-        if (!processedTokensInTx.has(key)) {
-          // Determine cost (associated SOL value for incoming SPL)
-          let cost = 0;
+      for (const [mint, data] of regularSplReceived.entries()) {
+        // Process each incoming transfer
+        for (const transfer of data.transfers) {
+          const key = `${tx.signature}:${mint}:in:${transfer.fromTokenAccount}`;
           
-          if (isDirectSwap) {
-            // For direct SPL-to-SPL swaps, use the WSOL movements as the SOL value
-            // for both tokens, ensuring they get the same value
-            if (totalWsolTransferred > 0) {
-              // This is the key change - use HALF of the WSOL transfers as SOL value
-              // to avoid double-counting when analyzing token values
-              cost = totalWsolTransferred / 2;
-            } else if (userWsolSent > 0) {
-              // Fallback to direct WSOL sent by user
-              cost = userWsolSent;
+          if (!processedTokensInTx.has(key)) {
+            // Determine cost (associated SOL value for incoming SPL)
+            let cost = 0;
+            const amount = safeParseAmount(transfer);
+            
+            if (isDirectSwap) {
+              // For direct SPL-to-SPL swaps, use the WSOL movements as the SOL value
+              if (totalWsolTransferred > 0) {
+                cost = totalWsolTransferred;
+              } else if (userWsolSent > 0) {
+                // Fallback to direct WSOL sent by user
+                cost = userWsolSent;
+              }
+            } else {
+              // For single-sided operations, or complex multi-token operations
+              if (userWsolSent > 0) {
+                // WSOL was directly sent by the user
+                cost = userWsolSent;
+              } else if (totalWsolTransferred > 0) {
+                // WSOL was involved indirectly, but not sent by user
+                cost = totalWsolTransferred;
+              }
             }
-          } else {
-            // For single-sided operations, or complex multi-token operations
-            if (userWsolSent > 0) {
-              // WSOL was directly sent by the user
-              cost = userWsolSent;
-            } else if (totalWsolTransferred > 0) {
-              // WSOL was involved indirectly, but not sent by user
-              cost = totalWsolTransferred / 2; // Fair share estimate
+            
+            // Create record for incoming SPL token
+            if (amount > 0) {
+              analysisInputs.push({
+                walletAddress,
+                signature: tx.signature,
+                timestamp: tx.timestamp,
+                mint: mint,
+                amount: amount,
+                direction: 'in',
+                associatedSolValue: cost,
+              });
+              processedTokensInTx.add(key);
             }
-          }
-          
-          // Create record for incoming SPL token
-          if (amount > 0) {
-            analysisInputs.push({
-              walletAddress,
-              signature: tx.signature,
-              timestamp: tx.timestamp,
-              mint: mint,
-              amount: amount,
-              direction: 'in',
-              associatedSolValue: cost,
-            });
-            processedTokensInTx.add(key);
           }
         }
       }

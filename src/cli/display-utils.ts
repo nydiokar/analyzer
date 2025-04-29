@@ -18,48 +18,114 @@ function getTokenDisplayName(address: string): string {
 // --- End Known Token Addresses ---
 
 /**
- * Displays a summary of the On-Chain Analysis results to the console.
+ * Displays a brief summary of analysis results in the console 
  * @param results Array of OnChainAnalysisResult
- * @param walletAddress The wallet address analyzed
  */
 export function displaySummary(results: OnChainAnalysisResult[], walletAddress: string): void {
-  const overallNetSolPL = results.reduce((sum, r) => sum + r.netSolProfitLoss, 0);
-  const profitableTokens = results.filter(r => r.netSolProfitLoss > 0).length;
-  const lossTokens = results.filter(r => r.netSolProfitLoss < 0).length;
-  const totalSwapLegs = results.reduce((sum, r) => sum + r.transferCountIn + r.transferCountOut, 0);
+    console.log('\n===== Swap Analysis Summary =====');
+    console.log(`Wallet: ${walletAddress}`);
+    console.log(`Total Unique Tokens: ${results.length}`);
+    
+    const overallNetPnl = results.reduce((sum, r) => sum + r.netSolProfitLoss, 0);
+    const overallSolSpent = results.reduce((sum, r) => sum + r.totalSolSpent, 0);
+    const overallSolReceived = results.reduce((sum, r) => sum + r.totalSolReceived, 0);
+    
+    // Calculate value preservation metrics
+    const valuePreservingTokens = results.filter(r => r.isValuePreservation && r.estimatedPreservedValue && r.estimatedPreservedValue > 0);
+    const totalPreservedValue = valuePreservingTokens.reduce((sum, r) => sum + (r.estimatedPreservedValue || 0), 0);
+    const overallAdjustedPnl = overallNetPnl + totalPreservedValue;
+    
+    console.log(`\nOverall SOL Spent: ${overallSolSpent.toFixed(2)} SOL`);
+    console.log(`Overall SOL Received: ${overallSolReceived.toFixed(2)} SOL`);
+    console.log(`Raw Net SOL P/L: ${formatProfitLoss(overallNetPnl)}`);
+    
+    // Show value preservation information if applicable
+    if (totalPreservedValue > 0) {
+        console.log(`\n--- Value Preservation ---`);
+        console.log(`Value Preservation Tokens: ${valuePreservingTokens.length}`);
+        console.log(`Total Estimated Value Preserved: ${totalPreservedValue.toFixed(2)} SOL`);
+        console.log(`Adjusted Net SOL P/L (including preserved value): ${formatProfitLoss(overallAdjustedPnl)}`);
+        
+        // Show top value preservation tokens
+        console.log(`\nTop Value Preservation Tokens:`);
+        valuePreservingTokens
+            .sort((a, b) => (b.estimatedPreservedValue || 0) - (a.estimatedPreservedValue || 0))
+            .slice(0, 3)
+            .forEach((token, i) => {
+                console.log(`${i+1}. ${getTokenName(token.tokenAddress)}: ${token.estimatedPreservedValue?.toFixed(2) || 0} SOL value preserved (${token.netAmountChange.toFixed(2)} tokens remaining)`);
+            });
+    }
+    
+    // Top 5 profitable tokens
+    const profitableTokens = [...results].sort((a, b) => b.netSolProfitLoss - a.netSolProfitLoss);
+    const topProfitable = profitableTokens.slice(0, 5);
+    
+    console.log('\nTop 5 Most Profitable Tokens:');
+    topProfitable.forEach((result, index) => {
+        const adjustedInfo = result.adjustedNetSolProfitLoss && result.adjustedNetSolProfitLoss !== result.netSolProfitLoss ? 
+            ` (Adjusted: ${formatProfitLoss(result.adjustedNetSolProfitLoss)})` : '';
+            
+        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}${adjustedInfo}`);
+    });
+    
+    // Bottom 5 unprofitable tokens
+    const unprofitableTokens = [...results].sort((a, b) => a.netSolProfitLoss - b.netSolProfitLoss);
+    const bottomUnprofitable = unprofitableTokens.slice(0, 5);
+    
+    console.log('\nTop 5 Least Profitable Tokens:');
+    bottomUnprofitable.forEach((result, index) => {
+        const adjustedInfo = result.adjustedNetSolProfitLoss && result.adjustedNetSolProfitLoss !== result.netSolProfitLoss ? 
+            ` (Adjusted: ${formatProfitLoss(result.adjustedNetSolProfitLoss)})` : '';
+            
+        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}${adjustedInfo}`);
+    });
+    
+    // Activity time range
+    const range = getActivityTimeRange(results);
+    if (range) {
+        console.log(`\nActivity Time Range: ${formatDate(range.first)} to ${formatDate(range.last)} (approx. ${range.durationDays.toFixed(1)} days)`);
+    }
+    
+    console.log('\nFor detailed results, check the generated report file or use --verbose flag.');
+}
 
-  const sortedResults = [...results].sort((a, b) => b.netSolProfitLoss - a.netSolProfitLoss);
+// Helper to get friendly token name
+function getTokenName(address: string): string {
+    // Map of known token addresses to friendly names
+    const knownTokens: {[key: string]: string} = {
+        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'USDC',
+        'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'USDT',
+        'So11111111111111111111111111111111111111112': 'Wrapped SOL',
+        'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': 'BONK',
+        // Add more tokens as needed
+    };
+    
+    return knownTokens[address] || address.slice(0, 6) + '...' + address.slice(-4);
+}
 
-  const firstTimestamp = results.reduce((min, r) => r.firstTransferTimestamp > 0 ? Math.min(min, r.firstTransferTimestamp) : min, Infinity);
-  const lastTimestamp = results.reduce((max, r) => Math.max(max, r.lastTransferTimestamp), 0);
-  const firstDate = firstTimestamp !== Infinity ? new Date(firstTimestamp * 1000).toLocaleDateString() : 'N/A';
-  const lastDate = lastTimestamp > 0 ? new Date(lastTimestamp * 1000).toLocaleDateString() : 'N/A';
-  const durationDays = (firstTimestamp !== Infinity && lastTimestamp > 0) ? Math.ceil((lastTimestamp - firstTimestamp) / (60 * 60 * 24)) : 0;
+// Helper to format profit loss
+function formatProfitLoss(value: number): string {
+    const color = value >= 0 ? '\x1b[32m' : '\x1b[31m'; // green or red
+    const reset = '\x1b[0m';
+    return `${color}${value.toFixed(2)} SOL${reset}`;
+}
 
-  console.log(`\n${chalk.bold.blue('📊 Wallet On-Chain SWAP & SOL P/L Summary for')} ${chalk.yellow(walletAddress)}`);
-  console.log(chalk.blue('======================================================='));
+// Helper to format date
+function formatDate(timestamp: number): string {
+    return new Date(timestamp * 1000).toISOString().split('T')[0];
+}
 
-  console.log(chalk.bold('\n📈 Overview:'));
-  console.log(`• Unique SPL Tokens Swapped: ${chalk.cyan(results.length)}`);
-  console.log(`• Overall Net SOL P/L: ${chalk.bold(overallNetSolPL >= 0 ? chalk.green(overallNetSolPL.toFixed(6)) : chalk.red(overallNetSolPL.toFixed(6)))} SOL`);
-  console.log(`• Profitable Tokens (SOL): ${chalk.green(profitableTokens)}`);
-  console.log(`• Loss Tokens (SOL): ${chalk.red(lossTokens)}`);
-  console.log(`• Total Swap Legs (In/Out): ${chalk.magenta(totalSwapLegs)}`);
-
-  console.log(chalk.bold('\n💰 Top 5 Tokens by Net SOL P/L:'));
-  sortedResults.slice(0, 5).forEach((result, index) => {
-    const pnlColor = result.netSolProfitLoss >= 0 ? chalk.green : chalk.red;
-    const displayName = getTokenDisplayName(result.tokenAddress);
-    const addrDisplay = displayName !== result.tokenAddress ? chalk.gray(` (${result.tokenAddress.substring(0,4)}...${result.tokenAddress.substring(result.tokenAddress.length-4)})`) : '';
-    console.log(`${index + 1}. ${chalk.bold(displayName)}${addrDisplay} (${pnlColor(result.netSolProfitLoss.toFixed(4) + ' SOL')})`);
-  });
-
-  console.log(chalk.bold('\n⏱️ Swap Activity Period:'));
-  console.log(`• First Swap: ${chalk.yellow(firstDate)}`);
-  console.log(`• Last Swap: ${chalk.yellow(lastDate)}`);
-  if (durationDays > 0) {
-      console.log(`• Duration: ${chalk.yellow(durationDays)} days`);
-  }
+// Helper to get activity time range
+function getActivityTimeRange(results: OnChainAnalysisResult[]): { first: number, last: number, durationDays: number } | null {
+    const firstTimestamp = results.reduce((min, r) => r.firstTransferTimestamp > 0 ? Math.min(min, r.firstTransferTimestamp) : min, Infinity);
+    const lastTimestamp = results.reduce((max, r) => Math.max(max, r.lastTransferTimestamp), 0);
+    
+    if (firstTimestamp === Infinity || lastTimestamp === 0) {
+        return null;
+    }
+    
+    const durationDays = (lastTimestamp - firstTimestamp) / (60 * 60 * 24);
+    return { first: firstTimestamp, last: lastTimestamp, durationDays };
 }
 
 /**
@@ -98,19 +164,4 @@ export function displayDetailedResults(results: OnChainAnalysisResult[]): void {
       });
   }
   console.log(chalk.blue('-----------------------------------'));
-}
-
-// Helper to get activity time range using timestamps
-function getActivityTimeRange(results: OnChainAnalysisResult[]): { first: number; last: number; durationDays: number } | null {
-  const timestamps = results
-    .flatMap(r => [r.firstTransferTimestamp, r.lastTransferTimestamp])
-    .filter((ts): ts is number => ts > 0); // Filter out 0 or invalid timestamps
-
-  if (timestamps.length === 0) return null;
-
-  const first = Math.min(...timestamps);
-  const last = Math.max(...timestamps);
-  const durationDays = (last - first) / (60 * 60 * 24); // Duration in days based on unix timestamps
-
-  return { first, last, durationDays };
 } 
