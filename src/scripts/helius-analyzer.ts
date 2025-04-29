@@ -240,6 +240,8 @@ async function analyzeWalletWithHelius(
             // Second pass: Fetch older transactions if needed
             let olderTransactions: HeliusTransaction[] = [];
             try {
+              const oldestProcessedTimestamp = walletState?.firstProcessedTimestamp; // Will be undefined if no state
+
               olderTransactions = await heliusClient.getAllTransactionsForAddress(
                 walletAddress, 
                 options.limit,
@@ -247,15 +249,14 @@ async function analyzeWalletWithHelius(
                 undefined, // No stop signature for older fetch
                 undefined, // No timestamp filter
                 true, // Include cached to help identify what's older
+                oldestProcessedTimestamp ?? undefined // Convert null to undefined
               );
-              
-              // Filter to only get transactions older than what we have
-              const oldestProcessedTimestamp = walletState.firstProcessedTimestamp;
+
+              // Log based on whether a filter was actually applied by the client
               if (oldestProcessedTimestamp) {
-                olderTransactions = olderTransactions.filter(tx => tx.timestamp < oldestProcessedTimestamp);
-                logger.info(`[Fetch Phase] Fetched ${olderTransactions.length} older transactions (before timestamp ${oldestProcessedTimestamp}).`);
+                 logger.info(`[Fetch Phase] SmartFetch: Received ${olderTransactions.length} potentially older transactions (older than ts ${oldestProcessedTimestamp}).`);
               } else {
-                logger.warn(`[Fetch Phase] Could not determine oldest processed timestamp. Older transaction fetch may include duplicates.`);
+                 logger.info(`[Fetch Phase] SmartFetch: Received ${olderTransactions.length} potentially older transactions (no 'until' filter applied).`);
               }
             } catch (error) {
               logger.error(`[Fetch Phase] Failed to fetch older transactions`, { error });

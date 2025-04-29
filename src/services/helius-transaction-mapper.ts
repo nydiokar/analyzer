@@ -301,8 +301,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
           regularSplSent.size === 1 && regularSplReceived.size === 1) {
         const sentMint = [...regularSplSent.keys()][0];
         const receivedMint = [...regularSplReceived.keys()][0];
-        logger.debug(`Direct SPL-to-SPL swap in ${tx.signature}: ` +
-                    `${sentMint} → WSOL (${totalWsolTransferred}) → ${receivedMint}`);
+        // logger.debug(`Direct SPL-to-SPL swap in ${tx.signature}: ` + // uncomment for detailed logging of every transaction
+        //             `${sentMint} → WSOL (${totalWsolTransferred}) → ${receivedMint}`);
       }
       
     } catch (err) {

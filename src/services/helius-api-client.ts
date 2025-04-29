@@ -182,7 +182,8 @@ export class HeliusApiClient {
     maxSignatures: number | null = null,
     stopAtSignature?: string, // Optional signature to stop fetching pages at
     newestProcessedTimestamp?: number, // Optional timestamp to filter results (exclusive)
-    includeCached: boolean = true // Flag to control whether to include cached transactions in results
+    includeCached: boolean = true, // Flag to control whether to include cached transactions in results
+    untilTimestamp?: number
   ): Promise<HeliusTransaction[]> {
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run
@@ -333,7 +334,7 @@ export class HeliusApiClient {
     
     // === Filtering & Sorting of All Transactions ===
 
-    // --- Timestamp Filtering (Incremental Logic) ---
+    // --- Timestamp Filtering (Incremental Logic & Until Logic) ---
     let filteredTransactions = allTransactions;
     if (newestProcessedTimestamp !== undefined) {
         const countBefore = filteredTransactions.length;
@@ -342,6 +343,16 @@ export class HeliusApiClient {
         logger.info(`Filtered by newestProcessedTimestamp (${newestProcessedTimestamp}): ${countBefore} -> ${countAfter} transactions.`);
     } else {
         logger.debug('No newestProcessedTimestamp provided, skipping timestamp filter.');
+    }
+    
+    // --- Until Timestamp Filtering ---
+    if (untilTimestamp !== undefined) {
+        const countBefore = filteredTransactions.length;
+        filteredTransactions = filteredTransactions.filter(tx => tx.timestamp < untilTimestamp);
+        const countAfter = filteredTransactions.length;
+        logger.info(`Filtered by untilTimestamp (${untilTimestamp}): ${countBefore} -> ${countAfter} transactions.`);
+    } else {
+        logger.debug('No untilTimestamp provided, skipping until filter.');
     }
     
     // --- Address Relevance Filtering ---
