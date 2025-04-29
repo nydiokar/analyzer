@@ -3,7 +3,7 @@ import { createLogger } from '../utils/logger';
 import { HeliusApiConfig, HeliusTransaction } from '../types/helius-api';
 import { getCachedTransaction, saveCachedTransactions } from './database-service'; // Update import - remove batchGetCachedTransactions
 
-// Interface for the signature information returned by the Solana RPC
+/** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
 interface SignatureInfo {
     signature: string;
     slot: number;
@@ -19,11 +19,16 @@ const logger = createLogger('HeliusApiClient');
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000; // Start with 1 second
 
+/** Simple promise-based delay function. */
 async function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 // --- End Retry Logic Helper ---
 
+/**
+ * Client for interacting with the Helius API and Solana RPC for transaction data.
+ * Includes rate limiting, retry logic, and caching integration.
+ */
 export class HeliusApiClient {
   private readonly api: AxiosInstance;
   private readonly apiKey: string;
@@ -34,6 +39,10 @@ export class HeliusApiClient {
   private readonly SOLANA_RPC_URL_MAINNET = 'https://mainnet.helius-rpc.com/'; // Using Helius RPC for consistency
   private readonly RPC_SIGNATURE_LIMIT = 1000; // Max limit for getSignaturesForAddress
 
+  /**
+   * Handles configuration and sets up the Axios instance.
+   * @param config Configuration object containing the Helius API key and optionally the base URL and network.
+   */
   constructor(config: HeliusApiConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || (config.network === 'mainnet' 
@@ -49,6 +58,7 @@ export class HeliusApiClient {
     });
   }
 
+  /** Ensures a minimum interval between requests to respect rate limits. */
   private async rateLimit(): Promise<void> {
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
@@ -59,7 +69,14 @@ export class HeliusApiClient {
   }
 
   /**
-   * Fetches a page of transaction signatures using the Solana JSON-RPC `getSignaturesForAddress`.
+   * Fetches a single page of transaction signatures using the Solana JSON-RPC `getSignaturesForAddress` method
+   * via the Helius RPC endpoint.
+   *
+   * @param address The wallet address to fetch signatures for.
+   * @param limit The maximum number of signatures to fetch in this page (RPC limit applies).
+   * @param before An optional signature to fetch signatures older than this one.
+   * @returns A promise resolving to an array of SignatureInfo objects.
+   * @throws Throws an error if the RPC call fails.
    */
   private async getSignaturesViaRpcPage(
     address: string, 
@@ -102,7 +119,12 @@ export class HeliusApiClient {
   }
 
   /**
-   * Get full transaction details from a batch of signatures with retries.
+   * Fetches full, parsed transaction details from Helius for a batch of signatures.
+   * Implements retry logic with exponential backoff for rate limits (429) and server errors (5xx).
+   *
+   * @param signatures An array of transaction signatures.
+   * @returns A promise resolving to an array of HeliusTransaction objects.
+   * @throws Throws an error if the batch fetch fails after all retries or encounters an unrecoverable client error.
    */
   private async getTransactionsBySignatures(signatures: string[]): Promise<HeliusTransaction[]> {
     if (!signatures || signatures.length === 0) {
@@ -170,11 +192,28 @@ export class HeliusApiClient {
   }
 
   /**
-   * Get all transactions for an address using the recommended two-step process:
-   * 1. Fetch all signatures via Solana RPC `getSignaturesForAddress`.
-   * 2. Check DB cache for existing transaction details.
-   * 3. Fetch details for uncached signatures from Helius `/v0/transactions` endpoint.
-   * 4. Save newly fetched transactions to DB cache.
+   * Retrieves all relevant transactions for a given wallet address, combining RPC signature fetching,
+   * database caching, and Helius parsed transaction fetching.
+   *
+   * Workflow:
+   * 1. Fetches all transaction signatures using Solana RPC (`getSignaturesForAddress`) paginated.
+   * 2. Checks the database cache (`HeliusTransactionCache`) for transactions corresponding to these signatures.
+   * 3. Identifies signatures for which details are missing from the cache.
+   * 4. Fetches the full, parsed transaction details for these missing signatures from the Helius API (`/v0/transactions`) in batches.
+   * 5. Saves the newly fetched transactions to the database cache.
+   * 6. Merges cached and newly fetched transactions (controlled by `includeCached`).
+   * 7. Filters the combined list based on optional timestamps (`newestProcessedTimestamp`, `untilTimestamp`).
+   * 8. Filters the list to include only transactions relevant to the target `address` (sender, receiver, account data changes, swaps).
+   * 9. Sorts the final relevant transactions by timestamp ascending (oldest first).
+   *
+   * @param address The wallet address to fetch transactions for.
+   * @param parseBatchLimit The number of signatures to include in each batch request to the Helius `/v0/transactions` endpoint (default: 100).
+   * @param maxSignatures Optional maximum total number of signatures to process (fetched via RPC). Fetching stops once this limit is reached.
+   * @param stopAtSignature Optional signature. If encountered during RPC fetch, stops fetching older pages.
+   * @param newestProcessedTimestamp Optional Unix timestamp (seconds). If provided, filters the results to include only transactions *strictly newer* than this timestamp.
+   * @param includeCached If true (default), combines cached transactions with newly fetched ones in the final result. If false, only returns newly fetched transactions.
+   * @param untilTimestamp Optional Unix timestamp (seconds). If provided, filters the results to include only transactions *strictly older* than this timestamp.
+   * @returns A promise resolving to an array of HeliusTransaction objects, filtered and sorted chronologically.
    */
   async getAllTransactionsForAddress(
     address: string,
@@ -406,6 +445,13 @@ export class HeliusApiClient {
     return relevantFiltered; // Return the filtered & sorted list of ALL filtered transactions
   }
 
+  /**
+   * Sanitizes error objects for logging, removing potentially sensitive information
+   * like full API keys from URLs and simplifying Axios error structures.
+   *
+   * @param error The error object to sanitize.
+   * @returns A sanitized error object suitable for logging.
+   */
   private sanitizeError(error: any): any {
     if (!error) return error;
     

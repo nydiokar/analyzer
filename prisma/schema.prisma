@@ -36,6 +36,7 @@ model HeliusTransactionCache {
   fetchedAt   DateTime @default(now())
 
   @@index([timestamp])
+
 }
 
 // Stores PRE-CALCULATED data for a specific user swap leg, derived from Helius events.
@@ -52,6 +53,9 @@ model SwapAnalysisInput {
   
   // The calculated SOL/WSOL value associated with THIS specific transfer leg.
   associatedSolValue Float    // Cost (if direction="in") or Proceeds (if direction="out").
+
+  // NEW: Context about the interaction type leading to this transfer
+  interactionType    String?  // e.g., 'SWAP', 'TOKEN_TRANSFER', 'LIMIT_ORDER_INIT', 'LIMIT_ORDER_CANCEL', 'BURN', 'UNKNOWN'
 
   // Indices for analysis
   @@index([walletAddress, timestamp])

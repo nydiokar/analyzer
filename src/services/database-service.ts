@@ -12,6 +12,7 @@ import { createLogger } from '../utils/logger'; // Assuming createLogger functio
 
 // Instantiate Prisma Client - Singleton pattern recommended for production
 // Exporting the instance directly is simple for this stage
+// Ensure `prisma generate` is run after schema changes.
 export const prisma = new PrismaClient();
 
 const logger = createLogger('DatabaseService'); // Add logger
@@ -25,6 +26,11 @@ const logger = createLogger('DatabaseService'); // Add logger
 // Using Partial<Wallet> allows updating only specific fields
 type WalletUpdateData = Partial<Omit<Wallet, 'address'>>; // Omit address as it's the key
 
+/**
+ * Fetches a wallet record from the database.
+ * @param walletAddress The public key of the wallet.
+ * @returns The Wallet object if found, otherwise null.
+ */
 export async function getWallet(walletAddress: string): Promise<Wallet | null> {
   logger.debug(`Fetching wallet data for: ${walletAddress}`);
   try {
@@ -43,6 +49,12 @@ export async function getWallet(walletAddress: string): Promise<Wallet | null> {
   }
 }
 
+/**
+ * Updates an existing wallet record or creates a new one if it doesn't exist (upsert).
+ * @param walletAddress The public key of the wallet.
+ * @param data An object containing the wallet fields to update or create.
+ * @returns The updated or newly created Wallet object, or null on error.
+ */
 export async function updateWallet(walletAddress: string, data: WalletUpdateData): Promise<Wallet | null> {
   logger.debug(`Upserting wallet data for: ${walletAddress}`, data);
   try {
@@ -65,9 +77,14 @@ export async function updateWallet(walletAddress: string, data: WalletUpdateData
 // --- HeliusTransactionCache Functions ---
 
 /**
- * Get cached transaction(s) - supports both single signature and batch operations
- * @param signature A single signature string or array of signature strings to fetch
- * @returns Single transaction, array of transactions, or Map of signature->transaction depending on input
+ * Retrieves cached Helius transaction data from the database.
+ * Supports fetching a single transaction by signature or multiple transactions in batch.
+ *
+ * @param signature A single transaction signature string or an array of signature strings.
+ * @returns - If input is a string: The parsed HeliusTransaction or null if not found/parse error.
+ *          - If input is an array: A Map where keys are signatures and values are parsed HeliusTransactions.
+ *                                    Transactions not found or with parse errors are omitted from the map.
+ *          - Null for invalid input type.
  */
 export async function getCachedTransaction(
   signature: string | string[]
@@ -135,6 +152,13 @@ export async function getCachedTransaction(
   return null;
 }
 
+/**
+ * Efficiently saves multiple Helius transactions to the cache.
+ * Checks for existing signatures first and only inserts new ones using `createMany`.
+ *
+ * @param transactions An array of HeliusTransaction objects to cache.
+ * @returns A Prisma Promise result containing the count of newly added records, or { count: 0 } on error or if no new transactions were added.
+ */
 export async function saveCachedTransactions(transactions: HeliusTransaction[]) {
     if (transactions.length === 0) {
         logger.debug('No transactions provided to save to cache.');
@@ -205,8 +229,17 @@ export async function saveCachedTransactions(transactions: HeliusTransaction[]) 
 
 // Use Prisma.SwapAnalysisInputCreateInput for the input type for createMany
 // Ensure this type reflects the new schema (prisma generate might be needed after schema change)
+/** Type definition for creating SwapAnalysisInput records, derived from the Prisma schema. */
 type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 
+/**
+ * Saves multiple swap analysis input records to the database.
+ * Processes inputs in batches and checks for duplicates within each batch transaction
+ * to ensure only unique records (based on signature, mint, direction) are inserted.
+ *
+ * @param inputs An array of SwapAnalysisInputCreateData objects to save.
+ * @returns A Promise resolving to an object containing the count of newly saved records, or { count: 0 } on error.
+ */
 export async function saveSwapAnalysisInputs(inputs: SwapAnalysisInputCreateData[]) {
     if (inputs.length === 0) {
         logger.debug('No swap analysis inputs provided to save.');
@@ -270,15 +303,20 @@ export async function saveSwapAnalysisInputs(inputs: SwapAnalysisInputCreateData
 }
 
 // Interface for time range filtering
+/** Optional time range filter using Unix timestamps (seconds). */
 interface SwapInputTimeRange {
     startTs?: number;
     endTs?: number;
 }
 
-// Return type uses the imported SwapAnalysisInput model type
-// This function likely doesn't need significant change, as the new fields
-// are primarily used by the analyzer, not necessarily needed during retrieval here.
-// However, the return type `Promise<SwapAnalysisInput[]>` will now reflect the new schema.
+/**
+ * Retrieves SwapAnalysisInput records for a given wallet, optionally filtered by a time range.
+ * Results are ordered by timestamp ascending.
+ *
+ * @param walletAddress The wallet address to fetch records for.
+ * @param timeRange Optional object with `startTs` and/or `endTs` (Unix timestamps) for filtering.
+ * @returns A Promise resolving to an array of SwapAnalysisInput records matching the criteria.
+ */
 export async function getSwapAnalysisInputs(
     walletAddress: string,
     timeRange?: SwapInputTimeRange
@@ -324,14 +362,22 @@ export async function getSwapAnalysisInputs(
 // --- AnalysisRun / AnalysisResult / AdvancedStatsResult Functions ---
 
 // Type for creating a new AnalysisRun (omit auto-generated id and relations)
+/** Data structure for creating a new AnalysisRun record. */
 export type AnalysisRunCreateData = Omit<Prisma.AnalysisRunCreateInput, 'id' | 'results' | 'advancedStats'>;
 
 // Type for creating AnalysisResult records (omit auto-generated id, add runId and walletAddress explicitly)
+/** Data structure for creating new AnalysisResult records, linked to a specific run and wallet. */
 export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'id' | 'run' | 'runId' | 'walletAddress'> & { runId: number; walletAddress: string };
 
 // Type for creating an AdvancedStatsResult record (omit auto-generated id, add runId and walletAddress explicitly)
+/** Data structure for creating a new AdvancedStatsResult record, linked to a specific run and wallet. */
 export type AdvancedStatsCreateData = Omit<Prisma.AdvancedStatsResultCreateInput, 'id' | 'run' | 'runId' | 'walletAddress'> & { runId: number; walletAddress: string };
 
+/**
+ * Creates a new AnalysisRun record in the database.
+ * @param data Data for the new AnalysisRun.
+ * @returns The newly created AnalysisRun object, or null on error.
+ */
 export async function createAnalysisRun(data: AnalysisRunCreateData): Promise<AnalysisRun | null> {
     logger.debug('Creating new AnalysisRun...', { wallet: data.walletAddress });
     try {
@@ -346,6 +392,13 @@ export async function createAnalysisRun(data: AnalysisRunCreateData): Promise<An
     }
 }
 
+/**
+ * Saves multiple analysis result records to the database using `createMany`.
+ * Filters the input data to ensure only fields present in the `AnalysisResult` schema are included.
+ *
+ * @param results An array of AnalysisResultCreateData objects to save. Assumes all results belong to the same runId and walletAddress.
+ * @returns A Prisma Promise result containing the count of records created, or { count: 0 } on error or if no results were provided.
+ */
 export async function saveAnalysisResults(results: AnalysisResultCreateData[]) {
     if (results.length === 0) {
         logger.debug('No analysis results provided to save.');
@@ -389,6 +442,13 @@ export async function saveAnalysisResults(results: AnalysisResultCreateData[]) {
     }
 }
 
+/**
+ * Saves an advanced statistics result record to the database.
+ * Handles potential unique constraint violations (P2002) gracefully if stats already exist for the runId.
+ *
+ * @param statsData The AdvancedStatsCreateData object to save.
+ * @returns The newly created AdvancedStatsResult object, or null if stats already existed or an error occurred.
+ */
 export async function saveAdvancedStats(statsData: AdvancedStatsCreateData): Promise<AdvancedStatsResult | null> {
     const runId = statsData.runId;
     const walletAddress = statsData.walletAddress;
@@ -415,6 +475,11 @@ export async function saveAdvancedStats(statsData: AdvancedStatsCreateData): Pro
 
 // Add more functions as needed (e.g., querying results for reports)
 
+/**
+ * Fetches a specific AnalysisRun record by its ID.
+ * @param runId The ID of the AnalysisRun to fetch.
+ * @returns The AnalysisRun object if found, otherwise null.
+ */
 export async function getAnalysisRun(runId: number): Promise<AnalysisRun | null> {
     logger.debug(`Fetching AnalysisRun data for ID: ${runId}`);
     try {
@@ -428,6 +493,13 @@ export async function getAnalysisRun(runId: number): Promise<AnalysisRun | null>
     }
 }
 
+/**
+ * Fetches all AnalysisResult records associated with a specific AnalysisRun ID.
+ * Results are ordered by net SOL profit/loss descending.
+ *
+ * @param runId The ID of the AnalysisRun.
+ * @returns An array of AnalysisResult objects, or an empty array if none found or on error.
+ */
 export async function getAnalysisResultsForRun(runId: number): Promise<AnalysisResult[]> {
     logger.debug(`Fetching AnalysisResult data for Run ID: ${runId}`);
     try {
@@ -442,6 +514,11 @@ export async function getAnalysisResultsForRun(runId: number): Promise<AnalysisR
     }
 }
 
+/**
+ * Fetches the AdvancedStatsResult record associated with a specific AnalysisRun ID.
+ * @param runId The ID of the AnalysisRun.
+ * @returns The AdvancedStatsResult object if found, otherwise null.
+ */
 export async function getAdvancedStatsForRun(runId: number): Promise<AdvancedStatsResult | null> {
     logger.debug(`Fetching AdvancedStatsResult data for Run ID: ${runId}`);
     try {

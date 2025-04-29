@@ -8,9 +8,10 @@ const TRIM_PERCENT = 0.10; // Trim 10% from top and bottom for trimmed mean
 const WIN_THRESHOLD_SOL = 0; // Minimum SOL P/L to count as a "win"
 
 /**
- * Calculates the standard deviation of a list of numbers.
- * @param values Array of numbers
- * @returns Standard deviation, or 0 if fewer than 2 values
+ * Calculates the sample standard deviation of a list of numbers.
+ * Uses (n-1) in the denominator.
+ * @param values Array of numbers.
+ * @returns The sample standard deviation, or 0 if fewer than 2 values are provided.
  */
 function calculateStandardDeviation(values: number[]): number {
   const n = values.length;
@@ -23,8 +24,12 @@ function calculateStandardDeviation(values: number[]): number {
 
 /**
  * Calculates various advanced trading statistics based on per-token P/L results.
- * @param results Array of OnChainAnalysisResult from the core analysis
- * @returns AdvancedTradeStats object or null if insufficient data
+ * Handles edge cases like empty input, insufficient data for trimming, and zero standard deviation.
+ * Median PnL is calculated only on tokens with non-zero PnL to avoid skewing by $0 results.
+ *
+ * @param results Array of OnChainAnalysisResult objects, typically from transfer-analyzer-service.
+ * @returns An AdvancedTradeStats object containing calculated metrics,
+ *          or null if the input `results` array is null or empty.
  */
 export function calculateAdvancedStats(
   results: OnChainAnalysisResult[]
@@ -72,7 +77,7 @@ export function calculateAdvancedStats(
       logger.info('Median PnL is 0 because no tokens with non-zero P/L were found after filtering.');
   }
 
-  // --- Trimmed Mean PnL (uses original pnlValues) ---
+  // --- Trimmed Mean PnL (uses original pnlValues, trims top/bottom TRIM_PERCENT) ---
   const trimCount = Math.floor(n * TRIM_PERCENT);
   let trimmedMeanPnlPerToken = 0;
   if (n > trimCount * 2) {
@@ -84,7 +89,7 @@ export function calculateAdvancedStats(
     logger.debug('Not enough data points to trim for mean PnL, using overall mean.');
   }
 
-  // --- Token Win Rate (uses original pnlValues) ---
+  // --- Token Win Rate (uses original pnlValues, win > WIN_THRESHOLD_SOL) ---
   const profitableTokens = pnlValues.filter(pnl => pnl > WIN_THRESHOLD_SOL).length;
   const tokenWinRatePercent = totalTokens > 0 ? (profitableTokens / totalTokens) * 100 : 0;
 
@@ -106,7 +111,7 @@ export function calculateAdvancedStats(
   }
 
   // --- Weighted Efficiency Score ---
-  // Score = (Net PnL / Total Tokens Swapped) * log(1 + Win Rate %)
+  // Score = (Net PnL / Total Tokens Swapped) * ln(1 + Win Rate %)
   const winRateDecimal = tokenWinRatePercent / 100;
   const weightedEfficiencyScore = totalTokens > 0
     ? (overallNetPnl / totalTokens) * Math.log(1 + winRateDecimal) // Using natural log
