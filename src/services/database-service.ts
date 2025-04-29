@@ -64,29 +64,75 @@ export async function updateWallet(walletAddress: string, data: WalletUpdateData
 
 // --- HeliusTransactionCache Functions ---
 
-export async function getCachedTransaction(signature: string): Promise<HeliusTransaction | null> {
-  try {
-    const cached = await prisma.heliusTransactionCache.findUnique({
-      where: { signature },
-    });
-    if (cached) {
-        // We need to parse the JSON rawData back into the HeliusTransaction type
-        // Assuming rawData is a valid JSON representation of HeliusTransaction
-        // Add validation/error handling for JSON parsing if needed
+/**
+ * Get cached transaction(s) - supports both single signature and batch operations
+ * @param signature A single signature string or array of signature strings to fetch
+ * @returns Single transaction, array of transactions, or Map of signature->transaction depending on input
+ */
+export async function getCachedTransaction(
+  signature: string | string[]
+): Promise<HeliusTransaction | null | HeliusTransaction[] | Map<string, HeliusTransaction>> {
+  // Handle single signature case
+  if (typeof signature === 'string') {
+    try {
+      const cached = await prisma.heliusTransactionCache.findUnique({
+        where: { signature },
+      });
+      if (cached) {
         try {
-            return JSON.parse(cached.rawData as string) as HeliusTransaction; // Adjust casting as needed based on Prisma Json type handling
+          return JSON.parse(cached.rawData as string) as HeliusTransaction;
         } catch (parseError) {
-            logger.error(`Failed to parse cached rawData for signature ${signature}`, { error: parseError });
-            // Optionally delete the corrupted cache entry here
-            return null;
+          logger.error(`Failed to parse cached rawData for signature ${signature}`, { error: parseError });
+          return null;
         }
-    } else {
+      } else {
         return null;
-    }
-  } catch (error) {
+      }
+    } catch (error) {
       logger.error(`Error fetching cached transaction ${signature}`, { error });
       return null;
+    }
   }
+  
+  // Handle array of signatures case (batch operation)
+  if (Array.isArray(signature)) {
+    if (signature.length === 0) {
+      return new Map();
+    }
+    
+    try {
+      const cachedRecords = await prisma.heliusTransactionCache.findMany({
+        where: {
+          signature: {
+            in: signature
+          }
+        }
+      });
+      
+      logger.debug(`Batch fetched ${cachedRecords.length} out of ${signature.length} requested signatures`);
+      
+      // Parse all JSON data and create a map of signature -> transaction
+      const resultMap = new Map<string, HeliusTransaction>();
+      for (const record of cachedRecords) {
+        try {
+          const tx = JSON.parse(record.rawData as string) as HeliusTransaction;
+          resultMap.set(record.signature, tx);
+        } catch (parseError) {
+          logger.error(`Failed to parse cached rawData for signature ${record.signature}`, { error: parseError });
+          // Skip this record - don't add to the map
+        }
+      }
+      
+      return resultMap;
+    } catch (error) {
+      logger.error(`Error batch fetching ${signature.length} cached transactions`, { error });
+      return new Map();
+    }
+  }
+  
+  // Invalid input case
+  logger.error('getCachedTransaction called with invalid signature type', { type: typeof signature });
+  return null;
 }
 
 export async function saveCachedTransactions(transactions: HeliusTransaction[]) {
@@ -158,6 +204,7 @@ export async function saveCachedTransactions(transactions: HeliusTransaction[]) 
 // --- SwapAnalysisInput Functions ---
 
 // Use Prisma.SwapAnalysisInputCreateInput for the input type for createMany
+// Ensure this type reflects the new schema (prisma generate might be needed after schema change)
 type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 
 export async function saveSwapAnalysisInputs(inputs: SwapAnalysisInputCreateData[]) {
@@ -166,17 +213,58 @@ export async function saveSwapAnalysisInputs(inputs: SwapAnalysisInputCreateData
         return { count: 0 };
     }
     logger.debug(`Attempting to save ${inputs.length} swap analysis inputs...`);
+    
     try {
-        // Use createMany for potentially better performance with SQLite
-        const result = await prisma.swapAnalysisInput.createMany({
-            data: inputs,
-            // skipDuplicates: true, // Temporarily remove to resolve TS error - revisit if needed
-        });
-        logger.debug(`Successfully saved ${result.count} swap analysis inputs.`);
-        return result; // Contains the count of records created
+        // Process in batches to avoid overloading the database
+        let savedCount = 0;
+        const BATCH_SIZE = 100;
+        
+        for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
+            const batch = inputs.slice(i, i + BATCH_SIZE);
+            logger.debug(`Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(inputs.length/BATCH_SIZE)} (${batch.length} records)`);
+            
+            // Use a transaction for atomicity
+            const batchResult = await prisma.$transaction(async (tx) => {
+                let batchCount = 0;
+                
+                for (const input of batch) {
+                    // Check if this exact record already exists
+                    const exists = await tx.swapAnalysisInput.findFirst({
+                        where: {
+                            signature: input.signature as string,
+                            mint: input.mint as string,
+                            direction: input.direction as string
+                        }
+                    });
+                    
+                    // Only create if it doesn't exist
+                    if (!exists) {
+                        await tx.swapAnalysisInput.create({
+                            data: input
+                        });
+                        batchCount++;
+                    }
+                }
+                
+                return batchCount;
+            });
+            
+            savedCount += batchResult;
+            logger.debug(`Batch ${Math.floor(i/BATCH_SIZE) + 1} complete. Saved ${batchResult} records in this batch.`);
+        }
+        
+        logger.info(`Successfully saved ${savedCount} unique swap analysis inputs. ${inputs.length - savedCount} were duplicates and skipped.`);
+        return { count: savedCount };
     } catch (error) {
-        logger.error('Error saving swap analysis inputs', { error });
-        // Return a count of 0 or re-throw depending on desired error handling
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+            logger.error('Prisma error saving swap analysis inputs', { 
+                code: error.code, 
+                meta: error.meta,
+                message: error.message 
+            });
+        } else {
+            logger.error('Error saving swap analysis inputs', { error });
+        }
         return { count: 0 };
     }
 }
@@ -188,6 +276,9 @@ interface SwapInputTimeRange {
 }
 
 // Return type uses the imported SwapAnalysisInput model type
+// This function likely doesn't need significant change, as the new fields
+// are primarily used by the analyzer, not necessarily needed during retrieval here.
+// However, the return type `Promise<SwapAnalysisInput[]>` will now reflect the new schema.
 export async function getSwapAnalysisInputs(
     walletAddress: string,
     timeRange?: SwapInputTimeRange
@@ -218,10 +309,11 @@ export async function getSwapAnalysisInputs(
         const inputs = await prisma.swapAnalysisInput.findMany({
             where: whereClause,
             orderBy: {
-                timestamp: 'asc', // Typically want inputs ordered by time
+                timestamp: 'asc',
             },
         });
         logger.debug(`Found ${inputs.length} swap analysis inputs for ${walletAddress}`);
+        // The returned `inputs` will automatically conform to the updated SwapAnalysisInput type from Prisma
         return inputs;
     } catch (error) {
         logger.error(`Error fetching swap analysis inputs for ${walletAddress}`, { error });

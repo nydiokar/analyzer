@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { createLogger } from '../utils/logger';
 import { HeliusApiConfig, HeliusTransaction } from '../types/helius-api';
-import { getCachedTransaction, saveCachedTransactions } from './database-service'; // Import DB functions
+import { getCachedTransaction, saveCachedTransactions } from './database-service'; // Update import - remove batchGetCachedTransactions
 
 // Interface for the signature information returned by the Solana RPC
 interface SignatureInfo {
@@ -181,13 +181,16 @@ export class HeliusApiClient {
     parseBatchLimit: number = this.BATCH_SIZE,
     maxSignatures: number | null = null,
     stopAtSignature?: string, // Optional signature to stop fetching pages at
-    newestProcessedTimestamp?: number // Optional timestamp to filter results (exclusive)
+    newestProcessedTimestamp?: number, // Optional timestamp to filter results (exclusive)
+    includeCached: boolean = true // Flag to control whether to include cached transactions in results
   ): Promise<HeliusTransaction[]> {
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run
     let newlyFetchedTransactions: HeliusTransaction[] = []; 
     // Set to hold signatures whose details need to be fetched from API
     const signaturesToFetchDetails = new Set<string>();
+    // Add array to collect cached transactions
+    const cachedTransactions: HeliusTransaction[] = [];
 
     // === PHASE 1: Fetch Signatures via RPC ===
     logger.info(`Starting Phase 1: Fetching signatures via Solana RPC for ${address}`);
@@ -245,16 +248,25 @@ export class HeliusApiClient {
 
     // === Check Cache to Identify Signatures to Fetch ===
     logger.debug(`Checking database cache existence for ${uniqueSignatures.length} signatures...`);
-    let cacheHits = 0; // <<< ADDED Counter for hits
+    
+    // Use the updated getCachedTransaction that supports batch operations
+    const cachedTxMap = await getCachedTransaction(uniqueSignatures) as Map<string, HeliusTransaction>;
+    const cacheHits = cachedTxMap.size;
+    
+    // Separate cached transactions and signatures that need to be fetched
     for (const sig of uniqueSignatures) {
-      const cachedTx = await getCachedTransaction(sig);
+      const cachedTx = cachedTxMap.get(sig);
       if (cachedTx) {
-        cacheHits++;
+        if (includeCached) {
+          cachedTransactions.push(cachedTx); // Only keep if includeCached is true
+        }
       } else {
         signaturesToFetchDetails.add(sig);
       }
     }
+    
     logger.info(`Found ${cacheHits} signatures in cache. Need to fetch details for ${signaturesToFetchDetails.size} signatures.`);
+    logger.debug(`Cache inclusion is ${includeCached ? 'enabled' : 'disabled'}, keeping ${cachedTransactions.length} cached transactions.`);
 
     const signaturesToFetchArray = Array.from(signaturesToFetchDetails);
 
@@ -308,11 +320,21 @@ export class HeliusApiClient {
         }
     } // End if signaturesToFetchArray.length > 0
     
-    // === Filtering & Sorting of Newly Fetched Transactions ===
-
-    let filteredTransactions = newlyFetchedTransactions; // Start with the newly fetched ones
+    // Merge cached and newly fetched transactions based on includeCached flag
+    if (includeCached) {
+      logger.info(`Loaded ${cachedTransactions.length} cached transactions.`);
+    } else {
+      logger.info(`Skipping ${cachedTxMap.size} cached transactions (cache inclusion disabled).`);
+    }
+    
+    const allTransactions = includeCached 
+      ? [...cachedTransactions, ...newlyFetchedTransactions]
+      : [...newlyFetchedTransactions];
+    
+    // === Filtering & Sorting of All Transactions ===
 
     // --- Timestamp Filtering (Incremental Logic) ---
+    let filteredTransactions = allTransactions;
     if (newestProcessedTimestamp !== undefined) {
         const countBefore = filteredTransactions.length;
         filteredTransactions = filteredTransactions.filter(tx => tx.timestamp > newestProcessedTimestamp);
@@ -329,26 +351,48 @@ export class HeliusApiClient {
     const relevantFiltered = filteredTransactions.filter(tx => {
         const hasTokenTransfer = tx.tokenTransfers?.some(t => 
             t.fromUserAccount?.toLowerCase() === lowerCaseAddress || 
-            t.toUserAccount?.toLowerCase() === lowerCaseAddress
+            t.toUserAccount?.toLowerCase() === lowerCaseAddress ||
+            (t as any).userAccount?.toLowerCase() === lowerCaseAddress
         );
+        
         const hasNativeTransfer = tx.nativeTransfers?.some(t => 
             t.fromUserAccount?.toLowerCase() === lowerCaseAddress || 
-            t.toUserAccount?.toLowerCase() === lowerCaseAddress
+            t.toUserAccount?.toLowerCase() === lowerCaseAddress ||
+            (t as any).userAccount?.toLowerCase() === lowerCaseAddress
         );
+        
         const hasAccountDataChange = tx.accountData?.some(ad => 
              ad.account?.toLowerCase() === lowerCaseAddress && 
              (ad.nativeBalanceChange !== 0 || ad.tokenBalanceChanges?.length > 0)
         );
-        return hasTokenTransfer || hasNativeTransfer || hasAccountDataChange; 
+        
+        // Check if any swap event involves the wallet address
+        const hasSwapEvent = !!tx.events?.swap && (
+            tx.events.swap.tokenInputs?.some(i =>
+                [(i as any).userAccount, (i as any).fromUserAccount, (i as any).toUserAccount]
+                    .some(u => u?.toLowerCase() === lowerCaseAddress)
+            ) ||
+            tx.events.swap.tokenOutputs?.some(o =>
+                [(o as any).userAccount, (o as any).fromUserAccount, (o as any).toUserAccount]
+                    .some(u => u?.toLowerCase() === lowerCaseAddress)
+            )
+        );
+        
+        // Quick check for feePayer
+        if (tx.feePayer?.toLowerCase() === lowerCaseAddress) {
+            return true;
+        }
+        
+        return hasTokenTransfer || hasNativeTransfer || hasAccountDataChange || hasSwapEvent;
     });
     logger.info(`Filtered combined transactions down to ${relevantFiltered.length} involving the target address.`);
 
     // Sort the relevant transactions by timestamp (ascending - oldest first)
     relevantFiltered.sort((a, b) => a.timestamp - b.timestamp);
-    logger.debug(`Sorted ${relevantFiltered.length} newly fetched, relevant transactions by timestamp.`);
+    logger.debug(`Sorted ${relevantFiltered.length} relevant transactions by timestamp.`);
 
-    logger.info(`Helius API client process finished. Returning ${relevantFiltered.length} newly fetched, relevant transactions.`);
-    return relevantFiltered; // Return the filtered & sorted list of NEW transactions
+    logger.info(`Helius API client process finished. Returning ${relevantFiltered.length} relevant transactions.`);
+    return relevantFiltered; // Return the filtered & sorted list of ALL filtered transactions
   }
 
   private sanitizeError(error: any): any {

@@ -13,26 +13,22 @@ import {
   writeAnalysisReportTxt_fromMemory,
   saveAnalysisResultsToCsv
 } from '../services/transfer-analyzer-service';
-import { IntermediateSwapRecord, HeliusTransaction } from '../types/helius-api'; // Correct import location
-import { calculateAdvancedStats } from '../services/advanced-stats-service'; // Import the new service
+import { HeliusTransaction, SwapAnalysisSummary, OnChainAnalysisResult } from '../types/helius-api';
+import { calculateAdvancedStats } from '../services/advanced-stats-service';
 import { displaySummary, displayDetailedResults } from '../cli/display-utils';
 import {
     getWallet, 
     updateWallet, 
-    saveSwapAnalysisInputs, // Import DB function for saving intermediate data
-    getSwapAnalysisInputs,  // Import DB function for reading intermediate data
+    saveSwapAnalysisInputs,
+    getSwapAnalysisInputs,
     createAnalysisRun,
     saveAnalysisResults,
     saveAdvancedStats,
-    // Types needed for saving results (if not already exported/defined elsewhere)
-    // These might need to be defined/exported in database-service.ts if not already
-    // For now, assuming they are available or handled by Prisma types
-    AnalysisResultCreateData, // Type for AnalysisResult creation data
-    AdvancedStatsCreateData, // Type for AdvancedStats creation data
-    prisma // Import Prisma client instance for direct updates (e.g., updating run status)
+    AnalysisResultCreateData,
+    AdvancedStatsCreateData,
+    prisma
 } from '../services/database-service'; 
-import { Prisma, SwapAnalysisInput } from '@prisma/client'; // Import Prisma types
-// --- End Database Service Imports ---
+import { Prisma, SwapAnalysisInput } from '@prisma/client';
 
 // Initialize environment variables
 dotenv.config();
@@ -53,59 +49,49 @@ const logger = createLogger('HeliusAnalyzerScript');
 async function performAnalysisForWallet(
   walletAddress: string, 
   timeRange?: { startTs?: number, endTs?: number }
-): Promise<{
-  results: any[];
-  totalSignaturesProcessed: number;
-  overallFirstTimestamp?: number;
-  overallLastTimestamp?: number;
-  advancedStats?: any;
-}> {
+): Promise<SwapAnalysisSummary> {
   logger.debug(`Performing analysis for wallet ${walletAddress} with time constraints`, { timeRange });
   const isTimeRanged = timeRange && (timeRange.startTs || timeRange.endTs);
   
-  // Fetch all records from the database for this wallet (with optional time filtering)
-  const dbInputs: SwapAnalysisInput[] = await getSwapAnalysisInputs(
+  // Fetch pre-processed analysis input records from the database
+  const swapInputs: SwapAnalysisInput[] = await getSwapAnalysisInputs(
     walletAddress,
-    timeRange // Pass the entire timeRange object which matches the SwapInputTimeRange interface
+    timeRange
   );
   
-  // Map Prisma model type to IntermediateSwapRecord type
-  const intermediateRecords: IntermediateSwapRecord[] = dbInputs.map(input => ({
-    signature: input.signature,
-    timestamp: input.timestamp,
-    mint: input.mint,
-    amount: input.amount,
-    direction: input.direction as "in" | "out", // Type assertion
-    solSpentInTx: input.solSpentInTx ?? 0,     // Use nullish coalescing for safety with potentially old data
-    solReceivedInTx: input.solReceivedInTx ?? 0 // Use nullish coalescing 
-  }));
-
-  if (intermediateRecords.length === 0) {
-    logger.warn(`No intermediate records found in database for wallet ${walletAddress}${timeRange ? ' in the specified time range' : ''}`);
+  if (swapInputs.length === 0) {
+    logger.warn(`No swap analysis input records found in database for wallet ${walletAddress}${timeRange ? ' in the specified time range' : ''}`);
+    // Return an empty summary structure matching SwapAnalysisSummary
     return {
       results: [],
-      totalSignaturesProcessed: 0
+      totalSignaturesProcessed: 0,
+      overallFirstTimestamp: 0,
+      overallLastTimestamp: 0,
+      advancedStats: undefined // Ensure all fields are present
     };
   }
 
-  logger.info(`Analyzing ${intermediateRecords.length} intermediate records from database...`);
+  logger.info(`Analyzing ${swapInputs.length} pre-processed swap input records from database...`);
   
-  // Perform the analysis on all fetched records
-  const analysisSummary = analyzeSwapRecords(intermediateRecords);
+  // Perform the analysis directly on the SwapAnalysisInput records
+  // The analyzer now expects this structure
+  const analysisSummary = analyzeSwapRecords(swapInputs, walletAddress);
   
-  if (analysisSummary.results.length === 0) {
-    logger.warn('Analysis did not yield any results (e.g., no paired swaps found).');
-    return analysisSummary;
-  }
-
-  // --- Calculate Advanced Stats ---
-  logger.info('Calculating advanced trading statistics...');
-  const advancedStats = calculateAdvancedStats(analysisSummary.results);
-  if (advancedStats) {
-    analysisSummary.advancedStats = advancedStats;
-    logger.info('Successfully calculated advanced stats.');
+  // analysisSummary already includes results, signature count, timestamps
+  // Calculate advanced stats based on the results
+  if (analysisSummary.results.length > 0) {
+    logger.info('Calculating advanced trading statistics...');
+    const advancedStats = calculateAdvancedStats(analysisSummary.results);
+    if (advancedStats) {
+      analysisSummary.advancedStats = advancedStats; // Add advanced stats to the summary
+      logger.info('Successfully calculated advanced stats.');
+    } else {
+      logger.warn('Could not calculate advanced stats (likely insufficient data).');
+    }
   } else {
-    logger.warn('Could not calculate advanced stats (likely insufficient data).');
+     logger.warn('Analysis did not yield any results (e.g., no paired swaps found).');
+     // Ensure advancedStats is undefined if no results
+     analysisSummary.advancedStats = undefined; 
   }
 
   return analysisSummary;
@@ -171,14 +157,19 @@ async function analyzeWalletWithHelius(
       logger.debug(`[Fetch Phase] Fetching relevant transactions from Helius API...`);
       let newTransactions: HeliusTransaction[] = [];
       try {
+        // Only include cached transactions if this is an initial fetch or we're fetching older transactions
+        // For incremental runs (newer transactions), we don't need cached ones
+        const includeCached = initialFetch || options.fetchOlder;
+        
         newTransactions = await heliusClient.getAllTransactionsForAddress(
           walletAddress, 
           options.limit,
           options.maxSignatures,
           stopAtSignature,       
-          newestProcessedTimestamp
+          newestProcessedTimestamp,
+          includeCached // Add the includeCached parameter
         );
-        logger.info(`[Fetch Phase] Fetched ${newTransactions.length} new, relevant transactions from Helius.`);
+        logger.info(`[Fetch Phase] Fetched ${newTransactions.length} relevant transactions from Helius${includeCached ? ' (including cached)' : ' (new only)'}.`);
       } catch (error) {
         logger.error(`[Fetch Phase] Failed to fetch transactions from Helius.`, { error: error instanceof Error ? error.message : String(error) });
         logger.warn('[Fetch Phase] Cannot update database or wallet state due to API fetch failure.');
@@ -188,28 +179,21 @@ async function analyzeWalletWithHelius(
       // --- Process & Save New Transactions ---
       if (newTransactions.length > 0) {
         logger.debug('[Fetch Phase] Mapping and saving new transactions...');
-        const newIntermediateRecords = mapHeliusTransactionsToIntermediateRecords(walletAddress, newTransactions);
+        // mapHeliusTransactionsToIntermediateRecords now returns SwapAnalysisInputCreateData[]
+        const analysisInputsToSave: Prisma.SwapAnalysisInputCreateInput[] = mapHeliusTransactionsToIntermediateRecords(walletAddress, newTransactions);
         
-        if (newIntermediateRecords.length > 0) {
-          logger.debug(`[Fetch Phase] Saving ${newIntermediateRecords.length} newly mapped intermediate records to database...`);
+        if (analysisInputsToSave.length > 0) {
+          logger.debug(`[Fetch Phase] Saving ${analysisInputsToSave.length} new analysis input records to database...`);
           try {
-            const recordsToSave: Prisma.SwapAnalysisInputCreateInput[] = newIntermediateRecords.map(rec => ({
-              walletAddress: walletAddress,
-              signature: rec.signature,
-              timestamp: rec.timestamp,
-              mint: rec.mint,
-              amount: rec.amount ?? 0,
-              direction: rec.direction,
-              solSpentInTx: rec.solSpentInTx,
-              solReceivedInTx: rec.solReceivedInTx
-            }));
-            const saveResult = await saveSwapAnalysisInputs(recordsToSave);
+            // No extra mapping needed, analysisInputsToSave should match the create input type
+            // const recordsToSave: Prisma.SwapAnalysisInputCreateInput[] = analysisInputsToSave.map(rec => ({ ... })); 
+            const saveResult = await saveSwapAnalysisInputs(analysisInputsToSave);
             logger.info(`[Fetch Phase] Successfully saved ${saveResult.count} new records to SwapAnalysisInput table.`);
           } catch (dbError) {
-            logger.error('[Fetch Phase] Error saving new intermediate records to database:', dbError);
+            logger.error('[Fetch Phase] Error saving new analysis input records to database:', dbError);
           }
         } else {
-          logger.debug('[Fetch Phase] Mapping resulted in 0 intermediate records to save.');
+          logger.debug('[Fetch Phase] Mapping resulted in 0 analysis input records to save.');
         }
 
         // --- Update Wallet State ---
@@ -285,7 +269,7 @@ async function analyzeWalletWithHelius(
 
             // 2. Save AnalysisResult records
             if (analysisSummary.results.length > 0) {
-                const resultsToSave: AnalysisResultCreateData[] = analysisSummary.results.map(res => ({
+                const resultsToSave: AnalysisResultCreateData[] = analysisSummary.results.map((res: OnChainAnalysisResult) => ({
                     ...res,
                     runId: analysisRunId!,
                     walletAddress: walletAddress

@@ -169,15 +169,15 @@ export interface CompressedNftEvent {
 
 /**
  * Intermediate format focusing on token transfers within swaps.
+ * Designed to capture ALL transfers within relevant transactions for later analysis.
  */
 export interface IntermediateSwapRecord {
   signature: string;      // Transaction signature
   timestamp: number;      // Unix timestamp of the transaction
   mint: string;           // Token mint address
-  amount: number;         // Raw token amount (smallest unit, e.g., lamports for SPL tokens)
-  direction: 'in' | 'out'; // Direction relative to the analyzed wallet
-  solSpentInTx?: number;   // Total SOL spent by wallet in this TX (from nativeBalanceChange)
-  solReceivedInTx?: number;// Total SOL received by wallet in this TX (from nativeBalanceChange)
+  amount: number;         // Raw token amount (needs decimal adjustment during analysis)
+  fromUserAccount: string | null; // ADDED: Source wallet/owner account
+  toUserAccount: string | null;   // ADDED: Destination wallet/owner account
 }
 
 /**

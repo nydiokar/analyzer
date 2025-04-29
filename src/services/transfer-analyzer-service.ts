@@ -12,7 +12,7 @@ import {
   AccountData,
   TokenBalanceChange
 } from '../types/helius-api';
-import { AnalysisResult, AdvancedStatsResult } from '@prisma/client';
+import { AnalysisResult, AdvancedStatsResult, SwapAnalysisInput } from '@prisma/client';
 import {
     getAnalysisRun,
     getAnalysisResultsForRun,
@@ -22,11 +22,11 @@ import {
 // Logger instance for this module
 const logger = createLogger('TransferAnalyzerService');
 
-// const SOL_MINT = 'So11111111111111111111111111111111111111112'; // No longer used for SOL P/L calculation
+// const SOL_MINT = 'So11111111111111111111111111111111111111112'; // No longer needed directly here
 
 // --- Known Token Addresses ---
 const KNOWN_TOKENS: Record<string, string> = {
-  'So11111111111111111111111111111111111111112': 'SOL', // Keep for display name if wSOL appears
+  'So11111111111111111111111111111111111111112': 'WSOL',
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'USDC',
   // Add other known tokens here if needed
   // 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'USDT',
@@ -38,127 +38,77 @@ function getTokenDisplayName(address: string): string {
 // --- End Known Token Addresses ---
 
 /**
- * Analyzes pre-processed intermediate swap records to produce OnChainAnalysisResult
- * including SOL P/L and summary statistics.
- * Assumes SPL amounts are already adjusted for decimals and SOL movements are pre-calculated.
+ * [REFACTORED] Analyzes pre-processed SwapAnalysisInput records to produce OnChainAnalysisResult.
+ * This version assumes the input records have already accurately calculated the
+ * decimal-adjusted SPL amount and the associated SOL value for each user swap leg.
  *
- * @param records Array of IntermediateSwapRecord containing SPL transfers and associated SOL movements.
+ * @param swapInputs Array of SwapAnalysisInput records from the database.
+ * @param walletAddress The specific wallet address being analyzed (used for logging/verification).
  * @returns SwapAnalysisSummary object containing results and summary info.
  */
 export function analyzeSwapRecords(
-  records: IntermediateSwapRecord[]
+  swapInputs: SwapAnalysisInput[], // Use the actual DB model type
+  walletAddress: string
 ): SwapAnalysisSummary {
-    // Input validation
-    if (!records) {
-        logger.error("IntermediateSwapRecord array is required for analysis.");
+    if (!swapInputs || !walletAddress) {
+        logger.error("SwapAnalysisInput array and walletAddress are required for analysis.");
         return { results: [], totalSignaturesProcessed: 0, overallFirstTimestamp: 0, overallLastTimestamp: 0 };
     }
 
-    logger.debug(`Analyzing ${records.length} intermediate records...`);
+    logger.info(`Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletAddress}...`);
 
-    // 1. Group intermediate records by Signature
-    const recordsBySignature = new Map<string, IntermediateSwapRecord[]>();
-    for (const record of records) {
-        // Ensure we only process records relevant to SPL tokens, ignore wSOL records from intermediate source
-        if (record.mint === 'So11111111111111111111111111111111111111112') continue;
-
-        if (!recordsBySignature.has(record.signature)) {
-            recordsBySignature.set(record.signature, []);
-        }
-        recordsBySignature.get(record.signature)!.push(record);
-    }
-
+    // 1. Aggregate by SPL Mint
     const analysisBySplMint = new Map<string, Partial<OnChainAnalysisResult> & { timestamps: number[] }>();
-
-    let processedSignaturesCount = 0;
-    let multiSplTokenCount = 0;
-    let splWithoutSolChangeCount = 0;
+    const processedSignatures = new Set<string>();
     let overallFirstTimestamp = Infinity;
     let overallLastTimestamp = 0;
 
-    for (const [signature, singleSigRecords] of recordsBySignature.entries()) {
-        processedSignaturesCount++;
-
-        // If there are no records for this signature (shouldn't happen with map logic), skip.
-        if (singleSigRecords.length === 0) {
+    for (const input of swapInputs) {
+        // Verification (optional): Check if record belongs to the correct wallet
+        if (input.walletAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+            logger.warn(`Skipping input record for signature ${input.signature} belonging to unexpected wallet ${input.walletAddress}`);
             continue;
         }
 
-        // --- Get Pre-calculated SOL movement for this signature --- //
-        // All records for the same signature should have the same SOL values from the mapper
-        const representativeRecord = singleSigRecords[0]; 
-        const signatureSolSpent = representativeRecord.solSpentInTx ?? 0;
-        const signatureSolReceived = representativeRecord.solReceivedInTx ?? 0;
-        const signatureTimestamp = representativeRecord.timestamp; // Use timestamp from record
+        processedSignatures.add(input.signature);
+        const timestamp = input.timestamp;
+        if (timestamp < overallFirstTimestamp) overallFirstTimestamp = timestamp;
+        if (timestamp > overallLastTimestamp) overallLastTimestamp = timestamp;
 
-        // Track overall timestamps
-        if (signatureTimestamp < overallFirstTimestamp) overallFirstTimestamp = signatureTimestamp;
-        if (signatureTimestamp > overallLastTimestamp) overallLastTimestamp = signatureTimestamp;
+        const splMint = input.mint; // Field name from latest schema
 
-        // --- End SOL Calculation ---
-
-        // Process each SPL record for this signature
-        for (const splRecord of singleSigRecords) {
-             const splMint = splRecord.mint;
-
-             // Initialize result object if needed
-             if (!analysisBySplMint.has(splMint)) {
-                 analysisBySplMint.set(splMint, {
-                     tokenAddress: splMint,
-                     totalAmountIn: 0, totalAmountOut: 0, totalSolSpent: 0,
-                     totalSolReceived: 0, transferCountIn: 0, transferCountOut: 0,
-                     timestamps: [],
-                 });
-             }
-             const currentAnalysis = analysisBySplMint.get(splMint)!;
- 
-             // Use timestamp from intermediate record
-             currentAnalysis.timestamps!.push(splRecord.timestamp);
-
-             // Accumulate SPL metrics from intermediate record
-             if (splRecord.direction === 'in') { // Wallet received SPL
-                 currentAnalysis.totalAmountIn! += splRecord.amount;
-                 currentAnalysis.transferCountIn!++;
-             } else { // Wallet sent SPL (splRecord.direction === 'out')
-                 currentAnalysis.totalAmountOut! += splRecord.amount;
-                 currentAnalysis.transferCountOut!++;
-             }
-
-             // --- SOL Attribution --- //
-             // Add the pre-calculated SOL movement for this signature
-             currentAnalysis.totalSolSpent! += signatureSolSpent;
-             currentAnalysis.totalSolReceived! += signatureSolReceived;
-             // --- End SOL Attribution --- //
-          }
-
-        // Update counters based on the signature-level data
-        const uniqueSplMintsInSig = new Set(singleSigRecords.map(r => r.mint));
-        if (uniqueSplMintsInSig.size > 1 && (signatureSolSpent > 0 || signatureSolReceived > 0)) {
-             multiSplTokenCount++;
+        // Initialize result object if needed
+        if (!analysisBySplMint.has(splMint)) {
+            analysisBySplMint.set(splMint, {
+                tokenAddress: splMint,
+                totalAmountIn: 0, totalAmountOut: 0, totalSolSpent: 0,
+                totalSolReceived: 0, transferCountIn: 0, transferCountOut: 0,
+                timestamps: [], netSolProfitLoss: 0,
+            });
         }
-        // Check if *any* SPL record existed but SOL movement was zero
-        if (singleSigRecords.length > 0 && signatureSolSpent === 0 && signatureSolReceived === 0) {
-             splWithoutSolChangeCount++;
+        const currentAnalysis = analysisBySplMint.get(splMint)!;
+
+        // Aggregate amounts and SOL values based on direction
+        currentAnalysis.timestamps!.push(timestamp);
+        if (input.direction === 'in') {
+            currentAnalysis.totalAmountIn! += input.amount; // Use decimal-adjusted amount from input
+            currentAnalysis.transferCountIn!++;
+            currentAnalysis.totalSolSpent! += input.associatedSolValue; // Use pre-calculated cost
+        } else { // direction === 'out'
+            currentAnalysis.totalAmountOut! += input.amount; // Use decimal-adjusted amount from input
+            currentAnalysis.transferCountOut!++;
+            currentAnalysis.totalSolReceived! += input.associatedSolValue; // Use pre-calculated proceeds
         }
-    }
+    } // End loop through swap inputs
 
-    logger.info(`Processed ${processedSignaturesCount} signatures containing SPL transfers from intermediate records, aggregated across ${analysisBySplMint.size} unique SPL tokens.`);
-    if (multiSplTokenCount > 0) {
-        logger.warn(`Found ${multiSplTokenCount} signatures where multiple SPL tokens potentially shared SOL movement for the wallet (SOL attribution might be approximate).`);
-    }
+    logger.info(`Aggregated data for ${analysisBySplMint.size} unique SPL tokens across ${processedSignatures.size} signatures.`);
 
-    // 3. Calculate Final Metrics and create final result array
+    // 2. Calculate Final Metrics
     const finalResults: OnChainAnalysisResult[] = [];
     for (const [splMint, aggregatedData] of analysisBySplMint.entries()) {
-        if ((aggregatedData.totalAmountIn === 0 && aggregatedData.totalAmountOut === 0) && (aggregatedData.totalSolSpent === 0 && aggregatedData.totalSolReceived === 0)){
-            // Skip tokens with absolutely no recorded movement (should be rare)
-            continue;
-        }
 
-        aggregatedData.timestamps!.sort((a, b) => a - b); // Sort timestamps for first/last
+        aggregatedData.timestamps!.sort((a, b) => a - b);
 
-        // Ensure net P/L is calculated correctly based on aggregated values
-        // Note: SOL spent/received might be applied multiple times if multiple SPLs in one TX. Refine attribution if needed.
         const netSolProfitLoss = (aggregatedData.totalSolReceived ?? 0) - (aggregatedData.totalSolSpent ?? 0);
         const netAmountChange = (aggregatedData.totalAmountIn ?? 0) - (aggregatedData.totalAmountOut ?? 0);
 
@@ -177,33 +127,20 @@ export function analyzeSwapRecords(
         });
     }
 
-    logger.info(`Analysis aggregation complete for ${finalResults.length} SPL tokens initially.`);
+    logger.info(`Final analysis complete. Generated ${finalResults.length} results.`);
 
-    // --- Filter out results with zero *effective* SOL interaction ---
-    const filteredResults = finalResults.filter(result =>
-        result.totalSolSpent > 1e-9 || result.totalSolReceived > 1e-9 // Use a small threshold to account for float precision
-    );
-    const filteredCount = finalResults.length - filteredResults.length;
-    if (filteredCount > 0) {
-        logger.info(`Filtered out ${filteredCount} tokens with zero detected net SOL interaction for the wallet.`);
-    }
-    // --- End Filtering ---
-
-    // Reset timestamps if no records were processed
     if (overallFirstTimestamp === Infinity) overallFirstTimestamp = 0;
 
-    // Prepare and return the summary object
     const summary: SwapAnalysisSummary = {
-        results: filteredResults,
-        totalSignaturesProcessed: processedSignaturesCount,
+        results: finalResults, // Use finalResults directly
+        totalSignaturesProcessed: processedSignatures.size, 
         overallFirstTimestamp: overallFirstTimestamp,
         overallLastTimestamp: overallLastTimestamp
     };
 
-    logger.info(`Analysis summary created. Final token count: ${summary.results.length}.`);
+    logger.info(`Analysis summary created. Final token results count: ${summary.results.length}.`);
     return summary;
 }
-
 
 // --- Reporting / Helper Functions --- (Remain Largely Unchanged)
 
@@ -371,38 +308,39 @@ export function writeAnalysisReportTxt_fromMemory( // Renamed from writeOnChainA
   // Format numbers to 2 decimals
   reportContent += `SOL Spent: ${overallSolSpent.toFixed(2)} SOL\n`;
   reportContent += `SOL Received: ${overallSolReceived.toFixed(2)} SOL\n`;
-  reportContent += `Net SOL P/L: ${overallNetSolPL.toFixed(2)} SOL\n`;
+  reportContent += `Overall Net SOL P/L: ${overallNetSolPL.toFixed(2)} SOL\n`;
 
-  // --- Advanced Stats Section (Moved Up) ---
-  reportContent += `\n--- Advanced Trading Statistics (Period) ---\n`;
+  // --- Advanced Stats Section ---
+  reportContent += `\n--- Advanced Trading Statistics ---\n`;
   if (advancedStats) {
+    // Iterate over the keys of the advancedStats object (excluding id and runId)
     Object.entries(advancedStats).forEach(([key, value]) => {
-        if (key !== 'id' && key !== 'runId' && value !== null) {
-            const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
-            // Format numbers to 2 decimals
-            const formattedValue = typeof value === 'number' ? value.toFixed(2) : String(value);
-            reportContent += `${formattedKey}: ${formattedValue}\n`;
-        }
+      if (key !== 'id' && key !== 'runId' && value !== null) {
+        // Simple formatting: Convert camelCase to Title Case
+        const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
+        // Format numbers to 2 decimals, keep others as string
+        const formattedValue = typeof value === 'number' ? value.toFixed(2) : String(value);
+        reportContent += `${formattedKey}: ${formattedValue}\n`;
+      }
     });
   } else {
-    reportContent += `(Not calculated or available)\n`;
+    reportContent += `(Not calculated or available for this period)\n`;
   }
 
-  // Sort results for Top/Bottom display (results from memory aren't pre-sorted)
-  const sortedResults = [...results].sort((a, b) => b.netSolProfitLoss - a.netSolProfitLoss);
-
   // --- Top Tokens Section ---
-  reportContent += '\n--- TOP 10 TOKENS BY SOL P/L (Period) ---\n';
-  sortedResults.slice(0, 10).forEach((result, index) => {
-      const percentLeft = calculatePercentLeft(result.totalAmountIn, result.netAmountChange);
-      // Removed shortened address, added new metrics with formatting
-      reportContent += `${index + 1}. ${getTokenDisplayName(result.tokenAddress)}: 
+  reportContent += `\n--- Top 10 Tokens by Net SOL P/L ---\n`;
+  // Results are already sorted descending by P/L from the query
+  const topResults = results.slice(0, 10);
+  topResults.forEach((result, index) => {
+    const percentLeft = calculatePercentLeft(result.totalAmountIn, result.netAmountChange);
+    // Removed shortened address, added new metrics with formatting
+    reportContent += `${index + 1}. ${getTokenDisplayName(result.tokenAddress)}: 
       Net SOL: ${result.netSolProfitLoss.toFixed(2)} | Invested: ${result.totalSolSpent.toFixed(2)} | Received: ${result.totalSolReceived.toFixed(2)} | Tokens Left: ${percentLeft}\n`;
   });
 
   // --- Bottom Tokens Section ---
-  reportContent += '\n--- BOTTOM 5 TOKENS BY SOL P/L (Period) ---\n';
-  const bottomResults = sortedResults.slice(-5).reverse();
+  reportContent += `\n--- Bottom 5 Tokens by Net SOL P/L ---\n`;
+  const bottomResults = results.slice(-5).reverse(); // Get last 5, reverse to show biggest loss first
   bottomResults.forEach((result, index) => {
       const percentLeft = calculatePercentLeft(result.totalAmountIn, result.netAmountChange);
       // Removed shortened address, added new metrics with formatting
@@ -473,4 +411,4 @@ export function saveAnalysisResultsToCsv(
     logger.error(`Error saving analysis results to CSV:`, { error });
     return null;
   }
-} 
+}

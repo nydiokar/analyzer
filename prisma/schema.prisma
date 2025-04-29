@@ -38,24 +38,28 @@ model HeliusTransactionCache {
   @@index([timestamp])
 }
 
-// Stores mapped transfers used as input for analysis.
+// Stores PRE-CALCULATED data for a specific user swap leg, derived from Helius events.
+// One record per SPL token sent or received by the user in a swap.
 model SwapAnalysisInput {
-  id            Int      @id @default(autoincrement())
-  walletAddress String   
-  signature     String   
-  timestamp     Int      // Unix seconds
-  mint          String   // Token mint address 
-  amount        Float    // REVERTED: Back to Float for SQLite compatibility
-  direction     String   // "in" or "out" relative to walletAddress
+  id                 Int      @id @default(autoincrement())
+  walletAddress      String   // The user wallet this record relates to.
+  signature          String   // Transaction signature.
+  timestamp          Int      // Unix timestamp of the transaction.
+  
+  mint               String   // Mint address of the SPL token the user sent/received.
+  amount             Float    // Decimal-adjusted amount of the SPL token (from Helius tokenTransfer.tokenAmount).
+  direction          String   // "in" (user received SPL) or "out" (user sent SPL).
+  
+  // The calculated SOL/WSOL value associated with THIS specific transfer leg.
+  associatedSolValue Float    // Cost (if direction="in") or Proceeds (if direction="out").
 
-  // Add fields to store transaction-level SOL movement context
-  solSpentInTx  Float?   // Total SOL spent by the wallet in this specific transaction (optional for backward compatibility)
-  solReceivedInTx Float? // Total SOL received by the wallet in this specific transaction (optional for backward compatibility)
-
-  // Indices for efficient querying by wallet, time, token, or signature
+  // Indices for analysis
   @@index([walletAddress, timestamp])
-  @@index([walletAddress, mint])
-  @@index([signature])
+  @@index([walletAddress, mint]) // Index by mint again
+  @@index([signature]) 
+  
+  // Add unique constraint to prevent duplicates
+  @@unique([signature, mint, direction])
 }
 
 // Tracks metadata for each analysis execution.
