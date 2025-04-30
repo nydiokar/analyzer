@@ -2,7 +2,7 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { createLogger } from '../../utils/logger';
 import { mapHeliusTransactionsToIntermediateRecords } from '../../services/helius-transaction-mapper';
 import { saveSwapAnalysisInputs } from '../../services/database-service';
@@ -17,19 +17,23 @@ const logger = createLogger('BackfillSwapInputsScript');
 // Initialize Prisma Client
 const prisma = new PrismaClient();
 
-const DEFAULT_BATCH_SIZE = 200; // Process N cached transactions at a time
+const DEFAULT_BATCH_SIZE = 500; // Process N cached transactions at a time
+const CONCURRENT_OPERATIONS = 50; // Number of update/create operations to run in parallel
 
 /**
- * Fetches transactions from HeliusTransactionCache in batches,
- * maps them using the provided mapper, and saves the results
- * to SwapAnalysisInput for a specific wallet address.
+ * Fetches transactions from HeliusTransactionCache in batches, maps them,
+ * and **unconditionally updates** existing SwapAnalysisInput records
+ * with the latest mapped `associatedSolValue` and `interactionType`.
+ * Creates records if they don't exist.
  */
 async function backfillForWallet(walletAddress: string, batchSize: number): Promise<void> {
-  logger.info(`Starting backfill for wallet: ${walletAddress} with batch size: ${batchSize}`);
+  logger.info(`Starting UNCONDITIONAL backfill for wallet: ${walletAddress} with batch size: ${batchSize}`);
 
   let processedSignatures = 0;
   let totalInputsFound = 0;
-  let totalInputsSaved = 0;
+  let totalInputsUpdated = 0; // Renamed for clarity
+  let totalInputsCreated = 0;
+  let totalDbErrors = 0;
   let skip = 0;
   let hasMore = true;
 
@@ -38,14 +42,14 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
     let cachedTransactionsData: { signature: string; rawData: any }[] = [];
     try {
       cachedTransactionsData = await prisma.heliusTransactionCache.findMany({
-        select: { signature: true, rawData: true }, // Select only needed fields
-        orderBy: { timestamp: 'asc' }, // Process in chronological order (optional)
+        select: { signature: true, rawData: true }, 
+        orderBy: { timestamp: 'asc' }, 
         skip: skip,
         take: batchSize,
       });
     } catch (dbError) {
       logger.error(`Failed to fetch batch from HeliusTransactionCache`, { error: dbError, skip, batchSize });
-      hasMore = false; // Stop processing if fetch fails
+      hasMore = false; 
       continue;
     }
 
@@ -59,7 +63,6 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
     for (const cachedTx of cachedTransactionsData) {
       try {
         const parsed = JSON.parse(cachedTx.rawData as string) as HeliusTransaction;
-        // Basic validation
         if (parsed && parsed.signature && parsed.timestamp) {
             parsedTransactions.push(parsed);
         } else {
@@ -67,53 +70,114 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
         }
       } catch (parseError) {
         logger.error(`Failed to parse rawData for cached signature: ${cachedTx.signature}`, { error: parseError });
-        // Optionally skip this specific transaction or stop the whole batch?
-        // Skipping for now.
       }
     }
 
     if (parsedTransactions.length === 0) {
         logger.warn(`Batch starting at skip=${skip} resulted in 0 successfully parsed transactions.`);
-        skip += cachedTransactionsData.length; // Move skip forward by the number of raw records fetched
+        skip += cachedTransactionsData.length; 
         continue;
     }
 
-    // Map the parsed transactions for the target wallet
     logger.debug(`Mapping ${parsedTransactions.length} transactions for wallet ${walletAddress}...`);
-    const analysisInputsToSave = mapHeliusTransactionsToIntermediateRecords(walletAddress, parsedTransactions);
-    totalInputsFound += analysisInputsToSave.length;
+    const mappedInputs: Prisma.SwapAnalysisInputCreateInput[] = mapHeliusTransactionsToIntermediateRecords(walletAddress, parsedTransactions);
+    totalInputsFound += mappedInputs.length;
 
-    if (analysisInputsToSave.length > 0) {
-      // Save the results using the existing service function
-      logger.debug(`Saving ${analysisInputsToSave.length} potential SwapAnalysisInput records...`);
-      try {
-        const saveResult = await saveSwapAnalysisInputs(analysisInputsToSave);
-        totalInputsSaved += saveResult.count;
-        logger.info(`Processed batch (skip ${skip}): Found ${analysisInputsToSave.length} inputs, Saved ${saveResult.count} new inputs.`);
-      } catch (saveError) {
-        logger.error(`Failed to save SwapAnalysisInput batch`, { error: saveError });
-        // Decide if we should stop or continue on save errors
-        // Continuing for now, but logging the error
-      }
+    if (mappedInputs.length > 0) {
+      logger.debug(`Processing ${mappedInputs.length} mapped inputs for updates/creates...`);
+      let batchUpdated = 0;
+      let batchCreated = 0;
+      let batchErrors = 0;
+
+      // Process DB operations in smaller concurrent chunks
+      for (let i = 0; i < mappedInputs.length; i += CONCURRENT_OPERATIONS) {
+          const chunk = mappedInputs.slice(i, i + CONCURRENT_OPERATIONS);
+
+          const dbPromises = chunk.map(async (input) => {
+              try {
+                  const whereCondition: Prisma.SwapAnalysisInputWhereUniqueInput = {
+                       signature_mint_direction: {
+                           signature: input.signature as string,
+                           mint: input.mint as string,
+                           direction: input.direction as string,
+                       }
+                  };
+
+                  // Check if record exists using only ID selection for speed
+                  const existingRecord = await prisma.swapAnalysisInput.findUnique({
+                       where: whereCondition,
+                       select: { id: true } // Only need to know if it exists
+                  });
+
+                  if (existingRecord) {
+                      // Record exists, perform an UPDATE
+                      const fieldsToUpdate: Prisma.SwapAnalysisInputUpdateInput = {
+                          associatedSolValue: input.associatedSolValue,
+                          interactionType: input.interactionType ?? null,
+                          // Add any other fields from the mapper you want to ensure are updated
+                      };
+                      await prisma.swapAnalysisInput.update({
+                          where: whereCondition,
+                          data: fieldsToUpdate,
+                      });
+                      return { status: 'fulfilled', action: 'updated' };
+                  } else {
+                      // Record doesn't exist, perform a CREATE
+                      const createData: Prisma.SwapAnalysisInputCreateInput = {
+                          walletAddress: input.walletAddress,
+                          signature: input.signature,
+                          timestamp: input.timestamp,
+                          mint: input.mint,
+                          amount: input.amount,
+                          direction: input.direction,
+                          associatedSolValue: input.associatedSolValue,
+                          interactionType: input.interactionType ?? null,
+                      };
+                      await prisma.swapAnalysisInput.create({ data: createData });
+                      return { status: 'fulfilled', action: 'created' };
+                  }
+              } catch (err) {
+                  logger.error(`DB operation failed for sig ${input.signature}, mint ${input.mint}, dir ${input.direction}`, { error: err });
+                  return { status: 'rejected', reason: err };
+              }
+          });
+
+          const results = await Promise.allSettled(dbPromises);
+
+          results.forEach(result => {
+              if (result.status === 'fulfilled') {
+                  // Use type assertion after checking status
+                  const fulfilledResult = result as PromiseFulfilledResult<{ status: string; action: string }>;
+                  if (fulfilledResult.value.action === 'updated') batchUpdated++;
+                  if (fulfilledResult.value.action === 'created') batchCreated++;
+              } else {
+                  batchErrors++;
+              }
+          });
+      } // End loop through concurrent chunks
+
+      totalInputsUpdated += batchUpdated; // Use updated counter name
+      totalInputsCreated += batchCreated;
+      totalDbErrors += batchErrors;
+
+      logger.info(`Processed DB ops batch (skip ${skip}): Mapped ${mappedInputs.length} -> Updated: ${batchUpdated}, Created: ${batchCreated}, Errors: ${batchErrors}`);
+
     } else {
         logger.info(`Processed batch (skip ${skip}): Found 0 relevant inputs for wallet ${walletAddress}.`);
     }
 
     processedSignatures += cachedTransactionsData.length;
-    skip += cachedTransactionsData.length; // Increment skip by the number fetched
-
-    // Optional: Add a small delay between batches if needed
-    // await new Promise(resolve => setTimeout(resolve, 50));
+    skip += cachedTransactionsData.length;
 
   } // end while(hasMore)
 
   logger.info(`Backfill complete for wallet: ${walletAddress}`);
-  logger.info(`Summary: Total cached signatures processed: ${processedSignatures}, Total potential inputs found: ${totalInputsFound}, Total new inputs saved: ${totalInputsSaved}`);
+  logger.info(`Summary: Total cached sigs processed: ${processedSignatures}, Found: ${totalInputsFound} inputs -> Updated: ${totalInputsUpdated}, Created: ${totalInputsCreated}, DB Errors: ${totalDbErrors}`); // Use updated counter name in summary
 }
 
-// --- Main Execution --- 
+// --- Main Execution ---
 (async () => {
-  const argv = await yargs(hideBin(process.argv))
+   const argv = await yargs(hideBin(process.argv))
     .scriptName('backfill-swap-inputs')
     .usage('$0 --address WALLET_ADDRESS [--batchSize N]')
     .option('address', {

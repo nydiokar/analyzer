@@ -1,6 +1,6 @@
 import { Telegraf } from 'telegraf';
 import { BotCommands } from './commands';
-import { CryptoAnalyzer } from '../general_crypto/analysis/analyzer';
+import { CryptoAnalyzer } from '../analysis/analyzer';
 
 export class CryptoBot {
   private bot: Telegraf;
