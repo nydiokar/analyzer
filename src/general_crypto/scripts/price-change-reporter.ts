@@ -6,7 +6,7 @@ import { hideBin } from 'yargs/helpers';
 import fs from 'fs';
 import path from 'path';
 import Papa from 'papaparse';
-import { CoinGeckoClient } from '../core/fetcher/coingecko-client';
+import { CoinGeckoClient } from '../general_crypto/fetcher/coingecko-client';
 import { RateLimitConfig } from '../types/crypto';
 import { createLogger } from '../utils/logger';
 import { calculateSMA, calculateRSI } from '../utils/technical-indicators';

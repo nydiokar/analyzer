@@ -1,8 +1,8 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { CryptoAnalyzer } from './core/analysis/analyzer';
-import { SQLiteManager } from './core/storage/sqlite-manager';
-import { CoinGeckoClient } from './core/fetcher/coingecko-client';
+import { CryptoAnalyzer } from './analysis/analyzer';
+import { SQLiteManager } from './storage/sqlite-manager';
+import { CoinGeckoClient } from './fetcher/coingecko-client';
 
 const analyzer = new CryptoAnalyzer();
 analyzer.loadAlerts(); // Ensure alerts are loaded

@@ -1,5 +1,5 @@
-import { SQLiteManager } from '../core/storage/sqlite-manager';
-import { CryptoAnalyzer } from '../core/analysis/analyzer';
+import { SQLiteManager } from '../general_crypto/storage/sqlite-manager';
+import { CryptoAnalyzer } from '../general_crypto/analysis/analyzer';
 import { createLogger } from './logger';
 
 const logger = createLogger('TestDataPopulator');

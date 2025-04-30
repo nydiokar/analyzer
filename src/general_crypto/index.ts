@@ -1,11 +1,11 @@
 import dotenv from 'dotenv';
-import { DataFetcher } from './core/fetcher/data-fetcher';
-import { SQLiteManager } from './core/storage/sqlite-manager';
-import { CryptoAnalyzer } from './core/analysis/analyzer';
-import { CoinGeckoClient } from './core/fetcher/coingecko-client';
-import { AlertManager } from './core/alerts/alert-manager';
-import { CryptoDataOptions, RateLimitConfig } from './types/crypto';
-import { createLogger } from './utils/logger';
+import { DataFetcher } from './fetcher/data-fetcher';
+import { SQLiteManager } from './storage/sqlite-manager';
+import { CryptoAnalyzer } from './analysis/analyzer';
+import { CoinGeckoClient } from './fetcher/coingecko-client';
+import { AlertManager } from './alerts/alert-manager';
+import { CryptoDataOptions, RateLimitConfig } from '../types/crypto';
+import { createLogger } from '../utils/logger';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { CryptoBot } from './bot/bot';

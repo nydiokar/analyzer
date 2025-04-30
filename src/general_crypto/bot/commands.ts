@@ -1,6 +1,6 @@
 import { Context } from 'telegraf';
-import { CryptoAnalyzer } from '../core/analysis/analyzer';
-import { SQLiteManager } from '../core/storage/sqlite-manager';
+import { CryptoAnalyzer } from '../general_crypto/analysis/analyzer';
+import { SQLiteManager } from '../general_crypto/storage/sqlite-manager';
 
 export class BotCommands {
   private storage: SQLiteManager;

@@ -2,9 +2,9 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { DataFetcher } from '../core/fetcher/data-fetcher';
-import { createLogger } from '../utils/logger';
-import { CryptoDataOptions, RateLimitConfig } from '../types/crypto';
+import { DataFetcher } from '../fetcher/data-fetcher';
+import { createLogger } from '../../utils/logger';
+import { CryptoDataOptions, RateLimitConfig } from '../../types/crypto';
 import dotenv from 'dotenv';
 
 // Load environment variables

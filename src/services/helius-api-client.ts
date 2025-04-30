@@ -70,20 +70,19 @@ export class HeliusApiClient {
 
   /**
    * Fetches a single page of transaction signatures using the Solana JSON-RPC `getSignaturesForAddress` method
-   * via the Helius RPC endpoint.
+   * via the Helius RPC endpoint. Includes retry logic.
    *
    * @param address The wallet address to fetch signatures for.
    * @param limit The maximum number of signatures to fetch in this page (RPC limit applies).
    * @param before An optional signature to fetch signatures older than this one.
    * @returns A promise resolving to an array of SignatureInfo objects.
-   * @throws Throws an error if the RPC call fails.
+   * @throws Throws an error if the RPC call fails after all retries.
    */
   private async getSignaturesViaRpcPage(
-    address: string, 
-    limit: number, 
+    address: string,
+    limit: number,
     before?: string | null
   ): Promise<SignatureInfo[]> {
-    // Using Helius RPC endpoint but calling standard Solana method
     const url = `${this.SOLANA_RPC_URL_MAINNET}?api-key=${this.apiKey}`;
     const payload = {
         jsonrpc: '2.0',
@@ -93,29 +92,72 @@ export class HeliusApiClient {
             address,
             {
                 limit: limit,
-                before: before || undefined // Only include 'before' if it has a value
+                before: before || undefined 
             }
         ]
     };
 
-    logger.debug(`Fetching RPC signatures page: limit=${limit}, before=${before || 'N/A'}`);
-    try {
-        await this.rateLimit(); // Apply rate limit before RPC call too
-        const response = await this.api.post<{ result: SignatureInfo[] }>(url, payload); // Use the internal axios instance
+    let retries = 0;
+    while(retries <= MAX_RETRIES) {
+        const attempt = retries + 1;
+        logger.debug(`Attempt ${attempt}: Fetching RPC signatures page: limit=${limit}, before=${before || 'N/A'}`);
+        try {
+            await this.rateLimit(); // Apply rate limit before RPC call too
+            const response = await this.api.post<{ result: SignatureInfo[], error?: any }>(url, payload); // Use the internal axios instance
 
-        if (response.data && Array.isArray(response.data.result)) {
-            logger.debug(`Received ${response.data.result.length} signatures via RPC.`);
-            return response.data.result;
-        } else {
-            logger.warn('Received unexpected response structure from getSignaturesForAddress RPC.', { responseData: response.data });
-            return [];
-        }
-    } catch (error) {
-        logger.error(`Error fetching RPC signatures page`, { 
-            error: this.sanitizeError(error) 
-        });
-        throw error; // Re-throw to stop the process
-    }
+            // Check for RPC-level errors within the response body
+            if (response.data.error) {
+                logger.warn(`Attempt ${attempt}: RPC call returned an error`, { rpcError: response.data.error, address, limit, before });
+                // Treat RPC errors like server errors for retry purposes
+                throw new Error(`RPC Error: ${response.data.error.message || JSON.stringify(response.data.error)}`);
+            }
+
+            if (response.data && Array.isArray(response.data.result)) {
+                logger.debug(`Attempt ${attempt}: Received ${response.data.result.length} signatures via RPC.`);
+                return response.data.result; // Success
+            } else {
+                logger.warn(`Attempt ${attempt}: Received unexpected response structure from getSignaturesForAddress RPC.`, { responseData: response.data });
+                // Consider retrying or throwing based on policy
+                throw new Error('Unexpected RPC response structure'); 
+            }
+        } catch (error) {
+            const isAxiosError = axios.isAxiosError(error);
+            const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
+
+            // Log the failure
+            const logLevel = retries === 0 ? 'info' : 'warn'; 
+            logger[logLevel](`Attempt ${attempt} failed: Error fetching RPC signatures page`, { 
+                error: this.sanitizeError(error), address, limit, before, status 
+            });
+
+            if (attempt > MAX_RETRIES) {
+                logger.error('Max retries reached fetching RPC signatures page. Aborting.', { address, limit, before });
+                throw new Error(`Failed to fetch RPC signatures for ${address} after ${MAX_RETRIES + 1} attempts: ${error}`);
+            }
+
+            // Decide whether to retry
+            // Retry on rate limits (429), server errors (5xx), potential RPC errors wrapped in non-Axios errors, or network errors
+            let shouldRetry = false;
+            if (isAxiosError && status && (status === 429 || status >= 500)) {
+                 shouldRetry = true;
+            } else if (!isAxiosError) { 
+                 // Assume non-Axios errors (like RPC errors thrown above or network issues) are potentially transient
+                 shouldRetry = true;
+            } // Don't retry on other 4xx client errors
+
+            if (shouldRetry) {
+                 const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries);
+                 logger.info(`Attempt ${attempt}: Encountered retryable error (status=${status ?? 'N/A'}). Retrying RPC signatures fetch in ${backoffTime}ms...`);
+                 await delay(backoffTime);
+                 retries++;
+            } else {
+                 logger.error(`Attempt ${attempt}: Unrecoverable error during RPC signatures fetch (status=${status}). Aborting.`, { address, limit, before });
+                 throw error; // Re-throw original error
+            }
+        } // end catch
+    } // end while
+    // Should not be reachable
+    throw new Error(`Failed to fetch RPC signatures for ${address} unexpectedly.`); 
   }
 
   /**
@@ -480,6 +522,7 @@ export class HeliusApiClient {
     
     // Handle non-axios errors
     if (error instanceof Error) {
+        // Include message from thrown RPC errors or network errors
         return { name: error.name, message: error.message, stack: '[Stack trace cleared]' };
     }
     
