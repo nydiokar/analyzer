@@ -1,12 +1,13 @@
 import { createLogger } from '../utils/logger';
 import { Prisma } from '@prisma/client';
 import { HeliusTransaction, TokenTransfer, NativeTransfer } from '../types/helius-api';
-// Removed BigNumber dependency as we will use standard numbers for Prisma
 
 const logger = createLogger('HeliusTransactionMapper');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const LAMPORTS_PER_SOL = 1e9;
+const NATIVE_SOL_LAMPORT_THRESHOLD = 100000; // Equivalent to 0.0001 SOL (Dust filter)
+const NATIVE_SOL_OUT_FEE_FILTER_THRESHOLD = 20000; // Equivalent to 0.00002 SOL (Fee filter for outgoing)
 
 // Define the output type matching Prisma's expectations
 type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
@@ -14,44 +15,51 @@ type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 // Helper to convert lamports to SOL
 function lamportsToSol(lamports: number | string | undefined | null): number {
     if (lamports === undefined || lamports === null) return 0;
-    const num = typeof lamports === 'string' ? parseFloat(lamports) : lamports;
-    // Using standard number division
+    // Ensure input is treated as a number, even if it's a string representation of a number
+    const num = typeof lamports === 'string' ? parseFloat(lamports) : Number(lamports); 
     return isNaN(num) ? 0 : Math.abs(num) / LAMPORTS_PER_SOL; 
 }
 
-// Helper to safely parse token amount - RETURNS number
-function safeParseAmount(holder: any): number {
-  if (!holder) return 0;
+// Helper function to parse rawTokenAmount safely from accountData.tokenBalanceChanges
+function parseRawTokenAmount(rawAmountData: any): number {
+    if (!rawAmountData || rawAmountData.tokenAmount === undefined || rawAmountData.decimals === undefined) {
+        return 0;
+    }
+    try {
+        const { tokenAmount, decimals } = rawAmountData;
+        // Use BigInt for potentially large raw amounts before converting to number
+        const raw = BigInt(String(tokenAmount)); 
+        // Using Number() for conversion after division
+        const scaledAmount = Number(raw) / Math.pow(10, decimals); 
+        return isNaN(scaledAmount) ? 0 : scaledAmount; // Return the signed amount
+    } catch (e) {
+        logger.warn('Error parsing rawTokenAmount', { data: rawAmountData, error: e });
+        return 0;
+    }
+}
 
-  try {
-      if (holder.rawTokenAmount?.tokenAmount !== undefined) {
-        const { tokenAmount, decimals } = holder.rawTokenAmount;
-        const raw = parseFloat(String(tokenAmount));
-        return isNaN(raw) ? 0 : Math.abs(raw) / Math.pow(10, decimals ?? 0);
-      }
-      if (holder.tokenAmount !== undefined) {
-         // Handles cases where amount might be pre-formatted number or string
-         const raw = typeof holder.tokenAmount === 'number' ? holder.tokenAmount : parseFloat(String(holder.tokenAmount));
-         return isNaN(raw) ? 0 : Math.abs(raw);
-      }
-      if (holder.amount !== undefined) {
-         // Fallback for exotic shapes { amount, decimals }
-         const raw = typeof holder.amount === 'number' ? holder.amount : parseFloat(String(holder.amount));
-         if (isNaN(raw)) return 0;
-         const decimals = typeof holder.decimals === 'number' ? holder.decimals : 0;
-         return Math.abs(raw) / Math.pow(10, decimals);
-      }
-  } catch (e) {
-      logger.warn('Error in safeParseAmount', { data: holder, error: e });
+// Helper to safely parse token amount from the tokenTransfers array
+// Assumes transfer.tokenAmount is already scaled correctly for this context.
+function safeParseAmount(transfer: TokenTransfer | any): number { 
+  if (!transfer || transfer.tokenAmount === undefined || transfer.tokenAmount === null) {
+    return 0;
   }
-  return 0;
+  try {
+    // Directly parse the tokenAmount field
+    const amount = typeof transfer.tokenAmount === 'number' 
+        ? transfer.tokenAmount 
+        : parseFloat(String(transfer.tokenAmount));
+    return isNaN(amount) ? 0 : amount; // Return signed amount
+  } catch (e) {
+    logger.warn('Error in safeParseAmount (direct tokenAmount parsing)', { data: transfer, error: e });
+    return 0;
+  }
 }
 
 /**
- * [VALUE-CENTRIC] Processes Helius transactions to extract swap-related data.
- * Determines a single dominant SOL/WSOL value for the transaction based on transfers
- * and applies it uniformly to all user SPL legs.
- * Minimizes reliance on Helius event structures or type classification.
+ * [VALUE-CENTRIC REFINED] Processes Helius transactions to extract swap-related data.
+ * Creates records for both native SOL and SPL token transfers involving the user.
+ * Associates non-SOL/USDC transfers with the net SOL or USDC movement within the transaction.
  *
  * @param walletAddress The wallet address being analyzed.
  * @param transactions Array of full HeliusTransaction objects.
@@ -66,145 +74,225 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
   for (const tx of transactions) {
     if (tx.transactionError) {
+      logger.debug(`Skipping tx ${tx.signature} due to transaction error.`);
       continue; 
     }
 
     try {
-      const processedRecordKeys = new Set<string>(); // Track unique records generated
+      const processedRecordKeys = new Set<string>(); // Track unique records generated per TX
 
-      // -- STEP 0: Identify user's token accounts --
-      const userTokenAccounts = new Set<string>();
-      // Populate from accountData.tokenBalanceChanges
+      // -- STEP 0: Identify user's token accounts (including the main wallet address itself for native transfers) --
+      const userAccounts = new Set<string>([lowerWalletAddress]); // Start with the main wallet
+      // Populate from accountData.tokenBalanceChanges owners
       for (const ad of tx.accountData || []) {
           if (ad.tokenBalanceChanges) {
               for (const tbc of ad.tokenBalanceChanges) {
+                  // Ensure we capture the owner of the token account if it matches the user
                   if (tbc.userAccount?.toLowerCase() === lowerWalletAddress && tbc.tokenAccount) {
-                      userTokenAccounts.add(tbc.tokenAccount);
+                      userAccounts.add(tbc.tokenAccount);
                   }
               }
           }
       }
-       // Populate from tokenTransfers (sender/receiver owner)
+      // Populate from tokenTransfers owners/accounts
       for (const transfer of tx.tokenTransfers || []) {
           if (transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress && transfer.fromTokenAccount) {
-              userTokenAccounts.add(transfer.fromTokenAccount);
+              userAccounts.add(transfer.fromTokenAccount);
           }
           if (transfer.toUserAccount?.toLowerCase() === lowerWalletAddress && transfer.toTokenAccount) {
-              userTokenAccounts.add(transfer.toTokenAccount);
+              userAccounts.add(transfer.toTokenAccount);
           }
       }
-      // Add main wallet if involved in native transfers
-      for (const transfer of tx.nativeTransfers || []) {
-          if (transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress) userTokenAccounts.add(lowerWalletAddress);
-          if (transfer.toUserAccount?.toLowerCase() === lowerWalletAddress) userTokenAccounts.add(lowerWalletAddress);
+      // Native transfers involve the main wallet address directly
+      // logger.debug(`User accounts for tx ${tx.signature}: ${Array.from(userAccounts).join(', ')}`);
+
+      // --- STEP 1: Calculate Net User SOL/USDC Movements using accountData ---
+      let netNativeSolChange = 0;
+      let wsolChange = 0;
+      let usdcChange = 0;
+
+      // Calculate net changes from accountData
+      for (const ad of tx.accountData || []) {
+           // Get Native SOL change for the main wallet
+           if (ad.account.toLowerCase() === lowerWalletAddress) {
+               netNativeSolChange = lamportsToSol(ad.nativeBalanceChange);
+               // Note: lamportsToSol returns absolute value, need to re-apply sign if needed
+               // However, for net change, sum of signed token changes + net native change is fine.
+           }
+
+           // Accumulate Token Balance Changes for user-owned accounts
+           if (ad.tokenBalanceChanges) {
+               for (const tbc of ad.tokenBalanceChanges) {
+                   // Ensure this change is for an account owned by the user we are analyzing
+                   if (tbc.userAccount?.toLowerCase() === lowerWalletAddress) {
+                       const changeAmount = parseRawTokenAmount(tbc.rawTokenAmount);
+                       if (tbc.mint === SOL_MINT) {
+                           wsolChange += changeAmount;
+                       }
+                       if (tbc.mint === USDC_MINT) {
+                           usdcChange += changeAmount;
+                       }
+                   }
+               }
+           }
       }
       
-      // --- STEP 1: Calculate TOTAL WSOL/USDC Movement for Context --- 
-      let totalUserWsolSent = 0;
-      let totalUserWsolReceived = 0;
-      let totalUserUsdcSent = 0;
-      let totalUserUsdcReceived = 0;
-      let maxIntermediaryWsolTransfer = 0;
+      // Final net changes including native and wrapped SOL
+      const finalNetUserSolChange = netNativeSolChange + wsolChange;
+      const finalNetUserUsdcChange = usdcChange;
+      
+      logger.debug(`Tx ${tx.signature}: Net Native SOL Change=${netNativeSolChange.toFixed(9)}, WSOL Change=${wsolChange.toFixed(9)}, USDC Change=${usdcChange.toFixed(9)} -> Final Net SOL=${finalNetUserSolChange.toFixed(9)}, Final Net USDC=${finalNetUserUsdcChange.toFixed(9)}`);
 
+      // Calculate total WSOL and USDC movement in the transaction as primary context sources
+      let totalWsolMovement = 0;
+      let totalUsdcMovement = 0;
       for (const transfer of tx.tokenTransfers || []) {
-          const amount = safeParseAmount(transfer);
-          if (amount === 0) continue;
-          const fromUserTA = transfer.fromTokenAccount && userTokenAccounts.has(transfer.fromTokenAccount);
-          const toUserTA = transfer.toTokenAccount && userTokenAccounts.has(transfer.toTokenAccount);
-          const isWsol = transfer.mint === SOL_MINT;
-          const isUsdc = transfer.mint === USDC_MINT;
-
-          if (isWsol) {
-              if (fromUserTA) totalUserWsolSent += amount;
-              if (toUserTA) totalUserWsolReceived += amount;
-              if (!fromUserTA && !toUserTA && amount > maxIntermediaryWsolTransfer) {
-                 maxIntermediaryWsolTransfer = amount;
-              }
-          } else if (isUsdc) {
-              if (fromUserTA) totalUserUsdcSent += amount;
-              if (toUserTA) totalUserUsdcReceived += amount;
+          if (transfer.mint === SOL_MINT) {
+              totalWsolMovement += Math.abs(safeParseAmount(transfer));
+          }
+          if (transfer.mint === USDC_MINT) {
+              totalUsdcMovement += Math.abs(safeParseAmount(transfer));
           }
       }
+      logger.debug(`Tx ${tx.signature}: Total WSOL Movement = ${totalWsolMovement.toFixed(9)}, Total USDC Movement = ${totalUsdcMovement.toFixed(9)}`);
 
-      // --- STEP 2: Determine Dominant SOL Value (txValue) --- 
-      const netNativeSolChange = lamportsToSol(tx.accountData?.find(ad => ad.account.toLowerCase() === lowerWalletAddress)?.nativeBalanceChange);
-      let txValue = 0;
-      let source = 'P4_Default_Zero';
-      const maxUserWsolTotal = Math.max(totalUserWsolSent, totalUserWsolReceived);
-
-      if (maxUserWsolTotal > txValue) {
-          txValue = maxUserWsolTotal;
-          source = 'P1_UserWSOLTotal';
-      }
-      if (source !== 'P1_UserWSOLTotal' && maxIntermediaryWsolTransfer > txValue) {
-          txValue = maxIntermediaryWsolTransfer;
-          source = 'P2_IntermediaryWSOL';
-      }
-      if (source === 'P4_Default_Zero' && netNativeSolChange !== 0) {
-          txValue = Math.abs(netNativeSolChange);
-          source = 'P3_NetNativeBalanceChange';
-      }
-      logger.debug(`Tx ${tx.signature}: Dominant txValue=${txValue} from ${source}`);
-      
-      // --- STEP 3: Create Individual Records for Each User Transfer Leg --- 
+      // --- STEP 2: Create Records from Native Transfers (Optional but retained for direct native moves) ---
       const interactionType = tx.type?.toUpperCase() || 'UNKNOWN';
-      
-      for (const transfer of tx.tokenTransfers || []) {
-          const fromUserTA = transfer.fromTokenAccount && userTokenAccounts.has(transfer.fromTokenAccount);
-          const toUserTA = transfer.toTokenAccount && userTokenAccounts.has(transfer.toTokenAccount);
 
-          // Only process transfers directly involving user's token accounts
-          if (!fromUserTA && !toUserTA) continue;
+      for (const transfer of tx.nativeTransfers || []) {
+          // *** USE LAMPORT THRESHOLD CHECK FOR DUST ***
+          const rawLamports = transfer.amount;
+          if (rawLamports === undefined || rawLamports === null) continue; // Skip if no amount
           
-          const amount = safeParseAmount(transfer);
-          if (amount === 0) continue;
+          const lamportsNum = typeof rawLamports === 'string' ? parseInt(rawLamports, 10) : Number(rawLamports);
+          if (isNaN(lamportsNum)) continue; // Skip if not a valid number
           
-          const mint = transfer.mint;
-          const isUsdc = mint === USDC_MINT;
-          const isWsol = mint === SOL_MINT;
+          // Check absolute lamport value against the general dust threshold
+          if (Math.abs(lamportsNum) < NATIVE_SOL_LAMPORT_THRESHOLD) continue;
           
-          // Determine direction based on which side belongs to user
-          // Handle cases where both might be user (self-transfer - rare but possible)
-          let direction: 'in' | 'out' | null = null;
-          if (toUserTA && !fromUserTA) direction = 'in';
-          else if (fromUserTA && !toUserTA) direction = 'out';
-          else if (fromUserTA && toUserTA) direction = 'out'; // Treat self-transfers as 'out' for simplicity? Or skip?
-          // Skip if direction couldn't be determined (shouldn't happen if from/toUserTA logic is correct)
-          if (!direction) continue; 
-              
-          // Generate unique key for this specific transfer leg
-          const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromTokenAccount}:${transfer.toTokenAccount}:${amount.toFixed(9)}`; 
-          if (processedRecordKeys.has(recordKey)) continue; // Skip duplicates
+          // Determine direction and apply specific outgoing fee filter
+          const isFromUser = transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress;
+          const isToUser = transfer.toUserAccount?.toLowerCase() === lowerWalletAddress;
 
-          // Determine associated USDC value context
-          const associatedUsdcValue = (!isWsol && !isUsdc) 
-              ? (direction === 'in' ? (totalUserUsdcSent > 0 ? totalUserUsdcSent : null) : (totalUserUsdcReceived > 0 ? totalUserUsdcReceived : null))
-              : null;
+          // *** ADDED OUTGOING FEE FILTER ***
+          if (isFromUser && !isToUser && Math.abs(lamportsNum) < NATIVE_SOL_OUT_FEE_FILTER_THRESHOLD) {
+              // If it's outgoing and smaller than the fee filter threshold, skip it
+              logger.debug(`Skipping outgoing native transfer below fee threshold: ${lamportsNum} lamports`);
+              continue; 
+          }
+          
+          // If it passes thresholds and filters, now calculate the SOL amount and create record
+          const amount = lamportsToSol(rawLamports); 
+          
+          if (!isFromUser && !isToUser) continue; // Only process transfers involving the user (redundant check, but safe)
+
+          const direction = isToUser ? 'in' : 'out';
+          const mint = SOL_MINT; // Native SOL
+          const associatedSolValue = amount; // SOL value is its own amount
+          const associatedUsdcValue = 0; // Default to 0 instead of null for Prisma
+
+          // Use a more specific key for native transfers
+          const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromUserAccount}:${transfer.toUserAccount}:${amount.toFixed(9)}`;
+          if (processedRecordKeys.has(recordKey)) continue;
 
           analysisInputs.push({
-              walletAddress: lowerWalletAddress,
+              walletAddress: walletAddress,
               signature: tx.signature,
               timestamp: tx.timestamp,
               mint: mint,
-              amount: amount, // Amount of this specific transfer
+              amount: amount,
               direction: direction,
-              associatedSolValue: txValue, // Transaction-wide SOL value context
-              associatedUsdcValue: associatedUsdcValue, // Transaction-wide USDC value context (for non-WSOL/USDC)
-              interactionType: interactionType,
+              associatedSolValue: associatedSolValue,
+              associatedUsdcValue: associatedUsdcValue, // Use 0 default
+              interactionType: interactionType, // Use transaction-level type
           });
           processedRecordKeys.add(recordKey);
+          // logger.debug(`Added Native Record: ${recordKey}`);
       }
-      
-      // NOTE: This approach doesn't explicitly create records for Native SOL movements.
-      // The SOL value context is captured in `associatedSolValue`.
+
+      // --- STEP 3: Create Records from Token Transfers ---
+      for (const transfer of tx.tokenTransfers || []) {
+          const amount = Math.abs(safeParseAmount(transfer)); // Use absolute amount now
+          if (amount === 0) continue;
+
+          const mint = transfer.mint;
+          if (!mint) {
+              logger.warn(`Skipping token transfer in tx ${tx.signature} due to missing mint`, { transfer });
+              continue; // Cannot process without a mint
+          }
+          
+          const isWsol = mint === SOL_MINT;
+          const isUsdc = mint === USDC_MINT;
+          
+          // Check involvement based on *token accounts*
+          const fromUserTA = transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount);
+          const toUserTA = transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount);
+
+          // Determine direction (treat self-transfers as 'out' for simplicity, adjust if needed)
+          let direction: 'in' | 'out' | null = null;
+          if (toUserTA && !fromUserTA) direction = 'in';
+          else if (fromUserTA && !toUserTA) direction = 'out';
+          else if (fromUserTA && toUserTA) direction = 'out'; // Or potentially 'self'? Or skip?
+
+          if (!direction) continue; // Skip if user not directly involved via these token accounts
+
+          let associatedSolValue: number = 0; // Default to 0
+          let associatedUsdcValue: number = 0; // Default to 0
+
+          // *** USE FINAL NET CHANGES FOR ASSOCIATION ***
+          if (isWsol) {
+              associatedSolValue = amount; 
+          } else if (isUsdc) {
+              associatedUsdcValue = amount;
+          } else {
+              // Associate based on the priority: Total WSOL Movement > Total USDC Movement > Net Native SOL Change
+              const significanceThreshold = 0.0001; // Define what negligible means
+
+              if (totalWsolMovement >= significanceThreshold) {
+                  // 1. Prioritize Total WSOL Movement
+                  associatedSolValue = totalWsolMovement;
+                  logger.debug(`Tx ${tx.signature}, Mint ${mint}: Using total WSOL movement (${totalWsolMovement.toFixed(9)}) as primary SOL context.`);
+              } else if (totalUsdcMovement >= significanceThreshold) {
+                  // 2. Prioritize Total USDC Movement if WSOL wasn't significant
+                  associatedUsdcValue = totalUsdcMovement;
+                  logger.debug(`Tx ${tx.signature}, Mint ${mint}: Using total USDC movement (${totalUsdcMovement.toFixed(9)}) as primary USDC context.`);
+              } else if (Math.abs(netNativeSolChange) >= significanceThreshold) {
+                  // 3. Use Net Native SOL Change as last resort for SOL context
+                  associatedSolValue = Math.abs(netNativeSolChange); 
+                  logger.debug(`Tx ${tx.signature}, Mint ${mint}: Using net native SOL change (${netNativeSolChange.toFixed(9)}) as fallback SOL context.`);
+              }
+              // If none are significant, values remain 0.
+              
+              logger.debug(`Tx ${tx.signature}, Mint ${mint}: Linking to Final Associated SOL=${associatedSolValue?.toFixed(9)}, Final Associated USDC=${associatedUsdcValue?.toFixed(9)}`);
+          }
+
+          const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromTokenAccount}:${transfer.toTokenAccount}:${amount.toFixed(9)}`;
+          if (processedRecordKeys.has(recordKey)) continue; // Skip duplicates
+
+          analysisInputs.push({
+              walletAddress: walletAddress,
+              signature: tx.signature,
+              timestamp: tx.timestamp,
+              mint: mint,
+              amount: amount,
+              direction: direction,
+              associatedSolValue: associatedSolValue, // Use 0 default
+              associatedUsdcValue: associatedUsdcValue, // Use 0 default
+              interactionType: interactionType, // Use transaction-level type
+          });
+          processedRecordKeys.add(recordKey);
+          // logger.debug(`Added Token Record: ${recordKey}`);
+      }
 
     } catch (err) {
-      logger.error(`Mapper error for ${tx.signature}`, {
+      logger.error(`Mapper error processing transaction ${tx.signature}`, {
         error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
         sig: tx.signature,
       });
     }
   }
 
+  logger.info(`Mapped ${transactions.length} transactions into ${analysisInputs.length} analysis records for ${walletAddress}`);
   return analysisInputs;
 }

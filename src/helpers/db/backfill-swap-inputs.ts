@@ -5,7 +5,6 @@ import dotenv from 'dotenv';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { createLogger } from '../../utils/logger';
 import { mapHeliusTransactionsToIntermediateRecords } from '../../services/helius-transaction-mapper';
-import { saveSwapAnalysisInputs } from '../../services/database-service';
 import { HeliusTransaction } from '../../types/helius-api';
 
 // Initialize environment variables
@@ -141,8 +140,21 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
                       return { status: 'fulfilled', action: 'created' };
                   }
               } catch (err) {
-                  logger.error(`DB operation failed for sig ${input.signature}, mint ${input.mint}, dir ${input.direction}`, { error: err });
-                  return { status: 'rejected', reason: err };
+                  // *** MODIFIED ERROR HANDLING ***
+                  // Specifically check for the unique constraint violation error (P2002)
+                  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+                      // This likely means another concurrent operation created the record between 
+                      // our findUnique check and our create attempt (race condition).
+                      // We can treat this as a non-fatal issue for the backfill.
+                      logger.warn(`Caught P2002 (Unique Constraint Violation) on create for sig ${input.signature}, mint ${input.mint}, dir ${input.direction}. Likely race condition, treating as handled.`);
+                      // We might increment 'updated' or a separate 'conflict' counter here if needed for detailed stats
+                      // For now, just don't count it as a hard error.
+                      return { status: 'fulfilled', action: 'conflict_handled' }; // Indicate it was handled
+                  } else {
+                      // Log other unexpected DB errors
+                      logger.error(`Unexpected DB operation failed for sig ${input.signature}, mint ${input.mint}, dir ${input.direction}`, { error: err });
+                      return { status: 'rejected', reason: err };
+                  }
               }
           });
 
@@ -154,6 +166,8 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
                   const fulfilledResult = result as PromiseFulfilledResult<{ status: string; action: string }>;
                   if (fulfilledResult.value.action === 'updated') batchUpdated++;
                   if (fulfilledResult.value.action === 'created') batchCreated++;
+                  // Optionally track handled conflicts: 
+                  // if (fulfilledResult.value.action === 'conflict_handled') batchConflicts++; 
               } else {
                   batchErrors++;
               }
