@@ -23,7 +23,7 @@ const CONCURRENT_OPERATIONS = 50; // Number of update/create operations to run i
 /**
  * Fetches transactions from HeliusTransactionCache in batches, maps them,
  * and **unconditionally updates** existing SwapAnalysisInput records
- * with the latest mapped `associatedSolValue` and `interactionType`.
+ * with the latest mapped `associatedSolValue`, `associatedUsdcValue`, and `interactionType`.
  * Creates records if they don't exist.
  */
 async function backfillForWallet(walletAddress: string, batchSize: number): Promise<void> {
@@ -95,11 +95,13 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
 
           const dbPromises = chunk.map(async (input) => {
               try {
+                  // Use the correct unique constraint including amount
                   const whereCondition: Prisma.SwapAnalysisInputWhereUniqueInput = {
-                       signature_mint_direction: {
+                       signature_mint_direction_amount: { // Correct constraint name
                            signature: input.signature as string,
                            mint: input.mint as string,
                            direction: input.direction as string,
+                           amount: input.amount as number // Add amount for uniqueness
                        }
                   };
 
@@ -113,6 +115,7 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
                       // Record exists, perform an UPDATE
                       const fieldsToUpdate: Prisma.SwapAnalysisInputUpdateInput = {
                           associatedSolValue: input.associatedSolValue,
+                          associatedUsdcValue: input.associatedUsdcValue ?? null,
                           interactionType: input.interactionType ?? null,
                           // Add any other fields from the mapper you want to ensure are updated
                       };
@@ -131,6 +134,7 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
                           amount: input.amount,
                           direction: input.direction,
                           associatedSolValue: input.associatedSolValue,
+                          associatedUsdcValue: input.associatedUsdcValue ?? null,
                           interactionType: input.interactionType ?? null,
                       };
                       await prisma.swapAnalysisInput.create({ data: createData });

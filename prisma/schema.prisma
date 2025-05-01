@@ -42,28 +42,21 @@ model HeliusTransactionCache {
 // Stores PRE-CALCULATED data for a specific user swap leg, derived from Helius events.
 // One record per SPL token sent or received by the user in a swap.
 model SwapAnalysisInput {
-  id                 Int      @id @default(autoincrement())
-  walletAddress      String   // The user wallet this record relates to.
-  signature          String   // Transaction signature.
-  timestamp          Int      // Unix timestamp of the transaction.
-  
-  mint               String   // Mint address of the SPL token the user sent/received.
-  amount             Float    // Decimal-adjusted amount of the SPL token (from Helius tokenTransfer.tokenAmount).
-  direction          String   // "in" (user received SPL) or "out" (user sent SPL).
-  
-  // The calculated SOL/WSOL value associated with THIS specific transfer leg.
-  associatedSolValue Float    // Cost (if direction="in") or Proceeds (if direction="out").
+  id                 Int       @id @default(autoincrement())
+  walletAddress      String
+  signature          String
+  timestamp          Int // Unix timestamp (seconds)
+  mint               String // SPL token mint address
+  amount             Float // Amount of the SPL token
+  direction          String // 'in' or 'out'
+  associatedSolValue Float // Associated SOL/WSOL value for the transaction
+  associatedUsdcValue Float? // Associated USDC value for the transaction (optional)
+  interactionType    String // Original Helius transaction type (e.g., SWAP, TRANSFER)
 
-  // NEW: Context about the interaction type leading to this transfer
-  interactionType    String?  // e.g., 'SWAP', 'TOKEN_TRANSFER', 'LIMIT_ORDER_INIT', 'LIMIT_ORDER_CANCEL', 'BURN', 'UNKNOWN'
-
-  // Indices for analysis
+  @@unique([signature, mint, direction, amount]) // Adjust uniqueness constraint as needed
   @@index([walletAddress, timestamp])
-  @@index([walletAddress, mint]) // Index by mint again
-  @@index([signature]) 
-  
-  // Add unique constraint to prevent duplicates
-  @@unique([signature, mint, direction])
+  @@index([signature])
+  @@index([mint])
 }
 
 // Tracks metadata for each analysis execution.

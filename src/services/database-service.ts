@@ -261,12 +261,13 @@ export async function saveSwapAnalysisInputs(inputs: SwapAnalysisInputCreateData
                 let batchCount = 0;
                 
                 for (const input of batch) {
-                    // Check if this exact record already exists
+                    // Check if this exact record already exists, including amount
                     const exists = await tx.swapAnalysisInput.findFirst({
                         where: {
                             signature: input.signature as string,
                             mint: input.mint as string,
-                            direction: input.direction as string
+                            direction: input.direction as string,
+                            amount: input.amount as number // Add amount to the check
                         }
                     });
                     

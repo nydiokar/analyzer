@@ -8,6 +8,7 @@ import {
 
 const logger = createLogger('HeliusTransactionMapper');
 const SOL_MINT = 'So11111111111111111111111111111111111111112'; // WSOL Mint address
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC Mint Address
 const LAMPORTS_PER_SOL = 1e9;
 
 // Define the output type matching Prisma's expectations
@@ -77,7 +78,31 @@ export function mapHeliusTransactionsToIntermediateRecords(
     try {
       const processedTokensInTx = new Set<string>(); // Prevent duplicates if tx structure is odd
 
-      // -- STEP 1: Calculate Potential SOL/WSOL Values from Transfers --
+      // -- STEP 0: Identify user's token accounts involved in this transaction --
+      const userTokenAccounts = new Set<string>();
+      for (const ad of tx.accountData || []) {
+          if (ad.tokenBalanceChanges) {
+              for (const tbc of ad.tokenBalanceChanges) {
+                  if (tbc.userAccount?.toLowerCase() === lowerWalletAddress && tbc.tokenAccount) {
+                      userTokenAccounts.add(tbc.tokenAccount);
+                  }
+              }
+          }
+      }
+      for (const transfer of tx.tokenTransfers || []) {
+          if (transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress && transfer.fromTokenAccount) {
+              userTokenAccounts.add(transfer.fromTokenAccount);
+          }
+          if (transfer.toUserAccount?.toLowerCase() === lowerWalletAddress && transfer.toTokenAccount) {
+              userTokenAccounts.add(transfer.toTokenAccount);
+          }
+      }
+      for (const transfer of tx.nativeTransfers || []) {
+          if (transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress) userTokenAccounts.add(lowerWalletAddress);
+          if (transfer.toUserAccount?.toLowerCase() === lowerWalletAddress) userTokenAccounts.add(lowerWalletAddress);
+      }
+
+      // -- STEP 1: Calculate Values from Transfers --
       const tokensSent = new Map<string, { amount: number, transfers: TokenTransfer[] }>();
       const tokensReceived = new Map<string, { amount: number, transfers: TokenTransfer[] }>();
       let userWsolSent = 0;
@@ -85,43 +110,52 @@ export function mapHeliusTransactionsToIntermediateRecords(
       let userNativeSolSent = 0;
       let userNativeSolReceived = 0;
       let maxIntermediaryWsolTransfer = 0;
+      let userUsdcSent = 0;
+      let userUsdcReceived = 0;
 
-      // Process Token Transfers
+      // Process Token Transfers (Using userTokenAccounts for relevance)
       for (const transfer of tx.tokenTransfers || []) {
           const amount = safeParseAmount(transfer);
           if (amount <= 0) continue;
 
-          const fromUser = transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress;
-          const toUser = transfer.toUserAccount?.toLowerCase() === lowerWalletAddress;
+          const fromUserTokenAccount = transfer.fromTokenAccount && userTokenAccounts.has(transfer.fromTokenAccount);
+          const toUserTokenAccount = transfer.toTokenAccount && userTokenAccounts.has(transfer.toTokenAccount);
           const isWsol = transfer.mint === SOL_MINT;
+          const isUsdc = transfer.mint === USDC_MINT;
 
+          // Track User WSOL based on token account involvement
           if (isWsol) {
-              if (fromUser) userWsolSent += amount;
-              if (toUser) userWsolReceived += amount;
-              if (!fromUser && !toUser && amount > maxIntermediaryWsolTransfer) {
+              if (fromUserTokenAccount) userWsolSent += amount;
+              if (toUserTokenAccount) userWsolReceived += amount;
+              if (!fromUserTokenAccount && !toUserTokenAccount && amount > maxIntermediaryWsolTransfer) {
                  maxIntermediaryWsolTransfer = amount;
               }
-          } else {
-              if (fromUser) {
-                  const current = tokensSent.get(transfer.mint) || { amount: 0, transfers: [] };
-                  current.amount += amount;
-                  current.transfers.push(transfer);
-                  tokensSent.set(transfer.mint, current);
-              }
-              if (toUser) {
-                  const current = tokensReceived.get(transfer.mint) || { amount: 0, transfers: [] };
-                  current.amount += amount;
-                  current.transfers.push(transfer);
-                  tokensReceived.set(transfer.mint, current);
-              }
+          }
+          // Track User USDC based on token account involvement
+          else if (isUsdc) {
+              if (fromUserTokenAccount) userUsdcSent += amount;
+              if (toUserTokenAccount) userUsdcReceived += amount;
+          }
+
+          // Group other SPL tokens based on token account involvement
+          if (fromUserTokenAccount && !isWsol && !isUsdc) {
+              const current = tokensSent.get(transfer.mint) || { amount: 0, transfers: [] };
+              current.amount += amount;
+              current.transfers.push(transfer);
+              tokensSent.set(transfer.mint, current);
+          }
+          if (toUserTokenAccount && !isWsol && !isUsdc) {
+              const current = tokensReceived.get(transfer.mint) || { amount: 0, transfers: [] };
+              current.amount += amount;
+              current.transfers.push(transfer);
+              tokensReceived.set(transfer.mint, current);
           }
       }
 
-      // Process Native Transfers
+      // Process Native Transfers (based on main user account - unchanged)
       for (const transfer of tx.nativeTransfers || []) {
           const amount = lamportsToSol(transfer.amount);
           if (amount <= 0) continue;
-
           if (transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress) {
               userNativeSolSent += amount;
           }
@@ -130,58 +164,55 @@ export function mapHeliusTransactionsToIntermediateRecords(
           }
       }
 
-      // Get Native Balance Change (for final fallback)
+      // Get Native Balance Change (unchanged)
       const userAccountData = tx.accountData?.find(ad => ad.account.toLowerCase() === lowerWalletAddress);
       const userNativeSolChange = userAccountData ? lamportsToSol(userAccountData.nativeBalanceChange) : 0;
 
       // -- STEP 2: Determine the Single Dominant Value for the Transaction --
-      // Priority: P1 (User WSOL) > P2 (Intermediary WSOL) > P3 (Native Balance Change)
-      // Direct native transfers are excluded as they often represent fees/tips, not the swap value.
-      // Stablecoins (like USDC) are currently not factored into this SOL value; requires separate handling.
+      // Priority: P1 (User WSOL via Token Accounts) > P2 (Intermediary WSOL) > P3 (Native Balance Change)
       let txValue = 0;
-      let source = 'P4_Default_Zero'; // Default if nothing else found
-
-      const maxUserWsolTransfer = Math.max(userWsolSent, userWsolReceived);
-      // const maxUserNativeTransfer = Math.max(userNativeSolSent, userNativeSolReceived); // Removed from primary logic
+      let source = 'P4_Default_Zero';
+      const maxUserWsolTransfer = Math.max(userWsolSent, userWsolReceived); // Based on token accounts
 
       if (maxUserWsolTransfer > txValue) {
           txValue = maxUserWsolTransfer;
           source = 'P1_DirectUserWSOL';
       }
-      // Check intermediary WSOL only if direct user WSOL wasn't the max
       if (source !== 'P1_DirectUserWSOL' && maxIntermediaryWsolTransfer > txValue) {
           txValue = maxIntermediaryWsolTransfer;
           source = 'P2_IntermediaryWSOL';
       }
-       // Fallback to native balance change only if WSOL wasn't involved
-       // Use Math.abs because nativeBalanceChange reflects net change (can be negative if user received SOL)
        if (source === 'P4_Default_Zero' && userNativeSolChange !== 0) {
            txValue = Math.abs(userNativeSolChange);
            source = 'P3_NativeBalanceChange';
        }
-       // Removed check for maxUserNativeTransfer
 
        logger.debug(`Tx ${tx.signature}: Determined dominant txValue=${txValue} from ${source}`);
 
       // -- STEP 3: Create Records, Applying the Dominant Value --
-      const interactionType = tx.type?.toUpperCase() || 'UNKNOWN'; // Keep original type
+      const interactionType = tx.type?.toUpperCase() || 'UNKNOWN';
 
-      // Handle Tokens Sent (OUT)
+      // Handle Other SPL Tokens Sent (OUT)
       for (const [mint, data] of tokensSent.entries()) {
-           for (const transfer of data.transfers) { // Use individual transfers for amount
-                const uniqueRecordKey = `${tx.signature}:${mint}:out:${transfer.fromTokenAccount}:${transfer.toTokenAccount}`;
+           // This loop now only contains non-WSOL, non-USDC tokens sent by the user's token accounts
+           for (const transfer of data.transfers) {
+                // Use a more robust key including amount to allow multiple legs of same token
+                const amount = safeParseAmount(transfer);
+                const uniqueRecordKey = `${tx.signature}:${mint}:out:${transfer.fromTokenAccount}:${transfer.toTokenAccount}:${amount.toFixed(9)}`;
                 if (processedTokensInTx.has(uniqueRecordKey)) continue;
 
-                const amount = safeParseAmount(transfer);
                 if(amount > 0) {
+                    const associatedUsdcValue = userUsdcReceived > 0 ? userUsdcReceived : null;
+
                     analysisInputs.push({
                         walletAddress: lowerWalletAddress,
                         signature: tx.signature,
                         timestamp: tx.timestamp,
                         mint: mint,
-                        amount: amount,
+                        amount: amount, // Individual transfer amount
                         direction: 'out',
-                        associatedSolValue: txValue, // Apply the single transaction value
+                        associatedSolValue: txValue, // Transaction-wide SOL value
+                        associatedUsdcValue: associatedUsdcValue, // Total USDC received this tx
                         interactionType: interactionType,
                     });
                     processedTokensInTx.add(uniqueRecordKey);
@@ -189,27 +220,84 @@ export function mapHeliusTransactionsToIntermediateRecords(
            }
       }
 
-       // Handle Tokens Received (IN)
+       // Handle Other SPL Tokens Received (IN)
        for (const [mint, data] of tokensReceived.entries()) {
+           // This loop now only contains non-WSOL, non-USDC tokens received by the user's token accounts
            for (const transfer of data.transfers) {
-                const uniqueRecordKey = `${tx.signature}:${mint}:in:${transfer.fromTokenAccount}:${transfer.toTokenAccount}`;
+                const amount = safeParseAmount(transfer);
+                const uniqueRecordKey = `${tx.signature}:${mint}:in:${transfer.fromTokenAccount}:${transfer.toTokenAccount}:${amount.toFixed(9)}`;
                 if (processedTokensInTx.has(uniqueRecordKey)) continue;
 
-                const amount = safeParseAmount(transfer);
                 if (amount > 0) {
+                     const associatedUsdcValue = userUsdcSent > 0 ? userUsdcSent : null;
+
                     analysisInputs.push({
                         walletAddress: lowerWalletAddress,
                         signature: tx.signature,
                         timestamp: tx.timestamp,
                         mint: mint,
-                        amount: amount,
+                        amount: amount, // Individual transfer amount
                         direction: 'in',
-                        associatedSolValue: txValue, // Apply the single transaction value
+                        associatedSolValue: txValue, // Transaction-wide SOL value
+                        associatedUsdcValue: associatedUsdcValue, // Total USDC sent this tx
                         interactionType: interactionType,
                     });
                     processedTokensInTx.add(uniqueRecordKey);
                 }
            }
+      }
+
+      // Manually add ONE summary record for user's total WSOL/USDC movements, ensuring uniqueness
+      const summaryRecordKey = (mint: string, direction: string, amount: number) => 
+          `${tx.signature}:${mint}:${direction}:${amount.toFixed(9)}`; // Use fixed decimal places for amount key
+
+      // WSOL SENT Summary Record
+      if (userWsolSent > 0) {
+        const key = summaryRecordKey(SOL_MINT, 'out', userWsolSent);
+        if (!processedTokensInTx.has(key)) {
+           analysisInputs.push({
+                walletAddress: lowerWalletAddress, signature: tx.signature, timestamp: tx.timestamp,
+                mint: SOL_MINT, amount: userWsolSent, direction: 'out',
+                associatedSolValue: txValue, associatedUsdcValue: null, interactionType: interactionType,
+           });
+           processedTokensInTx.add(key);
+        }
+      }
+       // WSOL RECEIVED Summary Record
+      if (userWsolReceived > 0) {
+        const key = summaryRecordKey(SOL_MINT, 'in', userWsolReceived);
+        if (!processedTokensInTx.has(key)) {
+           analysisInputs.push({
+                walletAddress: lowerWalletAddress, signature: tx.signature, timestamp: tx.timestamp,
+                mint: SOL_MINT, amount: userWsolReceived, direction: 'in',
+                associatedSolValue: txValue, associatedUsdcValue: null, interactionType: interactionType,
+           });
+           processedTokensInTx.add(key);
+         }
+      }
+       // USDC SENT Summary Record
+      if (userUsdcSent > 0) {
+        const key = summaryRecordKey(USDC_MINT, 'out', userUsdcSent);
+        if (!processedTokensInTx.has(key)) {
+             analysisInputs.push({
+                  walletAddress: lowerWalletAddress, signature: tx.signature, timestamp: tx.timestamp,
+                  mint: USDC_MINT, amount: userUsdcSent, direction: 'out',
+                  associatedSolValue: txValue, associatedUsdcValue: null, interactionType: interactionType,
+             });
+             processedTokensInTx.add(key);
+        }
+      }
+       // USDC RECEIVED Summary Record
+      if (userUsdcReceived > 0) {
+        const key = summaryRecordKey(USDC_MINT, 'in', userUsdcReceived);
+        if (!processedTokensInTx.has(key)) {
+             analysisInputs.push({
+                  walletAddress: lowerWalletAddress, signature: tx.signature, timestamp: tx.timestamp,
+                  mint: USDC_MINT, amount: userUsdcReceived, direction: 'in',
+                  associatedSolValue: txValue, associatedUsdcValue: null, interactionType: interactionType,
+             });
+            processedTokensInTx.add(key);
+        }
       }
 
     } catch (err) {
