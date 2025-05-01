@@ -1,14 +1,11 @@
 import { createLogger } from '../utils/logger';
-import { Prisma } from '@prisma/client'; // Import Prisma namespace for input types
-import {
-  HeliusTransaction,
-  TokenTransfer,
-  NativeTransfer
-} from '../types/helius-api';
+import { Prisma } from '@prisma/client';
+import { HeliusTransaction, TokenTransfer, NativeTransfer } from '../types/helius-api';
+// Removed BigNumber dependency as we will use standard numbers for Prisma
 
 const logger = createLogger('HeliusTransactionMapper');
-const SOL_MINT = 'So11111111111111111111111111111111111111112'; // WSOL Mint address
-const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC Mint Address
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const LAMPORTS_PER_SOL = 1e9;
 
 // Define the output type matching Prisma's expectations
@@ -18,38 +15,35 @@ type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 function lamportsToSol(lamports: number | string | undefined | null): number {
     if (lamports === undefined || lamports === null) return 0;
     const num = typeof lamports === 'string' ? parseFloat(lamports) : lamports;
-    return isNaN(num) ? 0 : Math.abs(num) / LAMPORTS_PER_SOL;
+    // Using standard number division
+    return isNaN(num) ? 0 : Math.abs(num) / LAMPORTS_PER_SOL; 
 }
 
-// Helper to safely parse token amount
+// Helper to safely parse token amount - RETURNS number
 function safeParseAmount(holder: any): number {
   if (!holder) return 0;
 
-  /* 1️⃣ canonical rawTokenAmount path */
-  if (holder.rawTokenAmount?.tokenAmount !== undefined) {
-    const { tokenAmount, decimals } = holder.rawTokenAmount;
-    const raw = parseFloat(String(tokenAmount));
-    return isNaN(raw) ? 0 : Math.abs(raw) / Math.pow(10, decimals ?? 0);
+  try {
+      if (holder.rawTokenAmount?.tokenAmount !== undefined) {
+        const { tokenAmount, decimals } = holder.rawTokenAmount;
+        const raw = parseFloat(String(tokenAmount));
+        return isNaN(raw) ? 0 : Math.abs(raw) / Math.pow(10, decimals ?? 0);
+      }
+      if (holder.tokenAmount !== undefined) {
+         // Handles cases where amount might be pre-formatted number or string
+         const raw = typeof holder.tokenAmount === 'number' ? holder.tokenAmount : parseFloat(String(holder.tokenAmount));
+         return isNaN(raw) ? 0 : Math.abs(raw);
+      }
+      if (holder.amount !== undefined) {
+         // Fallback for exotic shapes { amount, decimals }
+         const raw = typeof holder.amount === 'number' ? holder.amount : parseFloat(String(holder.amount));
+         if (isNaN(raw)) return 0;
+         const decimals = typeof holder.decimals === 'number' ? holder.decimals : 0;
+         return Math.abs(raw) / Math.pow(10, decimals);
+      }
+  } catch (e) {
+      logger.warn('Error in safeParseAmount', { data: holder, error: e });
   }
-
-  /* 2️⃣ tokenAmount already human readable (number or string) */
-  if (holder.tokenAmount !== undefined) {
-    const raw =
-      typeof holder.tokenAmount === 'number'
-        ? holder.tokenAmount
-        : parseFloat(String(holder.tokenAmount));
-    return isNaN(raw) ? 0 : Math.abs(raw);
-  }
-
-  /* 3️⃣ fallback for Exotic shapes { amount, decimals } */
-  if (holder.amount !== undefined) {
-    const raw =
-      typeof holder.amount === 'number' ? holder.amount : parseFloat(String(holder.amount));
-    if (isNaN(raw)) return 0;
-    const decimals = typeof holder.decimals === 'number' ? holder.decimals : 0;
-    return Math.abs(raw) / Math.pow(10, decimals);
-  }
-
   return 0;
 }
 
@@ -72,14 +66,15 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
   for (const tx of transactions) {
     if (tx.transactionError) {
-      continue; // Skip failed transactions
+      continue; 
     }
 
     try {
-      const processedTokensInTx = new Set<string>(); // Prevent duplicates if tx structure is odd
+      const processedRecordKeys = new Set<string>(); // Track unique records generated
 
-      // -- STEP 0: Identify user's token accounts involved in this transaction --
+      // -- STEP 0: Identify user's token accounts --
       const userTokenAccounts = new Set<string>();
+      // Populate from accountData.tokenBalanceChanges
       for (const ad of tx.accountData || []) {
           if (ad.tokenBalanceChanges) {
               for (const tbc of ad.tokenBalanceChanges) {
@@ -89,6 +84,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
               }
           }
       }
+       // Populate from tokenTransfers (sender/receiver owner)
       for (const transfer of tx.tokenTransfers || []) {
           if (transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress && transfer.fromTokenAccount) {
               userTokenAccounts.add(transfer.fromTokenAccount);
@@ -97,211 +93,113 @@ export function mapHeliusTransactionsToIntermediateRecords(
               userTokenAccounts.add(transfer.toTokenAccount);
           }
       }
+      // Add main wallet if involved in native transfers
       for (const transfer of tx.nativeTransfers || []) {
           if (transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress) userTokenAccounts.add(lowerWalletAddress);
           if (transfer.toUserAccount?.toLowerCase() === lowerWalletAddress) userTokenAccounts.add(lowerWalletAddress);
       }
-
-      // -- STEP 1: Calculate Values from Transfers --
-      const tokensSent = new Map<string, { amount: number, transfers: TokenTransfer[] }>();
-      const tokensReceived = new Map<string, { amount: number, transfers: TokenTransfer[] }>();
-      let userWsolSent = 0;
-      let userWsolReceived = 0;
-      let userNativeSolSent = 0;
-      let userNativeSolReceived = 0;
+      
+      // --- STEP 1: Calculate TOTAL WSOL/USDC Movement for Context --- 
+      let totalUserWsolSent = 0;
+      let totalUserWsolReceived = 0;
+      let totalUserUsdcSent = 0;
+      let totalUserUsdcReceived = 0;
       let maxIntermediaryWsolTransfer = 0;
-      let userUsdcSent = 0;
-      let userUsdcReceived = 0;
 
-      // Process Token Transfers (Using userTokenAccounts for relevance)
       for (const transfer of tx.tokenTransfers || []) {
           const amount = safeParseAmount(transfer);
-          if (amount <= 0) continue;
-
-          const fromUserTokenAccount = transfer.fromTokenAccount && userTokenAccounts.has(transfer.fromTokenAccount);
-          const toUserTokenAccount = transfer.toTokenAccount && userTokenAccounts.has(transfer.toTokenAccount);
+          if (amount === 0) continue;
+          const fromUserTA = transfer.fromTokenAccount && userTokenAccounts.has(transfer.fromTokenAccount);
+          const toUserTA = transfer.toTokenAccount && userTokenAccounts.has(transfer.toTokenAccount);
           const isWsol = transfer.mint === SOL_MINT;
           const isUsdc = transfer.mint === USDC_MINT;
 
-          // Track User WSOL based on token account involvement
           if (isWsol) {
-              if (fromUserTokenAccount) userWsolSent += amount;
-              if (toUserTokenAccount) userWsolReceived += amount;
-              if (!fromUserTokenAccount && !toUserTokenAccount && amount > maxIntermediaryWsolTransfer) {
+              if (fromUserTA) totalUserWsolSent += amount;
+              if (toUserTA) totalUserWsolReceived += amount;
+              if (!fromUserTA && !toUserTA && amount > maxIntermediaryWsolTransfer) {
                  maxIntermediaryWsolTransfer = amount;
               }
-          }
-          // Track User USDC based on token account involvement
-          else if (isUsdc) {
-              if (fromUserTokenAccount) userUsdcSent += amount;
-              if (toUserTokenAccount) userUsdcReceived += amount;
-          }
-
-          // Group other SPL tokens based on token account involvement
-          if (fromUserTokenAccount && !isWsol && !isUsdc) {
-              const current = tokensSent.get(transfer.mint) || { amount: 0, transfers: [] };
-              current.amount += amount;
-              current.transfers.push(transfer);
-              tokensSent.set(transfer.mint, current);
-          }
-          if (toUserTokenAccount && !isWsol && !isUsdc) {
-              const current = tokensReceived.get(transfer.mint) || { amount: 0, transfers: [] };
-              current.amount += amount;
-              current.transfers.push(transfer);
-              tokensReceived.set(transfer.mint, current);
+          } else if (isUsdc) {
+              if (fromUserTA) totalUserUsdcSent += amount;
+              if (toUserTA) totalUserUsdcReceived += amount;
           }
       }
 
-      // Process Native Transfers (based on main user account - unchanged)
-      for (const transfer of tx.nativeTransfers || []) {
-          const amount = lamportsToSol(transfer.amount);
-          if (amount <= 0) continue;
-          if (transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress) {
-              userNativeSolSent += amount;
-          }
-          if (transfer.toUserAccount?.toLowerCase() === lowerWalletAddress) {
-              userNativeSolReceived += amount;
-          }
-      }
-
-      // Get Native Balance Change (unchanged)
-      const userAccountData = tx.accountData?.find(ad => ad.account.toLowerCase() === lowerWalletAddress);
-      const userNativeSolChange = userAccountData ? lamportsToSol(userAccountData.nativeBalanceChange) : 0;
-
-      // -- STEP 2: Determine the Single Dominant Value for the Transaction --
-      // Priority: P1 (User WSOL via Token Accounts) > P2 (Intermediary WSOL) > P3 (Native Balance Change)
+      // --- STEP 2: Determine Dominant SOL Value (txValue) --- 
+      const netNativeSolChange = lamportsToSol(tx.accountData?.find(ad => ad.account.toLowerCase() === lowerWalletAddress)?.nativeBalanceChange);
       let txValue = 0;
       let source = 'P4_Default_Zero';
-      const maxUserWsolTransfer = Math.max(userWsolSent, userWsolReceived); // Based on token accounts
+      const maxUserWsolTotal = Math.max(totalUserWsolSent, totalUserWsolReceived);
 
-      if (maxUserWsolTransfer > txValue) {
-          txValue = maxUserWsolTransfer;
-          source = 'P1_DirectUserWSOL';
+      if (maxUserWsolTotal > txValue) {
+          txValue = maxUserWsolTotal;
+          source = 'P1_UserWSOLTotal';
       }
-      if (source !== 'P1_DirectUserWSOL' && maxIntermediaryWsolTransfer > txValue) {
+      if (source !== 'P1_UserWSOLTotal' && maxIntermediaryWsolTransfer > txValue) {
           txValue = maxIntermediaryWsolTransfer;
           source = 'P2_IntermediaryWSOL';
       }
-       if (source === 'P4_Default_Zero' && userNativeSolChange !== 0) {
-           txValue = Math.abs(userNativeSolChange);
-           source = 'P3_NativeBalanceChange';
-       }
-
-       logger.debug(`Tx ${tx.signature}: Determined dominant txValue=${txValue} from ${source}`);
-
-      // -- STEP 3: Create Records, Applying the Dominant Value --
+      if (source === 'P4_Default_Zero' && netNativeSolChange !== 0) {
+          txValue = Math.abs(netNativeSolChange);
+          source = 'P3_NetNativeBalanceChange';
+      }
+      logger.debug(`Tx ${tx.signature}: Dominant txValue=${txValue} from ${source}`);
+      
+      // --- STEP 3: Create Individual Records for Each User Transfer Leg --- 
       const interactionType = tx.type?.toUpperCase() || 'UNKNOWN';
+      
+      for (const transfer of tx.tokenTransfers || []) {
+          const fromUserTA = transfer.fromTokenAccount && userTokenAccounts.has(transfer.fromTokenAccount);
+          const toUserTA = transfer.toTokenAccount && userTokenAccounts.has(transfer.toTokenAccount);
 
-      // Handle Other SPL Tokens Sent (OUT)
-      for (const [mint, data] of tokensSent.entries()) {
-           // This loop now only contains non-WSOL, non-USDC tokens sent by the user's token accounts
-           for (const transfer of data.transfers) {
-                // Use a more robust key including amount to allow multiple legs of same token
-                const amount = safeParseAmount(transfer);
-                const uniqueRecordKey = `${tx.signature}:${mint}:out:${transfer.fromTokenAccount}:${transfer.toTokenAccount}:${amount.toFixed(9)}`;
-                if (processedTokensInTx.has(uniqueRecordKey)) continue;
+          // Only process transfers directly involving user's token accounts
+          if (!fromUserTA && !toUserTA) continue;
+          
+          const amount = safeParseAmount(transfer);
+          if (amount === 0) continue;
+          
+          const mint = transfer.mint;
+          const isUsdc = mint === USDC_MINT;
+          const isWsol = mint === SOL_MINT;
+          
+          // Determine direction based on which side belongs to user
+          // Handle cases where both might be user (self-transfer - rare but possible)
+          let direction: 'in' | 'out' | null = null;
+          if (toUserTA && !fromUserTA) direction = 'in';
+          else if (fromUserTA && !toUserTA) direction = 'out';
+          else if (fromUserTA && toUserTA) direction = 'out'; // Treat self-transfers as 'out' for simplicity? Or skip?
+          // Skip if direction couldn't be determined (shouldn't happen if from/toUserTA logic is correct)
+          if (!direction) continue; 
+              
+          // Generate unique key for this specific transfer leg
+          const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromTokenAccount}:${transfer.toTokenAccount}:${amount.toFixed(9)}`; 
+          if (processedRecordKeys.has(recordKey)) continue; // Skip duplicates
 
-                if(amount > 0) {
-                    const associatedUsdcValue = userUsdcReceived > 0 ? userUsdcReceived : null;
+          // Determine associated USDC value context
+          const associatedUsdcValue = (!isWsol && !isUsdc) 
+              ? (direction === 'in' ? (totalUserUsdcSent > 0 ? totalUserUsdcSent : null) : (totalUserUsdcReceived > 0 ? totalUserUsdcReceived : null))
+              : null;
 
-                    analysisInputs.push({
-                        walletAddress: lowerWalletAddress,
-                        signature: tx.signature,
-                        timestamp: tx.timestamp,
-                        mint: mint,
-                        amount: amount, // Individual transfer amount
-                        direction: 'out',
-                        associatedSolValue: txValue, // Transaction-wide SOL value
-                        associatedUsdcValue: associatedUsdcValue, // Total USDC received this tx
-                        interactionType: interactionType,
-                    });
-                    processedTokensInTx.add(uniqueRecordKey);
-                }
-           }
+          analysisInputs.push({
+              walletAddress: lowerWalletAddress,
+              signature: tx.signature,
+              timestamp: tx.timestamp,
+              mint: mint,
+              amount: amount, // Amount of this specific transfer
+              direction: direction,
+              associatedSolValue: txValue, // Transaction-wide SOL value context
+              associatedUsdcValue: associatedUsdcValue, // Transaction-wide USDC value context (for non-WSOL/USDC)
+              interactionType: interactionType,
+          });
+          processedRecordKeys.add(recordKey);
       }
-
-       // Handle Other SPL Tokens Received (IN)
-       for (const [mint, data] of tokensReceived.entries()) {
-           // This loop now only contains non-WSOL, non-USDC tokens received by the user's token accounts
-           for (const transfer of data.transfers) {
-                const amount = safeParseAmount(transfer);
-                const uniqueRecordKey = `${tx.signature}:${mint}:in:${transfer.fromTokenAccount}:${transfer.toTokenAccount}:${amount.toFixed(9)}`;
-                if (processedTokensInTx.has(uniqueRecordKey)) continue;
-
-                if (amount > 0) {
-                     const associatedUsdcValue = userUsdcSent > 0 ? userUsdcSent : null;
-
-                    analysisInputs.push({
-                        walletAddress: lowerWalletAddress,
-                        signature: tx.signature,
-                        timestamp: tx.timestamp,
-                        mint: mint,
-                        amount: amount, // Individual transfer amount
-                        direction: 'in',
-                        associatedSolValue: txValue, // Transaction-wide SOL value
-                        associatedUsdcValue: associatedUsdcValue, // Total USDC sent this tx
-                        interactionType: interactionType,
-                    });
-                    processedTokensInTx.add(uniqueRecordKey);
-                }
-           }
-      }
-
-      // Manually add ONE summary record for user's total WSOL/USDC movements, ensuring uniqueness
-      const summaryRecordKey = (mint: string, direction: string, amount: number) => 
-          `${tx.signature}:${mint}:${direction}:${amount.toFixed(9)}`; // Use fixed decimal places for amount key
-
-      // WSOL SENT Summary Record
-      if (userWsolSent > 0) {
-        const key = summaryRecordKey(SOL_MINT, 'out', userWsolSent);
-        if (!processedTokensInTx.has(key)) {
-           analysisInputs.push({
-                walletAddress: lowerWalletAddress, signature: tx.signature, timestamp: tx.timestamp,
-                mint: SOL_MINT, amount: userWsolSent, direction: 'out',
-                associatedSolValue: txValue, associatedUsdcValue: null, interactionType: interactionType,
-           });
-           processedTokensInTx.add(key);
-        }
-      }
-       // WSOL RECEIVED Summary Record
-      if (userWsolReceived > 0) {
-        const key = summaryRecordKey(SOL_MINT, 'in', userWsolReceived);
-        if (!processedTokensInTx.has(key)) {
-           analysisInputs.push({
-                walletAddress: lowerWalletAddress, signature: tx.signature, timestamp: tx.timestamp,
-                mint: SOL_MINT, amount: userWsolReceived, direction: 'in',
-                associatedSolValue: txValue, associatedUsdcValue: null, interactionType: interactionType,
-           });
-           processedTokensInTx.add(key);
-         }
-      }
-       // USDC SENT Summary Record
-      if (userUsdcSent > 0) {
-        const key = summaryRecordKey(USDC_MINT, 'out', userUsdcSent);
-        if (!processedTokensInTx.has(key)) {
-             analysisInputs.push({
-                  walletAddress: lowerWalletAddress, signature: tx.signature, timestamp: tx.timestamp,
-                  mint: USDC_MINT, amount: userUsdcSent, direction: 'out',
-                  associatedSolValue: txValue, associatedUsdcValue: null, interactionType: interactionType,
-             });
-             processedTokensInTx.add(key);
-        }
-      }
-       // USDC RECEIVED Summary Record
-      if (userUsdcReceived > 0) {
-        const key = summaryRecordKey(USDC_MINT, 'in', userUsdcReceived);
-        if (!processedTokensInTx.has(key)) {
-             analysisInputs.push({
-                  walletAddress: lowerWalletAddress, signature: tx.signature, timestamp: tx.timestamp,
-                  mint: USDC_MINT, amount: userUsdcReceived, direction: 'in',
-                  associatedSolValue: txValue, associatedUsdcValue: null, interactionType: interactionType,
-             });
-            processedTokensInTx.add(key);
-        }
-      }
+      
+      // NOTE: This approach doesn't explicitly create records for Native SOL movements.
+      // The SOL value context is captured in `associatedSolValue`.
 
     } catch (err) {
-      logger.error(`Value-centric parse error for ${tx.signature}`, {
+      logger.error(`Mapper error for ${tx.signature}`, {
         error: err instanceof Error ? err.message : String(err),
         sig: tx.signature,
       });
