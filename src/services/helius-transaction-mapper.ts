@@ -70,6 +70,117 @@ function safeParseAmount(transfer: TokenTransfer | any): number {
   }
 }
 
+// *** HELPER FUNCTION - "Matching Value" Strategy ***
+/**
+ * Analyzes Helius swap event data, specifically innerSwaps, to find a consistent
+ * intermediary WSOL or USDC value linking the user's primary input token to their
+ * primary output token for the overall swap.
+ *
+ * @param tx The full HeliusTransaction object.
+ * @param userAccounts A Set containing the user's main wallet address and associated token accounts.
+ * @returns An object containing the matched solValue or usdcValue, and primary mints, or defaults if ambiguous/not found.
+ */
+function findIntermediaryValueFromEvent(
+    tx: HeliusTransaction,
+    userAccounts: Set<string>,
+): { solValue: number; usdcValue: number; primaryOutMint: string | null; primaryInMint: string | null } {
+
+    const defaultValue = { solValue: 0, usdcValue: 0, primaryOutMint: null, primaryInMint: null };
+
+    // Ensure types and event structure exist before proceeding
+    if (tx.type?.toUpperCase() !== 'SWAP' || !tx.events?.swap || !Array.isArray(tx.events.swap.innerSwaps)) {
+        return defaultValue;
+    }
+    const swapEvent = tx.events.swap;
+
+    // --- 1. Identify User's Primary In/Out Tokens (Heuristic from top-level transfers) ---
+    let primaryOutMint: string | null = null;
+    let primaryInMint: string | null = null;
+    for (const transfer of tx.tokenTransfers || []) {
+        const mint = transfer.mint;
+        if (!mint || mint === SOL_MINT || mint === USDC_MINT) continue; 
+
+        const fromUserTA = transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount);
+        const toUserTA = transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount);
+
+        if (fromUserTA && !toUserTA) primaryOutMint = mint; 
+        if (toUserTA && !fromUserTA) primaryInMint = mint;  
+    }
+    
+    // Return identified mints even if value isn't found yet
+    const currentResult = { ...defaultValue, primaryOutMint, primaryInMint }; 
+
+    if (!primaryOutMint || !primaryInMint) {
+         logger.debug(`Event Matcher: Could not identify primary user IN/OUT non-WSOL/USDC mints from top-level transfers. Sig: ${tx.signature}`);
+        return currentResult; 
+    }
+     logger.debug(`Event Matcher: Identified Primary OUT: ${primaryOutMint}, Primary IN: ${primaryInMint}. Sig: ${tx.signature}`);
+
+    // --- 2. Scan innerSwaps for values associated with these primaries ---
+    let total_wsol_from_sell = 0;
+    let total_usdc_from_sell = 0;
+    let total_wsol_to_buy = 0;
+    let total_usdc_to_buy = 0;
+    const significanceThreshold = 0.00001; 
+
+    try {
+        for (const innerSwap of swapEvent.innerSwaps || []) {
+            const sellsPrimaryOut = (innerSwap.tokenInputs || []).some((inp: any) => inp.mint === primaryOutMint);
+            if (sellsPrimaryOut) {
+                for (const output of innerSwap.tokenOutputs || []) {
+                    const amount = Math.abs(safeParseAmount(output));
+                    if (output.mint === SOL_MINT && amount >= significanceThreshold) total_wsol_from_sell += amount;
+                    if (output.mint === USDC_MINT && amount >= significanceThreshold) total_usdc_from_sell += amount;
+                }
+            }
+
+            const buysPrimaryIn = (innerSwap.tokenOutputs || []).some((out: any) => out.mint === primaryInMint);
+            if (buysPrimaryIn) {
+                for (const input of innerSwap.tokenInputs || []) {
+                     const amount = Math.abs(safeParseAmount(input));
+                    if (input.mint === SOL_MINT && amount >= significanceThreshold) total_wsol_to_buy += amount;
+                    if (input.mint === USDC_MINT && amount >= significanceThreshold) total_usdc_to_buy += amount;
+                }
+            }
+        }
+         logger.debug(`Event Matcher: Calculated Values - SOL Sell: ${total_wsol_from_sell.toFixed(9)}, SOL Buy: ${total_wsol_to_buy.toFixed(9)}, USDC Sell: ${total_usdc_from_sell.toFixed(9)}, USDC Buy: ${total_usdc_to_buy.toFixed(9)}. Sig: ${tx.signature}`);
+
+        // --- 3. Consistency Check & Decision ---
+        const tolerance = 0.01; // Allow 1% difference
+        let solConsistent = false;
+        let usdcConsistent = false;
+
+        if (total_wsol_from_sell >= significanceThreshold && total_wsol_to_buy >= significanceThreshold) {
+            solConsistent = Math.abs(total_wsol_from_sell - total_wsol_to_buy) <= tolerance * Math.max(total_wsol_from_sell, total_wsol_to_buy);
+        }
+        if (total_usdc_from_sell >= significanceThreshold && total_usdc_to_buy >= significanceThreshold) {
+            usdcConsistent = Math.abs(total_usdc_from_sell - total_usdc_to_buy) <= tolerance * Math.max(total_usdc_from_sell, total_usdc_to_buy);
+        }
+
+        if (solConsistent && (!usdcConsistent || total_usdc_from_sell < significanceThreshold)) {
+            logger.info(`Event Matcher: Found consistent SOL value: ${total_wsol_from_sell.toFixed(9)}. Sig: ${tx.signature}`);
+            currentResult.solValue = total_wsol_from_sell; 
+            return currentResult; 
+        } else if (usdcConsistent && (!solConsistent || total_wsol_from_sell < significanceThreshold)) {
+             logger.info(`Event Matcher: Found consistent USDC value: ${total_usdc_from_sell.toFixed(9)}. Sig: ${tx.signature}`);
+            currentResult.usdcValue = total_usdc_from_sell; 
+            return currentResult; 
+        } else {
+             if (solConsistent || usdcConsistent) { 
+                 logger.warn(`Event Matcher: Ambiguous - Cannot choose between consistent SOL (${solConsistent}) and USDC (${usdcConsistent}). Sig: ${tx.signature}`);
+             } else {
+                 logger.debug(`Event Matcher: No single consistent intermediary value found. Sig: ${tx.signature}`);
+             }
+            return currentResult; // Return with values still 0
+        }
+
+    } catch (error) {
+        logger.error(`Error during 'Matching Value' event processing. Sig: ${tx.signature}`, { error });
+        return currentResult; // Return identified mints even if error occurs
+    }
+}
+// *** END HELPER FUNCTION ***
+
 /**
  * [VALUE-CENTRIC REFINED] Processes Helius transactions to extract transfer data relevant for swap analysis.
  * Creates granular `SwapAnalysisInput` records for each native SOL and SPL token transfer involving the target wallet.
@@ -165,8 +276,22 @@ export function mapHeliusTransactionsToIntermediateRecords(
       }
       logger.debug(`Tx ${tx.signature}: Total WSOL Movement = ${totalWsolMovement.toFixed(9)}, Total USDC Movement = ${totalUsdcMovement.toFixed(9)}`);
 
+      // --- Attempt event parsing for SWAPs ---
+      const interactionType = tx.type?.toUpperCase() || 'UNKNOWN'; // Moved interactionType up
+      // Initialize eventResult with defaults and explicit type
+      let eventResult: { solValue: number; usdcValue: number; primaryOutMint: string | null; primaryInMint: string | null } = { 
+          solValue: 0, 
+          usdcValue: 0, 
+          primaryOutMint: null, 
+          primaryInMint: null 
+      }; 
+      if (interactionType === 'SWAP') {
+          // Pass the userAccounts Set identified earlier
+          eventResult = findIntermediaryValueFromEvent(tx, userAccounts); 
+      }
+      // --- eventResult now holds potential matched value ---
+
       // Create records for Native SOL transfers involving the user, applying filters
-      const interactionType = tx.type?.toUpperCase() || 'UNKNOWN';
 
       for (const transfer of tx.nativeTransfers || []) {
           const rawLamports = transfer.amount;
@@ -237,45 +362,60 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
           if (!direction) continue; // Skip if user's token accounts aren't involved
 
-          let associatedSolValue: number = 0; 
-          let associatedUsdcValue: number = 0; 
+          // --- Assign associated value logic ---
+          let associatedSolValue: number = 0;
+          let associatedUsdcValue: number = 0;
+          let valueSource = 'direct'; 
 
-          // Assign associated value based on the token type or context
+          // 1. Handle direct WSOL/USDC transfers
           if (isWsol) {
-              associatedSolValue = amount; 
+              associatedSolValue = amount; // Amount is already absolute here
+              valueSource = 'direct_wsol';
           } else if (isUsdc) {
-              associatedUsdcValue = amount;
+              associatedUsdcValue = amount; // Amount is already absolute here
+              valueSource = 'direct_usdc';
           } else {
-              // For other tokens, associate based on the priority: 
-              // 1. Total WSOL Movement in Tx
-              // 2. Total USDC Movement in Tx
-              // 3. Net Native SOL Change for User in Tx
+              // 2. Handle other tokens (SPL, potentially Native converted to SPL like SOL->WSOL)
+              // Use the pre-calculated total movements and net change with priority
               const significanceThreshold = 0.0001; 
 
               if (totalWsolMovement >= significanceThreshold) {
                   associatedSolValue = totalWsolMovement;
-                  logger.debug(`Tx ${tx.signature}, Mint ${mint}: Using total WSOL movement (${totalWsolMovement.toFixed(9)}) as primary SOL context.`);
+                  valueSource = 'priority_total_wsol';
+                  logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Associating with total WSOL movement: ${associatedSolValue.toFixed(9)}`);
               } else if (totalUsdcMovement >= significanceThreshold) {
                   associatedUsdcValue = totalUsdcMovement;
-                  logger.debug(`Tx ${tx.signature}, Mint ${mint}: Using total USDC movement (${totalUsdcMovement.toFixed(9)}) as primary USDC context.`);
-              } else if (Math.abs(netNativeSolChange) >= significanceThreshold) {
-                  associatedSolValue = Math.abs(netNativeSolChange); 
-                  logger.debug(`Tx ${tx.signature}, Mint ${mint}: Using net native SOL change (${netNativeSolChange.toFixed(9)}) as fallback SOL context.`);
+                  valueSource = 'priority_total_usdc';
+                   logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Associating with total USDC movement: ${associatedUsdcValue.toFixed(9)}`);
+              } else if (Math.abs(finalNetUserSolChange) >= significanceThreshold) {
+                   // Use absolute value of the net change as the associated value
+                  associatedSolValue = Math.abs(finalNetUserSolChange); 
+                  valueSource = 'priority_net_sol_change';
+                   logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Associating with net SOL change: ${associatedSolValue.toFixed(9)}`);
+              } else {
+                   valueSource = 'priority_none';
+                   logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): No significant priority value found.`);
+                   // Values remain 0
               }
-              // If none are significant, associated values remain 0.
-              
-              logger.debug(`Tx ${tx.signature}, Mint ${mint}: Linking to Final Associated SOL=${associatedSolValue?.toFixed(9)}, Final Associated USDC=${associatedUsdcValue?.toFixed(9)}`);
-          }
+          } 
+          // Log the final decision (ensure logger is still helpful if needed)
+          // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Final Assoc: SOL=${associatedSolValue.toFixed(9)}, USDC=${associatedUsdcValue.toFixed(9)} (Source: ${valueSource})`);
+          // --- End Assign associated value logic ---
 
-          const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromTokenAccount}:${transfer.toTokenAccount}:${amount.toFixed(9)}`;
-          if (processedRecordKeys.has(recordKey)) continue; 
+          // --- Push record --- (Ensure amount used is positive Math.abs)
+          const recordAmount = Math.abs(safeParseAmount(transfer)); // Recalculate positive amount for storage
+          if (recordAmount === 0) continue; // Skip if zero after abs
+          
+          // Ensure record key uses consistent data; from/to might be null
+          const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromTokenAccount ?? 'N/A'}:${transfer.toTokenAccount ?? 'N/A'}:${recordAmount.toFixed(9)}`;
+          if (processedRecordKeys.has(recordKey)) continue;
 
           analysisInputs.push({
               walletAddress: walletAddress, // Store with original case
               signature: tx.signature,
               timestamp: tx.timestamp,
               mint: mint,
-              amount: amount,
+              amount: recordAmount,
               direction: direction,
               associatedSolValue: associatedSolValue,
               associatedUsdcValue: associatedUsdcValue,

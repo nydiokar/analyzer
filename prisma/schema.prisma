@@ -53,7 +53,7 @@ model SwapAnalysisInput {
   associatedUsdcValue Float? // Associated USDC value for the transaction (optional)
   interactionType    String // Original Helius transaction type (e.g., SWAP, TRANSFER)
 
-  @@unique([signature, mint, direction, amount]) // Adjust uniqueness constraint as needed
+  @@unique([signature, mint, direction, amount], name: "signature_mint_direction_amount")
   @@index([walletAddress, timestamp])
   @@index([signature])
   @@index([mint])

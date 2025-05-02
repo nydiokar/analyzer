@@ -7,6 +7,7 @@ import { createLogger } from '../../utils/logger';
 import { mapHeliusTransactionsToIntermediateRecords } from '../../services/helius-transaction-mapper';
 import { HeliusTransaction } from '../../types/helius-api';
 
+
 // Initialize environment variables
 dotenv.config();
 
@@ -83,9 +84,9 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
     totalInputsFound += mappedInputs.length;
 
     if (mappedInputs.length > 0) {
-      logger.debug(`Processing ${mappedInputs.length} mapped inputs for updates/creates...`);
-      let batchUpdated = 0;
-      let batchCreated = 0;
+      logger.debug(`Processing ${mappedInputs.length} mapped inputs using upsert...`);
+      let batchUpdated = 0; // Will track records updated by upsert
+      let batchCreated = 0; // Will track records created by upsert
       let batchErrors = 0;
 
       // Process DB operations in smaller concurrent chunks
@@ -94,91 +95,78 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
 
           const dbPromises = chunk.map(async (input) => {
               try {
-                  // Use the correct unique constraint including amount
-                  const whereCondition: Prisma.SwapAnalysisInputWhereUniqueInput = {
-                       signature_mint_direction_amount: { // Correct constraint name
+                   // Define the unique condition for lookup
+                   const whereCondition: Prisma.SwapAnalysisInputWhereUniqueInput = {
+                       signature_mint_direction_amount: { 
                            signature: input.signature as string,
                            mint: input.mint as string,
                            direction: input.direction as string,
-                           amount: input.amount as number // Add amount for uniqueness
+                           amount: input.amount as number 
                        }
-                  };
+                   };
 
-                  // Check if record exists using only ID selection for speed
-                  const existingRecord = await prisma.swapAnalysisInput.findUnique({
+                   // Define the data for creation
+                   const createData: Prisma.SwapAnalysisInputCreateInput = {
+                       walletAddress: input.walletAddress,
+                       signature: input.signature,
+                       timestamp: input.timestamp,
+                       mint: input.mint,
+                       amount: input.amount,
+                       direction: input.direction,
+                       associatedSolValue: input.associatedSolValue,
+                       associatedUsdcValue: input.associatedUsdcValue ?? null,
+                       interactionType: input.interactionType ?? null,
+                   };
+
+                   // Define the data for update (only fields that should change)
+                   const updateData: Prisma.SwapAnalysisInputUpdateInput = {
+                       associatedSolValue: input.associatedSolValue,
+                       associatedUsdcValue: input.associatedUsdcValue ?? null,
+                       interactionType: input.interactionType ?? null,
+                       // DO NOT update fields that are part of the unique key (sig, mint, dir, amount)
+                       // Add other fields here if the mapper provides updated values for them
+                   };
+
+                   // Perform the upsert operation
+                   const result = await prisma.swapAnalysisInput.upsert({
                        where: whereCondition,
-                       select: { id: true } // Only need to know if it exists
-                  });
+                       create: createData,
+                       update: updateData,
+                       // Optionally select the id to know if it was create/update, but Prisma doesn't directly return this easily in upsert result itself
+                   });
+                  
+                   // Note: It's harder to precisely track created vs updated with simple upsert result. 
+                   // We'll just count success/error for now. A more complex approach could re-query.
+                   return { status: 'fulfilled' }; 
 
-                  if (existingRecord) {
-                      // Record exists, perform an UPDATE
-                      const fieldsToUpdate: Prisma.SwapAnalysisInputUpdateInput = {
-                          associatedSolValue: input.associatedSolValue,
-                          associatedUsdcValue: input.associatedUsdcValue ?? null,
-                          interactionType: input.interactionType ?? null,
-                          // Add any other fields from the mapper you want to ensure are updated
-                      };
-                      await prisma.swapAnalysisInput.update({
-                          where: whereCondition,
-                          data: fieldsToUpdate,
-                      });
-                      return { status: 'fulfilled', action: 'updated' };
-                  } else {
-                      // Record doesn't exist, perform a CREATE
-                      const createData: Prisma.SwapAnalysisInputCreateInput = {
-                          walletAddress: input.walletAddress,
-                          signature: input.signature,
-                          timestamp: input.timestamp,
-                          mint: input.mint,
-                          amount: input.amount,
-                          direction: input.direction,
-                          associatedSolValue: input.associatedSolValue,
-                          associatedUsdcValue: input.associatedUsdcValue ?? null,
-                          interactionType: input.interactionType ?? null,
-                      };
-                      await prisma.swapAnalysisInput.create({ data: createData });
-                      return { status: 'fulfilled', action: 'created' };
-                  }
               } catch (err) {
-                  // *** MODIFIED ERROR HANDLING ***
-                  // Specifically check for the unique constraint violation error (P2002)
-                  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-                      // This likely means another concurrent operation created the record between 
-                      // our findUnique check and our create attempt (race condition).
-                      // We can treat this as a non-fatal issue for the backfill.
-                      logger.warn(`Caught P2002 (Unique Constraint Violation) on create for sig ${input.signature}, mint ${input.mint}, dir ${input.direction}. Likely race condition, treating as handled.`);
-                      // We might increment 'updated' or a separate 'conflict' counter here if needed for detailed stats
-                      // For now, just don't count it as a hard error.
-                      return { status: 'fulfilled', action: 'conflict_handled' }; // Indicate it was handled
-                  } else {
-                      // Log other unexpected DB errors
-                      logger.error(`Unexpected DB operation failed for sig ${input.signature}, mint ${input.mint}, dir ${input.direction}`, { error: err });
-                      return { status: 'rejected', reason: err };
-                  }
+                   // Log unexpected DB errors (P2002 should be gone now)
+                   logger.error(`Upsert failed for sig ${input.signature}, mint ${input.mint}, dir ${input.direction}`, { error: err });
+                   return { status: 'rejected', reason: err };
               }
           });
 
           const results = await Promise.allSettled(dbPromises);
 
+          let successes = 0;
           results.forEach(result => {
               if (result.status === 'fulfilled') {
-                  // Use type assertion after checking status
-                  const fulfilledResult = result as PromiseFulfilledResult<{ status: string; action: string }>;
-                  if (fulfilledResult.value.action === 'updated') batchUpdated++;
-                  if (fulfilledResult.value.action === 'created') batchCreated++;
-                  // Optionally track handled conflicts: 
-                  // if (fulfilledResult.value.action === 'conflict_handled') batchConflicts++; 
+                   successes++;
+                   // Can't easily distinguish created vs updated here without extra query/logic
               } else {
                   batchErrors++;
               }
           });
+          // Adjust logging since we can't easily split updated/created counts anymore
+          logger.info(`Processed DB upsert batch (chunk size ${chunk.length}): Successes: ${successes}, Errors: ${batchErrors}`); 
+          // Accumulate total successes if needed, maybe just log batch results
+          // totalInputsUpdated += ?; // Cannot easily track these separately now
+          // totalInputsCreated += ?;
+          totalDbErrors += batchErrors;
+
       } // End loop through concurrent chunks
 
-      totalInputsUpdated += batchUpdated; // Use updated counter name
-      totalInputsCreated += batchCreated;
-      totalDbErrors += batchErrors;
-
-      logger.info(`Processed DB ops batch (skip ${skip}): Mapped ${mappedInputs.length} -> Updated: ${batchUpdated}, Created: ${batchCreated}, Errors: ${batchErrors}`);
+       logger.info(`Finished processing mapped inputs batch (skip ${skip}). Total DB errors so far: ${totalDbErrors}`);
 
     } else {
         logger.info(`Processed batch (skip ${skip}): Found 0 relevant inputs for wallet ${walletAddress}.`);
@@ -189,8 +177,9 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
 
   } // end while(hasMore)
 
-  logger.info(`Backfill complete for wallet: ${walletAddress}`);
-  logger.info(`Summary: Total cached sigs processed: ${processedSignatures}, Found: ${totalInputsFound} inputs -> Updated: ${totalInputsUpdated}, Created: ${totalInputsCreated}, DB Errors: ${totalDbErrors}`); // Use updated counter name in summary
+   logger.info(`Backfill complete for wallet: ${walletAddress}`);
+   // Adjust summary log as created/updated counts aren't tracked separately by default with upsert
+   logger.info(`Summary: Total cached sigs processed: ${processedSignatures}, Found: ${totalInputsFound} potential inputs. DB Errors during upsert: ${totalDbErrors}`); 
 }
 
 // --- Main Execution ---

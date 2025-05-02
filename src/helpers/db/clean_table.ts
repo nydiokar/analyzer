@@ -4,7 +4,7 @@ import { createLogger } from '../../utils/logger'; // Assuming logger path is co
 const prisma = new PrismaClient();
 const logger = createLogger('DeleteWalletInputs');
 
-const WALLET_TO_DELETE = 'GJthPDTPkhvp3q9VqrXeJxeMxYwk6Kazf2rfkVAXasGQ'; // <-- IMPORTANT: Replace this!
+const WALLET_TO_DELETE = '28825K3yfxFwQXTPxkxwe3K4bVtbA4z8Myx3N2zm4R6J'; // <-- IMPORTANT: Replace this!
 
 async function deleteInputs() {
   if (!WALLET_TO_DELETE) {
@@ -20,7 +20,7 @@ async function deleteInputs() {
   try {
     const result = await prisma.swapAnalysisInput.deleteMany({
       where: {
-        walletAddress: WALLET_TO_DELETE.toLowerCase(),
+        walletAddress: WALLET_TO_DELETE,
       },
     });
 
