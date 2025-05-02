@@ -27,19 +27,28 @@ const KNOWN_TOKENS: Record<string, string> = {
   // Add other known tokens here if needed
 };
 
+/**
+ * Gets a display-friendly name for a known token address.
+ * Falls back to the address itself if not found in KNOWN_TOKENS.
+ *
+ * @param address The token mint address.
+ * @returns The known symbol (e.g., 'WSOL') or the original address.
+ */
 function getTokenDisplayName(address: string): string {
     return KNOWN_TOKENS[address] || address;
 }
 // --- End Known Token Addresses ---
 
 /**
- * [REFACTORED] Analyzes pre-processed SwapAnalysisInput records to produce OnChainAnalysisResult.
- * This version assumes the input records have already accurately calculated the
- * decimal-adjusted SPL amount and the associated SOL value for each user swap leg.
+ * [REFACTORED] Analyzes pre-processed SwapAnalysisInput records to calculate Profit/Loss per token.
+ * Aggregates SOL spent and received for each SPL token based on the input records.
+ * Handles stablecoins separately to track SOL flows in/out of stable positions.
+ * Assumes input `swapInputs` have accurately calculated amounts and associated SOL/USDC values.
  *
- * @param swapInputs Array of SwapAnalysisInput records from the database.
- * @param walletAddress The specific wallet address being analyzed (used for logging/verification).
- * @returns SwapAnalysisSummary object containing results and summary info.
+ * @param swapInputs Array of `SwapAnalysisInput` records from the database for a specific wallet.
+ * @param walletAddress The wallet address being analyzed (used for logging/verification).
+ * @returns A `SwapAnalysisSummary` object containing an array of `OnChainAnalysisResult` per token,
+ *          and overall summary metrics like transaction count and time range.
  */
 export function analyzeSwapRecords(
   swapInputs: SwapAnalysisInput[], 
@@ -222,15 +231,21 @@ export function analyzeSwapRecords(
 
 // --- Reporting / Helper Functions --- (Remain Largely Unchanged)
 
-// Helper function for date formatting
+/**
+ * @param timestamp Unix timestamp (in seconds).
+ * @returns Formatted date string (YYYY-MM-DD HH:MM:SS) or 'Invalid Date'.
+ */
 function formatDate(timestamp: number): string {
-    if (!timestamp || timestamp <= 0) return 'N/A';
+    if (!timestamp || timestamp === Infinity) return 'N/A';
     return new Date(timestamp * 1000).toISOString().split('T')[0];
 }
 
-// Helper function to calculate % left
+/**
+ * @param netChange The net change in the token amount (in - out).
+ * @returns A string representing the percentage remaining (e.g., "50.0%") or "N/A".
+ */
 function calculatePercentLeft(totalIn: number, netChange: number): string {
-    if (totalIn <= 1e-9) { // Use threshold for float comparison
+    if (totalIn <= 0) {
         return netChange < -1e-9 ? '0.00%' : 'N/A';
     }
     const percent = (netChange / totalIn) * 100;
