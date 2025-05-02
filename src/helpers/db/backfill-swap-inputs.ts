@@ -7,7 +7,6 @@ import { createLogger } from '../../utils/logger';
 import { mapHeliusTransactionsToIntermediateRecords } from '../../services/helius-transaction-mapper';
 import { HeliusTransaction } from '../../types/helius-api';
 
-
 // Initialize environment variables
 dotenv.config();
 
@@ -19,6 +18,66 @@ const prisma = new PrismaClient();
 
 const DEFAULT_BATCH_SIZE = 500; // Process N cached transactions at a time
 const CONCURRENT_OPERATIONS = 50; // Number of update/create operations to run in parallel
+
+// *** NEW FUNCTION for Single Transaction Processing ***
+async function processSingleTransaction(walletAddress: string, signature: string): Promise<void> {
+  logger.info(`Processing single transaction mode for wallet: ${walletAddress}, signature: ${signature}`);
+ 
+
+  let cachedTransactionData: { signature: string; rawData: any } | null = null;
+  try {
+    cachedTransactionData = await prisma.heliusTransactionCache.findUnique({
+      where: {
+        signature: signature,
+        // Optional: Add walletAddress filter if your cache table supports it and it's indexed
+        // walletAddress: walletAddress 
+      },
+      select: { signature: true, rawData: true },
+    });
+  } catch (dbError) {
+    logger.error(`Failed to fetch transaction ${signature} from HeliusTransactionCache`, { error: dbError });
+    return; // Exit if DB fetch fails
+  }
+
+  if (!cachedTransactionData) {
+    logger.warn(`Transaction with signature ${signature} not found in cache.`);
+    return;
+  }
+
+  let parsedTransaction: HeliusTransaction | null = null;
+  try {
+    const parsed = JSON.parse(cachedTransactionData.rawData as string) as HeliusTransaction;
+    if (parsed && parsed.signature && parsed.timestamp) {
+      parsedTransaction = parsed;
+    } else {
+      logger.warn(`Cached transaction ${signature} has missing critical data after parsing.`);
+      return;
+    }
+  } catch (parseError) {
+    logger.error(`Failed to parse rawData for cached signature: ${cachedTransactionData.signature}`, { error: parseError });
+    return;
+  }
+
+  if (!parsedTransaction) {
+      logger.error("Failed to obtain a valid parsed transaction.");
+      return;
+  }
+
+  logger.debug(`Mapping transaction ${signature} for wallet ${walletAddress}...`);
+  
+  // IMPORTANT: Call mapper with an array containing the single transaction
+  const mappedInputs: Prisma.SwapAnalysisInputCreateInput[] = mapHeliusTransactionsToIntermediateRecords(walletAddress, [parsedTransaction]); 
+
+  logger.info(`--- Mapped Results for Signature: ${signature} ---`);
+  if (mappedInputs.length > 0) {
+      console.log(JSON.stringify(mappedInputs, null, 2)); // Pretty print the results
+  } else {
+      logger.info("Mapper produced 0 analysis input records for this transaction.");
+  }
+  logger.info(`--- End Mapped Results ---`);
+}
+// *** END NEW FUNCTION ***
+
 
 /**
  * Fetches transactions from HeliusTransactionCache in batches, maps them,
@@ -84,9 +143,9 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
     totalInputsFound += mappedInputs.length;
 
     if (mappedInputs.length > 0) {
-      logger.debug(`Processing ${mappedInputs.length} mapped inputs using upsert...`);
-      let batchUpdated = 0; // Will track records updated by upsert
-      let batchCreated = 0; // Will track records created by upsert
+      logger.debug(`Processing ${mappedInputs.length} mapped inputs, checking for changes before upsert...`);
+      let batchSkipped = 0; 
+      let batchUpserted = 0;
       let batchErrors = 0;
 
       // Process DB operations in smaller concurrent chunks
@@ -105,64 +164,88 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
                        }
                    };
 
-                   // Define the data for creation
-                   const createData: Prisma.SwapAnalysisInputCreateInput = {
-                       walletAddress: input.walletAddress,
-                       signature: input.signature,
-                       timestamp: input.timestamp,
-                       mint: input.mint,
-                       amount: input.amount,
-                       direction: input.direction,
-                       associatedSolValue: input.associatedSolValue,
-                       associatedUsdcValue: input.associatedUsdcValue ?? null,
-                       interactionType: input.interactionType ?? null,
-                   };
-
-                   // Define the data for update (only fields that should change)
-                   const updateData: Prisma.SwapAnalysisInputUpdateInput = {
-                       associatedSolValue: input.associatedSolValue,
-                       associatedUsdcValue: input.associatedUsdcValue ?? null,
-                       interactionType: input.interactionType ?? null,
-                       // DO NOT update fields that are part of the unique key (sig, mint, dir, amount)
-                       // Add other fields here if the mapper provides updated values for them
-                   };
-
-                   // Perform the upsert operation
-                   const result = await prisma.swapAnalysisInput.upsert({
+                   // --- Check if update is necessary ---
+                   const existingRecord = await prisma.swapAnalysisInput.findUnique({
                        where: whereCondition,
-                       create: createData,
-                       update: updateData,
-                       // Optionally select the id to know if it was create/update, but Prisma doesn't directly return this easily in upsert result itself
+                       select: { // Select only the fields we need to compare
+                           associatedSolValue: true,
+                           associatedUsdcValue: true,
+                           interactionType: true 
+                       }
                    });
-                  
-                   // Note: It's harder to precisely track created vs updated with simple upsert result. 
-                   // We'll just count success/error for now. A more complex approach could re-query.
-                   return { status: 'fulfilled' }; 
+
+                   let needsUpdate = true; // Assume update is needed unless proven otherwise
+                   if (existingRecord) {
+                       const currentSol = existingRecord.associatedSolValue;
+                       const newSol = input.associatedSolValue;
+                       const currentUsdc = existingRecord.associatedUsdcValue ?? null; // Normalize null
+                       const newUsdc = input.associatedUsdcValue ?? null; // Normalize null
+                       const currentType = existingRecord.interactionType ?? null; // Normalize null
+                       const newType = input.interactionType ?? null; // Normalize null
+
+                       // Basic comparison (adjust if float precision issues arise)
+                       if (currentSol === newSol && currentUsdc === newUsdc && currentType === newType) {
+                           needsUpdate = false;
+                       }
+                   }
+                   // --- End Check ---
+
+                   if (!needsUpdate) {
+                       // logger.debug(`Skipping upsert for sig ${input.signature}, mint ${input.mint} - no changes detected.`);
+                       return { status: 'fulfilled', action: 'skipped' }; 
+                   } else {
+                       // logger.debug(`Proceeding with upsert for sig ${input.signature}, mint ${input.mint} - changes detected or new record.`);
+                       // Define the data for creation
+                       const createData: Prisma.SwapAnalysisInputCreateInput = {
+                           walletAddress: input.walletAddress,
+                           signature: input.signature,
+                           timestamp: input.timestamp,
+                           mint: input.mint,
+                           amount: input.amount,
+                           direction: input.direction,
+                           associatedSolValue: input.associatedSolValue,
+                           associatedUsdcValue: input.associatedUsdcValue ?? null,
+                           interactionType: input.interactionType ?? null,
+                       };
+
+                       // Define the data for update 
+                       const updateData: Prisma.SwapAnalysisInputUpdateInput = {
+                           associatedSolValue: input.associatedSolValue,
+                           associatedUsdcValue: input.associatedUsdcValue ?? null,
+                           interactionType: input.interactionType ?? null,
+                       };
+
+                       // Perform the upsert operation ONLY if needed
+                       await prisma.swapAnalysisInput.upsert({
+                           where: whereCondition,
+                           create: createData,
+                           update: updateData,
+                       });
+                       return { status: 'fulfilled', action: 'upserted' }; 
+                   }
 
               } catch (err) {
-                   // Log unexpected DB errors (P2002 should be gone now)
-                   logger.error(`Upsert failed for sig ${input.signature}, mint ${input.mint}, dir ${input.direction}`, { error: err });
+                   logger.error(`DB operation failed for sig ${input.signature}, mint ${input.mint}, dir ${input.direction}`, { error: err });
                    return { status: 'rejected', reason: err };
               }
           });
 
           const results = await Promise.allSettled(dbPromises);
 
-          let successes = 0;
+          // Update batch counters based on action
           results.forEach(result => {
               if (result.status === 'fulfilled') {
-                   successes++;
-                   // Can't easily distinguish created vs updated here without extra query/logic
+                   // Use type assertion after checking status
+                   const fulfilledResult = result as PromiseFulfilledResult<{ status: string; action: string }>;
+                  if (fulfilledResult.value.action === 'skipped') batchSkipped++;
+                  if (fulfilledResult.value.action === 'upserted') batchUpserted++;
               } else {
                   batchErrors++;
               }
           });
-          // Adjust logging since we can't easily split updated/created counts anymore
-          logger.info(`Processed DB upsert batch (chunk size ${chunk.length}): Successes: ${successes}, Errors: ${batchErrors}`); 
-          // Accumulate total successes if needed, maybe just log batch results
-          // totalInputsUpdated += ?; // Cannot easily track these separately now
-          // totalInputsCreated += ?;
-          totalDbErrors += batchErrors;
+           logger.info(`Processed DB upsert batch (chunk size ${chunk.length}): Upserted: ${batchUpserted}, Skipped (no change): ${batchSkipped}, Errors: ${batchErrors}`); 
+           // Accumulate totals if needed
+           totalDbErrors += batchErrors;
 
       } // End loop through concurrent chunks
 
@@ -178,7 +261,6 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
   } // end while(hasMore)
 
    logger.info(`Backfill complete for wallet: ${walletAddress}`);
-   // Adjust summary log as created/updated counts aren't tracked separately by default with upsert
    logger.info(`Summary: Total cached sigs processed: ${processedSignatures}, Found: ${totalInputsFound} potential inputs. DB Errors during upsert: ${totalDbErrors}`); 
 }
 
@@ -186,7 +268,7 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
 (async () => {
    const argv = await yargs(hideBin(process.argv))
     .scriptName('backfill-swap-inputs')
-    .usage('$0 --address WALLET_ADDRESS [--batchSize N]')
+    .usage('$0 --address WALLET_ADDRESS [--batchSize N] [--signature TX_SIGNATURE]')
     .option('address', {
       alias: 'a',
       description: 'Solana wallet address to backfill SwapAnalysisInput records for',
@@ -199,6 +281,12 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
         type: 'number',
         default: DEFAULT_BATCH_SIZE
     })
+    .option('signature', {
+        alias: 's',
+        description: 'Specific transaction signature to process in debug mode',
+        type: 'string',
+        demandOption: false
+    })
     .help()
     .alias('help', 'h')
     .parse();
@@ -206,11 +294,16 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
   const typedArgv = argv as {
       address: string;
       batchSize: number;
+      signature?: string;
       [key: string]: unknown;
   };
 
   try {
-    await backfillForWallet(typedArgv.address, typedArgv.batchSize);
+    if (typedArgv.signature) {
+        await processSingleTransaction(typedArgv.address, typedArgv.signature);
+    } else {
+        await backfillForWallet(typedArgv.address, typedArgv.batchSize);
+    }
   } catch (error) {
     logger.error('Unhandled error during backfill process', { error });
     process.exitCode = 1;

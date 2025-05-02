@@ -158,11 +158,11 @@ function findIntermediaryValueFromEvent(
         }
 
         if (solConsistent && (!usdcConsistent || total_usdc_from_sell < significanceThreshold)) {
-            logger.info(`Event Matcher: Found consistent SOL value: ${total_wsol_from_sell.toFixed(9)}. Sig: ${tx.signature}`);
+            logger.debug(`Event Matcher: Found consistent SOL value: ${total_wsol_from_sell.toFixed(9)}. Sig: ${tx.signature}`);
             currentResult.solValue = total_wsol_from_sell; 
             return currentResult; 
         } else if (usdcConsistent && (!solConsistent || total_wsol_from_sell < significanceThreshold)) {
-             logger.info(`Event Matcher: Found consistent USDC value: ${total_usdc_from_sell.toFixed(9)}. Sig: ${tx.signature}`);
+             logger.debug(`Event Matcher: Found consistent USDC value: ${total_usdc_from_sell.toFixed(9)}. Sig: ${tx.signature}`);
             currentResult.usdcValue = total_usdc_from_sell; 
             return currentResult; 
         } else {
@@ -292,7 +292,6 @@ export function mapHeliusTransactionsToIntermediateRecords(
       // --- eventResult now holds potential matched value ---
 
       // Create records for Native SOL transfers involving the user, applying filters
-
       for (const transfer of tx.nativeTransfers || []) {
           const rawLamports = transfer.amount;
           if (rawLamports === undefined || rawLamports === null) continue; 
@@ -339,9 +338,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
       // Create records for SPL Token transfers involving the user
       for (const transfer of tx.tokenTransfers || []) {
-          const amount = Math.abs(safeParseAmount(transfer)); 
-          if (amount === 0) continue;
-
+          const currentTransferAmount = Math.abs(safeParseAmount(transfer)); 
+          if (currentTransferAmount === 0) continue;
           const mint = transfer.mint;
           if (!mint) {
               logger.warn(`Skipping token transfer in tx ${tx.signature} due to missing mint`, { transfer });
@@ -363,59 +361,113 @@ export function mapHeliusTransactionsToIntermediateRecords(
           if (!direction) continue; // Skip if user's token accounts aren't involved
 
           // --- Assign associated value logic ---
-          let associatedSolValue: number = 0;
-          let associatedUsdcValue: number = 0;
+          let associatedSolValue: number = 0; 
+          let associatedUsdcValue: number = 0; 
           let valueSource = 'direct'; 
 
-          // 1. Handle direct WSOL/USDC transfers
+          // 1. Handle direct WSOL/USDC transfers by user
           if (isWsol) {
-              associatedSolValue = amount; // Amount is already absolute here
+              associatedSolValue = currentTransferAmount; 
               valueSource = 'direct_wsol';
           } else if (isUsdc) {
-              associatedUsdcValue = amount; // Amount is already absolute here
+              associatedUsdcValue = currentTransferAmount;
               valueSource = 'direct_usdc';
           } else {
-              // 2. Handle other tokens (SPL, potentially Native converted to SPL like SOL->WSOL)
-              // Use the pre-calculated total movements and net change with priority
-              const significanceThreshold = 0.0001; 
+              // 2. Handle non-WSOL/USDC tokens
+              valueSource = 'unassigned'; 
+              const eventSolFound = eventResult.solValue > 0; 
+              const eventUsdcFound = eventResult.usdcValue > 0;
+              let eventValueApplied = false;
+              let netChangeValueApplied = false; 
+              let heuristicValueApplied = false; 
 
-              if (totalWsolMovement >= significanceThreshold) {
-                  associatedSolValue = totalWsolMovement;
-                  valueSource = 'priority_total_wsol';
-                  logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Associating with total WSOL movement: ${associatedSolValue.toFixed(9)}`);
-              } else if (totalUsdcMovement >= significanceThreshold) {
-                  associatedUsdcValue = totalUsdcMovement;
-                  valueSource = 'priority_total_usdc';
-                   logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Associating with total USDC movement: ${associatedUsdcValue.toFixed(9)}`);
-              } else if (Math.abs(finalNetUserSolChange) >= significanceThreshold) {
-                   // Use absolute value of the net change as the associated value
-                  associatedSolValue = Math.abs(finalNetUserSolChange); 
-                  valueSource = 'priority_net_sol_change';
-                   logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Associating with net SOL change: ${associatedSolValue.toFixed(9)}`);
-              } else {
-                   valueSource = 'priority_none';
-                   logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): No significant priority value found.`);
-                   // Values remain 0
+              // --- Tier 1: Attempt Event Matching ---
+              const isPrimaryOutTokenFromEvent = direction === 'out' && mint === eventResult.primaryOutMint;
+              const isPrimaryInTokenFromEvent = direction === 'in' && mint === eventResult.primaryInMint;
+              if (interactionType === 'SWAP' && (isPrimaryInTokenFromEvent || isPrimaryOutTokenFromEvent)) { 
+                  if (eventSolFound) {
+                      associatedSolValue = eventResult.solValue;
+                      valueSource = direction === 'in' ? 'event_matched_sol_in' : 'event_matched_sol_out';
+                      logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Applying matched SOL value ${associatedSolValue.toFixed(9)} from SWAP event.`);
+                      eventValueApplied = true;
+                  } else if (eventUsdcFound) {
+                      associatedUsdcValue = eventResult.usdcValue;
+                      valueSource = direction === 'in' ? 'event_matched_usdc_in' : 'event_matched_usdc_out';
+                      logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Applying matched USDC value ${associatedUsdcValue.toFixed(9)} from SWAP event.`);
+                      eventValueApplied = true;
+                  }
               }
-          } 
-          // Log the final decision (ensure logger is still helpful if needed)
-          // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Final Assoc: SOL=${associatedSolValue.toFixed(9)}, USDC=${associatedUsdcValue.toFixed(9)} (Source: ${valueSource})`);
+
+              // --- Tier 2: Net User Balance Change Fallback (Single Signal Only) ---
+              if (!eventValueApplied) {
+                  valueSource = 'fallback_net_change'; 
+                  const netChangeSignificanceThreshold = 0.01;
+                  logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}) Type: ${interactionType}: Event Match failed/skipped. Attempting Fallback (Net User Change @ ${netChangeSignificanceThreshold}).`);
+                  
+                  const absSolChange = Math.abs(finalNetUserSolChange);
+                  const absUsdcChange = Math.abs(finalNetUserUsdcChange);
+                  const solIsSignificant = absSolChange >= netChangeSignificanceThreshold;
+                  const usdcIsSignificant = absUsdcChange >= netChangeSignificanceThreshold;
+                  
+                  // Apply only if exactly one is significant
+                  if (solIsSignificant && !usdcIsSignificant) {
+                      associatedSolValue = absSolChange;
+                      associatedUsdcValue = 0; 
+                      logger.debug(` -> Fallback (Net Change): Assigning Abs Net SOL Change (only significant @ ${netChangeSignificanceThreshold}): ${associatedSolValue.toFixed(9)}`);
+                      netChangeValueApplied = true;
+                  } else if (usdcIsSignificant && !solIsSignificant) {
+                      associatedUsdcValue = absUsdcChange;
+                      associatedSolValue = 0;
+                      logger.debug(` -> Fallback (Net Change): Assigning Abs Net USDC Change (only significant @ ${netChangeSignificanceThreshold}): ${associatedUsdcValue.toFixed(9)}`);
+                      netChangeValueApplied = true;
+                  } else {
+                      logger.debug(` -> Fallback (Net Change @ ${netChangeSignificanceThreshold}): Ambiguous or no significant net change detected (SOL sig: ${solIsSignificant}, USDC sig: ${usdcIsSignificant}).`);
+                  }
+              }
+
+              // --- Tier 3: Total Movement Heuristic (Single Signal Only) ---
+              if (!eventValueApplied && !netChangeValueApplied) { 
+                  valueSource = 'fallback_total_movement'; 
+                  const movementSignificanceThreshold = 0.05; 
+                  logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}) Type: ${interactionType}: Event & Net Change failed/ambiguous. Attempting Fallback (Total Movement).`);
+                  const wsolMoveIsSignificant = totalWsolMovement >= movementSignificanceThreshold;
+                  const usdcMoveIsSignificant = totalUsdcMovement >= movementSignificanceThreshold;
+
+                  // Apply only if exactly one is significant
+                  if (wsolMoveIsSignificant && !usdcMoveIsSignificant) {
+                      associatedSolValue = totalWsolMovement; 
+                      associatedUsdcValue = 0; 
+                      valueSource = 'fallback_total_wsol_movement'; 
+                      logger.debug(` -> Fallback (Total Movement): Assigning Total WSOL Movement (only significant): ${associatedSolValue.toFixed(9)}`);
+                      heuristicValueApplied = true; 
+                  } else if (usdcMoveIsSignificant && !wsolMoveIsSignificant) {
+                      associatedUsdcValue = totalUsdcMovement; 
+                      associatedSolValue = 0; 
+                      valueSource = 'fallback_total_usdc_movement'; 
+                      logger.debug(` -> Fallback (Total Movement): Assigning Total USDC Movement (only significant): ${associatedUsdcValue.toFixed(9)}`);
+                      heuristicValueApplied = true;
+                  } else {
+                      logger.debug(` -> Fallback (Total Movement): Ambiguous or no significant total movement detected (WSOL sig: ${wsolMoveIsSignificant}, USDC sig: ${usdcMoveIsSignificant}).`);
+                  }
+              } 
+              
+              // Final Log
+              logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Final Assoc: SOL=${associatedSolValue.toFixed(9)}, USDC=${associatedUsdcValue.toFixed(9)} (Source: ${valueSource})`);
+          } // End else (non-WSOL/USDC)
           // --- End Assign associated value logic ---
+         
+          logger.info(`PRE-PUSH CHECK for ${tx.signature} - Mint: ${mint}, Dir: ${direction}, AssocSOL: ${associatedSolValue}, AssocUSDC: ${associatedUsdcValue}, Source: ${valueSource}`);
 
-          // --- Push record --- (Ensure amount used is positive Math.abs)
-          const recordAmount = Math.abs(safeParseAmount(transfer)); // Recalculate positive amount for storage
-          if (recordAmount === 0) continue; // Skip if zero after abs
-          
-          // Ensure record key uses consistent data; from/to might be null
+          // --- Push record --- 
+          const recordAmount = currentTransferAmount; 
           const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromTokenAccount ?? 'N/A'}:${transfer.toTokenAccount ?? 'N/A'}:${recordAmount.toFixed(9)}`;
-          if (processedRecordKeys.has(recordKey)) continue;
-
+          if (processedRecordKeys.has(recordKey)) continue; 
           analysisInputs.push({
-              walletAddress: walletAddress, // Store with original case
+              walletAddress: walletAddress, 
               signature: tx.signature,
               timestamp: tx.timestamp,
               mint: mint,
-              amount: recordAmount,
+              amount: recordAmount, 
               direction: direction,
               associatedSolValue: associatedSolValue,
               associatedUsdcValue: associatedUsdcValue,
