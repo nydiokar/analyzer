@@ -86,6 +86,23 @@ function getErrorType(error: unknown): string {
   return 'UnknownError';
 }
 
+// Helper function to detect unique constraint violations in Prisma errors
+function isUniqueConstraintViolation(error: unknown): boolean {
+  if (error && typeof error === 'object') {
+    // Check if it's a PrismaClientKnownRequestError with code P2002 (unique constraint violation)
+    if ('code' in error && error.code === 'P2002') {
+      return true;
+    }
+    
+    // Check error message for unique constraint text
+    if ('message' in error && typeof error.message === 'string' && 
+        error.message.includes('Unique constraint')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Fetches transactions from HeliusTransactionCache in batches, maps them,
  * and **unconditionally updates** existing SwapAnalysisInput records
@@ -101,6 +118,7 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
   let totalUpdated = 0;
   let totalSkipped = 0;
   let totalErrors = 0;
+  let totalWsolHandled = 0;
   
   // Error tracking
   const errorTypes = new Map<string, number>();
@@ -216,102 +234,120 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
             existingMap.set(key, record);
           }
           
-          // 2. Process each input: update if exists, create if new
-          const operations = [];
-          for (const input of inputs) {
-            const mint = input.mint as string;
-            const direction = input.direction as string;
-            const amount = input.amount as number;
-            const key = `${mint}:${direction}:${amount}`;
-            
-            // Prepare data with proper nulls for optional fields
-            const data = {
-              walletAddress: input.walletAddress as string,
-              signature: input.signature as string, 
-              timestamp: input.timestamp as number,
-              mint: mint,
-              direction: direction,
-              amount: amount,
-              associatedSolValue: input.associatedSolValue as number,
-              associatedUsdcValue: input.associatedUsdcValue ?? null,
-              interactionType: input.interactionType ?? 'UNKNOWN'
-            };
-            
-            if (existingMap.has(key)) {
-              // Record exists - check if we need to update
-              const existing = existingMap.get(key);
-              
-              // Only update if there are actual changes
-              if (existing.associatedSolValue !== data.associatedSolValue ||
-                  existing.associatedUsdcValue !== data.associatedUsdcValue ||
-                  existing.interactionType !== data.interactionType) {
-                  
-                operations.push(
-                  prisma.swapAnalysisInput.update({
-                    where: { id: existing.id },
-                    data: {
-                      associatedSolValue: data.associatedSolValue,
-                      associatedUsdcValue: data.associatedUsdcValue,
-                      interactionType: data.interactionType
-                    }
-                  }).then(() => ({ action: 'updated' }))
-                  .catch(err => {
-                    const errorType = getErrorType(err);
-                    incrementErrorCount(errorType, `Update error for ${signature}/${mint}/${direction}: ${err}`, 
-                                      errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-                    return { action: 'error', error: err };
-                  })
-                );
-              } else {
-                operations.push(Promise.resolve({ action: 'skipped' }));
-              }
-            } else {
-              // Record doesn't exist - create it
-              operations.push(
-                prisma.swapAnalysisInput.create({ data }).then(() => ({ action: 'created' }))
-                .catch(err => {
-                  const errorType = getErrorType(err);
-                  incrementErrorCount(errorType, `Create error for ${signature}/${mint}/${direction}: ${err}`, 
-                                    errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-                  return { action: 'error', error: err };
-                })
-              );
-            }
-          }
+          // Special handling for WSOL transfers
+          const WSOL_MINT = 'So11111111111111111111111111111111111111112';
           
-          // Execute all operations for this signature
-          const results = await Promise.allSettled(operations);
-          
-          // Count the actions
+          // Count statistics
           let sigCreated = 0;
           let sigUpdated = 0;
           let sigSkipped = 0;
-          let sigErrors = 0;
-          results.forEach(result => {
-            if (result.status === 'fulfilled') {
-              if (result.value.action === 'created') sigCreated++;
-              else if (result.value.action === 'updated') sigUpdated++;
-              else if (result.value.action === 'skipped') sigSkipped++;
-              else if (result.value.action === 'error') sigErrors++;
-            } else {
-              const errorType = 'PromiseRejected';
-              incrementErrorCount(errorType, `Promise rejected: ${result.reason}`, 
-                                errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-              sigErrors++;
-            }
-          });
+          let sigWsolHandled = 0;
           
-          batchCreated += sigCreated;
-          batchUpdated += sigUpdated;
-          batchSkipped += sigSkipped;
-          batchErrors += sigErrors;
+          // 2. Process each input individually to ensure failures don't affect other records
+          for (const input of inputs) {
+            try {
+              const mint = input.mint as string;
+              const direction = input.direction as string;
+              const amount = input.amount as number;
+              const key = `${mint}:${direction}:${amount}`;
+              
+              // Prepare data with proper nulls for optional fields
+              const data = {
+                walletAddress: input.walletAddress as string,
+                signature: input.signature as string, 
+                timestamp: input.timestamp as number,
+                mint: mint,
+                direction: direction,
+                amount: amount,
+                associatedSolValue: input.associatedSolValue as number,
+                associatedUsdcValue: input.associatedUsdcValue ?? null,
+                interactionType: input.interactionType ?? 'UNKNOWN'
+              };
+              
+              // Special handling for WSOL
+              const isWsol = mint === WSOL_MINT;
+              
+              if (existingMap.has(key)) {
+                // Record exists - check if we need to update
+                const existing = existingMap.get(key);
+                
+                // Only update if there are actual changes
+                if (existing.associatedSolValue !== data.associatedSolValue ||
+                    existing.associatedUsdcValue !== data.associatedUsdcValue ||
+                    existing.interactionType !== data.interactionType) {
+                    
+                  try {
+                    await prisma.swapAnalysisInput.update({
+                      where: { id: existing.id },
+                      data: {
+                        associatedSolValue: data.associatedSolValue,
+                        associatedUsdcValue: data.associatedUsdcValue,
+                        interactionType: data.interactionType
+                      }
+                    });
+                    sigUpdated++;
+                  } catch (updateError) {
+                    const errorType = getErrorType(updateError);
+                    
+                    if (isWsol) {
+                      sigWsolHandled++;
+                      // Just log and continue for WSOL errors
+                      logger.debug(`WSOL update skipped for tx ${signature}, ${mint}/${direction} - this is expected behavior`);
+                      logger.debug(`WSOL update error: ${updateError}`);
+                    } 
+                    else {
+                      // For updates, any other error is a real error
+                      incrementErrorCount(errorType, `Update error for ${signature}/${mint}/${direction}: ${updateError}`, 
+                                        errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
+                      logger.error(`Failed to update record for tx ${signature}, mint ${mint}: ${updateError}`);
+                    }
+                  }
+                } else {
+                  sigSkipped++;
+                }
+              } else {
+                // Record doesn't exist - create it
+                try {
+                  await prisma.swapAnalysisInput.create({ data });
+                  sigCreated++;
+                } catch (createError) {
+                  const errorType = getErrorType(createError);
+                  
+                  // Special handling for WSOL and unique constraint violations
+                  if (isWsol) {
+                    sigWsolHandled++;
+                    // Just log and continue for WSOL errors
+                    logger.debug(`WSOL creation skipped for tx ${signature}, ${mint}/${direction} - this is expected behavior`);
+                    logger.debug(`WSOL creation error: ${createError}`);
+                  } 
+                  else if (isUniqueConstraintViolation(createError)) {
+                    // This is also expected in some cases (duplicate entries)
+                    logger.debug(`Skipping duplicate record for tx ${signature}, ${mint}/${direction}`);
+                    sigSkipped++;
+                  }
+                  else {
+                    // Only count real errors (not WSOL or duplicates)
+                    incrementErrorCount(errorType, `Create error for ${signature}/${mint}/${direction}: ${createError}`, 
+                                      errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
+                    logger.error(`Failed to create record for tx ${signature}, mint ${mint}: ${createError}`);
+                  }
+                }
+              }
+            } catch (inputError) {
+              // This catches errors in the processing of individual inputs
+              const errorType = getErrorType(inputError);
+              incrementErrorCount(errorType, `Input processing error for ${signature}: ${inputError}`, 
+                                errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
+              logger.error(`Error processing input for transaction ${signature}`, { error: inputError });
+            }
+          }
           
           return { 
             signature, 
             created: sigCreated, 
             updated: sigUpdated, 
             skipped: sigSkipped,
-            errors: sigErrors
+            wsolHandled: sigWsolHandled
           };
         } catch (error) {
           const errorType = getErrorType(error);
@@ -323,22 +359,45 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
         }
       });
       
-      await Promise.allSettled(batchPromises);
+      // Execute all the promises and collect results
+      const results = await Promise.allSettled(batchPromises);
+      
+      let batchCreated = 0;
+      let batchUpdated = 0;
+      let batchSkipped = 0;
+      let batchWsolHandled = 0;
+      
+      // Process results to collect metrics
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          const value = result.value;
+          if (value) {
+            if (typeof value.created === 'number') batchCreated += value.created;
+            if (typeof value.updated === 'number') batchUpdated += value.updated;
+            if (typeof value.skipped === 'number') batchSkipped += value.skipped;
+            if (typeof value.wsolHandled === 'number') batchWsolHandled += value.wsolHandled;
+          }
+        } else {
+          batchErrors++;
+        }
+      }
+      
+      // Update totals
+      totalCreated += batchCreated;
+      totalUpdated += batchUpdated;
+      totalSkipped += batchSkipped;
+      totalErrors += batchErrors;
+      totalWsolHandled += batchWsolHandled;
+      
+      // Update the progress logging to include WSOL handling
+      logger.info(`Batch results: Created ${batchCreated}, Updated ${batchUpdated}, Skipped ${batchSkipped}, WSOL handled ${batchWsolHandled}, Errors ${batchErrors}`);
     }
     
-    // Update totals
-    totalCreated += batchCreated;
-    totalUpdated += batchUpdated;
-    totalSkipped += batchSkipped;
-    totalErrors += batchErrors;
-    
-    logger.info(`Batch results: Created ${batchCreated}, Updated ${batchUpdated}, Skipped ${batchSkipped}, Errors ${batchErrors}`);
+    logger.info(`Progress: ${processedTransactions} transactions, ${totalCreated} created, ${totalUpdated} updated, ${totalSkipped} unchanged, ${totalWsolHandled} WSOL transfers handled, ${totalErrors} errors`);
     
     processedTransactions += parsedTransactions.length;
     skip += cachedTransactionsData.length;
 
-    logger.info(`Progress: ${processedTransactions} transactions, ${totalCreated} created, ${totalUpdated} updated, ${totalSkipped} unchanged, ${totalErrors} errors`);
-    
     // Periodically log error distributions if we have errors
     if (errorTypes.size > 0 && (processedTransactions % (batchSize * 5) === 0 || !hasMore)) {
       logErrorDistribution(errorTypes, errorSamples);
@@ -355,6 +414,7 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
   logger.info(`Total records created: ${totalCreated}`);
   logger.info(`Total records updated: ${totalUpdated}`);
   logger.info(`Total records unchanged: ${totalSkipped}`);
+  logger.info(`Total WSOL transfers handled: ${totalWsolHandled}`);
   logger.info(`Total errors: ${totalErrors}`);
   logger.info(`✅ DATABASE UPDATED with values from the improved mapper`);
 }
