@@ -97,6 +97,21 @@ The application uses an SQLite database managed by Prisma. See `prisma/schema.pr
 -   `AnalysisResult`: (Planned) Stores the calculated P/L results per token for each run.
 -   `AdvancedStatsResult`: (Planned) Stores the calculated advanced statistics for each run.
 
+## Recent Fixes & Improvements
+
+### SPL-to-SPL Transaction Mapping Fix
+
+The mapper has been updated to correctly handle SPL-to-SPL swaps with WSOL as an intermediary. Previously, for some transactions like SPL to SPL swaps involving WSOL as an intermediary, the `associatedSolValue` could be doubled because both the primary token flow and the WSOL flow were counted. The fix includes:
+
+1. A specialized detector for SPL-to-SPL swap patterns with WSOL intermediaries
+2. Logic to use the proper WSOL movement value instead of the doubled net SOL change
+3. Safeguards to ensure the associated SOL value is accurate even in edge cases
+
+To test the fix with a specific transaction:
+```bash
+npx ts-node ./src/scripts/test-spl-to-spl-mapper.ts
+```
+
 ## Testing
 
 ```bash
