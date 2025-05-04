@@ -52,6 +52,8 @@ model SwapAnalysisInput {
   associatedSolValue Float // Associated SOL/WSOL value for the transaction
   associatedUsdcValue Float? // Associated USDC value for the transaction (optional)
   interactionType    String // Original Helius transaction type (e.g., SWAP, TRANSFER)
+  feeAmount          Float? // Fee amount in SOL
+  feePercentage      Float? // Fee percentage relative to transaction size
 
   @@unique([signature, mint, direction, amount], name: "signature_mint_direction_amount")
   @@index([walletAddress, timestamp])

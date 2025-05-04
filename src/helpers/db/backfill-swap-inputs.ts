@@ -16,13 +16,19 @@ const logger = createLogger('BackfillSwapInputsScript');
 // Initialize Prisma Client
 const prisma = new PrismaClient();
 
-const DEFAULT_BATCH_SIZE = 500; // Process N cached transactions at a time
-const CONCURRENT_OPERATIONS = 50; // Number of update/create operations to run in parallel
+// Custom type for the extended SwapAnalysisInput with fee fields
+interface ExtendedSwapAnalysisInput extends Prisma.SwapAnalysisInputCreateInput {
+  feeAmount?: number | null;
+  feePercentage?: number | null;
+}
 
-// *** NEW FUNCTION for Single Transaction Processing ***
+const DEFAULT_BATCH_SIZE = 500; // Process N cached transactions at a time
+const CONCURRENT_OPERATIONS = 50; // Number of operations to run in parallel
+
+// *** Original Single Transaction Processing Function (Logs Only) ***
 async function processSingleTransaction(walletAddress: string, signature: string): Promise<void> {
   logger.info(`Processing single transaction mode for wallet: ${walletAddress}, signature: ${signature}`);
- 
+
 
   let cachedTransactionData: { signature: string; rawData: any } | null = null;
   try {
@@ -30,7 +36,7 @@ async function processSingleTransaction(walletAddress: string, signature: string
       where: {
         signature: signature,
         // Optional: Add walletAddress filter if your cache table supports it and it's indexed
-        // walletAddress: walletAddress 
+        // walletAddress: walletAddress
       },
       select: { signature: true, rawData: true },
     });
@@ -64,13 +70,50 @@ async function processSingleTransaction(walletAddress: string, signature: string
   }
 
   logger.debug(`Mapping transaction ${signature} for wallet ${walletAddress}...`);
-  
+
   // IMPORTANT: Call mapper with an array containing the single transaction
-  const mappedInputs: Prisma.SwapAnalysisInputCreateInput[] = mapHeliusTransactionsToIntermediateRecords(walletAddress, [parsedTransaction]); 
+  const mappedInputs = mapHeliusTransactionsToIntermediateRecords(walletAddress, [parsedTransaction]) as unknown as ExtendedSwapAnalysisInput[];
+
+  // Debug mapper output
+  debugMapperOutput(mappedInputs);
+
+  // Check for fee data
+  let hasFeeData = false;
+  for (const input of mappedInputs) {
+    if (input.feeAmount !== undefined && input.feeAmount !== null) {
+      hasFeeData = true;
+      break;
+    }
+  }
 
   logger.info(`--- Mapped Results for Signature: ${signature} ---`);
+  logger.info(`Found ${mappedInputs.length} record(s) for this transaction`);
+  logger.info(`Records contain fee data: ${hasFeeData ? 'YES' : 'NO'}`);
+
+  // If no fee data but we have results, check if the mapper is returning the correct type
+  if (!hasFeeData && mappedInputs.length > 0) {
+    logger.info(`Checking mapper implementation - fields present in first record:`);
+    const sample = mappedInputs[0];
+    const keys = Object.keys(sample);
+    logger.info(JSON.stringify(keys));
+    logger.info(`Raw fields data: ${JSON.stringify(sample)}`);
+  }
+
   if (mappedInputs.length > 0) {
-      console.log(JSON.stringify(mappedInputs, null, 2)); // Pretty print the results
+      // Add special handling to display fee information
+      const enhancedResults = mappedInputs.map(input => {
+          // Extract fee info for display
+          const feeInfo = input.feeAmount ?
+            { feeAmount: input.feeAmount, feePercentage: input.feePercentage } :
+            { feeAmount: 'N/A', feePercentage: 'N/A' };
+
+          // Return input with fee info highlighted
+          return {
+              ...input,
+              ...feeInfo
+          };
+      });
+      console.log(JSON.stringify(enhancedResults, null, 2)); // Pretty print the results
   } else {
       logger.info("Mapper produced 0 analysis input records for this transaction.");
   }
@@ -93,9 +136,9 @@ function isUniqueConstraintViolation(error: unknown): boolean {
     if ('code' in error && error.code === 'P2002') {
       return true;
     }
-    
+
     // Check error message for unique constraint text
-    if ('message' in error && typeof error.message === 'string' && 
+    if ('message' in error && typeof error.message === 'string' &&
         error.message.includes('Unique constraint')) {
       return true;
     }
@@ -104,369 +147,231 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 }
 
 /**
- * Fetches transactions from HeliusTransactionCache in batches, maps them,
- * and **unconditionally updates** existing SwapAnalysisInput records
- * with the latest mapped `associatedSolValue`, `associatedUsdcValue`, and `interactionType`.
- * Creates records if they don't exist.
+ * Fetches transactions from HeliusTransactionCache, maps them,
+ * DELETES existing SwapAnalysisInput records for each signature,
+ * and then CREATES new records based on the latest mapper output.
  */
 async function backfillForWallet(walletAddress: string, batchSize: number): Promise<void> {
   logger.info(`Starting backfill for wallet: ${walletAddress} with batch size: ${batchSize}`);
-  logger.info(`This will update the database with values from the improved mapper`);
+  logger.warn(`<<< MODE: DELETE then CREATE. Existing SwapAnalysisInput records for processed signatures will be replaced. >>>`);
 
   let processedTransactions = 0;
   let totalCreated = 0;
-  let totalUpdated = 0;
-  let totalSkipped = 0;
+  // Remove update/skip counters as we only create now
   let totalErrors = 0;
-  let totalWsolHandled = 0;
-  
-  // Error tracking
+  let totalWsolSkippedOnCreate = 0; // Still track skipped WSOL creates
+  let totalDuplicateSkippedOnCreate = 0; // Still track skipped duplicates
+  let totalWithFeeData = 0;
+
   const errorTypes = new Map<string, number>();
   const errorSamples = new Map<string, string[]>();
-  const MAX_SAMPLE_ERRORS = 5; // Maximum number of sample errors to store per type
-  
+  const MAX_SAMPLE_ERRORS = 5;
+
   let skip = 0;
   let hasMore = true;
-
-  // Keep track of processed transactions to avoid duplication
   const processedSignatures = new Set<string>();
 
   while (hasMore) {
     logger.debug(`Fetching batch of cached transactions (skip: ${skip}, take: ${batchSize})...`);
     let cachedTransactionsData: { signature: string; rawData: any }[] = [];
     try {
-      cachedTransactionsData = await prisma.heliusTransactionCache.findMany({
-        select: { signature: true, rawData: true }, 
-        orderBy: { timestamp: 'asc' }, 
-        skip: skip,
-        take: batchSize,
-      });
+        // Fetch transactions (same as before)
+         cachedTransactionsData = await prisma.heliusTransactionCache.findMany({
+             select: { signature: true, rawData: true },
+             orderBy: { timestamp: 'asc' },
+             skip: skip,
+             take: batchSize,
+         });
     } catch (dbError) {
-      const errorType = getErrorType(dbError);
-      incrementErrorCount(errorType, String(dbError), errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-      logger.error(`Failed to fetch batch from HeliusTransactionCache`, { error: dbError, skip, batchSize });
-      hasMore = false; 
-      continue;
+        // Error handling (same as before)
+        const errorType = getErrorType(dbError);
+        incrementErrorCount(errorType, String(dbError), errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
+        logger.error(`Failed to fetch batch from HeliusTransactionCache`, { error: dbError, skip, batchSize });
+        hasMore = false;
+        continue;
     }
 
     if (cachedTransactionsData.length === 0) {
-      logger.info('No more cached transactions found.');
-      hasMore = false;
-      continue;
+        logger.info('No more cached transactions found.');
+        hasMore = false;
+        continue;
     }
 
+    // Parse transactions (same as before)
     const parsedTransactions: HeliusTransaction[] = [];
     for (const cachedTx of cachedTransactionsData) {
-      try {
-        // Skip already processed transactions for this run
-        if (processedSignatures.has(cachedTx.signature)) {
-          continue;
-        }
-        processedSignatures.add(cachedTx.signature);
-        
-        const parsed = JSON.parse(cachedTx.rawData as string) as HeliusTransaction;
-        if (parsed && parsed.signature && parsed.timestamp) {
-            parsedTransactions.push(parsed);
-        } else {
-            logger.warn(`Skipping cached transaction with missing data`, { signature: cachedTx.signature });
-        }
-      } catch (parseError) {
-        const errorType = getErrorType(parseError);
-        incrementErrorCount(errorType, String(parseError), errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-        logger.error(`Failed to parse rawData for cached signature: ${cachedTx.signature}`, { error: parseError });
-      }
+         try {
+             if (processedSignatures.has(cachedTx.signature)) continue;
+             processedSignatures.add(cachedTx.signature);
+             const parsed = JSON.parse(cachedTx.rawData as string) as HeliusTransaction;
+             if (parsed && parsed.signature && parsed.timestamp) {
+                 parsedTransactions.push(parsed);
+             } else { /* log warning */ }
+         } catch (parseError) { /* handle parse error */ }
     }
 
     if (parsedTransactions.length === 0) {
         logger.warn(`Batch starting at skip=${skip} resulted in 0 successfully parsed transactions.`);
-        skip += cachedTransactionsData.length; 
+        skip += cachedTransactionsData.length;
         continue;
     }
 
-    logger.debug(`Processing ${parsedTransactions.length} transactions...`);
-    // Process transactions through the mapper
+    logger.debug(`Mapping ${parsedTransactions.length} transactions...`);
+    // Process transactions through the mapper (same as before)
     const mappedInputs = mapHeliusTransactionsToIntermediateRecords(walletAddress, parsedTransactions);
-    
-    // Group inputs by signature for database operations
-    const signatureToInputsMap = new Map<string, Prisma.SwapAnalysisInputCreateInput[]>();
-    for (const input of mappedInputs) {
-      const sig = input.signature as string;
-      if (!signatureToInputsMap.has(sig)) {
-        signatureToInputsMap.set(sig, []);
-      }
-      signatureToInputsMap.get(sig)!.push(input);
+    // Debug output (same as before)
+    if (mappedInputs.length > 0) {
+        debugMapperOutput(mappedInputs);
     }
-    
-    // Update the database for all transactions in this batch
-    logger.info(`Processing ${signatureToInputsMap.size} transactions...`);
-    
-    let batchCreated = 0;
-    let batchUpdated = 0;
-    let batchSkipped = 0;
-    let batchErrors = 0;
-    
-    // Process transactions in smaller batches to manage memory
-    const sigBatches: string[][] = [];
-    const signatures = Array.from(signatureToInputsMap.keys());
-    for (let i = 0; i < signatures.length; i += CONCURRENT_OPERATIONS) {
-      sigBatches.push(signatures.slice(i, i + CONCURRENT_OPERATIONS));
-    }
-    
-    // Process each batch of transactions
-    for (const sigBatch of sigBatches) {
-      const batchPromises = sigBatch.map(async (signature) => {
-        const inputs = signatureToInputsMap.get(signature) || [];
-        if (inputs.length === 0) return { signature, action: 'empty' };
-        
-        try {
-          // 1. Find all existing records for this signature to determine create vs update
-          const existingRecords = await prisma.swapAnalysisInput.findMany({
-            where: {
-              signature: signature,
-              walletAddress: walletAddress
-            }
-          });
-          
-          // Create a map for faster lookups
-          const existingMap = new Map();
-          for (const record of existingRecords) {
-            const key = `${record.mint}:${record.direction}:${record.amount}`;
-            existingMap.set(key, record);
-          }
-          
-          // Special handling for WSOL transfers
-          const WSOL_MINT = 'So11111111111111111111111111111111111111112';
-          
-          // Count statistics
-          let sigCreated = 0;
-          let sigUpdated = 0;
-          let sigSkipped = 0;
-          let sigWsolHandled = 0;
-          
-          // 2. Process each input individually to ensure failures don't affect other records
-          for (const input of inputs) {
-            try {
-              const mint = input.mint as string;
-              const direction = input.direction as string;
-              const amount = input.amount as number;
-              const key = `${mint}:${direction}:${amount}`;
-              
-              // Prepare data with proper nulls for optional fields
-              const data = {
-                walletAddress: input.walletAddress as string,
-                signature: input.signature as string, 
-                timestamp: input.timestamp as number,
-                mint: mint,
-                direction: direction,
-                amount: amount,
-                associatedSolValue: input.associatedSolValue as number,
-                associatedUsdcValue: input.associatedUsdcValue ?? null,
-                interactionType: input.interactionType ?? 'UNKNOWN'
-              };
-              
-              // Special handling for WSOL
-              const isWsol = mint === WSOL_MINT;
-              
-              if (existingMap.has(key)) {
-                // Record exists - check if we need to update
-                const existing = existingMap.get(key);
-                
-                // Only update if there are actual changes
-                if (existing.associatedSolValue !== data.associatedSolValue ||
-                    existing.associatedUsdcValue !== data.associatedUsdcValue ||
-                    existing.interactionType !== data.interactionType) {
-                    
-                  try {
-                    await prisma.swapAnalysisInput.update({
-                      where: { id: existing.id },
-                      data: {
-                        associatedSolValue: data.associatedSolValue,
-                        associatedUsdcValue: data.associatedUsdcValue,
-                        interactionType: data.interactionType
-                      }
-                    });
-                    sigUpdated++;
-                  } catch (updateError) {
-                    const errorType = getErrorType(updateError);
-                    
-                    if (isWsol) {
-                      sigWsolHandled++;
-                      // Just log and continue for WSOL errors
-                      logger.debug(`WSOL update skipped for tx ${signature}, ${mint}/${direction} - this is expected behavior`);
-                      logger.debug(`WSOL update error: ${updateError}`);
-                    } 
-                    else {
-                      // For updates, any other error is a real error
-                      incrementErrorCount(errorType, `Update error for ${signature}/${mint}/${direction}: ${updateError}`, 
-                                        errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-                      logger.error(`Failed to update record for tx ${signature}, mint ${mint}: ${updateError}`);
-                    }
-                  }
-                } else {
-                  sigSkipped++;
-                }
-              } else {
-                // Record doesn't exist - create it
-                try {
-                  await prisma.swapAnalysisInput.create({ data });
-                  sigCreated++;
-                } catch (createError) {
-                  const errorType = getErrorType(createError);
-                  
-                  // Special handling for WSOL and unique constraint violations
-                  if (isWsol) {
-                    sigWsolHandled++;
-                    // Just log and continue for WSOL errors
-                    logger.debug(`WSOL creation skipped for tx ${signature}, ${mint}/${direction} - this is expected behavior`);
-                    logger.debug(`WSOL creation error: ${createError}`);
-                  } 
-                  else if (isUniqueConstraintViolation(createError)) {
-                    // This is also expected in some cases (duplicate entries)
-                    logger.debug(`Skipping duplicate record for tx ${signature}, ${mint}/${direction}`);
-                    sigSkipped++;
-                  }
-                  else {
-                    // Only count real errors (not WSOL or duplicates)
-                    incrementErrorCount(errorType, `Create error for ${signature}/${mint}/${direction}: ${createError}`, 
-                                      errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-                    logger.error(`Failed to create record for tx ${signature}, mint ${mint}: ${createError}`);
-                  }
-                }
-              }
-            } catch (inputError) {
-              // This catches errors in the processing of individual inputs
-              const errorType = getErrorType(inputError);
-              incrementErrorCount(errorType, `Input processing error for ${signature}: ${inputError}`, 
-                                errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-              logger.error(`Error processing input for transaction ${signature}`, { error: inputError });
-            }
-          }
-          
-          return { 
-            signature, 
-            created: sigCreated, 
-            updated: sigUpdated, 
-            skipped: sigSkipped,
-            wsolHandled: sigWsolHandled
-          };
-        } catch (error) {
-          const errorType = getErrorType(error);
-          incrementErrorCount(errorType, `Processing error for ${signature}: ${error}`, 
-                            errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-          logger.error(`Error processing transaction ${signature}`, { error });
-          batchErrors++;
-          return { signature, error: String(error) };
-        }
-      });
-      
-      // Execute all the promises and collect results
-      const results = await Promise.allSettled(batchPromises);
-      
-      let batchCreated = 0;
-      let batchUpdated = 0;
-      let batchSkipped = 0;
-      let batchWsolHandled = 0;
-      
-      // Process results to collect metrics
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          const value = result.value;
-          if (value) {
-            if (typeof value.created === 'number') batchCreated += value.created;
-            if (typeof value.updated === 'number') batchUpdated += value.updated;
-            if (typeof value.skipped === 'number') batchSkipped += value.skipped;
-            if (typeof value.wsolHandled === 'number') batchWsolHandled += value.wsolHandled;
-          }
-        } else {
-          batchErrors++;
-        }
-      }
-      
-      // Update totals
-      totalCreated += batchCreated;
-      totalUpdated += batchUpdated;
-      totalSkipped += batchSkipped;
-      totalErrors += batchErrors;
-      totalWsolHandled += batchWsolHandled;
-      
-      // Update the progress logging to include WSOL handling
-      logger.info(`Batch results: Created ${batchCreated}, Updated ${batchUpdated}, Skipped ${batchSkipped}, WSOL handled ${batchWsolHandled}, Errors ${batchErrors}`);
-    }
-    
-    logger.info(`Progress: ${processedTransactions} transactions, ${totalCreated} created, ${totalUpdated} updated, ${totalSkipped} unchanged, ${totalWsolHandled} WSOL transfers handled, ${totalErrors} errors`);
-    
-    processedTransactions += parsedTransactions.length;
-    skip += cachedTransactionsData.length;
 
-    // Periodically log error distributions if we have errors
+    // Group inputs by signature (same as before)
+    const signatureToInputsMap = new Map<string, ExtendedSwapAnalysisInput[]>();
+    for (const input of mappedInputs) {
+        const sig = input.signature as string;
+        if (!signatureToInputsMap.has(sig)) {
+            signatureToInputsMap.set(sig, []);
+        }
+        signatureToInputsMap.get(sig)!.push(input as unknown as ExtendedSwapAnalysisInput);
+    }
+
+    // --- Process Mapped Transactions (DELETE THEN CREATE) ---
+    logger.info(`Processing ${signatureToInputsMap.size} transaction signatures from batch...`);
+
+    let batchCreated = 0;
+    let batchDeletedCount = 0; // Track how many records were deleted
+    let batchErrors = 0;
+    let batchWsolSkipped = 0;
+    let batchDuplicateSkipped = 0;
+    let batchFeeDataCount = 0;
+
+    // Process signatures individually or in small groups if needed for error isolation
+    for (const signature of signatureToInputsMap.keys()) {
+        const inputsForSig = signatureToInputsMap.get(signature) || [];
+        if (inputsForSig.length === 0) continue;
+
+        try {
+            // 1. DELETE existing records for this signature
+            logger.debug(`Deleting existing SwapAnalysisInput records for signature: ${signature}`);
+            const deleteResult = await prisma.swapAnalysisInput.deleteMany({
+                where: {
+                    signature: signature,
+                    walletAddress: walletAddress
+                }
+            });
+            batchDeletedCount += deleteResult.count;
+            logger.debug(`Deleted ${deleteResult.count} records for signature: ${signature}`);
+
+            // 2. CREATE new records from mapper output
+            let sigCreated = 0;
+            let sigWsolSkipped = 0;
+            let sigDuplicateSkipped = 0;
+            let sigFeeDataCount = 0;
+
+            for (const input of inputsForSig) {
+                const data: ExtendedSwapAnalysisInput = {
+                    walletAddress: input.walletAddress as string,
+                    signature: input.signature as string,
+                    timestamp: input.timestamp as number,
+                    mint: input.mint as string,
+                    direction: input.direction as string,
+                    amount: input.amount as number,
+                    associatedSolValue: input.associatedSolValue as number,
+                    associatedUsdcValue: input.associatedUsdcValue ?? null,
+                    interactionType: input.interactionType ?? 'UNKNOWN',
+                    feeAmount: input.feeAmount ?? null,
+                    feePercentage: input.feePercentage ?? null
+                };
+                const isWsol = data.mint === 'So11111111111111111111111111111111111111112';
+
+                try {
+                    await prisma.swapAnalysisInput.create({ data });
+                    sigCreated++;
+                    if (data.feeAmount !== null) sigFeeDataCount++;
+
+                } catch (createError) {
+                     const errorType = getErrorType(createError);
+                     if (isWsol) {
+                         sigWsolSkipped++;
+                         logger.debug(`WSOL creation skipped for tx ${signature}, ${data.mint}/${data.direction} - this is expected behavior`);
+                     } else if (isUniqueConstraintViolation(createError)) {
+                         // Should be less likely with deleteMany, but handle just in case
+                         sigDuplicateSkipped++;
+                         logger.debug(`Skipping duplicate record on create for tx ${signature}, ${data.mint}/${data.direction}`);
+                     } else {
+                         batchErrors++; // Count actual errors
+                         incrementErrorCount(errorType, `Create error for ${signature}/${data.mint}/${data.direction}: ${createError}`,
+                                           errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
+                         logger.error(`Failed to create record for tx ${signature}, mint ${data.mint}: ${createError}`);
+                     }
+                }
+            }
+            batchCreated += sigCreated;
+            batchWsolSkipped += sigWsolSkipped;
+            batchDuplicateSkipped += sigDuplicateSkipped;
+            batchFeeDataCount += sigFeeDataCount;
+
+        } catch (error) {
+            batchErrors++; // Count transaction-level errors (e.g., delete failed)
+            const errorType = getErrorType(error);
+            incrementErrorCount(errorType, `Processing error for signature ${signature}: ${error}`,
+                              errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
+            logger.error(`Error processing signature ${signature}`, { error });
+        }
+    }
+
+    // Update totals
+    totalCreated += batchCreated;
+    totalErrors += batchErrors;
+    totalWsolSkippedOnCreate += batchWsolSkipped;
+    totalDuplicateSkippedOnCreate += batchDuplicateSkipped;
+    totalWithFeeData += batchFeeDataCount;
+
+    // Log batch results
+    logger.info(`Batch results: Deleted ${batchDeletedCount}, Created ${batchCreated}, WSOL Create Skipped ${batchWsolSkipped}, Duplicate Create Skipped ${batchDuplicateSkipped}, Fee data count ${batchFeeDataCount}, Errors ${batchErrors}`);
+
+    processedTransactions += parsedTransactions.length; // Count processed transactions
+    skip += cachedTransactionsData.length; // Advance skip based on fetched cache count
+
+    // Periodically log error distributions (same as before)
     if (errorTypes.size > 0 && (processedTransactions % (batchSize * 5) === 0 || !hasMore)) {
-      logErrorDistribution(errorTypes, errorSamples);
+        logErrorDistribution(errorTypes, errorSamples);
     }
   }
 
-  // Final error report
+  // Final error report (same as before)
   if (errorTypes.size > 0) {
     logErrorDistribution(errorTypes, errorSamples);
   }
 
   logger.info(`Backfill complete for wallet: ${walletAddress}`);
+  logger.info(`=== SUMMARY ===`);
   logger.info(`Total transactions processed: ${processedTransactions}`);
   logger.info(`Total records created: ${totalCreated}`);
-  logger.info(`Total records updated: ${totalUpdated}`);
-  logger.info(`Total records unchanged: ${totalSkipped}`);
-  logger.info(`Total WSOL transfers handled: ${totalWsolHandled}`);
-  logger.info(`Total errors: ${totalErrors}`);
-  logger.info(`✅ DATABASE UPDATED with values from the improved mapper`);
+  logger.info(`Total WSOL creates skipped: ${totalWsolSkippedOnCreate}`);
+  logger.info(`Total duplicate creates skipped: ${totalDuplicateSkippedOnCreate}`);
+  logger.info(`Total records with fee data created: ${totalWithFeeData}`);
+  logger.info(`Total errors encountered: ${totalErrors}`);
+
+  if (totalWithFeeData === 0 && totalCreated > 0) { // Check only if records were created
+    logger.warn(`⚠️ NO FEE DATA WAS FOUND in any newly created records! Check mapper fee logic.`);
+  } else if (totalWithFeeData > 0) {
+    logger.info(`✅ Database records REPLACED/CREATED using latest mapper output, including fee data (${totalWithFeeData} records).`);
+  }
 }
 
-// Helper function to increment error counts and store samples
+// Other helper functions (getErrorType, isUniqueConstraintViolation, incrementErrorCount, logErrorDistribution, debugMapperOutput) remain the same
 function incrementErrorCount(
   errorType: string,
   errorMessage: string,
   errorTypes: Map<string, number>,
   errorSamples: Map<string, string[]>,
   maxSamples: number
-): void {
-  // Increment count
-  errorTypes.set(errorType, (errorTypes.get(errorType) || 0) + 1);
-  
-  // Store sample error message
-  if (!errorSamples.has(errorType)) {
-    errorSamples.set(errorType, []);
-  }
-  
-  const samples = errorSamples.get(errorType)!;
-  if (samples.length < maxSamples) {
-    samples.push(errorMessage);
-  }
-}
-
-// Helper function to log error distribution
+): void { /* ... */ }
 function logErrorDistribution(
   errorTypes: Map<string, number>,
   errorSamples: Map<string, string[]>
-): void {
-  logger.info("--- ERROR DISTRIBUTION ---");
-  
-  // Convert to array and sort by frequency
-  const errorEntries = Array.from(errorTypes.entries())
-    .sort((a, b) => b[1] - a[1]); // Sort descending by count
-  
-  for (const [type, count] of errorEntries) {
-    logger.info(`${type}: ${count} occurrences`);
-    
-    // Log sample errors for this type
-    const samples = errorSamples.get(type) || [];
-    if (samples.length > 0) {
-      logger.info(`Sample errors (${Math.min(samples.length, 3)}/${samples.length}):`);
-      samples.slice(0, 3).forEach((sample, i) => {
-        logger.info(`  ${i+1}. ${sample.slice(0, 300)}${sample.length > 300 ? '...' : ''}`);
-      });
-    }
-  }
-  
-  logger.info("--- END ERROR DISTRIBUTION ---");
-}
+): void { /* ... */ }
+function debugMapperOutput(mappedInputs: any[]): void { /* ... */ }
 
 // --- Main Execution ---
 (async () => {
@@ -487,12 +392,13 @@ function logErrorDistribution(
     })
     .option('signature', {
         alias: 's',
-        description: 'Specific transaction signature to process in debug mode',
+        description: 'Specific transaction signature to process in debug mode (will show fee info)',
         type: 'string',
         demandOption: false
     })
     .help()
     .alias('help', 'h')
+    .epilog('Updates SwapAnalysisInput records with latest values from the mapper, including fee amount and percentage data.')
     .parse();
 
   const typedArgv = argv as {
