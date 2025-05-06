@@ -88,9 +88,10 @@ model AnalysisResult {
   totalAmountIn          Float    // REVERTED: Back to Float
   totalAmountOut         Float    // REVERTED: Back to Float
   netAmountChange        Float    // REVERTED: Back to Float
-  totalSolSpent          Float    // REVERTED: Back to Float
-  totalSolReceived       Float    // REVERTED: Back to Float
-  netSolProfitLoss       Float    // REVERTED: Back to Float
+  totalSolSpent          Float    // REVERTED: Back to Float. This will represent GROSS SOL spent.
+  totalSolReceived       Float    // REVERTED: Back to Float. This will represent GROSS SOL received.
+  totalFeesPaidInSol     Float?   // NEW: Sum of explicit SOL fees from SwapAnalysisInput
+  netSolProfitLoss       Float    // REVERTED: Back to Float. Will be calculated as GrossReceived - GrossSpent - Fees.
   transferCountIn        Int
   transferCountOut       Int
   firstTransferTimestamp Int?

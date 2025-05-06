@@ -148,19 +148,16 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 
 /**
  * Fetches transactions from HeliusTransactionCache, maps them,
- * DELETES existing SwapAnalysisInput records for each signature,
- * and then CREATES new records based on the latest mapper output.
+ * and upserts them into the SwapAnalysisInput table.
  */
 async function backfillForWallet(walletAddress: string, batchSize: number): Promise<void> {
   logger.info(`Starting backfill for wallet: ${walletAddress} with batch size: ${batchSize}`);
-  logger.warn(`<<< MODE: DELETE then CREATE. Existing SwapAnalysisInput records for processed signatures will be replaced. >>>`);
+  logger.info(`<<< MODE: UPSERT. Existing SwapAnalysisInput records will be updated or new ones created. >>>`);
 
   let processedTransactions = 0;
-  let totalCreated = 0;
-  // Remove update/skip counters as we only create now
+  let totalUpserted = 0;
   let totalErrors = 0;
-  let totalWsolSkippedOnCreate = 0; // Still track skipped WSOL creates
-  let totalDuplicateSkippedOnCreate = 0; // Still track skipped duplicates
+  let totalWsolSkipped = 0;
   let totalWithFeeData = 0;
 
   const errorTypes = new Map<string, number>();
@@ -234,14 +231,12 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
         signatureToInputsMap.get(sig)!.push(input as unknown as ExtendedSwapAnalysisInput);
     }
 
-    // --- Process Mapped Transactions (DELETE THEN CREATE) ---
+    // --- Process Mapped Transactions (UPSERT) ---
     logger.info(`Processing ${signatureToInputsMap.size} transaction signatures from batch...`);
 
-    let batchCreated = 0;
-    let batchDeletedCount = 0; // Track how many records were deleted
+    let batchUpserted = 0;
     let batchErrors = 0;
     let batchWsolSkipped = 0;
-    let batchDuplicateSkipped = 0;
     let batchFeeDataCount = 0;
 
     // Process signatures individually or in small groups if needed for error isolation
@@ -250,21 +245,9 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
         if (inputsForSig.length === 0) continue;
 
         try {
-            // 1. DELETE existing records for this signature
-            logger.debug(`Deleting existing SwapAnalysisInput records for signature: ${signature}`);
-            const deleteResult = await prisma.swapAnalysisInput.deleteMany({
-                where: {
-                    signature: signature,
-                    walletAddress: walletAddress
-                }
-            });
-            batchDeletedCount += deleteResult.count;
-            logger.debug(`Deleted ${deleteResult.count} records for signature: ${signature}`);
-
-            // 2. CREATE new records from mapper output
-            let sigCreated = 0;
+            // 2. UPSERT new records from mapper output
+            let sigUpserted = 0;
             let sigWsolSkipped = 0;
-            let sigDuplicateSkipped = 0;
             let sigFeeDataCount = 0;
 
             for (const input of inputsForSig) {
@@ -283,35 +266,57 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
                 };
                 const isWsol = data.mint === 'So11111111111111111111111111111111111111112';
 
+                if (isWsol) {
+                    sigWsolSkipped++;
+                    logger.debug(`WSOL upsert skipped for tx ${signature}, mint ${data.mint}/${data.direction} - this is expected behavior`);
+                    continue; // Skip this input for upsert
+                }
+
                 try {
-                    await prisma.swapAnalysisInput.create({ data });
-                    sigCreated++;
+                    await prisma.swapAnalysisInput.upsert({
+                        where: {
+                            // This assumes a unique constraint named 'walletAddress_signature_mint_direction'
+                            // (default for @@unique([walletAddress, signature, mint, direction]))
+                            // Adjust if your schema uses a custom name or different fields.
+                            signature_mint_direction_amount: {
+                                signature: data.signature,
+                                mint: data.mint,
+                                direction: data.direction,
+                                amount: data.amount
+                            }
+                        },
+                        create: data,
+                        update: {
+                            // Fields NOT in the unique key 'signature_mint_direction_amount'
+                            // are updated if the record exists.
+                            walletAddress: data.walletAddress,
+                            timestamp: data.timestamp,
+                            associatedSolValue: data.associatedSolValue,
+                            associatedUsdcValue: data.associatedUsdcValue,
+                            interactionType: data.interactionType,
+                            feeAmount: data.feeAmount,
+                            feePercentage: data.feePercentage
+                        }
+                    });
+                    sigUpserted++;
                     if (data.feeAmount !== null) sigFeeDataCount++;
 
-                } catch (createError) {
-                     const errorType = getErrorType(createError);
-                     if (isWsol) {
-                         sigWsolSkipped++;
-                         logger.debug(`WSOL creation skipped for tx ${signature}, ${data.mint}/${data.direction} - this is expected behavior`);
-                     } else if (isUniqueConstraintViolation(createError)) {
-                         // Should be less likely with deleteMany, but handle just in case
-                         sigDuplicateSkipped++;
-                         logger.debug(`Skipping duplicate record on create for tx ${signature}, ${data.mint}/${data.direction}`);
-                     } else {
-                         batchErrors++; // Count actual errors
-                         incrementErrorCount(errorType, `Create error for ${signature}/${data.mint}/${data.direction}: ${createError}`,
-                                           errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
-                         logger.error(`Failed to create record for tx ${signature}, mint ${data.mint}: ${createError}`);
-                     }
+                } catch (dbError) {
+                     // No longer need isUniqueConstraintViolation check, upsert handles it.
+                     // WSOL check moved before the try block.
+                     batchErrors++;
+                     const errorType = getErrorType(dbError);
+                     incrementErrorCount(errorType, `Upsert error for ${signature}/${data.mint}/${data.direction}: ${dbError}`,
+                                       errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
+                     logger.error(`Failed to upsert record for tx ${signature}, mint ${data.mint}: ${dbError}`);
                 }
             }
-            batchCreated += sigCreated;
+            batchUpserted += sigUpserted;
             batchWsolSkipped += sigWsolSkipped;
-            batchDuplicateSkipped += sigDuplicateSkipped;
             batchFeeDataCount += sigFeeDataCount;
 
         } catch (error) {
-            batchErrors++; // Count transaction-level errors (e.g., delete failed)
+            batchErrors++; // Count transaction-level errors
             const errorType = getErrorType(error);
             incrementErrorCount(errorType, `Processing error for signature ${signature}: ${error}`,
                               errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
@@ -320,14 +325,13 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
     }
 
     // Update totals
-    totalCreated += batchCreated;
+    totalUpserted += batchUpserted;
     totalErrors += batchErrors;
-    totalWsolSkippedOnCreate += batchWsolSkipped;
-    totalDuplicateSkippedOnCreate += batchDuplicateSkipped;
+    totalWsolSkipped += batchWsolSkipped;
     totalWithFeeData += batchFeeDataCount;
 
     // Log batch results
-    logger.info(`Batch results: Deleted ${batchDeletedCount}, Created ${batchCreated}, WSOL Create Skipped ${batchWsolSkipped}, Duplicate Create Skipped ${batchDuplicateSkipped}, Fee data count ${batchFeeDataCount}, Errors ${batchErrors}`);
+    logger.info(`Batch results: Upserted ${batchUpserted}, WSOL Upserts Skipped ${batchWsolSkipped}, Fee data count ${batchFeeDataCount}, Errors ${batchErrors}`);
 
     processedTransactions += parsedTransactions.length; // Count processed transactions
     skip += cachedTransactionsData.length; // Advance skip based on fetched cache count
@@ -346,16 +350,15 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
   logger.info(`Backfill complete for wallet: ${walletAddress}`);
   logger.info(`=== SUMMARY ===`);
   logger.info(`Total transactions processed: ${processedTransactions}`);
-  logger.info(`Total records created: ${totalCreated}`);
-  logger.info(`Total WSOL creates skipped: ${totalWsolSkippedOnCreate}`);
-  logger.info(`Total duplicate creates skipped: ${totalDuplicateSkippedOnCreate}`);
-  logger.info(`Total records with fee data created: ${totalWithFeeData}`);
+  logger.info(`Total records upserted: ${totalUpserted}`);
+  logger.info(`Total WSOL upserts skipped: ${totalWsolSkipped}`);
+  logger.info(`Total records with fee data (from upserts): ${totalWithFeeData}`);
   logger.info(`Total errors encountered: ${totalErrors}`);
 
-  if (totalWithFeeData === 0 && totalCreated > 0) { // Check only if records were created
-    logger.warn(`⚠️ NO FEE DATA WAS FOUND in any newly created records! Check mapper fee logic.`);
+  if (totalWithFeeData === 0 && totalUpserted > 0) { // Check only if records were upserted
+    logger.warn(`⚠️ NO FEE DATA WAS FOUND in any newly upserted records! Check mapper fee logic.`);
   } else if (totalWithFeeData > 0) {
-    logger.info(`✅ Database records REPLACED/CREATED using latest mapper output, including fee data (${totalWithFeeData} records).`);
+    logger.info(`✅ Database records UPSERTED using latest mapper output, including fee data (${totalWithFeeData} records).`);
   }
 }
 
@@ -366,12 +369,61 @@ function incrementErrorCount(
   errorTypes: Map<string, number>,
   errorSamples: Map<string, string[]>,
   maxSamples: number
-): void { /* ... */ }
+): void {
+  errorTypes.set(errorType, (errorTypes.get(errorType) || 0) + 1);
+  if ((errorSamples.get(errorType)?.length || 0) < maxSamples) {
+    if (!errorSamples.has(errorType)) {
+      errorSamples.set(errorType, []);
+    }
+    errorSamples.get(errorType)!.push(errorMessage);
+  }
+}
+
 function logErrorDistribution(
   errorTypes: Map<string, number>,
   errorSamples: Map<string, string[]>
-): void { /* ... */ }
-function debugMapperOutput(mappedInputs: any[]): void { /* ... */ }
+): void {
+  logger.info("--- Error Distribution ---");
+  if (errorTypes.size === 0) {
+    logger.info("No errors recorded.");
+    return;
+  }
+  for (const [type, count] of errorTypes.entries()) {
+    logger.warn(`Error Type: ${type}, Count: ${count}`);
+    if (errorSamples.has(type)) {
+      logger.warn(`  Samples for ${type}:`);
+      errorSamples.get(type)!.forEach((sample, index) => {
+        logger.warn(`    ${index + 1}: ${sample.substring(0, 500)}${sample.length > 500 ? '...' : ''}`); // Log first 500 chars
+      });
+    }
+  }
+  logger.info("--- End Error Distribution ---");
+}
+
+function debugMapperOutput(mappedInputs: any[]): void {
+  logger.debug('--- Debugging Mapper Output ---');
+  if (!mappedInputs || mappedInputs.length === 0) {
+    logger.debug('Mapper produced 0 records.');
+    return;
+  }
+  logger.debug(`Mapper produced ${mappedInputs.length} record(s).`);
+  const sampleSize = Math.min(mappedInputs.length, 3); // Log details for up to 3 records
+  logger.debug(`Showing details for the first ${sampleSize} record(s):`);
+  for (let i = 0; i < sampleSize; i++) {
+    const record = mappedInputs[i];
+    logger.debug(`Record ${i + 1}: ${JSON.stringify(record, null, 2)}`);
+    // Specifically check for fee data if expected
+    if (record && (record.feeAmount !== undefined || record.feePercentage !== undefined)) {
+      logger.debug(`  Record ${i + 1} fee data: amount=${record.feeAmount}, percentage=${record.feePercentage}`);
+    } else {
+      logger.debug(`  Record ${i + 1} does NOT contain explicit feeAmount/feePercentage fields.`);
+    }
+  }
+  if (mappedInputs.length > sampleSize) {
+    logger.debug(`... and ${mappedInputs.length - sampleSize} more record(s).`);
+  }
+  logger.debug('--- End Debugging Mapper Output ---');
+}
 
 // --- Main Execution ---
 (async () => {

@@ -81,12 +81,20 @@ async function performAnalysisForWallet(
   // Calculate advanced stats based on the results
   if (analysisSummary.results.length > 0) {
     logger.info('Calculating advanced trading statistics...');
-    const advancedStats = calculateAdvancedStats(analysisSummary.results);
-    if (advancedStats) {
-      analysisSummary.advancedStats = advancedStats; // Add advanced stats to the summary
-      logger.info('Successfully calculated advanced stats.');
+    // Filter out stablecoins before calculating advanced stats, as per tomorrow.md
+    const resultsForAdvancedStats = analysisSummary.results.filter(r => !r.isValuePreservation);
+    
+    if (resultsForAdvancedStats.length > 0) {
+      const advancedStats = calculateAdvancedStats(resultsForAdvancedStats);
+      if (advancedStats) {
+        analysisSummary.advancedStats = advancedStats; // Add advanced stats to the summary
+        logger.info('Successfully calculated advanced stats.');
+      } else {
+        logger.warn('Could not calculate advanced stats (likely insufficient data after filtering stablecoins)._');
+      }
     } else {
-      logger.warn('Could not calculate advanced stats (likely insufficient data).');
+      logger.warn('No non-stablecoin results available to calculate advanced stats.');
+      analysisSummary.advancedStats = undefined;
     }
   } else {
      logger.warn('Analysis did not yield any results (e.g., no paired swaps found).');

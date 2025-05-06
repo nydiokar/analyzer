@@ -59,7 +59,14 @@ export function analyzeSwapRecords(
         return { results: [], totalSignaturesProcessed: 0, overallFirstTimestamp: 0, overallLastTimestamp: 0 };
     }
 
-    logger.info(`Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletAddress}...`);
+    // Filter out records with interactionType 'BURN' before starting analysis
+    const filteredSwapInputs = swapInputs.filter(input => input.interactionType?.toUpperCase() !== 'BURN');
+
+    if (filteredSwapInputs.length < swapInputs.length) {
+        logger.info(`Filtered out ${swapInputs.length - filteredSwapInputs.length} records with 'BURN' interaction type.`);
+    }
+
+    logger.info(`Analyzing ${filteredSwapInputs.length} pre-processed swap input records for wallet ${walletAddress} (after BURN filter)...`);
 
     // Define known tokens that should be treated specially
     // 1. Stablecoins - these represent SOL value that has exited the ecosystem
@@ -71,7 +78,7 @@ export function analyzeSwapRecords(
     ]);
 
     // 1. Aggregate by SPL Mint
-    const analysisBySplMint = new Map<string, Partial<OnChainAnalysisResult> & { timestamps: number[] }>();
+    const analysisBySplMint = new Map<string, Partial<OnChainAnalysisResult> & { timestamps: number[], totalFeesPaidInSol?: number }>();
     const processedSignatures = new Set<string>();
     let overallFirstTimestamp = Infinity;
     let overallLastTimestamp = 0;
@@ -85,7 +92,7 @@ export function analyzeSwapRecords(
         netSolFlow: number        // Net SOL flow to stablecoins (negative = SOL exited to stablecoins)
     }>();
 
-    for (const input of swapInputs) {
+    for (const input of filteredSwapInputs) {
         // Verification (optional): Check if record belongs to the correct wallet
         if (input.walletAddress.toLowerCase() !== walletAddress.toLowerCase()) {
             logger.warn(`Skipping input record for signature ${input.signature} belonging to unexpected wallet ${input.walletAddress}`);
@@ -117,7 +124,7 @@ export function analyzeSwapRecords(
                 tokenAddress: splMint,
                 totalAmountIn: 0, totalAmountOut: 0, totalSolSpent: 0,
                 totalSolReceived: 0, transferCountIn: 0, transferCountOut: 0,
-                timestamps: [], netSolProfitLoss: 0,
+                timestamps: [], netSolProfitLoss: 0, totalFeesPaidInSol: 0,
                 // Flag stablecoins but with different purpose now
                 isValuePreservation: isStablecoin,
                 preservationType: isStablecoin ? 'stablecoin' : undefined
@@ -125,31 +132,38 @@ export function analyzeSwapRecords(
         }
         const currentAnalysis = analysisBySplMint.get(splMint)!;
 
-        // Aggregate amounts and SOL values based on direction
         currentAnalysis.timestamps!.push(timestamp);
+
+        // associatedSolValue now comes from the mapper, potentially already zeroed out for token fees
+        const solValueToConsider = input.associatedSolValue; 
+        const currentFeeAmount = input.feeAmount || 0;
+
         if (input.direction === 'in') {
-            currentAnalysis.totalAmountIn! += input.amount; // Use decimal-adjusted amount from input
+            currentAnalysis.totalAmountIn! += input.amount; 
             currentAnalysis.transferCountIn!++;
-            currentAnalysis.totalSolSpent! += input.associatedSolValue; // Use pre-calculated cost
+            currentAnalysis.totalSolSpent! += solValueToConsider; // Gross SOL spent
+            currentAnalysis.totalFeesPaidInSol! += currentFeeAmount; 
             
-            // Track SOL spent on stablecoins separately
             if (isStablecoin) {
                 const flow = stablecoinFlows.get(splMint)!;
-                flow.totalSolSpent += input.associatedSolValue;
+                flow.totalSolSpent += solValueToConsider;
                 flow.totalAmountIn += input.amount;
-                flow.netSolFlow -= input.associatedSolValue; // Negative because SOL is exiting to stablecoin
+                flow.netSolFlow -= solValueToConsider; 
             }
         } else { // direction === 'out'
-            currentAnalysis.totalAmountOut! += input.amount; // Use decimal-adjusted amount from input
+            // The complex heuristic for zeroing out solValueToConsider is REMOVED here.
+            // We trust the input.associatedSolValue from the mapper.
+
+            currentAnalysis.totalAmountOut! += input.amount; 
             currentAnalysis.transferCountOut!++;
-            currentAnalysis.totalSolReceived! += input.associatedSolValue; // Use pre-calculated proceeds
+            currentAnalysis.totalSolReceived! += solValueToConsider; // Gross SOL received (uses mapper's value)
+            currentAnalysis.totalFeesPaidInSol! += currentFeeAmount; 
             
-            // Track SOL received from stablecoins separately
             if (isStablecoin) {
                 const flow = stablecoinFlows.get(splMint)!;
-                flow.totalSolReceived += input.associatedSolValue;
+                flow.totalSolReceived += solValueToConsider;
                 flow.totalAmountOut += input.amount;
-                flow.netSolFlow += input.associatedSolValue; // Positive because SOL is returning from stablecoin
+                flow.netSolFlow += solValueToConsider; 
             }
         }
     } // End loop through swap inputs
@@ -157,14 +171,15 @@ export function analyzeSwapRecords(
     logger.info(`Aggregated data for ${analysisBySplMint.size} unique SPL tokens across ${processedSignatures.size} signatures.`);
 
     // 2. Calculate Final Metrics
-    const finalResults: OnChainAnalysisResult[] = [];
+    const finalResultsPreFilter: OnChainAnalysisResult[] = [];
     let totalStablecoinValue = 0;
     let totalStablecoinNetFlow = 0;
     
     for (const [splMint, aggregatedData] of analysisBySplMint.entries()) {
         aggregatedData.timestamps!.sort((a, b) => a - b);
 
-        const netSolProfitLoss = (aggregatedData.totalSolReceived ?? 0) - (aggregatedData.totalSolSpent ?? 0);
+        // netSolProfitLoss now calculated using fees
+        const netSolProfitLoss = (aggregatedData.totalSolReceived ?? 0) - (aggregatedData.totalSolSpent ?? 0) - (aggregatedData.totalFeesPaidInSol ?? 0);
         const netAmountChange = (aggregatedData.totalAmountIn ?? 0) - (aggregatedData.totalAmountOut ?? 0);
         
         // We're no longer using "estimatedPreservedValue" for stablecoins in the main P/L calculations
@@ -189,16 +204,17 @@ export function analyzeSwapRecords(
             logger.debug(`Stablecoin ${splMint}: Net amount = ${netAmountChange.toFixed(2)}, Value = ${stablecoinSolValue.toFixed(2)} SOL, NetFlow = ${flow?.netSolFlow.toFixed(2) || 0} SOL`);
         }
 
-        finalResults.push({
+        finalResultsPreFilter.push({
             tokenAddress: splMint,
             totalAmountIn: aggregatedData.totalAmountIn ?? 0,
             totalAmountOut: aggregatedData.totalAmountOut ?? 0,
             netAmountChange: netAmountChange,
-            totalSolSpent: aggregatedData.totalSolSpent ?? 0,
-            totalSolReceived: aggregatedData.totalSolReceived ?? 0,
-            netSolProfitLoss: netSolProfitLoss,
+            totalSolSpent: aggregatedData.totalSolSpent ?? 0, // This is Gross SOL Spent
+            totalSolReceived: aggregatedData.totalSolReceived ?? 0, // This is Gross SOL Received
+            totalFeesPaidInSol: aggregatedData.totalFeesPaidInSol ?? 0, // Include new fee field
+            netSolProfitLoss: netSolProfitLoss, // Updated calculation
             // We're no longer adjusting P/L for stablecoins, just tracking their value
-            adjustedNetSolProfitLoss: netSolProfitLoss,
+            adjustedNetSolProfitLoss: netSolProfitLoss, // Should be same as netSolProfitLoss now
             estimatedPreservedValue: isStablecoin ? stablecoinSolValue : 0,
             isValuePreservation: isStablecoin,
             preservationType: isStablecoin ? 'stablecoin' : undefined,
@@ -209,7 +225,11 @@ export function analyzeSwapRecords(
         });
     }
 
-    logger.info(`Final analysis complete. Generated ${finalResults.length} results.`);
+    // Filter out WSOL records from the final results as per tomorrow.md
+    const SOL_MINT = 'So11111111111111111111111111111111111111112';
+    const finalResults = finalResultsPreFilter.filter(r => r.tokenAddress !== SOL_MINT);
+
+    logger.info(`Final analysis complete. Generated ${finalResults.length} results (after filtering WSOL).`);
     
     if (totalStablecoinValue > 0) {
         logger.info(`Total stablecoin value: ${totalStablecoinValue.toFixed(2)} SOL`);
@@ -219,7 +239,7 @@ export function analyzeSwapRecords(
     if (overallFirstTimestamp === Infinity) overallFirstTimestamp = 0;
 
     const summary: SwapAnalysisSummary = {
-        results: finalResults, // Use finalResults directly
+        results: finalResults, // Use finalResults directly (WSOL filtered out)
         totalSignaturesProcessed: processedSignatures.size, 
         overallFirstTimestamp: overallFirstTimestamp,
         overallLastTimestamp: overallLastTimestamp
@@ -562,6 +582,7 @@ export function saveAnalysisResultsToCsv(
       'netAmountChange',
       'totalSolSpent',
       'totalSolReceived',
+      'totalFeesPaidInSol',
       'netSolProfitLoss',
       'transferCountIn',
       'transferCountOut',

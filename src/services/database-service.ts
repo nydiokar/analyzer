@@ -368,7 +368,12 @@ export type AnalysisRunCreateData = Omit<Prisma.AnalysisRunCreateInput, 'id' | '
 
 // Type for creating AnalysisResult records (omit auto-generated id, add runId and walletAddress explicitly)
 /** Data structure for creating new AnalysisResult records, linked to a specific run and wallet. */
-export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'id' | 'run' | 'runId' | 'walletAddress'> & { runId: number; walletAddress: string };
+export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'id' | 'run' | 'runId' | 'walletAddress'> & { 
+    runId: number; 
+    walletAddress: string; 
+    // Ensure totalFeesPaidInSol is optional if it is in the Prisma model
+    totalFeesPaidInSol?: number | null; 
+};
 
 // Type for creating an AdvancedStatsResult record (omit auto-generated id, add runId and walletAddress explicitly)
 /** Data structure for creating a new AdvancedStatsResult record, linked to a specific run and wallet. */
@@ -420,9 +425,10 @@ export async function saveAnalysisResults(results: AnalysisResultCreateData[]) {
                 totalAmountIn: result.totalAmountIn,
                 totalAmountOut: result.totalAmountOut,
                 netAmountChange: result.netAmountChange,
-                totalSolSpent: result.totalSolSpent,
-                totalSolReceived: result.totalSolReceived,
-                netSolProfitLoss: result.netSolProfitLoss,
+                totalSolSpent: result.totalSolSpent, // This is Gross SOL Spent
+                totalSolReceived: result.totalSolReceived, // This is Gross SOL Received
+                totalFeesPaidInSol: result.totalFeesPaidInSol, // NEW field
+                netSolProfitLoss: result.netSolProfitLoss, // Calculated using fees
                 transferCountIn: result.transferCountIn,
                 transferCountOut: result.transferCountOut,
                 firstTransferTimestamp: result.firstTransferTimestamp,

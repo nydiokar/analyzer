@@ -176,9 +176,10 @@ export interface OnChainAnalysisResult {
   totalAmountIn: number;        // Total SPL received (adjusted for decimals)
   totalAmountOut: number;       // Total SPL sent (adjusted for decimals)
   netAmountChange: number;      // Net SPL change (adjusted for decimals)
-  totalSolSpent: number;        // Total SOL paid (when receiving SPL)
-  totalSolReceived: number;     // Total SOL received (when sending SPL)
-  netSolProfitLoss: number;     // Net SOL P/L (SOL Received - SOL Spent)
+  totalSolSpent: number;        // Total SOL paid (when receiving SPL) - This is GROSS
+  totalSolReceived: number;     // Total SOL received (when sending SPL) - This is GROSS
+  totalFeesPaidInSol?: number;   // NEW: Sum of explicit SOL fees from SwapAnalysisInput
+  netSolProfitLoss: number;     // Net SOL P/L (SOL Received - SOL Spent - Fees)
   transferCountIn: number;      // Number of times SPL was received
   transferCountOut: number;     // Number of times SPL was sent
   firstTransferTimestamp: number; // Unix timestamp of first swap involving this SPL
