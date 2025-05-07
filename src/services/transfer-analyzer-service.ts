@@ -365,6 +365,39 @@ export async function writeAnalysisReportTxt(
     });
   }
 
+  // --- NEW: Top 5 Significant Potential Holdings (from Swap Activity) ---
+  reportContent += `\n--- Top 5 Significant Potential Holdings (from Swap Activity) ---\n`;
+  reportContent += `(Note: This list reflects tokens potentially still held based on the swap transactions analyzed within the given period.  It is not a live balance or a full unrealized PNL calculation.)\n`;
+
+  let potentialHoldings;
+
+  // This logic attempts to differentiate based on available fields, assuming OnChainAnalysisResult has isValuePreservation
+  if (results.length > 0 && typeof (results[0] as any).isValuePreservation === 'boolean') {
+    potentialHoldings = (results as OnChainAnalysisResult[]) // Explicitly cast for clarity if in writeAnalysisReportTxt_fromMemory
+      .filter(r => r.netAmountChange > 0 && !r.isValuePreservation)
+      .sort((a, b) => b.netAmountChange - a.netAmountChange)
+      .slice(0, 5);
+  } else { // Fallback for AnalysisResult or if isValuePreservation is not a direct boolean
+    const stablecoinAddresses = new Set(
+      results.filter(r => (r as any).isValuePreservation === true).map(r => r.tokenAddress)
+    );
+    potentialHoldings = (results as any[]) // Cast to any[] to allow access to common fields
+      .filter(r => r.netAmountChange > 0 && !stablecoinAddresses.has(r.tokenAddress))
+      .sort((a, b) => b.netAmountChange - a.netAmountChange)
+      .slice(0, 5);
+  }
+
+  if (potentialHoldings.length > 0) {
+    potentialHoldings.forEach((result, index) => {
+      const tokensLeftPercent = calculatePercentLeft(result.totalAmountIn, result.netAmountChange);
+      const formattedQuantity = formatTokenQuantity(result.netAmountChange);
+      reportContent += `${index + 1}. ${getTokenDisplayName(result.tokenAddress)}: ${formattedQuantity} tokens (Tokens Left: ${tokensLeftPercent})\n`;
+    });
+  } else {
+    reportContent += `No significant potential non-stablecoin holdings found based on swap activity.\n`;
+  }
+  // --- END NEW SECTION ---
+
   // --- Advanced Stats Section (Moved Up) ---
   reportContent += `\n--- Advanced Trading Statistics ---\n`;
   if (advancedStats) {
@@ -497,6 +530,39 @@ export function writeAnalysisReportTxt_fromMemory(
     });
   }
 
+  // --- NEW: Top 5 Significant Potential Holdings (from Swap Activity) ---
+  reportContent += `\n--- Top 5 Significant Potential Holdings (from Swap Activity) ---\n`;
+  reportContent += `(Note: This list reflects tokens potentially still held based on the swap transactions analyzed within the given period.  It is not a live balance or a full unrealized PNL calculation.)\n`;
+
+  let potentialHoldings;
+
+  // This logic attempts to differentiate based on available fields, assuming OnChainAnalysisResult has isValuePreservation
+  if (results.length > 0 && typeof (results[0] as any).isValuePreservation === 'boolean') {
+    potentialHoldings = (results as OnChainAnalysisResult[]) // Explicitly cast for clarity if in writeAnalysisReportTxt_fromMemory
+      .filter(r => r.netAmountChange > 0 && !r.isValuePreservation)
+      .sort((a, b) => b.netAmountChange - a.netAmountChange)
+      .slice(0, 5);
+  } else { // Fallback for AnalysisResult or if isValuePreservation is not a direct boolean
+    const stablecoinAddresses = new Set(
+      results.filter(r => (r as any).isValuePreservation === true).map(r => r.tokenAddress)
+    );
+    potentialHoldings = (results as any[]) // Cast to any[] to allow access to common fields
+      .filter(r => r.netAmountChange > 0 && !stablecoinAddresses.has(r.tokenAddress))
+      .sort((a, b) => b.netAmountChange - a.netAmountChange)
+      .slice(0, 5);
+  }
+
+  if (potentialHoldings.length > 0) {
+    potentialHoldings.forEach((result, index) => {
+      const tokensLeftPercent = calculatePercentLeft(result.totalAmountIn, result.netAmountChange);
+      const formattedQuantity = formatTokenQuantity(result.netAmountChange);
+      reportContent += `${index + 1}. ${getTokenDisplayName(result.tokenAddress)}: ${formattedQuantity} tokens (Tokens Left: ${tokensLeftPercent})\n`;
+    });
+  } else {
+    reportContent += `No significant potential non-stablecoin holdings found based on swap activity.\n`;
+  }
+  // --- END NEW SECTION ---
+
   // --- Advanced Stats Section ---
   reportContent += `\n--- Advanced Trading Statistics ---\n`;
   if (advancedStats) {
@@ -601,4 +667,26 @@ export function saveAnalysisResultsToCsv(
     logger.error(`Error saving analysis results to CSV:`, { error });
     return null;
   }
+}
+
+function formatTokenQuantity(quantity: number): string {
+    if (Math.abs(quantity) < 1000) {
+        return quantity.toFixed(2); // For smaller numbers, show a couple of decimals
+    }
+    const suffixes = ["", "K", "M", "B", "T"]; // Thousand, Million, Billion, Trillion
+    const i = Math.floor(Math.log10(Math.abs(quantity)) / 3);
+    if (i >= suffixes.length) { // Handle numbers larger than Trillions if necessary
+        return quantity.toExponential(2);
+    }
+    const scaledValue = quantity / Math.pow(1000, i);
+    // Adjust decimals based on how large the scaled value is
+    let decimals = 2;
+    if (Math.abs(scaledValue) < 10) {
+        decimals = 2;
+    } else if (Math.abs(scaledValue) < 100) {
+        decimals = 1;
+    } else {
+        decimals = 0; // No decimals for 100K, 1M, etc.
+    }
+    return scaledValue.toFixed(decimals) + suffixes[i];
 }
