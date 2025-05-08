@@ -1,0 +1,549 @@
+#!/usr/bin/env node
+import { PrismaClient } from '@prisma/client';
+import { createLogger } from '../utils/logger';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
+import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+
+// Initialize environment variables
+dotenv.config();
+
+const prisma = new PrismaClient();
+const logger = createLogger('WalletActivityCorrelator');
+
+// --- Configuration ---
+const DEFAULT_EXCLUDED_MINTS: string[] = [
+    'So11111111111111111111111111111111111111112', // WSOL
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+];
+
+const DEFAULT_RECENT_TRANSACTION_COUNT = 200;
+const DEFAULT_SYNC_TIME_WINDOW_SECONDS = 300; // 5 minutes
+const DEFAULT_MIN_SHARED_NON_OBVIOUS_TOKENS = 2;
+const DEFAULT_MIN_SYNC_EVENTS = 2;
+const DEFAULT_WEIGHT_SHARED_NON_OBVIOUS = 1.0;
+const DEFAULT_WEIGHT_SYNC_EVENTS = 2.0; // Synchronized events might be a stronger signal
+const DEFAULT_NON_OBVIOUS_THRESHOLD_PERCENT = 0.2; // Exclude top 20% most frequent tokens
+const DEFAULT_MIN_OCCURRENCES_FOR_POPULAR = 100; // Or if a token appears > 100 times (adjust based on dataset size)
+const DEFAULT_TOP_K_RESULTS = 50;
+
+interface CorrelatorTransactionData {
+    mint: string;
+    timestamp: number; // Unix timestamp (seconds)
+    direction: 'in' | 'out';
+}
+
+interface WalletInfo {
+    address: string;
+    label?: string;
+}
+
+interface CorrelatedPairData {
+    walletA_address: string;
+    walletA_label?: string;
+    walletB_address: string;
+    walletB_label?: string;
+    score: number;
+    sharedNonObviousTokens: { mint: string, countA: number, countB: number }[];
+    synchronizedEvents: {
+        mint: string,
+        direction: 'in' | 'out',
+        timestampA: number,
+        timestampB: number,
+        timeDiffSeconds: number
+    }[];
+}
+
+// --- Database Interaction ---
+async function fetchRecentTransactions(
+    walletAddress: string,
+    transactionCount: number,
+    excludedMints: string[]
+): Promise<CorrelatorTransactionData[]> {
+    logger.debug(`Fetching last ${transactionCount} transactions for ${walletAddress}...`);
+    try {
+        const transactions = await prisma.swapAnalysisInput.findMany({
+            where: {
+                walletAddress: walletAddress,
+                NOT: {
+                    mint: {
+                        in: excludedMints,
+                    },
+                },
+            },
+            select: {
+                mint: true,
+                timestamp: true,
+                direction: true,
+            },
+            orderBy: {
+                timestamp: 'desc',
+            },
+            take: transactionCount,
+        });
+        logger.debug(`Fetched ${transactions.length} transactions for ${walletAddress} (target: ${transactionCount}, after exclusion).`);
+        
+        return transactions.map(t => ({
+            mint: t.mint,
+            timestamp: t.timestamp,
+            direction: t.direction === 'in' ? 'in' : 'out', // Explicitly ensure 'in' | 'out'
+        } as CorrelatorTransactionData )).sort((a, b) => a.timestamp - b.timestamp);
+    } catch (error) {
+        logger.error(`Error fetching recent transactions for wallet ${walletAddress}:`, { error });
+        return [];
+    }
+}
+
+function generateCorrelatorReportText(
+    wallets: WalletInfo[],
+    correlatedPairsData: CorrelatedPairData[],
+    config: {
+        excludedMints: string[];
+        recentTxCount: number;
+        nonObviousTokenThresholdPercent: number;
+        minOccurrencesForPopular: number;
+        syncTimeWindowSeconds: number;
+        minSharedNonObviousTokens: number;
+        minSyncEvents: number;
+        weightSharedNonObvious: number;
+        weightSyncEvents: number;
+        topKResults: number;
+        totalUniqueTokens: number;
+        totalPopularTokens: number;
+        totalNonObviousTokens: number;
+    }
+): string {
+    const reportLines: string[] = [];
+    const { topKResults, totalUniqueTokens, totalPopularTokens, totalNonObviousTokens } = config;
+
+    reportLines.push('==================================================');
+    reportLines.push('    Wallet Activity Correlation Report (Pre-filter)');
+    reportLines.push('==================================================');
+    reportLines.push(`Generated on: ${new Date().toISOString()}`);
+    reportLines.push(`Wallets Analyzed: ${wallets.length}`);
+    reportLines.push(`Transactions Fetched per Wallet (approx): ${config.recentTxCount}`);
+    reportLines.push('\n--- Configuration Highlights ---');
+    reportLines.push(`Sync Time Window: ${config.syncTimeWindowSeconds}s`);
+    reportLines.push(`Min Shared Non-Obvious Tokens: ${config.minSharedNonObviousTokens}`);
+    reportLines.push(`Min Synchronized Events: ${config.minSyncEvents}`);
+    reportLines.push(`Popular Token Threshold: Top ${config.nonObviousTokenThresholdPercent*100}% OR > ${config.minOccurrencesForPopular} occurrences`);
+    reportLines.push(`Scoring Weights: SharedTokens=${config.weightSharedNonObvious}, SyncEvents=${config.weightSyncEvents}`);
+    reportLines.push('\n--- Global Token Stats ---');
+    reportLines.push(`Total Unique Mints Analyzed (post-exclusion): ${totalUniqueTokens}`);
+    reportLines.push(`Identified Popular/Obvious Tokens: ${totalPopularTokens}`);
+    reportLines.push(`Identified Non-Obvious Tokens for Correlation: ${totalNonObviousTokens}`);
+    reportLines.push('');
+
+    reportLines.push(`--- Top ${Math.min(topKResults, correlatedPairsData.length)} Correlated Wallet Pairs (out of ${correlatedPairsData.length} found meeting thresholds) ---`);
+    if (correlatedPairsData.length === 0) {
+        reportLines.push("No significantly correlated pairs found with current settings.");
+    } else {
+        correlatedPairsData.slice(0, topKResults).forEach((pair, index) => {
+            reportLines.push(`\n#${index + 1} Pair: ${pair.walletA_label || pair.walletA_address} <-> ${pair.walletB_label || pair.walletB_address} (Score: ${pair.score})`);
+            reportLines.push(`  Shared Non-Obvious Tokens (${pair.sharedNonObviousTokens.length}):`);
+            pair.sharedNonObviousTokens.slice(0, 5).forEach(t => {
+                reportLines.push(`    - ${t.mint} (Wallet A txns: ${t.countA}, Wallet B txns: ${t.countB})`);
+            });
+            if (pair.sharedNonObviousTokens.length > 5) reportLines.push('    ... and more.');
+            
+            reportLines.push(`  Synchronized Events (${pair.synchronizedEvents.length} within ${config.syncTimeWindowSeconds}s):`);
+            pair.synchronizedEvents.slice(0, 5).forEach(e => {
+                reportLines.push(`    - ${e.direction.toUpperCase()} ${e.mint} @ A: ${new Date(e.timestampA*1000).toISOString()} B: ${new Date(e.timestampB*1000).toISOString()} (Diff: ${e.timeDiffSeconds}s)`);
+            });
+            if (pair.synchronizedEvents.length > 5) reportLines.push('    ... and more.');
+        });
+    }
+    reportLines.push('\n==================== END OF REPORT ====================');
+    return reportLines.join('\n');
+}
+
+function saveCorrelatorReportToFile(reportContent: string): string {
+    const dir = path.join(process.cwd(), 'reports');
+    if (!fs.existsSync(dir)) {
+        try { fs.mkdirSync(dir, { recursive: true }); } catch (error) {
+            logger.error(`Failed to create report directory: ${dir}`, { error });
+            return "";
+        }
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `wallet_correlator_report_${timestamp}.txt`;
+    const filepath = path.join(dir, filename);
+    try {
+        fs.writeFileSync(filepath, reportContent);
+        logger.debug(`Correlator report saved to ${filepath}`);
+        return filepath;
+    } catch (error) {
+        logger.error(`Failed to write correlator report file: ${filepath}`, { error });
+        return "";
+    }
+}
+
+async function analyzeCorrelations(
+    wallets: WalletInfo[],
+    allWalletsTransactions: Record<string, CorrelatorTransactionData[]>,
+    config: {
+        excludedMints: string[];
+        recentTxCount: number;
+        nonObviousTokenThresholdPercent: number;
+        minOccurrencesForPopular: number;
+        syncTimeWindowSeconds: number;
+        minSharedNonObviousTokens: number;
+        minSyncEvents: number;
+        weightSharedNonObvious: number;
+        weightSyncEvents: number;
+        topKResults: number;
+    }
+) {
+    logger.info(`Starting correlation analysis for ${wallets.length} wallets. Sync window: ${config.syncTimeWindowSeconds}s.`);
+
+    // 1. Global Token Frequency Analysis
+    const globalTokenFrequency: Record<string, number> = {};
+    let totalTransactionCountAcrossAllWallets = 0;
+
+    for (const walletAddress in allWalletsTransactions) {
+        const txs = allWalletsTransactions[walletAddress];
+        totalTransactionCountAcrossAllWallets += txs.length;
+        for (const tx of txs) {
+            globalTokenFrequency[tx.mint] = (globalTokenFrequency[tx.mint] || 0) + 1;
+        }
+    }
+
+    if (totalTransactionCountAcrossAllWallets === 0) {
+        logger.warn("No transactions found across all wallets. Skipping further analysis.");
+        console.log("No transactions to analyze for correlation.");
+        return;
+    }
+
+    const sortedGlobalTokens = Object.entries(globalTokenFrequency)
+        .sort(([, countA], [, countB]) => countB - countA);
+
+    const popularTokens = new Set<string>();
+    const thresholdIndex = Math.floor(sortedGlobalTokens.length * config.nonObviousTokenThresholdPercent);
+
+    for (let i = 0; i < sortedGlobalTokens.length; i++) {
+        const [mint, count] = sortedGlobalTokens[i];
+        if (i < thresholdIndex || count > config.minOccurrencesForPopular) {
+            popularTokens.add(mint);
+        }
+    }
+    
+    const totalUniqueGlobal = sortedGlobalTokens.length;
+    const totalPopularGlobal = popularTokens.size;
+    const totalNonObviousGlobal = totalUniqueGlobal - totalPopularGlobal;
+    logger.info(`Global token analysis: ${totalUniqueGlobal} unique mints. ${totalPopularGlobal} popular. ${totalNonObviousGlobal} non-obvious.`);
+    if (sortedGlobalTokens.length > 0 && popularTokens.size === sortedGlobalTokens.length) {
+        logger.warn("All tokens identified as popular. Correlation based on non-obvious tokens might not yield results. Consider adjusting thresholds for 'nonObviousTokenThresholdPercent' or 'minOccurrencesForPopular'.");
+    }
+
+
+    // 2. Pairwise Analysis
+    const correlatedPairs: CorrelatedPairData[] = [];
+    const processedPairKeys = new Set<string>();
+
+    logger.info('Starting pairwise correlation analysis...');
+    for (let i = 0; i < wallets.length; i++) {
+        for (let j = i + 1; j < wallets.length; j++) {
+            const walletA = wallets[i];
+            const walletB = wallets[j];
+            const pairKey = [walletA.address, walletB.address].sort().join('|');
+            // if (processedPairKeys.has(pairKey)) continue; // This check is redundant due to j = i + 1
+            // processedPairKeys.add(pairKey);
+
+            const txsA = allWalletsTransactions[walletA.address] || [];
+            const txsB = allWalletsTransactions[walletB.address] || [];
+
+            if (txsA.length === 0 || txsB.length === 0) continue;
+
+            const nonObviousTradedByA = new Map<string, number>();
+            txsA.forEach(tx => {
+                if (!popularTokens.has(tx.mint)) {
+                    nonObviousTradedByA.set(tx.mint, (nonObviousTradedByA.get(tx.mint) || 0) + 1);
+                }
+            });
+            const nonObviousTradedByB = new Map<string, number>();
+            txsB.forEach(tx => {
+                if (!popularTokens.has(tx.mint)) {
+                    nonObviousTradedByB.set(tx.mint, (nonObviousTradedByB.get(tx.mint) || 0) + 1);
+                }
+            });
+
+            const currentSharedNonObvious: { mint: string, countA: number, countB: number }[] = [];
+            nonObviousTradedByA.forEach((countA, mint) => {
+                if (nonObviousTradedByB.has(mint)) {
+                    currentSharedNonObvious.push({ mint, countA, countB: nonObviousTradedByB.get(mint)! });
+                }
+            });
+
+            const currentSyncEvents: CorrelatedPairData['synchronizedEvents'] = [];
+            for (const shared of currentSharedNonObvious) {
+                const mintToAnalyze = shared.mint;
+                const buysA = txsA.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'in');
+                const buysB = txsB.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'in');
+                const sellsA = txsA.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'out');
+                const sellsB = txsB.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'out');
+
+                for (const buyA of buysA) {
+                    for (const buyB of buysB) {
+                        const timeDiff = Math.abs(buyA.timestamp - buyB.timestamp);
+                        if (timeDiff <= config.syncTimeWindowSeconds) {
+                            currentSyncEvents.push({
+                                mint: mintToAnalyze, direction: 'in',
+                                timestampA: buyA.timestamp, timestampB: buyB.timestamp,
+                                timeDiffSeconds: timeDiff
+                            });
+                        }
+                    }
+                }
+                for (const sellA of sellsA) {
+                    for (const sellB of sellsB) {
+                        const timeDiff = Math.abs(sellA.timestamp - sellB.timestamp);
+                        if (timeDiff <= config.syncTimeWindowSeconds) {
+                            currentSyncEvents.push({
+                                mint: mintToAnalyze, direction: 'out',
+                                timestampA: sellA.timestamp, timestampB: sellB.timestamp,
+                                timeDiffSeconds: timeDiff
+                            });
+                        }
+                    }
+                }
+            }
+            currentSyncEvents.sort((a,b) => a.timestampA - b.timestampA || a.timestampB - b.timestampB);
+
+            if (currentSharedNonObvious.length >= config.minSharedNonObviousTokens || currentSyncEvents.length >= config.minSyncEvents) {
+                let score = 0;
+                score += currentSharedNonObvious.length * config.weightSharedNonObvious;
+                score += currentSyncEvents.length * config.weightSyncEvents;
+
+                if (score > 0) {
+                    correlatedPairs.push({
+                        walletA_address: walletA.address, walletA_label: walletA.label,
+                        walletB_address: walletB.address, walletB_label: walletB.label,
+                        score: parseFloat(score.toFixed(2)),
+                        sharedNonObviousTokens: currentSharedNonObvious,
+                        synchronizedEvents: currentSyncEvents
+                    });
+                }
+            }
+        }
+    }
+    logger.info(`Pairwise analysis completed. Found ${correlatedPairs.length} potentially correlated pairs meeting minimum thresholds.`);
+
+    correlatedPairs.sort((a, b) => b.score - a.score);
+
+    // 4. Report Generation
+    const reportConfigForOutput = {
+        ...config,
+        totalUniqueTokens: totalUniqueGlobal,
+        totalPopularTokens: totalPopularGlobal,
+        totalNonObviousTokens: totalNonObviousGlobal,
+    };
+    const reportText = generateCorrelatorReportText(wallets, correlatedPairs, reportConfigForOutput);
+    const reportPath = saveCorrelatorReportToFile(reportText);
+
+    if (reportPath) {
+        logger.info(`Correlator report saved to: ${reportPath}`);
+        console.log(`Correlator analysis complete. Report saved to: ${reportPath}`);
+    } else {
+        logger.error('Correlator analysis complete, but failed to save the report.');
+        console.error('Correlator analysis complete, but failed to save the report. Check logs.');
+    }
+}
+
+async function main(
+    targetWallets: WalletInfo[],
+    excludedMintsList: string[],
+    recentTxCount: number,
+    cliConfig: { // Pass CLI config down
+        syncTimeWindowSeconds: number;
+        minSharedNonObviousTokens: number;
+        minSyncEvents: number;
+        weightSharedNonObvious: number;
+        weightSyncEvents: number;
+        nonObviousTokenThresholdPercent: number;
+        minOccurrencesForPopular: number;
+        topKResults: number;
+    }
+) {
+    const startTime = process.hrtime();
+    logger.info(`Starting wallet activity correlation for ${targetWallets.length} wallets.`);
+    logger.debug(`Fetching ${recentTxCount} recent transactions per wallet.`);
+    logger.debug(`Excluded mints: ${excludedMintsList.join(', ')}`);
+
+    const allFetchedTransactions: Record<string, CorrelatorTransactionData[]> = {};
+    for (const walletInfo of targetWallets) {
+        const txs = await fetchRecentTransactions(walletInfo.address, recentTxCount, excludedMintsList);
+        allFetchedTransactions[walletInfo.address] = txs;
+        if (txs.length === 0) {
+            logger.warn(`No relevant recent transactions found for ${walletInfo.label || walletInfo.address}.`);
+        }
+    }
+    
+    const analysisConfig = {
+        excludedMints: excludedMintsList,
+        recentTxCount: recentTxCount,
+        syncTimeWindowSeconds: cliConfig.syncTimeWindowSeconds,
+        minSharedNonObviousTokens: cliConfig.minSharedNonObviousTokens,
+        minSyncEvents: cliConfig.minSyncEvents,
+        weightSharedNonObvious: cliConfig.weightSharedNonObvious,
+        weightSyncEvents: cliConfig.weightSyncEvents,
+        nonObviousTokenThresholdPercent: cliConfig.nonObviousTokenThresholdPercent,
+        minOccurrencesForPopular: cliConfig.minOccurrencesForPopular,
+        topKResults: cliConfig.topKResults,
+    };
+
+    await analyzeCorrelations(targetWallets, allFetchedTransactions, analysisConfig);
+
+    const endTime = process.hrtime(startTime);
+    const durationSeconds = (endTime[0] + endTime[1] / 1e9).toFixed(2);
+    logger.info(`Wallet activity correlation process completed in ${durationSeconds}s.`);
+}
+
+interface CliArgs {
+    wallets?: string;
+    walletsFile?: string;
+    uploadCsv?: string;
+    excludeMints?: string;
+    txnCount?: number;
+    syncTimeWindow?: number;
+    minSharedTokens?: number;
+    minSyncEvents?: number;
+    weightShared?: number;
+    weightSync?: number;
+    popThresholdPct?: number;
+    popMinOccurrences?: number;
+    topK?: number;
+    [key: string]: unknown;
+    _: (string | number)[];
+    $0: string;
+}
+
+if (require.main === module) {
+    const argv = yargs(hideBin(process.argv))
+        .scriptName('wallet-activity-correlator')
+        .usage('$0 --wallets "addr1,addr2,..." | --walletsFile <path-to-json> | --uploadCsv <path-to-csv> [options]')
+        .option('wallets', {
+            alias: 'w',
+            type: 'string',
+            description: 'Comma-separated list of wallet addresses to analyze',
+        })
+        .option('walletsFile', {
+            alias: 'f',
+            type: 'string',
+            description: 'Path to a JSON file containing wallet addresses or {address, label} objects',
+        })
+        .option('uploadCsv', {
+            alias: 'c',
+            type: 'string',
+            description: 'Path to a CSV file containing wallet addresses (one per line, optionally with a label in a second column)',
+        })
+        .option('excludeMints', {
+            alias: 'e',
+            type: 'string',
+            description: `Comma-separated list of token mints to exclude. Defaults: ${DEFAULT_EXCLUDED_MINTS.join(', ')}`,
+        })
+        .option('txnCount', {
+            alias: 'n',
+            type: 'number',
+            description: 'Number of recent transactions to fetch per wallet.',
+            default: DEFAULT_RECENT_TRANSACTION_COUNT,
+        })
+        .option('syncTimeWindow', { type: 'number', default: DEFAULT_SYNC_TIME_WINDOW_SECONDS, description: 'Time window in seconds for considering events synchronized.' })
+        .option('minSharedTokens', { type: 'number', default: DEFAULT_MIN_SHARED_NON_OBVIOUS_TOKENS, description: 'Minimum shared non-obvious tokens for a pair to be considered.'})
+        .option('minSyncEvents', { type: 'number', default: DEFAULT_MIN_SYNC_EVENTS, description: 'Minimum synchronized events for a pair to be considered.'})
+        .option('weightShared', { type: 'number', default: DEFAULT_WEIGHT_SHARED_NON_OBVIOUS, description: 'Weight for shared non-obvious tokens in scoring.'})
+        .option('weightSync', { type: 'number', default: DEFAULT_WEIGHT_SYNC_EVENTS, description: 'Weight for synchronized events in scoring.'})
+        .option('popThresholdPct', { type: 'number', default: DEFAULT_NON_OBVIOUS_THRESHOLD_PERCENT, description: 'Top % of tokens to consider popular (e.g., 0.1 for top 10%).'})
+        .option('popMinOccurrences', { type: 'number', default: DEFAULT_MIN_OCCURRENCES_FOR_POPULAR, description: 'Min global occurrences for a token to be popular.'})
+        .option('topK', { type: 'number', default: DEFAULT_TOP_K_RESULTS, description: 'Number of top correlated pairs to display in the report.'})
+        .check((argv) => {
+            const sources = [argv.wallets, argv.walletsFile, argv.uploadCsv].filter(Boolean).length;
+            if (sources === 0) throw new Error('One of --wallets, --walletsFile, or --uploadCsv is required.');
+            if (sources > 1) throw new Error('Provide only one of --wallets, --walletsFile, or --uploadCsv.');
+            if (argv.txnCount && argv.txnCount <= 0) throw new Error('--txnCount must be positive.');
+            if (argv.syncTimeWindow && argv.syncTimeWindow <= 0) throw new Error('--syncTimeWindow must be positive.');
+            return true;
+        })
+        .help()
+        .alias('help', 'h')
+        .argv as CliArgs;
+
+    let targetWallets: WalletInfo[] = [];
+    let finalExcludedMints: string[] = DEFAULT_EXCLUDED_MINTS;
+    const transactionCount = argv.txnCount as number;
+
+    if (argv.wallets) {
+        targetWallets = argv.wallets.split(',').map((address: string) => ({ address: address.trim() }));
+    } else if (argv.walletsFile) {
+        try {
+            const fileContent = fs.readFileSync(argv.walletsFile, 'utf-8');
+            const walletsData = JSON.parse(fileContent);
+            if (Array.isArray(walletsData)) {
+                targetWallets = walletsData.map((item: any): WalletInfo | null => {
+                    if (typeof item === 'string') return { address: item.trim() };
+                    if (item && typeof item.address === 'string') return { address: item.address.trim(), label: item.label };
+                    logger.warn(`Skipping invalid wallet entry in file: ${JSON.stringify(item)}`);
+                    return null;
+                }).filter((w): w is WalletInfo => w !== null);
+            } else {
+                logger.error('Wallets file is not a JSON array.');
+                process.exit(1);
+            }
+        } catch (error) {
+            logger.error(`Error reading or parsing wallets file '${argv.walletsFile}':`, { error });
+            process.exit(1);
+        }
+    } else if (argv.uploadCsv) {
+        try {
+            const fileContent = fs.readFileSync(argv.uploadCsv, 'utf-8');
+            const lines = fileContent.split('\n').filter(line => line.trim() !== '');
+            targetWallets = lines.map((line: string): WalletInfo | null => {
+                const parts = line.split(',').map(p => p.trim());
+                const address = parts[0];
+                if (!address) return null; // Skip empty lines or lines without an address
+                const label = parts[1] || undefined;
+                // Basic address validation could be added here if needed
+                return { address, label };
+            }).filter((w): w is WalletInfo => w !== null);
+            if (targetWallets.length === 0) {
+                logger.warn(`No valid wallets found in CSV file: ${argv.uploadCsv}`);
+            }
+        } catch (error) {
+            logger.error(`Error reading or parsing CSV wallets file '${argv.uploadCsv}':`, { error });
+            process.exit(1);
+        }
+    }
+
+    if (argv.excludeMints) {
+        const userExcludedMints = argv.excludeMints.split(',').map(m => m.trim()).filter(m => m);
+        finalExcludedMints = Array.from(new Set([...DEFAULT_EXCLUDED_MINTS, ...userExcludedMints]));
+    }
+    
+    if (targetWallets.length === 0) {
+        logger.error('No target wallets specified after processing inputs. Exiting.');
+        process.exit(1);
+    }
+
+    const cliPassedConfig = {
+        syncTimeWindowSeconds: argv.syncTimeWindow as number,
+        minSharedNonObviousTokens: argv.minSharedTokens as number,
+        minSyncEvents: argv.minSyncEvents as number,
+        weightSharedNonObvious: argv.weightShared as number,
+        weightSyncEvents: argv.weightSync as number,
+        nonObviousTokenThresholdPercent: argv.popThresholdPct as number,
+        minOccurrencesForPopular: argv.popMinOccurrences as number,
+        topKResults: argv.topK as number,
+    };
+
+    main(targetWallets, finalExcludedMints, transactionCount, cliPassedConfig)
+        .catch(async (e) => {
+            logger.error('Unhandled error in main execution:', { error: e });
+            await prisma.$disconnect();
+            process.exit(1);
+        })
+        .finally(async () => {
+            await prisma.$disconnect();
+        });
+} 

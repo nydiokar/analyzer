@@ -25,6 +25,10 @@ async function delay(ms: number): Promise<void> {
 }
 // --- End Retry Logic Helper ---
 
+// --- Default Rate Limit --- (Now configurable)
+const DEFAULT_RPS = 10; // Default target Requests Per Second (Developer Plan)
+const RATE_LIMIT_SAFETY_BUFFER_MS = 15; // Add small buffer
+
 /**
  * Client for interacting with the Helius API and Solana RPC for transaction data.
  * Includes rate limiting, retry logic, and caching integration.
@@ -35,23 +39,28 @@ export class HeliusApiClient {
   private readonly baseUrl: string;
   private readonly BATCH_SIZE = 100; // Maximum signatures to process in one batch
   private lastRequestTime: number = 0;
-  private readonly MIN_REQUEST_INTERVAL = 550; // Minimum 550ms between requests (for ~2 req/s free tier)
+  private readonly minRequestIntervalMs: number; // Calculated based on RPS
   private readonly SOLANA_RPC_URL_MAINNET = 'https://mainnet.helius-rpc.com/'; // Using Helius RPC for consistency
   private readonly RPC_SIGNATURE_LIMIT = 1000; // Max limit for getSignaturesForAddress
 
   /**
    * Handles configuration and sets up the Axios instance.
-   * @param config Configuration object containing the Helius API key and optionally the base URL and network.
+   * @param config Configuration object containing the Helius API key and optionally the base URL, network, and target RPS.
    */
   constructor(config: HeliusApiConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || (config.network === 'mainnet' 
       ? 'https://api.helius.xyz'
       : 'https://api-devnet.helius.xyz');
+    
+    const targetRps = config.requestsPerSecond || DEFAULT_RPS;
+    // Calculate interval: (1000 ms / RPS) + safety buffer
+    this.minRequestIntervalMs = Math.ceil(1000 / targetRps) + RATE_LIMIT_SAFETY_BUFFER_MS;
+    logger.info(`Initializing HeliusApiClient: Target RPS=${targetRps}, Min Request Interval=${this.minRequestIntervalMs}ms`);
 
     this.api = axios.create({
       baseURL: this.baseUrl,
-      timeout: 30000,
+      timeout: 30000, // Increased timeout for potentially larger requests
       headers: {
         'Content-Type': 'application/json'
       }
@@ -62,8 +71,10 @@ export class HeliusApiClient {
   private async rateLimit(): Promise<void> {
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
-    if (timeSinceLastRequest < this.MIN_REQUEST_INTERVAL) {
-      await delay(this.MIN_REQUEST_INTERVAL - timeSinceLastRequest);
+    if (timeSinceLastRequest < this.minRequestIntervalMs) {
+      const waitTime = this.minRequestIntervalMs - timeSinceLastRequest;
+      logger.debug(`Rate limiting: Waiting ${waitTime}ms...`);
+      await delay(waitTime);
     }
     this.lastRequestTime = Date.now();
   }
@@ -255,6 +266,7 @@ export class HeliusApiClient {
    * @param newestProcessedTimestamp Optional Unix timestamp (seconds). If provided, filters the results to include only transactions *strictly newer* than this timestamp.
    * @param includeCached If true (default), combines cached transactions with newly fetched ones in the final result. If false, only returns newly fetched transactions.
    * @param untilTimestamp Optional Unix timestamp (seconds). If provided, filters the results to include only transactions *strictly older* than this timestamp.
+   * @param phase2InternalConcurrency New parameter for internal concurrency
    * @returns A promise resolving to an array of HeliusTransaction objects, filtered and sorted chronologically.
    */
   async getAllTransactionsForAddress(
@@ -264,7 +276,8 @@ export class HeliusApiClient {
     stopAtSignature?: string, // Optional signature to stop fetching pages at
     newestProcessedTimestamp?: number, // Optional timestamp to filter results (exclusive)
     includeCached: boolean = true, // Flag to control whether to include cached transactions in results
-    untilTimestamp?: number
+    untilTimestamp?: number,
+    phase2InternalConcurrency: number = 1 // New parameter for internal concurrency
   ): Promise<HeliusTransaction[]> {
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run
@@ -354,42 +367,61 @@ export class HeliusApiClient {
 
     // === PHASE 2: Fetch Uncached Details SEQUENTIALLY & Save to Cache ===
     if (signaturesToFetchArray.length > 0) {
-        logger.info(`Starting Phase 2: Fetching parsed details from Helius sequentially for ${signaturesToFetchArray.length} new signatures.`);
+        logger.info(`Starting Phase 2: Fetching parsed details from Helius for ${signaturesToFetchArray.length} new signatures with internal concurrency of ${phase2InternalConcurrency}.`);
         
-        const totalBatches = Math.ceil(signaturesToFetchArray.length / parseBatchLimit);
         // Reset newlyFetchedTransactions here as it only holds results from THIS phase
         newlyFetchedTransactions = []; 
-        let lastLoggedBatch = 0; 
+        
+        const totalSignaturesToFetch = signaturesToFetchArray.length;
+        let processedSignaturesCount = 0;
+        let lastLoggedPercentage = 0;
 
-        for (let i = 0; i < signaturesToFetchArray.length; i += parseBatchLimit) {
-          const batchSignatures = signaturesToFetchArray.slice(i, i + parseBatchLimit);
-          const batchNumber = Math.floor(i / parseBatchLimit) + 1;
-          
-          try {
-            // Await the result of fetching this batch directly
-            const batchTransactions = await this.getTransactionsBySignatures(batchSignatures);
-            
-            // Add successful results to the list of newly fetched
-            newlyFetchedTransactions.push(...batchTransactions);
+        // Process signatures in chunks, each chunk handled by a concurrent set of batch fetches
+        for (let i = 0; i < totalSignaturesToFetch; i += parseBatchLimit * phase2InternalConcurrency) {
+            const chunkSignatures = signaturesToFetchArray.slice(i, i + parseBatchLimit * phase2InternalConcurrency);
+            const promises: Promise<HeliusTransaction[]>[] = [];
 
-            if (batchNumber % 10 === 0 || batchNumber === totalBatches) {
-                process.stdout.write(`  Fetching details: Batch ${batchNumber}/${totalBatches} (${newlyFetchedTransactions.length} successful txns fetched so far)...\r`);
-                lastLoggedBatch = batchNumber;
+            for (let j = 0; j < chunkSignatures.length; j += parseBatchLimit) {
+                const batchSignatures = chunkSignatures.slice(j, j + parseBatchLimit);
+                if (batchSignatures.length > 0) {
+                    // The getTransactionsBySignatures method already includes rate limiting and retries
+                    promises.push(
+                        this.getTransactionsBySignatures(batchSignatures)
+                            .catch(error => {
+                                // Log error for this specific batch and return empty array to not break Promise.allSettled
+                                logger.error(`A batch fetch within concurrent set failed for ${batchSignatures.length} signatures. Continuing with others.`, {
+                                    error: this.sanitizeError(error),
+                                    signatures: batchSignatures.slice(0, 5) // Log a few for context
+                                });
+                                return []; // Resolve with empty for this failed batch
+                            })
+                    );
+                }
             }
 
-          } catch (error) {
-              if (lastLoggedBatch > 0) process.stdout.write('\n'); 
-              logger.error(`Batch ${batchNumber}/${totalBatches}: Failed to fetch transactions after retries. Skipping this batch.`, { 
-                  error: this.sanitizeError(error), 
-                  failedSignatures: batchSignatures 
-              });
-              lastLoggedBatch = 0; 
-          }
-        } // End loop through batches
+            if (promises.length > 0) {
+                const results = await Promise.allSettled(promises);
+                results.forEach(result => {
+                    if (result.status === 'fulfilled' && result.value) {
+                        newlyFetchedTransactions.push(...result.value);
+                    }
+                    // Failed promises are already handled by the catch within the push to `promises`
+                });
+            }
+            
+            processedSignaturesCount += chunkSignatures.length; // Update based on the size of the chunk attempted
+            const currentPercentage = Math.floor((newlyFetchedTransactions.length / totalSignaturesToFetch) * 100); // Progress based on successfully fetched
+            
+            if (currentPercentage >= lastLoggedPercentage + 5 || processedSignaturesCount >= totalSignaturesToFetch) {
+                 const displayPercentage = Math.min(100, Math.floor((processedSignaturesCount / totalSignaturesToFetch) * 100));
+                 process.stdout.write(`  Fetching details: Processed ~${displayPercentage}% of signatures (${newlyFetchedTransactions.length} successful txns fetched so far)...\r`);
+                 lastLoggedPercentage = currentPercentage;
+            }
+        } // End loop through chunks
         
-        if (lastLoggedBatch > 0) process.stdout.write('\n'); 
-        logger.debug('Sequential batch requests finished.');
-        logger.info(`Successfully fetched details for ${newlyFetchedTransactions.length} new transactions sequentially.`);
+        process.stdout.write('\n'); // Newline after final progress update
+        logger.debug('Concurrent batch requests for Phase 2 finished.');
+        logger.info(`Successfully fetched details for ${newlyFetchedTransactions.length} out of ${totalSignaturesToFetch} new transactions attempted in Phase 2.`);
 
         // --- Save newly fetched transactions to DB Cache --- 
         if (newlyFetchedTransactions.length > 0) {
@@ -483,7 +515,7 @@ export class HeliusApiClient {
     relevantFiltered.sort((a, b) => a.timestamp - b.timestamp);
     logger.debug(`Sorted ${relevantFiltered.length} relevant transactions by timestamp.`);
 
-    logger.info(`Helius API client process finished. Returning ${relevantFiltered.length} relevant transactions.`);
+    logger.debug(`Helius API client process finished. Returning ${relevantFiltered.length} relevant transactions.`);
     return relevantFiltered; // Return the filtered & sorted list of ALL filtered transactions
   }
 

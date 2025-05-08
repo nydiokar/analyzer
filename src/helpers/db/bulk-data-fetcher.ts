@@ -9,6 +9,7 @@ import { getWallet, updateWallet, saveSwapAnalysisInputs, prisma } from '../../s
 import { HeliusTransaction } from '../../types/helius-api';
 import { Prisma } from '@prisma/client';
 import { Wallet } from '@prisma/client';
+import fs from 'fs';
 
 // Initialize environment variables
 dotenv.config();
@@ -19,6 +20,9 @@ process.env.LOG_LEVEL = verboseLogging ? 'debug' : 'info';
 // --- End Log Level Setup ---
 
 const logger = createLogger('BulkDataFetcherScript');
+
+// --- Configuration for Concurrency ---
+const DEFAULT_CONCURRENCY = 8; // Number of wallets to process in parallel
 
 /**
  * Helper function (copied from helius-analyzer.ts) to process and save transactions and update wallet state.
@@ -40,7 +44,7 @@ async function processAndSaveTransactions(
     logger.debug(`${logPrefix} Saving ${analysisInputsToSave.length} analysis input records to database...`);
     try {
       const saveResult = await saveSwapAnalysisInputs(analysisInputsToSave);
-      logger.info(`${logPrefix} Successfully saved ${saveResult.count} new records to SwapAnalysisInput table.`);
+      logger.debug(`${logPrefix} Successfully saved ${saveResult.count} new records to SwapAnalysisInput table.`);
     } catch (dbError) {
       logger.error(`${logPrefix} Error saving analysis input records to database:`, dbError);
       // Optionally re-throw or handle as needed for bulk processing
@@ -104,9 +108,128 @@ async function processAndSaveTransactions(
   }
 }
 
+/**
+ * Processes a single wallet: fetches state, fetches new/old txns, saves, updates state.
+ * Encapsulates the logic previously inside the main loop.
+ */
+async function processSingleWallet(
+    address: string,
+    options: { limit: number; maxSignatures?: number | null; smartFetch: boolean },
+    heliusClient: HeliusApiClient
+): Promise<{ success: boolean, address: string, error?: Error }> {
+    const logPrefix = `[${address}]`;
+    logger.info(`${logPrefix} Processing wallet...`);
+    try {
+        // --- Get Wallet State ---
+        let stopAtSignature: string | undefined = undefined;
+        let newestProcessedTimestamp: number | undefined = undefined;
+        let firstProcessedTimestamp: number | undefined = undefined;
+        let isInitialFetchForWallet = false;
+        const walletState = await getWallet(address);
+
+        if (walletState) {
+            stopAtSignature = walletState.newestProcessedSignature ?? undefined;
+            newestProcessedTimestamp = walletState.newestProcessedTimestamp ?? undefined;
+            firstProcessedTimestamp = walletState.firstProcessedTimestamp ?? undefined;
+            logger.debug(`${logPrefix} Found state. Newest: ts=${newestProcessedTimestamp}, sig=${stopAtSignature}. Oldest: ts=${firstProcessedTimestamp}`);
+        } else {
+            isInitialFetchForWallet = true;
+            logger.debug(`${logPrefix} No state found. Initial fetch.`);
+        }
+
+        let dbTransactionCount = 0;
+        if (options.smartFetch && options.maxSignatures) {
+            try {
+                dbTransactionCount = await prisma.swapAnalysisInput.count({
+                    where: { walletAddress: address }
+                });
+                // Note: Counting distinct signatures might be more accurate but slower.
+                // Using total count as a proxy for smart fetch decision.
+                logger.info(`${logPrefix} SmartFetch: Found ~${dbTransactionCount} records in DB.`);
+            } catch (error) {
+                logger.error(`${logPrefix} SmartFetch: Error counting existing transactions`, { error });
+                // Continue, but smart fetch might not be accurate
+            }
+
+            if (dbTransactionCount >= options.maxSignatures) {
+                logger.info(`${logPrefix} SmartFetch: DB count meets/exceeds target (${options.maxSignatures}). Skipping API fetch.`);
+                return { success: true, address };
+            }
+        }
+
+        let fetchLimit = options.maxSignatures;
+        let needsOlderFetch = false;
+        let olderFetchLimit: number | null = null;
+
+        if (options.smartFetch && options.maxSignatures && !isInitialFetchForWallet) {
+            const neededTotal = Math.max(0, options.maxSignatures - dbTransactionCount);
+            logger.info(`${logPrefix} SmartFetch: Need ~${neededTotal} more transactions.`);
+            fetchLimit = null; // Fetch all newer first
+            needsOlderFetch = neededTotal > 0;
+            olderFetchLimit = neededTotal;
+        }
+
+        // --- Fetch Newer Transactions ---
+        logger.debug(`${logPrefix} Fetching newer transactions...`);
+        let fetchedTransactions: HeliusTransaction[] = [];
+        try {
+            fetchedTransactions = await heliusClient.getAllTransactionsForAddress(
+                address, options.limit, fetchLimit,
+                stopAtSignature, newestProcessedTimestamp, true, undefined
+            );
+            logger.info(`${logPrefix} Fetched ${fetchedTransactions.length} newer transactions.`);
+        } catch (error) {
+             logger.error(`${logPrefix} Failed to fetch newer transactions.`, { error: error instanceof Error ? error.message : String(error) });
+             if (!needsOlderFetch) {
+                 throw error; // If this was the only planned fetch, propagate the error
+             } else {
+                 logger.warn(`${logPrefix} Proceeding to older fetch despite error.`);
+             }
+        }
+
+        // --- Process and Save Newer Transactions ---
+        if (fetchedTransactions.length > 0) {
+            await processAndSaveTransactions(address, fetchedTransactions, isInitialFetchForWallet);
+            if (options.smartFetch && olderFetchLimit) {
+                olderFetchLimit = Math.max(0, olderFetchLimit - fetchedTransactions.length);
+                logger.info(`${logPrefix} SmartFetch: ${olderFetchLimit} transactions still needed for older pass.`);
+            }
+        }
+
+        // --- Fetch Older Transactions (if needed) ---
+        if (needsOlderFetch && olderFetchLimit !== null && olderFetchLimit > 0) {
+            logger.debug(`${logPrefix} SmartFetch: Fetching ${olderFetchLimit} older transactions...`);
+            let olderTransactions: HeliusTransaction[] = [];
+            try {
+                olderTransactions = await heliusClient.getAllTransactionsForAddress(
+                    address, options.limit, olderFetchLimit,
+                    undefined, undefined, true,
+                    firstProcessedTimestamp // Use firstProcessedTimestamp as the 'until' marker
+                );
+                logger.info(`${logPrefix} SmartFetch: Fetched ${olderTransactions.length} older transactions (requested ${olderFetchLimit}).`);
+            } catch (error) {
+                logger.error(`${logPrefix} SmartFetch: Failed to fetch older transactions.`, { error: error instanceof Error ? error.message : String(error) });
+                // Don't mark as failure yet, newer ones might have been saved
+            }
+
+            // --- Process and Save Older Transactions ---
+            if (olderTransactions.length > 0) {
+                // Pass false for isInitialFetch as we are fetching older data specifically
+                await processAndSaveTransactions(address, olderTransactions, false);
+            }
+        }
+
+        logger.info(`${logPrefix} Finished processing wallet successfully.`);
+        return { success: true, address };
+
+    } catch (error) {
+        logger.error(`${logPrefix} Unhandled error processing wallet:`, { error });
+        return { success: false, address, error: error instanceof Error ? error : new Error(String(error)) };
+    }
+}
 
 /**
- * Main function for bulk fetching data.
+ * Main function for bulk fetching data - MODIFIED FOR CONCURRENCY
  */
 async function bulkFetchData(
   walletAddresses: string[],
@@ -114,172 +237,80 @@ async function bulkFetchData(
     limit: number;
     maxSignatures?: number | null;
     smartFetch: boolean;
+    concurrency: number; // Added concurrency level
   }
-): Promise<void> {
-  logger.info(`Starting bulk data fetch for ${walletAddresses.length} wallets.`);
-  logger.info(`Options: BatchLimit=${options.limit}, SmartFetch=${options.smartFetch}, MaxSignatures=${options.maxSignatures || 'none'}`);
+): Promise<{ successCount: number, failureCount: number }> {
+    logger.info(`Starting CONCURRENT bulk data fetch for ${walletAddresses.length} wallets.`);
+    logger.info(`Options: BatchLimit=${options.limit}, SmartFetch=${options.smartFetch}, MaxSignatures=${options.maxSignatures || 'none'}, Concurrency=${options.concurrency}`);
 
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  if (!heliusApiKey) {
-    throw new Error('HELIUS_API_KEY environment variable is required. Please add it to your .env file.');
-  }
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+    if (!heliusApiKey) throw new Error('HELIUS_API_KEY environment variable is required.');
 
-  const heliusClient = new HeliusApiClient({
-    apiKey: heliusApiKey!,
-    network: 'mainnet',
-  });
+    const heliusClient = new HeliusApiClient({ apiKey: heliusApiKey, network: 'mainnet' });
 
-  let successCount = 0;
-  let failureCount = 0;
+    let totalSuccessCount = 0;
+    let totalFailureCount = 0;
+    const concurrency = options.concurrency;
 
-  for (const address of walletAddresses) {
-    const logPrefix = `[${address}]`;
-    logger.info(`${logPrefix} Processing wallet...`);
-    try {
-      // --- Get Wallet State ---
-      let stopAtSignature: string | undefined = undefined;
-      let newestProcessedTimestamp: number | undefined = undefined;
-      let firstProcessedTimestamp: number | undefined = undefined; // Needed for smart fetch older pass
-      let isInitialFetchForWallet = false;
-      const walletState = await getWallet(address);
+    for (let i = 0; i < walletAddresses.length; i += concurrency) {
+        const batchAddresses = walletAddresses.slice(i, i + concurrency);
+        logger.info(`Processing batch starting at index ${i} (size ${batchAddresses.length})...`);
 
-      if (walletState) {
-        stopAtSignature = walletState.newestProcessedSignature ?? undefined;
-        newestProcessedTimestamp = walletState.newestProcessedTimestamp ?? undefined;
-        firstProcessedTimestamp = walletState.firstProcessedTimestamp ?? undefined;
-        logger.debug(`${logPrefix} Found existing state. Newest: ts=${newestProcessedTimestamp}, sig=${stopAtSignature}. Oldest: ts=${firstProcessedTimestamp}`);
-      } else {
-        isInitialFetchForWallet = true;
-        logger.debug(`${logPrefix} No existing state found. Performing initial fetch.`);
-      }
-
-      let dbTransactionCount = 0; // Only needed for smart fetch logic
-      if (options.smartFetch && options.maxSignatures) {
-           try {
-               const existingInputs = await prisma.swapAnalysisInput.findMany({
-                   where: { walletAddress: address },
-                   select: { signature: true },
-                   distinct: ['signature']
-               });
-               dbTransactionCount = existingInputs.length;
-               logger.info(`${logPrefix} SmartFetch: Found ${dbTransactionCount} unique transactions in DB.`);
-           } catch (error) {
-               logger.error(`${logPrefix} SmartFetch: Error counting existing transactions`, { error });
-               // Continue, but smart fetch might not be accurate
-           }
-
-           if (dbTransactionCount >= options.maxSignatures) {
-                logger.info(`${logPrefix} SmartFetch: DB count (${dbTransactionCount}) meets/exceeds target (${options.maxSignatures}). Skipping API fetch.`);
-                successCount++;
-                continue; // Skip to the next wallet
-           }
-      }
-
-
-      // Determine how many transactions to fetch based on smart fetch logic
-      let fetchLimit = options.maxSignatures; // Default to maxSignatures if not smart fetching or if initial smart fetch
-      let needsOlderFetch = false;
-      let olderFetchLimit: number | null = null;
-
-      if (options.smartFetch && options.maxSignatures && !isInitialFetchForWallet) {
-          const neededTotal = options.maxSignatures - dbTransactionCount;
-          logger.info(`${logPrefix} SmartFetch: Need ${neededTotal} more transactions.`);
-          // For smart fetch, first pass fetches all newer, limit is null initially
-          fetchLimit = null;
-          needsOlderFetch = true; // Plan to fetch older ones after newer ones
-          olderFetchLimit = neededTotal; // Limit the older fetch pass
-      }
-
-      // --- Fetch Newer Transactions (or all if initial/not smart fetch) ---
-      logger.debug(`${logPrefix} Fetching newer transactions from Helius API...`);
-      let fetchedTransactions: HeliusTransaction[] = [];
-      try {
-        fetchedTransactions = await heliusClient.getAllTransactionsForAddress(
-          address,
-          options.limit,
-          fetchLimit, // Use calculated limit for this pass
-          stopAtSignature,
-          newestProcessedTimestamp,
-          false, // Always fetch fresh, don't rely on Helius client cache merging for this pass
-          undefined // Explicitly set untilTimestamp to undefined for the *newer* fetch pass
+        const batchPromises = batchAddresses.map(address =>
+            processSingleWallet(address, options, heliusClient)
         );
-        logger.info(`${logPrefix} Fetched ${fetchedTransactions.length} newer transactions from Helius.`);
-      } catch (error) {
-        logger.error(`${logPrefix} Failed to fetch newer transactions from Helius.`, { error: error instanceof Error ? error.message : String(error) });
-        // Decide if we should stop for this wallet or try older fetch if planned
-        if (!needsOlderFetch) {
-            failureCount++;
-            continue; // Skip to next wallet if this was the only planned fetch
-        } else {
-            logger.warn(`${logPrefix} Proceeding to older fetch despite error in newer fetch.`);
-        }
-      }
 
-      // --- Process and Save Newer Transactions ---
-      if (fetchedTransactions.length > 0) {
-        await processAndSaveTransactions(address, fetchedTransactions, isInitialFetchForWallet);
-        // Update count for potential older fetch limit adjustment
-        if (options.smartFetch && olderFetchLimit) {
-             olderFetchLimit = Math.max(0, olderFetchLimit - fetchedTransactions.length);
-             logger.info(`${logPrefix} SmartFetch: ${olderFetchLimit} transactions still needed for older fetch pass.`);
-        }
-      }
+        const results = await Promise.allSettled(batchPromises);
 
-      // --- Fetch Older Transactions (if SmartFetch required) ---
-      if (needsOlderFetch && olderFetchLimit !== null && olderFetchLimit > 0) {
-           logger.debug(`${logPrefix} SmartFetch: Fetching ${olderFetchLimit} older transactions...`);
-           let olderTransactions: HeliusTransaction[] = [];
-           try {
-               // Fetch older transactions, using firstProcessedTimestamp as the 'until' point
-               olderTransactions = await heliusClient.getAllTransactionsForAddress(
-                   address,
-                   options.limit,
-                   olderFetchLimit, // Limit to remaining needed
-                   undefined,      // No 'stopAt' signature for older
-                   undefined,      // No 'newest' timestamp filter for older
-                   false,          // Fetch fresh data
-                   firstProcessedTimestamp 
-               );
-               logger.info(`${logPrefix} SmartFetch: Fetched ${olderTransactions.length} older transactions (requested ${olderFetchLimit}).`);
-           } catch (error) {
-                logger.error(`${logPrefix} SmartFetch: Failed to fetch older transactions.`, { error: error instanceof Error ? error.message : String(error) });
-                // Don't mark as failure yet, newer ones might have been saved
-           }
+        let batchSuccess = 0;
+        let batchFailure = 0;
+        results.forEach((result, index) => {
+            const address = batchAddresses[index]; // Get address corresponding to result
+            if (result.status === 'fulfilled') {
+                if (result.value.success) {
+                    batchSuccess++;
+                } else {
+                    batchFailure++;
+                    logger.error(`[${address}] Processing failed within batch: ${result.value.error?.message || 'Unknown error'}`);
+                }
+            } else { // status === 'rejected'
+                batchFailure++;
+                logger.error(`[${address}] Processing promise rejected within batch:`, { error: result.reason });
+            }
+        });
 
-           // --- Process and Save Older Transactions ---
-           if (olderTransactions.length > 0) {
-               // Pass false for isInitialFetch as we are fetching older data specifically
-               await processAndSaveTransactions(address, olderTransactions, false);
-           }
-      }
-
-
-      // If we reached here without critical errors in required fetches
-      successCount++;
-      logger.info(`${logPrefix} Finished processing wallet.`);
-
-    } catch (error) {
-      logger.error(`${logPrefix} Unhandled error processing wallet:`, { error });
-      failureCount++;
-      // Continue to the next wallet
+        totalSuccessCount += batchSuccess;
+        totalFailureCount += batchFailure;
+        logger.info(`Batch completed. Success: ${batchSuccess}, Failure: ${batchFailure}. Total Success: ${totalSuccessCount}, Total Failure: ${totalFailureCount}`);
+        
+        // Optional: Add a small delay between batches if rate limiting becomes an issue despite concurrency control
+        // await new Promise(resolve => setTimeout(resolve, 100)); 
     }
-  } // End loop through walletAddresses
 
-  logger.info(`Bulk fetch complete. Wallets Processed: ${successCount}, Failures: ${failureCount}`);
+    logger.info(`Bulk fetch complete. Total Wallets Processed: ${totalSuccessCount}, Total Failures: ${totalFailureCount}`);
+    return { successCount: totalSuccessCount, failureCount: totalFailureCount };
 }
-
 
 // --- CLI Setup ---
 (async () => {
   const argv = await yargs(hideBin(process.argv))
     .scriptName('bulk-data-fetcher')
-    .usage('$0 --addresses WALLET1 WALLET2 ... [options]')
+    .usage('$0 --addresses WALLET1... | --walletsFile <path.json> | --uploadCsv <path.csv> [options]')
     .option('addresses', {
       alias: 'a',
       description: 'List of Solana wallet addresses to fetch data for',
-      type: 'array', // Changed to array
-      string: true, // Ensures elements are treated as strings
-      demandOption: true
+      type: 'array',
+      string: true,
+    })
+    .option('walletsFile', {
+      alias: 'f',
+      type: 'string',
+      description: 'Path to a JSON file containing wallet addresses or {address, label} objects',
+    })
+    .option('uploadCsv', {
+        alias: 'c',
+        type: 'string',
+        description: 'Path to a CSV file containing wallet addresses (one per line, optionally with label)',
     })
     .option('limit', {
       alias: 'l',
@@ -299,39 +330,100 @@ async function bulkFetchData(
       type: 'boolean',
       default: false
     })
+    .option('concurrency', { // Added concurrency option
+        alias: 'cn', // Example alias
+        description: 'Number of wallets to fetch data for in parallel',
+        type: 'number',
+        default: DEFAULT_CONCURRENCY
+    })
     .option('verbose', {
       alias: 'v',
       description: 'Enable detailed debug logging',
       type: 'boolean',
       default: false
     })
-    .example('npx ts-node src/scripts/bulk-data-fetcher.ts -a <WALLET1> <WALLET2> --ms 5000', 'Fetch up to 5000 new txns for each wallet')
-    .example('npx ts-node src/scripts/bulk-data-fetcher.ts -a <WALLET1> <WALLET2> --smartFetch --ms 10000', 'Ensure DB has at least 10k txns total for each wallet')
+    .check((argv) => {
+        const sources = [argv.addresses, argv.walletsFile, argv.uploadCsv].filter(Boolean).length;
+        if (sources === 0) throw new Error('One of --addresses, --walletsFile, or --uploadCsv is required.');
+        if (sources > 1) throw new Error('Provide only one of --addresses, --walletsFile, or --uploadCsv.');
+        return true;
+    })
+    .example('npx ts-node src/helpers/db/bulk-data-fetcher.ts --uploadCsv wallets_to_fetch.csv --ms 5000', 'Fetch up to 5000 new txns for wallets in CSV')
+    .example('npx ts-node src/helpers/db/bulk-data-fetcher.ts --walletsFile wallets.json --smartFetch --ms 10000', 'Ensure DB has 10k txns for wallets in JSON')
     .wrap(yargs.terminalWidth())
     .help()
     .alias('help', 'h')
     .version()
     .alias('version', 'V')
-    .epilogue('Fetches transaction history for multiple wallets and stores intermediate swap data in the database.')
+    .epilogue('Fetches transaction history for multiple wallets (from list or file) and stores intermediate swap data in the database.')
     .parse();
 
   const typedArgv = argv as {
-      addresses: string[];
+      addresses?: string[];
+      walletsFile?: string;
+      uploadCsv?: string;
       limit: number;
       maxSignatures?: number | null;
       smartFetch: boolean;
-      verbose: boolean; // Keep verbose for logging control
+      concurrency: number; // Added
+      verbose: boolean;
       [key: string]: unknown;
   };
 
+  let finalWalletAddresses: string[] = [];
+
+  if (typedArgv.addresses && typedArgv.addresses.length > 0) {
+      logger.info(`Processing ${typedArgv.addresses.length} wallets from command line arguments.`);
+      finalWalletAddresses = typedArgv.addresses;
+  } else if (typedArgv.walletsFile) {
+      logger.info(`Processing wallets from JSON file: ${typedArgv.walletsFile}`);
+      try {
+          const fileContent = fs.readFileSync(typedArgv.walletsFile, 'utf-8');
+          const walletsData = JSON.parse(fileContent);
+          if (Array.isArray(walletsData)) {
+              finalWalletAddresses = walletsData.map((item: any): string | null => {
+                  if (typeof item === 'string') return item.trim();
+                  if (item && typeof item.address === 'string') return item.address.trim();
+                  logger.warn(`Skipping invalid wallet entry in JSON file: ${JSON.stringify(item)}`);
+                  return null;
+              }).filter((addr): addr is string => addr !== null && addr !== '');
+          } else {
+              throw new Error('Wallets file is not a JSON array.');
+          }
+      } catch (error) {
+          logger.error(`Error reading or parsing JSON wallets file '${typedArgv.walletsFile}':`, { error });
+          process.exit(1);
+      }
+  } else if (typedArgv.uploadCsv) {
+      logger.info(`Processing wallets from CSV file: ${typedArgv.uploadCsv}`);
+      try {
+          const fileContent = fs.readFileSync(typedArgv.uploadCsv, 'utf-8');
+          const lines = fileContent.split('\n').filter(line => line.trim() !== '');
+          finalWalletAddresses = lines.map((line: string): string | null => {
+              const parts = line.split(',').map(p => p.trim());
+              const address = parts[0];
+              if (!address) return null; 
+              return address;
+          }).filter((addr): addr is string => addr !== null && addr !== '');
+      } catch (error) {
+          logger.error(`Error reading or parsing CSV wallets file '${typedArgv.uploadCsv}':`, { error });
+          process.exit(1);
+      }
+  }
+
+  if (finalWalletAddresses.length === 0) {
+      logger.error('No valid wallet addresses found from the specified source. Exiting.');
+      process.exit(1);
+  }
+
   try {
-      await bulkFetchData(typedArgv.addresses, {
+      await bulkFetchData(finalWalletAddresses, {
           limit: typedArgv.limit,
           maxSignatures: typedArgv.maxSignatures || null,
-          smartFetch: typedArgv.smartFetch
+          smartFetch: typedArgv.smartFetch,
+          concurrency: typedArgv.concurrency // Pass concurrency
       });
       logger.info("Script finished successfully.");
-      // Ensure prisma client disconnects
       await prisma.$disconnect();
       process.exit(0);
   } catch (error) {

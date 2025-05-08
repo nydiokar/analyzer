@@ -6,6 +6,7 @@ export interface HeliusApiConfig {
   apiKey: string;
   network?: 'mainnet' | 'devnet';
   baseUrl?: string;
+  requestsPerSecond?: number;
 }
 
 export interface HeliusTransaction {

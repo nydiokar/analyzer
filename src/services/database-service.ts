@@ -164,7 +164,7 @@ export async function saveCachedTransactions(transactions: HeliusTransaction[]) 
         logger.debug('No transactions provided to save to cache.');
         return { count: 0 };
     }
-    logger.info(`Attempting to save ${transactions.length} transactions to cache efficiently...`);
+    logger.debug(`Attempting to save ${transactions.length} transactions to cache efficiently...`);
 
     // 1. Get signatures from the incoming batch
     const incomingSignatures = transactions.map(tx => tx.signature);
