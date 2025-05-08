@@ -34,6 +34,8 @@ interface CorrelatorTransactionData {
     mint: string;
     timestamp: number; // Unix timestamp (seconds)
     direction: 'in' | 'out';
+    amount: number; // Added for completeness, though PNL relies on associatedSolValue
+    associatedSolValue: number; // Crucial for PNL
 }
 
 interface WalletInfo {
@@ -78,6 +80,8 @@ async function fetchRecentTransactions(
                 mint: true,
                 timestamp: true,
                 direction: true,
+                amount: true, // Fetch amount
+                associatedSolValue: true, // Fetch associated SOL value
             },
             orderBy: {
                 timestamp: 'desc',
@@ -89,7 +93,9 @@ async function fetchRecentTransactions(
         return transactions.map(t => ({
             mint: t.mint,
             timestamp: t.timestamp,
-            direction: t.direction === 'in' ? 'in' : 'out', // Explicitly ensure 'in' | 'out'
+            direction: t.direction === 'in' ? 'in' : 'out',
+            amount: t.amount, // Map amount
+            associatedSolValue: t.associatedSolValue, // Map associated SOL value
         } as CorrelatorTransactionData )).sort((a, b) => a.timestamp - b.timestamp);
     } catch (error) {
         logger.error(`Error fetching recent transactions for wallet ${walletAddress}:`, { error });
@@ -181,9 +187,100 @@ function saveCorrelatorReportToFile(reportContent: string): string {
     }
 }
 
+// --- Multi-Wallet Cluster Identification ---
+interface WalletCluster {
+    [clusterId: string]: string[];
+}
+
+/**
+ * Identifies clusters (connected components) of 3 or more wallets based on correlated pairs.
+ * A connection (edge) between two wallets exists if their correlation score meets minClusterScore.
+ */
+function identifyWalletClusters(
+    correlatedPairsData: CorrelatedPairData[],
+    minClusterScore: number
+): WalletCluster {
+    logger.debug(`Identifying wallet clusters with min pair score: ${minClusterScore}`);
+    const adj: Record<string, { wallet: string, score: number }[]> = {};
+    const allWalletsInScoredPairs = new Set<string>();
+
+    correlatedPairsData.forEach(pair => {
+        if (pair.score >= minClusterScore) {
+            adj[pair.walletA_address] = adj[pair.walletA_address] || [];
+            adj[pair.walletA_address].push({ wallet: pair.walletB_address, score: pair.score });
+            adj[pair.walletB_address] = adj[pair.walletB_address] || [];
+            adj[pair.walletB_address].push({ wallet: pair.walletA_address, score: pair.score });
+            allWalletsInScoredPairs.add(pair.walletA_address);
+            allWalletsInScoredPairs.add(pair.walletB_address);
+        }
+    });
+
+    const clusters: WalletCluster = {};
+    let clusterIdCounter = 0;
+    const visited = new Set<string>();
+
+    for (const wallet of allWalletsInScoredPairs) {
+        if (!visited.has(wallet)) {
+            const currentClusterMembers: string[] = [];
+            const stack: string[] = [wallet];
+            visited.add(wallet);
+
+            while (stack.length > 0) {
+                const u = stack.pop()!;
+                currentClusterMembers.push(u);
+
+                (adj[u] || []).forEach(edge => {
+                    if (!visited.has(edge.wallet)) {
+                        visited.add(edge.wallet);
+                        stack.push(edge.wallet);
+                    }
+                });
+            }
+
+            if (currentClusterMembers.length >= 3) {
+                clusters[`cluster_${clusterIdCounter++}`] = currentClusterMembers.sort();
+            }
+        }
+    }
+    logger.info(`Identified ${Object.keys(clusters).length} wallet clusters with 3+ members.`);
+    return clusters;
+}
+
+/**
+ * Appends the identified wallet clusters to the report content.
+ */
+function addClusterSectionToReport(
+    reportContent: string,
+    clusters: WalletCluster,
+    walletLabels: Record<string, string | undefined>,
+    walletPnLs: Record<string, number>
+): string {
+    let clusterReport = ""; // Initialize as empty, will be prepended with title if not part of existing content
+    if (!reportContent.includes("--- Multi-Wallet Cluster Analysis")) {
+        clusterReport += "\n\n--- Multi-Wallet Cluster Analysis (Groups of 3+) ---";
+    }
+
+    if (Object.keys(clusters).length === 0) {
+        clusterReport += "\nNo clusters of 3+ wallets found where pairs meet the minimum score threshold for clustering.\n";
+    } else {
+        Object.entries(clusters).forEach(([clusterId, clusterWallets]) => {
+            const cleanClusterId = clusterId.substring(clusterId.indexOf('_') + 1);
+            clusterReport += `\n\nCluster ${cleanClusterId} (${clusterWallets.length} wallets):\n`;
+            clusterWallets.forEach(walletAddr => {
+                const label = walletLabels[walletAddr] ? ` (${walletLabels[walletAddr]})` : '';
+                const pnl = walletPnLs[walletAddr]?.toFixed(2) || 'N/A';
+                clusterReport += `  - ${walletAddr}${label} (PNL: ${pnl} SOL)\n`;
+            });
+        });
+    }
+    clusterReport += "\n--- End of Multi-Wallet Cluster Analysis ---\n";
+    return reportContent + clusterReport;
+}
+
 async function analyzeCorrelations(
     wallets: WalletInfo[],
     allWalletsTransactions: Record<string, CorrelatorTransactionData[]>,
+    walletPnLs: Record<string, number>,
     config: {
         excludedMints: string[];
         recentTxCount: number;
@@ -333,6 +430,14 @@ async function analyzeCorrelations(
 
     correlatedPairs.sort((a, b) => b.score - a.score);
 
+    // --- CLUSTER IDENTIFICATION START ---
+    const MIN_CLUSTER_SCORE_THRESHOLD = 20; // Threshold for a pair to be part of a cluster connection
+    const walletLabelsMap: Record<string, string | undefined> = {};
+    wallets.forEach(w => { walletLabelsMap[w.address] = w.label; }); // Use the passed 'wallets'
+
+    const identifiedClusters = identifyWalletClusters(correlatedPairs, MIN_CLUSTER_SCORE_THRESHOLD);
+    // --- CLUSTER IDENTIFICATION END ---
+
     // 4. Report Generation
     const reportConfigForOutput = {
         ...config,
@@ -340,7 +445,57 @@ async function analyzeCorrelations(
         totalPopularTokens: totalPopularGlobal,
         totalNonObviousTokens: totalNonObviousGlobal,
     };
-    const reportText = generateCorrelatorReportText(wallets, correlatedPairs, reportConfigForOutput);
+
+    // Prepare base report text without PNL in pair headers yet.
+    // PNL will be injected when formatting the final report string with clusters.
+    let baseReportText = generateCorrelatorReportText(wallets, correlatedPairs, reportConfigForOutput);
+
+    // Re-generate the "Top Pairs" section with PNL data.
+    // This is a bit of a workaround to inject PNL into the existing generateCorrelatorReportText structure
+    // without overly complicating its direct parameters for this specific part.
+    let finalReportLines: string[] = [];
+    const headerAndGlobalStats = baseReportText.substring(0, baseReportText.indexOf('--- Top'));
+    finalReportLines.push(headerAndGlobalStats);
+
+    // Add Cluster section FIRST if clusters exist
+    if (Object.keys(identifiedClusters).length > 0) {
+        const clusterReportSection = addClusterSectionToReport("", identifiedClusters, walletLabelsMap, walletPnLs).trim(); // Pass walletPnLs
+        finalReportLines.push(clusterReportSection);
+        finalReportLines.push(''); // Add a newline separator
+    } else {
+        logger.info("No multi-wallet clusters identified meeting the threshold.");
+        finalReportLines.push("--- Multi-Wallet Cluster Analysis ---");
+        finalReportLines.push("No clusters of 3+ wallets found meeting the current criteria.");
+        finalReportLines.push(''); // Add a newline separator
+    }
+
+    // Now add Top Correlated Pairs section with PNL injected
+    finalReportLines.push(`--- Top ${Math.min(reportConfigForOutput.topKResults, correlatedPairs.length)} Correlated Wallet Pairs (out of ${correlatedPairs.length} found meeting thresholds) ---`);
+    if (correlatedPairs.length === 0) {
+        finalReportLines.push("No significantly correlated pairs found with current settings.");
+    } else {
+        correlatedPairs.slice(0, reportConfigForOutput.topKResults).forEach((pair, index) => {
+            const pnlA = walletPnLs[pair.walletA_address]?.toFixed(2) || 'N/A';
+            const pnlB = walletPnLs[pair.walletB_address]?.toFixed(2) || 'N/A';
+            const walletADisplay = `${pair.walletA_label || pair.walletA_address} (PNL: ${pnlA} SOL)`;
+            const walletBDisplay = `${pair.walletB_label || pair.walletB_address} (PNL: ${pnlB} SOL)`;
+            finalReportLines.push(`\n#${index + 1} Pair: ${walletADisplay} <-> ${walletBDisplay} (Score: ${pair.score})`);
+            finalReportLines.push(`  Shared Non-Obvious Tokens (${pair.sharedNonObviousTokens.length}):`);
+            pair.sharedNonObviousTokens.slice(0, 5).forEach(t => {
+                finalReportLines.push(`    - ${t.mint} (Wallet A txns: ${t.countA}, Wallet B txns: ${t.countB})`);
+            });
+            if (pair.sharedNonObviousTokens.length > 5) finalReportLines.push('    ... and more.');
+            
+            finalReportLines.push(`  Synchronized Events (${pair.synchronizedEvents.length} within ${config.syncTimeWindowSeconds}s):`);
+            pair.synchronizedEvents.slice(0, 5).forEach(e => {
+                finalReportLines.push(`    - ${e.direction.toUpperCase()} ${e.mint} @ A: ${new Date(e.timestampA*1000).toISOString()} B: ${new Date(e.timestampB*1000).toISOString()} (Diff: ${e.timeDiffSeconds}s)`);
+            });
+            if (pair.synchronizedEvents.length > 5) finalReportLines.push('    ... and more.');
+        });
+    }
+    finalReportLines.push('\n==================== END OF REPORT ====================');
+    const reportText = finalReportLines.join('\n');
+
     const reportPath = saveCorrelatorReportToFile(reportText);
 
     if (reportPath) {
@@ -381,6 +536,69 @@ async function main(
         }
     }
     
+    // --- BOT FILTERING START ---
+    const MAX_DAILY_TOKENS_FOR_FILTER = 50;
+    const dailyTokenCountsByWallet: Record<string, Record<string, Set<string>>> = {}; // Renamed for clarity
+
+    // Calculate daily unique token counts for each wallet
+    for (const walletInfo of targetWallets) {
+        const walletAddress = walletInfo.address;
+        const transactions = allFetchedTransactions[walletAddress];
+        if (!transactions) continue;
+
+        dailyTokenCountsByWallet[walletAddress] = dailyTokenCountsByWallet[walletAddress] || {};
+
+        transactions.forEach(txn => {
+            const day = new Date(txn.timestamp * 1000).toISOString().split('T')[0];
+            dailyTokenCountsByWallet[walletAddress][day] = dailyTokenCountsByWallet[walletAddress][day] || new Set<string>();
+            dailyTokenCountsByWallet[walletAddress][day].add(txn.mint);
+        });
+    }
+
+    const walletsForAnalysis = targetWallets.filter(wallet => {
+        const walletDailyActivity = dailyTokenCountsByWallet[wallet.address] || {};
+        const exceedsThreshold = Object.values(walletDailyActivity).some(
+            tokenSetOnDay => tokenSetOnDay.size > MAX_DAILY_TOKENS_FOR_FILTER
+        );
+
+        if (exceedsThreshold) {
+            logger.debug(`Filtering out wallet ${wallet.label || wallet.address} due to exceeding ${MAX_DAILY_TOKENS_FOR_FILTER} unique tokens on at least one day.`);
+            return false;
+        }
+        return true;
+    });
+
+    if (targetWallets.length !== walletsForAnalysis.length) {
+        logger.info(`Filtered out ${targetWallets.length - walletsForAnalysis.length} wallets suspected of bot activity (exceeding ${MAX_DAILY_TOKENS_FOR_FILTER} unique tokens traded in a single day). Reporting on ${walletsForAnalysis.length} wallets.`);
+    } else {
+        logger.info(`No wallets filtered out based on daily token activity. Reporting on all ${walletsForAnalysis.length} wallets.`);
+    }
+    // --- BOT FILTERING END ---
+    
+    // --- PNL CALCULATION START ---
+    const walletPnLs: Record<string, number> = {};
+
+    function calculateWalletPnlForCorrelator(transactions: CorrelatorTransactionData[]): number {
+        let pnl = 0;
+        // Transactions are already filtered by fetchRecentTransactions to exclude WSOL, USDC, USDT
+        // So, all transactions here are for other SPL tokens.
+        for (const tx of transactions) {
+            if (tx.direction === 'in') {
+                pnl -= tx.associatedSolValue; // Cost of acquiring token
+            } else if (tx.direction === 'out') {
+                pnl += tx.associatedSolValue; // Revenue from selling token
+            }
+        }
+        return pnl;
+    }
+
+    for (const walletInfo of walletsForAnalysis) {
+        const txs = allFetchedTransactions[walletInfo.address] || [];
+        walletPnLs[walletInfo.address] = calculateWalletPnlForCorrelator(txs);
+        logger.debug(`Calculated PNL for ${walletInfo.label || walletInfo.address}: ${walletPnLs[walletInfo.address].toFixed(2)} SOL`);
+    }
+    // --- PNL CALCULATION END ---
+    
     const analysisConfig = {
         excludedMints: excludedMintsList,
         recentTxCount: recentTxCount,
@@ -394,7 +612,7 @@ async function main(
         topKResults: cliConfig.topKResults,
     };
 
-    await analyzeCorrelations(targetWallets, allFetchedTransactions, analysisConfig);
+    await analyzeCorrelations(walletsForAnalysis, allFetchedTransactions, walletPnLs, analysisConfig);
 
     const endTime = process.hrtime(startTime);
     const durationSeconds = (endTime[0] + endTime[1] / 1e9).toFixed(2);

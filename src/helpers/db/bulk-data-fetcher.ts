@@ -22,7 +22,7 @@ process.env.LOG_LEVEL = verboseLogging ? 'debug' : 'info';
 const logger = createLogger('BulkDataFetcherScript');
 
 // --- Configuration for Concurrency ---
-const DEFAULT_CONCURRENCY = 8; // Number of wallets to process in parallel
+const DEFAULT_CONCURRENCY = 3; // Number of wallets to process in parallel
 
 /**
  * Helper function (copied from helius-analyzer.ts) to process and save transactions and update wallet state.

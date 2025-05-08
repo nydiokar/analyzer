@@ -364,17 +364,7 @@ if (require.main === module) {
     }
   }
   
-  // If no wallets provided, use example wallets
-  if (wallets.length === 0) {
-    console.log('No wallets provided. Using example wallets...');
-    // These would be replaced with actual addresses for the real implementation
-    wallets = [
-      { address: '28825R3yfxFwQXTPxXxwe3K7mJRssRwXcNBtWArbJcJAhXc4r4', label: 'FastFlipper' },
-      { address: 'So1anaD1e52aaJ2q1NkfWB6YYYEYDv9sbL1EtouWXk', label: 'HodlWallet' },
-      { address: 'As7HjL7dzzvbRbaD3WCun47robib2kmAKRXMvjHkSMB5', label: 'TrueFlipper' }
-    ];
-  }
-  
+
   // Run the analysis
   (async () => {
     try {
