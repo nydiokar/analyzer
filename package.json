@@ -1,6 +1,6 @@
 {
   "name": "crypto-data-analyzer",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Array of analizers. Major assets live crypto exchange from CoinGecko with verifiable storage, wallet address analysis, staking calculator, price change reporter, and more.",
   "main": "dist/index.js",
   "scripts": {
@@ -18,9 +18,14 @@
     "manage-alerts": "ts-node src/manage-alerts.ts",
     "calc-staking": "ts-node src/scripts/staking-calc.ts",
     "analyze-transfers": "ts-node src/scripts/transfer-analyzer.ts",
-    "analyze-helius": "ts-node src/scripts/helius-analyzer.ts",
+    "analyze": "ts-node src/scripts/helius-analyzer.ts",
     "analyze-changes": "ts-node src/scripts/price-change-reporter.ts",
-    "find-coin-id": "ts-node src/scripts/find-coin-id.ts"
+    "find-coin-id": "ts-node src/scripts/find-coin-id.ts",
+    "similarity": "ts-node src/scripts/activityCorrelator.ts",
+    "kpi-report": "ts-node src/scripts/kpi-comparison-report.ts",
+    "behavior-analyzer": "ts-node src/scripts/wallet-behavior-analyzer.ts",
+    "wallet-similarity": "ts-node src/scripts/walletSimilarity.ts",
+    "testargs": "node -p \"process.argv.slice(2).join(' ')\""
   },
   "keywords": [
     "crypto",

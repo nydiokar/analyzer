@@ -1,0 +1,41 @@
+=== WALLET TRADING BEHAVIOR ANALYSIS ===
+Wallet: FCahYqqrJt4ox1QXdCXwBQmFAgoSjm8K3oqcacqV5H9x
+
+TRADING STYLE CLASSIFICATION
+Primary Trading Style: True Flipper
+Classification Confidence: 89.3%
+
+CORE BEHAVIORAL METRICS
+Token-Level Buy/Sell Symmetry: 22.8% (100% = perfectly balanced token-by-token)
+Overall Buy:Sell Ratio: 0.20:1
+Median Hold Time: 0.0 hours
+Average Hold Time: 1.9 hours
+Trade Sequence Consistency: 81.5% (100% = perfect alternation)
+Complete Buy→Sell Pairs: 410 (of 199 tokens with both)
+
+TRADING TIME DISTRIBUTION
+Ultra-Fast (<30min): 81.2%
+Very Fast (30-60min): 6.3%
+Fast (1-4h): 6.6%
+Moderate (4-8h): 2.2%
+Day Trader (8-24h): 2.2%
+Swing (1-7d): 1.2%
+Position (>7d): 0.2%
+
+ACTIVITY SUMMARY
+Unique Tokens Traded: 203
+Total Buy Transactions: 533
+Total Sell Transactions: 2728
+Total Transactions: 3261
+Tokens With Complete Pairs: 199
+% Trades Under 1 Hour: 87.6%
+% Trades Under 4 Hours: 94.1%
+
+BEHAVIORAL INSIGHTS
+This wallet exhibits classic "True Flipper" behavior, characterized by:
+• Ultra-fast trading cycles (87.6% of trades completed within 1 hour)
+• Well-balanced buy/sell pattern at token level (22.8% symmetry)
+• Consistent buy→sell sequencing (81.5% consistency)
+
+This trader is likely focused on very short-term price movements, executing
+rapid trades to capture small volatility-based profits.

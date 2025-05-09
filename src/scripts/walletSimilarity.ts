@@ -25,6 +25,9 @@ const DEFAULT_EXCLUDED_MINTS: string[] = [
     // 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', // Marinade SOL
 ];
 
+/**
+ * Represents transaction data for a wallet, used in similarity analysis.
+ */
 interface WalletTransactionData {
     mint: string;
     amount: number; // Token units
@@ -33,12 +36,22 @@ interface WalletTransactionData {
     timestamp: number; // Unix timestamp (seconds)
 }
 
+/**
+ * Basic information about a wallet, including an optional label.
+ */
 interface WalletInfo {
     address: string;
     label?: string; // Optional friendly name from walletsFile
 }
 
 // --- Database Interaction ---
+/**
+ * Fetches transactions for a given wallet address from the database,
+ * excluding specified mints.
+ * @param walletAddress - The wallet address to fetch transactions for.
+ * @param excludedMints - An array of mint addresses to exclude.
+ * @returns A promise that resolves to an array of WalletTransactionData.
+ */
 async function fetchWalletTransactions(
     walletAddress: string,
     excludedMints: string[]
@@ -81,15 +94,18 @@ async function fetchWalletTransactions(
 
 // --- Data Processing ---
 
+/**
+ * Information about a token shared by multiple wallets.
+ */
 interface SharedTokenInfo {
     mint: string;
     sharedByWallets: string[];
-    count: number;
+    count: number; // Number of wallets sharing this token
 }
 
 /**
  * Analyzes and identifies tokens shared by two or more wallets.
- * @param walletData Record where keys are wallet addresses and values are their transaction data.
+ * @param walletData - A record where keys are wallet addresses and values are their transaction data.
  * @returns An array of SharedTokenInfo objects, sorted by the number of wallets sharing the token.
  */
 function analyzeSharedTokens(walletData: Record<string, WalletTransactionData[]>): SharedTokenInfo[] {
@@ -137,6 +153,12 @@ function analyzeSharedTokens(walletData: Record<string, WalletTransactionData[]>
     return sharedTokensResult;
 }
 
+/**
+ * Calculates the number of shared tokens between each pair of wallets.
+ * @param sharedTokenDetails - An array of SharedTokenInfo detailing which wallets share which tokens.
+ * @param targetWallets - An array of WalletInfo for the wallets being analyzed.
+ * @returns A nested record where `pairCounts[walletA][walletB]` is the number of tokens shared by walletA and walletB.
+ */
 function calculateWalletPairCounts(sharedTokenDetails: SharedTokenInfo[], targetWallets: WalletInfo[]): Record<string, Record<string, number>> {
     const walletAddresses = targetWallets.map(w => w.address).sort();
     const pairCounts: Record<string, Record<string, number>> = {};
@@ -170,14 +192,25 @@ function calculateWalletPairCounts(sharedTokenDetails: SharedTokenInfo[], target
 }
 
 // --- Vector Creation and Similarity (To be Revamped) ---
+/**
+ * Represents a token vector for a wallet, where keys are token mints and values represent some metric (e.g., amount, allocation).
+ */
 interface TokenVector {
-    [token: string]: number; // Currently sum of token amounts, will change to % capital
+    [token: string]: number;
 }
+/**
+ * Represents a collection of token vectors, keyed by wallet addresses.
+ */
 interface WalletVectors {
     [walletAddress: string]: TokenVector;
 }
 
-// OLD version - sum of token units
+/**
+ * @deprecated Old version. Creates token vectors based on the sum of token units.
+ * @param walletData - Transaction data for each wallet.
+ * @param allUniqueTokens - A list of all unique token mints across all wallets.
+ * @returns WalletVectors where values are the sum of token amounts.
+ */
 function createSimpleTokenVectors(
     walletData: Record<string, WalletTransactionData[]>,
     allUniqueTokens: string[]
@@ -201,7 +234,13 @@ function createSimpleTokenVectors(
     return vectors;
 }
 
-// NEW version - % of capital allocation
+/**
+ * Creates token vectors based on the percentage of capital allocated to each token.
+ * Capital allocation is determined by the SOL value of 'buy' (in) transactions.
+ * @param walletData - Transaction data for each wallet.
+ * @param allUniqueTokens - A list of all unique, non-excluded tokens bought by ANY analyzed wallet.
+ * @returns WalletVectors where values are the percentage of total capital allocated to each token.
+ */
 function createCapitalAllocationVectors(
     walletData: Record<string, WalletTransactionData[]>,
     allUniqueTokens: string[] // All unique, non-excluded tokens bought by ANY analyzed wallet
@@ -252,6 +291,12 @@ function createCapitalAllocationVectors(
     return vectors;
 }
 
+/**
+ * Calculates a similarity matrix between wallets based on their token vectors using cosine similarity.
+ * @param walletVectors - WalletVectors object.
+ * @param walletOrder - An array of wallet addresses defining the order for the matrix rows/columns.
+ * @returns A nested record `similarityMatrix[walletA][walletB]` representing the cosine similarity.
+ */
 function calculateSimilarityMatrix(
     walletVectors: WalletVectors,
     walletOrder: string[]
@@ -297,7 +342,10 @@ function calculateSimilarityMatrix(
 }
 
 /**
- * Creates binary vectors indicating token presence (1 if traded, 0 otherwise).
+ * Creates binary token vectors indicating token presence (1 if traded, 0 otherwise).
+ * @param walletData - Transaction data for each wallet.
+ * @param allUniqueTokens - A list of all unique, non-excluded tokens traded by ANY analyzed wallet.
+ * @returns WalletVectors where values are 1 if the token was traded by the wallet, 0 otherwise.
  */
 function createBinaryTokenVectors(
     walletData: Record<string, WalletTransactionData[]>,
@@ -321,8 +369,11 @@ function createBinaryTokenVectors(
 }
 
 /**
- * Calculates Jaccard Similarity between two binary vectors (sets).
- * Jaccard = |Intersection(A, B)| / |Union(A, B)|
+ * Calculates Jaccard Similarity between two binary token vectors.
+ * Jaccard Index = |Intersection(A, B)| / |Union(A, B)|
+ * @param vectorA - The first binary TokenVector.
+ * @param vectorB - The second binary TokenVector.
+ * @returns The Jaccard similarity coefficient, a value between 0 and 1.
  */
 function calculateJaccardSimilarity(vectorA: TokenVector, vectorB: TokenVector): number {
     let intersectionSize = 0;
@@ -346,6 +397,10 @@ function calculateJaccardSimilarity(vectorA: TokenVector, vectorB: TokenVector):
 
 /**
  * Calculates a similarity matrix using a provided similarity function (e.g., Jaccard).
+ * @param walletVectors - WalletVectors object where values are appropriate for the similarityFn.
+ * @param walletOrder - An array of wallet addresses defining the order for the matrix rows/columns.
+ * @param similarityFn - A function that takes two TokenVectors and returns a similarity score.
+ * @returns A nested record `similarityMatrix[walletA][walletB]` representing the similarity.
  */
 function calculateGenericSimilarityMatrix(
     walletVectors: WalletVectors, 
@@ -374,7 +429,13 @@ function calculateGenericSimilarityMatrix(
     return similarityMatrix;
 }
 
-// Keep the Cosine Similarity matrix function (specific implementation)
+/**
+ * Calculates a cosine similarity matrix between wallets based on their token vectors.
+ * This function is specifically for cosine similarity and uses the `compute-cosine-similarity` library.
+ * @param walletVectors - WalletVectors object.
+ * @param walletOrder - An array of wallet addresses defining the order for the matrix rows/columns.
+ * @returns A nested record `similarityMatrix[walletA][walletB]` representing the cosine similarity.
+ */
 function calculateCosineSimilarityMatrix(
     walletVectors: WalletVectors, 
     walletOrder: string[]
@@ -404,6 +465,15 @@ function calculateCosineSimilarityMatrix(
 
 // --- Reporting --- 
 
+/**
+ * Formats a matrix (e.g., similarity matrix, pair counts) into a string array for reporting.
+ * @param matrix - The matrix data (Record<string, Record<string, number | string>>).
+ * @param walletOrder - Array of wallet addresses for row/column order.
+ * @param labels - Record mapping wallet addresses to display labels.
+ * @param title - Title for this section of the report.
+ * @param valueFormatter - Function to format the numerical values in the matrix cells.
+ * @returns An array of strings, each representing a line in the formatted matrix report.
+ */
 function formatMatrix(matrix: Record<string, Record<string, number | string>>, walletOrder: string[], labels: Record<string, string>, title: string, valueFormatter: (val: number | string) => string): string[] {
     const lines: string[] = [`=== ${title} ===`, ''];
     const displayLabels = walletOrder.map(addr => labels[addr] || addr.substring(0, 10));
@@ -430,6 +500,17 @@ function formatMatrix(matrix: Record<string, Record<string, number | string>>, w
     return lines;
 }
 
+/**
+ * Generates a comprehensive textual report for the wallet similarity analysis.
+ * @param targetWallets - Array of WalletInfo for the analyzed wallets.
+ * @param allWalletTransactions - Transaction data for all analyzed wallets.
+ * @param excludedMints - List of mints excluded from the analysis.
+ * @param sharedTokenDetails - Details of tokens shared among wallets.
+ * @param pairCounts - Matrix of shared token counts between wallet pairs.
+ * @param capitalSimilarityMatrix - Cosine similarity matrix based on capital allocation.
+ * @param assetOverlapMatrix - Jaccard similarity matrix based on asset overlap.
+ * @returns A string containing the formatted similarity report.
+ */
 function generateSimilarityReport(
     targetWallets: WalletInfo[],
     allWalletTransactions: Record<string, WalletTransactionData[]>,
@@ -548,6 +629,13 @@ function generateSimilarityReport(
     return reportLines.join('\n');
 }
 
+/**
+ * Saves the report content to a text file in the 'reports' directory.
+ * The filename includes a timestamp and a prefix.
+ * @param reportContent - The string content of the report to save.
+ * @param filenamePrefix - Optional prefix for the report filename.
+ * @returns The full path to the saved report file, or an empty string if saving failed.
+ */
 function saveReportToFile(reportContent: string, filenamePrefix: string = 'wallet_similarity'): string {
     const dir = path.join(process.cwd(), 'reports');
     if (!fs.existsSync(dir)) {
@@ -574,6 +662,13 @@ function saveReportToFile(reportContent: string, filenamePrefix: string = 'walle
 }
 
 // --- Main Execution --- 
+/**
+ * Main function to orchestrate the wallet similarity analysis.
+ * Fetches data, analyzes shared tokens, calculates various similarity matrices,
+ * and generates a report.
+ * @param targetWallets - An array of WalletInfo objects for the wallets to be analyzed.
+ * @param excludedMints - An array of mint addresses to exclude from the analysis.
+ */
 async function main(targetWallets: WalletInfo[], excludedMints: string[]) {
     const startTime = process.hrtime();
     logger.info(`Starting wallet similarity analysis for ${targetWallets.length} wallets...`);
@@ -673,6 +768,9 @@ async function main(targetWallets: WalletInfo[], excludedMints: string[]) {
 
 // --- CLI argument parsing and main call --- 
 
+/**
+ * Interface for command-line arguments parsed by yargs for the wallet similarity script.
+ */
 interface CliArgs {
     wallets?: string;
     walletsFile?: string;

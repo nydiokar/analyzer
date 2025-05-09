@@ -544,9 +544,9 @@ function getTransactionStats(transactions: HeliusTransaction[]) {
 (async () => {
   const argv = await yargs(hideBin(process.argv))
     .scriptName('helius-analyzer')
-    .usage('$0 --address WALLET_ADDRESS [options]')
-    .option('address', {
-      alias: 'a',
+    .usage('$0 --wallets WALLET_ADDRESS [options]')
+    .option('wallets', {
+      alias: 'w',
       description: 'Solana wallet address to analyze',
       type: 'string',
       demandOption: true
@@ -612,10 +612,10 @@ function getTransactionStats(transactions: HeliusTransaction[]) {
       type: 'boolean',
       default: false
     })
-    .example('npx ts-node src/scripts/helius-analyzer.ts --address <WALLET> --smartFetch --ms 3000', 'Fetch newer transactions first, then older ones to reach 3000 total')
-    .example('npx ts-node src/scripts/helius-analyzer.ts --address <WALLET> --period month', 'Analyze transactions from the past month')
-    .example('npx ts-node src/scripts/helius-analyzer.ts --address <WALLET> --skipApi', 'Analyze using only cached data from database')
-    .example('npx ts-node src/scripts/helius-analyzer.ts --address <WALLET> --startDate 2023-06-01 --endDate 2023-12-31', 'Analyze specific date range')
+    .example('npx ts-node src/scripts/helius-analyzer.ts --wallets <WALLET> --smartFetch --ms 3000', 'Fetch newer transactions first, then older ones to reach 3000 total')
+    .example('npx ts-node src/scripts/helius-analyzer.ts --wallets <WALLET> --period month', 'Analyze transactions from the past month')
+    .example('npx ts-node src/scripts/helius-analyzer.ts --wallets <WALLET> --skipApi', 'Analyze using only cached data from database')
+    .example('npx ts-node src/scripts/helius-analyzer.ts --wallets <WALLET> --startDate 2023-06-01 --endDate 2023-12-31', 'Analyze specific date range')
     .wrap(yargs.terminalWidth())
     .help()
     .alias('help', 'h')
@@ -625,7 +625,7 @@ function getTransactionStats(transactions: HeliusTransaction[]) {
     .parse();
 
   const typedArgv = argv as {
-      address: string;
+      wallets: string;
       limit: number;
       fetchAll: boolean;
       saveAnalysisCsv: boolean;
@@ -675,7 +675,7 @@ function getTransactionStats(transactions: HeliusTransaction[]) {
   // --- End date range processing ---
   
   await analyzeWalletWithHelius(
-    typedArgv.address,
+    typedArgv.wallets,
     {
       limit: typedArgv.limit,
       fetchAll: typedArgv.fetchAll,

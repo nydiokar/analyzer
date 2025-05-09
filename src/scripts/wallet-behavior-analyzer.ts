@@ -16,7 +16,7 @@
  * 
  * Usage:
  * ```
- * npx ts-node src/scripts/wallet-behavior-analyzer.ts --address <WALLET_ADDRESS>
+ * npx ts-node src/scripts/wallet-behavior-analyzer.ts --wallets <WALLET_ADDRESS>
  * ```
  * 
  * @module WalletBehaviorAnalyzer
@@ -691,9 +691,9 @@ if (require.main === module) {
   const { hideBin } = require('yargs/helpers');
   
   const argv = yargs(hideBin(process.argv))
-    .usage('$0 --address <wallet-address> [options]')
-    .option('address', {
-      alias: 'a',
+    .usage('$0 --wallets <wallet-address> [options]')
+    .option('wallets', {
+      alias: 'w',
       description: 'Solana wallet address to analyze',
       type: 'string',
       demandOption: true
@@ -764,15 +764,15 @@ if (require.main === module) {
   // Run the analysis
   (async () => {
     try {
-      const metrics = await analyzeTradingBehavior(argv.address, timeRange);
-      const report = generateBehaviorReport(argv.address, metrics);
+      const metrics = await analyzeTradingBehavior(argv.wallets as string, timeRange);
+      const report = generateBehaviorReport(argv.wallets as string, metrics);
       
       // Display report to console
       console.log(report);
       
       // Save report if requested
       if (argv.saveReport) {
-        const filepath = saveBehaviorReport(argv.address, report);
+        const filepath = saveBehaviorReport(argv.wallets as string, report);
         console.log(`\nReport saved to: ${filepath}`);
       }
     } catch (error) {

@@ -30,6 +30,9 @@ const DEFAULT_NON_OBVIOUS_THRESHOLD_PERCENT = 0.2; // Exclude top 20% most frequ
 const DEFAULT_MIN_OCCURRENCES_FOR_POPULAR = 100; // Or if a token appears > 100 times (adjust based on dataset size)
 const DEFAULT_TOP_K_RESULTS = 50;
 
+/**
+ * Represents transaction data relevant for correlation analysis.
+ */
 interface CorrelatorTransactionData {
     mint: string;
     timestamp: number; // Unix timestamp (seconds)
@@ -38,11 +41,17 @@ interface CorrelatorTransactionData {
     associatedSolValue: number; // Crucial for PNL
 }
 
+/**
+ * Basic information about a wallet.
+ */
 interface WalletInfo {
     address: string;
     label?: string;
 }
 
+/**
+ * Data structure for a pair of correlated wallets.
+ */
 interface CorrelatedPairData {
     walletA_address: string;
     walletA_label?: string;
@@ -60,6 +69,13 @@ interface CorrelatedPairData {
 }
 
 // --- Database Interaction ---
+/**
+ * Fetches recent transactions for a given wallet address, excluding specified mints.
+ * @param walletAddress - The wallet address to fetch transactions for.
+ * @param transactionCount - The maximum number of recent transactions to fetch.
+ * @param excludedMints - An array of mint addresses to exclude from the results.
+ * @returns A promise that resolves to an array of CorrelatorTransactionData.
+ */
 async function fetchRecentTransactions(
     walletAddress: string,
     transactionCount: number,
@@ -103,6 +119,13 @@ async function fetchRecentTransactions(
     }
 }
 
+/**
+ * Generates a textual report of the wallet correlation analysis.
+ * @param wallets - Array of WalletInfo objects for the analyzed wallets.
+ * @param correlatedPairsData - Array of CorrelatedPairData objects.
+ * @param config - Configuration object used for the analysis.
+ * @returns A string containing the formatted report.
+ */
 function generateCorrelatorReportText(
     wallets: WalletInfo[],
     correlatedPairsData: CorrelatedPairData[],
@@ -166,6 +189,12 @@ function generateCorrelatorReportText(
     return reportLines.join('\n');
 }
 
+/**
+ * Saves the correlator report content to a text file in the 'reports' directory.
+ * The filename includes a timestamp.
+ * @param reportContent - The string content of the report to save.
+ * @returns The full path to the saved report file, or an empty string if saving failed.
+ */
 function saveCorrelatorReportToFile(reportContent: string): string {
     const dir = path.join(process.cwd(), 'reports');
     if (!fs.existsSync(dir)) {
@@ -188,6 +217,10 @@ function saveCorrelatorReportToFile(reportContent: string): string {
 }
 
 // --- Multi-Wallet Cluster Identification ---
+/**
+ * Represents a collection of wallet clusters, where each cluster is an array of wallet addresses.
+ * The key is a string identifier for the cluster (e.g., "cluster_0").
+ */
 interface WalletCluster {
     [clusterId: string]: string[];
 }
@@ -195,6 +228,9 @@ interface WalletCluster {
 /**
  * Identifies clusters (connected components) of 3 or more wallets based on correlated pairs.
  * A connection (edge) between two wallets exists if their correlation score meets minClusterScore.
+ * @param correlatedPairsData - Array of correlated pair data.
+ * @param minClusterScore - The minimum correlation score for a pair to be considered connected for clustering.
+ * @returns A WalletCluster object where keys are cluster IDs and values are arrays of wallet addresses in that cluster.
  */
 function identifyWalletClusters(
     correlatedPairsData: CorrelatedPairData[],
@@ -247,7 +283,12 @@ function identifyWalletClusters(
 }
 
 /**
- * Appends the identified wallet clusters to the report content.
+ * Appends the identified wallet clusters section to the main report content.
+ * @param reportContent - The existing report content string.
+ * @param clusters - The identified WalletCluster object.
+ * @param walletLabels - A record mapping wallet addresses to their labels.
+ * @param walletPnLs - A record mapping wallet addresses to their PNL values.
+ * @returns The report content string with the cluster section appended.
  */
 function addClusterSectionToReport(
     reportContent: string,
@@ -277,6 +318,15 @@ function addClusterSectionToReport(
     return reportContent + clusterReport;
 }
 
+/**
+ * Analyzes correlations between wallets based on their transaction data.
+ * This function performs global token frequency analysis, pairwise wallet analysis,
+ * identifies clusters, and generates a report.
+ * @param wallets - An array of WalletInfo objects representing the wallets to analyze.
+ * @param allWalletsTransactions - A record mapping wallet addresses to their transaction data.
+ * @param walletPnLs - A record mapping wallet addresses to their calculated PNL.
+ * @param config - Configuration object for the correlation analysis.
+ */
 async function analyzeCorrelations(
     wallets: WalletInfo[],
     allWalletsTransactions: Record<string, CorrelatorTransactionData[]>,
@@ -507,6 +557,15 @@ async function analyzeCorrelations(
     }
 }
 
+/**
+ * Main function to orchestrate the wallet activity correlation process.
+ * It fetches transaction data, performs bot filtering, calculates PNL,
+ * and then runs the correlation analysis.
+ * @param targetWallets - An array of WalletInfo objects for the wallets to be analyzed.
+ * @param excludedMintsList - An array of mint addresses to exclude from analysis.
+ * @param recentTxCount - The number of recent transactions to fetch per wallet.
+ * @param cliConfig - Configuration options passed from the CLI.
+ */
 async function main(
     targetWallets: WalletInfo[],
     excludedMintsList: string[],
@@ -619,6 +678,9 @@ async function main(
     logger.info(`Wallet activity correlation process completed in ${durationSeconds}s.`);
 }
 
+/**
+ * Interface for command-line arguments parsed by yargs.
+ */
 interface CliArgs {
     wallets?: string;
     walletsFile?: string;
