@@ -32,7 +32,7 @@ model Wallet {
 model HeliusTransactionCache {
   signature   String   @id @unique
   timestamp   Int      
-  rawData     Json     
+  rawData     Bytes     
   fetchedAt   DateTime @default(now())
 
   @@index([timestamp])

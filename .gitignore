@@ -1,14 +1,11 @@
+
 .env 
-data/
 logs/
 node_modules/
 dist/
 cline_docs/
 test/
 *.json
-active_alerts/
-all_alerts/
-analysis_reports/
 .cache/
 .vscode/
 .idea/
@@ -16,6 +13,23 @@ analysis_reports/
 .venv/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
+*.db-trace
+*.db-lock
+*.db-trace
+*.db-lock
+migrate_rawdata_to_compressed.py
+run_vacuum.py
+
+## DATA 
+data/
+reports/
+active_alerts/
+all_alerts/
+alerts.json
+
+## PROJECT DOCUMENTATION
 9. DNM.md
 99.DS01.md
 99.DS02.md
@@ -23,5 +37,3 @@ analysis_reports/
 99.DS04.md
 99.DS05.md
 99.DS06.md
-alerts.json
-/reports
