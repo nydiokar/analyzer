@@ -4,7 +4,7 @@ import { createLogger } from '../../utils/logger'; // Assuming logger path is co
 const prisma = new PrismaClient();
 const logger = createLogger('DeleteWalletInputs');
 
-const WALLET_TO_DELETE = '28825K3yfxFwQXTPxkxwe3K4bVtbA4z8Myx3N2zm4R6J'; // <-- IMPORTANT: Replace this!
+const WALLET_TO_DELETE = '5xLyAv2VoKpc31HxMbi324MCZgsw4KN5GBMShAPmz6tf'; // <-- IMPORTANT: Replace this!
 
 async function deleteInputs() {
   if (!WALLET_TO_DELETE) {

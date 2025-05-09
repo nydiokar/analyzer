@@ -28,6 +28,7 @@ reports/
 active_alerts/
 all_alerts/
 alerts.json
+analysis_reports/
 
 ## PROJECT DOCUMENTATION
 9. DNM.md

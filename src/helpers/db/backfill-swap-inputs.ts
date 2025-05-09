@@ -6,6 +6,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { createLogger } from '../../utils/logger';
 import { mapHeliusTransactionsToIntermediateRecords } from '../../services/helius-transaction-mapper';
 import { HeliusTransaction } from '../../types/helius-api';
+import zlib from 'zlib';
 
 // Initialize environment variables
 dotenv.config();
@@ -22,7 +23,7 @@ interface ExtendedSwapAnalysisInput extends Prisma.SwapAnalysisInputCreateInput 
   feePercentage?: number | null;
 }
 
-const DEFAULT_BATCH_SIZE = 500; // Process N cached transactions at a time
+const DEFAULT_BATCH_SIZE = 200; // Process N cached transactions at a time
 const CONCURRENT_OPERATIONS = 50; // Number of operations to run in parallel
 
 // *** Original Single Transaction Processing Function (Logs Only) ***
@@ -52,12 +53,19 @@ async function processSingleTransaction(walletAddress: string, signature: string
 
   let parsedTransaction: HeliusTransaction | null = null;
   try {
-    const parsed = JSON.parse(cachedTransactionData.rawData as string) as HeliusTransaction;
+    const rawDataBuffer = cachedTransactionData.rawData as Buffer;
+    if (!Buffer.isBuffer(rawDataBuffer)) {
+      logger.error(`Transaction ${signature} rawData is not a Buffer. Type: ${typeof rawDataBuffer}. Skipping.`);
+      return;
+    }
+    const decompressedBuffer = zlib.inflateSync(rawDataBuffer);
+    const decompressedString = decompressedBuffer.toString('utf-8');
+    const parsed = JSON.parse(decompressedString) as HeliusTransaction;
+
     if (parsed && parsed.signature && parsed.timestamp) {
       parsedTransaction = parsed;
     } else {
       logger.warn(`Cached transaction ${signature} has missing critical data after parsing.`);
-      return;
     }
   } catch (parseError) {
     logger.error(`Failed to parse rawData for cached signature: ${cachedTransactionData.signature}`, { error: parseError });
@@ -160,6 +168,13 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
   let totalWsolSkipped = 0;
   let totalWithFeeData = 0;
 
+  // Counter for problematic rawData to Buffer conversions (limits console.log spam)
+  let problematicRowsCounter: number = 0; 
+  // Counter for errors during decompression/parsing after successful Buffer conversion
+  let problematicProcessingErrorCounter: number = 0; 
+  // Counter for successfully parsed but missing critical fields
+  let missingFieldsLogCounter: number = 0;
+
   const errorTypes = new Map<string, number>();
   const errorSamples = new Map<string, string[]>();
   const MAX_SAMPLE_ERRORS = 5;
@@ -172,13 +187,19 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
     logger.debug(`Fetching batch of cached transactions (skip: ${skip}, take: ${batchSize})...`);
     let cachedTransactionsData: { signature: string; rawData: any }[] = [];
     try {
-        // Fetch transactions (same as before)
          cachedTransactionsData = await prisma.heliusTransactionCache.findMany({
              select: { signature: true, rawData: true },
-             orderBy: { timestamp: 'asc' },
+             orderBy: { timestamp: 'asc' }, 
              skip: skip,
              take: batchSize,
          });
+         logger.info(`Fetched ${cachedTransactionsData.length} records in this batch (skip: ${skip}).`);
+         if (cachedTransactionsData.length > 0 && skip === 0) { // Log details only for the very first batch
+             logger.info(`First record in first batch - Signature: ${cachedTransactionsData[0].signature}, rawData type: ${typeof cachedTransactionsData[0].rawData}, isBuffer: ${Buffer.isBuffer(cachedTransactionsData[0].rawData)}`);
+             if (Buffer.isBuffer(cachedTransactionsData[0].rawData)) {
+                 logger.info(`  rawData Buffer length (first record, first batch): ${cachedTransactionsData[0].rawData.length}`);
+             }
+         }
     } catch (dbError) {
         // Error handling (same as before)
         const errorType = getErrorType(dbError);
@@ -200,11 +221,115 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
          try {
              if (processedSignatures.has(cachedTx.signature)) continue;
              processedSignatures.add(cachedTx.signature);
-             const parsed = JSON.parse(cachedTx.rawData as string) as HeliusTransaction;
-             if (parsed && parsed.signature && parsed.timestamp) {
-                 parsedTransactions.push(parsed);
-             } else { /* log warning */ }
-         } catch (parseError) { /* handle parse error */ }
+
+             let rawDataBufferLoop: Buffer; 
+             const rawDataObject = cachedTx.rawData; 
+
+             if (Buffer.isBuffer(rawDataObject)) {
+                 rawDataBufferLoop = rawDataObject;
+             } else if (typeof rawDataObject === 'object' && rawDataObject !== null && rawDataObject.type === 'Buffer' && Array.isArray(rawDataObject.data)) {
+                 rawDataBufferLoop = Buffer.from(rawDataObject.data);
+             } else if (typeof rawDataObject === 'object' && rawDataObject !== null && !Array.isArray(rawDataObject)) {
+                 const byteArray = Object.values(rawDataObject).filter(v => typeof v === 'number') as number[];
+                 const isValidByteArrayCheck = byteArray.length > 0 && byteArray.every(v => typeof v === 'number' && v >= 0 && v <= 255);
+                 if (isValidByteArrayCheck) {
+                     rawDataBufferLoop = Buffer.from(byteArray);
+                 } else {
+                    logger.warn(`Cached transaction ${cachedTx.signature} rawData is not a Buffer and not a recognized Buffer-like object (array-like failed conversion). Type: ${typeof rawDataObject}. Skipping.`);
+                    if (problematicRowsCounter < 2) { 
+                        // console.log(`Problematic rawDataObject (unhandled type) for ${cachedTx.signature}:`, JSON.stringify(rawDataObject, null, 2));
+                    }
+                    problematicRowsCounter++;
+                    continue;
+                 }
+             } else {
+                 logger.warn(`Cached transaction ${cachedTx.signature} rawData is not a Buffer and not a recognized Buffer-like object. Type: ${typeof rawDataObject}. Skipping.`);
+                 if (problematicRowsCounter < 2) { 
+                     // console.log(`Problematic rawDataObject (unhandled type) for ${cachedTx.signature}:`, JSON.stringify(rawDataObject, null, 2));
+                 }
+                 problematicRowsCounter++;
+                 continue;
+             }
+
+             // At this point, rawDataBufferLoop should be a valid Buffer
+             // Now, try to decompress and parse it.
+             try {
+                const decompressedBuffer = zlib.inflateSync(rawDataBufferLoop);
+                const decompressedString = decompressedBuffer.toString('utf-8');
+                
+                // Perform a single JSON.parse, assuming decompressedString is now always a clean single JSON string
+                const parsed = JSON.parse(decompressedString) as HeliusTransaction;
+
+                // Basic validation after the single parse
+                if (parsed && typeof parsed === 'object' && parsed.signature && parsed.timestamp) {
+                    parsedTransactions.push(parsed);
+                } else {
+                    if (missingFieldsLogCounter < 3) {
+                        logger.warn(`[MISSING DATA AFTER PARSE] Transaction ${cachedTx.signature} appears to be missing critical data after successful parsing or is not an object.`);
+                        logger.warn(`  Details for ${cachedTx.signature} (Occurrence #${missingFieldsLogCounter + 1}):`);
+                        logger.warn(`    typeof parsed: ${typeof parsed}, parsed value: ${JSON.stringify(parsed, null, 2)?.substring(0, 1000)}...`);
+                        if (parsed && typeof parsed === 'object') {
+                            logger.warn(`    parsed.signature type: ${typeof (parsed as any).signature}, value: ${(parsed as any).signature}`);
+                            logger.warn(`    parsed.timestamp type: ${typeof (parsed as any).timestamp}, value: ${(parsed as any).timestamp}`);
+                        }
+                        missingFieldsLogCounter++;
+                    }
+                }
+            } catch (processError: any) {
+                let stage = "unknown_processing";
+                let errorDetails: any = { message: processError.message };
+
+                if (processError.message.toLowerCase().includes('incorrect header check') || 
+                    processError.message.toLowerCase().includes('invalid block type') || 
+                    processError.message.toLowerCase().includes('zlib') ||
+                    processError.code // zlib errors often have error codes like 'Z_DATA_ERROR'
+                ) {
+                    stage = "zlib_inflate";
+                    errorDetails.code = processError.code;
+                } else if (processError instanceof SyntaxError) { // JSON.parse errors are SyntaxError
+                    stage = "json_parse";
+                } else if (processError.message.toLowerCase().includes('tostring')) { // Less common for Buffer.toString('utf-8')
+                    stage = "buffer_tostring";
+                }
+
+                logger.error(`Error during ${stage} for ${cachedTx.signature}`, {
+                    signature: cachedTx.signature,
+                    errorName: processError.name,
+                    errorMessage: processError.message,
+                    errorCode: processError.code, // Include zlib error code if present
+                });
+
+                if (problematicProcessingErrorCounter < 3) {
+                    if (stage === "zlib_inflate") {
+                        logger.warn(`  Buffer sample (first 64 bytes hex) for failed inflate on ${cachedTx.signature}: ${rawDataBufferLoop.slice(0, 64).toString('hex')}`);
+                    } else if (stage === "json_parse") {
+                        try {
+                            // Re-attempt decompression for logging, assuming inflate might have worked but string was bad
+                            const tempDecompressedForLog = zlib.inflateSync(rawDataBufferLoop).toString('utf-8');
+                            logger.warn(`  Decompressed string snippet (first 200 chars) for failed JSON.parse on ${cachedTx.signature}: ${tempDecompressedForLog.substring(0,200)}...`);
+                        } catch (e) {
+                            logger.warn(`  Could not get decompressed string for JSON.parse error log on ${cachedTx.signature}. Original inflate/buffer may also be an issue.`);
+                            logger.warn(`  Buffer sample (first 64 bytes hex) for ${cachedTx.signature} leading to JSON parse error: ${rawDataBufferLoop.slice(0, 64).toString('hex')}`);
+                        }
+                    }
+                     problematicProcessingErrorCounter++;
+                }
+                const errorType = getErrorType(processError);
+                incrementErrorCount(errorType, `Processing (${stage}) error for ${cachedTx.signature}: ${processError.message}`, errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
+            }
+
+         } catch (outerError: any) { 
+             logger.error(`Outer catch: Unhandled error processing cached signature: ${cachedTx.signature}`, { errorName: outerError.name, errorMessage: outerError.message });
+             const errorType = getErrorType(outerError);
+             incrementErrorCount(errorType, `Outer error for ${cachedTx.signature}: ${outerError.message}`, errorTypes, errorSamples, MAX_SAMPLE_ERRORS);
+         }
+    }
+    logger.info(`After parsing loop for batch (skip: ${skip}), parsedTransactions.length: ${parsedTransactions.length}`);
+
+    if (parsedTransactions.length === 0 && cachedTransactionsData.length > 0) {
+        logger.warn(`  Batch (skip: ${skip}) had ${cachedTransactionsData.length} records but resulted in 0 parsed transactions. Check parsing logic or rawData content for this batch.`);
+        // Optionally log the first signature of this problematic batch if needed for deeper inspection
+        // logger.warn(`    First signature in this non-parsing batch: ${cachedTransactionsData[0].signature}`);
     }
 
     if (parsedTransactions.length === 0) {
@@ -401,28 +526,28 @@ function logErrorDistribution(
 }
 
 function debugMapperOutput(mappedInputs: any[]): void {
-  logger.debug('--- Debugging Mapper Output ---');
+  // logger.debug('--- Debugging Mapper Output ---'); // Can be noisy
   if (!mappedInputs || mappedInputs.length === 0) {
-    logger.debug('Mapper produced 0 records.');
+    // logger.debug('Mapper produced 0 records.'); // Can be noisy
     return;
   }
-  logger.debug(`Mapper produced ${mappedInputs.length} record(s).`);
-  const sampleSize = Math.min(mappedInputs.length, 3); // Log details for up to 3 records
-  logger.debug(`Showing details for the first ${sampleSize} record(s):`);
+  // logger.debug(`Mapper produced ${mappedInputs.length} record(s).`); // Can be noisy
+  const sampleSize = Math.min(mappedInputs.length, 1); // Log details for up to 1 record to reduce noise
+  // logger.debug(`Showing details for the first ${sampleSize} record(s):`); // Can be noisy
   for (let i = 0; i < sampleSize; i++) {
     const record = mappedInputs[i];
-    logger.debug(`Record ${i + 1}: ${JSON.stringify(record, null, 2)}`);
+    // logger.debug(`Record ${i + 1}: ${JSON.stringify(record, null, 2)}`); // Can be very noisy
     // Specifically check for fee data if expected
     if (record && (record.feeAmount !== undefined || record.feePercentage !== undefined)) {
-      logger.debug(`  Record ${i + 1} fee data: amount=${record.feeAmount}, percentage=${record.feePercentage}`);
+      // logger.debug(`  Record ${i + 1} fee data: amount=${record.feeAmount}, percentage=${record.feePercentage}`);
     } else {
-      logger.debug(`  Record ${i + 1} does NOT contain explicit feeAmount/feePercentage fields.`);
+      // logger.debug(`  Record ${i + 1} does NOT contain explicit feeAmount/feePercentage fields.`);
     }
   }
-  if (mappedInputs.length > sampleSize) {
-    logger.debug(`... and ${mappedInputs.length - sampleSize} more record(s).`);
-  }
-  logger.debug('--- End Debugging Mapper Output ---');
+  // if (mappedInputs.length > sampleSize) {
+  //   logger.debug(`... and ${mappedInputs.length - sampleSize} more record(s).`);
+  // }
+  // logger.debug('--- End Debugging Mapper Output ---'); // Can be noisy
 }
 
 // --- Main Execution ---

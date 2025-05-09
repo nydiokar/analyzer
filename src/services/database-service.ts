@@ -9,6 +9,7 @@ import {
 } from '@prisma/client';
 import { HeliusTransaction } from '../types/helius-api'; // Assuming HeliusTransaction type is defined here
 import { createLogger } from '../utils/logger'; // Assuming createLogger function is defined in utils
+import zlib from 'zlib'; // Added zlib
 
 // Instantiate Prisma Client - Singleton pattern recommended for production
 // Exporting the instance directly is simple for this stage
@@ -89,7 +90,6 @@ export async function updateWallet(walletAddress: string, data: WalletUpdateData
 export async function getCachedTransaction(
   signature: string | string[]
 ): Promise<HeliusTransaction | null | HeliusTransaction[] | Map<string, HeliusTransaction>> {
-  // Handle single signature case
   if (typeof signature === 'string') {
     try {
       const cached = await prisma.heliusTransactionCache.findUnique({
@@ -97,9 +97,20 @@ export async function getCachedTransaction(
       });
       if (cached) {
         try {
-          return JSON.parse(cached.rawData as string) as HeliusTransaction;
-        } catch (parseError) {
-          logger.error(`Failed to parse cached rawData for signature ${signature}`, { error: parseError });
+          const rawDataObject = cached.rawData; // Prisma infers type, should be Buffer if schema is Bytes
+          if (Buffer.isBuffer(rawDataObject)) {
+            const decompressedBuffer = zlib.inflateSync(rawDataObject);
+            const jsonString = decompressedBuffer.toString('utf-8');
+            return JSON.parse(jsonString) as HeliusTransaction;
+          } else if (typeof rawDataObject === 'string') {
+            logger.warn(`[CacheRead] rawData for ${signature} is a string (old format?), attempting direct parse.`);
+            return JSON.parse(rawDataObject) as HeliusTransaction;
+          } else {
+            logger.error(`[CacheRead] rawData for ${signature} is neither Buffer nor string. Type: ${typeof rawDataObject}, Value: ${JSON.stringify(rawDataObject)?.substring(0,100)}`);
+            return null;
+          }
+        } catch (processError) {
+          logger.error(`Failed to process cached rawData for signature ${signature}`, { error: processError });
           return null;
         }
       } else {
@@ -111,12 +122,10 @@ export async function getCachedTransaction(
     }
   }
   
-  // Handle array of signatures case (batch operation)
   if (Array.isArray(signature)) {
     if (signature.length === 0) {
       return new Map();
     }
-    
     try {
       const cachedRecords = await prisma.heliusTransactionCache.findMany({
         where: {
@@ -125,21 +134,29 @@ export async function getCachedTransaction(
           }
         }
       });
-      
-      logger.debug(`Batch fetched ${cachedRecords.length} out of ${signature.length} requested signatures`);
-      
-      // Parse all JSON data and create a map of signature -> transaction
+      logger.debug(`Batch fetched ${cachedRecords.length} cached HeliusTransactionCache records out of ${signature.length} requested signatures`);
       const resultMap = new Map<string, HeliusTransaction>();
       for (const record of cachedRecords) {
         try {
-          const tx = JSON.parse(record.rawData as string) as HeliusTransaction;
-          resultMap.set(record.signature, tx);
-        } catch (parseError) {
-          logger.error(`Failed to parse cached rawData for signature ${record.signature}`, { error: parseError });
-          // Skip this record - don't add to the map
+          const rawDataObject = record.rawData;
+          if (Buffer.isBuffer(rawDataObject)) {
+            const decompressedBuffer = zlib.inflateSync(rawDataObject);
+            const jsonString = decompressedBuffer.toString('utf-8');
+            const tx = JSON.parse(jsonString) as HeliusTransaction;
+            resultMap.set(record.signature, tx);
+          } else if (typeof rawDataObject === 'string') {
+            logger.warn(`[CacheRead-Batch] rawData for ${record.signature} is a string (old format?), attempting direct parse.`);
+            const tx = JSON.parse(rawDataObject) as HeliusTransaction;
+            resultMap.set(record.signature, tx);
+          } else {
+            logger.error(`[CacheRead-Batch] rawData for ${record.signature} is neither Buffer nor string. Type: ${typeof rawDataObject}, Value: ${JSON.stringify(rawDataObject)?.substring(0,100)}`);
+            // Skip this record
+          }
+        } catch (processError) {
+          logger.error(`Failed to process cached rawData in batch for signature ${record.signature}`, { error: processError });
+          // Skip this record
         }
       }
-      
       return resultMap;
     } catch (error) {
       logger.error(`Error batch fetching ${signature.length} cached transactions`, { error });
@@ -147,7 +164,6 @@ export async function getCachedTransaction(
     }
   }
   
-  // Invalid input case
   logger.error('getCachedTransaction called with invalid signature type', { type: typeof signature });
   return null;
 }
@@ -166,10 +182,7 @@ export async function saveCachedTransactions(transactions: HeliusTransaction[]) 
     }
     logger.debug(`Attempting to save ${transactions.length} transactions to cache efficiently...`);
 
-    // 1. Get signatures from the incoming batch
     const incomingSignatures = transactions.map(tx => tx.signature);
-
-    // 2. Find which of these signatures already exist in the database
     let existingSignatures = new Set<string>();
     try {
         const existingRecords = await prisma.heliusTransactionCache.findMany({
@@ -179,17 +192,16 @@ export async function saveCachedTransactions(transactions: HeliusTransaction[]) 
                 },
             },
             select: {
-                signature: true, // Only select the signature field
+                signature: true,
             },
         });
         existingSignatures = new Set(existingRecords.map(rec => rec.signature));
         logger.debug(`Found ${existingSignatures.size} existing signatures in cache out of ${incomingSignatures.length} incoming.`);
     } catch (error) {
         logger.error('Error checking for existing signatures in cache', { error });
-        return { count: 0 }; // Abort if we cannot check existing signatures
+        return { count: 0 }; 
     }
 
-    // 3. Filter the incoming transactions to find only the new ones
     const newTransactions = transactions.filter(tx => !existingSignatures.has(tx.signature));
 
     if (newTransactions.length === 0) {
@@ -197,31 +209,31 @@ export async function saveCachedTransactions(transactions: HeliusTransaction[]) 
         return { count: 0 };
     }
 
-    logger.info(`Identified ${newTransactions.length} new transactions to insert.`);
+    logger.info(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
 
-    // 4. Prepare data for createMany (only new transactions)
-    const dataToSave = newTransactions.map(tx => ({
-        signature: tx.signature,
-        timestamp: tx.timestamp,
-        rawData: JSON.stringify(tx), // Ensure rawData is stringified
-        // fetchedAt is handled by @default(now())
-    }));
+    const dataToSave = newTransactions.map(tx => {
+        const jsonString = JSON.stringify(tx); // Step 1: Ensure it is a string
+        const compressedRawData = zlib.deflateSync(Buffer.from(jsonString, 'utf-8')); // Step 2: Compress
+        return {
+            signature: tx.signature,
+            timestamp: tx.timestamp,
+            rawData: compressedRawData, // Step 3: Store compressed Buffer
+        };
+    });
 
-    // 5. Insert the new transactions using createMany
     try {
         const result = await prisma.heliusTransactionCache.createMany({
             data: dataToSave,
-            // No skipDuplicates needed here as we pre-filtered
         });
-        logger.info(`Cache save complete. ${result.count} new transactions added to cache.`);
+        logger.info(`Cache save complete. ${result.count} new transactions added to HeliusTransactionCache.`);
         return result;
     } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            logger.error('Prisma Error saving new cached transactions', { code: error.code, meta: error.meta });
+            logger.error('Prisma Error saving new cached transactions to HeliusTransactionCache', { code: error.code, meta: error.meta });
         } else {
-            logger.error('Error saving new cached transactions', { error });
+            logger.error('Error saving new cached transactions to HeliusTransactionCache', { error });
         }
-        return { count: 0 }; // Indicate failure
+        return { count: 0 };
     }
 }
 
