@@ -411,46 +411,80 @@ export function mapHeliusTransactionsToIntermediateRecords(
                        const netChangeSignificanceThreshold = 0.0001;
                        const movementSignificanceThreshold = 0.0001;
 
-                       // 1. SPL-to-SPL Check
-                       if (isSplToSplSwap && correctSolValueForSplToSpl > 0) {
-                           associatedSolValue = correctSolValueForSplToSpl;
-                       } else {
-                           // 2. Event Matching Check
+                       if (interactionType === 'CREATE_POOL') {
+                           // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL type. Applying specific logic.`);
+                           // For CREATE_POOL, prioritize event data.
+                           // If not available, use net user SOL change as it reflects direct user SOL cost/gain for this pool action.
                            const eventSolFound = eventResult.solValue > 0; const eventUsdcFound = eventResult.usdcValue > 0;
                            let eventValueApplied = false;
                            const isPrimaryOutTokenFromEvent = direction === 'out' && mint === eventResult.primaryOutMint;
                            const isPrimaryInTokenFromEvent = direction === 'in' && mint === eventResult.primaryInMint;
+ 
                            if ((isPrimaryInTokenFromEvent || isPrimaryOutTokenFromEvent)) {
                                if (eventSolFound) { associatedSolValue = eventResult.solValue; eventValueApplied = true; }
                                else if (eventUsdcFound) { associatedUsdcValue = eventResult.usdcValue; eventValueApplied = true; }
                            }
+ 
+                           if (!eventValueApplied) {
+                               const absSolChange = Math.abs(finalNetUserSolChange);
+                               const absUsdcChange = Math.abs(finalNetUserUsdcChange);
+ 
+                               if (absSolChange >= netChangeSignificanceThreshold && absUsdcChange < netChangeSignificanceThreshold) {
+                                   associatedSolValue = absSolChange;
+                                   // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - Assigned via Net SOL Change: ${associatedSolValue.toFixed(9)}`);
+                               } else if (absUsdcChange >= netChangeSignificanceThreshold && absSolChange < netChangeSignificanceThreshold) {
+                                   associatedUsdcValue = absUsdcChange;
+                                   // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - Assigned via Net USDC Change: ${associatedUsdcValue.toFixed(9)}`);
+                               } else if (absSolChange >= netChangeSignificanceThreshold && absUsdcChange >= netChangeSignificanceThreshold) {
+                                   // If both changed significantly, prefer SOL value as primary.
+                                   associatedSolValue = absSolChange;
+                                   logger.warn(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - Both Net SOL and USDC changed. Defaulting to Net SOL value: ${associatedSolValue.toFixed(9)}`);
+                               } else {
+                                   // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - No clear event value or significant net change. AssocSOL/USDC remain 0 for this token leg.`);
+                               }
+                           }
+                       } else {
+                           // Original tiered logic for other transaction types (SWAP, etc.)
+                           if (isSplToSplSwap && correctSolValueForSplToSpl > 0) {
+                               associatedSolValue = correctSolValueForSplToSpl;
+                           } else {
+                               // 2. Event Matching Check
+                               const eventSolFound = eventResult.solValue > 0; const eventUsdcFound = eventResult.usdcValue > 0;
+                               let eventValueApplied = false;
+                               const isPrimaryOutTokenFromEvent = direction === 'out' && mint === eventResult.primaryOutMint;
+                               const isPrimaryInTokenFromEvent = direction === 'in' && mint === eventResult.primaryInMint;
+                               if ((isPrimaryInTokenFromEvent || isPrimaryOutTokenFromEvent)) {
+                                   if (eventSolFound) { associatedSolValue = eventResult.solValue; eventValueApplied = true; }
+                                   else if (eventUsdcFound) { associatedUsdcValue = eventResult.usdcValue; eventValueApplied = true; }
+                               }
 
-                           // 3. Fallback: Total Movement Heuristic
-                           if (!eventValueApplied && associatedSolValue === 0 && associatedUsdcValue === 0) {
-                            const wsolMoveIsSignificant = totalWsolMovement >= movementSignificanceThreshold;
-                            const usdcMoveIsSignificant = totalUsdcMovement >= movementSignificanceThreshold;
-                            if (wsolMoveIsSignificant && !usdcMoveIsSignificant) {
-                                associatedSolValue = totalWsolMovement;
-                            } else if (usdcMoveIsSignificant && !wsolMoveIsSignificant) {
-                                associatedUsdcValue = totalUsdcMovement;
+                               // 3. Fallback: Total Movement Heuristic
+                               if (!eventValueApplied && associatedSolValue === 0 && associatedUsdcValue === 0) {
+                                const wsolMoveIsSignificant = totalWsolMovement >= movementSignificanceThreshold;
+                                const usdcMoveIsSignificant = totalUsdcMovement >= movementSignificanceThreshold;
+                                if (wsolMoveIsSignificant && !usdcMoveIsSignificant) {
+                                    associatedSolValue = totalWsolMovement;
+                                } else if (usdcMoveIsSignificant && !wsolMoveIsSignificant) {
+                                    associatedUsdcValue = totalUsdcMovement;
+                                }
+                                // If both or neither significant, do nothing here, move to next fallback
                             }
-                            // If both or neither significant, do nothing here, move to next fallback
-                        }
 
-                        // 4. Fallback: Net User SOL/USDC Change
-                        if (associatedSolValue === 0 && associatedUsdcValue === 0) {
-                            const absSolChange = Math.abs(finalNetUserSolChange);
-                            const absUsdcChange = Math.abs(finalNetUserUsdcChange);
-                            const solChangeIsSignificant = absSolChange >= netChangeSignificanceThreshold;
-                            const usdcChangeIsSignificant = absUsdcChange >= netChangeSignificanceThreshold;
+                            // 4. Fallback: Net User SOL/USDC Change
+                            if (associatedSolValue === 0 && associatedUsdcValue === 0) {
+                                const absSolChange = Math.abs(finalNetUserSolChange);
+                                const absUsdcChange = Math.abs(finalNetUserUsdcChange);
+                                const solChangeIsSignificant = absSolChange >= netChangeSignificanceThreshold;
+                                const usdcChangeIsSignificant = absUsdcChange >= netChangeSignificanceThreshold;
 
-                            if (solChangeIsSignificant && !usdcChangeIsSignificant) {
-                                associatedSolValue = absSolChange;
-                                // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Assigned via Fallback Net SOL Change: ${associatedSolValue.toFixed(9)}`); // Removed debug
-                            } else if (usdcChangeIsSignificant && !solChangeIsSignificant) {
-                                associatedUsdcValue = absUsdcChange; // If USDC logic is needed
+                                if (solChangeIsSignificant && !usdcChangeIsSignificant) {
+                                    associatedSolValue = absSolChange;
+                                    // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Assigned via Fallback Net SOL Change: ${associatedSolValue.toFixed(9)}`);
+                                } else if (usdcChangeIsSignificant && !solChangeIsSignificant) {
+                                    associatedUsdcValue = absUsdcChange; // If USDC logic is needed
+                                }
                             }
-                        }
+                       }
                    }
               }
           }
