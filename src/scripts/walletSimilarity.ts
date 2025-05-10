@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { SwapAnalysisInput } from '@prisma/client';
-import { prisma } from '../services/database-service'; // Use shared Prisma client
+import { prisma } from '../wallet_analysis/services/database-service'; // Use shared Prisma client
 import { createLogger } from '../utils/logger'; // Use project logger
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';

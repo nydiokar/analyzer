@@ -4,7 +4,7 @@ import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { createLogger } from '../../utils/logger';
-import { mapHeliusTransactionsToIntermediateRecords } from '../../services/helius-transaction-mapper';
+import { mapHeliusTransactionsToIntermediateRecords } from '../../wallet_analysis/services/helius-transaction-mapper';
 import { HeliusTransaction } from '../../types/helius-api';
 import zlib from 'zlib';
 

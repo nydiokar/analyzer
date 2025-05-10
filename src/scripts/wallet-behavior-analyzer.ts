@@ -24,7 +24,7 @@
 
 import { createLogger } from '../utils/logger';
 import { SwapAnalysisInput } from '@prisma/client';
-import { getSwapAnalysisInputs, prisma } from '../services/database-service';
+import { getSwapAnalysisInputs, prisma } from '../wallet_analysis/services/database-service';
 import * as fs from 'fs';
 import * as path from 'path';
 

@@ -7,8 +7,8 @@ import {
     AdvancedStatsResult,
     Prisma // Import Prisma namespace for input types
 } from '@prisma/client';
-import { HeliusTransaction } from '../types/helius-api'; // Assuming HeliusTransaction type is defined here
-import { createLogger } from '../utils/logger'; // Assuming createLogger function is defined in utils
+import { HeliusTransaction } from '../../types/helius-api'; // Assuming HeliusTransaction type is defined here
+import { createLogger } from '../../utils/logger'; // Assuming createLogger function is defined in utils
 import zlib from 'zlib'; // Added zlib
 
 // Instantiate Prisma Client - Singleton pattern recommended for production
@@ -89,15 +89,16 @@ export async function updateWallet(walletAddress: string, data: WalletUpdateData
  */
 export async function getCachedTransaction(
   signature: string | string[]
-): Promise<HeliusTransaction | null | HeliusTransaction[] | Map<string, HeliusTransaction>> {
+): Promise<HeliusTransaction | null | Map<string, HeliusTransaction>> {
   if (typeof signature === 'string') {
     try {
       const cached = await prisma.heliusTransactionCache.findUnique({
         where: { signature },
       });
+      
       if (cached) {
         try {
-          const rawDataObject = cached.rawData; // Prisma infers type, should be Buffer if schema is Bytes
+          const rawDataObject = cached.rawData;
           if (Buffer.isBuffer(rawDataObject)) {
             const decompressedBuffer = zlib.inflateSync(rawDataObject);
             const jsonString = decompressedBuffer.toString('utf-8');
@@ -105,23 +106,30 @@ export async function getCachedTransaction(
           } else if (typeof rawDataObject === 'string') {
             logger.warn(`[CacheRead] rawData for ${signature} is a string (old format?), attempting direct parse.`);
             return JSON.parse(rawDataObject) as HeliusTransaction;
-          } else {
-            logger.error(`[CacheRead] rawData for ${signature} is neither Buffer nor string. Type: ${typeof rawDataObject}, Value: ${JSON.stringify(rawDataObject)?.substring(0,100)}`);
-            return null;
+          } else if (typeof rawDataObject === 'object' && rawDataObject !== null) {
+            // Handle case where rawData is a plain object (should be Buffer)
+            const byteArray = Object.values(rawDataObject).filter(v => typeof v === 'number') as number[];
+            if (byteArray.length > 0 && byteArray.every(v => v >= 0 && v <= 255)) {
+              const buffer = Buffer.from(byteArray);
+              const decompressedBuffer = zlib.inflateSync(buffer);
+              const jsonString = decompressedBuffer.toString('utf-8');
+              return JSON.parse(jsonString) as HeliusTransaction;
+            }
           }
+          logger.error(`[CacheRead] rawData for ${signature} is in an unexpected format. Type: ${typeof rawDataObject}`);
+          return null;
         } catch (processError) {
           logger.error(`Failed to process cached rawData for signature ${signature}`, { error: processError });
           return null;
         }
-      } else {
-        return null;
       }
+      return null;
     } catch (error) {
       logger.error(`Error fetching cached transaction ${signature}`, { error });
       return null;
     }
   }
-  
+
   if (Array.isArray(signature)) {
     if (signature.length === 0) {
       return new Map();
@@ -134,7 +142,7 @@ export async function getCachedTransaction(
           }
         }
       });
-      logger.debug(`Batch fetched ${cachedRecords.length} cached HeliusTransactionCache records out of ${signature.length} requested signatures`);
+      
       const resultMap = new Map<string, HeliusTransaction>();
       for (const record of cachedRecords) {
         try {
@@ -148,13 +156,21 @@ export async function getCachedTransaction(
             logger.warn(`[CacheRead-Batch] rawData for ${record.signature} is a string (old format?), attempting direct parse.`);
             const tx = JSON.parse(rawDataObject) as HeliusTransaction;
             resultMap.set(record.signature, tx);
-          } else {
-            logger.error(`[CacheRead-Batch] rawData for ${record.signature} is neither Buffer nor string. Type: ${typeof rawDataObject}, Value: ${JSON.stringify(rawDataObject)?.substring(0,100)}`);
-            // Skip this record
+          } else if (typeof rawDataObject === 'object' && rawDataObject !== null) {
+            // Handle case where rawData is a plain object (should be Buffer)
+            const byteArray = Object.values(rawDataObject).filter(v => typeof v === 'number') as number[];
+            if (byteArray.length > 0 && byteArray.every(v => v >= 0 && v <= 255)) {
+              const buffer = Buffer.from(byteArray);
+              const decompressedBuffer = zlib.inflateSync(buffer);
+              const jsonString = decompressedBuffer.toString('utf-8');
+              const tx = JSON.parse(jsonString) as HeliusTransaction;
+              resultMap.set(record.signature, tx);
+            } else {
+              logger.error(`[CacheRead-Batch] rawData for ${record.signature} is in an unexpected format. Type: ${typeof rawDataObject}`);
+            }
           }
         } catch (processError) {
           logger.error(`Failed to process cached rawData in batch for signature ${record.signature}`, { error: processError });
-          // Skip this record
         }
       }
       return resultMap;
@@ -163,8 +179,7 @@ export async function getCachedTransaction(
       return new Map();
     }
   }
-  
-  logger.error('getCachedTransaction called with invalid signature type', { type: typeof signature });
+
   return null;
 }
 
@@ -212,12 +227,12 @@ export async function saveCachedTransactions(transactions: HeliusTransaction[]) 
     logger.info(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
 
     const dataToSave = newTransactions.map(tx => {
-        const jsonString = JSON.stringify(tx); // Step 1: Ensure it is a string
-        const compressedRawData = zlib.deflateSync(Buffer.from(jsonString, 'utf-8')); // Step 2: Compress
+        const jsonString = JSON.stringify(tx);
+        const compressedRawData = zlib.deflateSync(Buffer.from(jsonString, 'utf-8'));
         return {
             signature: tx.signature,
             timestamp: tx.timestamp,
-            rawData: compressedRawData, // Step 3: Store compressed Buffer
+            rawData: compressedRawData,
         };
     });
 

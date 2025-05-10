@@ -1,12 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import Papa from 'papaparse';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../../utils/logger';
 import {
   OnChainAnalysisResult,
   SwapAnalysisSummary,
   AdvancedTradeStats,
-} from '../types/helius-api';
+} from '../../types/helius-api';
 import { AnalysisResult, AdvancedStatsResult, SwapAnalysisInput } from '@prisma/client';
 import {
     getAnalysisRun,

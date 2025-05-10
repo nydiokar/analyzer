@@ -96,14 +96,14 @@ async function main() {
     const analyzer = new CryptoAnalyzer();
     const alertManager = new AlertManager(
       './alerts',
-      process.env.TELEGRAM_BOT_TOKEN,
-      process.env.TELEGRAM_CHAT_ID
+      process.env.TELEGRAM_BOT_TOKEN_GENERAL,
+      process.env.TELEGRAM_CHAT_ID_GENERAL
     );
     
     // Ensure the bot token is available
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const botToken = process.env.TELEGRAM_BOT_TOKEN_GENERAL;
     if (!botToken) {
-      throw new Error('TELEGRAM_BOT_TOKEN is not set');
+      throw new Error('TELEGRAM_BOT_TOKEN_GENERAL is not set');
     }
 
     // Initialize and start the bot with error handling

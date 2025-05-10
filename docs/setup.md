@@ -41,8 +41,10 @@ UPDATE_INTERVAL=30000
 MAX_REQUESTS_PER_MINUTE=50
 
 # Telegram Configuration
-TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_BOT_TOKEN_GENERAL=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
+
+TELEGRAM_BOT_TOKEN=your_bot_token // this is used by the wallet analyzer
 
 # Database Settings
 DB_PATH=./data/crypto.db

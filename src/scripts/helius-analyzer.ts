@@ -3,18 +3,18 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
 import { createLogger } from '../utils/logger';
-import { HeliusApiClient } from '../services/helius-api-client';
+import { HeliusApiClient } from '../wallet_analysis/services/helius-api-client';
 import {
   mapHeliusTransactionsToIntermediateRecords,
-} from '../services/helius-transaction-mapper';
+} from '../wallet_analysis/services/helius-transaction-mapper';
 import { 
   analyzeSwapRecords,
   writeAnalysisReportTxt,
   writeAnalysisReportTxt_fromMemory,
   saveAnalysisResultsToCsv
-} from '../services/transfer-analyzer-service';
+} from '../wallet_analysis/services/transfer-analyzer-service';
 import { HeliusTransaction, SwapAnalysisSummary, OnChainAnalysisResult } from '../types/helius-api';
-import { calculateAdvancedStats } from '../services/advanced-stats-service';
+import { calculateAdvancedStats } from '../wallet_analysis/services/advanced-stats-service';
 import { displaySummary, displayDetailedResults } from '../cli/display-utils';
 import {
     getWallet, 
@@ -27,7 +27,7 @@ import {
     AnalysisResultCreateData,
     AdvancedStatsCreateData,
     prisma
-} from '../services/database-service'; 
+} from '../wallet_analysis/services/database-service'; 
 import { Prisma, SwapAnalysisInput } from '@prisma/client';
 
 // Initialize environment variables

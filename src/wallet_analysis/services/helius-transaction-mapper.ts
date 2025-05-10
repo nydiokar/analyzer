@@ -1,6 +1,6 @@
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../../utils/logger';
 import { Prisma } from '@prisma/client';
-import { HeliusTransaction, TokenTransfer, NativeTransfer } from '../types/helius-api';
+import { HeliusTransaction, TokenTransfer, NativeTransfer } from '../../types/helius-api';
 
 const logger = createLogger('HeliusTransactionMapper');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';

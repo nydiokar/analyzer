@@ -32,7 +32,7 @@ import fs from 'fs';
 import path from 'path';
 import { createLogger } from '../utils/logger';
 import { analyzeTradingBehavior, generateBehaviorReport } from './wallet-behavior-analyzer';
-import { prisma } from '../services/database-service';
+import { prisma } from '../wallet_analysis/services/database-service';
 
 // Create logger
 const logger = createLogger('KpiComparisonReport');

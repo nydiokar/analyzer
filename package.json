@@ -1,6 +1,6 @@
 {
   "name": "crypto-data-analyzer",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Array of analizers. Major assets live crypto exchange from CoinGecko with verifiable storage, wallet address analysis, staking calculator, price change reporter, and more.",
   "main": "dist/index.js",
   "scripts": {
@@ -12,8 +12,6 @@
     "clean": "rimraf dist data logs",
     "build:watch": "tsc --watch",
     "verify": "tsc --noEmit",
-    "view": "ts-node src/utils/view-data.ts",
-    "view:watch": "ts-node-dev --respawn src/utils/view-data.ts",
     "setalert": "ts-node src/index.ts setalert",
     "manage-alerts": "ts-node src/manage-alerts.ts",
     "calc-staking": "ts-node src/scripts/staking-calc.ts",
@@ -25,7 +23,14 @@
     "kpi-report": "ts-node src/scripts/kpi-comparison-report.ts",
     "behavior-analyzer": "ts-node src/scripts/wallet-behavior-analyzer.ts",
     "wallet-similarity": "ts-node src/scripts/walletSimilarity.ts",
-    "testargs": "node -p \"process.argv.slice(2).join(' ')\""
+    "start:wallet-analysis": "ts-node src/wallet_analysis/index.ts",
+    "dev:wallet-analysis": "ts-node-dev --respawn src/wallet_analysis/index.ts",
+    "pm2:start:wallet-analysis": "npm run build && pm2 start ecosystem.config.js --only wallet-analysis-bot",
+    "pm2:stop:wallet-analysis": "pm2 stop wallet-analysis-bot",
+    "pm2:delete:wallet-analysis": "pm2 delete wallet-analysis-bot",
+    "pm2:restart:wallet-analysis": "pm2 restart wallet-analysis-bot",
+    "pm2:list:wallet-analysis": "pm2 list",
+    "pm2:logs:wallet-analysis": "pm2 logs wallet-analysis-bot"
   },
   "keywords": [
     "crypto",
@@ -47,8 +52,8 @@
     "chalk": "^4.1.2",
     "crypto-js": "^4.2.0",
     "csv-stringify": "^6.5.2",
-    "dotenv": "^16.4.5",
-    "telegraf": "^4.16.3",
+    "dotenv": "^16.3.1",
+    "telegraf": "^4.15.3",
     "winston": "^3.12.0",
     "yargs": "^17.7.2",
     "compute-cosine-similarity": "^1.0.0"
@@ -67,6 +72,8 @@
     "prisma": "^6.7.0",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.4.3"
+    "typescript": "^5.4.3",
+    "nodemon": "^3.0.2",
+    "pm2": "^5.3.0"
   }
 }

@@ -1,5 +1,5 @@
-import { createLogger } from '../utils/logger';
-import { OnChainAnalysisResult, AdvancedTradeStats } from '../types/helius-api';
+import { createLogger } from '../../utils/logger';
+import { OnChainAnalysisResult, AdvancedTradeStats } from '../../types/helius-api';
 
 // Logger instance for this module
 const logger = createLogger('AdvancedStatsService');

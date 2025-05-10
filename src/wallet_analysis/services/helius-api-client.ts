@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { createLogger } from '../utils/logger';
-import { HeliusApiConfig, HeliusTransaction } from '../types/helius-api';
+import { createLogger } from '../../utils/logger';
+import { HeliusApiConfig, HeliusTransaction } from '../../types/helius-api';
 import { getCachedTransaction, saveCachedTransactions } from './database-service'; // Update import - remove batchGetCachedTransactions
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
