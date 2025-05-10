@@ -36,9 +36,13 @@ export class WalletAnalysisBot {
   constructor(telegramToken: string, heliusApiKey: string) {
     try {
       logger.info('Initializing bot with token prefix:', telegramToken.substring(0, 10) + '...');
+      if (!heliusApiKey) {
+        logger.warn('HELIUS_API_KEY is not configured. RPC fallback for transactions will not work.');
+        // Potentially throw an error if Helius key is absolutely mandatory for core functions
+        // throw new Error('HELIUS_API_KEY is required for bot operation.');
+      }
       this.bot = new Telegraf(telegramToken);
-      // Assuming WalletAnalysisCommands constructor does not require heliusApiKey if all calls are Prisma-based
-      this.commands = new WalletAnalysisCommands();
+      this.commands = new WalletAnalysisCommands(heliusApiKey);
       
       // Apply authorization middleware BEFORE command setup
       this.setupAuthorization();

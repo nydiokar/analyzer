@@ -1,18 +1,25 @@
 import { Context } from 'telegraf';
 import { createLogger } from '../../utils/logger';
-import { prisma } from '../services/database-service';
 import { WalletInfo, WalletCluster } from '../../types/wallet';
 import { DEFAULT_EXCLUDED_MINTS, DEFAULT_RECENT_TRANSACTION_COUNT, CLUSTERING_CONFIG } from '../../config/constants';
+import { HeliusApiClient } from '../services/helius-api-client';
+import { mapHeliusTransactionsToIntermediateRecords } from '../services/helius-transaction-mapper';
+import {
+  getSwapAnalysisInputs,
+  saveSwapAnalysisInputs,
+  getWallet,
+  updateWallet
+} from '../services/database-service';
+import { SwapAnalysisInput, Wallet } from '@prisma/client';
+import { HeliusTransaction } from '../../types/helius-api';
 
 const logger = createLogger('WalletAnalysisCommands');
 
-// Interface from activityCorrelator.ts (amount is fetched by script but not used in its PNL/core correlation)
 interface CorrelatorTransactionData {
     mint: string;
-    timestamp: number; // Unix timestamp (seconds)
+    timestamp: number;
     direction: 'in' | 'out';
-    // amount: number; // Not strictly needed by core logic based on script
-    associatedSolValue: number; 
+    associatedSolValue: number;
 }
 
 interface CorrelatedPairData {
@@ -29,26 +36,30 @@ interface CorrelatedPairData {
     }[];
 }
 
-// For storing global token stats from analysis for the report
 interface GlobalTokenStats {
     totalUniqueTokens: number;
     totalPopularTokens: number;
     totalNonObviousTokens: number;
 }
 
-// Define ProcessingStats if not already defined elsewhere and imported
 interface ProcessingStats {
   totalTransactions: number;
   timeRangeHours: number;
 }
 
 export class WalletAnalysisCommands {
-  // No Helius client needed if mirroring script's Prisma-only fetch
-  // constructor(heliusApiKey: string) { ... }
+  private readonly heliusApiClient: HeliusApiClient;
+  private readonly heliusApiKey: string | undefined;
 
-  // Simpler constructor if no API key needed for this command set now
-  constructor() {
-    logger.info('WalletAnalysisCommands initialized for Prisma-based analysis.');
+  constructor(heliusApiKey?: string) {
+    this.heliusApiKey = heliusApiKey;
+    if (heliusApiKey) {
+      this.heliusApiClient = new HeliusApiClient({ apiKey: heliusApiKey, network: 'mainnet' });
+      logger.info('WalletAnalysisCommands initialized with HeliusApiClient.');
+    } else {
+      this.heliusApiClient = new HeliusApiClient({ apiKey: '', network: 'mainnet' });
+      logger.warn('WalletAnalysisCommands initialized WITHOUT a valid Helius API key. RPC functionality will be impaired or disabled.');
+    }
   }
 
   async analyzeWallets(ctx: Context, walletAddressesInput: string[], userRequestedTxCount?: number) {
@@ -56,84 +67,178 @@ export class WalletAnalysisCommands {
       await ctx.reply('🔄 Initializing analysis for provided wallets...');
       const initialWallets: WalletInfo[] = walletAddressesInput.map(addr => ({ address: addr.trim().toString() }));
       
-      const allFetchedTransactions: Record<string, CorrelatorTransactionData[]> = {};
+      const allFetchedCorrelatorTransactions: Record<string, CorrelatorTransactionData[]> = {};
       const failedWallets: string[] = [];
 
-      // Step 1: Fetch transactions (mirroring script's fetchRecentTransactions)
-      for (const wallet of initialWallets) {
+      for (const walletInfo of initialWallets) {
+        const walletAddress = walletInfo.address;
         try {
-          if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet.address)) {
-            throw new Error(`Invalid Solana address format: ${wallet.address}`);
+          if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+            throw new Error(`Invalid Solana address format: ${walletAddress}`);
           }
-          const countToFetch = userRequestedTxCount !== undefined && userRequestedTxCount > 0 
-                               ? userRequestedTxCount 
-                               : DEFAULT_RECENT_TRANSACTION_COUNT;
+          const countToFetchForAnalysis = userRequestedTxCount !== undefined && userRequestedTxCount > 0 
+                                           ? userRequestedTxCount 
+                                           : DEFAULT_RECENT_TRANSACTION_COUNT;
           
-          logger.info(`Fetching up to ${countToFetch} transactions for ${wallet.address}. User requested: ${userRequestedTxCount}`);
+          logger.info(`Processing wallet: ${walletAddress}. Target transactions for final analysis: ${countToFetchForAnalysis}.`);
 
-          const txs = await this.fetchTransactionsForWalletFromPrisma(wallet.address, countToFetch, CLUSTERING_CONFIG.excludedMints);
-          if (txs.length === 0) {
-            logger.warn(`Fetched 0 relevant transactions from DB for ${wallet.address} (requested: ${countToFetch}).`);
+          if (!this.heliusApiKey) {
+            logger.warn(`Helius API key not configured. Skipping Helius fetch for ${walletAddress}. Relying on existing DB data.`);
+            await ctx.reply(`⚠️ Helius API key not configured. Analysis for ${walletAddress} will use existing database data only.`);
+          } else {
+            await ctx.reply(`🔄 Fetching & updating transaction data for ${walletAddress}...`);
+            const walletState: Wallet | null = await getWallet(walletAddress);
+            logger.debug(`Wallet state for ${walletAddress}: ${walletState ? JSON.stringify(walletState) : 'null'}`);
+
+            const isInitialFetch = !walletState || !walletState.lastSuccessfulFetchTimestamp;
+            
+            const heliusMaxSignatures = isInitialFetch 
+                ? Math.max(countToFetchForAnalysis * 2, 300) 
+                : Math.max(Math.floor(countToFetchForAnalysis * 1.5), 200);
+            const stopAtSignature = walletState?.newestProcessedSignature ?? undefined;
+            const newestProcessedTs = walletState?.newestProcessedTimestamp ?? undefined;
+
+            logger.info(`Calling HeliusApiClient for ${walletAddress}. MaxSignatures: ${heliusMaxSignatures}, StopAtSig: ${stopAtSignature}, NewestTs: ${newestProcessedTs}`);
+
+            const rawHeliusTxs: HeliusTransaction[] = await this.heliusApiClient.getAllTransactionsForAddress(
+              walletAddress,
+              100,
+              heliusMaxSignatures,
+              stopAtSignature,
+              newestProcessedTs,
+              true,
+            );
+
+            logger.info(`HeliusApiClient returned ${rawHeliusTxs.length} raw Helius transactions for ${walletAddress}.`);
+
+            if (rawHeliusTxs.length > 0) {
+              const mappedInputs = mapHeliusTransactionsToIntermediateRecords(walletAddress, rawHeliusTxs);
+              logger.info(`Mapped ${rawHeliusTxs.length} raw Helius txs to ${mappedInputs.length} SwapAnalysisInput records for ${walletAddress}.`);
+              
+              if (mappedInputs.length > 0) {
+                const saveResult = await saveSwapAnalysisInputs(mappedInputs);
+                logger.info(`Saved ${saveResult.count} new SwapAnalysisInput records to DB for ${walletAddress} from Helius data.`);
+              }
+
+              const latestTx = rawHeliusTxs.reduce((latest, current) => (!latest || current.timestamp > latest.timestamp) ? current : latest, null as HeliusTransaction | null);
+              const oldestTxInBatch = rawHeliusTxs.reduce((oldest, current) => (!oldest || current.timestamp < oldest.timestamp) ? current : oldest, null as HeliusTransaction | null);
+              
+              const updateData: Partial<Omit<Wallet, 'address'>> = { lastSuccessfulFetchTimestamp: new Date() };
+              if (latestTx) {
+                updateData.newestProcessedSignature = latestTx.signature;
+                updateData.newestProcessedTimestamp = latestTx.timestamp;
+              }
+              if (isInitialFetch && oldestTxInBatch) {
+                  updateData.firstProcessedTimestamp = oldestTxInBatch.timestamp;
+              } else if (walletState && oldestTxInBatch && (!walletState.firstProcessedTimestamp || oldestTxInBatch.timestamp < walletState.firstProcessedTimestamp)) {
+                  updateData.firstProcessedTimestamp = oldestTxInBatch.timestamp;
+              }
+              
+              await updateWallet(walletAddress, updateData);
+              logger.info(`Wallet state updated for ${walletAddress}.`);
+            } else {
+              logger.info(`No new raw transactions fetched from Helius for ${walletAddress}. Database should be up-to-date based on previous state.`);
+              await updateWallet(walletAddress, { lastSuccessfulFetchTimestamp: new Date() });
+            }
+             await ctx.reply(`✅ Transaction data for ${walletAddress} updated.`);
           }
-          allFetchedTransactions[wallet.address] = txs;
-        } catch (error) {
-          const err = error as Error;
-          logger.error(`Failed to fetch transactions from DB for ${wallet.address}: ${err.message}`);
-          failedWallets.push(`${wallet.address} (DB fetch error: ${err.message})`);
-          allFetchedTransactions[wallet.address] = [];
+
+          logger.info(`Fetching SwapAnalysisInput records from DB for analysis of ${walletAddress}...`);
+          let swapInputsForAnalysis: SwapAnalysisInput[] = await getSwapAnalysisInputs(walletAddress);
+          
+          swapInputsForAnalysis.sort((a, b) => b.timestamp - a.timestamp);
+          let finalInputsForAnalysis = swapInputsForAnalysis.slice(0, countToFetchForAnalysis);
+          finalInputsForAnalysis.sort((a, b) => a.timestamp - b.timestamp); 
+          
+          logger.info(`Retrieved ${finalInputsForAnalysis.length} SwapAnalysisInput records for ${walletAddress} for core analysis.`);
+
+          const correlatorTxs: CorrelatorTransactionData[] = finalInputsForAnalysis
+            .filter(input => !CLUSTERING_CONFIG.excludedMints.includes(input.mint))
+            .map(input => ({
+              mint: input.mint,
+              timestamp: input.timestamp,
+              direction: input.direction as 'in' | 'out',
+              associatedSolValue: input.associatedSolValue || 0,
+            }));
+          
+          allFetchedCorrelatorTransactions[walletAddress] = correlatorTxs;
+          logger.info(`Prepared ${correlatorTxs.length} CorrelatorTransactionData records for ${walletAddress}.`);
+          if (correlatorTxs.length === 0 && countToFetchForAnalysis > 0) {
+             logger.warn(`No relevant transactions available for ${walletAddress} after full data pipeline.`);
+             await ctx.reply(`⚠️ No relevant transaction data found for ${walletAddress} to analyze.`);
+          }
+
+        } catch (error: any) {
+          logger.error(`Failed to process wallet ${walletAddress}: ${error.message}`, { stack: error.stack });
+          failedWallets.push(`${walletAddress} (Error: ${error.message})`);
+          allFetchedCorrelatorTransactions[walletAddress] = [];
+          await ctx.reply(`❌ Error processing ${walletAddress}: ${error.message}`);
         }
       }
-
+      
       if (failedWallets.length > 0) {
-        await ctx.replyWithHTML(`⚠️ Encountered issues fetching data for some wallets:<br>${failedWallets.join('<br>')}`);
+        await ctx.replyWithHTML(`⚠️ Encountered issues processing some wallets:<br>${failedWallets.join('<br>')}`);
       }
-      await ctx.reply('✅ Transaction fetching from database complete.');
+      
+      const walletInfosForAnalysis = initialWallets.filter(w => !failedWallets.some(fw => fw.startsWith(w.address)));
 
-      // Step 2: Bot Filtering (mirroring script logic)
-      const { walletsForAnalysis /*, dailyTokenCountsByWallet */ } = this.filterOutBotWallets(initialWallets, allFetchedTransactions, CLUSTERING_CONFIG.MAX_DAILY_TOKENS_FOR_FILTER);
-      const numFilteredOut = initialWallets.length - walletsForAnalysis.length;
-      if (numFilteredOut > 0) {
-        await ctx.reply(`ℹ️ Filtered out ${numFilteredOut} wallets suspected of bot activity. Analyzing ${walletsForAnalysis.length} wallets.`);
+      if (walletInfosForAnalysis.length < 2 && initialWallets.length >=2) {
+        await ctx.reply("ℹ️ Not enough wallets successfully processed to perform correlation analysis (need at least 2).");
+        return;
+      }
+       if (walletInfosForAnalysis.length === 0 && initialWallets.length > 0) {
+        await ctx.reply("ℹ️ No wallets could be processed. Analysis halted.");
+        return;
+      }
+       if (initialWallets.length < 2) {
+         await ctx.reply("ℹ️ Please provide at least two wallets for correlation analysis.");
+         return;
+       }
+
+      const { walletsForAnalysis } = this.filterOutBotWallets(
+        walletInfosForAnalysis, 
+        allFetchedCorrelatorTransactions, 
+        CLUSTERING_CONFIG.MAX_DAILY_TOKENS_FOR_FILTER
+      );
+      const numFilteredOutByBotLogic = walletInfosForAnalysis.length - walletsForAnalysis.length;
+      if (numFilteredOutByBotLogic > 0) {
+        await ctx.reply(`ℹ️ Filtered out ${numFilteredOutByBotLogic} wallets suspected of bot activity (based on transaction patterns). Analyzing ${walletsForAnalysis.length} wallets.`);
       }
 
       if (walletsForAnalysis.length < 2) {
-        await ctx.reply("ℹ️ Not enough wallets remaining after filtering to perform correlation analysis (need at least 2). Analysis halted.");
+        await ctx.reply("ℹ️ Not enough wallets remaining after bot-activity filtering to perform correlation analysis (need at least 2). Analysis halted.");
         return;
       }
       
-      await ctx.reply('📊 Calculating PNL and running correlation analysis...');
+      await ctx.reply('📊 Calculating PNL and running correlation analysis on processed data...');
 
-      // Step 3: PNL Calculation (for walletsForAnalysis)
       const walletPnLs: Record<string, number> = {};
       for (const wallet of walletsForAnalysis) {
-        const txs = allFetchedTransactions[wallet.address] || [];
+        const txs = allFetchedCorrelatorTransactions[wallet.address] || [];
         walletPnLs[wallet.address] = this.calculateWalletPnl(txs);
       }
 
-      // Step 4: Run Core Correlation Analysis (mirroring script's analyzeCorrelations)
-      // The transactions passed to analysis should be for `walletsForAnalysis` only.
-      const transactionsForAnalysisOnly: Record<string, CorrelatorTransactionData[]> = {};
+      const transactionsForCorrelation: Record<string, CorrelatorTransactionData[]> = {};
       walletsForAnalysis.forEach(w => {
-        transactionsForAnalysisOnly[w.address] = allFetchedTransactions[w.address];
+        transactionsForCorrelation[w.address] = allFetchedCorrelatorTransactions[w.address];
       });
 
-      // runCorrelationAnalysis now returns WalletCluster[] for clusters
       const { clusters, globalTokenStats } = await this.runCorrelationAnalysis(
         walletsForAnalysis, 
-        transactionsForAnalysisOnly, 
+        transactionsForCorrelation, 
         CLUSTERING_CONFIG
       );
       
-      // ProcessingStats for the report - total unique mints will be from globalTokenStats
+      let totalRelevantCorrelatorTransactions = 0;
+      walletsForAnalysis.forEach(w => {
+        totalRelevantCorrelatorTransactions += (allFetchedCorrelatorTransactions[w.address] || []).length;
+      });
+      
       const processingStats: ProcessingStats = {
-         // totalTransactions is no longer reported explicitly in this revised version
-         // timeRangeHours can be calculated if needed, or set to 0 if not displayed.
-         // For now, let's not calculate it if not displayed to save computation.
-         totalTransactions: 0, // Not used in new report format
-         timeRangeHours: 0   // Not used in new report format
+         totalTransactions: totalRelevantCorrelatorTransactions, 
+         timeRangeHours: 0
       };
 
-      // generateTelegramReport now returns string[]
       const reportMessages: string[] = this.generateTelegramReport(
         initialWallets.length,
         walletsForAnalysis.length,
@@ -143,7 +248,6 @@ export class WalletAnalysisCommands {
         processingStats
       );
 
-      // Send each message part
       for (const messagePart of reportMessages) {
         if (messagePart.trim().length > 0) {
             try {
@@ -151,7 +255,6 @@ export class WalletAnalysisCommands {
             } catch (error: any) {
                 logger.error('Error sending a part of Telegram report:', { message: error.message, description: error.description, partLength: messagePart.length });
                 await ctx.reply(`Failed to send a part of the report. Error: ${error.description || error.message}`);
-                logger.debug('Report part that failed:', { reportText: messagePart });
             }
         }
       }
@@ -159,50 +262,8 @@ export class WalletAnalysisCommands {
 
     } catch (error) {
       const err = error as Error;
-      logger.error('Error in analyzeWallets:', err);
+      logger.error('Error in analyzeWallets (top level):', err);
       await ctx.reply(`❌ Top-level error analyzing wallets: ${err.message}`);
-    }
-  }
-
-  private async fetchTransactionsForWalletFromPrisma(
-    walletAddress: string,
-    transactionCount: number,
-    excludedMints: readonly string[] // from ANALYSIS_CONFIG which is `as const`
-  ): Promise<CorrelatorTransactionData[]> {
-    logger.debug(`Fetching last ${transactionCount} transactions for ${walletAddress} from Prisma, excluding ${excludedMints.length} mints.`);
-    try {
-        const transactionsFromDB = await prisma.swapAnalysisInput.findMany({
-            where: {
-                walletAddress: walletAddress,
-                NOT: {
-                    mint: {
-                        in: [...excludedMints], // Spread into a mutable array
-                    },
-                },
-            },
-            select: {
-                mint: true,
-                timestamp: true,
-                direction: true,
-                // amount: true, // Script fetches amount but doesn't use for PNL/correlation
-                associatedSolValue: true,
-            },
-            orderBy: {
-                timestamp: 'desc',
-            },
-            take: transactionCount,
-        });
-        logger.debug(`Fetched ${transactionsFromDB.length} transactions for ${walletAddress} from Prisma.`);
-        
-        return transactionsFromDB.map(t => ({
-            mint: t.mint,
-            timestamp: t.timestamp,
-            direction: t.direction === 'in' ? 'in' : 'out', // Ensure type safety
-            associatedSolValue: t.associatedSolValue,
-        } as CorrelatorTransactionData )).sort((a, b) => a.timestamp - b.timestamp); // Sort ascending by timestamp as script does
-    } catch (error) {
-        logger.error(`Error fetching recent transactions from Prisma for wallet ${walletAddress}:`, { error });
-        throw error; // Re-throw to be caught by analyzeWallets
     }
   }
 
@@ -339,17 +400,17 @@ export class WalletAnalysisCommands {
     logger.info(`Starting correlation analysis for ${walletsForAnalysis.length} wallets. Sync window: ${config.syncTimeWindowSeconds}s.`);
 
     const globalTokenFrequency: Record<string, number> = {};
-    let totalTransactionCount = 0;
+    let totalTransactionCountForStats = 0;
     for (const walletAddress of walletsForAnalysis.map(w => w.address)) {
         const txs = transactionsForAnalysis[walletAddress] || [];
-        totalTransactionCount += txs.length;
+        totalTransactionCountForStats += txs.length;
         for (const tx of txs) {
             if (tx.mint) globalTokenFrequency[tx.mint] = (globalTokenFrequency[tx.mint] || 0) + 1;
         }
     }
 
-    if (totalTransactionCount === 0) {
-        logger.warn("No transactions found for any of the filtered wallets. Skipping correlation.");
+    if (totalTransactionCountForStats === 0) {
+        logger.warn("No transactions found for any of the filtered wallets for correlation. Skipping correlation.");
         return { clusters: [], globalTokenStats: { totalUniqueTokens: 0, totalPopularTokens: 0, totalNonObviousTokens: 0 } };
     }
 
@@ -399,6 +460,7 @@ export class WalletAnalysisCommands {
                     const buysB = txsB.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'in');
                     const sellsA = txsA.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'out');
                     const sellsB = txsB.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'out');
+
                     for (const buyA of buysA) {
                         for (const buyB of buysB) {
                             const timeDiff = Math.abs(buyA.timestamp - buyB.timestamp);
@@ -412,7 +474,7 @@ export class WalletAnalysisCommands {
                         }
                     }
                 }
-                currentSyncEvents.sort((a,b) => a.timestampA - b.timestampA || a.timestampB - b.timestampB);
+                currentSyncEvents.sort((a,b) => a.timeDiffSeconds - b.timeDiffSeconds || a.timestampA - b.timestampA);
             }
 
             if (currentSharedNonObvious.length >= config.minSharedNonObviousTokens || currentSyncEvents.length >= config.minSyncEvents) {
@@ -458,13 +520,23 @@ export class WalletAnalysisCommands {
     addLine('');
     addLine('<b>📋 Summary:</b>');
     addLine(`Requested for Analysis: ${requestedWalletsCount} wallets`);
-    const filteredOutCount = requestedWalletsCount - analyzedWalletsCount;
-    if (filteredOutCount > 0) {
-      addLine(`Wallets Filtered (e.g., bot-like): ${filteredOutCount}`); 
+    
+    const failedOrNotProcessedCount = requestedWalletsCount - (walletPnLs ? Object.keys(walletPnLs).length : analyzedWalletsCount);
+    if (failedOrNotProcessedCount > 0 && requestedWalletsCount > analyzedWalletsCount) {
+        // This implies some wallets failed before bot-activity filter, or are not in walletPnLs
+        // analyzedWalletsCount is after bot-filter.
+        // A more precise count of "wallets that had data fetched but were bot-filtered" vs "wallets that failed data fetching" might be good.
+        // For now, let's use analyzedWalletsCount as the count of wallets that passed pre-analysis filters.
+    }
+
+    const numBotFiltered = (walletPnLs ? Object.keys(walletPnLs).length : 0) - analyzedWalletsCount;
+    if (numBotFiltered > 0) {
+         addLine(`Wallets Filtered (e.g., bot-like): ${numBotFiltered}`);
     }
     addLine(`Wallets Analyzed (post-filter): ${analyzedWalletsCount}`);
     if (globalTokenStats && analyzedWalletsCount > 0) {
         addLine(`Total Unique Mints (in analyzed wallets): ${globalTokenStats.totalUniqueTokens}`);
+        // addLine(`Total Transactions Analyzed (post-filter): ${processingStats.totalTransactions}`); // New line for clarity
     }
     pushCurrentMessage(); 
 
@@ -492,23 +564,23 @@ export class WalletAnalysisCommands {
 
         const tempClusterReportFragment = clusterSpecificLines.join('\n');
         if ([...currentMessageLines, tempClusterReportFragment].join('\n').length > MAX_MESSAGE_LENGTH && currentMessageLines.length > 0) {
-            pushCurrentMessage(); 
+            pushCurrentMessage();
             if (messages.length === 0 || !messages[messages.length-1].includes('Identified Wallet Clusters')){
                  currentMessageLines.push('<b>🔗 Identified Wallet Clusters (3+ members) (continued):</b>');
             }
         }
         currentMessageLines.push(...clusterSpecificLines);
       });
-    } else if (analyzedWalletsCount > 1) { 
+    } else if (analyzedWalletsCount >= 2) {
       if (messages.length > 0 && messages[messages.length-1] !== '') currentMessageLines.push(''); 
       addLine('<i>No significant clusters (3+ wallets) identified with current settings.</i>');
       addLine('<i>This means no groups of 3 or more wallets were found where pairs consistently met the minimum correlation score for clustering.</i>');
-    } else if (requestedWalletsCount > 0 && analyzedWalletsCount <=1 ) {
+    } else if (requestedWalletsCount > 0 && analyzedWalletsCount < 2 ) {
         if (messages.length > 0 && messages[messages.length-1] !== '') currentMessageLines.push(''); 
-        addLine('<i>Not enough wallets remained after filtering to perform cluster analysis.</i>');
+        addLine('<i>Not enough wallets remained after filtering to perform cluster analysis (need at least 2).</i>');
     } else {
       if (messages.length > 0 && messages[messages.length-1] !== '') currentMessageLines.push(''); 
-      addLine('<i>No wallets provided or all were invalid.</i>');
+      addLine('<i>No wallets provided or all failed initial processing.</i>');
     }
     
     if (currentMessageLines.length > 0) {
@@ -525,6 +597,7 @@ export class WalletAnalysisCommands {
             messages[0] += '\n\n' + "<i>PNL is approximate. Verify independently.</i>";
         }
     }
+    
     return messages.filter(msg => msg.trim().length > 0);
   }
 } 

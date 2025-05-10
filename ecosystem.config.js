@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'wallet-analysis-bot',
-      script: 'dist/src/wallet_analysis/index.js',
+      script: 'dist/wallet_analysis/index.js',
       cwd: '.',
       exec_mode: 'fork',
       instances: 1,
