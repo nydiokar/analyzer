@@ -51,7 +51,7 @@ export class WalletAnalysisCommands {
     logger.info('WalletAnalysisCommands initialized for Prisma-based analysis.');
   }
 
-  async analyzeWallets(ctx: Context, walletAddressesInput: string[]) {
+  async analyzeWallets(ctx: Context, walletAddressesInput: string[], userRequestedTxCount?: number) {
     try {
       await ctx.reply('🔄 Initializing analysis for provided wallets...');
       const initialWallets: WalletInfo[] = walletAddressesInput.map(addr => ({ address: addr.trim().toString() }));
@@ -65,9 +65,15 @@ export class WalletAnalysisCommands {
           if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet.address)) {
             throw new Error(`Invalid Solana address format: ${wallet.address}`);
           }
-          const txs = await this.fetchTransactionsForWalletFromPrisma(wallet.address, DEFAULT_RECENT_TRANSACTION_COUNT, CLUSTERING_CONFIG.excludedMints);
+          const countToFetch = userRequestedTxCount !== undefined && userRequestedTxCount > 0 
+                               ? userRequestedTxCount 
+                               : DEFAULT_RECENT_TRANSACTION_COUNT;
+          
+          logger.info(`Fetching up to ${countToFetch} transactions for ${wallet.address}. User requested: ${userRequestedTxCount}`);
+
+          const txs = await this.fetchTransactionsForWalletFromPrisma(wallet.address, countToFetch, CLUSTERING_CONFIG.excludedMints);
           if (txs.length === 0) {
-            logger.warn(`Fetched 0 relevant transactions from DB for ${wallet.address}.`);
+            logger.warn(`Fetched 0 relevant transactions from DB for ${wallet.address} (requested: ${countToFetch}).`);
           }
           allFetchedTransactions[wallet.address] = txs;
         } catch (error) {
