@@ -270,8 +270,6 @@ export class WalletAnalysisCommands {
         return;
       }
       
-      await ctx.reply('📊 Calculating PNL and running correlation analysis on processed data...');
-
       const walletPnLs: Record<string, number> = {};
       for (const wallet of walletsPostBotFilter) {
         const txs = allFetchedCorrelatorTransactions[wallet.address] || [];
@@ -299,6 +297,13 @@ export class WalletAnalysisCommands {
          timeRangeHours: 0 
       };
 
+      const uniqueTokenCountsPerWalletInAnalysis: Record<string, number> = {};
+      for (const walletAddress of walletsPostBotFilter.map(w => w.address)) {
+        const txs = allFetchedCorrelatorTransactions[walletAddress] || [];
+        const uniqueMints = new Set(txs.map(tx => tx.mint));
+        uniqueTokenCountsPerWalletInAnalysis[walletAddress] = uniqueMints.size;
+      }
+
       const reportMessages: string[] = this.generateTelegramReport(
         initialWallets.length, 
         walletsPostBotFilter.length, 
@@ -306,7 +311,8 @@ export class WalletAnalysisCommands {
         walletPnLs,
         globalTokenStats,
         clusters,
-        processingStats
+        processingStats,
+        uniqueTokenCountsPerWalletInAnalysis
       );
 
       for (const messagePart of reportMessages) {
@@ -563,7 +569,8 @@ export class WalletAnalysisCommands {
     walletPnLs: Record<string, number>,
     globalTokenStats: GlobalTokenStats | null,
     identifiedClusters: WalletCluster[],
-    processingStats: ProcessingStats
+    processingStats: ProcessingStats,
+    uniqueTokenCountsPerWallet: Record<string, number>
   ): string[] {
     const messages: string[] = [];
     let currentMessageLines: string[] = [];
@@ -611,7 +618,8 @@ export class WalletAnalysisCommands {
         clusterSpecificLines.push('Wallets (PNL approx.):');
         cluster.wallets.forEach(walletAddr => {
             const pnl = walletPnLs[walletAddr]?.toFixed(2) ?? 'N/A';
-            clusterSpecificLines.push(`  - <code>${walletAddr}</code> (${pnl} SOL)`);
+            const uniqueTokenCount = uniqueTokenCountsPerWallet[walletAddr] ?? 0;
+            clusterSpecificLines.push(`  - <code>${walletAddr}</code> (${uniqueTokenCount} unique tokens, ${pnl} SOL)`);
         });
 
         const tempClusterReportFragment = clusterSpecificLines.join('\n');
