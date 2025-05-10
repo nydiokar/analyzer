@@ -281,7 +281,7 @@ export class WalletAnalysisCommands {
         transactionsForCorrelation[w.address] = allFetchedCorrelatorTransactions[w.address];
       });
 
-      const { clusters, globalTokenStats } = await this.runCorrelationAnalysis(
+      const { clusters, globalTokenStats, topCorrelatedPairs } = await this.runCorrelationAnalysis(
         walletsPostBotFilter, 
         transactionsForCorrelation, 
         CLUSTERING_CONFIG
@@ -311,6 +311,7 @@ export class WalletAnalysisCommands {
         walletPnLs,
         globalTokenStats,
         clusters,
+        topCorrelatedPairs,
         processingStats,
         uniqueTokenCountsPerWalletInAnalysis
       );
@@ -463,7 +464,7 @@ export class WalletAnalysisCommands {
     walletsForAnalysis: WalletInfo[],
     transactionsForAnalysis: Record<string, CorrelatorTransactionData[]>,
     config: typeof CLUSTERING_CONFIG
-  ): Promise<{ clusters: WalletCluster[], globalTokenStats: GlobalTokenStats }> {
+  ): Promise<{ clusters: WalletCluster[], globalTokenStats: GlobalTokenStats, topCorrelatedPairs: CorrelatedPairData[] }> {
     logger.info(`Starting correlation analysis for ${walletsForAnalysis.length} wallets. Sync window: ${config.syncTimeWindowSeconds}s.`);
 
     const globalTokenFrequency: Record<string, number> = {};
@@ -478,7 +479,7 @@ export class WalletAnalysisCommands {
 
     if (totalTransactionCountForStats === 0) {
         logger.warn("No transactions found for any of the filtered wallets for correlation. Skipping correlation.");
-        return { clusters: [], globalTokenStats: { totalUniqueTokens: 0, totalPopularTokens: 0, totalNonObviousTokens: 0 } };
+        return { clusters: [], globalTokenStats: { totalUniqueTokens: 0, totalPopularTokens: 0, totalNonObviousTokens: 0 }, topCorrelatedPairs: [] };
     }
 
     const sortedGlobalTokens = Object.entries(globalTokenFrequency).sort(([, countA], [, countB]) => countB - countA);
@@ -559,7 +560,23 @@ export class WalletAnalysisCommands {
     logger.info(`Pairwise analysis: ${correlatedPairs.length} pairs meeting score > 0 before cluster threshold.`);
 
     const clusters: WalletCluster[] = this.buildClustersFromPairs(correlatedPairs, config.minClusterScoreThreshold);
-    return { clusters, globalTokenStats: globalStats };
+
+    // Filter out pairs where both wallets are already in a cluster
+    const walletsInAnyCluster = new Set<string>();
+    clusters.forEach(cluster => {
+      cluster.wallets.forEach(wallet => walletsInAnyCluster.add(wallet));
+    });
+
+    const filteredCorrelatedPairs = correlatedPairs.filter(pair => {
+      const walletA_inCluster = walletsInAnyCluster.has(pair.walletA_address);
+      const walletB_inCluster = walletsInAnyCluster.has(pair.walletB_address);
+      return !(walletA_inCluster && walletB_inCluster);
+    });
+    logger.info(`Filtered top pairs: ${filteredCorrelatedPairs.length} pairs remain after removing pairs where both wallets are in clusters.`);
+
+    const topPairsToReturn = filteredCorrelatedPairs.slice(0, config.topKCorrelatedPairsToReport);
+    
+    return { clusters, globalTokenStats: globalStats, topCorrelatedPairs: topPairsToReturn };
   }
 
   private generateTelegramReport(
@@ -569,6 +586,7 @@ export class WalletAnalysisCommands {
     walletPnLs: Record<string, number>,
     globalTokenStats: GlobalTokenStats | null,
     identifiedClusters: WalletCluster[],
+    topCorrelatedPairs: CorrelatedPairData[],
     processingStats: ProcessingStats,
     uniqueTokenCountsPerWallet: Record<string, number>
   ): string[] {
@@ -643,6 +661,36 @@ export class WalletAnalysisCommands {
       addLine('<i>No wallets provided or all failed initial processing.</i>');
     }
     
+    // Add Top Correlated Pairs section
+    if (topCorrelatedPairs.length > 0) {
+      if (currentMessageLines.join('\n').length > MAX_MESSAGE_LENGTH - 500 && currentMessageLines.length > 0) { // Check if adding this section would overflow
+        pushCurrentMessage();
+      }
+      if (messages.length > 0 && messages[messages.length-1] !== '') currentMessageLines.push('');
+      addLine('<b>✨ Top Correlated Wallet Pairs:</b>');
+      topCorrelatedPairs.forEach((pair, index) => {
+        const pairLines: string[] = [];
+        const pnlA = walletPnLs[pair.walletA_address]?.toFixed(2) ?? 'N/A';
+        const pnlB = walletPnLs[pair.walletB_address]?.toFixed(2) ?? 'N/A';
+        const uniqueTokensA = uniqueTokenCountsPerWallet[pair.walletA_address] ?? 0;
+        const uniqueTokensB = uniqueTokenCountsPerWallet[pair.walletB_address] ?? 0;
+
+        pairLines.push('');
+        pairLines.push(`Pair #${index + 1} (Score: ${pair.score.toFixed(2)}):`); // Using Japanese for "Pair" to test
+        pairLines.push(`  A: <code>${pair.walletA_address}</code> (PNL: ${pnlA} SOL, ${uniqueTokensA} unique tokens)`);
+        pairLines.push(`  B: <code>${pair.walletB_address}</code> (PNL: ${pnlB} SOL, ${uniqueTokensB} unique tokens)`);
+        
+        const tempPairReportFragment = pairLines.join('\n');
+        if ([...currentMessageLines, tempPairReportFragment].join('\n').length > MAX_MESSAGE_LENGTH && currentMessageLines.length > 0) {
+          pushCurrentMessage();
+            if (messages.length === 0 || !messages[messages.length-1].includes('Top Correlated Wallet Pairs')){
+                 currentMessageLines.push('<b>✨ Top Correlated Wallet Pairs (continued):</b>');
+            }
+        }
+        currentMessageLines.push(...pairLines);
+      });
+    }
+
     if (currentMessageLines.length > 0) {
         currentMessageLines.push('');
         currentMessageLines.push("<i>PNL is approximate. Verify independently.</i>");

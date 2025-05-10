@@ -24,6 +24,7 @@ export const CLUSTERING_CONFIG = {
   nonObviousTokenThresholdPercent: 0.2,
   minOccurrencesForPopular: 100,
   topKResults: 50, // Used for report display limit in script, bot may handle differently
+  topKCorrelatedPairsToReport: 7, // Max top correlated pairs to show in bot report
   minClusterScoreThreshold: 20,
   MAX_DAILY_TOKENS_FOR_FILTER: 50 // From activityCorrelator.ts for bot filtering
 } as const;
