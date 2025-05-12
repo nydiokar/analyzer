@@ -1,5 +1,4 @@
 import { Telegraf, Context } from 'telegraf';
-import { message } from 'telegraf/filters';
 import { WalletAnalysisCommands } from './commands';
 import { createLogger } from '../../utils/logger';
 import axios from 'axios';
@@ -29,10 +28,20 @@ if (ADMIN_TELEGRAM_ID) {
     logger.info(`Admin notifications for unauthorized attempts will be sent to User ID: ${ADMIN_TELEGRAM_ID}`);
 }
 
+/**
+ * @class WalletAnalysisBot
+ * @description Main class for the Telegram bot. Handles initialization, authorization, command setup, and lifecycle management.
+ */
 export class WalletAnalysisBot {
   private bot: Telegraf<Context>;
   private commands: WalletAnalysisCommands;
 
+  /**
+   * Creates an instance of WalletAnalysisBot.
+   * @param {string} telegramToken - The Telegram bot token.
+   * @param {string} heliusApiKey - The API key for Helius services, used by WalletAnalysisCommands.
+   * @throws {Error} If there's an issue initializing Telegraf or WalletAnalysisCommands.
+   */
   constructor(telegramToken: string, heliusApiKey: string) {
     try {
       logger.info('Initializing bot with token prefix:', telegramToken.substring(0, 10) + '...');
@@ -54,6 +63,12 @@ export class WalletAnalysisBot {
     }
   }
 
+  /**
+   * Sets up authorization middleware for the bot.
+   * Only allows users listed in `ALLOWED_USER_IDS` to interact with the bot.
+   * Sends a notification to `ADMIN_TELEGRAM_ID` if an unauthorized user attempts access.
+   * @private
+   */
   private setupAuthorization() {
     this.bot.use(async (ctx, next) => {
       if (ctx.from && ALLOWED_USER_IDS.includes(ctx.from.id)) {
@@ -85,6 +100,11 @@ Command: ${commandText}`);
     });
   }
 
+  /**
+   * Sets up command handlers for the bot.
+   * This includes /start, /analyze, /help, and document (CSV file) uploads.
+   * @private
+   */
   private setupCommands() {
     try {
       this.bot.start(async (ctx) => {
@@ -184,9 +204,9 @@ Command: ${commandText}`);
         logger.info(`/help command received from user ID: ${ctx.from.id}`);
         await ctx.reply(
           'Wallet Analysis Bot Help:\n\n' +
-          'Available commands:\n' +
-          '  /analyze <wallet1> [w2] .. [tx_count] - Analyzes one or more Solana wallet addresses.\n' +
-          '    Optionally, specify transaction count (default: 300, max: 1000). Ex: /analyze ADDR1 ADDR2 500\n\n' +
+          'Available commands:\n\n' +
+          '  /analyze <wallet1> [w2] .. [tx_count] - Analyzes one or more Solana wallet addresses.\n\n' +
+          'Optionally, specify transaction count (default: 300, max: 1000). Ex: /analyze ADDR1 ADDR2 500\n\n' +
           'File Upload:\n' +
           '  You can upload a CSV file containing Solana wallet addresses. \n' +
           '  - The bot will look for addresses in the first column, or assume one address per line if only one column exists.\n' +
@@ -283,6 +303,11 @@ Command: ${commandText}`);
     }
   }
 
+  /**
+   * Starts the bot and begins polling for updates from Telegram.
+   * Logs successful launch or any errors encountered.
+   * @public
+   */
   public start() {
     logger.info('Starting Wallet Analysis Bot...');
     this.bot.launch({
@@ -303,6 +328,11 @@ Command: ${commandText}`);
     process.once('SIGTERM', () => this.stop('SIGTERM'));
   }
 
+  /**
+   * Stops the bot gracefully.
+   * @param {string} signal - The signal that triggered the stop (e.g., 'SIGINT', 'SIGTERM').
+   * @public
+   */
   public stop(signal: string) {
     logger.info(`Stopping bot due to ${signal} signal...`);
     this.bot.stop(signal);

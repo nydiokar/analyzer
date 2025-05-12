@@ -10,9 +10,6 @@ Modular Code: Continue separating concerns (API client, mapping, analysis, stats
 
 Decouple Fetching & Analysis: Refactor the main script/services so that the analysis logic (analyzeSwapRecords, calculateAdvancedStats) can be run independently by querying data from the database based on wallet address/time range, not just on freshly fetched data. This is key for on-demand analysis.
 
-Robust Fetching: Stick with the sequential fetching in the HeliusApiClient for now to ensure reliability on the free tier, especially for large wallets.
-Configuration: Externalize settings like API keys, batch sizes, log levels, trim percentages, etc., using .env or a config file.
-
 Introduce user table or access layer.
 
 Phase 2: Performance & Asynchronous Operations (Scaling Bottlenecks)

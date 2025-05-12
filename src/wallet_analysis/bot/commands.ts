@@ -15,6 +15,14 @@ import { HeliusTransaction } from '../../types/helius-api';
 
 const logger = createLogger('WalletAnalysisCommands');
 
+/**
+ * @interface CorrelatorTransactionData
+ * @description Represents a simplified transaction structure used for correlation analysis.
+ * @property {string} mint - The mint address of the token involved in the transaction.
+ * @property {number} timestamp - The Unix timestamp (in seconds) of the transaction.
+ * @property {'in' | 'out'} direction - The direction of the token flow ('in' for received, 'out' for sent) relative to the wallet.
+ * @property {number} associatedSolValue - The value of the transaction in SOL, if applicable (e.g., for swaps).
+ */
 interface CorrelatorTransactionData {
     mint: string;
     timestamp: number;
@@ -22,6 +30,23 @@ interface CorrelatorTransactionData {
     associatedSolValue: number;
 }
 
+/**
+ * @interface CorrelatedPairData
+ * @description Holds data about a pair of correlated wallets, including their correlation score and shared activities.
+ * @property {string} walletA_address - The address of the first wallet in the pair.
+ * @property {string} walletB_address - The address of the second wallet in the pair.
+ * @property {number} score - The calculated correlation score between the two wallets.
+ * @property {object[]} sharedNonObviousTokens - A list of non-obvious tokens traded by both wallets.
+ * @property {string} sharedNonObviousTokens[].mint - The mint address of the shared token.
+ * @property {number} sharedNonObviousTokens[].countA - The number of times wallet A transacted with this token.
+ * @property {number} sharedNonObviousTokens[].countB - The number of times wallet B transacted with this token.
+ * @property {object[]} synchronizedEvents - A list of synchronized buy/sell events for shared tokens.
+ * @property {string} synchronizedEvents[].mint - The mint of the token in the synchronized event.
+ * @property {'in' | 'out'} synchronizedEvents[].direction - The direction of the transaction.
+ * @property {number} synchronizedEvents[].timestampA - Timestamp of wallet A's transaction.
+ * @property {number} synchronizedEvents[].timestampB - Timestamp of wallet B's transaction.
+ * @property {number} synchronizedEvents[].timeDiffSeconds - The time difference in seconds between the two transactions.
+ */
 interface CorrelatedPairData {
     walletA_address: string;
     walletB_address: string;
@@ -36,21 +61,44 @@ interface CorrelatedPairData {
     }[];
 }
 
+/**
+ * @interface GlobalTokenStats
+ * @description Contains statistics about token distribution across all analyzed wallets.
+ * @property {number} totalUniqueTokens - The total number of unique tokens found.
+ * @property {number} totalPopularTokens - The number of tokens classified as 'popular' based on occurrence.
+ * @property {number} totalNonObviousTokens - The number of tokens not classified as 'popular'.
+ */
 interface GlobalTokenStats {
     totalUniqueTokens: number;
     totalPopularTokens: number;
     totalNonObviousTokens: number;
 }
 
+/**
+ * @interface ProcessingStats
+ * @description Contains statistics about the transaction processing.
+ * @property {number} totalTransactions - Total number of transactions processed for the correlation analysis.
+ * @property {number} timeRangeHours - The approximate time range in hours covered by the analyzed transactions (currently not fully implemented, defaults to 0).
+ */
 interface ProcessingStats {
   totalTransactions: number;
   timeRangeHours: number;
 }
 
+/**
+ * @class WalletAnalysisCommands
+ * @description Handles the core logic for wallet analysis, including data fetching, processing,
+ * correlation analysis, and report generation.
+ */
 export class WalletAnalysisCommands {
   private readonly heliusApiClient: HeliusApiClient;
   private readonly heliusApiKey: string | undefined;
 
+  /**
+   * @constructor
+   * @param {string} [heliusApiKey] - Optional API key for the Helius service. If not provided,
+   * functionality relying on Helius API calls will be limited or disabled.
+   */
   constructor(heliusApiKey?: string) {
     this.heliusApiKey = heliusApiKey;
     if (heliusApiKey) {
@@ -62,6 +110,15 @@ export class WalletAnalysisCommands {
     }
   }
 
+  /**
+   * Orchestrates the analysis of a list of wallet addresses.
+   * Fetches transaction data, performs correlation analysis, and sends a report to the user via Telegram.
+   * @param {Context} ctx - The Telegraf context object for interacting with the Telegram API.
+   * @param {string[]} walletAddressesInput - An array of wallet addresses to analyze.
+   * @param {number} [userRequestedTxCount] - Optional number of recent transactions to consider for each wallet's analysis.
+   *                                          Defaults to `DEFAULT_RECENT_TRANSACTION_COUNT`.
+   * @returns {Promise<void>} A promise that resolves when the analysis is complete and a report has been sent.
+   */
   async analyzeWallets(ctx: Context, walletAddressesInput: string[], userRequestedTxCount?: number) {
     try {
       await ctx.reply('🔄 Initializing analysis... Hang tight while fetching latest data!');
@@ -335,6 +392,16 @@ export class WalletAnalysisCommands {
     }
   }
 
+  /**
+   * Filters out wallets suspected of bot activity based on the number of unique tokens purchased daily.
+   * @param {WalletInfo[]} initialWallets - The initial list of wallets to filter.
+   * @param {Record<string, CorrelatorTransactionData[]>} allTransactions - A record mapping wallet addresses to their transactions.
+   *                                                                       These transactions are used *before* mint exclusion for bot filtering.
+   * @param {number} maxDailyPurchasedTokens - The maximum number of unique tokens a wallet can purchase in a single day
+   *                                           before being flagged as a potential bot.
+   * @returns {{ walletsForAnalysis: WalletInfo[], dailyTokenCountsByWallet: Record<string, Record<string, Set<string>>> }}
+   *            An object containing the list of wallets that passed the filter and a record of daily token purchase counts.
+   */
   private filterOutBotWallets(
     initialWallets: WalletInfo[],
     allTransactions: Record<string, CorrelatorTransactionData[]>,
@@ -377,6 +444,12 @@ export class WalletAnalysisCommands {
     return { walletsForAnalysis, dailyTokenCountsByWallet: dailyPurchasedTokenCountsByWallet };
   }
 
+  /**
+   * Calculates the approximate Profit and Loss (PnL) for a single wallet based on SOL-denominated transactions.
+   * Assumes 'in' transactions are costs and 'out' transactions are revenue.
+   * @param {CorrelatorTransactionData[]} transactions - An array of transactions for the wallet.
+   * @returns {number} The calculated PnL in SOL.
+   */
   private calculateWalletPnl(transactions: CorrelatorTransactionData[]): number {
     let pnl = 0;
     for (const tx of transactions) {
@@ -388,6 +461,15 @@ export class WalletAnalysisCommands {
     return pnl;
   }
 
+  /**
+   * Builds wallet clusters from a list of correlated pairs.
+   * A cluster is formed if three or more wallets are interconnected through pairs that meet a minimum score threshold.
+   * Uses a Depth First Search (DFS) algorithm to find connected components in the graph of wallets.
+   * @param {CorrelatedPairData[]} scoredPairs - An array of wallet pairs with their correlation scores.
+   * @param {number} minClusterScoreThreshold - The minimum correlation score a pair must have to be considered
+   *                                            for inclusion in building a cluster.
+   * @returns {WalletCluster[]} An array of identified wallet clusters.
+   */
   private buildClustersFromPairs(
     scoredPairs: CorrelatedPairData[],
     minClusterScoreThreshold: number 
@@ -460,6 +542,18 @@ export class WalletAnalysisCommands {
     return clusters;
   }
 
+  /**
+   * Runs the core correlation analysis on a set of wallets and their transactions.
+   * This involves identifying popular/non-obvious tokens, scoring pairs of wallets based on shared
+   * non-obvious tokens and synchronized trading activity, and then building clusters.
+   * @param {WalletInfo[]} walletsForAnalysis - The list of wallets to analyze (post-filtering).
+   * @param {Record<string, CorrelatorTransactionData[]>} transactionsForAnalysis - Transactions for each wallet,
+   *                                                                             filtered to exclude certain mints.
+   * @param {typeof CLUSTERING_CONFIG} config - Configuration object for clustering parameters.
+   * @returns {Promise<{ clusters: WalletCluster[], globalTokenStats: GlobalTokenStats, topCorrelatedPairs: CorrelatedPairData[] }>}
+   *          An object containing the identified clusters, global token statistics, and the top correlated pairs
+   *          (that are not fully contained within a cluster).
+   */
   private async runCorrelationAnalysis(
     walletsForAnalysis: WalletInfo[],
     transactionsForAnalysis: Record<string, CorrelatorTransactionData[]>,
@@ -579,6 +673,20 @@ export class WalletAnalysisCommands {
     return { clusters, globalTokenStats: globalStats, topCorrelatedPairs: topPairsToReturn };
   }
 
+  /**
+   * Generates a multi-part HTML report for Telegram, summarizing the wallet analysis results.
+   * Splits the report into multiple messages if it exceeds Telegram's message length limits.
+   * @param {number} requestedWalletsCount - The initial number of wallets requested for analysis.
+   * @param {number} analyzedWalletsCount - The number of wallets actually analyzed after filtering.
+   * @param {number} botFilteredCount - The number of wallets filtered out due to suspected bot activity.
+   * @param {Record<string, number>} walletPnLs - A map of wallet addresses to their calculated PnL.
+   * @param {GlobalTokenStats | null} globalTokenStats - Statistics about token distribution.
+   * @param {WalletCluster[]} identifiedClusters - An array of identified wallet clusters.
+   * @param {CorrelatedPairData[]} topCorrelatedPairs - An array of top correlated wallet pairs.
+   * @param {ProcessingStats} processingStats - Statistics about the transaction processing.
+   * @param {Record<string, number>} uniqueTokenCountsPerWallet - A map of wallet addresses to their unique token counts.
+   * @returns {string[]} An array of strings, where each string is a part of the report formatted for Telegram (HTML).
+   */
   private generateTelegramReport(
     requestedWalletsCount: number,
     analyzedWalletsCount: number,
