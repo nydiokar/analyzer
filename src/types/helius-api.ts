@@ -208,13 +208,23 @@ export interface AdvancedTradeStats {
 }
 
 /**
- * Represents the overall summary returned by the analysis service, potentially including advanced stats.
+ * Summary of the swap analysis results for a wallet.
  */
 export interface SwapAnalysisSummary {
+  totalVolume: number;
+  totalFees: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+  netPnl: number;
+  stablecoinNetFlow: number;
+  firstTransactionTimestamp?: number;
+  lastTransactionTimestamp?: number;
+  averageSwapSize: number;
+  profitableSwaps: number;
+  unprofitableSwaps: number;
   results: OnChainAnalysisResult[];
   totalSignaturesProcessed: number;
   overallFirstTimestamp: number;
   overallLastTimestamp: number;
-  // Add the advanced stats
-  advancedStats?: AdvancedTradeStats; // Make it optional initially
+  advancedStats?: AdvancedTradeStats | undefined;
 }

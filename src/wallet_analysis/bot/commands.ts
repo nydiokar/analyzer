@@ -4,12 +4,7 @@ import { WalletInfo, WalletCluster } from '../../types/wallet';
 import { DEFAULT_EXCLUDED_MINTS, DEFAULT_RECENT_TRANSACTION_COUNT, CLUSTERING_CONFIG } from '../../config/constants';
 import { HeliusApiClient } from '../services/helius-api-client';
 import { mapHeliusTransactionsToIntermediateRecords } from '../services/helius-transaction-mapper';
-import {
-  getSwapAnalysisInputs,
-  saveSwapAnalysisInputs,
-  getWallet,
-  updateWallet
-} from '../services/database-service';
+import { DatabaseService } from '../services/database-service';
 import { SwapAnalysisInput, Wallet } from '@prisma/client';
 import { HeliusTransaction } from '../../types/helius-api';
 
@@ -93,6 +88,7 @@ interface ProcessingStats {
 export class WalletAnalysisCommands {
   private readonly heliusApiClient: HeliusApiClient;
   private readonly heliusApiKey: string | undefined;
+  private readonly databaseService: DatabaseService;
 
   /**
    * @constructor
@@ -101,6 +97,7 @@ export class WalletAnalysisCommands {
    */
   constructor(heliusApiKey?: string) {
     this.heliusApiKey = heliusApiKey;
+    this.databaseService = new DatabaseService();
     if (heliusApiKey) {
       this.heliusApiClient = new HeliusApiClient({ apiKey: heliusApiKey, network: 'mainnet' });
       logger.info('WalletAnalysisCommands initialized with HeliusApiClient.');
@@ -147,12 +144,12 @@ export class WalletAnalysisCommands {
             logger.warn(`Helius API key not configured. Skipping Helius fetch for ${walletAddress}. Relying on existing DB data.`);
             await ctx.reply(`⚠️ Helius API key not configured. Analysis for ${walletAddress} will use existing database data only.`);
           } else {
-            const walletState: Wallet | null = await getWallet(walletAddress);
+            const walletState: Wallet | null = await this.databaseService.getWallet(walletAddress);
             logger.debug(`Wallet state for ${walletAddress}: ${walletState ? JSON.stringify(walletState) : 'null'}`);
 
             // Fetch current SwapAnalysisInputs from DB to decide on fetch strategy
             // These will be sorted newest first for this check, then re-sorted for analysis later
-            const existingDbInputsForStrategyCheck: SwapAnalysisInput[] = await getSwapAnalysisInputs(walletAddress);
+            const existingDbInputsForStrategyCheck: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(walletAddress);
             const currentDbTxCount = existingDbInputsForStrategyCheck.length;
             logger.info(`Wallet ${walletAddress} has ${currentDbTxCount} txs in DB. Requested for analysis: ${countToFetchForAnalysis}.`);
 
@@ -197,7 +194,7 @@ export class WalletAnalysisCommands {
               logger.info(`Mapped ${fetchedRawHeliusTxs.length} raw Helius txs to ${mappedInputs.length} SwapAnalysisInput records for ${walletAddress}.`);
               
               if (mappedInputs.length > 0) {
-                const saveResult = await saveSwapAnalysisInputs(mappedInputs);
+                const saveResult = await this.databaseService.saveSwapAnalysisInputs(mappedInputs);
                 logger.info(`Saved ${saveResult.count} new SwapAnalysisInput records to DB for ${walletAddress} from Helius data.`);
               }
 
@@ -221,23 +218,23 @@ export class WalletAnalysisCommands {
               }
               
               if (Object.keys(updateData).length > 1) { // more than just lastSuccessfulFetchTimestamp
-                await updateWallet(walletAddress, updateData);
+                await this.databaseService.updateWallet(walletAddress, updateData);
                 logger.info(`Wallet state updated for ${walletAddress} with new transaction timestamps/signatures.`);
               } else {
-                await updateWallet(walletAddress, { lastSuccessfulFetchTimestamp: new Date() });
+                await this.databaseService.updateWallet(walletAddress, { lastSuccessfulFetchTimestamp: new Date() });
                 logger.info(`Wallet ${walletAddress} lastSuccessfulFetchTimestamp updated. No new boundary transactions found in this batch.`);
               }
 
             } else { // No raw transactions from Helius
               logger.info(`No new raw transactions fetched from Helius for ${walletAddress}. Updating last fetch attempt time.`);
-              await updateWallet(walletAddress, { lastSuccessfulFetchTimestamp: new Date() });
+              await this.databaseService.updateWallet(walletAddress, { lastSuccessfulFetchTimestamp: new Date() });
             }
           }
 
           // Fetch final set of SwapAnalysisInputs from DB for analysis (up to countToFetchForAnalysis)
           // This now includes any newly fetched/saved transactions.
           logger.info(`Fetching final SwapAnalysisInput records from DB for ${walletAddress} post-update.`);
-          let swapInputsForProcessing: SwapAnalysisInput[] = await getSwapAnalysisInputs(walletAddress);
+          let swapInputsForProcessing: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(walletAddress);
           
           swapInputsForProcessing.sort((a, b) => b.timestamp - a.timestamp); // Sort newest first
           let finalInputsForAnalysis = swapInputsForProcessing.slice(0, countToFetchForAnalysis);
@@ -312,7 +309,7 @@ export class WalletAnalysisCommands {
               }));
           allFetchedCorrelatorTransactions[walletAddress] = correlatorTxsForWallet;
           
-          logger.info(`Prepared ${correlatorTxsForWallet.length} CorrelatorTransactionData records for ${walletAddress} (post-bot-filter and mint-exclusion).`);
+          logger.debug(`Prepared ${correlatorTxsForWallet.length} CorrelatorTransactionData records for ${walletAddress} (post-bot-filter and mint-exclusion).`);
           if (correlatorTxsForWallet.length === 0 && originalSwapInputsForThisWallet.length > 0) {
              logger.warn(`No relevant (post-mint-filter) transactions for ${walletAddress} although it passed bot filter and had initial data.`);
           }

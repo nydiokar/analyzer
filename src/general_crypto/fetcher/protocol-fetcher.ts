@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { createLogger } from '../../utils/logger';
-import { StakingProtocolInfo } from '../../types/staking';
+import { StakingProtocolInfo } from '../types/staking';
 
 const logger = createLogger('ProtocolFetcher');
 

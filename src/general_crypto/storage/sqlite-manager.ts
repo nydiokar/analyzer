@@ -1,6 +1,6 @@
 import fs from 'fs';
 import Database from 'better-sqlite3';
-import { CryptoPrice, AnalysisResult } from '../../types/crypto';
+import { CryptoPrice, AnalysisResult } from '../types/crypto';
 import { createLogger } from '../../utils/logger';
 import path from 'path';
 

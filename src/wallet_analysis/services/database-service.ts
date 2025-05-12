@@ -9,8 +9,7 @@ import {
 } from '@prisma/client';
 import { HeliusTransaction } from '../../types/helius-api'; // Assuming HeliusTransaction type is defined here
 import { TransactionData } from '../../types/correlation'; // Needed for getTransactionsForAnalysis
-import { WalletInfo } from '../../types/wallet'; // Needed for getWallets
-import { AnalysisConfig } from '../../types/analysis'; // Needed for getTransactionsForAnalysis
+import { BaseAnalysisConfig } from '../../types/analysis'; // Needed for getTransactionsForAnalysis
 import { createLogger } from '../../utils/logger'; // Assuming createLogger function is defined in utils
 import zlib from 'zlib'; // Added zlib
 
@@ -398,7 +397,7 @@ export class DatabaseService {
      */
     async getTransactionsForAnalysis(
         walletAddresses: string[],
-        config: AnalysisConfig
+        config: BaseAnalysisConfig
     ): Promise<Record<string, TransactionData[]>> {
         this.logger.debug(`Fetching transactions for analysis for ${walletAddresses.length} wallets.`);
         const results: Record<string, TransactionData[]> = {};
@@ -659,8 +658,3 @@ export class DatabaseService {
         }
     }
 }
-
-// Remove old function exports after moving them into the class
-// export async function getWallet(...) { ... }
-// export async function updateWallet(...) { ... }
-// ... etc. ... 

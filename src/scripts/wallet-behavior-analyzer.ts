@@ -17,11 +17,13 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { createLogger } from '../utils/logger';
 import { DatabaseService } from '../wallet_analysis/services/database-service';
-import { BehaviorService } from '../wallet_analysis/services/behavior-service';
-import { ReportingService } from '../wallet_analysis/services/reporting-service';
+import { BehaviorService } from '../wallet_analysis/core/behavior/behavior-service';
+import { ReportingService } from '../wallet_analysis/reporting/reportGenerator';
 // Keep WalletInfo for potential use with labels, although not strictly needed by services
 import { WalletInfo } from '../types/wallet';
 import { BehaviorAnalysisConfig } from '../types/analysis'; // Import specific config
+// Import the shared utility function
+import { parseTimeRange } from '../wallet_analysis/utils/cliUtils';
 
 // Initialize logger
 const logger = createLogger('WalletBehaviorAnalyzerScript');
@@ -32,42 +34,6 @@ const DEFAULT_EXCLUDED_MINTS: string[] = [
     'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
     'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
 ];
-
-/**
- * Parses optional start/end date CLI args into a timeRange object.
- * (Duplicate from activityCorrelator - consider moving to a shared util if used more)
- */
-function parseTimeRange(startDate?: string, endDate?: string): { startTs?: number; endTs?: number } | undefined {
-    let timeRange: { startTs?: number; endTs?: number } | undefined = undefined;
-    if (startDate || endDate) {
-        timeRange = {};
-        if (startDate) {
-            try {
-                timeRange.startTs = Math.floor(Date.parse(startDate + 'T00:00:00Z') / 1000);
-                if (isNaN(timeRange.startTs)) throw new Error('Invalid start date format');
-            } catch (e) {
-                logger.warn(`Invalid start date format: ${startDate}. Ignoring.`);
-                delete timeRange.startTs;
-            }
-        }
-        if (endDate) {
-             try {
-                timeRange.endTs = Math.floor(Date.parse(endDate + 'T23:59:59Z') / 1000);
-                if (isNaN(timeRange.endTs)) throw new Error('Invalid end date format');
-            } catch (e) {
-                logger.warn(`Invalid end date format: ${endDate}. Ignoring.`);
-                delete timeRange.endTs;
-            }
-        }
-        if (Object.keys(timeRange).length === 0) {
-            timeRange = undefined;
-        }
-    }
-    if (timeRange) {
-        logger.info(`Applying time range filter:`, timeRange);
-    }
-    return timeRange;
-}
 
 /**
  * Main execution function for the script.
@@ -123,14 +89,13 @@ async function main() {
 
     // Instantiate services required for single behavior analysis and reporting
     const dbService = new DatabaseService(); 
-    // Populate BehaviorAnalysisConfig
     const analysisConfig: BehaviorAnalysisConfig = {
         timeRange: timeRange,
         excludedMints: finalExcludedMints
     }; 
-    const behaviorService = new BehaviorService(dbService, analysisConfig); // Pass populated config
+    const behaviorService = new BehaviorService(dbService, analysisConfig); 
     
-    const reportingService = new ReportingService(behaviorService, undefined, undefined, undefined); 
+    const reportingService = new ReportingService(behaviorService, undefined, undefined, undefined, undefined); 
 
     try {
         // Prisma connection pooling is handled internally. Explicit connect/disconnect 

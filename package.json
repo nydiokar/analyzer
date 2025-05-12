@@ -50,14 +50,15 @@
     "better-sqlite3": "^11.9.1",
     "bignumber.js": "^9.3.0",
     "chalk": "^4.1.2",
+    "compute-cosine-similarity": "^1.0.0",
     "crypto-js": "^4.2.0",
     "csv-stringify": "^6.5.2",
     "dotenv": "^16.3.1",
+    "papaparse": "^5.5.2",
+    "table": "^6.9.0",
     "telegraf": "^4.15.3",
     "winston": "^3.12.0",
-    "yargs": "^17.7.2",
-    "compute-cosine-similarity": "^1.0.0",
-    "papaparse": "^5.5.2"
+    "yargs": "^17.7.2"
   },
   "devDependencies": {
     "@types/chai": "^4.3.11",
@@ -69,11 +70,11 @@
     "@types/yargs": "^17.0.33",
     "chai": "^4.4.1",
     "mocha": "^10.3.0",
+    "nodemon": "^3.0.2",
+    "pm2": "^5.3.0",
     "prisma": "^6.7.0",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.4.3",
-    "nodemon": "^3.0.2",
-    "pm2": "^5.3.0"
+    "typescript": "^5.4.3"
   }
 }

@@ -1,4 +1,4 @@
-import { CryptoPrice, AnalysisResult } from '../../types/crypto';
+import { CryptoPrice, AnalysisResult } from '../types/crypto';
 import { createLogger } from '../../utils/logger';
 import fs from 'fs';
 

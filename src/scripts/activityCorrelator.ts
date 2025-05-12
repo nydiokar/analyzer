@@ -5,12 +5,12 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
 import fs from 'fs';
-import path from 'path';
 import { WalletInfo } from '../types/wallet'; // Keep WalletInfo type
 import { DatabaseService } from '../wallet_analysis/services/database-service'; // Import DatabaseService
-import { CorrelationService } from '../wallet_analysis/services/correlation-service'; // Import CorrelationService
-import { ReportingService } from '../wallet_analysis/services/reporting-service'; // Import ReportingService
+import { CorrelationService } from '../wallet_analysis/core/correlation/correlation-service'; // Import CorrelationService
+import { ReportingService } from '../wallet_analysis/reporting/reportGenerator'; // Import ReportingService
 import { BaseAnalysisConfig, CorrelationAnalysisConfig } from '../types/analysis'; // Import BaseAnalysisConfig and specific config type
+import { parseTimeRange } from '../wallet_analysis/utils/cliUtils';
 
 // Services will be imported later
 
@@ -26,42 +26,6 @@ const DEFAULT_EXCLUDED_MINTS: string[] = [
     'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
     'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
 ];
-
-/**
- * Parses optional start/end date CLI args into a timeRange object.
- */
-function parseTimeRange(startDate?: string, endDate?: string): { startTs?: number; endTs?: number } | undefined {
-    let timeRange: { startTs?: number; endTs?: number } | undefined = undefined;
-    if (startDate || endDate) {
-        timeRange = {};
-        if (startDate) {
-            try {
-                timeRange.startTs = Math.floor(Date.parse(startDate + 'T00:00:00Z') / 1000);
-                if (isNaN(timeRange.startTs)) throw new Error('Invalid start date format');
-            } catch (e) {
-                logger.warn(`Invalid start date format: ${startDate}. Ignoring.`);
-                delete timeRange.startTs;
-            }
-        }
-        if (endDate) {
-             try {
-                timeRange.endTs = Math.floor(Date.parse(endDate + 'T23:59:59Z') / 1000);
-                if (isNaN(timeRange.endTs)) throw new Error('Invalid end date format');
-            } catch (e) {
-                logger.warn(`Invalid end date format: ${endDate}. Ignoring.`);
-                delete timeRange.endTs;
-            }
-        }
-        // If both were invalid or only one was provided but invalid, reset to undefined
-        if (Object.keys(timeRange).length === 0) {
-            timeRange = undefined;
-        }
-    }
-    if (timeRange) {
-        logger.info(`Applying time range filter:`, timeRange);
-    }
-    return timeRange;
-}
 
 /**
  * Refactored main function to orchestrate the correlation analysis using services.
@@ -92,16 +56,17 @@ async function main(
         // Populate CorrelationAnalysisConfig directly
         const correlationConfig: CorrelationAnalysisConfig = {
             excludedMints: finalExcludedMints,
-            timeRange: timeRange // Pass parsed timeRange
+            timeRange: timeRange // Pass parsed timeRange from argument
         }; 
-        const correlationService = new CorrelationService(dbService, correlationConfig); // Pass full config
+        const correlationService = new CorrelationService(dbService, correlationConfig); 
         
         // Instantiate ReportingService - ONLY provide the required CorrelationService
         const reportingService = new ReportingService(
             undefined, 
             undefined, 
             correlationService,
-            undefined  
+            undefined,
+            undefined
         );
 
         const walletAddresses = targetWallets.map(w => w.address);
@@ -172,7 +137,7 @@ if (require.main === module) {
 
     let targetWallets: WalletInfo[] = [];
     const cliExcludedMints = argv.excludeMints ? argv.excludeMints.split(',').map(m => m.trim()).filter(m => m) : [];
-    const timeRange = parseTimeRange(argv.startDate, argv.endDate); // Parse time range
+    const timeRange = parseTimeRange(argv.startDate, argv.endDate); 
 
     // --- Wallet Loading Logic (remains the same) ---
     if (argv.wallets) {

@@ -1,11 +1,11 @@
-import { CorrelationAnalyzer } from '../core/correlation/analyzer';
-import { DatabaseService } from './database-service'; // Assuming db service export is fixed
-import { CorrelationAnalysisConfig } from '../../types/analysis'; // Updated import
-import { CorrelationMetrics, TransactionData, CorrelatedPairData } from '../../types/correlation'; // Use TransactionData
-import { WalletInfo } from '../../types/wallet'; // Import WalletInfo
-import { CLUSTERING_CONFIG } from '../../config/constants'; // Assuming config lives here
-import { createLogger } from '../../utils/logger';
-import { calculatePnlForWallets } from '../utils/pnl_calculator'; // Import PNL utility
+import { CorrelationAnalyzer } from './analyzer';
+import { DatabaseService } from '../../services/database-service'; // Assuming db service export is fixed
+import { CorrelationAnalysisConfig } from '../../../types/analysis'; // Updated import
+import { CorrelationMetrics, TransactionData, CorrelatedPairData } from '../../../types/correlation'; // Use TransactionData
+import { WalletInfo } from '../../../types/wallet'; // Import WalletInfo
+import { CLUSTERING_CONFIG } from '../../../config/constants'; // Assuming config lives here
+import { createLogger } from '../../../utils/logger';
+import { calculatePnlForWallets } from '../../utils/pnl_calculator'; // Import PNL utility
 
 const logger = createLogger('CorrelationService');
 

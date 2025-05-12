@@ -1,11 +1,8 @@
 import { SimilarityAnalysisConfig } from '../../../types/analysis';
 import { TokenVector, WalletSimilarity, SimilarityMetrics } from '../../../types/similarity';
 import { TransactionData } from '../../../types/correlation'; // Import the shared type
-import { SwapAnalysisInput } from '@prisma/client'; // Or potentially another transaction type
 import { createLogger } from '../../../utils/logger';
 import cosineSimilarity from 'compute-cosine-similarity'; // External dependency
-// May need cosine similarity function, check where it's defined
-// import { computeCosineSimilarity } from '...'; 
 
 const logger = createLogger('SimilarityAnalyzer');
 

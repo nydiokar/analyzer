@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto-js';
-import { StoredCryptoData, StorageConfig } from '../../types/crypto';
+import { StoredCryptoData, StorageConfig } from '../types/crypto';
 import { createLogger } from '../../utils/logger';
 
 const logger = createLogger('StorageManager');

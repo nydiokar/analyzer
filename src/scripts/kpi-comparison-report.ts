@@ -19,17 +19,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from '../utils/logger';
 import { DatabaseService } from '../wallet_analysis/services/database-service';
-import { BehaviorService } from '../wallet_analysis/services/behavior-service';
-import { ReportingService } from '../wallet_analysis/services/reporting-service';
-import { KPIComparisonAnalyzer } from '../wallet_analysis/core/reporting/kpi_analyzer'; // Need the analyzer core
+import { BehaviorService } from '../wallet_analysis/core/behavior/behavior-service';
+import { ReportingService } from '../wallet_analysis/reporting/reportGenerator';
+import { KPIComparisonAnalyzer } from '../wallet_analysis/core/behavior/kpi_analyzer'; // Need the analyzer core
 import { WalletInfo } from '../types/wallet';
 import { BehaviorAnalysisConfig } from '../types/analysis'; // Import specific config
+import { parseTimeRange } from '../wallet_analysis/utils/cliUtils';
 
-// Removed imports from wallet-behavior-analyzer.ts
-// import { 
-//     analyzeTradingBehavior, 
-//     generateBehaviorReport 
-// } from './wallet-behavior-analyzer'; 
 
 // Initialize logger
 const logger = createLogger('KPIComparisonReportScript');
@@ -40,42 +36,6 @@ const DEFAULT_EXCLUDED_MINTS: string[] = [
     'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
     'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
 ];
-
-/**
- * Parses optional start/end date CLI args into a timeRange object.
- * (Duplicate - consider moving to a shared util)
- */
-function parseTimeRange(startDate?: string, endDate?: string): { startTs?: number; endTs?: number } | undefined {
-    let timeRange: { startTs?: number; endTs?: number } | undefined = undefined;
-    if (startDate || endDate) {
-        timeRange = {};
-        if (startDate) {
-            try {
-                timeRange.startTs = Math.floor(Date.parse(startDate + 'T00:00:00Z') / 1000);
-                if (isNaN(timeRange.startTs)) throw new Error('Invalid start date format');
-            } catch (e) {
-                logger.warn(`Invalid start date format: ${startDate}. Ignoring.`);
-                delete timeRange.startTs;
-            }
-        }
-        if (endDate) {
-             try {
-                timeRange.endTs = Math.floor(Date.parse(endDate + 'T23:59:59Z') / 1000);
-                if (isNaN(timeRange.endTs)) throw new Error('Invalid end date format');
-            } catch (e) {
-                logger.warn(`Invalid end date format: ${endDate}. Ignoring.`);
-                delete timeRange.endTs;
-            }
-        }
-        if (Object.keys(timeRange).length === 0) {
-            timeRange = undefined;
-        }
-    }
-    if (timeRange) {
-        logger.info(`Applying time range filter:`, timeRange);
-    }
-    return timeRange;
-}
 
 /**
  * Loads wallet information from a JSON file.
@@ -154,15 +114,14 @@ async function main() {
 
         // 2. Instantiate necessary services
         const dbService = new DatabaseService(); 
-        // Populate BehaviorAnalysisConfig for BehaviorService
         const analysisConfig: BehaviorAnalysisConfig = {
             timeRange: timeRange,
             excludedMints: finalExcludedMints
         }; 
-        const behaviorService = new BehaviorService(dbService, analysisConfig); // Pass populated config
+        const behaviorService = new BehaviorService(dbService, analysisConfig); 
         
         const kpiAnalyzer = new KPIComparisonAnalyzer(); 
-        const reportingService = new ReportingService(behaviorService, kpiAnalyzer, undefined, undefined);
+        const reportingService = new ReportingService(behaviorService, kpiAnalyzer, undefined, undefined, undefined);
 
         // 3. Call ReportingService to handle the entire process
         await reportingService.generateComparativeBehaviorReport(wallets);

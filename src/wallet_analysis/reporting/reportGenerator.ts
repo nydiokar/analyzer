@@ -1,11 +1,14 @@
 import { createLogger } from '../../utils/logger';
-import { BehaviorService } from '../services/behavior-service';
-import { CorrelationService } from '../services/correlation-service';
-import { SimilarityService } from '../services/similarity-service';
-import { KPIComparisonAnalyzer } from '../core/reporting/kpi_analyzer';
-import { generateBehaviorReport, generateCorrelationReport, generateSimilarityReport, saveReport } from '../reporting/report_utils'; // Import utils
+import { BehaviorService } from '../core/behavior/behavior-service';
+import { CorrelationService } from '../core/correlation/correlation-service';
+import { SimilarityService, ComprehensiveSimilarityResult } from '../core/similarity/similarity-service';
+import { KPIComparisonAnalyzer } from '../core/behavior/kpi_analyzer';
+import { generateBehaviorReport, generateCorrelationReport, generateSimilarityReport, saveReport } from './report_utils'; // Import utils
 import { BehavioralMetrics } from '../../types/behavior';
 import { WalletInfo } from '../../types/wallet';
+import { PnlAnalysisService } from '../services/pnl-analysis-service';
+import { SwapAnalysisSummary } from '../../types/helius-api';
+import { generateSwapPnlReport, generateSwapPnlCsv } from './report_utils'; // Import additional report utils
 
 
 const logger = createLogger('ReportingService');
@@ -16,17 +19,20 @@ export class ReportingService {
     // Inject other services needed for generating different report types
     private correlationService: CorrelationService | undefined; // Allow undefined
     private similarityService: SimilarityService | undefined; // Allow undefined
+    private pnlAnalysisService: PnlAnalysisService | undefined; // Allow undefined
 
     constructor(
         private behaviorService: BehaviorService | undefined, // Allow undefined
         kpiAnalyzer: KPIComparisonAnalyzer | undefined, // Allow undefined
-        correlationService?: CorrelationService | undefined, // Keep optional syntax too
-        similarityService?: SimilarityService | undefined  // Keep optional syntax too
+        correlationService: CorrelationService | undefined, // Keep optional syntax too
+        similarityService: SimilarityService | undefined,  // Keep optional syntax too
+        pnlAnalysisService: PnlAnalysisService | undefined // Added
     ) {
         this.behaviorService = behaviorService; // Assign directly
         this.kpiAnalyzer = kpiAnalyzer;
         this.correlationService = correlationService;
         this.similarityService = similarityService;
+        this.pnlAnalysisService = pnlAnalysisService; // Assign
         logger.info('ReportingService instantiated');
     }
 
@@ -153,6 +159,7 @@ export class ReportingService {
 
     /**
      * Generates and saves a similarity report for a list of wallets.
+     * It now calls the enhanced similarity service and passes the comprehensive results to the report utility.
      */
     async generateAndSaveSimilarityReport(walletAddresses: string[], vectorType: 'capital' | 'binary' = 'capital'): Promise<void> {
         if (!this.similarityService) {
@@ -161,12 +168,16 @@ export class ReportingService {
         }
         logger.info(`Generating similarity report for ${walletAddresses.length} wallets (type: ${vectorType})...`);
         try {
-            const metrics = await this.similarityService.calculateWalletSimilarity(walletAddresses, vectorType);
-            if (metrics) {
-                 // TODO: Fetch WalletInfo for involved addresses if needed for labels
-                 const walletInfos: WalletInfo[] = walletAddresses.map(addr => ({ address: addr })); // Placeholder
+            // Call the enhanced service method which returns ComprehensiveSimilarityResult | null
+            const comprehensiveMetrics: ComprehensiveSimilarityResult | null = await this.similarityService.calculateWalletSimilarity(walletAddresses, vectorType);
+            
+            if (comprehensiveMetrics) {
+                 // Need WalletInfo for labels - create placeholders or fetch if necessary
+                 // report_utils now expects WalletInfo[]
+                 const walletInfos: WalletInfo[] = walletAddresses.map(addr => ({ address: addr })); // Simple placeholder
 
-                const reportContent = generateSimilarityReport(metrics, walletInfos);
+                // Pass the comprehensive metrics object to the updated report utility
+                const reportContent = generateSimilarityReport(comprehensiveMetrics, walletInfos);
                 const reportPath = saveReport(`similarity_${vectorType}`, reportContent, 'similarity');
                 logger.info(`Saved similarity report to ${reportPath}`);
             } else {
@@ -174,6 +185,53 @@ export class ReportingService {
             }
         } catch (error) {
             logger.error('Error generating or saving similarity report:', { error });
+        }
+    }
+
+    /**
+     * Generates and saves a Swap P/L analysis report (Markdown).
+     *
+     * @param walletAddress The wallet address being reported on.
+     * @param summary The SwapAnalysisSummary data.
+     */
+    async generateAndSaveSwapPnlReport(walletAddress: string, summary: SwapAnalysisSummary): Promise<void> {
+        if (!summary) {
+            logger.warn(`[ReportingService] No summary provided for ${walletAddress}. Cannot generate Swap Pnl report.`);
+            return;
+        }
+        logger.info(`[ReportingService] Generating Swap Pnl report for ${walletAddress}...`);
+        try {
+            const reportContent = generateSwapPnlReport(summary, walletAddress);
+            const reportPath = saveReport(walletAddress, reportContent, 'swap_pnl', 'md');
+            logger.info(`[ReportingService] Saved Swap Pnl report to ${reportPath}`);
+        } catch (error) {
+            logger.error(`[ReportingService] Error generating or saving Swap Pnl report for ${walletAddress}:`, { error });
+        }
+    }
+
+    /**
+     * Generates and saves a Swap P/L analysis report as a CSV file.
+     *
+     * @param walletAddress The wallet address being reported on.
+     * @param summary The SwapAnalysisSummary data.
+     * @param runId Optional AnalysisRun ID to include in the CSV.
+     */
+    async generateAndSaveSwapPnlCsv(walletAddress: string, summary: SwapAnalysisSummary, runId?: number): Promise<void> {
+         if (!summary) {
+            logger.warn(`[ReportingService] No summary provided for ${walletAddress}. Cannot generate Swap Pnl CSV.`);
+            return;
+        }
+        logger.info(`[ReportingService] Generating Swap Pnl CSV for ${walletAddress}...`);
+        try {
+            const csvContent = generateSwapPnlCsv(summary, walletAddress, runId);
+            if (csvContent) {
+                const reportPath = saveReport(walletAddress, csvContent, 'swap_pnl_csv', 'csv');
+                logger.info(`[ReportingService] Saved Swap Pnl CSV to ${reportPath}`);
+            } else {
+                 logger.warn(`[ReportingService] CSV content generation failed for ${walletAddress}.`);
+            }
+        } catch (error) {
+            logger.error(`[ReportingService] Error generating or saving Swap Pnl CSV for ${walletAddress}:`, { error });
         }
     }
 } 
