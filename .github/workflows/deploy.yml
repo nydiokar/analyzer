@@ -29,11 +29,10 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             cd ~/dev/wallet-analyzer/analyzer 
-            git pull origin main # Or your deployment branch
-            npm ci --production # Install production dependencies
-            npm run build # Re-build if necessary, or if you prefer to build on server
-            pm2 restart ecosystem.config.js --update-env
+            git pull origin main
+            npm ci --production
+            npm run build
+            pm2 restart ecosystem.config.js --update-env 
             echo "Deployment successful!" 
