@@ -1,13 +1,13 @@
-import { createLogger } from '../../utils/logger';
-import { BehaviorService } from '../core/behavior/behavior-service';
-import { CorrelationService } from '../core/correlation/correlation-service';
-import { SimilarityService, ComprehensiveSimilarityResult } from '../core/similarity/similarity-service';
-import { KPIComparisonAnalyzer } from '../core/behavior/kpi_analyzer';
+import { createLogger } from '@/utils/logger';
+import { BehaviorService } from '@/core/behavior/behavior-service';
+import { CorrelationService } from '@/core/correlation/correlation-service';
+import { SimilarityService, ComprehensiveSimilarityResult } from '@/core/similarity/similarity-service';
+import { KPIComparisonAnalyzer } from '@/core/behavior/kpi_analyzer';
 import { generateBehaviorReport, generateCorrelationReport, generateSimilarityReport, saveReport } from './report_utils'; // Import utils
-import { BehavioralMetrics } from '../../types/behavior';
-import { WalletInfo } from '../../types/wallet';
-import { PnlAnalysisService } from '../services/pnl-analysis-service';
-import { SwapAnalysisSummary } from '../../types/helius-api';
+import { BehavioralMetrics } from '@/types/behavior';
+import { WalletInfo } from '@/types/wallet';
+import { PnlAnalysisService } from '@/services/pnl-analysis-service';
+import { SwapAnalysisSummary } from '@/types/helius-api';
 import { generateSwapPnlReport, generateSwapPnlCsv } from './report_utils'; // Import additional report utils
 
 

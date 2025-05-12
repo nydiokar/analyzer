@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { createLogger } from '../../utils/logger';
-import { HeliusApiConfig, HeliusTransaction } from '../../types/helius-api';
-import { DatabaseService } from './database-service'; // Import the service class
+import { createLogger } from '@/utils/logger';
+import { HeliusApiConfig, HeliusTransaction } from '@/types/helius-api';
+import { DatabaseService } from '@/services/database-service'; 
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
 interface SignatureInfo {

@@ -1,12 +1,12 @@
 import { Context } from 'telegraf';
-import { createLogger } from '../../utils/logger';
-import { WalletInfo, WalletCluster } from '../../types/wallet';
+import { createLogger } from '@/utils/logger';
+import { WalletInfo, WalletCluster } from '@/types/wallet';
 import { DEFAULT_EXCLUDED_MINTS, DEFAULT_RECENT_TRANSACTION_COUNT, CLUSTERING_CONFIG } from '../../config/constants';
-import { HeliusApiClient } from '../services/helius-api-client';
-import { mapHeliusTransactionsToIntermediateRecords } from '../services/helius-transaction-mapper';
-import { DatabaseService } from '../services/database-service';
+import { HeliusApiClient } from '@/services/helius-api-client';
+import { mapHeliusTransactionsToIntermediateRecords } from '@/services/helius-transaction-mapper';
+import { DatabaseService } from '@/services/database-service';
 import { SwapAnalysisInput, Wallet } from '@prisma/client';
-import { HeliusTransaction } from '../../types/helius-api';
+import { HeliusTransaction } from '@/types/helius-api';
 
 const logger = createLogger('WalletAnalysisCommands');
 

@@ -1,9 +1,9 @@
 import { SimilarityAnalyzer } from './analyzer';
-import { DatabaseService } from '../../services/database-service'; 
-import { SimilarityAnalysisConfig } from '../../../types/analysis'; 
-import { SimilarityMetrics, WalletSimilarity, TokenVector } from '../../../types/similarity'; 
-import { TransactionData } from '../../../types/correlation'; 
-import { createLogger } from '../../../utils/logger';
+import { DatabaseService } from '@/services/database-service'; 
+import { SimilarityAnalysisConfig } from '@/types/analysis'; 
+import { SimilarityMetrics, WalletSimilarity, TokenVector } from '@/types/similarity'; 
+import { TransactionData } from '@/types/correlation'; 
+import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SimilarityService');
 

@@ -7,10 +7,10 @@ import {
     AdvancedStatsResult,
     Prisma // Import Prisma namespace for input types
 } from '@prisma/client';
-import { HeliusTransaction } from '../../types/helius-api'; // Assuming HeliusTransaction type is defined here
-import { TransactionData } from '../../types/correlation'; // Needed for getTransactionsForAnalysis
-import { BaseAnalysisConfig } from '../../types/analysis'; // Needed for getTransactionsForAnalysis
-import { createLogger } from '../../utils/logger'; // Assuming createLogger function is defined in utils
+import { HeliusTransaction } from '@/types/helius-api'; // Assuming HeliusTransaction type is defined here
+import { TransactionData } from '@/types/correlation'; // Needed for getTransactionsForAnalysis
+import { BaseAnalysisConfig } from '@/types/analysis'; // Needed for getTransactionsForAnalysis
+import { createLogger } from '@/utils/logger'; // Assuming createLogger function is defined in utils
 import zlib from 'zlib'; // Added zlib
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too

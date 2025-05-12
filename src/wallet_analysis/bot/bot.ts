@@ -1,6 +1,6 @@
 import { Telegraf, Context } from 'telegraf';
 import { WalletAnalysisCommands } from './commands';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@/utils/logger';
 import axios from 'axios';
 import Papa from 'papaparse';
 import { DEFAULT_RECENT_TRANSACTION_COUNT } from '../../config/constants';

@@ -1,5 +1,5 @@
-import { BehavioralMetrics } from '../../../types/behavior'; // Corrected path
-import { createLogger } from '../../../utils/logger'; // Corrected path, removed Logger type
+import { BehavioralMetrics } from '@/types/behavior'; // Corrected path
+import { createLogger } from '@/utils/logger'; // Corrected path, removed Logger type
 
 // Define WalletInfo here or import from a shared types file if it exists elsewhere
 interface WalletInfo {

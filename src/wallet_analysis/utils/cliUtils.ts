@@ -1,4 +1,4 @@
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '@/utils/logger';
 
 // Logger specific to CLI utilities
 const logger = createLogger('CliUtils');

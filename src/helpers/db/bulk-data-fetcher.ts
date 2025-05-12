@@ -2,7 +2,7 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../general_crypto/utils/logger';
 import { HeliusApiClient } from '../../wallet_analysis/services/helius-api-client';
 import { mapHeliusTransactionsToIntermediateRecords } from '../../wallet_analysis/services/helius-transaction-mapper';
 import { getWallet, updateWallet, saveSwapAnalysisInputs, prisma } from '../../wallet_analysis/services/database-service';

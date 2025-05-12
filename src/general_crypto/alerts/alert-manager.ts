@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../utils/logger';
 import { CryptoAnalyzer } from '../analysis/analyzer';
 
 const logger = createLogger('AlertManager');

@@ -1,7 +1,7 @@
-import { BehaviorAnalysisConfig } from '../../../types/analysis';
-import { BehavioralMetrics } from '../../../types/behavior';
+import { BehaviorAnalysisConfig } from '@/types/analysis';
+import { BehavioralMetrics } from '@/types/behavior';
 import { SwapAnalysisInput } from '@prisma/client';
-import { createLogger } from '../../../utils/logger';
+import { createLogger } from '@/utils/logger';
 
 // Create logger at module level? Or pass instance?
 // Let's keep it internal to the class for now.

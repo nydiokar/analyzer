@@ -1,7 +1,7 @@
 import { CLUSTERING_CONFIG } from '../../../config/constants';
-import { WalletCluster, WalletInfo } from '../../../types/wallet';
-import { TransactionData, CorrelatedPairData } from '../../../types/correlation';
-import { createLogger } from '../../../utils/logger';
+import { WalletCluster, WalletInfo } from '@/types/wallet';
+import { TransactionData, CorrelatedPairData } from '@/types/correlation';
+import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('CorrelationAnalyzer');
 

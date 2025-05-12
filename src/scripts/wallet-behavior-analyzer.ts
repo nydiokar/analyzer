@@ -15,15 +15,15 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { createLogger } from '../utils/logger';
-import { DatabaseService } from '../wallet_analysis/services/database-service';
-import { BehaviorService } from '../wallet_analysis/core/behavior/behavior-service';
-import { ReportingService } from '../wallet_analysis/reporting/reportGenerator';
+import { createLogger } from '@/utils/logger';
+import { DatabaseService } from '@/services/database-service';
+import { BehaviorService } from '@/core/behavior/behavior-service';
+import { ReportingService } from '@/reporting/reportGenerator';
 // Keep WalletInfo for potential use with labels, although not strictly needed by services
-import { WalletInfo } from '../types/wallet';
-import { BehaviorAnalysisConfig } from '../types/analysis'; // Import specific config
+import { WalletInfo } from '@/types/wallet';
+import { BehaviorAnalysisConfig } from '@/types/analysis';
 // Import the shared utility function
-import { parseTimeRange } from '../wallet_analysis/utils/cliUtils';
+import { parseTimeRange } from '@/utils/cliUtils';
 
 // Initialize logger
 const logger = createLogger('WalletBehaviorAnalyzerScript');

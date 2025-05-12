@@ -1,8 +1,8 @@
-import { createLogger } from '../../utils/logger';
-import { HeliusApiClient } from './helius-api-client';
-import { DatabaseService } from './database-service';
-import { mapHeliusTransactionsToIntermediateRecords } from './helius-transaction-mapper';
-import { HeliusTransaction } from '../../types/helius-api';
+import { createLogger } from '@/utils/logger';
+import { HeliusApiClient } from '@/services/helius-api-client';
+import { DatabaseService } from '@/services/database-service';
+import { mapHeliusTransactionsToIntermediateRecords } from '@/services/helius-transaction-mapper';
+import { HeliusTransaction } from '@/types/helius-api';
 import { Prisma } from '@prisma/client';
 
 const logger = createLogger('HeliusSyncService');

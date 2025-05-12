@@ -1,6 +1,6 @@
 import axios, { Axios, AxiosResponse } from 'axios';
 import { CryptoPrice, CryptoDataOptions, RateLimitConfig } from '../types/crypto';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../utils/logger';
 
 const logger = createLogger('CoinGeckoClient');
 

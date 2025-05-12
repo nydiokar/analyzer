@@ -6,7 +6,7 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import axios, { AxiosError } from 'axios';
 import dotenv from 'dotenv';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../general_crypto/utils/logger';
 import path from 'path';
 import fs from 'fs';
 

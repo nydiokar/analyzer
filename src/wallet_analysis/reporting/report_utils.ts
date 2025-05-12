@@ -1,14 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { createLogger } from '../../utils/logger'; 
-import { BehavioralMetrics } from '../../types/behavior'; 
-import { CorrelationMetrics } from '../../types/correlation'; 
-import { WalletInfo } from '../../types/wallet'; 
-import { ComprehensiveSimilarityResult } from '../core/similarity/similarity-service';
-import { SwapAnalysisSummary, OnChainAnalysisResult, AdvancedTradeStats } from '../../types/helius-api';
+import { createLogger } from '@/utils/logger'; 
+import { BehavioralMetrics } from '@/types/behavior'; 
+import { CorrelationMetrics } from '@/types/correlation'; 
+import { WalletInfo } from '@/types/wallet'; 
+import { ComprehensiveSimilarityResult } from '@/core/similarity/similarity-service';
+import { SwapAnalysisSummary, OnChainAnalysisResult, AdvancedTradeStats } from '@/types/helius-api';
 import Papa from 'papaparse';
 import { table } from 'table';
-import { formatTimestamp, formatSolAmount, formatNumber } from '../utils/formatters';
+import { formatTimestamp, formatSolAmount, formatNumber } from '@/utils/formatters';
 
 const logger = createLogger('ReportUtils');
 

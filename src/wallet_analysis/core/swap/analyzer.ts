@@ -1,8 +1,5 @@
-import { createLogger } from '../../../utils/logger';
-import {
-  OnChainAnalysisResult,
-  SwapAnalysisSummary, // Might not be needed here, service will create it
-} from '../../../types/helius-api';
+import { createLogger } from '@/utils/logger';
+import { OnChainAnalysisResult } from '@/types/helius-api';
 import { SwapAnalysisInput } from '@prisma/client';
 
 // Logger instance for this module

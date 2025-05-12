@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { createLogger } from './logger';
+import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DataViewer');
 

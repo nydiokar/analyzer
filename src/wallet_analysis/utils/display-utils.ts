@@ -1,6 +1,6 @@
 import chalk from 'chalk';
-import { OnChainAnalysisResult } from '../types/helius-api';
-import { createLogger } from '../utils/logger';
+import { OnChainAnalysisResult } from '@/types/helius-api';
+import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DisplayUtils');
 

@@ -1,5 +1,5 @@
 import { CryptoPrice, AnalysisResult } from '../types/crypto';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../utils/logger';
 import fs from 'fs';
 
 const logger = createLogger('Analyzer');

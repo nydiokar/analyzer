@@ -10,15 +10,15 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import { createLogger } from '../utils/logger';
-import { parseTimeRange } from '../wallet_analysis/utils/cliUtils'; // Use shared util
-import { displaySummary, displayDetailedResults } from '../cli/display-utils'; // Import display utils
+import { createLogger } from '@/utils/logger';
+import { parseTimeRange } from '@/utils/cliUtils';
+import { displaySummary, displayDetailedResults } from '@/utils/display-utils'; 
 
 // Import Services
-import { HeliusSyncService, SyncOptions } from '../wallet_analysis/services/helius-sync-service';
-import { PnlAnalysisService } from '../wallet_analysis/services/pnl-analysis-service';
-import { DatabaseService, prisma } from '../wallet_analysis/services/database-service'; // Import service and prisma for run updates
-import { ReportingService } from '../wallet_analysis/reportGenerator'; 
+import { HeliusSyncService, SyncOptions } from '@/services/helius-sync-service';
+import { PnlAnalysisService } from '@/services/pnl-analysis-service';
+import { DatabaseService, prisma } from '@/services/database-service'; 
+import { ReportingService } from '@/reporting/reportGenerator'; 
 
 // Initialize environment variables
 dotenv.config();

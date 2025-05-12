@@ -1,6 +1,6 @@
 import { CoinGeckoClient } from './coingecko-client';
 import { CryptoPrice, CryptoDataOptions, StoredCryptoData, RateLimitConfig } from '../types/crypto';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../utils/logger';
 import crypto from 'crypto-js';
 
 const logger = createLogger('DataFetcher');

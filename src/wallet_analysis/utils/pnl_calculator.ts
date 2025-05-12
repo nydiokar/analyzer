@@ -1,5 +1,5 @@
-import { TransactionData } from '../../types/correlation';
-import { createLogger } from '../../utils/logger';
+import { TransactionData } from '@/types/correlation';
+import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('PnlCalculator');
 

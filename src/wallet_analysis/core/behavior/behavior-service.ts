@@ -1,8 +1,8 @@
-import { BehaviorAnalyzer } from './analyzer';
-import { DatabaseService } from '../../services/database-service'; // Assuming export will be fixed
-import { BehaviorAnalysisConfig } from '../../../types/analysis';
-import { BehavioralMetrics } from '../../../types/behavior';
-import { createLogger } from '../../../utils/logger';
+import { BehaviorAnalyzer } from '@/core/behavior/analyzer';
+import { DatabaseService } from '@/services/database-service'; // Assuming export will be fixed
+import { BehaviorAnalysisConfig } from '@/types/analysis';
+import { BehavioralMetrics } from '@/types/behavior';
+import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BehaviorService');
 

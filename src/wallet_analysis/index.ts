@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { WalletAnalysisBot } from './bot/bot';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '@/utils/logger';
 
 // Initialize environment variables
 dotenv.config();
@@ -9,7 +9,7 @@ const logger = createLogger('WalletAnalysisBot');
 
 async function main() {
   try {
-    // Get required environment variables
+    // Get required environment variables 
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     const heliusApiKey = process.env.HELIUS_API_KEY;
 

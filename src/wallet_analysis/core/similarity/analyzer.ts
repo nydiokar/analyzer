@@ -1,7 +1,7 @@
-import { SimilarityAnalysisConfig } from '../../../types/analysis';
-import { TokenVector, WalletSimilarity, SimilarityMetrics } from '../../../types/similarity';
-import { TransactionData } from '../../../types/correlation'; // Import the shared type
-import { createLogger } from '../../../utils/logger';
+import { SimilarityAnalysisConfig } from '@/types/analysis';
+import { TokenVector, WalletSimilarity, SimilarityMetrics } from '@/types/similarity';
+import { TransactionData } from '@/types/correlation'; // Import the shared type
+import { createLogger } from '@/utils/logger';
 import cosineSimilarity from 'compute-cosine-similarity'; // External dependency
 
 const logger = createLogger('SimilarityAnalyzer');

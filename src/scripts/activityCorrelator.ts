@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 // import { PrismaClient } from '@prisma/client'; // Removed direct Prisma client
-import { createLogger } from '../utils/logger';
+import { createLogger } from '@/utils/logger';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
 import fs from 'fs';
-import { WalletInfo } from '../types/wallet'; // Keep WalletInfo type
-import { DatabaseService } from '../wallet_analysis/services/database-service'; // Import DatabaseService
-import { CorrelationService } from '../wallet_analysis/core/correlation/correlation-service'; // Import CorrelationService
-import { ReportingService } from '../wallet_analysis/reporting/reportGenerator'; // Import ReportingService
-import { BaseAnalysisConfig, CorrelationAnalysisConfig } from '../types/analysis'; // Import BaseAnalysisConfig and specific config type
-import { parseTimeRange } from '../wallet_analysis/utils/cliUtils';
+import { WalletInfo } from '@/types/wallet'; // Keep WalletInfo type
+import { DatabaseService } from '@/services/database-service'; // Import DatabaseService
+import { CorrelationService } from '@/core/correlation/correlation-service'; // Import CorrelationService
+import { ReportingService } from '@/reporting/reportGenerator'; // Import ReportingService
+import { BaseAnalysisConfig, CorrelationAnalysisConfig } from '@/types/analysis'; // Import BaseAnalysisConfig and specific config type
+import { parseTimeRange } from '@/utils/cliUtils';
 
 // Services will be imported later
 

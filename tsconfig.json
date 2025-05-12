@@ -15,9 +15,11 @@
     "baseUrl": "./src",
     "paths": {
       "@config/*": ["config/*"],
-      "@core/*": ["core/*"],
-      "@types/*": ["types/*"],
-      "@utils/*": ["utils/*"]
+      "@/core/*": ["wallet_analysis/core/*"],
+      "@/services/*": ["wallet_analysis/services/*"],
+      "@/reporting/*": ["wallet_analysis/reporting/*"],
+      "@/types/*": ["types/*"],
+      "@/utils/*": ["wallet_analysis/utils/*"]
     }
   },
   "include": ["src/**/*"],

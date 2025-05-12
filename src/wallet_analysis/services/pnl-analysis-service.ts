@@ -1,8 +1,8 @@
-import { createLogger } from '../../utils/logger';
-import { DatabaseService } from './database-service';
-import { SwapAnalyzer } from '../core/swap/analyzer';
-import { AdvancedStatsAnalyzer } from '../core/stats/analyzer';
-import { OnChainAnalysisResult, SwapAnalysisSummary, AdvancedTradeStats } from '../../types/helius-api';
+import { createLogger } from '@/utils/logger';
+import { DatabaseService } from '@/services/database-service';
+import { SwapAnalyzer } from '@/core/swap/analyzer';
+import { AdvancedStatsAnalyzer } from '@/core/stats/analyzer';
+import { OnChainAnalysisResult, SwapAnalysisSummary, AdvancedTradeStats } from '@/types/helius-api';
 import { SwapAnalysisInput } from '@prisma/client';
 
 const logger = createLogger('PnlAnalysisService');
