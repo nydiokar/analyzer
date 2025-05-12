@@ -8,11 +8,7 @@ import {
   AdvancedTradeStats,
 } from '../../types/helius-api';
 import { AnalysisResult, AdvancedStatsResult, SwapAnalysisInput } from '@prisma/client';
-import {
-    getAnalysisRun,
-    getAnalysisResultsForRun,
-    getAdvancedStatsForRun
-} from './database-service';
+import { DatabaseService } from './database-service';
 
 // Logger instance for this module
 const logger = createLogger('TransferAnalyzerService');
@@ -285,10 +281,13 @@ export async function writeAnalysisReportTxt(
 ): Promise<string | null> {
   logger.info(`Generating TXT summary report for AnalysisRun ID: ${runId}`);
 
-  // Fetch data from database
-  const analysisRun = await getAnalysisRun(runId);
-  const results: AnalysisResult[] = await getAnalysisResultsForRun(runId);
-  const advancedStats: AdvancedStatsResult | null = await getAdvancedStatsForRun(runId);
+  // Instantiate DatabaseService here
+  const dbService = new DatabaseService();
+
+  // Fetch data from database using the service instance
+  const analysisRun = await dbService.getAnalysisRun(runId);
+  const results: AnalysisResult[] = await dbService.getAnalysisResultsForRun(runId);
+  const advancedStats: AdvancedStatsResult | null = await dbService.getAdvancedStatsForRun(runId);
 
   if (!analysisRun) {
       logger.warn(`AnalysisRun data not found for Run ID ${runId}. Cannot generate TXT report.`);

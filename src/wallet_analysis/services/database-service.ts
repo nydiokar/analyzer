@@ -8,389 +8,30 @@ import {
     Prisma // Import Prisma namespace for input types
 } from '@prisma/client';
 import { HeliusTransaction } from '../../types/helius-api'; // Assuming HeliusTransaction type is defined here
+import { TransactionData } from '../../types/correlation'; // Needed for getTransactionsForAnalysis
+import { WalletInfo } from '../../types/wallet'; // Needed for getWallets
+import { AnalysisConfig } from '../../types/analysis'; // Needed for getTransactionsForAnalysis
 import { createLogger } from '../../utils/logger'; // Assuming createLogger function is defined in utils
 import zlib from 'zlib'; // Added zlib
 
-// Instantiate Prisma Client - Singleton pattern recommended for production
-// Exporting the instance directly is simple for this stage
-// Ensure `prisma generate` is run after schema changes.
-export const prisma = new PrismaClient();
+// Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
+export const prisma = new PrismaClient(); 
 
-const logger = createLogger('DatabaseService'); // Add logger
+const logger = createLogger('DatabaseService');
 
-// TODO: Add proper error handling (try...catch) and logging to all functions.
-// TODO: Define precise input/output types for function arguments and return values.
+// Corrected Type Definitions based on Prisma schema (inferred from usage/errors)
 
-// --- Wallet Functions ---
+// Type for wallet updates
+type WalletUpdateData = Partial<Omit<Wallet, 'address'>>;
 
-// Type for the data used to update/create a Wallet record
-// Using Partial<Wallet> allows updating only specific fields
-type WalletUpdateData = Partial<Omit<Wallet, 'address'>>; // Omit address as it's the key
-
-/**
- * Fetches a wallet record from the database.
- * @param walletAddress The public key of the wallet.
- * @returns The Wallet object if found, otherwise null.
- */
-export async function getWallet(walletAddress: string): Promise<Wallet | null> {
-  logger.debug(`Fetching wallet data for: ${walletAddress}`);
-  try {
-    const wallet = await prisma.wallet.findUnique({
-      where: { address: walletAddress },
-    });
-    if (wallet) {
-        logger.debug(`Found wallet data for: ${walletAddress}`);
-    } else {
-        logger.debug(`No wallet data found for: ${walletAddress}`);
-    }
-    return wallet;
-  } catch (error) {
-    logger.error(`Error fetching wallet ${walletAddress}`, { error });
-    return null;
-  }
-}
-
-/**
- * Updates an existing wallet record or creates a new one if it doesn't exist (upsert).
- * @param walletAddress The public key of the wallet.
- * @param data An object containing the wallet fields to update or create.
- * @returns The updated or newly created Wallet object, or null on error.
- */
-export async function updateWallet(walletAddress: string, data: WalletUpdateData): Promise<Wallet | null> {
-  logger.debug(`Upserting wallet data for: ${walletAddress}`, data);
-  try {
-    const updatedWallet = await prisma.wallet.upsert({
-        where: { address: walletAddress },
-        update: data,
-        create: {
-            address: walletAddress,
-            ...data, // Spread the rest of the data for creation
-        },
-    });
-    logger.info(`Successfully upserted wallet data for: ${walletAddress}`);
-    return updatedWallet;
-  } catch (error) {
-      logger.error(`Error upserting wallet ${walletAddress}`, { error, data });
-      return null;
-  }
-}
-
-// --- HeliusTransactionCache Functions ---
-
-/**
- * Retrieves cached Helius transaction data from the database.
- * Supports fetching a single transaction by signature or multiple transactions in batch.
- *
- * @param signature A single transaction signature string or an array of signature strings.
- * @returns - If input is a string: The parsed HeliusTransaction or null if not found/parse error.
- *          - If input is an array: A Map where keys are signatures and values are parsed HeliusTransactions.
- *                                    Transactions not found or with parse errors are omitted from the map.
- *          - Null for invalid input type.
- */
-export async function getCachedTransaction(
-  signature: string | string[]
-): Promise<HeliusTransaction | null | Map<string, HeliusTransaction>> {
-  if (typeof signature === 'string') {
-    try {
-      const cached = await prisma.heliusTransactionCache.findUnique({
-        where: { signature },
-      });
-      
-      if (cached) {
-        try {
-          const rawDataObject = cached.rawData;
-          if (Buffer.isBuffer(rawDataObject)) {
-            const decompressedBuffer = zlib.inflateSync(rawDataObject);
-            const jsonString = decompressedBuffer.toString('utf-8');
-            return JSON.parse(jsonString) as HeliusTransaction;
-          } else if (typeof rawDataObject === 'string') {
-            logger.warn(`[CacheRead] rawData for ${signature} is a string (old format?), attempting direct parse.`);
-            return JSON.parse(rawDataObject) as HeliusTransaction;
-          } else if (typeof rawDataObject === 'object' && rawDataObject !== null) {
-            // Handle case where rawData is a plain object (should be Buffer)
-            const byteArray = Object.values(rawDataObject).filter(v => typeof v === 'number') as number[];
-            if (byteArray.length > 0 && byteArray.every(v => v >= 0 && v <= 255)) {
-              const buffer = Buffer.from(byteArray);
-              const decompressedBuffer = zlib.inflateSync(buffer);
-              const jsonString = decompressedBuffer.toString('utf-8');
-              return JSON.parse(jsonString) as HeliusTransaction;
-            }
-          }
-          logger.error(`[CacheRead] rawData for ${signature} is in an unexpected format. Type: ${typeof rawDataObject}`);
-          return null;
-        } catch (processError) {
-          logger.error(`Failed to process cached rawData for signature ${signature}`, { error: processError });
-          return null;
-        }
-      }
-      return null;
-    } catch (error) {
-      logger.error(`Error fetching cached transaction ${signature}`, { error });
-      return null;
-    }
-  }
-
-  if (Array.isArray(signature)) {
-    if (signature.length === 0) {
-      return new Map();
-    }
-    try {
-      const cachedRecords = await prisma.heliusTransactionCache.findMany({
-        where: {
-          signature: {
-            in: signature
-          }
-        }
-      });
-      
-      const resultMap = new Map<string, HeliusTransaction>();
-      for (const record of cachedRecords) {
-        try {
-          const rawDataObject = record.rawData;
-          if (Buffer.isBuffer(rawDataObject)) {
-            const decompressedBuffer = zlib.inflateSync(rawDataObject);
-            const jsonString = decompressedBuffer.toString('utf-8');
-            const tx = JSON.parse(jsonString) as HeliusTransaction;
-            resultMap.set(record.signature, tx);
-          } else if (typeof rawDataObject === 'string') {
-            logger.warn(`[CacheRead-Batch] rawData for ${record.signature} is a string (old format?), attempting direct parse.`);
-            const tx = JSON.parse(rawDataObject) as HeliusTransaction;
-            resultMap.set(record.signature, tx);
-          } else if (typeof rawDataObject === 'object' && rawDataObject !== null) {
-            // Handle case where rawData is a plain object (should be Buffer)
-            const byteArray = Object.values(rawDataObject).filter(v => typeof v === 'number') as number[];
-            if (byteArray.length > 0 && byteArray.every(v => v >= 0 && v <= 255)) {
-              const buffer = Buffer.from(byteArray);
-              const decompressedBuffer = zlib.inflateSync(buffer);
-              const jsonString = decompressedBuffer.toString('utf-8');
-              const tx = JSON.parse(jsonString) as HeliusTransaction;
-              resultMap.set(record.signature, tx);
-            } else {
-              logger.error(`[CacheRead-Batch] rawData for ${record.signature} is in an unexpected format. Type: ${typeof rawDataObject}`);
-            }
-          }
-        } catch (processError) {
-          logger.error(`Failed to process cached rawData in batch for signature ${record.signature}`, { error: processError });
-        }
-      }
-      return resultMap;
-    } catch (error) {
-      logger.error(`Error batch fetching ${signature.length} cached transactions`, { error });
-      return new Map();
-    }
-  }
-
-  return null;
-}
-
-/**
- * Efficiently saves multiple Helius transactions to the cache.
- * Checks for existing signatures first and only inserts new ones using `createMany`.
- *
- * @param transactions An array of HeliusTransaction objects to cache.
- * @returns A Prisma Promise result containing the count of newly added records, or { count: 0 } on error or if no new transactions were added.
- */
-export async function saveCachedTransactions(transactions: HeliusTransaction[]) {
-    if (transactions.length === 0) {
-        logger.debug('No transactions provided to save to cache.');
-        return { count: 0 };
-    }
-    logger.debug(`Attempting to save ${transactions.length} transactions to cache efficiently...`);
-
-    const incomingSignatures = transactions.map(tx => tx.signature);
-    let existingSignatures = new Set<string>();
-    try {
-        const existingRecords = await prisma.heliusTransactionCache.findMany({
-            where: {
-                signature: {
-                    in: incomingSignatures,
-                },
-            },
-            select: {
-                signature: true,
-            },
-        });
-        existingSignatures = new Set(existingRecords.map(rec => rec.signature));
-        logger.debug(`Found ${existingSignatures.size} existing signatures in cache out of ${incomingSignatures.length} incoming.`);
-    } catch (error) {
-        logger.error('Error checking for existing signatures in cache', { error });
-        return { count: 0 }; 
-    }
-
-    const newTransactions = transactions.filter(tx => !existingSignatures.has(tx.signature));
-
-    if (newTransactions.length === 0) {
-        logger.info('No new transactions to add to cache.');
-        return { count: 0 };
-    }
-
-    logger.info(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
-
-    const dataToSave = newTransactions.map(tx => {
-        const jsonString = JSON.stringify(tx);
-        const compressedRawData = zlib.deflateSync(Buffer.from(jsonString, 'utf-8'));
-        return {
-            signature: tx.signature,
-            timestamp: tx.timestamp,
-            rawData: compressedRawData,
-        };
-    });
-
-    try {
-        const result = await prisma.heliusTransactionCache.createMany({
-            data: dataToSave,
-        });
-        logger.info(`Cache save complete. ${result.count} new transactions added to HeliusTransactionCache.`);
-        return result;
-    } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            logger.error('Prisma Error saving new cached transactions to HeliusTransactionCache', { code: error.code, meta: error.meta });
-        } else {
-            logger.error('Error saving new cached transactions to HeliusTransactionCache', { error });
-        }
-        return { count: 0 };
-    }
-}
-
-// --- SwapAnalysisInput Functions ---
-
-// Use Prisma.SwapAnalysisInputCreateInput for the input type for createMany
-// Ensure this type reflects the new schema (prisma generate might be needed after schema change)
-/** Type definition for creating SwapAnalysisInput records, derived from the Prisma schema. */
-type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
-
-/**
- * Saves multiple swap analysis input records to the database.
- * Processes inputs in batches and checks for duplicates within each batch transaction
- * to ensure only unique records (based on signature, mint, direction) are inserted.
- *
- * @param inputs An array of SwapAnalysisInputCreateData objects to save.
- * @returns A Promise resolving to an object containing the count of newly saved records, or { count: 0 } on error.
- */
-export async function saveSwapAnalysisInputs(inputs: SwapAnalysisInputCreateData[]) {
-    if (inputs.length === 0) {
-        logger.debug('No swap analysis inputs provided to save.');
-        return { count: 0 };
-    }
-    logger.debug(`Attempting to save ${inputs.length} swap analysis inputs...`);
-    
-    try {
-        // Process in batches to avoid overloading the database
-        let savedCount = 0;
-        const BATCH_SIZE = 100;
-        
-        for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
-            const batch = inputs.slice(i, i + BATCH_SIZE);
-            logger.debug(`Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(inputs.length/BATCH_SIZE)} (${batch.length} records)`);
-            
-            // Use a transaction for atomicity
-            const batchResult = await prisma.$transaction(async (tx) => {
-                let batchCount = 0;
-                
-                for (const input of batch) {
-                    // Check if this exact record already exists, including amount
-                    const exists = await tx.swapAnalysisInput.findFirst({
-                        where: {
-                            signature: input.signature as string,
-                            mint: input.mint as string,
-                            direction: input.direction as string,
-                            amount: input.amount as number // Add amount to the check
-                        }
-                    });
-                    
-                    // Only create if it doesn't exist
-                    if (!exists) {
-                        await tx.swapAnalysisInput.create({
-                            data: input
-                        });
-                        batchCount++;
-                    }
-                }
-                
-                return batchCount;
-            });
-            
-            savedCount += batchResult;
-            logger.debug(`Batch ${Math.floor(i/BATCH_SIZE) + 1} complete. Saved ${batchResult} records in this batch.`);
-        }
-        
-        logger.info(`Successfully saved ${savedCount} unique swap analysis inputs. ${inputs.length - savedCount} were duplicates and skipped.`);
-        return { count: savedCount };
-    } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            logger.error('Prisma error saving swap analysis inputs', { 
-                code: error.code, 
-                meta: error.meta,
-                message: error.message 
-            });
-        } else {
-            logger.error('Error saving swap analysis inputs', { error });
-        }
-        return { count: 0 };
-    }
-}
-
-// Interface for time range filtering
-/** Optional time range filter using Unix timestamps (seconds). */
+// Type for Swap Input time range filter
 interface SwapInputTimeRange {
     startTs?: number;
     endTs?: number;
 }
 
-/**
- * Retrieves SwapAnalysisInput records for a given wallet, optionally filtered by a time range.
- * Results are ordered by timestamp ascending.
- *
- * @param walletAddress The wallet address to fetch records for.
- * @param timeRange Optional object with `startTs` and/or `endTs` (Unix timestamps) for filtering.
- * @returns A Promise resolving to an array of SwapAnalysisInput records matching the criteria.
- */
-export async function getSwapAnalysisInputs(
-    walletAddress: string,
-    timeRange?: SwapInputTimeRange
-): Promise<SwapAnalysisInput[]> {
-    logger.debug(`Getting swap analysis inputs for ${walletAddress}`, { timeRange });
-    try {
-        // Explicitly type the where clause for clarity
-        const whereClause: Prisma.SwapAnalysisInputWhereInput = {
-            walletAddress: walletAddress,
-        };
-
-        // Build the timestamp part of the where clause if timeRange is provided
-        const timestampFilter: Prisma.IntFilter = {};
-        let hasTimestampFilter = false;
-        if (timeRange?.startTs !== undefined) {
-            timestampFilter.gte = timeRange.startTs;
-            hasTimestampFilter = true;
-        }
-        if (timeRange?.endTs !== undefined) {
-            timestampFilter.lte = timeRange.endTs;
-            hasTimestampFilter = true;
-        }
-        if (hasTimestampFilter) {
-            whereClause.timestamp = timestampFilter;
-        }
-
-
-        const inputs = await prisma.swapAnalysisInput.findMany({
-            where: whereClause,
-            orderBy: {
-                timestamp: 'asc',
-            },
-        });
-        logger.debug(`Found ${inputs.length} swap analysis inputs for ${walletAddress}`);
-        // The returned `inputs` will automatically conform to the updated SwapAnalysisInput type from Prisma
-        return inputs;
-    } catch (error) {
-        logger.error(`Error fetching swap analysis inputs for ${walletAddress}`, { error });
-        return []; // Return empty array on error
-    }
-}
-
-// --- AnalysisRun / AnalysisResult / AdvancedStatsResult Functions ---
-
-// Type for creating a new AnalysisRun (omit auto-generated id and relations)
-/** Data structure for creating a new AnalysisRun record. */
+// Use Prisma generated types directly where possible, or derive carefully
+export type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 export type AnalysisRunCreateData = Omit<Prisma.AnalysisRunCreateInput, 'id' | 'results' | 'advancedStats'>;
 
 // Type for creating AnalysisResult records (omit auto-generated id, add runId and walletAddress explicitly)
@@ -403,165 +44,623 @@ export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'i
 };
 
 // Type for creating an AdvancedStatsResult record (omit auto-generated id, add runId and walletAddress explicitly)
-/** Data structure for creating a new AdvancedStatsResult record, linked to a specific run and wallet. */
-export type AdvancedStatsCreateData = Omit<Prisma.AdvancedStatsResultCreateInput, 'id' | 'run' | 'runId' | 'walletAddress'> & { runId: number; walletAddress: string };
+// Define this type within or import it for the class method
+/** Data structure for the INPUT to saveAdvancedStats, containing the raw data points. */
+export type AdvancedStatsInput = Omit<Prisma.AdvancedStatsResultCreateInput, 'id' | 'run'> & { runId: number; /* walletAddress is already included */ };
 
-/**
- * Creates a new AnalysisRun record in the database.
- * @param data Data for the new AnalysisRun.
- * @returns The newly created AnalysisRun object, or null on error.
- */
-export async function createAnalysisRun(data: AnalysisRunCreateData): Promise<AnalysisRun | null> {
-    logger.debug('Creating new AnalysisRun...', { wallet: data.walletAddress });
-    try {
-        const newRun = await prisma.analysisRun.create({
-            data: data,
+// --- DatabaseService Class ---
+
+export class DatabaseService {
+    // Using the exported prisma instance
+    private prismaClient: PrismaClient = prisma; 
+    private logger = logger; // Use the module-level logger
+
+    constructor() {
+        this.logger.info('DatabaseService instantiated.');
+    }
+
+    // --- Wallet Methods ---
+
+    /**
+     * Fetches multiple wallet records (addresses only).
+     * @param walletAddresses An array of public keys for the wallets.
+     * @returns An array of objects containing wallet addresses.
+     */
+    async getWallets(walletAddresses: string[]): Promise<{ address: string }[]> { // Return address only
+        this.logger.debug(`Fetching wallet info for ${walletAddresses.length} addresses.`);
+        try {
+            const wallets = await this.prismaClient.wallet.findMany({
+                where: {
+                    address: { in: walletAddresses },
+                },
+                select: { address: true } // Select only address
+            });
+            this.logger.debug(`Found ${wallets.length} wallet records.`);
+            return wallets; // Return the result directly
+        } catch (error) {
+            this.logger.error(`Error fetching wallets`, { error });
+            return [];
+        }
+    }
+
+    /**
+     * Fetches a single wallet record from the database.
+     * @param walletAddress The public key of the wallet.
+     * @returns The Wallet object if found, otherwise null.
+     */
+    async getWallet(walletAddress: string): Promise<Wallet | null> {
+      this.logger.debug(`Fetching wallet data for: ${walletAddress}`);
+      try {
+        const wallet = await this.prismaClient.wallet.findUnique({
+          where: { address: walletAddress },
         });
-        logger.info(`Created new AnalysisRun with ID: ${newRun.id} for wallet ${data.walletAddress}`);
-        return newRun;
-    } catch (error) {
-        logger.error('Error creating AnalysisRun', { error, data });
+        if (wallet) {
+            this.logger.debug(`Found wallet data for: ${walletAddress}`);
+        } else {
+            this.logger.debug(`No wallet data found for: ${walletAddress}`);
+        }
+        return wallet;
+      } catch (error) {
+        this.logger.error(`Error fetching wallet ${walletAddress}`, { error });
         return null;
+      }
     }
-}
 
-/**
- * Saves multiple analysis result records to the database using `createMany`.
- * Filters the input data to ensure only fields present in the `AnalysisResult` schema are included.
- *
- * @param results An array of AnalysisResultCreateData objects to save. Assumes all results belong to the same runId and walletAddress.
- * @returns A Prisma Promise result containing the count of records created, or { count: 0 } on error or if no results were provided.
- */
-export async function saveAnalysisResults(results: AnalysisResultCreateData[]) {
-    if (results.length === 0) {
-        logger.debug('No analysis results provided to save.');
-        return { count: 0 };
+    /**
+     * Updates an existing wallet record or creates a new one (upsert).
+     * @param walletAddress The public key of the wallet.
+     * @param data An object containing the wallet fields to update/create.
+     * @returns The updated or newly created Wallet object, or null on error.
+     */
+    async updateWallet(walletAddress: string, data: WalletUpdateData): Promise<Wallet | null> {
+      this.logger.debug(`Upserting wallet data for: ${walletAddress}`, data);
+      try {
+        const updatedWallet = await this.prismaClient.wallet.upsert({
+            where: { address: walletAddress },
+            update: data,
+            create: {
+                address: walletAddress,
+                ...data,
+            },
+        });
+        this.logger.info(`Successfully upserted wallet data for: ${walletAddress}`);
+        return updatedWallet;
+      } catch (error) {
+          this.logger.error(`Error upserting wallet ${walletAddress}`, { error, data });
+          return null;
+      }
     }
-    const runId = results[0]?.runId; // Assume all results belong to the same run
-    const walletAddress = results[0]?.walletAddress; // Assume all results belong to the same wallet
-    logger.info(`Attempting to save ${results.length} analysis results for run ID: ${runId}, wallet: ${walletAddress}...`);
-    // NOTE: We assume the walletAddress is correctly populated in the input `results` array
-    try {
-        // Filter out extra fields that aren't in the database schema to avoid validation errors
-        const filteredResults = results.map(result => {
-            // Only include fields that exist in the AnalysisResult schema
+
+    // --- HeliusTransactionCache Methods ---
+
+    /**
+     * Retrieves cached Helius transaction data.
+     * @param signature A single transaction signature string or an array of signature strings.
+     * @returns Depends on input: HeliusTransaction | null | Map<string, HeliusTransaction>
+     */
+    async getCachedTransaction(signature: string | string[]): Promise<HeliusTransaction | null | Map<string, HeliusTransaction>> {
+      if (typeof signature === 'string') {
+        try {
+          const cached = await this.prismaClient.heliusTransactionCache.findUnique({
+            where: { signature },
+          });
+          if (cached) {
+                try {
+                    const rawDataObject = cached.rawData;
+                    if (Buffer.isBuffer(rawDataObject)) {
+                        const decompressedBuffer = zlib.inflateSync(rawDataObject);
+                        const jsonString = decompressedBuffer.toString('utf-8');
+                        return JSON.parse(jsonString) as HeliusTransaction;
+                    } else if (typeof rawDataObject === 'string') {
+                        this.logger.warn(`[CacheRead] rawData for ${signature} is a string (old format?), attempting direct parse.`);
+                        return JSON.parse(rawDataObject) as HeliusTransaction;
+                    } else if (typeof rawDataObject === 'object' && rawDataObject !== null) {
+                        const byteArray = Object.values(rawDataObject).filter(v => typeof v === 'number') as number[];
+                        if (byteArray.length > 0 && byteArray.every(v => v >= 0 && v <= 255)) {
+                            const buffer = Buffer.from(byteArray);
+                            const decompressedBuffer = zlib.inflateSync(buffer);
+                            const jsonString = decompressedBuffer.toString('utf-8');
+                            return JSON.parse(jsonString) as HeliusTransaction;
+                        }
+                    }
+                    this.logger.error(`[CacheRead] rawData for ${signature} is in an unexpected format. Type: ${typeof rawDataObject}`);
+                    return null;
+                } catch (processError) {
+                    this.logger.error(`Failed to process cached rawData for signature ${signature}`, { error: processError });
+                    return null;
+                }
+            }
+            return null;
+        } catch (error) {
+            this.logger.error(`Error fetching cached transaction ${signature}`, { error });
+            return null;
+        }
+      }
+
+      if (Array.isArray(signature)) {
+         if (signature.length === 0) {
+            return new Map();
+         }
+         try {
+            const cachedRecords = await this.prismaClient.heliusTransactionCache.findMany({
+                where: {
+                    signature: {
+                        in: signature
+                    }
+                }
+            });
+            const resultMap = new Map<string, HeliusTransaction>();
+            for (const record of cachedRecords) {
+                try {
+                    const rawDataObject = record.rawData;
+                    if (Buffer.isBuffer(rawDataObject)) {
+                        const decompressedBuffer = zlib.inflateSync(rawDataObject);
+                        const jsonString = decompressedBuffer.toString('utf-8');
+                        const tx = JSON.parse(jsonString) as HeliusTransaction;
+                        resultMap.set(record.signature, tx);
+                    } else if (typeof rawDataObject === 'string') {
+                         this.logger.warn(`[CacheRead-Batch] rawData for ${record.signature} is a string (old format?), attempting direct parse.`);
+                         const tx = JSON.parse(rawDataObject) as HeliusTransaction;
+                         resultMap.set(record.signature, tx);
+                    } else if (typeof rawDataObject === 'object' && rawDataObject !== null) {
+                        const byteArray = Object.values(rawDataObject).filter(v => typeof v === 'number') as number[];
+                        if (byteArray.length > 0 && byteArray.every(v => v >= 0 && v <= 255)) {
+                            const buffer = Buffer.from(byteArray);
+                            const decompressedBuffer = zlib.inflateSync(buffer);
+                            const jsonString = decompressedBuffer.toString('utf-8');
+                            const tx = JSON.parse(jsonString) as HeliusTransaction;
+                            resultMap.set(record.signature, tx);
+                        } else {
+                             this.logger.error(`[CacheRead-Batch] rawData for ${record.signature} is in an unexpected format. Type: ${typeof rawDataObject}`);
+                        }
+                    }
+                } catch (processError) {
+                     this.logger.error(`Failed to process cached rawData in batch for signature ${record.signature}`, { error: processError });
+                }
+            }
+            return resultMap;
+        } catch (error) {
+             this.logger.error(`Error batch fetching ${signature.length} cached transactions`, { error });
+             return new Map();
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Efficiently saves multiple Helius transactions to the cache.
+     * @param transactions An array of HeliusTransaction objects to cache.
+     * @returns A Prisma Promise result containing the count of newly added records.
+     */
+    async saveCachedTransactions(transactions: HeliusTransaction[]): Promise<{ count: number }> {
+      if (transactions.length === 0) {
+            this.logger.debug('No transactions provided to save to cache.');
+            return { count: 0 };
+        }
+        this.logger.debug(`Attempting to save ${transactions.length} transactions to cache efficiently...`);
+        const incomingSignatures = transactions.map(tx => tx.signature);
+        let existingSignatures = new Set<string>();
+        try {
+            const existingRecords = await this.prismaClient.heliusTransactionCache.findMany({
+                where: {
+                    signature: {
+                        in: incomingSignatures,
+                    },
+                },
+                select: {
+                    signature: true,
+                },
+            });
+            existingSignatures = new Set(existingRecords.map(rec => rec.signature));
+             this.logger.debug(`Found ${existingSignatures.size} existing signatures in cache out of ${incomingSignatures.length} incoming.`);
+        } catch (error) {
+             this.logger.error('Error checking for existing signatures in cache', { error });
+            return { count: 0 }; 
+        }
+        const newTransactions = transactions.filter(tx => !existingSignatures.has(tx.signature));
+        if (newTransactions.length === 0) {
+             this.logger.info('No new transactions to add to cache.');
+            return { count: 0 };
+        }
+         this.logger.info(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
+        const dataToSave = newTransactions.map(tx => {
+            const jsonString = JSON.stringify(tx);
+            const compressedRawData = zlib.deflateSync(Buffer.from(jsonString, 'utf-8'));
             return {
-                runId: result.runId,
-                walletAddress: result.walletAddress,
-                tokenAddress: result.tokenAddress,
-                totalAmountIn: result.totalAmountIn,
-                totalAmountOut: result.totalAmountOut,
-                netAmountChange: result.netAmountChange,
-                totalSolSpent: result.totalSolSpent, // This is Gross SOL Spent
-                totalSolReceived: result.totalSolReceived, // This is Gross SOL Received
-                totalFeesPaidInSol: result.totalFeesPaidInSol, // NEW field
-                netSolProfitLoss: result.netSolProfitLoss, // Calculated using fees
-                transferCountIn: result.transferCountIn,
-                transferCountOut: result.transferCountOut,
-                firstTransferTimestamp: result.firstTransferTimestamp,
-                lastTransferTimestamp: result.lastTransferTimestamp,
-                // Omit: adjustedNetSolProfitLoss, estimatedPreservedValue, isValuePreservation, preservationType
+                signature: tx.signature,
+                timestamp: tx.timestamp,
+                rawData: compressedRawData,
             };
         });
-        
-        // Use createMany for performance
-        const result = await prisma.analysisResult.createMany({
-            data: filteredResults, // Use the filtered results that match the schema
-        });
-        logger.info(`Successfully saved ${result.count} analysis results for run ID: ${runId}.`);
-        return result;
-    } catch (error) {
-        logger.error(`Error saving analysis results for run ID: ${runId}`, { error });
-        return { count: 0 };
+        try {
+            const result = await this.prismaClient.heliusTransactionCache.createMany({
+                data: dataToSave,
+            });
+             this.logger.info(`Cache save complete. ${result.count} new transactions added to HeliusTransactionCache.`);
+            return result;
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError) {
+                 this.logger.error('Prisma Error saving new cached transactions to HeliusTransactionCache', { code: error.code, meta: error.meta });
+            } else {
+                 this.logger.error('Error saving new cached transactions to HeliusTransactionCache', { error });
+            }
+            return { count: 0 }; // Return count 0 on error
+        }
     }
-}
 
-/**
- * Saves an advanced statistics result record to the database.
- * Handles potential unique constraint violations (P2002) gracefully if stats already exist for the runId.
- *
- * @param statsData The AdvancedStatsCreateData object to save.
- * @returns The newly created AdvancedStatsResult object, or null if stats already existed or an error occurred.
- */
-export async function saveAdvancedStats(statsData: AdvancedStatsCreateData): Promise<AdvancedStatsResult | null> {
-    const runId = statsData.runId;
-    const walletAddress = statsData.walletAddress;
-    logger.info(`Attempting to save advanced stats for run ID: ${runId}, wallet: ${walletAddress}...`);
-    // NOTE: We assume walletAddress is correctly populated in the input `statsData` object
-    try {
-        const savedStats = await prisma.advancedStatsResult.create({
-            data: statsData, // Input object already includes runId and walletAddress
-        });
-        logger.info(`Successfully saved advanced stats for run ID: ${runId}.`);
-        return savedStats;
-    } catch (error) {
-        // Handle potential unique constraint violation if stats already exist for this runId
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-            logger.warn(`Advanced stats already exist for run ID: ${runId}. Ignoring duplicate save.`);
-            // Optionally, find and return the existing record or implement an update logic
-            return null; // Or fetch existing: await prisma.advancedStatsResult.findUnique({ where: { runId } });
-        } else {
-            logger.error(`Error saving advanced stats for run ID: ${runId}`, { error });
+    // --- SwapAnalysisInput Methods ---
+
+    /**
+     * Saves multiple SwapAnalysisInput records to the database.
+     * Uses `createMany` for efficiency, skipping duplicates based on signature.
+     * @param inputs An array of SwapAnalysisInput objects to save.
+     * @returns A Prisma Promise result with the count of added records.
+     */
+    async saveSwapAnalysisInputs(inputs: SwapAnalysisInputCreateData[]): Promise<{ count: number }> {
+        if (inputs.length === 0) {
+            this.logger.debug('No SwapAnalysisInput records provided to save.');
+            return { count: 0 };
+        }
+        this.logger.debug(`Attempting to save ${inputs.length} SwapAnalysisInput records efficiently...`);
+
+        const incomingSignatures = inputs.map(input => input.signature);
+        let existingSignatures = new Set<string>();
+        try {
+            // Check existing signatures just for SwapAnalysisInput
+            const existingRecords = await this.prismaClient.swapAnalysisInput.findMany({
+                where: {
+                    signature: {
+                        in: incomingSignatures,
+                    },
+                },
+                select: {
+                    signature: true,
+                },
+            });
+            existingSignatures = new Set(existingRecords.map(rec => rec.signature));
+            this.logger.debug(`Found ${existingSignatures.size} existing SwapAnalysisInput signatures out of ${incomingSignatures.length} incoming.`);
+        } catch (error) {
+            this.logger.error('Error checking for existing SwapAnalysisInput signatures', { error });
+            return { count: 0 };
+        }
+
+        const newInputs = inputs.filter(input => !existingSignatures.has(input.signature));
+
+        if (newInputs.length === 0) {
+            this.logger.info('No new SwapAnalysisInput records to add.');
+            return { count: 0 };
+        }
+
+        this.logger.info(`Identified ${newInputs.length} new SwapAnalysisInput records to insert.`);
+
+        try {
+            const result = await this.prismaClient.swapAnalysisInput.createMany({
+                data: newInputs, // Data should already be in the correct format
+            });
+            this.logger.info(`SwapAnalysisInput save complete. ${result.count} new records added.`);
+            return result;
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError) {
+                this.logger.error('Prisma Error saving new SwapAnalysisInput records', { code: error.code, meta: error.meta });
+            } else {
+                this.logger.error('Error saving new SwapAnalysisInput records', { error });
+            }
+            return { count: 0 };
+        }
+    }
+
+    /**
+     * Retrieves SwapAnalysisInput records for a specific wallet, optionally filtered by time.
+     * @param walletAddress The wallet address.
+     * @param timeRange Optional start and end timestamps.
+     * @returns An array of SwapAnalysisInput records.
+     */
+    async getSwapAnalysisInputs(
+        walletAddress: string,
+        timeRange?: SwapInputTimeRange
+    ): Promise<SwapAnalysisInput[]> {
+        this.logger.debug(`Fetching SwapAnalysisInputs for ${walletAddress}`, { timeRange });
+        try {
+            const whereCondition: Prisma.SwapAnalysisInputWhereInput = {
+                walletAddress: walletAddress,
+            };
+
+            if (timeRange?.startTs || timeRange?.endTs) {
+                whereCondition.timestamp = {};
+                if (timeRange.startTs) {
+                    whereCondition.timestamp.gte = timeRange.startTs;
+                }
+                if (timeRange.endTs) {
+                    whereCondition.timestamp.lte = timeRange.endTs;
+                }
+            }
+
+            const inputs = await this.prismaClient.swapAnalysisInput.findMany({
+                where: whereCondition,
+                orderBy: {
+                    timestamp: 'asc',
+                },
+            });
+            this.logger.debug(`Found ${inputs.length} SwapAnalysisInput records for ${walletAddress}.`);
+            return inputs;
+        } catch (error) {
+            this.logger.error(`Error fetching SwapAnalysisInputs for ${walletAddress}`, { error });
+            return [];
+        }
+    }
+    
+    /**
+     * Retrieves transactions (SwapAnalysisInput) suitable for correlation/similarity analysis.
+     * Handles fetching for multiple wallets and applying AnalysisConfig filters.
+     * @param walletAddresses Array of wallet addresses.
+     * @param config Analysis configuration containing filters like timeRange and excludedMints.
+     * @returns A record mapping wallet addresses to their filtered TransactionData arrays.
+     */
+    async getTransactionsForAnalysis(
+        walletAddresses: string[],
+        config: AnalysisConfig
+    ): Promise<Record<string, TransactionData[]>> {
+        this.logger.debug(`Fetching transactions for analysis for ${walletAddresses.length} wallets.`);
+        const results: Record<string, TransactionData[]> = {};
+        
+        try {
+            const whereCondition: Prisma.SwapAnalysisInputWhereInput = {
+                walletAddress: { in: walletAddresses },
+            };
+
+            // Apply time range from config
+            if (config.timeRange?.startTs || config.timeRange?.endTs) {
+                whereCondition.timestamp = {};
+                if (config.timeRange.startTs) {
+                    whereCondition.timestamp.gte = config.timeRange.startTs;
+                }
+                if (config.timeRange.endTs) {
+                    whereCondition.timestamp.lte = config.timeRange.endTs;
+                }
+            }
+
+            // Apply excluded mints from config
+            if (config.excludedMints && config.excludedMints.length > 0) {
+                 whereCondition.NOT = {
+                     mint: { in: config.excludedMints },
+                 };
+            }
+
+            const inputs = await this.prismaClient.swapAnalysisInput.findMany({
+                where: whereCondition,
+                select: { // Select fields matching TransactionData
+                    walletAddress: true,
+                    mint: true,
+                    timestamp: true,
+                    direction: true,
+                    amount: true,
+                    associatedSolValue: true,
+                },
+                orderBy: {
+                    timestamp: 'asc',
+                },
+            });
+
+            this.logger.debug(`Fetched ${inputs.length} total SwapAnalysisInput records for analysis.`);
+            
+            // Group results by wallet address
+            walletAddresses.forEach(addr => { results[addr] = []; }); // Initialize empty arrays
+            inputs.forEach(input => {
+                // Convert SwapAnalysisInput to TransactionData format
+                results[input.walletAddress].push({
+                    mint: input.mint,
+                    timestamp: input.timestamp,
+                    direction: input.direction as 'in' | 'out', // Assuming direction is always 'in' or 'out'
+                    amount: input.amount,
+                    associatedSolValue: input.associatedSolValue ?? 0, // Handle potential null
+                });
+            });
+
+            return results;
+        } catch (error) {
+            this.logger.error(`Error fetching transactions for analysis`, { error });
+            // Return empty results structure on error
+            walletAddresses.forEach(addr => { results[addr] = []; });
+            return results;
+        }
+    }
+
+    // --- AnalysisRun/Result/Stats Methods ---
+
+    /**
+     * Creates a new analysis run record.
+     * @param data Data for the new analysis run.
+     * @returns The created AnalysisRun object or null on error.
+     */
+    async createAnalysisRun(data: AnalysisRunCreateData): Promise<AnalysisRun | null> {
+        this.logger.debug('Creating new AnalysisRun record...', data);
+        try {
+            const newRun = await this.prismaClient.analysisRun.create({
+                data: {
+                    ...data, // Spread the input data
+                    // Prisma handles default timestamp (createdAt) automatically
+                }
+            });
+            this.logger.info(`Created AnalysisRun with ID: ${newRun.id}`);
+            return newRun;
+        } catch (error) {
+            this.logger.error('Error creating AnalysisRun', { error, data });
+            return null;
+        }
+    }
+
+    /**
+     * Saves multiple analysis result records.
+     * Maps input data to match Prisma.AnalysisResultCreateManyInput structure.
+     * @param results An array of data objects to save. IMPORTANT: The structure of these input objects must match the expected fields.
+     * @returns A Prisma Promise result with the count of added records.
+     */
+    async saveAnalysisResults(results: any[]): Promise<{ count: number }> { // Use any[] for input flexibility for now
+        if (results.length === 0) {
+            this.logger.debug('No AnalysisResult records provided to save.');
+            return { count: 0 };
+        }
+        this.logger.debug(`Saving ${results.length} AnalysisResult records...`);
+
+        // Map data carefully to match Prisma.AnalysisResultCreateManyInput
+        // This requires knowing the exact structure of the `results` input array
+        // and the exact fields in the `AnalysisResult` Prisma model.
+        const dataToSave: Prisma.AnalysisResultCreateManyInput[] = results.map(r => ({
+            runId: r.runId, // Required relation
+            walletAddress: r.walletAddress, // Required part of the data payload
+            // --- Fields likely present in the original data structure ---
+            tokenAddress: r.tokenAddress,
+            totalAmountIn: r.totalAmountIn,
+            totalAmountOut: r.totalAmountOut,
+            netAmountChange: r.netAmountChange,
+            totalSolSpent: r.totalSolSpent,
+            totalSolReceived: r.totalSolReceived,
+            netSolProfitLoss: r.netSolProfitLoss,
+            transferCountIn: r.transferCountIn,
+            transferCountOut: r.transferCountOut,
+            firstTransferTimestamp: r.firstTransferTimestamp,
+            lastTransferTimestamp: r.lastTransferTimestamp,
+            totalFeesPaidInSol: r.totalFeesPaidInSol, // Assuming this might be optional
+            // Add any other fields that were part of the original save function's input 'r' object
+            // and exist in the Prisma AnalysisResult model.
+            // Example: clusterId: r.clusterId, metrics: r.metrics, correlationScore: r.correlationScore,
+            // Only include these if they ACTUALLY exist in the model and input data.
+        }));
+
+        try {
+            const result = await this.prismaClient.analysisResult.createMany({
+                data: dataToSave,
+                // skipDuplicates: true, // Removed: Type 'true' is not assignable to type 'never'.
+            });
+            this.logger.info(`AnalysisResult save complete. Attempted: ${results.length}, Added: ${result.count}.`);
+            return result;
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError) {
+                this.logger.error('Prisma Error saving AnalysisResult records', { code: error.code, meta: error.meta });
+            } else {
+                this.logger.error('Error saving AnalysisResult records', { error });
+            }
+            return { count: 0 };
+        }
+    }
+
+    /**
+     * Saves an advanced statistics result record to the database.
+     * Mimics the original function: attempts creation and handles unique constraint violation (P2002) on runId.
+     *
+     * @param inputData The data object containing runId, walletAddress, and all individual stat fields.
+     * @returns The newly created AdvancedStatsResult object, or null if stats already existed for the runId or an error occurred.
+     */
+    async saveAdvancedStats(inputData: AdvancedStatsInput): Promise<AdvancedStatsResult | null> {
+        const { runId, ...statsFields } = inputData; // Separate runId from stats fields
+        const walletAddress = statsFields.walletAddress; // Extract walletAddress for logging
+        
+        this.logger.info(`Attempting to save advanced stats for run ID: ${runId}, wallet: ${walletAddress}...`);
+        
+        try {
+            // Construct the data payload required by Prisma create, including the relation connection
+            const dataToCreate: Prisma.AdvancedStatsResultCreateInput = {
+                ...statsFields, // Spread the individual statistic fields (medianPnlPerToken, etc.)
+                run: { // Explicitly connect to the AnalysisRun
+                    connect: { id: runId }
+                }
+            };
+
+            const savedStats = await this.prismaClient.advancedStatsResult.create({
+                data: dataToCreate, 
+            });
+            this.logger.info(`Successfully saved advanced stats for run ID: ${runId}.`);
+            return savedStats;
+        } catch (error) {
+            // Handle potential unique constraint violation (P2002 on runId)
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                const target = (error.meta?.target as string[] | undefined) || [];
+                if (target.includes('runId')) { // Check if the unique constraint is indeed on runId
+                    this.logger.warn(`Advanced stats already exist for run ID: ${runId}. Ignoring duplicate save.`);
+                    return null; // Return null as per original function logic
+                } else {
+                    this.logger.error(`Prisma unique constraint violation (P2002) on unexpected fields: ${target.join(', ')}`, { error, runId, walletAddress });
+                    return null;
+                }
+            } else {
+                this.logger.error(`Error saving advanced stats for run ID: ${runId}`, { error, inputData });
+                return null;
+            }
+        }
+    }
+
+    // --- Retrieval Methods for Analysis Runs/Results ---
+
+    /**
+     * Retrieves a specific analysis run by its ID.
+     * @param runId The ID of the analysis run.
+     * @returns The AnalysisRun object or null if not found.
+     */
+    async getAnalysisRun(runId: number): Promise<AnalysisRun | null> {
+        this.logger.debug(`Fetching AnalysisRun with ID: ${runId}`);
+        try {
+            const run = await this.prismaClient.analysisRun.findUnique({
+                where: { id: runId },
+            });
+            if (!run) {
+                this.logger.warn(`AnalysisRun with ID ${runId} not found.`);
+            }
+            return run;
+        } catch (error) {
+            this.logger.error(`Error fetching AnalysisRun ${runId}`, { error });
+            return null;
+        }
+    }
+
+    /**
+     * Retrieves all analysis results associated with a specific run ID.
+     * @param runId The ID of the analysis run.
+     * @returns An array of AnalysisResult objects.
+     */
+    async getAnalysisResultsForRun(runId: number): Promise<AnalysisResult[]> {
+        this.logger.debug(`Fetching AnalysisResults for run ID: ${runId}`);
+        try {
+            const results = await this.prismaClient.analysisResult.findMany({
+                where: { runId: runId },
+                orderBy: {
+                    // Optional: Order by walletAddress or score?
+                    walletAddress: 'asc' 
+                }
+            });
+            this.logger.debug(`Found ${results.length} AnalysisResults for run ${runId}.`);
+            return results;
+        } catch (error) {
+            this.logger.error(`Error fetching AnalysisResults for run ${runId}`, { error });
+            return [];
+        }
+    }
+
+    /**
+     * Retrieves advanced stats associated with a specific run ID.
+     * Assumes only one AdvancedStatsResult per run/wallet combo, but query could return multiple if schema changes.
+     * @param runId The ID of the analysis run.
+     * @returns The AdvancedStatsResult object or null if not found. 
+     */
+    async getAdvancedStatsForRun(runId: number): Promise<AdvancedStatsResult | null> {
+        // This might need adjustment if multiple stats per run are possible
+        this.logger.debug(`Fetching AdvancedStatsResult for run ID: ${runId}`);
+        try {
+            // If there's only one expected per run, findFirst might be suitable
+            const stats = await this.prismaClient.advancedStatsResult.findFirst({
+                where: { runId: runId },
+            });
+             if (!stats) {
+                 this.logger.debug(`No AdvancedStatsResult found for run ${runId}.`);
+             }
+            return stats;
+        } catch (error) {
+            this.logger.error(`Error fetching AdvancedStatsResult for run ${runId}`, { error });
             return null;
         }
     }
 }
 
-// Add more functions as needed (e.g., querying results for reports)
-
-/**
- * Fetches a specific AnalysisRun record by its ID.
- * @param runId The ID of the AnalysisRun to fetch.
- * @returns The AnalysisRun object if found, otherwise null.
- */
-export async function getAnalysisRun(runId: number): Promise<AnalysisRun | null> {
-    logger.debug(`Fetching AnalysisRun data for ID: ${runId}`);
-    try {
-        const run = await prisma.analysisRun.findUnique({
-            where: { id: runId },
-        });
-        return run;
-    } catch (error) {
-        logger.error(`Error fetching AnalysisRun ${runId}`, { error });
-        return null;
-    }
-}
-
-/**
- * Fetches all AnalysisResult records associated with a specific AnalysisRun ID.
- * Results are ordered by net SOL profit/loss descending.
- *
- * @param runId The ID of the AnalysisRun.
- * @returns An array of AnalysisResult objects, or an empty array if none found or on error.
- */
-export async function getAnalysisResultsForRun(runId: number): Promise<AnalysisResult[]> {
-    logger.debug(`Fetching AnalysisResult data for Run ID: ${runId}`);
-    try {
-        const results = await prisma.analysisResult.findMany({
-            where: { runId: runId },
-            orderBy: { netSolProfitLoss: 'desc' } // Default sort for reports
-        });
-        return results;
-    } catch (error) {
-        logger.error(`Error fetching AnalysisResults for Run ID ${runId}`, { error });
-        return [];
-    }
-}
-
-/**
- * Fetches the AdvancedStatsResult record associated with a specific AnalysisRun ID.
- * @param runId The ID of the AnalysisRun.
- * @returns The AdvancedStatsResult object if found, otherwise null.
- */
-export async function getAdvancedStatsForRun(runId: number): Promise<AdvancedStatsResult | null> {
-    logger.debug(`Fetching AdvancedStatsResult data for Run ID: ${runId}`);
-    try {
-        const stats = await prisma.advancedStatsResult.findUnique({
-            where: { runId: runId },
-        });
-        return stats;
-    } catch (error) {
-        logger.error(`Error fetching AdvancedStatsResult for Run ID ${runId}`, { error });
-        return null;
-    }
-} 
+// Remove old function exports after moving them into the class
+// export async function getWallet(...) { ... }
+// export async function updateWallet(...) { ... }
+// ... etc. ... 

@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { createLogger } from '../../utils/logger';
 import { HeliusApiConfig, HeliusTransaction } from '../../types/helius-api';
-import { getCachedTransaction, saveCachedTransactions } from './database-service'; // Update import - remove batchGetCachedTransactions
+import { DatabaseService } from './database-service'; // Import the service class
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
 interface SignatureInfo {
@@ -42,6 +42,7 @@ export class HeliusApiClient {
   private readonly minRequestIntervalMs: number; // Calculated based on RPS
   private readonly SOLANA_RPC_URL_MAINNET = 'https://mainnet.helius-rpc.com/'; // Using Helius RPC for consistency
   private readonly RPC_SIGNATURE_LIMIT = 1000; // Max limit for getSignaturesForAddress
+  private dbService: DatabaseService; // Add DatabaseService member
 
   /**
    * Handles configuration and sets up the Axios instance.
@@ -65,6 +66,8 @@ export class HeliusApiClient {
         'Content-Type': 'application/json'
       }
     });
+
+    this.dbService = new DatabaseService(); // Instantiate DatabaseService
   }
 
   /** Ensures a minimum interval between requests to respect rate limits. */
@@ -344,8 +347,8 @@ export class HeliusApiClient {
     // === Check Cache to Identify Signatures to Fetch ===
     logger.debug(`Checking database cache existence for ${uniqueSignatures.length} signatures...`);
     
-    // Use the updated getCachedTransaction that supports batch operations
-    const cachedTxMap = await getCachedTransaction(uniqueSignatures) as Map<string, HeliusTransaction>;
+    // Use the dbService instance method
+    const cachedTxMap = await this.dbService.getCachedTransaction(uniqueSignatures) as Map<string, HeliusTransaction>;
     const cacheHits = cachedTxMap.size;
     
     // Separate cached transactions and signatures that need to be fetched
@@ -426,7 +429,8 @@ export class HeliusApiClient {
         // --- Save newly fetched transactions to DB Cache --- 
         if (newlyFetchedTransactions.length > 0) {
             logger.debug(`Saving ${newlyFetchedTransactions.length} newly fetched transactions to database cache...`);
-            await saveCachedTransactions(newlyFetchedTransactions); // Use DB service
+            // Use the dbService instance method
+            await this.dbService.saveCachedTransactions(newlyFetchedTransactions);
             logger.debug('Finished saving new transactions to cache.');
             // Do NOT combine with cached data here. newlyFetchedTransactions holds the results.
         } else {
