@@ -1,15 +1,9 @@
 import { CLUSTERING_CONFIG } from '../../../config/constants';
 import { WalletCluster, WalletInfo } from '@/types/wallet';
-import { TransactionData, CorrelatedPairData } from '@/types/correlation';
+import { TransactionData, CorrelatedPairData, GlobalTokenStats } from '@/types/correlation';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('CorrelationAnalyzer');
-
-interface GlobalTokenStats {
-  totalUniqueTokens: number;
-  totalPopularTokens: number;
-  totalNonObviousTokens: number;
-}
 
 export class CorrelationAnalyzer {
   constructor(private config: typeof CLUSTERING_CONFIG) {}

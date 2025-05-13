@@ -1,73 +1,15 @@
 import { Context } from 'telegraf';
 import { createLogger } from '@/utils/logger';
 import { WalletInfo, WalletCluster } from '@/types/wallet';
-import { DEFAULT_EXCLUDED_MINTS, DEFAULT_RECENT_TRANSACTION_COUNT, CLUSTERING_CONFIG } from '../../config/constants';
-import { HeliusApiClient } from '@/services/helius-api-client';
-import { mapHeliusTransactionsToIntermediateRecords } from '@/services/helius-transaction-mapper';
+import { DEFAULT_RECENT_TRANSACTION_COUNT, CLUSTERING_CONFIG } from '../../config/constants';
 import { DatabaseService } from '@/services/database-service';
 import { SwapAnalysisInput, Wallet } from '@prisma/client';
-import { HeliusTransaction } from '@/types/helius-api';
+import { CorrelationAnalyzer } from '../core/correlation/analyzer';
+import { calculatePnlForWallets } from '@/utils/pnl_calculator';
+import { TransactionData, CorrelatedPairData, GlobalTokenStats } from '../../types/correlation';
+import { HeliusSyncService, SyncOptions } from '../services/helius-sync-service';
 
 const logger = createLogger('WalletAnalysisCommands');
-
-/**
- * @interface CorrelatorTransactionData
- * @description Represents a simplified transaction structure used for correlation analysis.
- * @property {string} mint - The mint address of the token involved in the transaction.
- * @property {number} timestamp - The Unix timestamp (in seconds) of the transaction.
- * @property {'in' | 'out'} direction - The direction of the token flow ('in' for received, 'out' for sent) relative to the wallet.
- * @property {number} associatedSolValue - The value of the transaction in SOL, if applicable (e.g., for swaps).
- */
-interface CorrelatorTransactionData {
-    mint: string;
-    timestamp: number;
-    direction: 'in' | 'out';
-    associatedSolValue: number;
-}
-
-/**
- * @interface CorrelatedPairData
- * @description Holds data about a pair of correlated wallets, including their correlation score and shared activities.
- * @property {string} walletA_address - The address of the first wallet in the pair.
- * @property {string} walletB_address - The address of the second wallet in the pair.
- * @property {number} score - The calculated correlation score between the two wallets.
- * @property {object[]} sharedNonObviousTokens - A list of non-obvious tokens traded by both wallets.
- * @property {string} sharedNonObviousTokens[].mint - The mint address of the shared token.
- * @property {number} sharedNonObviousTokens[].countA - The number of times wallet A transacted with this token.
- * @property {number} sharedNonObviousTokens[].countB - The number of times wallet B transacted with this token.
- * @property {object[]} synchronizedEvents - A list of synchronized buy/sell events for shared tokens.
- * @property {string} synchronizedEvents[].mint - The mint of the token in the synchronized event.
- * @property {'in' | 'out'} synchronizedEvents[].direction - The direction of the transaction.
- * @property {number} synchronizedEvents[].timestampA - Timestamp of wallet A's transaction.
- * @property {number} synchronizedEvents[].timestampB - Timestamp of wallet B's transaction.
- * @property {number} synchronizedEvents[].timeDiffSeconds - The time difference in seconds between the two transactions.
- */
-interface CorrelatedPairData {
-    walletA_address: string;
-    walletB_address: string;
-    score: number;
-    sharedNonObviousTokens: { mint: string, countA: number, countB: number }[];
-    synchronizedEvents: {
-        mint: string,
-        direction: 'in' | 'out',
-        timestampA: number,
-        timestampB: number,
-        timeDiffSeconds: number
-    }[];
-}
-
-/**
- * @interface GlobalTokenStats
- * @description Contains statistics about token distribution across all analyzed wallets.
- * @property {number} totalUniqueTokens - The total number of unique tokens found.
- * @property {number} totalPopularTokens - The number of tokens classified as 'popular' based on occurrence.
- * @property {number} totalNonObviousTokens - The number of tokens not classified as 'popular'.
- */
-interface GlobalTokenStats {
-    totalUniqueTokens: number;
-    totalPopularTokens: number;
-    totalNonObviousTokens: number;
-}
 
 /**
  * @interface ProcessingStats
@@ -86,9 +28,9 @@ interface ProcessingStats {
  * correlation analysis, and report generation.
  */
 export class WalletAnalysisCommands {
-  private readonly heliusApiClient: HeliusApiClient;
   private readonly heliusApiKey: string | undefined;
   private readonly databaseService: DatabaseService;
+  private readonly heliusSyncService: HeliusSyncService | undefined;
 
   /**
    * @constructor
@@ -99,11 +41,11 @@ export class WalletAnalysisCommands {
     this.heliusApiKey = heliusApiKey;
     this.databaseService = new DatabaseService();
     if (heliusApiKey) {
-      this.heliusApiClient = new HeliusApiClient({ apiKey: heliusApiKey, network: 'mainnet' });
-      logger.info('WalletAnalysisCommands initialized with HeliusApiClient.');
+      this.heliusSyncService = new HeliusSyncService(this.databaseService, heliusApiKey);
+      logger.info('WalletAnalysisCommands initialized with HeliusApiClient and HeliusSyncService.');
     } else {
-      this.heliusApiClient = new HeliusApiClient({ apiKey: '', network: 'mainnet' });
-      logger.warn('WalletAnalysisCommands initialized WITHOUT a valid Helius API key. RPC functionality will be impaired or disabled.');
+      this.heliusSyncService = undefined;
+      logger.warn('WalletAnalysisCommands initialized WITHOUT a valid Helius API key. HeliusSyncService is not available.');
     }
   }
 
@@ -122,9 +64,14 @@ export class WalletAnalysisCommands {
       const initialWallets: WalletInfo[] = walletAddressesInput.map(addr => ({ address: addr.trim().toString() }));
       
       const allSwapInputsByWallet: Record<string, SwapAnalysisInput[]> = {};
-      const transactionsForBotFilterPass: Record<string, CorrelatorTransactionData[]> = {};
+      const transactionsForBotFilterPass: Record<string, TransactionData[]> = {};
       const failedWallets: string[] = [];
       const successfullyFetchedInitialWallets: WalletInfo[] = [];
+
+      // Determine the number of transactions to aim for in the database after sync
+      const targetTxCountInDb = userRequestedTxCount !== undefined && userRequestedTxCount > 0 
+                                ? userRequestedTxCount 
+                                : DEFAULT_RECENT_TRANSACTION_COUNT;
 
       for (const walletInfo of initialWallets) {
         const walletAddress = walletInfo.address;
@@ -132,127 +79,59 @@ export class WalletAnalysisCommands {
           if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
             throw new Error(`Invalid Solana address format: ${walletAddress}`);
           }
-          const countToFetchForAnalysis = userRequestedTxCount !== undefined && userRequestedTxCount > 0 
-                                           ? userRequestedTxCount 
-                                           : DEFAULT_RECENT_TRANSACTION_COUNT;
-          
-          logger.info(`Processing wallet: ${walletAddress}. Target transactions for final analysis: ${countToFetchForAnalysis}.`);
+          logger.info(`Processing wallet: ${walletAddress}. Target transactions for final analysis: ${targetTxCountInDb}.`);
 
-          let fetchedRawHeliusTxs: HeliusTransaction[] = [];
-
-          if (!this.heliusApiKey) {
-            logger.warn(`Helius API key not configured. Skipping Helius fetch for ${walletAddress}. Relying on existing DB data.`);
+          // ---- Start: Replace Helius Fetching with HeliusSyncService ----
+          if (!this.heliusApiKey || !this.heliusSyncService) {
+            logger.warn(`Helius API key not configured or HeliusSyncService not initialized. Skipping Helius sync for ${walletAddress}. Relying on existing DB data.`);
             await ctx.reply(`⚠️ Helius API key not configured. Analysis for ${walletAddress} will use existing database data only.`);
           } else {
-            const walletState: Wallet | null = await this.databaseService.getWallet(walletAddress);
-            logger.debug(`Wallet state for ${walletAddress}: ${walletState ? JSON.stringify(walletState) : 'null'}`);
-
-            // Fetch current SwapAnalysisInputs from DB to decide on fetch strategy
-            // These will be sorted newest first for this check, then re-sorted for analysis later
-            const existingDbInputsForStrategyCheck: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(walletAddress);
-            const currentDbTxCount = existingDbInputsForStrategyCheck.length;
-            logger.info(`Wallet ${walletAddress} has ${currentDbTxCount} txs in DB. Requested for analysis: ${countToFetchForAnalysis}.`);
-
-            let effectiveStopAtSignature: string | undefined = walletState?.newestProcessedSignature ?? undefined;
-            let effectiveNewestProcessedTs: number | undefined = walletState?.newestProcessedTimestamp ?? undefined;
-            let effectiveMaxSignatures: number;
+            const walletState = await this.databaseService.getWallet(walletAddress);
             const isInitialFetch = !walletState || !walletState.lastSuccessfulFetchTimestamp;
 
-            // Threshold: if DB has less than 80% of requested, do a deeper refresh.
-            if (!isInitialFetch && currentDbTxCount < countToFetchForAnalysis * 0.8) {
-              logger.info(`DB count for ${walletAddress} (${currentDbTxCount}) is less than 80% of requested (${countToFetchForAnalysis}). Performing deeper transaction refresh.`);
-              effectiveStopAtSignature = undefined;
-              effectiveNewestProcessedTs = undefined; // Important: do not filter by old timestamp if doing deep refresh
-              effectiveMaxSignatures = Math.max(countToFetchForAnalysis * 4, 500); // User's preferred multiplier
-            } else {
-              if (isInitialFetch) {
-                logger.info(`Initial fetch or DB count sufficient for ${walletAddress}. Using standard incremental/initial fetch logic.`);
-                effectiveMaxSignatures = Math.max(countToFetchForAnalysis * 2, 300);
-              } else {
-                logger.info(`DB count sufficient for ${walletAddress}. Using standard incremental fetch logic.`);
-                effectiveMaxSignatures = Math.max(Math.floor(countToFetchForAnalysis * 1.5), 200);
-              }
-            }
-            
-            logger.info(`Calling HeliusApiClient for ${walletAddress}. MaxSignatures: ${effectiveMaxSignatures}, StopAtSig: ${effectiveStopAtSignature}, NewestTs: ${effectiveNewestProcessedTs}`);
+            const maxSignaturesToConsiderForSync = Math.max(targetTxCountInDb * 2, 300); // Ensure enough data for the target analysis count
 
-            fetchedRawHeliusTxs = await this.heliusApiClient.getAllTransactionsForAddress(
-              walletAddress,
-              100, // pageSize
-              effectiveMaxSignatures,
-              effectiveStopAtSignature,
-              effectiveNewestProcessedTs,
-              true, // useCache
-              undefined, // untilTs
-              3 // phase2InternalConcurrency (increased from 3 based on prior successful tuning)
-            );
-
-            logger.info(`HeliusApiClient returned ${fetchedRawHeliusTxs.length} raw Helius transactions for ${walletAddress}.`);
-
-            if (fetchedRawHeliusTxs.length > 0) {
-              const mappedInputs = mapHeliusTransactionsToIntermediateRecords(walletAddress, fetchedRawHeliusTxs);
-              logger.info(`Mapped ${fetchedRawHeliusTxs.length} raw Helius txs to ${mappedInputs.length} SwapAnalysisInput records for ${walletAddress}.`);
-              
-              if (mappedInputs.length > 0) {
-                const saveResult = await this.databaseService.saveSwapAnalysisInputs(mappedInputs);
-                logger.info(`Saved ${saveResult.count} new SwapAnalysisInput records to DB for ${walletAddress} from Helius data.`);
-              }
-
-              // Update wallet state based on the newest and oldest transactions from THIS BATCH
-              const latestTxInBatch = fetchedRawHeliusTxs.reduce((latest, current) => (!latest || current.timestamp > latest.timestamp) ? current : latest, null as HeliusTransaction | null);
-              const oldestTxInBatch = fetchedRawHeliusTxs.reduce((oldest, current) => (!oldest || current.timestamp < oldest.timestamp) ? current : oldest, null as HeliusTransaction | null);
-              
-              const updateData: Partial<Omit<Wallet, 'address'>> = { lastSuccessfulFetchTimestamp: new Date() };
-              if (latestTxInBatch) {
-                // Only update newestProcessed if this batch's latest is newer than existing, or if no existing
-                if (!walletState?.newestProcessedTimestamp || latestTxInBatch.timestamp > walletState.newestProcessedTimestamp) {
-                    updateData.newestProcessedSignature = latestTxInBatch.signature;
-                    updateData.newestProcessedTimestamp = latestTxInBatch.timestamp;
-                }
-              }
-              // Update firstProcessedTimestamp if this batch contains older transactions than known, or if it's the first fetch
-              if (oldestTxInBatch) {
-                  if (isInitialFetch || !walletState?.firstProcessedTimestamp || oldestTxInBatch.timestamp < walletState.firstProcessedTimestamp) {
-                      updateData.firstProcessedTimestamp = oldestTxInBatch.timestamp;
-                  }
-              }
-              
-              if (Object.keys(updateData).length > 1) { // more than just lastSuccessfulFetchTimestamp
-                await this.databaseService.updateWallet(walletAddress, updateData);
-                logger.info(`Wallet state updated for ${walletAddress} with new transaction timestamps/signatures.`);
-              } else {
-                await this.databaseService.updateWallet(walletAddress, { lastSuccessfulFetchTimestamp: new Date() });
-                logger.info(`Wallet ${walletAddress} lastSuccessfulFetchTimestamp updated. No new boundary transactions found in this batch.`);
-              }
-
-            } else { // No raw transactions from Helius
-              logger.info(`No new raw transactions fetched from Helius for ${walletAddress}. Updating last fetch attempt time.`);
-              await this.databaseService.updateWallet(walletAddress, { lastSuccessfulFetchTimestamp: new Date() });
-            }
+            const syncOptions: SyncOptions = {
+              limit: 100, 
+              fetchAll: false, 
+              skipApi: false, 
+              fetchOlder: isInitialFetch, // Only explicitly fetch older if it's an initial comprehensive sync
+              maxSignatures: maxSignaturesToConsiderForSync,
+              smartFetch: true 
+            };
+            logger.info(`Calling HeliusSyncService.syncWalletData for ${walletAddress} with options:`, syncOptions);
+            await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+            logger.info(`HeliusSyncService.syncWalletData completed for ${walletAddress}.`);
           }
+          // ---- End: Replace Helius Fetching with HeliusSyncService ----
 
-          // Fetch final set of SwapAnalysisInputs from DB for analysis (up to countToFetchForAnalysis)
-          // This now includes any newly fetched/saved transactions.
-          logger.info(`Fetching final SwapAnalysisInput records from DB for ${walletAddress} post-update.`);
-          let swapInputsForProcessing: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+          // Fetch final set of SwapAnalysisInputs from DB for analysis (up to targetTxCountInDb)
+          logger.info(`Fetching final SwapAnalysisInput records from DB for ${walletAddress} post-sync.`);
+          // Fetch all available for the wallet, then sort and slice
+          let allSwapInputsForWallet: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(walletAddress);
           
-          swapInputsForProcessing.sort((a, b) => b.timestamp - a.timestamp); // Sort newest first
-          let finalInputsForAnalysis = swapInputsForProcessing.slice(0, countToFetchForAnalysis);
-          finalInputsForAnalysis.sort((a, b) => a.timestamp - b.timestamp); // Sort oldest first for consistent processing order
+          // Sort newest first to pick the most recent ones if slicing is needed
+          allSwapInputsForWallet.sort((a, b) => b.timestamp - a.timestamp);
+          // Slice to get the desired number of transactions for analysis
+          const slicedInputs = allSwapInputsForWallet.slice(0, targetTxCountInDb);
           
-          logger.info(`Retrieved ${finalInputsForAnalysis.length} SwapAnalysisInput records for ${walletAddress} for all further processing.`);
+          // Then sort oldest first for consistent processing order for correlation
+          const finalInputsForAnalysis = slicedInputs.sort((a, b) => a.timestamp - b.timestamp); 
+          
+          logger.info(`Retrieved and prepared ${finalInputsForAnalysis.length} SwapAnalysisInput records for ${walletAddress} for all further processing.`);
 
-          allSwapInputsByWallet[walletAddress] = finalInputsForAnalysis; // Store for later use (correlation part)
+          allSwapInputsByWallet[walletAddress] = finalInputsForAnalysis;
 
           // Prepare data for bot filtering (using allSwapInputsByWallet, which are not yet mint-filtered)
           transactionsForBotFilterPass[walletAddress] = finalInputsForAnalysis.map(input => ({
             mint: input.mint,
             timestamp: input.timestamp,
             direction: input.direction as 'in' | 'out',
+            amount: input.amount,
             associatedSolValue: input.associatedSolValue || 0,
           }));
           
-          if (finalInputsForAnalysis.length === 0 && countToFetchForAnalysis > 0) {
+          if (finalInputsForAnalysis.length === 0 && targetTxCountInDb > 0) {
              logger.warn(`No relevant transactions available for ${walletAddress} after full data pipeline.`);
              // Avoid sending too many individual messages; summary will indicate issues.
              // await ctx.reply(`⚠️ No transaction data found for ${walletAddress} to analyze.`);
@@ -293,7 +172,7 @@ export class WalletAnalysisCommands {
 
       // Now, prepare allFetchedCorrelatorTransactions for the wallets that passed bot filtering,
       // applying the excludedMints filter at this stage.
-      const allFetchedCorrelatorTransactions: Record<string, CorrelatorTransactionData[]> = {};
+      const allFetchedCorrelatorTransactions: Record<string, TransactionData[]> = {};
       for (const walletInfo of walletsPostBotFilter) {
           const walletAddress = walletInfo.address;
           // Use the already fetched and sliced SwapAnalysisInput data for this wallet
@@ -305,6 +184,7 @@ export class WalletAnalysisCommands {
                   mint: input.mint,
                   timestamp: input.timestamp,
                   direction: input.direction as 'in' | 'out',
+                  amount: input.amount,
                   associatedSolValue: input.associatedSolValue || 0,
               }));
           allFetchedCorrelatorTransactions[walletAddress] = correlatorTxsForWallet;
@@ -324,22 +204,43 @@ export class WalletAnalysisCommands {
         return;
       }
       
-      const walletPnLs: Record<string, number> = {};
-      for (const wallet of walletsPostBotFilter) {
-        const txs = allFetchedCorrelatorTransactions[wallet.address] || [];
-        walletPnLs[wallet.address] = this.calculateWalletPnl(txs);
-      }
+      // Calculate PNL using the utility function
+      const walletPnLs = calculatePnlForWallets(allFetchedCorrelatorTransactions);
 
-      const transactionsForCorrelation: Record<string, CorrelatorTransactionData[]> = {};
+      // --- Start: New Analysis Logic using CorrelationAnalyzer ---
+      const analyzer = new CorrelationAnalyzer(CLUSTERING_CONFIG);
+
+      const transactionsForCorrelation: Record<string, TransactionData[]> = {};
       walletsPostBotFilter.forEach(w => {
-        transactionsForCorrelation[w.address] = allFetchedCorrelatorTransactions[w.address];
+        transactionsForCorrelation[w.address] = allFetchedCorrelatorTransactions[w.address] || [];
       });
 
-      const { clusters, globalTokenStats, topCorrelatedPairs } = await this.runCorrelationAnalysis(
-        walletsPostBotFilter, 
-        transactionsForCorrelation, 
-        CLUSTERING_CONFIG
+      // 1. Get Global Token Stats
+      const globalTokenStatsFromAnalyzer: GlobalTokenStats = analyzer.getGlobalTokenStats(transactionsForCorrelation);
+      const globalTokenStats: GlobalTokenStats = globalTokenStatsFromAnalyzer;
+
+      // 2. Analyze Correlations for pairs
+      const correlatedPairsRaw: CorrelatedPairData[] = await analyzer.analyzeCorrelations(
+          transactionsForCorrelation,
+          walletsPostBotFilter
       );
+
+      // 3. Identify Clusters
+      const clusters: WalletCluster[] = await analyzer.identifyClusters(correlatedPairsRaw);
+
+      // 4. Filter for Top Correlated Pairs (logic preserved)
+      const walletsInAnyCluster = new Set<string>();
+      clusters.forEach(cluster => {
+        cluster.wallets.forEach(wallet => walletsInAnyCluster.add(wallet));
+      });
+
+      const filteredCorrelatedPairs = correlatedPairsRaw.filter(pair => {
+        const walletA_inCluster = walletsInAnyCluster.has(pair.walletA_address);
+        const walletB_inCluster = walletsInAnyCluster.has(pair.walletB_address);
+        return !(walletA_inCluster && walletB_inCluster);
+      });
+      const topCorrelatedPairs = filteredCorrelatedPairs.slice(0, CLUSTERING_CONFIG.topKCorrelatedPairsToReport);
+      // --- End: New Analysis Logic using CorrelationAnalyzer ---
       
       let totalRelevantCorrelatorTransactions = 0;
       walletsPostBotFilter.forEach(w => {
@@ -392,7 +293,7 @@ export class WalletAnalysisCommands {
   /**
    * Filters out wallets suspected of bot activity based on the number of unique tokens purchased daily.
    * @param {WalletInfo[]} initialWallets - The initial list of wallets to filter.
-   * @param {Record<string, CorrelatorTransactionData[]>} allTransactions - A record mapping wallet addresses to their transactions.
+   * @param {Record<string, TransactionData[]>} allTransactions - A record mapping wallet addresses to their transactions.
    *                                                                       These transactions are used *before* mint exclusion for bot filtering.
    * @param {number} maxDailyPurchasedTokens - The maximum number of unique tokens a wallet can purchase in a single day
    *                                           before being flagged as a potential bot.
@@ -401,7 +302,7 @@ export class WalletAnalysisCommands {
    */
   private filterOutBotWallets(
     initialWallets: WalletInfo[],
-    allTransactions: Record<string, CorrelatorTransactionData[]>,
+    allTransactions: Record<string, TransactionData[]>,
     maxDailyPurchasedTokens: number
   ): { walletsForAnalysis: WalletInfo[], dailyTokenCountsByWallet: Record<string, Record<string, Set<string>>> } {
     const dailyPurchasedTokenCountsByWallet: Record<string, Record<string, Set<string>>> = {};
@@ -439,235 +340,6 @@ export class WalletAnalysisCommands {
         return true;
     });
     return { walletsForAnalysis, dailyTokenCountsByWallet: dailyPurchasedTokenCountsByWallet };
-  }
-
-  /**
-   * Calculates the approximate Profit and Loss (PnL) for a single wallet based on SOL-denominated transactions.
-   * Assumes 'in' transactions are costs and 'out' transactions are revenue.
-   * @param {CorrelatorTransactionData[]} transactions - An array of transactions for the wallet.
-   * @returns {number} The calculated PnL in SOL.
-   */
-  private calculateWalletPnl(transactions: CorrelatorTransactionData[]): number {
-    let pnl = 0;
-    for (const tx of transactions) {
-      const solValue = Number(tx.associatedSolValue);
-      if (isNaN(solValue)) continue;
-      if (tx.direction === 'in') pnl -= solValue;
-      else if (tx.direction === 'out') pnl += solValue;
-    }
-    return pnl;
-  }
-
-  /**
-   * Builds wallet clusters from a list of correlated pairs.
-   * A cluster is formed if three or more wallets are interconnected through pairs that meet a minimum score threshold.
-   * Uses a Depth First Search (DFS) algorithm to find connected components in the graph of wallets.
-   * @param {CorrelatedPairData[]} scoredPairs - An array of wallet pairs with their correlation scores.
-   * @param {number} minClusterScoreThreshold - The minimum correlation score a pair must have to be considered
-   *                                            for inclusion in building a cluster.
-   * @returns {WalletCluster[]} An array of identified wallet clusters.
-   */
-  private buildClustersFromPairs(
-    scoredPairs: CorrelatedPairData[],
-    minClusterScoreThreshold: number 
-  ): WalletCluster[] {
-    const clusters: WalletCluster[] = [];
-    const adj: Map<string, string[]> = new Map();
-    const visited: Set<string> = new Set();
-    const allWalletsInPairs: Set<string> = new Set();
-    const pairDetailsMap: Map<string, CorrelatedPairData> = new Map();
-
-    for (const pair of scoredPairs) {
-      if (pair.score >= minClusterScoreThreshold) {
-        adj.set(pair.walletA_address, [...(adj.get(pair.walletA_address) || []), pair.walletB_address]);
-        adj.set(pair.walletB_address, [...(adj.get(pair.walletB_address) || []), pair.walletA_address]);
-        allWalletsInPairs.add(pair.walletA_address);
-        allWalletsInPairs.add(pair.walletB_address);
-        const pairKey = [pair.walletA_address, pair.walletB_address].sort().join('-');
-        pairDetailsMap.set(pairKey, pair);
-      }
-    }
-
-    function dfs(wallet: string, currentClusterMembers: string[]) {
-      visited.add(wallet);
-      currentClusterMembers.push(wallet);
-      const neighbors = adj.get(wallet) || [];
-      for (const neighbor of neighbors) {
-        if (!visited.has(neighbor)) {
-          dfs(neighbor, currentClusterMembers);
-        }
-      }
-    }
-
-    for (const wallet of allWalletsInPairs) {
-      if (!visited.has(wallet)) {
-        const currentClusterMembers: string[] = [];
-        dfs(wallet, currentClusterMembers);
-
-        if (currentClusterMembers.length >= 3) {
-          let totalScore = 0;
-          let contributingPairsCount = 0;
-          const clusterSharedTokensMap: Map<string, number> = new Map();
-
-          for (let i = 0; i < currentClusterMembers.length; i++) {
-            for (let j = i + 1; j < currentClusterMembers.length; j++) {
-              const pairKey = [currentClusterMembers[i], currentClusterMembers[j]].sort().join('-');
-              const pairData = pairDetailsMap.get(pairKey);
-              if (pairData) {
-                totalScore += pairData.score;
-                contributingPairsCount++;
-                pairData.sharedNonObviousTokens.forEach(token => {
-                  clusterSharedTokensMap.set(token.mint, (clusterSharedTokensMap.get(token.mint) || 0) + 1);
-                });
-              }
-            }
-          }
-          
-          const representativeScore = contributingPairsCount > 0 ? totalScore / contributingPairsCount : 0;
-          const finalSharedTokens = Array.from(clusterSharedTokensMap.keys()).map(mint => ({ mint }));
-
-          clusters.push({
-            id: currentClusterMembers.sort().join('-'),
-            wallets: currentClusterMembers.sort(),
-            score: representativeScore,
-            sharedNonObviousTokens: finalSharedTokens,
-          });
-        }
-      }
-    }
-    logger.info(`Built ${clusters.length} wallet clusters (3+ members, min pair score for inclusion: ${minClusterScoreThreshold}).`);
-    return clusters;
-  }
-
-  /**
-   * Runs the core correlation analysis on a set of wallets and their transactions.
-   * This involves identifying popular/non-obvious tokens, scoring pairs of wallets based on shared
-   * non-obvious tokens and synchronized trading activity, and then building clusters.
-   * @param {WalletInfo[]} walletsForAnalysis - The list of wallets to analyze (post-filtering).
-   * @param {Record<string, CorrelatorTransactionData[]>} transactionsForAnalysis - Transactions for each wallet,
-   *                                                                             filtered to exclude certain mints.
-   * @param {typeof CLUSTERING_CONFIG} config - Configuration object for clustering parameters.
-   * @returns {Promise<{ clusters: WalletCluster[], globalTokenStats: GlobalTokenStats, topCorrelatedPairs: CorrelatedPairData[] }>}
-   *          An object containing the identified clusters, global token statistics, and the top correlated pairs
-   *          (that are not fully contained within a cluster).
-   */
-  private async runCorrelationAnalysis(
-    walletsForAnalysis: WalletInfo[],
-    transactionsForAnalysis: Record<string, CorrelatorTransactionData[]>,
-    config: typeof CLUSTERING_CONFIG
-  ): Promise<{ clusters: WalletCluster[], globalTokenStats: GlobalTokenStats, topCorrelatedPairs: CorrelatedPairData[] }> {
-    logger.info(`Starting correlation analysis for ${walletsForAnalysis.length} wallets. Sync window: ${config.syncTimeWindowSeconds}s.`);
-
-    const globalTokenFrequency: Record<string, number> = {};
-    let totalTransactionCountForStats = 0;
-    for (const walletAddress of walletsForAnalysis.map(w => w.address)) {
-        const txs = transactionsForAnalysis[walletAddress] || [];
-        totalTransactionCountForStats += txs.length;
-        for (const tx of txs) {
-            if (tx.mint) globalTokenFrequency[tx.mint] = (globalTokenFrequency[tx.mint] || 0) + 1;
-        }
-    }
-
-    if (totalTransactionCountForStats === 0) {
-        logger.warn("No transactions found for any of the filtered wallets for correlation. Skipping correlation.");
-        return { clusters: [], globalTokenStats: { totalUniqueTokens: 0, totalPopularTokens: 0, totalNonObviousTokens: 0 }, topCorrelatedPairs: [] };
-    }
-
-    const sortedGlobalTokens = Object.entries(globalTokenFrequency).sort(([, countA], [, countB]) => countB - countA);
-    const popularTokens = new Set<string>();
-    const thresholdIndex = Math.floor(sortedGlobalTokens.length * config.nonObviousTokenThresholdPercent);
-    for (let i = 0; i < sortedGlobalTokens.length; i++) {
-        const [mint, count] = sortedGlobalTokens[i];
-        if (i < thresholdIndex || count > config.minOccurrencesForPopular) popularTokens.add(mint);
-    }
-    
-    const globalStats: GlobalTokenStats = {
-        totalUniqueTokens: sortedGlobalTokens.length,
-        totalPopularTokens: popularTokens.size,
-        totalNonObviousTokens: sortedGlobalTokens.length - popularTokens.size
-    };
-    logger.info(`Global token analysis: ${globalStats.totalUniqueTokens} unique, ${globalStats.totalPopularTokens} popular, ${globalStats.totalNonObviousTokens} non-obvious.`);
-    if (globalStats.totalUniqueTokens > 0 && globalStats.totalPopularTokens === globalStats.totalUniqueTokens) {
-        logger.warn("All tokens identified as popular. Correlation based on non-obvious tokens might not yield results.");
-    }
-
-    const correlatedPairs: CorrelatedPairData[] = [];
-    for (let i = 0; i < walletsForAnalysis.length; i++) {
-        for (let j = i + 1; j < walletsForAnalysis.length; j++) {
-            const walletA = walletsForAnalysis[i];
-            const walletB = walletsForAnalysis[j];
-            const txsA = transactionsForAnalysis[walletA.address] || [];
-            const txsB = transactionsForAnalysis[walletB.address] || [];
-            if (txsA.length === 0 || txsB.length === 0) continue;
-
-            const nonObviousTradedByA = new Map<string, number>();
-            txsA.forEach(tx => { if (tx.mint && !popularTokens.has(tx.mint) && !config.excludedMints.includes(tx.mint)) nonObviousTradedByA.set(tx.mint, (nonObviousTradedByA.get(tx.mint) || 0) + 1); });
-            
-            const nonObviousTradedByB = new Map<string, number>();
-            txsB.forEach(tx => { if (tx.mint && !popularTokens.has(tx.mint) && !config.excludedMints.includes(tx.mint)) nonObviousTradedByB.set(tx.mint, (nonObviousTradedByB.get(tx.mint) || 0) + 1); });
-
-            const currentSharedNonObvious: CorrelatedPairData['sharedNonObviousTokens'] = [];
-            nonObviousTradedByA.forEach((countA, mint) => {
-                if (nonObviousTradedByB.has(mint)) currentSharedNonObvious.push({ mint, countA, countB: nonObviousTradedByB.get(mint)! });
-            });
-
-            const currentSyncEvents: CorrelatedPairData['synchronizedEvents'] = [];
-            if (currentSharedNonObvious.length > 0) {
-                for (const shared of currentSharedNonObvious) {
-                    const mintToAnalyze = shared.mint;
-                    const buysA = txsA.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'in');
-                    const buysB = txsB.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'in');
-                    const sellsA = txsA.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'out');
-                    const sellsB = txsB.filter(tx => tx.mint === mintToAnalyze && tx.direction === 'out');
-
-                    for (const buyA of buysA) {
-                        for (const buyB of buysB) {
-                            const timeDiff = Math.abs(buyA.timestamp - buyB.timestamp);
-                            if (timeDiff <= config.syncTimeWindowSeconds) currentSyncEvents.push({ mint: mintToAnalyze, direction: 'in', timestampA: buyA.timestamp, timestampB: buyB.timestamp, timeDiffSeconds: timeDiff });
-                        }
-                    }
-                    for (const sellA of sellsA) {
-                        for (const sellB of sellsB) {
-                            const timeDiff = Math.abs(sellA.timestamp - sellB.timestamp);
-                            if (timeDiff <= config.syncTimeWindowSeconds) currentSyncEvents.push({ mint: mintToAnalyze, direction: 'out', timestampA: sellA.timestamp, timestampB: sellB.timestamp, timeDiffSeconds: timeDiff });
-                        }
-                    }
-                }
-                currentSyncEvents.sort((a,b) => a.timeDiffSeconds - b.timeDiffSeconds || a.timestampA - b.timestampA);
-            }
-
-            if (currentSharedNonObvious.length >= config.minSharedNonObviousTokens || currentSyncEvents.length >= config.minSyncEvents) {
-                let score = (currentSharedNonObvious.length * config.weightSharedNonObvious) + (currentSyncEvents.length * config.weightSyncEvents);
-                if (score > 0) {
-                    correlatedPairs.push({
-                        walletA_address: walletA.address, walletB_address: walletB.address, score: parseFloat(score.toFixed(2)),
-                        sharedNonObviousTokens: currentSharedNonObvious, synchronizedEvents: currentSyncEvents
-                    });
-                }
-            }
-        }
-    }
-    correlatedPairs.sort((a, b) => b.score - a.score);
-    logger.info(`Pairwise analysis: ${correlatedPairs.length} pairs meeting score > 0 before cluster threshold.`);
-
-    const clusters: WalletCluster[] = this.buildClustersFromPairs(correlatedPairs, config.minClusterScoreThreshold);
-
-    // Filter out pairs where both wallets are already in a cluster
-    const walletsInAnyCluster = new Set<string>();
-    clusters.forEach(cluster => {
-      cluster.wallets.forEach(wallet => walletsInAnyCluster.add(wallet));
-    });
-
-    const filteredCorrelatedPairs = correlatedPairs.filter(pair => {
-      const walletA_inCluster = walletsInAnyCluster.has(pair.walletA_address);
-      const walletB_inCluster = walletsInAnyCluster.has(pair.walletB_address);
-      return !(walletA_inCluster && walletB_inCluster);
-    });
-    logger.info(`Filtered top pairs: ${filteredCorrelatedPairs.length} pairs remain after removing pairs where both wallets are in clusters.`);
-
-    const topPairsToReturn = filteredCorrelatedPairs.slice(0, config.topKCorrelatedPairsToReport);
-    
-    return { clusters, globalTokenStats: globalStats, topCorrelatedPairs: topPairsToReturn };
   }
 
   /**

@@ -8,6 +8,12 @@ export interface TransactionData {
   associatedSolValue: number;
 }
 
+export interface GlobalTokenStats {
+  totalUniqueTokens: number;
+  totalPopularTokens: number;
+  totalNonObviousTokens: number;
+}
+
 export interface CorrelatedPairData {
   walletA_address: string;
   walletB_address: string;
@@ -29,9 +35,5 @@ export interface CorrelatedPairData {
 export interface CorrelationMetrics {
   pairs: CorrelatedPairData[];
   clusters: WalletCluster[];
-  globalTokenStats: {
-    totalUniqueTokens: number;
-    totalPopularTokens: number;
-    totalNonObviousTokens: number;
-  };
-} 
+  globalTokenStats: GlobalTokenStats;
+}
