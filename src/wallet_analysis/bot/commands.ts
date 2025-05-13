@@ -67,7 +67,15 @@ export class WalletAnalysisCommands {
   async analyzeWallets(ctx: Context, walletAddressesInput: string[], userRequestedTxCount?: number) {
     try {
       await ctx.reply('🔄 Initializing analysis... This may take a few moments.');
-      const initialWallets: WalletInfo[] = walletAddressesInput.map(addr => ({ address: addr.trim().toString() }));
+      
+      // Deduplicate wallet addresses
+      const uniqueWalletAddresses = Array.from(new Set(walletAddressesInput.map(addr => addr.trim())));
+      
+      if (uniqueWalletAddresses.length < walletAddressesInput.length) {
+        await ctx.reply(`ℹ️ Duplicate wallet addresses were provided. Processing ${uniqueWalletAddresses.length} unique addresses.`);
+      }
+      
+      const initialWallets: WalletInfo[] = uniqueWalletAddresses.map(addr => ({ address: addr }));
       
       const allSwapInputsByWallet: Record<string, SwapAnalysisInput[]> = {};
       const transactionsForBotFilterPass: Record<string, TransactionData[]> = {};

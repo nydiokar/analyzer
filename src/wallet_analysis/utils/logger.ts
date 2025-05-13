@@ -20,8 +20,21 @@ const logFormat = printf(({ level, message, timestamp, module, stack, ...metadat
   const coloredLevel = levelColors[level] ? levelColors[level](levelString) : levelString;
   const moduleString = module ? chalk.yellow(`[${module}]`) : '';
   
-  // Color numbers white in the main message
-  let formattedMessage = String(message).replace(/\b(\d+(\.\d+)?)\b/g, chalk.white('$1'));
+  let formattedMessage = String(message);
+
+  // Highlight Solana-like addresses (32-44 alphanumeric chars)
+  formattedMessage = formattedMessage.replace(/\b([1-9A-HJ-NP-Za-km-z]{32,44})\b/g, chalk.blueBright('$1'));
+
+  // Highlight numbers (integers and decimals)
+  formattedMessage = formattedMessage.replace(/\b(\d+\.\d+|\d+)\b/g, (match, p1) => {
+    // Avoid re-coloring parts of already colored addresses if they happen to be all numbers (unlikely for Solana)
+    if (formattedMessage.includes(chalk.blueBright(p1))) return p1; 
+    return chalk.whiteBright(match);
+  });
+
+  // Highlight progress indicators like X/Y or (X/Y)
+  formattedMessage = formattedMessage.replace(/\b(\d+\/\d+)\b/g, chalk.magentaBright('$1'));
+  formattedMessage = formattedMessage.replace(/\((\d+\/\d+)\)/g, `(${chalk.magentaBright('$1')})`);
 
   let msg = `${ts} ${coloredLevel} ${moduleString} ${formattedMessage}`;
 
