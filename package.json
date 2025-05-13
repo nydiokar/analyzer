@@ -53,7 +53,7 @@
     "compute-cosine-similarity": "^1.0.0",
     "crypto-js": "^4.2.0",
     "csv-stringify": "^6.5.2",
-    "dotenv": "^16.3.1",
+    "dotenv": "^16.5.0",
     "papaparse": "^5.5.2",
     "table": "^6.9.0",
     "telegraf": "^4.15.3",
