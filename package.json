@@ -1,6 +1,6 @@
 {
   "name": "crypto-data-analyzer",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Array of analizers. Major assets live crypto exchange from CoinGecko with verifiable storage, wallet address analysis, staking calculator, price change reporter, and more.",
   "main": "dist/index.js",
   "scripts": {
@@ -75,6 +75,7 @@
     "prisma": "^6.7.0",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.4.3"
   }
 }

@@ -10,8 +10,10 @@ module.exports = {
       watch: false,
       min_uptime: '60s',
       max_restarts: 5,
+      node_args: "-r tsconfig-paths/register",
       env: {
         NODE_ENV: 'production',
+        TS_NODE_BASEURL: './dist'
       },
       out_file: './logs/wallet-analysis-bot-out.log',
       error_file: './logs/wallet-analysis-bot-err.log',

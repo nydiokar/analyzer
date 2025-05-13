@@ -36,34 +36,41 @@ const logFormat = printf(({ level, message, timestamp, module, stack, ...metadat
   return msg;
 });
 
+// --- Create a single, shared logger instance ---
+const globalLogger = winstonCreateLogger({
+  level: process.env.LOG_LEVEL || 'debug',
+  format: combine(
+    errors({ stack: true }),
+    timestamp(),
+    logFormat
+  ),
+  transports: [
+    new transports.Console({
+      format: combine(
+        colorize({ all: true }),
+        logFormat
+      ),
+      handleExceptions: true, // Centralized exception handling
+      handleRejections: true  // Centralized rejection handling
+    }),
+    new transports.File({
+      filename: `logs/error.log`,
+      level: 'error',
+      // handleExceptions: false, // Let the console transport handle exceptions primarily
+    }),
+    new transports.File({
+      filename: `logs/combined.log`,
+      // handleExceptions: false, // Let the console transport handle exceptions primarily
+    })
+  ],
+});
+
+// Function to get a child logger with a specific module name
+// This reuses the transports of the globalLogger and its exception handling settings
 export const createLogger = (moduleName: string) => {
-  return winstonCreateLogger({
-    level: process.env.LOG_LEVEL || 'debug',
-    format: combine(
-      errors({ stack: true }),
-      timestamp(),
-      logFormat
-    ),
-    transports: [
-      new transports.Console({
-        format: combine(
-          colorize({ all: true }),
-          logFormat
-        ),
-        handleExceptions: true
-      }),
-      new transports.File({
-        filename: `logs/error.log`,
-        level: 'error',
-        handleExceptions: true
-      }),
-      new transports.File({
-        filename: `logs/combined.log`,
-        handleExceptions: true
-      })
-    ],
-    defaultMeta: { module: moduleName }
-  });
+  return globalLogger.child({ module: moduleName });
 };
 
+// Export a default logger instance (child of global) for convenience if some module needs a quick default.
+// This default child logger will also use the globalLogger's transports and settings.
 export default createLogger('default');

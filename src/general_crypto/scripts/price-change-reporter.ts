@@ -8,7 +8,7 @@ import path from 'path';
 import Papa from 'papaparse';
 import { CoinGeckoClient } from '../fetcher/coingecko-client';
 import { RateLimitConfig } from '../types/crypto';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '@/utils/logger';
 import { calculateSMA, calculateRSI } from '../utils/technical-indicators';
 import dotenv from 'dotenv';
 

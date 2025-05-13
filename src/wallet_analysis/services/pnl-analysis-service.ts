@@ -151,7 +151,6 @@ export class PnlAnalysisService {
             const resultsForAdvancedStats = swapAnalysisResults.filter(r => !r.isValuePreservation);
             if (resultsForAdvancedStats.length > 0) {
                  advancedStats = this.advancedStatsAnalyzer.analyze(resultsForAdvancedStats); 
-                 logger.info(`[PnlAnalysis] Calculated advanced stats for ${walletAddress}.`);
             } else {
                 logger.warn(`[PnlAnalysis] No non-stablecoin results for advanced stats for ${walletAddress}.`);
             }

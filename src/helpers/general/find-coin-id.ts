@@ -5,10 +5,10 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { CoinGeckoClient } from '../../general_crypto/fetcher/coingecko-client';
 import { RateLimitConfig } from '../../general_crypto/types/crypto';
-import { createLogger } from '../../general_crypto/utils/logger';
+import { createLogger } from '@/utils/logger';
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config();  
 
 const logger = createLogger('FindCoinID');
 

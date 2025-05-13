@@ -47,8 +47,9 @@ export class HeliusApiClient {
   /**
    * Handles configuration and sets up the Axios instance.
    * @param config Configuration object containing the Helius API key and optionally the base URL, network, and target RPS.
+   * @param dbService An instance of DatabaseService for caching.
    */
-  constructor(config: HeliusApiConfig) {
+  constructor(config: HeliusApiConfig, dbService: DatabaseService) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || (config.network === 'mainnet' 
       ? 'https://api.helius.xyz'
@@ -67,7 +68,7 @@ export class HeliusApiClient {
       }
     });
 
-    this.dbService = new DatabaseService(); // Instantiate DatabaseService
+    this.dbService = dbService; // Assign passed DatabaseService instance
   }
 
   /** Ensures a minimum interval between requests to respect rate limits. */
@@ -311,15 +312,14 @@ export class HeliusApiClient {
                 const stopIndex = signatureInfos.findIndex(info => info.signature === stopAtSignature);
                 if (stopIndex !== -1) {
                     logger.info(`Found stopAtSignature (${stopAtSignature}) in the current batch at index ${stopIndex}. Stopping signature fetch.`);
-                    // We have the batch containing the stop signature, no need to fetch older ones.
                     hasMoreSignatures = false;
-                    // Note: We keep all signatures from this batch, including the stop one and potentially older ones within the same batch.
-                    // Further filtering might be needed later if strict exclusion is required.
                 }
             }
 
-            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures) {
-                logger.info(`Reached maxSignatures limit (${maxSignatures}). Stopping signature fetch.`);
+            // IMPORTANT: This condition stops PAGINATION, not processing of already fetched signatures.
+            // We will apply a hard limit AFTER this loop if maxSignatures is set.
+            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures && !stopAtSignature) {
+                logger.info(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, which meets or exceeds an intended conceptual target related to maxSignatures (${maxSignatures}). Stopping further RPC pagination.`);
                 hasMoreSignatures = false;
             } else if (signatureInfos.length < rpcLimit) {
                 logger.info('Last page of RPC signatures reached (received less than limit).');
@@ -341,8 +341,22 @@ export class HeliusApiClient {
        return []; // Return empty if signature fetching fails critically
     }
 
+    // --- Apply hard maxSignatures limit to the RPC results before detail fetching ---
+    if (maxSignatures !== null && allRpcSignaturesInfo.length > maxSignatures) {
+        logger.info(`RPC fetch resulted in ${allRpcSignaturesInfo.length} signatures. Applying hard limit of ${maxSignatures}.`);
+        // Sort by blockTime descending (newest first) to keep the most recent ones
+        // Handle null/undefined blockTimes by treating them as older than any defined blockTime
+        allRpcSignaturesInfo.sort((a, b) => {
+            const timeA = a.blockTime ?? 0; // Treat null/undefined as very old
+            const timeB = b.blockTime ?? 0;
+            return timeB - timeA; // Descending order
+        });
+        allRpcSignaturesInfo = allRpcSignaturesInfo.slice(0, maxSignatures);
+        logger.info(`Sliced RPC signatures to newest ${allRpcSignaturesInfo.length} based on maxSignatures limit.`);
+    }
+
     const uniqueSignatures = Array.from(new Set(allRpcSignaturesInfo.map(s => s.signature)));
-    logger.debug(`Total unique signatures from RPC: ${uniqueSignatures.length}`);
+    logger.debug(`Total unique signatures from RPC after potential maxSignatures slicing: ${uniqueSignatures.length}`);
 
     // === Check Cache to Identify Signatures to Fetch ===
     logger.debug(`Checking database cache existence for ${uniqueSignatures.length} signatures...`);

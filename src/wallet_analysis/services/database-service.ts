@@ -295,55 +295,92 @@ export class DatabaseService {
      * @param inputs An array of SwapAnalysisInput objects to save.
      * @returns A Prisma Promise result with the count of added records.
      */
-    async saveSwapAnalysisInputs(inputs: SwapAnalysisInputCreateData[]): Promise<{ count: number }> {
+    async saveSwapAnalysisInputs(
+        inputs: Prisma.SwapAnalysisInputCreateInput[]
+    ): Promise<Prisma.BatchPayload> {
+        this.logger.info(`[DB] Attempting to save ${inputs.length} SwapAnalysisInput records efficiently...`);
         if (inputs.length === 0) {
-            this.logger.debug('No SwapAnalysisInput records provided to save.');
             return { count: 0 };
         }
-        this.logger.debug(`Attempting to save ${inputs.length} SwapAnalysisInput records efficiently...`);
 
-        const incomingSignatures = inputs.map(input => input.signature);
-        let existingSignatures = new Set<string>();
-        try {
-            // Check existing signatures just for SwapAnalysisInput
-            const existingRecords = await this.prismaClient.swapAnalysisInput.findMany({
+        // 1. Create a structure to hold details of existing records for quick lookup
+        //    Map: signature -> Set of (mint-direction-amount_string)
+        const existingRecordsDetails = new Map<string, Set<string>>();
+        
+        // Get all distinct signatures from the input batch
+        const distinctInputSignatures = Array.from(new Set(inputs.map(i => i.signature)));
+
+        if (distinctInputSignatures.length > 0) {
+            const existingDbEntries = await this.prismaClient.swapAnalysisInput.findMany({
                 where: {
-                    signature: {
-                        in: incomingSignatures,
-                    },
+                    signature: { in: distinctInputSignatures }
                 },
-                select: {
+                select: { // Select only the fields part of the unique constraint
                     signature: true,
-                },
+                    mint: true,
+                    direction: true,
+                    amount: true
+                }
             });
-            existingSignatures = new Set(existingRecords.map(rec => rec.signature));
-            this.logger.debug(`Found ${existingSignatures.size} existing SwapAnalysisInput signatures out of ${incomingSignatures.length} incoming.`);
-        } catch (error) {
-            this.logger.error('Error checking for existing SwapAnalysisInput signatures', { error });
-            return { count: 0 };
-        }
 
-        const newInputs = inputs.filter(input => !existingSignatures.has(input.signature));
-
-        if (newInputs.length === 0) {
-            this.logger.info('No new SwapAnalysisInput records to add.');
-            return { count: 0 };
-        }
-
-        this.logger.info(`Identified ${newInputs.length} new SwapAnalysisInput records to insert.`);
-
-        try {
-            const result = await this.prismaClient.swapAnalysisInput.createMany({
-                data: newInputs, // Data should already be in the correct format
-            });
-            this.logger.info(`SwapAnalysisInput save complete. ${result.count} new records added.`);
-            return result;
-        } catch (error) {
-            if (error instanceof Prisma.PrismaClientKnownRequestError) {
-                this.logger.error('Prisma Error saving new SwapAnalysisInput records', { code: error.code, meta: error.meta });
-            } else {
-                this.logger.error('Error saving new SwapAnalysisInput records', { error });
+            for (const entry of existingDbEntries) {
+                if (!existingRecordsDetails.has(entry.signature)) {
+                    existingRecordsDetails.set(entry.signature, new Set<string>());
+                }
+                const key = `${entry.mint}-${entry.direction}-${entry.amount.toString()}`;
+                existingRecordsDetails.get(entry.signature)!.add(key);
             }
+            this.logger.debug(`[DB] Found ${existingDbEntries.length} existing SwapAnalysisInput entries for ${distinctInputSignatures.length} distinct incoming signatures.`);
+        }
+
+        // 2. Filter out duplicates from the incoming 'inputs'
+        //    - Duplicates already in the DB
+        //    - Duplicates within the incoming batch itself
+        const uniqueNewRecordsToInsert: Prisma.SwapAnalysisInputCreateInput[] = [];
+        // Map to track records being added in *this batch* to avoid intra-batch duplicates
+        const batchRecordTracker = new Map<string, Set<string>>(); 
+
+        for (const record of inputs) {
+            const recordKey = `${record.mint}-${record.direction}-${record.amount.toString()}`;
+
+            // Check if this exact record (sig + key) exists in DB
+            if (existingRecordsDetails.has(record.signature) && existingRecordsDetails.get(record.signature)!.has(recordKey)) {
+                continue; // Already in DB
+            }
+
+            // Check if this exact record (sig + key) is already added in this current batch
+            if (batchRecordTracker.has(record.signature) && batchRecordTracker.get(record.signature)!.has(recordKey)) {
+                this.logger.warn(`[DB] Duplicate SwapAnalysisInput within incoming batch (sig: ${record.signature}, key: ${recordKey}). Skipping.`);
+                continue; // Duplicate within this batch
+            }
+
+            // If not a duplicate, add to list and track it for this batch
+            uniqueNewRecordsToInsert.push(record);
+            if (!batchRecordTracker.has(record.signature)) {
+                batchRecordTracker.set(record.signature, new Set<string>());
+            }
+            batchRecordTracker.get(record.signature)!.add(recordKey);
+        }
+        
+        this.logger.info(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
+
+        if (uniqueNewRecordsToInsert.length > 0) {
+            try {
+                const result = await this.prismaClient.swapAnalysisInput.createMany({
+                    data: uniqueNewRecordsToInsert,
+                });
+                this.logger.info(`[DB] Prisma createMany for SwapAnalysisInput successful. New records added: ${result.count}`);
+                return result;
+            } catch (error) {
+                if (error instanceof Prisma.PrismaClientKnownRequestError) {
+                    this.logger.error('[DB] Prisma Error during createMany for SwapAnalysisInput', { code: error.code, meta: error.meta });
+                } else {
+                    this.logger.error('[DB] Generic Error during createMany for SwapAnalysisInput', { error });
+                }
+                return { count: 0 }; // Return 0 if error occurs
+            }
+        } else {
+            this.logger.info('[DB] No unique new SwapAnalysisInput records to add after filtering.');
             return { count: 0 };
         }
     }
@@ -380,7 +417,7 @@ export class DatabaseService {
                     timestamp: 'asc',
                 },
             });
-            this.logger.debug(`Found ${inputs.length} SwapAnalysisInput records for ${walletAddress}.`);
+            this.logger.info(`Found ${inputs.length} SwapAnalysisInput records for ${walletAddress}.`);
             return inputs;
         } catch (error) {
             this.logger.error(`Error fetching SwapAnalysisInputs for ${walletAddress}`, { error });
@@ -474,10 +511,13 @@ export class DatabaseService {
     async createAnalysisRun(data: AnalysisRunCreateData): Promise<AnalysisRun | null> {
         this.logger.debug('Creating new AnalysisRun record...', data);
         try {
+            // Explicitly destructure and omit 'timestamp' if it's part of AnalysisRunCreateData
+            // and assuming it should be auto-generated by the DB (@default(now()))
+            const { timestamp, ...restOfData } = data as any; // Use 'as any' to handle potential extra field
+            
             const newRun = await this.prismaClient.analysisRun.create({
                 data: {
-                    ...data, // Spread the input data
-                    // Prisma handles default timestamp (createdAt) automatically
+                    ...restOfData, // Spread the input data, excluding timestamp
                 }
             });
             this.logger.info(`Created AnalysisRun with ID: ${newRun.id}`);
@@ -499,7 +539,7 @@ export class DatabaseService {
             this.logger.debug('No AnalysisResult records provided to save.');
             return { count: 0 };
         }
-        this.logger.debug(`Saving ${results.length} AnalysisResult records...`);
+        // this.logger.debug(`Saving ${results.length} AnalysisResult records...`);
 
         // Map data carefully to match Prisma.AnalysisResultCreateManyInput
         // This requires knowing the exact structure of the `results` input array
@@ -554,7 +594,7 @@ export class DatabaseService {
         const { runId, ...statsFields } = inputData; // Separate runId from stats fields
         const walletAddress = statsFields.walletAddress; // Extract walletAddress for logging
         
-        this.logger.info(`Attempting to save advanced stats for run ID: ${runId}, wallet: ${walletAddress}...`);
+        this.logger.debug(`Attempting to save advanced stats for run ID: ${runId}, wallet: ${walletAddress}...`);
         
         try {
             // Construct the data payload required by Prisma create, including the relation connection
@@ -568,7 +608,6 @@ export class DatabaseService {
             const savedStats = await this.prismaClient.advancedStatsResult.create({
                 data: dataToCreate, 
             });
-            this.logger.info(`Successfully saved advanced stats for run ID: ${runId}.`);
             return savedStats;
         } catch (error) {
             // Handle potential unique constraint violation (P2002 on runId)
@@ -626,7 +665,7 @@ export class DatabaseService {
                     walletAddress: 'asc' 
                 }
             });
-            this.logger.debug(`Found ${results.length} AnalysisResults for run ${runId}.`);
+            this.logger.info(`Found ${results.length} AnalysisResults for run ${runId}.`);
             return results;
         } catch (error) {
             this.logger.error(`Error fetching AnalysisResults for run ${runId}`, { error });

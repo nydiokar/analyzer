@@ -32,7 +32,7 @@ export class HeliusSyncService {
         this.heliusClient = new HeliusApiClient({
             apiKey: heliusApiKey,
             network: 'mainnet', // Assuming mainnet, could be configurable
-        });
+        }, this.databaseService); // Pass DatabaseService instance
         logger.info('HeliusSyncService instantiated.');
     }
 
@@ -89,96 +89,148 @@ export class HeliusSyncService {
     // --- Private Helper Methods (Extracted/Adapted from helius-analyzer.ts) ---
     
     private async executeSmartFetch(walletAddress: string, options: SyncOptions): Promise<void> {
-        logger.info(`[Sync] Executing SmartFetch for ${walletAddress} with target ${options.maxSignatures} signatures.`);
-        // ... (Implement logic from helius-analyzer lines ~184-264) ...
-        // Requires careful adaptation to use this.databaseService and this.heliusClient
-        // and call this.processAndSaveTransactions
+        logger.info(`[Sync] Executing SmartFetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures in DB.`);
         
-         // Placeholder implementation detail:
-         const currentCount = await this.getDbTransactionCount(walletAddress); // Need this helper
-         if (currentCount >= options.maxSignatures!) {
-             logger.info(`[Sync] Database count (${currentCount}) meets target. SmartFetch complete.`);
-             return;
-         }
-         const neededCount = options.maxSignatures! - currentCount;
-         logger.info(`[Sync] Need ${neededCount} more transactions.`);
+        if (!options.maxSignatures || options.maxSignatures <= 0) {
+            logger.warn(`[Sync] SmartFetch called for ${walletAddress} without a valid positive options.maxSignatures. Aborting SmartFetch for this wallet.`);
+            return;
+        }
 
-         // 1. Fetch Newer
-         const walletState = await this.databaseService.getWallet(walletAddress);
-         const stopAtSignature = walletState?.newestProcessedSignature ?? undefined;
-         const newestProcessedTimestamp = walletState?.newestProcessedTimestamp ?? undefined;
-         
-         let newerTransactions: HeliusTransaction[] = [];
-         try {
-              newerTransactions = await this.heliusClient.getAllTransactionsForAddress(
-                 walletAddress, options.limit, null, stopAtSignature, newestProcessedTimestamp, false
-             ); 
-             logger.info(`[Sync] Fetched ${newerTransactions.length} potentially newer transactions.`);
-             if (newerTransactions.length > 0) {
-                 await this.processAndSaveTransactions(walletAddress, newerTransactions, true, options);
-             }
-         } catch (fetchError) {
-             logger.error(`[Sync] Failed to fetch newer transactions during SmartFetch:`, { fetchError });
-             // Continue to fetch older if needed, maybe log error state?
-         }
+        const initialDbCount = await this.getDbTransactionCount(walletAddress);
+        if (initialDbCount >= options.maxSignatures) {
+            logger.debug(`[Sync] SmartFetch: Database count (${initialDbCount}) already meets or exceeds target ${options.maxSignatures}. SmartFetch complete for ${walletAddress}.`);
+            return;
+        }
+        
+        const neededTotalInDb = options.maxSignatures;
+        logger.info(`[Sync] SmartFetch: Current DB count for ${walletAddress}: ${initialDbCount}. Target DB count: ${neededTotalInDb}.`);
 
-         // 2. Fetch Older if still needed
-         const remainingNeeded = neededCount - newerTransactions.length;
-         if (remainingNeeded > 0) {
-             logger.info(`[Sync] Still need ${remainingNeeded} older transactions.`);
-             const oldestProcessedTimestamp = walletState?.firstProcessedTimestamp ?? undefined;
-             try {
-                 const olderTransactions = await this.heliusClient.getAllTransactionsForAddress(
-                     walletAddress, options.limit, remainingNeeded, undefined, undefined, true, oldestProcessedTimestamp
-                 );
-                  logger.info(`[Sync] Fetched ${olderTransactions.length} potentially older transactions.`);
-                 if (olderTransactions.length > 0) {
-                     await this.processAndSaveTransactions(walletAddress, olderTransactions, false, options);
-                 }
-             } catch (fetchError) {
-                 logger.error(`[Sync] Failed to fetch older transactions during SmartFetch:`, { fetchError });
-             }
-         }
-         logger.info(`[Sync] SmartFetch process completed for ${walletAddress}.`);
+        const walletState = await this.databaseService.getWallet(walletAddress);
+        
+        // --- 1. Fetch Newer Transactions ---
+        // Fetch transactions newer than what's in the DB, up to the overall maxSignatures limit.
+        const stopAtSignatureForNewer = walletState?.newestProcessedSignature ?? undefined;
+        const newestProcessedTimestampForNewer = walletState?.newestProcessedTimestamp ?? undefined;
+        
+        let newerTransactionsFetchedCount = 0;
+        logger.info(`[Sync] SmartFetch Phase 1 (Newer): Fetching for ${walletAddress} since sig: ${stopAtSignatureForNewer}, ts: ${newestProcessedTimestampForNewer}. API client call will be capped by ${neededTotalInDb} total signatures.`);
+        try {
+            // HeliusApiClient's getAllTransactionsForAddress will respect 'neededTotalInDb' as a cap on signatures it processes from RPC.
+            // It fetches newest first if stopAtSignatureForNewer/newestProcessedTimestampForNewer are provided.
+            const newerTransactions = await this.heliusClient.getAllTransactionsForAddress(
+               walletAddress, 
+               options.limit, 
+               neededTotalInDb, // Pass the overall target as the cap for this API client call
+               stopAtSignatureForNewer, 
+               newestProcessedTimestampForNewer, 
+               true, // <--- MODIFIED: includeCached should be true here
+               undefined // untilTimestamp is not for newer
+           ); 
+           newerTransactionsFetchedCount = newerTransactions.length;
+           logger.info(`[Sync] SmartFetch Phase 1 (Newer): Fetched ${newerTransactionsFetchedCount} potentially newer transactions from API for ${walletAddress}.`);
+           if (newerTransactionsFetchedCount > 0) {
+               await this.processAndSaveTransactions(walletAddress, newerTransactions, true, options); // true for isNewerFetchOrInitial
+           }
+        } catch (fetchError) {
+           logger.error(`[Sync] SmartFetch Phase 1 (Newer): Failed to fetch/process newer transactions for ${walletAddress}:`, { fetchError });
+           // Continue to fetch older if needed.
+        }
+
+        // --- 2. Fetch Older Transactions if still needed ---
+        const countAfterNewerFetch = await this.getDbTransactionCount(walletAddress);
+        logger.info(`[Sync] SmartFetch: DB count for ${walletAddress} after fetching newer is ${countAfterNewerFetch}. Target is ${neededTotalInDb}.`);
+
+        if (countAfterNewerFetch < neededTotalInDb) {
+            const remainingSignaturesToFetchForOlder = neededTotalInDb - countAfterNewerFetch;
+            logger.info(`[Sync] SmartFetch Phase 2 (Older): Still need ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress} to reach target ${neededTotalInDb}.`);
+            
+            if (remainingSignaturesToFetchForOlder > 0) {
+                // Re-fetch wallet state to get the most up-to-date oldestProcessedTimestamp after Phase 1
+                const updatedWalletStateAfterPhase1 = await this.databaseService.getWallet(walletAddress);
+                const oldestProcessedTimestamp = updatedWalletStateAfterPhase1?.firstProcessedTimestamp ?? undefined;
+                
+                logger.info(`[Sync] SmartFetch Phase 2 (Older): Attempting to fetch ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress}, older than ts: ${oldestProcessedTimestamp}.`);
+                try {
+                    const olderTransactions = await this.heliusClient.getAllTransactionsForAddress(
+                        walletAddress, 
+                        options.limit, 
+                        remainingSignaturesToFetchForOlder, // Cap for this specific fetch pass
+                        undefined,                        // stopAtSignature (not relevant for fetching older)
+                        undefined,                        // newestProcessedTimestamp (not relevant for fetching older)
+                        true,                             // includeCached for older ones.
+                        oldestProcessedTimestamp          // Fetch transactions older than this timestamp.
+                    );
+                    logger.info(`[Sync] SmartFetch Phase 2 (Older): Fetched ${olderTransactions.length} potentially older transactions from API for ${walletAddress}.`);
+                    if (olderTransactions.length > 0) {
+                        await this.processAndSaveTransactions(walletAddress, olderTransactions, false, options); // false for isNewerFetchOrInitial
+                    }
+                } catch (fetchError) {
+                    logger.error(`[Sync] SmartFetch Phase 2 (Older): Failed to fetch/process older transactions for ${walletAddress}:`, { fetchError });
+                }
+            } else {
+               logger.info(`[Sync] SmartFetch Phase 2 (Older): No more signatures targeted for older fetch for ${walletAddress} (remainingSignaturesToFetchForOlder <= 0).`);
+            }
+        } else {
+           logger.info(`[Sync] SmartFetch: DB count for ${walletAddress} (${countAfterNewerFetch}) meets or exceeds target ${neededTotalInDb}. No older fetch needed.`);
+        }
+        logger.info(`[Sync] SmartFetch process completed for ${walletAddress}.`);
     }
 
     private async executeStandardFetch(walletAddress: string, options: SyncOptions): Promise<void> {
-        logger.info(`[Sync] Executing Standard Fetch for ${walletAddress}.`);
-        // ... (Implement logic from helius-analyzer lines ~267-310) ...
-        // Requires careful adaptation
+        logger.info(`[Sync] Executing Standard Fetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures.`);
 
-        // Placeholder implementation detail:
+        if (!options.maxSignatures || options.maxSignatures <= 0) {
+            logger.warn(`[Sync] StandardFetch called for ${walletAddress} without a valid positive options.maxSignatures. Aborting StandardFetch.`);
+            return;
+        }
+
         const walletState = await this.databaseService.getWallet(walletAddress);
-        let initialFetch = !walletState || options.fetchOlder;
-        let stopAtSignature: string | undefined = undefined;
-        let newestProcessedTimestamp: number | undefined = undefined;
+        const isEffectivelyInitialFetch = !walletState || options.fetchOlder;
         
-        if (walletState && !options.fetchOlder) {
-            stopAtSignature = walletState.newestProcessedSignature ?? undefined;
-            newestProcessedTimestamp = walletState.newestProcessedTimestamp ?? undefined;
-        } else {
-            logger.info(`[Sync] Performing initial fetch or fetchOlder=true.`);
-            initialFetch = true;
+        let stopAtSignatureForStd: string | undefined = undefined;
+        let newestProcessedTimestampForStd: number | undefined = undefined;
+        let untilTimestampForStd: number | undefined = undefined; 
+        
+        if (isEffectivelyInitialFetch) {
+            logger.info(`[Sync] Standard Fetch (Initial/FetchOlder): Fetching for ${walletAddress} from beginning, up to ${options.maxSignatures} total transactions.`);
+            // For initial/fetchOlder, HeliusApiClient will fetch newest first up to options.maxSignatures if no specific start/end timestamps are given.
+            // To fetch truly oldest first, specific parameters would be needed for HeliusApiClient.
+            // Current HeliusApiClient.getAllTransactionsForAddress defaults to fetching newest if only maxSignatures is provided.
+        } else { // Incremental fetch for newer transactions
+            logger.info(`[Sync] Standard Fetch (Incremental Newer): Fetching for ${walletAddress}.`);
+            stopAtSignatureForStd = walletState!.newestProcessedSignature ?? undefined;
+            newestProcessedTimestampForStd = walletState!.newestProcessedTimestamp ?? undefined;
         }
         
-        const includeCached = initialFetch;
+        const includeCached = true; // For standard fetch, always include cached results. API client handles de-duplication of fetch.
+        
         try {
+            logger.info(`[Sync] Standard Fetch: Calling HeliusApiClient for ${walletAddress} with:
+                       maxSignatures: ${options.maxSignatures}, 
+                       limit (page size): ${options.limit},
+                       stopAtSig: ${stopAtSignatureForStd}, 
+                       newestTs: ${newestProcessedTimestampForStd}, 
+                       includeCached: ${includeCached},
+                       untilTs (for older): ${untilTimestampForStd}`);
+            
             const transactions = await this.heliusClient.getAllTransactionsForAddress(
                 walletAddress, 
                 options.limit, 
                 options.maxSignatures, 
-                stopAtSignature, 
-                newestProcessedTimestamp, 
-                includeCached
+                stopAtSignatureForStd, 
+                newestProcessedTimestampForStd, 
+                includeCached,
+                untilTimestampForStd 
             );
-            logger.info(`[Sync] Fetched ${transactions.length} transactions.`);
+            logger.info(`[Sync] Standard Fetch: Fetched ${transactions.length} transactions from HeliusApiClient for ${walletAddress}.`);
             if (transactions.length > 0) {
-                await this.processAndSaveTransactions(walletAddress, transactions, initialFetch, options);
+                await this.processAndSaveTransactions(walletAddress, transactions, isEffectivelyInitialFetch, options);
             }
         } catch (fetchError) {
-             logger.error(`[Sync] Failed to fetch transactions during Standard Fetch:`, { fetchError });
-             throw fetchError; // Re-throw to signal failure
+             logger.error(`[Sync] Standard Fetch: Failed to fetch/process transactions for ${walletAddress}:`, { fetchError });
+             throw fetchError; 
         }
+        logger.info(`[Sync] Standard Fetch process completed for ${walletAddress}.`);
     }
 
     /**

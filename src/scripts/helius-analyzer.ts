@@ -185,18 +185,15 @@ async function analyzeWalletWithHelius() {
             // Create AnalysisRun record
             const runData = { 
                 walletAddress: walletAddress,
-                timestamp: new Date(),
+                // timestamp: new Date(), // Removed: runTimestamp is @default(now()) in schema
                 status: 'PENDING',
-                analysisType: 'SWAP_PNL',
+                // analysisType: 'SWAP_PNL', // Removed: Not in the provided schema snippet for AnalysisRun
                 // Add other relevant metadata? CLI args?
             };
-            const run = await dbService.createAnalysisRun(runData);
+            const run = await dbService.createAnalysisRun(runData as any); // Use 'as any' if type conflicts
             if (!run) throw new Error('Failed to create AnalysisRun record.');
             runId = run.id;
-            logger.info(`Created AnalysisRun with ID: ${runId}`);
 
-            // Prepare and save AnalysisResult records
-            // Need to adapt structure based on SwapAnalysisSummary.results
              const resultsToSave = analysisSummary.results.map((r: any) => ({
                 runId: runId!,
                 walletAddress: walletAddress,
@@ -210,15 +207,11 @@ async function analyzeWalletWithHelius() {
                 netSolProfitLoss: r.netSolProfitLoss,
                 firstTransferTimestamp: r.firstTransferTimestamp,
                 lastTransferTimestamp: r.lastTransferTimestamp,
-                // Add other fields from OnChainAnalysisResult if they map to AnalysisResult schema
-                isValuePreservation: r.isValuePreservation,
-                estimatedPreservedValue: r.estimatedPreservedValue,
+                transferCountIn: r.transferCountIn,
+                transferCountOut: r.transferCountOut,
              }));
-             logger.debug(`Prepared ${resultsToSave.length} AnalysisResult records for saving.`);
             await dbService.saveAnalysisResults(resultsToSave);
-            logger.info(`Saved ${resultsToSave.length} AnalysisResult records.`);
 
-            // Prepare and save AdvancedStatsResult record
             if (analysisSummary.advancedStats) {
                 const statsToSave = {
                     runId: runId!,
@@ -232,7 +225,6 @@ async function analyzeWalletWithHelius() {
                     averagePnlPerDayActiveApprox: analysisSummary.advancedStats.averagePnlPerDayActiveApprox,
                 };
                 await dbService.saveAdvancedStats(statsToSave);
-                 logger.info(`Saved AdvancedStatsResult record.`);
             }
 
             // Update AnalysisRun status to COMPLETED
@@ -265,9 +257,14 @@ async function analyzeWalletWithHelius() {
 
     // 4. Display Results in Console
     logger.info('--- Step 4: Displaying Results ---');
-    if (analysisSummary) {
-        displaySummary(analysisSummary, walletAddress);
+    if (analysisSummary && Array.isArray(analysisSummary.results)) {
+        displaySummary(analysisSummary.results, walletAddress);
         displayDetailedResults(analysisSummary.results);
+    } else {
+        logger.warn('Analysis summary or results are missing/not an array, skipping console display.');
+        if (analysisSummary) {
+            logger.debug('Analysis summary object for display issue:', analysisSummary);
+        }
     }
     logger.info('--- Display Complete ---');
 
@@ -284,8 +281,14 @@ async function analyzeWalletWithHelius() {
 
     logger.info(`Analysis finished successfully for wallet: ${walletAddress}`);
 
-  } catch (error) {
-    logger.error(`An error occurred during the analysis for wallet ${walletAddress}:`, { error });
+  } catch (error: any) {
+    logger.error(`An error occurred during the analysis for wallet ${walletAddress}:`,
+        {
+            message: error?.message, 
+            name: error?.name,
+            stack: error?.stack,
+            details: error // Log the full error object for more details
+        });
     // Update run status to FAILED if applicable (runId and isHistoricalView are now in scope)
     if (runId && !isHistoricalView) {
          try {

@@ -8,6 +8,7 @@ import { CorrelationAnalyzer } from '../core/correlation/analyzer';
 import { calculatePnlForWallets } from '@/utils/pnl_calculator';
 import { TransactionData, CorrelatedPairData, GlobalTokenStats } from '../../types/correlation';
 import { HeliusSyncService, SyncOptions } from '../services/helius-sync-service';
+import pLimit from 'p-limit';
 
 const logger = createLogger('WalletAnalysisCommands');
 
@@ -41,11 +42,16 @@ export class WalletAnalysisCommands {
     this.heliusApiKey = heliusApiKey;
     this.databaseService = new DatabaseService();
     if (heliusApiKey) {
-      this.heliusSyncService = new HeliusSyncService(this.databaseService, heliusApiKey);
-      logger.info('WalletAnalysisCommands initialized with HeliusApiClient and HeliusSyncService.');
+      try {
+        this.heliusSyncService = new HeliusSyncService(this.databaseService, heliusApiKey);
+        logger.info('WalletAnalysisCommands initialized with HeliusSyncService.');
+      } catch (error) {
+        logger.error('Failed to initialize HeliusSyncService even with API key:', error);
+        this.heliusSyncService = undefined; // Ensure it's undefined on error
+      }
     } else {
       this.heliusSyncService = undefined;
-      logger.warn('WalletAnalysisCommands initialized WITHOUT a valid Helius API key. HeliusSyncService is not available.');
+      logger.warn('WalletAnalysisCommands initialized WITHOUT a Helius API key. HeliusSyncService is not available.');
     }
   }
 
@@ -60,115 +66,147 @@ export class WalletAnalysisCommands {
    */
   async analyzeWallets(ctx: Context, walletAddressesInput: string[], userRequestedTxCount?: number) {
     try {
-      await ctx.reply('🔄 Initializing analysis... Hang tight while fetching latest data!');
+      await ctx.reply('🔄 Initializing analysis... This may take a few moments.');
       const initialWallets: WalletInfo[] = walletAddressesInput.map(addr => ({ address: addr.trim().toString() }));
       
       const allSwapInputsByWallet: Record<string, SwapAnalysisInput[]> = {};
       const transactionsForBotFilterPass: Record<string, TransactionData[]> = {};
-      const failedWallets: string[] = [];
-      const successfullyFetchedInitialWallets: WalletInfo[] = [];
+      const failedWallets: string[] = []; // Stores addresses of wallets that failed anywhere in the process
+      const successfullyProcessedWalletsInfo: WalletInfo[] = []; // Stores WalletInfo for successfully processed wallets for correlation
 
-      // Determine the number of transactions to aim for in the database after sync
       const targetTxCountInDb = userRequestedTxCount !== undefined && userRequestedTxCount > 0 
                                 ? userRequestedTxCount 
                                 : DEFAULT_RECENT_TRANSACTION_COUNT;
 
-      for (const walletInfo of initialWallets) {
-        const walletAddress = walletInfo.address;
-        try {
-          if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
-            throw new Error(`Invalid Solana address format: ${walletAddress}`);
-          }
-          logger.info(`Processing wallet: ${walletAddress}. Target transactions for final analysis: ${targetTxCountInDb}.`);
+      // Type for the outcome of each sync attempt
+      type SyncAttemptOutcome = 
+        | { status: 'fulfilled'; walletInfo: WalletInfo }
+        | { status: 'rejected'; walletAddress: string; reason: string };
 
-          // ---- Start: Replace Helius Fetching with HeliusSyncService ----
-          if (!this.heliusApiKey || !this.heliusSyncService) {
-            logger.warn(`Helius API key not configured or HeliusSyncService not initialized. Skipping Helius sync for ${walletAddress}. Relying on existing DB data.`);
-            await ctx.reply(`⚠️ Helius API key not configured. Analysis for ${walletAddress} will use existing database data only.`);
-          } else {
+      // ---- Start: Parallel Helius Sync with Concurrency Limiting ----
+      const CONCURRENCY_LIMIT = 5; // Define concurrency limit (e.g., 5-10, needs tuning)
+      const limit = pLimit(CONCURRENCY_LIMIT);
+      let syncOperationsCompleted = 0;
+      let lastReportedProgress = 0;
+
+      const syncPromises = initialWallets.map((walletInfo) => 
+        limit(async (): Promise<SyncAttemptOutcome> => {
+          const walletAddress = walletInfo.address;
+          try {
+            if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+              throw new Error(`Invalid Solana address format`);
+            }
+            if (!this.heliusApiKey || !this.heliusSyncService) {
+              throw new Error('Helius API key not configured or HeliusSyncService not initialized.');
+            }
+            
+            // logger.info(`Initiating sync for wallet: ${walletAddress}.`); // Logged by syncWalletData or too verbose here
             const walletState = await this.databaseService.getWallet(walletAddress);
             const isInitialFetch = !walletState || !walletState.lastSuccessfulFetchTimestamp;
-
-            const maxSignaturesToConsiderForSync = Math.max(targetTxCountInDb * 2, 300); // Ensure enough data for the target analysis count
+            const maxSignaturesToConsiderForSync = Math.max(targetTxCountInDb * 1.5, 300);
 
             const syncOptions: SyncOptions = {
               limit: 100, 
               fetchAll: false, 
               skipApi: false, 
-              fetchOlder: isInitialFetch, // Only explicitly fetch older if it's an initial comprehensive sync
+              fetchOlder: false, 
               maxSignatures: maxSignaturesToConsiderForSync,
               smartFetch: true 
             };
-            logger.info(`Calling HeliusSyncService.syncWalletData for ${walletAddress} with options:`, syncOptions);
             await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-            logger.info(`HeliusSyncService.syncWalletData completed for ${walletAddress}.`);
+            // logger.info(`Sync completed successfully for wallet: ${walletAddress}.`); // Also potentially too verbose for many wallets
+            return { status: 'fulfilled', walletInfo };
+          } catch (error: any) {
+            logger.error(`Failed to sync wallet ${walletAddress}: ${error.message}`, { stack: error.stack });
+            return { status: 'rejected', walletAddress, reason: error.message };
+          } finally {
+            syncOperationsCompleted++;
+            // Basic progress reporting
+            const currentProgress = Math.floor((syncOperationsCompleted / initialWallets.length) * 100);
+            if (currentProgress >= lastReportedProgress + 10 || currentProgress === 100) { // Report every 10% or at 100%
+                if (ctx.chat?.id) { // Ensure chat context is available for editing messages or sending new ones
+                    // Consider editing the initial message or sending a new one for progress
+                    // For simplicity now, just logging. A real bot might ctx.telegram.editMessageText(...)
+                    logger.info(`Sync progress: ${currentProgress}% (${syncOperationsCompleted}/${initialWallets.length})`);
+                }
+                lastReportedProgress = currentProgress;
+            }
           }
-          // ---- End: Replace Helius Fetching with HeliusSyncService ----
+        })
+      );
 
-          // Fetch final set of SwapAnalysisInputs from DB for analysis (up to targetTxCountInDb)
-          logger.info(`Fetching final SwapAnalysisInput records from DB for ${walletAddress} post-sync.`);
-          // Fetch all available for the wallet, then sort and slice
-          let allSwapInputsForWallet: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(walletAddress);
-          
-          // Sort newest first to pick the most recent ones if slicing is needed
-          allSwapInputsForWallet.sort((a, b) => b.timestamp - a.timestamp);
-          // Slice to get the desired number of transactions for analysis
-          const slicedInputs = allSwapInputsForWallet.slice(0, targetTxCountInDb);
-          
-          // Then sort oldest first for consistent processing order for correlation
-          const finalInputsForAnalysis = slicedInputs.sort((a, b) => a.timestamp - b.timestamp); 
-          
-          logger.info(`Retrieved and prepared ${finalInputsForAnalysis.length} SwapAnalysisInput records for ${walletAddress} for all further processing.`);
+      await ctx.reply(`⏳ Synchronizing data for ${initialWallets.length} wallets (up to ${CONCURRENCY_LIMIT} in parallel)...`);
+      const syncResults = await Promise.allSettled(syncPromises);
+      await ctx.reply('✅ Sync phase complete. Processing results...');
+      
+      // Process sync results
+      for (const result of syncResults) {
+        if (result.status === 'fulfilled') {
+          const syncOutcome = result.value;
+          if (syncOutcome.status === 'fulfilled') {
+            // Successfully synced, now fetch and prepare data for this wallet
+            const walletInfo = syncOutcome.walletInfo;
+            const walletAddress = walletInfo.address;
+            try {
+              let allSwapInputsForWallet: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+              allSwapInputsForWallet.sort((a, b) => b.timestamp - a.timestamp);
+              const slicedInputs = allSwapInputsForWallet.slice(0, targetTxCountInDb);
+              const finalInputsForAnalysis = slicedInputs.sort((a, b) => a.timestamp - b.timestamp);
+              
+              logger.info(`Retrieved and prepared ${finalInputsForAnalysis.length} SwapAnalysisInput records for ${walletAddress}.`);
+              allSwapInputsByWallet[walletAddress] = finalInputsForAnalysis;
+              transactionsForBotFilterPass[walletAddress] = finalInputsForAnalysis.map(input => ({
+                mint: input.mint,
+                timestamp: input.timestamp,
+                direction: input.direction as 'in' | 'out',
+                amount: input.amount,
+                associatedSolValue: input.associatedSolValue || 0,
+              }));
+              successfullyProcessedWalletsInfo.push(walletInfo); // Add to list for bot filtering
 
-          allSwapInputsByWallet[walletAddress] = finalInputsForAnalysis;
-
-          // Prepare data for bot filtering (using allSwapInputsByWallet, which are not yet mint-filtered)
-          transactionsForBotFilterPass[walletAddress] = finalInputsForAnalysis.map(input => ({
-            mint: input.mint,
-            timestamp: input.timestamp,
-            direction: input.direction as 'in' | 'out',
-            amount: input.amount,
-            associatedSolValue: input.associatedSolValue || 0,
-          }));
-          
-          if (finalInputsForAnalysis.length === 0 && targetTxCountInDb > 0) {
-             logger.warn(`No relevant transactions available for ${walletAddress} after full data pipeline.`);
-             // Avoid sending too many individual messages; summary will indicate issues.
-             // await ctx.reply(`⚠️ No transaction data found for ${walletAddress} to analyze.`);
+              if (finalInputsForAnalysis.length === 0 && targetTxCountInDb > 0) {
+                logger.warn(`No relevant transactions available for ${walletAddress} after full data pipeline.`);
+              }
+            } catch (dbError: any) {
+              logger.error(`Failed to fetch/process DB data for ${walletAddress} after sync: ${dbError.message}`);
+              failedWallets.push(`${walletAddress} (DB Error: ${dbError.message})`);
+            }
+          } else { // Sync failed for this wallet (syncOutcome.status === 'rejected')
+            failedWallets.push(`${syncOutcome.walletAddress} (Sync Error: ${syncOutcome.reason})`);
           }
-          successfullyFetchedInitialWallets.push(walletInfo);
-
-        } catch (error: any) {
-          logger.error(`Failed to process wallet ${walletAddress}: ${error.message}`, { stack: error.stack });
-          failedWallets.push(`${walletAddress} (Error: ${error.message})`);
-          await ctx.reply(`❌ Error processing ${walletAddress}: ${error.message}`);
+        } else { // Promise from .map() itself rejected (less likely if inner try/catch is robust)
+          logger.error('A sync promise itself rejected unexpectedly:', result.reason);
+          // Attempt to log a generic failure if address isn't easily available
+          failedWallets.push(`Unknown Wallet (Unexpected Sync Promise Rejection: ${result.reason?.message || result.reason})`);
         }
       }
+      // ---- End: Parallel Helius Sync & Sequential Post-Sync DB Fetch ----
       
       if (failedWallets.length > 0) {
         await ctx.replyWithHTML(`⚠️ Encountered issues processing some wallets:<br>${failedWallets.join('<br>')}`);
       }
       
-      if (successfullyFetchedInitialWallets.length < 2 && initialWallets.length >=2) {
+      // Check if enough wallets remain for correlation after all processing attempts
+      if (successfullyProcessedWalletsInfo.length < 2 && initialWallets.length >=2) {
         await ctx.reply("ℹ️ Not enough wallets successfully processed to perform correlation analysis (need at least 2).");
         return;
       }
-       if (successfullyFetchedInitialWallets.length === 0 && initialWallets.length > 0) {
+       if (successfullyProcessedWalletsInfo.length === 0 && initialWallets.length > 0) {
         await ctx.reply("ℹ️ No wallets could be processed. Analysis halted.");
         return;
       }
-       if (initialWallets.length < 2) {
-         await ctx.reply("ℹ️ Please provide at least two wallets for correlation analysis.");
+       if (initialWallets.length < 2 && successfullyProcessedWalletsInfo.length < 2) { // Adjusted condition
+         await ctx.reply("ℹ️ Please provide at least two wallets and ensure they can be processed for correlation analysis.");
          return;
        }
 
-      // Perform bot filtering using the unfiltered transaction data
+      // Perform bot filtering using the successfullyProcessedWalletsInfo and transactionsForBotFilterPass
       const { walletsForAnalysis: walletsPostBotFilter } = this.filterOutBotWallets(
-        successfullyFetchedInitialWallets, 
-        transactionsForBotFilterPass, // Use the data prepared for bot filtering (not yet mint-excluded)
+        successfullyProcessedWalletsInfo, 
+        transactionsForBotFilterPass, 
         CLUSTERING_CONFIG.MAX_DAILY_TOKENS_FOR_FILTER
       );
-      const numFilteredOutByBotLogic = successfullyFetchedInitialWallets.length - walletsPostBotFilter.length;
+      const numFilteredOutByBotLogic = successfullyProcessedWalletsInfo.length - walletsPostBotFilter.length;
 
       // Now, prepare allFetchedCorrelatorTransactions for the wallets that passed bot filtering,
       // applying the excludedMints filter at this stage.

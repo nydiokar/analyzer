@@ -2,11 +2,11 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import { createLogger } from '../../general_crypto/utils/logger';
-import { HeliusApiClient } from '../../wallet_analysis/services/helius-api-client';
-import { mapHeliusTransactionsToIntermediateRecords } from '../../wallet_analysis/services/helius-transaction-mapper';
-import { getWallet, updateWallet, saveSwapAnalysisInputs, prisma } from '../../wallet_analysis/services/database-service';
-import { HeliusTransaction } from '../../types/helius-api';
+import { createLogger } from '@/utils/logger';
+import { HeliusApiClient } from '@/services/helius-api-client';
+import { mapHeliusTransactionsToIntermediateRecords } from '@/services/helius-transaction-mapper';
+import { DatabaseService, prisma } from '@/services/database-service';
+import { HeliusTransaction } from '@/types/helius-api';
 import { Prisma } from '@prisma/client';
 import { Wallet } from '@prisma/client';
 import fs from 'fs';
@@ -31,7 +31,8 @@ const DEFAULT_CONCURRENCY = 3; // Number of wallets to process in parallel
 async function processAndSaveTransactions(
   walletAddress: string,
   transactions: HeliusTransaction[],
-  isInitialFetch: boolean // Determines if we should update firstProcessedTimestamp
+  isInitialFetch: boolean, // Determines if we should update firstProcessedTimestamp
+  databaseService: DatabaseService // Added DatabaseService instance parameter
 ): Promise<void> {
   const logPrefix = `[${walletAddress}]`;
   logger.debug(`${logPrefix} Mapping and saving ${transactions.length} transactions...`);
@@ -43,7 +44,7 @@ async function processAndSaveTransactions(
   if (analysisInputsToSave.length > 0) {
     logger.debug(`${logPrefix} Saving ${analysisInputsToSave.length} analysis input records to database...`);
     try {
-      const saveResult = await saveSwapAnalysisInputs(analysisInputsToSave);
+      const saveResult = await databaseService.saveSwapAnalysisInputs(analysisInputsToSave); // Use instance method
       logger.debug(`${logPrefix} Successfully saved ${saveResult.count} new records to SwapAnalysisInput table.`);
     } catch (dbError) {
       logger.error(`${logPrefix} Error saving analysis input records to database:`, dbError);
@@ -63,7 +64,7 @@ async function processAndSaveTransactions(
 
     if (latestTxInBatch && oldestTxInBatch) {
       try {
-        const currentWalletState = await getWallet(walletAddress);
+        const currentWalletState = await databaseService.getWallet(walletAddress); // Use instance method
         const updateData: Partial<Omit<Wallet, 'address'>> = {
             lastSuccessfulFetchTimestamp: new Date(),
         };
@@ -89,12 +90,12 @@ async function processAndSaveTransactions(
 
 
         if (Object.keys(updateData).length > 1) { // Check if there's more than just the lastSuccessfulFetchTimestamp
-            await updateWallet(walletAddress, updateData);
+            await databaseService.updateWallet(walletAddress, updateData); // Use instance method
             logger.info(`${logPrefix} Wallet state updated successfully.`);
         } else {
             logger.info(`${logPrefix} No relevant wallet state changes detected in this batch.`);
              // Still update the last fetch time even if no other state changed
-             await updateWallet(walletAddress, { lastSuccessfulFetchTimestamp: new Date() });
+             await databaseService.updateWallet(walletAddress, { lastSuccessfulFetchTimestamp: new Date() }); // Use instance method
         }
 
       } catch(walletUpdateError) {
@@ -115,7 +116,8 @@ async function processAndSaveTransactions(
 async function processSingleWallet(
     address: string,
     options: { limit: number; maxSignatures?: number | null; smartFetch: boolean },
-    heliusClient: HeliusApiClient
+    heliusClient: HeliusApiClient,
+    databaseService: DatabaseService // Added DatabaseService instance parameter
 ): Promise<{ success: boolean, address: string, error?: Error }> {
     const logPrefix = `[${address}]`;
     logger.info(`${logPrefix} Processing wallet...`);
@@ -125,7 +127,7 @@ async function processSingleWallet(
         let newestProcessedTimestamp: number | undefined = undefined;
         let firstProcessedTimestamp: number | undefined = undefined;
         let isInitialFetchForWallet = false;
-        const walletState = await getWallet(address);
+        const walletState = await databaseService.getWallet(address); // Use instance method
 
         if (walletState) {
             stopAtSignature = walletState.newestProcessedSignature ?? undefined;
@@ -175,7 +177,8 @@ async function processSingleWallet(
         try {
             fetchedTransactions = await heliusClient.getAllTransactionsForAddress(
                 address, options.limit, fetchLimit,
-                stopAtSignature, newestProcessedTimestamp, true, undefined
+                stopAtSignature, newestProcessedTimestamp, true, undefined,
+                2 // Explicitly set phase2InternalConcurrency for the script, can be configurable via CLI later if needed
             );
             logger.info(`${logPrefix} Fetched ${fetchedTransactions.length} newer transactions.`);
         } catch (error) {
@@ -189,7 +192,7 @@ async function processSingleWallet(
 
         // --- Process and Save Newer Transactions ---
         if (fetchedTransactions.length > 0) {
-            await processAndSaveTransactions(address, fetchedTransactions, isInitialFetchForWallet);
+            await processAndSaveTransactions(address, fetchedTransactions, isInitialFetchForWallet, databaseService); // Pass instance
             if (options.smartFetch && olderFetchLimit) {
                 olderFetchLimit = Math.max(0, olderFetchLimit - fetchedTransactions.length);
                 logger.info(`${logPrefix} SmartFetch: ${olderFetchLimit} transactions still needed for older pass.`);
@@ -204,7 +207,8 @@ async function processSingleWallet(
                 olderTransactions = await heliusClient.getAllTransactionsForAddress(
                     address, options.limit, olderFetchLimit,
                     undefined, undefined, true,
-                    firstProcessedTimestamp // Use firstProcessedTimestamp as the 'until' marker
+                    firstProcessedTimestamp, // Use firstProcessedTimestamp as the 'until' marker
+                    2 // Explicitly set phase2InternalConcurrency for the script
                 );
                 logger.info(`${logPrefix} SmartFetch: Fetched ${olderTransactions.length} older transactions (requested ${olderFetchLimit}).`);
             } catch (error) {
@@ -215,7 +219,7 @@ async function processSingleWallet(
             // --- Process and Save Older Transactions ---
             if (olderTransactions.length > 0) {
                 // Pass false for isInitialFetch as we are fetching older data specifically
-                await processAndSaveTransactions(address, olderTransactions, false);
+                await processAndSaveTransactions(address, olderTransactions, false, databaseService); // Pass instance
             }
         }
 
@@ -246,8 +250,9 @@ async function bulkFetchData(
     const heliusApiKey = process.env.HELIUS_API_KEY;
     if (!heliusApiKey) throw new Error('HELIUS_API_KEY environment variable is required.');
 
-    const heliusClient = new HeliusApiClient({ apiKey: heliusApiKey, network: 'mainnet' });
-
+    const databaseService = new DatabaseService(); // Instantiate DatabaseService
+    const heliusClient = new HeliusApiClient({ apiKey: heliusApiKey, network: 'mainnet' }, databaseService);
+    
     let totalSuccessCount = 0;
     let totalFailureCount = 0;
     const concurrency = options.concurrency;
@@ -257,7 +262,7 @@ async function bulkFetchData(
         logger.info(`Processing batch starting at index ${i} (size ${batchAddresses.length})...`);
 
         const batchPromises = batchAddresses.map(address =>
-            processSingleWallet(address, options, heliusClient)
+            processSingleWallet(address, options, heliusClient, databaseService) // Pass instance
         );
 
         const results = await Promise.allSettled(batchPromises);

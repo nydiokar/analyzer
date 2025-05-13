@@ -24,15 +24,23 @@ function getTokenDisplayName(address: string): string {
 export function displaySummary(results: OnChainAnalysisResult[], walletAddress: string): void {
     console.log('\n===== Swap Analysis Summary =====');
     console.log(`Wallet: ${walletAddress}`);
+
+    if (!Array.isArray(results)) {
+        logger.error('[DisplayUtils] displaySummary received non-array for results. Cannot proceed.');
+        console.log('Total Unique Tokens: N/A (Invalid data)');
+        console.log('Overall Net PNL: N/A (Invalid data)');
+        return;
+    }
+
     console.log(`Total Unique Tokens: ${results.length}`);
     
-    const overallNetPnl = results.reduce((sum, r) => sum + r.netSolProfitLoss, 0);
-    const overallSolSpent = results.reduce((sum, r) => sum + r.totalSolSpent, 0);
-    const overallSolReceived = results.reduce((sum, r) => sum + r.totalSolReceived, 0);
+    const overallNetPnl = results.length > 0 ? results.reduce((sum, r) => sum + (r.netSolProfitLoss || 0), 0) : 0;
+    const overallSolSpent = results.length > 0 ? results.reduce((sum, r) => sum + (r.totalSolSpent || 0), 0) : 0;
+    const overallSolReceived = results.length > 0 ? results.reduce((sum, r) => sum + (r.totalSolReceived || 0), 0) : 0;
     
     // Calculate value preservation metrics
     const valuePreservingTokens = results.filter(r => r.isValuePreservation && r.estimatedPreservedValue && r.estimatedPreservedValue > 0);
-    const totalPreservedValue = valuePreservingTokens.reduce((sum, r) => sum + (r.estimatedPreservedValue || 0), 0);
+    const totalPreservedValue = valuePreservingTokens.length > 0 ? valuePreservingTokens.reduce((sum, r) => sum + (r.estimatedPreservedValue || 0), 0) : 0;
     const overallAdjustedPnl = overallNetPnl + totalPreservedValue;
     
     console.log(`\nOverall SOL Spent: ${overallSolSpent.toFixed(2)} SOL`);
