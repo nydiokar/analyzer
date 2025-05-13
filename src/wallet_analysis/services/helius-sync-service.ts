@@ -140,9 +140,10 @@ export class HeliusSyncService {
         const countAfterNewerFetch = await this.getDbTransactionCount(walletAddress);
         logger.info(`[Sync] SmartFetch: DB count for ${walletAddress} after fetching newer is ${countAfterNewerFetch}. Target is ${neededTotalInDb}.`);
 
-        if (countAfterNewerFetch < neededTotalInDb) {
+        const phaseTwoThresholdFactor = 0.75; // Trigger Phase 2 if below 75% of target
+        if (countAfterNewerFetch < (neededTotalInDb * phaseTwoThresholdFactor)) {
             const remainingSignaturesToFetchForOlder = neededTotalInDb - countAfterNewerFetch;
-            logger.info(`[Sync] SmartFetch Phase 2 (Older): Still need ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress} to reach target ${neededTotalInDb}.`);
+            logger.info(`[Sync] SmartFetch Phase 2 (Older): Current count ${countAfterNewerFetch} is less than ${phaseTwoThresholdFactor * 100}% of target ${neededTotalInDb}. Still need ${remainingSignaturesToFetchForOlder} older transactions to reach target.`);
             
             if (remainingSignaturesToFetchForOlder > 0) {
                 // Re-fetch wallet state to get the most up-to-date oldestProcessedTimestamp after Phase 1
@@ -171,7 +172,7 @@ export class HeliusSyncService {
                logger.info(`[Sync] SmartFetch Phase 2 (Older): No more signatures targeted for older fetch for ${walletAddress} (remainingSignaturesToFetchForOlder <= 0).`);
             }
         } else {
-           logger.info(`[Sync] SmartFetch: DB count for ${walletAddress} (${countAfterNewerFetch}) meets or exceeds target ${neededTotalInDb}. No older fetch needed.`);
+           logger.info(`[Sync] SmartFetch: DB count for ${walletAddress} (${countAfterNewerFetch}) meets or exceeds ${phaseTwoThresholdFactor * 100}% of target ${neededTotalInDb}. Skipping Phase 2.`);
         }
         logger.info(`[Sync] SmartFetch process completed for ${walletAddress}.`);
     }

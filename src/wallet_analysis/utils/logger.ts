@@ -38,7 +38,7 @@ const logFormat = printf(({ level, message, timestamp, module, stack, ...metadat
 
 // --- Create a single, shared logger instance ---
 const globalLogger = winstonCreateLogger({
-  level: process.env.LOG_LEVEL || 'debug',
+  level: process.env.LOG_LEVEL || 'info',
   format: combine(
     errors({ stack: true }),
     timestamp(),

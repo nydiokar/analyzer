@@ -4,6 +4,7 @@ import { createLogger } from '@/utils/logger';
 
 // Initialize environment variables
 dotenv.config();
+console.log(`[index.ts] LOG_LEVEL from process.env after dotenv.config(): ${process.env.LOG_LEVEL}`);
 
 const logger = createLogger('WalletAnalysisBot');
 

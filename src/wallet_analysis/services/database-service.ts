@@ -311,6 +311,8 @@ export class DatabaseService {
         const distinctInputSignatures = Array.from(new Set(inputs.map(i => i.signature)));
 
         if (distinctInputSignatures.length > 0) {
+            this.logger.debug(`[DB] Distinct signatures for findMany: ${JSON.stringify(distinctInputSignatures.slice(0, 5))}${distinctInputSignatures.length > 5 ? '...' : ''}`);
+            this.logger.debug(`[DB] Sample input for findMany (first item): ${inputs.length > 0 ? JSON.stringify(inputs[0]) : 'N/A'}`);
             const existingDbEntries = await this.prismaClient.swapAnalysisInput.findMany({
                 where: {
                     signature: { in: distinctInputSignatures }
