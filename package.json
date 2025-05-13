@@ -46,7 +46,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/bignumber.js": "^5.0.4",
     "@types/csv-stringify": "^1.4.3",
-    "axios": "^1.8.4",
+    "axios": "^1.9.0",
     "better-sqlite3": "^11.9.1",
     "bignumber.js": "^9.3.0",
     "chalk": "^4.1.2",
