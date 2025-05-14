@@ -1,11 +1,12 @@
 import dotenv from 'dotenv';
+
+// Initialize environment variables
+dotenv.config({ override: true });
+
 import { WalletAnalysisBot } from './bot/bot';
 import { createLogger } from '@/utils/logger';
 
-// Initialize environment variables
-dotenv.config();
 console.log(`[index.ts] LOG_LEVEL from process.env after dotenv.config(): ${process.env.LOG_LEVEL}`);
-
 const logger = createLogger('WalletAnalysisBot');
 
 async function main() {

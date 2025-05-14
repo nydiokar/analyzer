@@ -7,12 +7,12 @@ module.exports = {
       exec_mode: 'fork',
       instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       min_uptime: '60s',
       max_restarts: 5,
       node_args: "-r tsconfig-paths/register",
       env: {
-        NODE_ENV: 'production',
+        NODE_ENV: 'development',
         TS_NODE_BASEURL: './dist'
       },
       out_file: './logs/wallet-analysis-bot-out.log',

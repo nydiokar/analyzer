@@ -123,3 +123,31 @@ model AdvancedStatsResult {
 
   @@index([walletAddress]) // KEPT index
 }
+
+model User {
+  id           String    @id @default(cuid()) // Or use autoincrement Int
+  apiKey       String    @unique // For API authentication
+  description  String?   // e.g., "Dashboard Primary Access", "Analyst X"
+  createdAt    DateTime  @default(now())
+  lastSeenAt   DateTime?
+  isActive     Boolean   @default(true)
+  activityLogs ActivityLog[]
+  // Optional: Link to user-specific settings or saved wallet lists
+}
+
+model ActivityLog {
+  id                 String    @id @default(cuid()) // Or use autoincrement Int
+  userId             String
+  user               User      @relation(fields: [userId], references: [id])
+  actionType         String    // e.g., 'get_wallet_summary', 'get_token_performance', 'run_pnl_analysis'
+  timestamp          DateTime  @default(now())
+  requestParameters  String?     // Input parameters for the action (stored as JSON string)
+  status             String    // 'SUCCESS', 'FAILURE', 'INITIATED'
+  durationMs         Int?      // Duration of the action
+  errorMessage       String?
+  sourceIp           String?   // Optional: for additional context
+
+  @@index([userId])
+  @@index([actionType])
+  @@index([timestamp])
+}

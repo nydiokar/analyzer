@@ -5,7 +5,9 @@ import {
     AnalysisRun,
     AnalysisResult,
     AdvancedStatsResult,
-    Prisma // Import Prisma namespace for input types
+    Prisma, // Import Prisma namespace for input types
+    User,         // Added User
+    ActivityLog   // Added ActivityLog
 } from '@prisma/client';
 import { HeliusTransaction } from '@/types/helius-api'; // Assuming HeliusTransaction type is defined here
 import { TransactionData } from '@/types/correlation'; // Needed for getTransactionsForAnalysis
@@ -56,6 +58,144 @@ export class DatabaseService {
 
     constructor() {
         this.logger.info('DatabaseService instantiated.');
+    }
+
+    // --- User Management Methods ---
+
+    /**
+     * Creates a new user with a generated API key.
+     * IMPORTANT: API key generation and hashing are placeholders and NOT secure for production.
+     * TODO: Implement secure random API key generation and bcrypt hashing.
+     * @param description Optional description for the user.
+     * @returns The created User object and the plaintext API key (to be shown once).
+     */
+    async createUser(description?: string): Promise<{ user: User; apiKey: string } | null> {
+        this.logger.debug('Attempting to create a new user.');
+        try {
+            // IMPORTANT: Placeholder for secure API key generation
+            const plaintextApiKey = `temp_api_key_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+            
+            // IMPORTANT: Placeholder for API key hashing (e.g., using bcrypt)
+            // const hashedApiKey = await bcrypt.hash(plaintextApiKey, 10); 
+            // For now, storing plaintext - HIGHLY INSECURE, for dev only.
+            const hashedApiKey = plaintextApiKey; 
+
+            const user = await this.prismaClient.user.create({
+                data: {
+                    apiKey: hashedApiKey, // Store the HASHED key in production
+                    description: description,
+                },
+            });
+            this.logger.info('User created with ID: ' + user.id);
+            // Return the new user and the PLAINTEXT API key for one-time display
+            return { user, apiKey: plaintextApiKey }; 
+        } catch (error) {
+            this.logger.error('Error creating user', { error });
+            if (error instanceof Prisma.PrismaClientKnownRequestError) {
+                if (error.code === 'P2002') { // Unique constraint violation (e.g. apiKey)
+                    this.logger.warn('Failed to create user due to unique constraint violation. This might happen if API key generation is not truly unique (especially with placeholder).');
+                }
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Validates an API key.
+     * IMPORTANT: This current implementation validates against PLAINTEXT keys if stored that way (dev placeholder).
+     * TODO: Modify to use bcrypt.compare if API keys are properly hashed in the database.
+     * @param apiKey The plaintext API key to validate.
+     * @returns The User object if the key is valid and the user is active, otherwise null.
+     */
+    async validateApiKey(apiKey: string): Promise<User | null> {
+        this.logger.debug('Validating API key.');
+        try {
+            // IMPORTANT: In production, you would hash the provided apiKey and search for the hash,
+            // or, if using a prefix system, find by prefix then use bcrypt.compare.
+            // Current placeholder finds by plaintext apiKey (INSECURE if used in prod).
+            const user = await this.prismaClient.user.findUnique({
+                where: { apiKey: apiKey }, // This assumes apiKey is unique and plaintext (dev only)
+            });
+
+            if (user && user.isActive) {
+                this.logger.debug('API key validated for user ID: ' + user.id);
+                // Optionally update lastSeenAt here or make it a separate call
+                await this.updateUserLastSeen(user.id);
+                return user;
+            } else if (user && !user.isActive) {
+                this.logger.warn('API key belongs to inactive user ID: ' + user.id);
+                return null;
+            } else {
+                this.logger.warn('Invalid API key provided.');
+                return null;
+            }
+        } catch (error) {
+            this.logger.error('Error validating API key', { error });
+            return null;
+        }
+    }
+
+    /**
+     * Updates the lastSeenAt timestamp for a user.
+     * @param userId The ID of the user.
+     * @returns The updated User object or null on error.
+     */
+    async updateUserLastSeen(userId: string): Promise<User | null> {
+        this.logger.debug('Updating lastSeenAt for user ID: ' + userId);
+        try {
+            const user = await this.prismaClient.user.update({
+                where: { id: userId },
+                data: { lastSeenAt: new Date() },
+            });
+            this.logger.debug('Successfully updated lastSeenAt for user ID: ' + userId);
+            return user;
+        } catch (error) {
+            this.logger.error('Error updating lastSeenAt for user ID: ' + userId, { error });
+            return null;
+        }
+    }
+
+    // --- Activity Log Methods ---
+
+    /**
+     * Logs an activity performed by a user.
+     * @param userId ID of the user performing the action.
+     * @param actionType Type of action (e.g., 'get_wallet_summary').
+     * @param requestParameters Optional parameters for the action (will be JSON.stringified).
+     * @param status Status of the action ('INITIATED', 'SUCCESS', 'FAILURE').
+     * @param durationMs Optional duration of the action in milliseconds.
+     * @param errorMessage Optional error message if the action failed.
+     * @param sourceIp Optional IP address of the requester.
+     * @returns The created ActivityLog object or null on error.
+     */
+    async logActivity(
+        userId: string,
+        actionType: string,
+        requestParameters?: object | null, // Allow null
+        status: 'INITIATED' | 'SUCCESS' | 'FAILURE' = 'INITIATED',
+        durationMs?: number,
+        errorMessage?: string,
+        sourceIp?: string
+    ): Promise<ActivityLog | null> {
+        this.logger.debug('Logging activity for user ID: ' + userId + ', action: ' + actionType);
+        try {
+            const activity = await this.prismaClient.activityLog.create({
+                data: {
+                    userId,
+                    actionType,
+                    requestParameters: requestParameters ? JSON.stringify(requestParameters) : null,
+                    status,
+                    durationMs,
+                    errorMessage,
+                    sourceIp,
+                },
+            });
+            this.logger.info('Activity logged with ID: ' + activity.id);
+            return activity;
+        } catch (error) {
+            this.logger.error('Error logging activity', { error });
+            return null;
+        }
     }
 
     // --- Wallet Methods ---

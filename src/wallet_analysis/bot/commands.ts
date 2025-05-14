@@ -2,8 +2,8 @@ import { Context } from 'telegraf';
 import { createLogger } from '@/utils/logger';
 import { WalletInfo, WalletCluster } from '@/types/wallet';
 import { DEFAULT_RECENT_TRANSACTION_COUNT, CLUSTERING_CONFIG } from '../../config/constants';
-import { DatabaseService } from '@/services/database-service';
-import { SwapAnalysisInput, Wallet } from '@prisma/client';
+import { DatabaseService, prisma as dbServicePrisma } from '@/services/database-service';
+import { SwapAnalysisInput, Wallet, User, ActivityLog } from '@prisma/client';
 import { CorrelationAnalyzer } from '../core/correlation/analyzer';
 import { calculatePnlForWallets } from '@/utils/pnl_calculator';
 import { TransactionData, CorrelatedPairData, GlobalTokenStats } from '../../types/correlation';
@@ -11,6 +11,8 @@ import { HeliusSyncService, SyncOptions } from '../services/helius-sync-service'
 import pLimit from 'p-limit';
 
 const logger = createLogger('WalletAnalysisCommands');
+
+const BOT_SYSTEM_USER_DESCRIPTION = "SystemUser_TelegramBot";
 
 /**
  * @interface ProcessingStats
@@ -32,6 +34,8 @@ export class WalletAnalysisCommands {
   private readonly heliusApiKey: string | undefined;
   private readonly databaseService: DatabaseService;
   private readonly heliusSyncService: HeliusSyncService | undefined;
+  private botSystemUserId: string | null = null;
+  private isBotUserInitialized: boolean = false;
 
   /**
    * @constructor
@@ -53,6 +57,38 @@ export class WalletAnalysisCommands {
       this.heliusSyncService = undefined;
       logger.warn('WalletAnalysisCommands initialized WITHOUT a Helius API key. HeliusSyncService is not available.');
     }
+    // Initialize bot system user asynchronously
+    this.initializeBotSystemUser().catch(err => {
+        logger.error('Failed to initialize bot system user for activity logging:', err);
+        // Bot can still function, but activity logging might be impaired.
+    });
+  }
+
+  private async initializeBotSystemUser(): Promise<void> {
+    try {
+        let botUser = await dbServicePrisma.user.findFirst({ // Using the imported prisma instance for this direct query
+            where: { description: BOT_SYSTEM_USER_DESCRIPTION }
+        });
+
+        if (!botUser) {
+            logger.info('Bot system user (\'' + BOT_SYSTEM_USER_DESCRIPTION + '\') not found, creating one...');
+            const creationResult = await this.databaseService.createUser(BOT_SYSTEM_USER_DESCRIPTION);
+            if (creationResult) {
+                botUser = creationResult.user;
+                logger.info('Bot system user created with ID: ' + botUser.id);
+            } else {
+                logger.error('Failed to create bot system user.');
+                return; // Exit if creation fails
+            }
+        } else {
+            logger.info('Found existing bot system user with ID: ' + botUser.id);
+        }
+        this.botSystemUserId = botUser.id;
+        this.isBotUserInitialized = true;
+    } catch (error) {
+        logger.error('Error initializing bot system user:', error);
+        this.isBotUserInitialized = false; // Ensure flag is set correctly on error
+    }
   }
 
   /**
@@ -65,6 +101,37 @@ export class WalletAnalysisCommands {
    * @returns {Promise<void>} A promise that resolves when the analysis is complete and a report has been sent.
    */
   async analyzeWallets(ctx: Context, walletAddressesInput: string[], userRequestedTxCount?: number) {
+    const startTime = Date.now();
+    let activityLogId: string | null = null; // To store the ID of the 'INITIATED' log
+    let analysisStatus: 'SUCCESS' | 'FAILURE' = 'SUCCESS'; // Assume success initially
+    let errorMessage: string | undefined = undefined;
+    let walletsPostBotFilter: WalletInfo[] = []; // Initialize here
+
+    const uniqueWalletAddresses = Array.from(new Set(walletAddressesInput.map(addr => addr.trim())));
+
+    if (this.isBotUserInitialized && this.botSystemUserId) {
+        try {
+            const logData = {
+                telegramUserId: ctx.from?.id,
+                telegramChatId: ctx.chat?.id,
+                walletAddresses: uniqueWalletAddresses,
+                requestedTxCount: userRequestedTxCount,
+                commandArgs: ctx.message && 'text' in ctx.message ? ctx.message.text : 'N/A'
+            };
+            const initialLog = await this.databaseService.logActivity(
+                this.botSystemUserId,
+                'telegram_command_analyze_wallets',
+                logData,
+                'INITIATED'
+            );
+            if (initialLog) {
+                activityLogId = initialLog.id; // Assuming logActivity returns the created log with its ID
+            }
+        } catch (logError) {
+            logger.error('Failed to create initial activity log for analyzeWallets:', logError);
+        }
+    }
+
     try {
       await ctx.reply('🔄 Initializing analysis... This may take a few moments.');
       
@@ -205,15 +272,18 @@ export class WalletAnalysisCommands {
       }
        if (initialWallets.length < 2 && successfullyProcessedWalletsInfo.length < 2) { // Adjusted condition
          await ctx.reply("ℹ️ Please provide at least two wallets and ensure they can be processed for correlation analysis.");
-         return;
+         analysisStatus = 'FAILURE'; // Update status
+         errorMessage = "Not enough wallets provided or processable for correlation.";
+         return; // Exit early
        }
 
       // Perform bot filtering using the successfullyProcessedWalletsInfo and transactionsForBotFilterPass
-      const { walletsForAnalysis: walletsPostBotFilter } = this.filterOutBotWallets(
+      const botFilterResult = this.filterOutBotWallets(
         successfullyProcessedWalletsInfo, 
         transactionsForBotFilterPass, 
         CLUSTERING_CONFIG.MAX_DAILY_TOKENS_FOR_FILTER
       );
+      walletsPostBotFilter = botFilterResult.walletsForAnalysis; // Assign here
       const numFilteredOutByBotLogic = successfullyProcessedWalletsInfo.length - walletsPostBotFilter.length;
 
       // Now, prepare allFetchedCorrelatorTransactions for the wallets that passed bot filtering,
@@ -247,7 +317,9 @@ export class WalletAnalysisCommands {
 
       if (walletsPostBotFilter.length < 2) {
         await ctx.reply("ℹ️ Not enough wallets remaining after bot-activity filtering to perform correlation analysis (need at least 2). Analysis halted.");
-        return;
+        analysisStatus = 'FAILURE'; // Update status
+        errorMessage = "Not enough wallets remaining after bot-activity filtering.";
+        return; // Exit early
       }
       
       // Calculate PNL using the utility function
@@ -333,6 +405,32 @@ export class WalletAnalysisCommands {
       const err = error as Error;
       logger.error('Error in analyzeWallets (top level):', err);
       await ctx.reply(`❌ Top-level error analyzing wallets: ${err.message}`);
+      analysisStatus = 'FAILURE'; // Update status on error
+      errorMessage = err.message; // Capture error message
+    } finally {
+        if (this.isBotUserInitialized && this.botSystemUserId) {
+            const durationMs = Date.now() - startTime;
+            try {
+                const finalLogData = {
+                    telegramUserId: ctx.from?.id,
+                    telegramChatId: ctx.chat?.id,
+                    walletAddresses: uniqueWalletAddresses,
+                    requestedTxCount: userRequestedTxCount,
+                    initialLogId: activityLogId, // Optionally link to the initial log
+                    finalAnalyzedCount: walletsPostBotFilter.length // Now safely accessed
+                };
+                await this.databaseService.logActivity(
+                    this.botSystemUserId,
+                    'telegram_command_analyze_wallets_completed',
+                    finalLogData,
+                    analysisStatus,
+                    durationMs,
+                    errorMessage
+                );
+            } catch (logError) {
+                logger.error('Failed to create final activity log for analyzeWallets:', logError);
+            }
+        }
     }
   }
 
