@@ -838,4 +838,38 @@ export class DatabaseService {
             return null;
         }
     }
+
+    /**
+     * Fetches the latest AdvancedStatsResult for a given wallet address.
+     * It orders by the AnalysisRun's runTimestamp in descending order to find the latest.
+     * @param walletAddress The public key of the wallet.
+     * @returns The latest AdvancedStatsResult object if found, otherwise null.
+     */
+    async getLatestAdvancedStatsByWallet(walletAddress: string): Promise<(AdvancedStatsResult & { run: AnalysisRun | null }) | null> {
+      this.logger.debug(`Fetching latest advanced stats for wallet: ${walletAddress}`);
+      try {
+        const advancedStats = await this.prismaClient.advancedStatsResult.findFirst({
+          where: { walletAddress: walletAddress },
+          orderBy: {
+            run: {
+              runTimestamp: 'desc',
+            },
+          },
+          include: {
+            run: true, // Include the associated AnalysisRun data
+          },
+        });
+
+        if (advancedStats) {
+          this.logger.debug(`Found latest advanced stats for wallet ${walletAddress}, run ID: ${advancedStats.runId}`);
+          return advancedStats as (AdvancedStatsResult & { run: AnalysisRun | null });
+        } else {
+          this.logger.debug(`No advanced stats found for wallet ${walletAddress}`);
+          return null;
+        }
+      } catch (error) {
+        this.logger.error(`Error fetching latest advanced stats for wallet ${walletAddress}`, { error });
+        return null;
+      }
+    }
 }
