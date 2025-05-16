@@ -5,7 +5,7 @@ import { CryptoAnalyzer } from './analysis/analyzer';
 import { CoinGeckoClient } from './fetcher/coingecko-client';
 import { AlertManager } from './alerts/alert-manager';
 import { CryptoDataOptions, RateLimitConfig } from './types/crypto';
-import { createLogger } from '@/utils/logger';
+import { createLogger } from 'core/utils/logger';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { CryptoBot } from './bot/bot';

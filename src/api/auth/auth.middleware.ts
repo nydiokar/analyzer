@@ -1,6 +1,6 @@
 import { Injectable, NestMiddleware, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { DatabaseService } from '../../database/database.service';
+import { DatabaseService } from '../database/database.service';
 
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {

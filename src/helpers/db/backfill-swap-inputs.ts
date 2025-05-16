@@ -3,8 +3,8 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
 import { PrismaClient, Prisma } from '@prisma/client';
-import { createLogger } from '@/utils/logger'; 
-import { mapHeliusTransactionsToIntermediateRecords } from '../../wallet_analysis/services/helius-transaction-mapper';
+import { createLogger } from 'core/utils/logger'; 
+import { mapHeliusTransactionsToIntermediateRecords } from '../../core/services/helius-transaction-mapper';
 import { HeliusTransaction } from '../../types/helius-api';
 import zlib from 'zlib';
 

@@ -1,7 +1,7 @@
 import { DataFetcher } from '../fetcher/data-fetcher';
 import { ProtocolFetcher } from '../fetcher/protocol-fetcher';
 import { StakingInput, StakingReport } from '../types/staking';
-import { createLogger } from '@/utils/logger';
+import { createLogger } from 'core/utils/logger';
 
 const logger = createLogger('StakingCalculator');
 

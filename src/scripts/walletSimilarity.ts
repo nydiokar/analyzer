@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { SimilarityAnalysisConfig } from '@/types/analysis';   
 import { SimilarityMetrics } from '@/types/similarity';   
-import { DatabaseService } from '@/services/database-service'; 
-import { SimilarityService } from '@/core/similarity/similarity-service'; 
-import { ReportingService } from '@/reporting/reportGenerator'; 
-import { createLogger } from '@/utils/logger'; 
+import { DatabaseService } from 'core/services/database-service'; 
+import { SimilarityService } from 'core/analysis/similarity/similarity-service'; 
+import { ReportingService } from 'core/reporting/reportGenerator'; 
+import { createLogger } from 'core/utils/logger'; 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';

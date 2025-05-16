@@ -17,14 +17,14 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import * as fs from 'fs';
 import * as path from 'path';
-import { createLogger } from '@/utils/logger';
-import { DatabaseService } from '@/services/database-service';
-import { BehaviorService } from '@/core/behavior/behavior-service';
-import { ReportingService } from '@/reporting/reportGenerator';
-import { KPIComparisonAnalyzer } from '@/core/behavior/kpi_analyzer'; // Need the analyzer core
+import { createLogger } from 'core/utils/logger';
+import { DatabaseService } from 'core/services/database-service';
+import { BehaviorService } from 'core/analysis/behavior/behavior-service';
+import { ReportingService } from 'core/reporting/reportGenerator';
+import { KPIComparisonAnalyzer } from 'core/analysis/behavior/kpi_analyzer'; // Need the analyzer core
 import { WalletInfo } from '@/types/wallet';
 import { BehaviorAnalysisConfig } from '@/types/analysis'; // Import specific config
-import { parseTimeRange } from '@/utils/cliUtils';
+import { parseTimeRange } from 'core/utils/cliUtils';
 
 
 // Initialize logger

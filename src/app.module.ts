@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ApiModule } from './api/api.module';
+import { ApiModule } from './api.module';
 import { ConfigModule } from '@nestjs/config'; // For .env variable support
 
 @Module({

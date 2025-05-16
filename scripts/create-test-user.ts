@@ -1,4 +1,5 @@
-import { DatabaseService, prisma } from '../src/wallet_analysis/services/database-service';
+import { DatabaseService } from '../src/api/database/database.service';
+import { prisma } from '../src/core/services/database-service';
 
 async function main() {
   console.log('Attempting to create a test user...');

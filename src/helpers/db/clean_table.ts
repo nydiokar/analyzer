@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { createLogger } from '@/utils/logger'; // Assuming logger path is correct
+import { createLogger } from 'core/utils/logger'; // Assuming logger path is correct
 
 const prisma = new PrismaClient();
 const logger = createLogger('DeleteWalletInputs');

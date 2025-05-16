@@ -26,6 +26,8 @@ model Wallet {
   newestProcessedTimestamp  Int?
   // Timestamp of the last time a fetch was successfully run for this wallet
   lastSuccessfulFetchTimestamp DateTime?
+  // Signature of the newest transaction that was successfully included in the last analysis run
+  lastSignatureAnalyzed     String? 
 }
 
 // Stores raw Helius transaction details.
@@ -73,16 +75,15 @@ model AnalysisRun {
   signaturesProcessed  Int?      
   errorMessage         String?   
 
-  results              AnalysisResult[]
   advancedStats        AdvancedStatsResult?
 
   @@index([walletAddress, runTimestamp])
 }
 
 // Stores calculated per-token results for an AnalysisRun.
+// This model is being refactored to store THE authoritative, latest analyzed state per token.
 model AnalysisResult {
   id                     Int      @id @default(autoincrement())
-  runId                  Int
   walletAddress          String   // KEPT: For easier querying
   tokenAddress           String
   totalAmountIn          Float    // REVERTED: Back to Float
@@ -97,13 +98,9 @@ model AnalysisResult {
   firstTransferTimestamp Int?
   lastTransferTimestamp  Int?
 
-  run                    AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-
-  @@index([runId])
-  @@index([walletAddress]) // ADDED index
-  @@index([runId, walletAddress]) // ADDED composite index
-  @@index([runId, tokenAddress])
-  @@index([runId, netSolProfitLoss])
+  @@index([walletAddress]) // KEPT index (already exists)
+  @@index([tokenAddress]) // ADDED index for tokenAddress
+  @@unique([walletAddress, tokenAddress]) // ADDED unique constraint
 }
 
 // Stores calculated advanced metrics for an AnalysisRun.

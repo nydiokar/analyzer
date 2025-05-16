@@ -2,7 +2,7 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { PrismaClient } from '@prisma/client';
-import { createLogger } from '@/utils/logger';
+import { createLogger } from 'core/utils/logger';
 
 // Set up logger
 const logger = createLogger('DbCleanupScript');

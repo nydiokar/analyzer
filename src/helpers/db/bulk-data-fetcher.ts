@@ -2,10 +2,10 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import { createLogger } from '@/utils/logger';
-import { HeliusApiClient } from '@/services/helius-api-client';
-import { mapHeliusTransactionsToIntermediateRecords } from '@/services/helius-transaction-mapper';
-import { DatabaseService, prisma } from '@/services/database-service';
+import { createLogger } from 'core/utils/logger';
+import { HeliusApiClient } from 'core/services/helius-api-client';
+import { mapHeliusTransactionsToIntermediateRecords } from 'core/services/helius-transaction-mapper';
+import { DatabaseService, prisma } from 'core/services/database-service';
 import { HeliusTransaction } from '@/types/helius-api';
 import { Prisma } from '@prisma/client';
 import { Wallet } from '@prisma/client';

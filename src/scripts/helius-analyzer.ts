@@ -10,15 +10,15 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import { createLogger } from '@/utils/logger';
-import { parseTimeRange } from '@/utils/cliUtils';
-import { displaySummary, displayDetailedResults } from '@/utils/display-utils'; 
+import { createLogger } from 'core/utils/logger';
+import { parseTimeRange } from 'core/utils/cliUtils';
+import { displaySummary, displayDetailedResults } from 'core/utils/display-utils'; 
 
 // Import Services
-import { HeliusSyncService, SyncOptions } from '@/services/helius-sync-service';
-import { PnlAnalysisService } from '@/services/pnl-analysis-service';
-import { DatabaseService, prisma } from '@/services/database-service'; 
-import { ReportingService } from '@/reporting/reportGenerator'; 
+import { HeliusSyncService, SyncOptions } from 'core/services/helius-sync-service';
+import { PnlAnalysisService } from 'core/services/pnl-analysis-service';
+import { DatabaseService, prisma } from 'core/services/database-service'; 
+import { ReportingService } from 'core/reporting/reportGenerator'; 
 
 // Initialize environment variables
 dotenv.config();
@@ -144,7 +144,6 @@ async function analyzeWalletWithHelius() {
   // --- Orchestration Flow ---
   let runId: number | null = null;
   let analysisSummary: any | null = null; 
-  // Define isHistoricalView outside the try block
   const timeRange = parseTimeRange(startDate, endDate);
   const isHistoricalView = !!timeRange;
 
@@ -166,93 +165,51 @@ async function analyzeWalletWithHelius() {
       logger.info('--- Step 1: Skipping Data Synchronization (--skipApi) ---');
     }
 
-    // 2. Perform PNL Analysis
-    logger.info('--- Step 2: Performing P/L Analysis ---');
-    // Use timeRange defined above
-    analysisSummary = await pnlAnalysisService.analyzeWalletPnl(walletAddress, timeRange);
-    
-    if (!analysisSummary || analysisSummary.results.length === 0) {
-      logger.warn('PNL analysis did not produce any results. Exiting.');
-      // Maybe still save an empty run record?
-      return;
-    }
-    logger.info('--- P/L Analysis Complete ---');
+    // *** NEW: PRE-ANALYSIS CHECK ***
+    const wallet = await dbService.getWallet(walletAddress);
+    let pnlAnalysisSkipped = false;
 
-    // 3. Save Full Run Results to Database (if not historical view)
-    if (!isHistoricalView) {
-        logger.info('--- Step 3: Saving Full Analysis Run to Database ---');
-        try {
-            // Create AnalysisRun record
-            const runData = { 
-                walletAddress: walletAddress,
-                // timestamp: new Date(), // Removed: runTimestamp is @default(now()) in schema
-                status: 'PENDING',
-                // analysisType: 'SWAP_PNL', // Removed: Not in the provided schema snippet for AnalysisRun
-                // Add other relevant metadata? CLI args?
-            };
-            const run = await dbService.createAnalysisRun(runData as any); // Use 'as any' if type conflicts
-            if (!run) throw new Error('Failed to create AnalysisRun record.');
-            runId = run.id;
-
-             const resultsToSave = analysisSummary.results.map((r: any) => ({
-                runId: runId!,
-                walletAddress: walletAddress,
-                tokenAddress: r.tokenAddress,
-                totalAmountIn: r.totalAmountIn,
-                totalAmountOut: r.totalAmountOut,
-                netAmountChange: r.netAmountChange,
-                totalSolSpent: r.totalSolSpent,
-                totalSolReceived: r.totalSolReceived,
-                totalFeesPaidInSol: r.totalFeesPaidInSol,
-                netSolProfitLoss: r.netSolProfitLoss,
-                firstTransferTimestamp: r.firstTransferTimestamp,
-                lastTransferTimestamp: r.lastTransferTimestamp,
-                transferCountIn: r.transferCountIn,
-                transferCountOut: r.transferCountOut,
-             }));
-            await dbService.saveAnalysisResults(resultsToSave);
-
-            if (analysisSummary.advancedStats) {
-                const statsToSave = {
-                    runId: runId!,
-                    walletAddress: walletAddress,
-                    medianPnlPerToken: analysisSummary.advancedStats.medianPnlPerToken,
-                    trimmedMeanPnlPerToken: analysisSummary.advancedStats.trimmedMeanPnlPerToken,
-                    tokenWinRatePercent: analysisSummary.advancedStats.tokenWinRatePercent,
-                    standardDeviationPnl: analysisSummary.advancedStats.standardDeviationPnl,
-                    profitConsistencyIndex: analysisSummary.advancedStats.profitConsistencyIndex,
-                    weightedEfficiencyScore: analysisSummary.advancedStats.weightedEfficiencyScore,
-                    averagePnlPerDayActiveApprox: analysisSummary.advancedStats.averagePnlPerDayActiveApprox,
-                };
-                await dbService.saveAdvancedStats(statsToSave);
-            }
-
-            // Update AnalysisRun status to COMPLETED
-            // Use prisma directly here as planned, or add a helper to dbService
-            await prisma.analysisRun.update({
-                where: { id: runId },
-                data: { status: 'COMPLETED' }
-            });
-            logger.info(`Updated AnalysisRun ${runId} status to COMPLETED.`);
-
-        } catch (dbError) {
-            logger.error('Error saving full analysis run to database:', dbError);
-            // Update run status to FAILED if it was created
-            if (runId) {
-                 try {
-                     await prisma.analysisRun.update({
-                        where: { id: runId },
-                        data: { status: 'FAILED', errorMessage: String(dbError) }
-                    });
-                    logger.warn(`Updated AnalysisRun ${runId} status to FAILED.`);
-                 } catch (updateError) {
-                     logger.error(`Failed to update run status to FAILED for run ${runId}:`, updateError);
-                 }
-            }
-        }
-        logger.info('--- Database Save Complete ---');
+    if (!isHistoricalView && wallet && wallet.newestProcessedSignature && wallet.lastSignatureAnalyzed === wallet.newestProcessedSignature) {
+        logger.info(`--- Skipping P/L Analysis for ${walletAddress}: No new transactions since last analysis (Last Analyzed Signature: ${wallet.lastSignatureAnalyzed}). ---`);
+        pnlAnalysisSkipped = true;
+        // Optionally, create a "skipped" AnalysisRun record here if desired for complete audit trails
+        // For now, we just log. The reporting step might need to know this.
     } else {
-        logger.info('--- Step 3: Skipping Database Save (Historical View) ---');
+        logger.info('--- Step 2: Performing P/L Analysis ---');
+        // Pass wallet.newestProcessedSignature for PnlAnalysisService to use when updating wallet.lastSignatureAnalyzed
+        // If isHistoricalView, pnlAnalysisService should not update lastSignatureAnalyzed or upsert canonical AnalysisResult.
+        analysisSummary = await pnlAnalysisService.analyzeWalletPnl(
+            walletAddress, 
+            isHistoricalView ? timeRange : undefined, // Pass timeRange only if it's a historical view
+            wallet?.newestProcessedSignature // Pass the latest signature from DB for the service to use if it updates wallet state
+        );
+        
+        if (analysisSummary && analysisSummary.runId) {
+            runId = analysisSummary.runId; // Capture runId if PnlAnalysisService provides it
+            logger.info(`P/L Analysis complete. Associated with AnalysisRun ID: ${runId}`);
+        }
+
+        if (!analysisSummary || (analysisSummary.results && analysisSummary.results.length === 0 && !analysisSummary.analysisSkipped)) {
+            logger.warn('PNL analysis did not produce any results or failed. Check PnlAnalysisService logs.');
+            // The script can decide to exit or skip reporting based on this.
+            // No need to proceed with saving if summary is null/empty unless it was a planned skip
+        }
+    }
+    // --- P/L Analysis Potentially Skipped or Complete ---
+
+    // Step 3: Saving Full Analysis Run to Database - This is now largely handled by PnlAnalysisService
+    // The main responsibility here is to ensure an AnalysisRun record reflects the outcome if not already fully managed by PnlService.
+    // For now, we assume PnlAnalysisService creates and finalizes its own AnalysisRun record.
+    // If `runId` was captured from `analysisSummary`, it means PnlAnalysisService handled it.
+    if (isHistoricalView && analysisSummary) {
+        logger.info(`--- Historical P/L Analysis for ${walletAddress} complete. Results are in analysisSummary. No canonical data updated. ---`);
+    } else if (pnlAnalysisSkipped) {
+        logger.info(`--- P/L Analysis for ${walletAddress} was skipped. No database updates for PNL results. ---`);
+    } else if (analysisSummary && runId) {
+        logger.info(`--- P/L Analysis and Data Persistence for ${walletAddress} handled by PnlAnalysisService (Run ID: ${runId}). ---`);
+    } else if (!isHistoricalView && !pnlAnalysisSkipped) {
+        logger.error(`--- P/L Analysis for ${walletAddress} may have failed or did not complete as expected. Run ID not available. ---`);
+        // Potentially create a FAILED AnalysisRun here if one wasn't made by PnlService
     }
 
     // 4. Display Results in Console
