@@ -450,10 +450,14 @@ export class DatabaseService {
         // Get all distinct signatures from the input batch
         const distinctInputSignatures = Array.from(new Set(inputs.map(i => i.signature)));
 
+        // Declare existingDbEntries here to be accessible in the later loop
+        let existingDbEntries: { signature: string; mint: string; direction: string; amount: number; }[] = [];
+
         if (distinctInputSignatures.length > 0) {
             this.logger.debug(`[DB] Distinct signatures for findMany: ${JSON.stringify(distinctInputSignatures.slice(0, 5))}${distinctInputSignatures.length > 5 ? '...' : ''}`);
             this.logger.debug(`[DB] Sample input for findMany (first item): ${inputs.length > 0 ? JSON.stringify(inputs[0]) : 'N/A'}`);
-            const existingDbEntries = await this.prismaClient.swapAnalysisInput.findMany({
+            // Assign to the already declared variable
+            existingDbEntries = await this.prismaClient.swapAnalysisInput.findMany({ // Note: assign here
                 where: {
                     signature: { in: distinctInputSignatures }
                 },
@@ -509,20 +513,48 @@ export class DatabaseService {
         this.logger.info(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
 
         if (uniqueNewRecordsToInsert.length > 0) {
-            try {
-                const result = await this.prismaClient.swapAnalysisInput.createMany({
-                    data: uniqueNewRecordsToInsert,
-                });
-                this.logger.info(`[DB] Prisma createMany for SwapAnalysisInput successful. New records added: ${result.count}`);
-                return result;
-            } catch (error) {
-                if (error instanceof Prisma.PrismaClientKnownRequestError) {
-                    this.logger.error('[DB] Prisma Error during createMany for SwapAnalysisInput', { code: error.code, meta: error.meta });
-                } else {
-                    this.logger.error('[DB] Generic Error during createMany for SwapAnalysisInput', { error });
+            // --- REMOVED Detailed Logging for Potential Float Precision Issues ---
+            // The extensive block comparing incoming records with DB records for float issues has been removed
+            // as the primary debugging for that is complete. The iterative save handles the skips.
+            // --- End of REMOVED Detailed Logging ---
+
+            // --- ITERATIVE CREATE (WORKAROUND FOR SQLITE) ---
+            // TODO: Revert to using prisma.swapAnalysisInput.createMany({ data: uniqueNewRecordsToInsert, skipDuplicates: true (if supported/needed) })
+            // if the database is switched from SQLite to a system like PostgreSQL that offers more robust 
+            // 'ON CONFLICT DO NOTHING' or equivalent behavior with `createMany` that reliably handles these float-precision-induced duplicates.
+            // SQLite's `createMany` with `skipDuplicates: true` (or its default behavior) was found to still throw P2002 errors
+            // in these float precision scenarios, necessitating this iterative approach for robust skipping.
+            let successfulInserts = 0;
+            let skippedDuplicatesCount = 0; 
+            this.logger.info(`[DB] Using iterative create for SwapAnalysisInput. Attempting to insert ${uniqueNewRecordsToInsert.length} records one by one...`);
+
+            for (const record of uniqueNewRecordsToInsert) {
+                try {
+                    await this.prismaClient.swapAnalysisInput.create({ data: record });
+                    successfulInserts++;
+                } catch (error) {
+                    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                        skippedDuplicatesCount++;
+                        // Downgraded to debug to reduce noise, as the final summary is an info log.
+                        this.logger.debug(
+                            `[DB] Iterative Save: Skipped inserting duplicate SwapAnalysisInput (P2002). Sig: ${record.signature}, Mint: ${record.mint}, Amount: ${record.amount}. Total skipped so far: ${skippedDuplicatesCount}.`
+                        );
+                    } else {
+                        // For non-P2002 errors, log more verbosely as it's unexpected.
+                        this.logger.error('[DB] Iterative Save: Error inserting single SwapAnalysisInput record', {
+                            signature: record.signature, 
+                            mint: record.mint, 
+                            amount: record.amount,
+                            error 
+                        });
+                        // Depending on policy, you might want to re-throw or break for unexpected errors.
+                    }
                 }
-                return { count: 0 }; // Return 0 if error occurs
             }
+            this.logger.info(`[DB] Iterative insert process complete. Attempted: ${uniqueNewRecordsToInsert.length}, Successfully inserted: ${successfulInserts}, Skipped due to P2002 (duplicates/float precision): ${skippedDuplicatesCount}`);
+            return { count: successfulInserts };
+            // --- END OF ITERATIVE LOGIC ---
+
         } else {
             this.logger.info('[DB] No unique new SwapAnalysisInput records to add after filtering.');
             return { count: 0 };
