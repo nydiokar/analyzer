@@ -1,10 +1,10 @@
 import { PrismaClient } from '@prisma/client';
-import { createLogger } from 'core/utils/logger'; // Assuming logger path is correct
+import { createLogger } from '../../core/utils/logger'; // Assuming logger path is correct
 
 const prisma = new PrismaClient();
 const logger = createLogger('DeleteWalletInputs');
 
-const WALLET_TO_DELETE = '5xLyAv2VoKpc31HxMbi324MCZgsw4KN5GBMShAPmz6tf'; // <-- IMPORTANT: Replace this!
+const WALLET_TO_DELETE = 'DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm'; // <-- IMPORTANT: Replace this!
 
 async function deleteInputs() {
   if (!WALLET_TO_DELETE) {

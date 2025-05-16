@@ -469,7 +469,8 @@ export class DatabaseService {
                 if (!existingRecordsDetails.has(entry.signature)) {
                     existingRecordsDetails.set(entry.signature, new Set<string>());
                 }
-                const key = `${entry.mint}-${entry.direction}-${entry.amount.toString()}`;
+                // Standardize amount for key generation
+                const key = `${entry.mint.toLowerCase()}-${entry.direction.toLowerCase()}-${entry.amount.toFixed(9)}`;
                 existingRecordsDetails.get(entry.signature)!.add(key);
             }
             this.logger.debug(`[DB] Found ${existingDbEntries.length} existing SwapAnalysisInput entries for ${distinctInputSignatures.length} distinct incoming signatures.`);
@@ -483,7 +484,8 @@ export class DatabaseService {
         const batchRecordTracker = new Map<string, Set<string>>(); 
 
         for (const record of inputs) {
-            const recordKey = `${record.mint}-${record.direction}-${record.amount.toString()}`;
+            // Standardize amount for key generation
+            const recordKey = `${record.mint.toLowerCase()}-${record.direction.toLowerCase()}-${record.amount.toFixed(9)}`;
 
             // Check if this exact record (sig + key) exists in DB
             if (existingRecordsDetails.has(record.signature) && existingRecordsDetails.get(record.signature)!.has(recordKey)) {

@@ -1,13 +1,21 @@
 module.exports = {
   apps: [
     {
-      name: 'wallet-analysis-bot',
+      name: 'wallet-analysis-bot2',
       script: 'dist/wallet_analysis/index.js',
       cwd: '.',
       exec_mode: 'fork',
       instances: 1,
       autorestart: true,
-      watch: true,
+      watch: false,
+      ignore_watch: [
+        "node_modules",
+        "logs",
+        "analysis_reports",
+        "prisma/dev.db",
+        "prisma/dev.db-journal", // Also ignore the journal file
+        ".git"
+      ],
       min_uptime: '60s',
       max_restarts: 5,
       node_args: "-r tsconfig-paths/register",

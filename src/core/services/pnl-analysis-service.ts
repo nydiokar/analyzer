@@ -199,6 +199,18 @@ export class PnlAnalysisService {
             }
 
             analysisRunStatus = 'COMPLETED';
+            // Update the AnalysisRun record to COMPLETED status in the database
+            if (runId) { 
+                await prisma.analysisRun.update({
+                    where: { id: runId },
+                    data: { 
+                        status: 'COMPLETED', 
+                        errorMessage: null // Clear any previous error message if it was a retry
+                    },
+                });
+                logger.info(`[PnlAnalysis] Successfully marked AnalysisRun ${runId} as COMPLETED.`);
+            }
+
             logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summary.netPnl.toFixed(4)} SOL`);
             return { ...summary, runId };
 
