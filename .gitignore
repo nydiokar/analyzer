@@ -4,10 +4,10 @@ logs/
 node_modules/
 dist/
 cline_docs/
-test/
 *.json
 .cache/
 .vscode/
+tests/
 .idea/
 .DS_Store
 .venv/
