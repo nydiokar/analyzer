@@ -32,7 +32,7 @@ jobs:
           script: |
             cd ~/dev/wallet-analyzer/analyzer 
             git pull origin main
-            npm ci --production
+            npm install
             npm run build
             pm2 restart ecosystem.config.js --update-env 
             echo "Deployment successful!" 

@@ -10,6 +10,7 @@ The Helius Transaction Analyzer integrates with the Helius API to fetch and anal
 - Maps SOL and SPL token transfers from Helius transaction data.
 - Calculates SOL Profit/Loss attributed to SPL token swaps.
 - Groups results by SPL token for analysis.
+
 - Generates CSV and TXT reports summarizing P/L per token.
 - Caches Helius API responses locally (`./.cache/helius/`) to speed up subsequent runs.
 - Optionally saves intermediate token/SOL transfer records to CSV (`./data/`).

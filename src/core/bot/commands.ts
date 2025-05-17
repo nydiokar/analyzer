@@ -1,14 +1,27 @@
-import { Context } from 'telegraf';
+import { Telegraf, Context } from 'telegraf';
 import { createLogger } from 'core/utils/logger';
 import { WalletInfo, WalletCluster } from '@/types/wallet';
 import { DEFAULT_RECENT_TRANSACTION_COUNT, CLUSTERING_CONFIG } from '../../config/constants';
 import { DatabaseService, prisma as dbServicePrisma } from 'core/services/database-service';
-import { SwapAnalysisInput, Wallet, User, ActivityLog } from '@prisma/client';
+import { SwapAnalysisInput, Prisma, User, ActivityLog } from '@prisma/client';
 import { CorrelationAnalyzer } from '../analysis/correlation/analyzer';
 import { calculatePnlForWallets } from 'core/utils/pnl_calculator';
 import { TransactionData, CorrelatedPairData, GlobalTokenStats } from '../../types/correlation';
 import { HeliusSyncService, SyncOptions } from '../services/helius-sync-service';
 import pLimit from 'p-limit';
+import { BehaviorService } from 'core/analysis/behavior/behavior-service';
+import { BehaviorAnalysisConfig } from '@/types/analysis';
+import { BehavioralMetrics } from '@/types/behavior';
+import { AdvancedStatsAnalyzer } from 'core/analysis/stats/analyzer';
+import { AdvancedTradeStats, OnChainAnalysisResult, SwapAnalysisSummary } from '@/types/helius-api';
+import { PnlAnalysisService } from 'core/services/pnl-analysis-service';
+import {
+    generatePnlOverviewHtmlTelegram,
+    generateBehaviorSummaryHtmlTelegram,
+    generateDetailedBehaviorHtmlTelegram,
+    generateDetailedAdvancedStatsHtmlTelegram,
+    generateCorrelationReportTelegram
+} from 'core/reporting/report_utils';
 
 const logger = createLogger('WalletAnalysisCommands');
 
@@ -36,6 +49,9 @@ export class WalletAnalysisCommands {
   private readonly heliusSyncService: HeliusSyncService | undefined;
   private botSystemUserId: string | null = null;
   private isBotUserInitialized: boolean = false;
+  private readonly behaviorService: BehaviorService;
+  private readonly advancedStatsAnalyzer: AdvancedStatsAnalyzer;
+  private readonly pnlAnalysisService: PnlAnalysisService;
 
   /**
    * @constructor
@@ -51,22 +67,31 @@ export class WalletAnalysisCommands {
         logger.info('WalletAnalysisCommands initialized with HeliusSyncService.');
       } catch (error) {
         logger.error('Failed to initialize HeliusSyncService even with API key:', error);
-        this.heliusSyncService = undefined; // Ensure it's undefined on error
+        this.heliusSyncService = undefined;
       }
     } else {
       this.heliusSyncService = undefined;
       logger.warn('WalletAnalysisCommands initialized WITHOUT a Helius API key. HeliusSyncService is not available.');
     }
+    
+    // Initialize analyzers
+    const behaviorConfig: BehaviorAnalysisConfig = {
+      timeRange: undefined,
+      excludedMints: [] // We'll use defaults from the service
+    };
+    this.behaviorService = new BehaviorService(this.databaseService, behaviorConfig);
+    this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
+    this.pnlAnalysisService = new PnlAnalysisService(this.databaseService);
+    
     // Initialize bot system user asynchronously
     this.initializeBotSystemUser().catch(err => {
         logger.error('Failed to initialize bot system user for activity logging:', err);
-        // Bot can still function, but activity logging might be impaired.
     });
   }
 
   private async initializeBotSystemUser(): Promise<void> {
     try {
-        let botUser = await dbServicePrisma.user.findFirst({ // Using the imported prisma instance for this direct query
+        let botUser = await dbServicePrisma.user.findFirst({
             where: { description: BOT_SYSTEM_USER_DESCRIPTION }
         });
 
@@ -159,7 +184,7 @@ export class WalletAnalysisCommands {
         | { status: 'rejected'; walletAddress: string; reason: string };
 
       // ---- Start: Parallel Helius Sync with Concurrency Limiting ----
-      const CONCURRENCY_LIMIT = 5; // Define concurrency limit (e.g., 5-10, needs tuning)
+      const CONCURRENCY_LIMIT = 3; // Define concurrency limit (e.g., 5-10, needs tuning)
       const limit = pLimit(CONCURRENCY_LIMIT);
       let syncOperationsCompleted = 0;
       let lastReportedProgress = 0;
@@ -377,7 +402,7 @@ export class WalletAnalysisCommands {
         uniqueTokenCountsPerWalletInAnalysis[walletAddress] = uniqueMints.size;
       }
 
-      const reportMessages: string[] = this.generateTelegramReport(
+      const reportMessages: string[] = generateCorrelationReportTelegram(
         initialWallets.length, 
         walletsPostBotFilter.length, 
         numFilteredOutByBotLogic, 
@@ -487,146 +512,250 @@ export class WalletAnalysisCommands {
   }
 
   /**
-   * Generates a multi-part HTML report for Telegram, summarizing the wallet analysis results.
-   * Splits the report into multiple messages if it exceeds Telegram's message length limits.
-   * @param {number} requestedWalletsCount - The initial number of wallets requested for analysis.
-   * @param {number} analyzedWalletsCount - The number of wallets actually analyzed after filtering.
-   * @param {number} botFilteredCount - The number of wallets filtered out due to suspected bot activity.
-   * @param {Record<string, number>} walletPnLs - A map of wallet addresses to their calculated PnL.
-   * @param {GlobalTokenStats | null} globalTokenStats - Statistics about token distribution.
-   * @param {WalletCluster[]} identifiedClusters - An array of identified wallet clusters.
-   * @param {CorrelatedPairData[]} topCorrelatedPairs - An array of top correlated wallet pairs.
-   * @param {ProcessingStats} processingStats - Statistics about the transaction processing.
-   * @param {Record<string, number>} uniqueTokenCountsPerWallet - A map of wallet addresses to their unique token counts.
-   * @returns {string[]} An array of strings, where each string is a part of the report formatted for Telegram (HTML).
+   * Analyzes the behavioral patterns of a single wallet.
+   * @param ctx - The Telegraf context
+   * @param walletAddress - The wallet address to analyze
+   * @param transactionCount - Optional number of transactions to consider
    */
-  private generateTelegramReport(
-    requestedWalletsCount: number,
-    analyzedWalletsCount: number,
-    botFilteredCount: number,
-    walletPnLs: Record<string, number>,
-    globalTokenStats: GlobalTokenStats | null,
-    identifiedClusters: WalletCluster[],
-    topCorrelatedPairs: CorrelatedPairData[],
-    processingStats: ProcessingStats,
-    uniqueTokenCountsPerWallet: Record<string, number>
-  ): string[] {
-    const messages: string[] = [];
-    let currentMessageLines: string[] = [];
-    const MAX_MESSAGE_LENGTH = 3800;
+  async analyzeWalletBehavior(ctx: Context, walletAddresses: string[], transactionCount?: number) {
+    for (const walletAddress of walletAddresses) {
+        try {
+          await ctx.reply(`🔄 Analyzing wallet behavior for ${walletAddress}... This may take a moment.`);
 
-    const addLine = (line: string) => currentMessageLines.push(line);
-    const pushCurrentMessage = () => {
-      if (currentMessageLines.length > 0) {
-        messages.push(currentMessageLines.join('\n'));
-        currentMessageLines = [];
-      }
-    };
+          // Sync wallet data first
+          if (this.heliusSyncService) {
+            const syncOptions: SyncOptions = {
+              limit: 100,
+              fetchAll: false,
+              skipApi: false,
+              fetchOlder: false,
+              maxSignatures: Math.max((transactionCount || DEFAULT_RECENT_TRANSACTION_COUNT) * 1.5, 300),
+              smartFetch: true
+            };
+            await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+          }
 
-    addLine('<b>📊 Wallet Correlation Analysis Report</b>');
-    addLine(`<i>Generated: ${new Date().toLocaleString()}</i>`);
-    addLine('');
-    addLine('<b>📋 Summary:</b>');
-    addLine(`Requested for Analysis: ${requestedWalletsCount} wallets`);
-    
-    if (botFilteredCount > 0) {
-      addLine(`Wallets Filtered (e.g., bot-like): ${botFilteredCount}`);
-    }
-    addLine(`Wallets Analyzed (post-filter): ${analyzedWalletsCount}`);
-    if (globalTokenStats && analyzedWalletsCount > 0) {
-        addLine(`Total Unique Mints (in analyzed wallets): ${globalTokenStats.totalUniqueTokens}`);
-    }
-    pushCurrentMessage(); 
+          // Get behavioral metrics
+          const metrics = await this.behaviorService.analyzeWalletBehavior(walletAddress);
+          
+          if (!metrics) {
+            await ctx.reply(`❌ No sufficient data found for behavioral analysis for ${walletAddress}.`);
+            continue; // Skip to next wallet
+          }
 
-    if (identifiedClusters.length > 0) {
-      if (messages.length > 0 && messages[messages.length-1] !== '') currentMessageLines.push(''); 
-      addLine('<b>🔗 Identified Wallet Clusters (3+ members):</b>');
+          // Generate report
+          const report = generateDetailedBehaviorHtmlTelegram(walletAddress, metrics);
+          await ctx.replyWithHTML(report);
 
-      identifiedClusters.forEach((cluster, index) => {
-        const clusterSpecificLines: string[] = [];
-        clusterSpecificLines.push('');
-        clusterSpecificLines.push(`🧲 <b>Cluster ${index + 1}:</b> (${cluster.wallets.length} wallets)`);
-        clusterSpecificLines.push(`Avg Pair Score in Cluster: ${cluster.score.toFixed(2)}`);
-        
-        if (cluster.sharedNonObviousTokens) {
-            clusterSpecificLines.push(`Shared Non-Obvious Tokens in Cluster: ${cluster.sharedNonObviousTokens.length}`);
-        } else {
-            clusterSpecificLines.push('Shared Non-Obvious Tokens in Cluster: 0');
+        } catch (error) {
+          const err = error as Error;
+          logger.error(`Error in analyzeWalletBehavior for ${walletAddress}:`, err);
+          await ctx.reply(`❌ Error analyzing wallet behavior for ${walletAddress}: ${err.message}`);
         }
-
-        clusterSpecificLines.push('Wallets (PNL approx.):');
-        cluster.wallets.forEach(walletAddr => {
-            const pnl = walletPnLs[walletAddr]?.toFixed(2) ?? 'N/A';
-            const uniqueTokenCount = uniqueTokenCountsPerWallet[walletAddr] ?? 0;
-            clusterSpecificLines.push(`  - <code>${walletAddr}</code> (${uniqueTokenCount} unique tokens, ${pnl} SOL)`);
-        });
-
-        const tempClusterReportFragment = clusterSpecificLines.join('\n');
-        if ([...currentMessageLines, tempClusterReportFragment].join('\n').length > MAX_MESSAGE_LENGTH && currentMessageLines.length > 0) {
-            pushCurrentMessage();
-            if (messages.length === 0 || !messages[messages.length-1].includes('Identified Wallet Clusters')){
-                 currentMessageLines.push('<b>🔗 Identified Wallet Clusters (3+ members) (continued):</b>');
-            }
-        }
-        currentMessageLines.push(...clusterSpecificLines);
-      });
-    } else if (analyzedWalletsCount >= 2) {
-      if (messages.length > 0 && messages[messages.length-1] !== '') currentMessageLines.push(''); 
-      addLine('<i>No significant clusters (3+ wallets) identified with current settings.</i>');
-      addLine('<i>This means no groups of 3 or more wallets were found where pairs consistently met the minimum correlation score for clustering.</i>');
-    } else if (requestedWalletsCount > 0 && analyzedWalletsCount < 2 ) {
-        if (messages.length > 0 && messages[messages.length-1] !== '') currentMessageLines.push(''); 
-        addLine('<i>Not enough wallets remained after filtering to perform cluster analysis (need at least 2).</i>');
-    } else {
-      if (messages.length > 0 && messages[messages.length-1] !== '') currentMessageLines.push(''); 
-      addLine('<i>No wallets provided or all failed initial processing.</i>');
-    }
-    
-    // Add Top Correlated Pairs section
-    if (topCorrelatedPairs.length > 0) {
-      if (currentMessageLines.join('\n').length > MAX_MESSAGE_LENGTH - 500 && currentMessageLines.length > 0) { // Check if adding this section would overflow
-        pushCurrentMessage();
-      }
-      if (messages.length > 0 && messages[messages.length-1] !== '') currentMessageLines.push('');
-      addLine('<b>✨ Top Correlated Wallet Pairs:</b>');
-      topCorrelatedPairs.forEach((pair, index) => {
-        const pairLines: string[] = [];
-        const pnlA = walletPnLs[pair.walletA_address]?.toFixed(2) ?? 'N/A';
-        const pnlB = walletPnLs[pair.walletB_address]?.toFixed(2) ?? 'N/A';
-        const uniqueTokensA = uniqueTokenCountsPerWallet[pair.walletA_address] ?? 0;
-        const uniqueTokensB = uniqueTokenCountsPerWallet[pair.walletB_address] ?? 0;
-
-        pairLines.push('');
-        pairLines.push(`Pair #${index + 1} (Score: ${pair.score.toFixed(2)}):`); // Using Japanese for "Pair" to test
-        pairLines.push(`  A: <code>${pair.walletA_address}</code> (PNL: ${pnlA} SOL, ${uniqueTokensA} unique tokens)`);
-        pairLines.push(`  B: <code>${pair.walletB_address}</code> (PNL: ${pnlB} SOL, ${uniqueTokensB} unique tokens)`);
-        
-        const tempPairReportFragment = pairLines.join('\n');
-        if ([...currentMessageLines, tempPairReportFragment].join('\n').length > MAX_MESSAGE_LENGTH && currentMessageLines.length > 0) {
-          pushCurrentMessage();
-            if (messages.length === 0 || !messages[messages.length-1].includes('Top Correlated Wallet Pairs')){
-                 currentMessageLines.push('<b>✨ Top Correlated Wallet Pairs (continued):</b>');
-            }
-        }
-        currentMessageLines.push(...pairLines);
-      });
-    }
-
-    if (currentMessageLines.length > 0) {
-        currentMessageLines.push('');
-        currentMessageLines.push("<i>PNL is approximate. Verify independently.</i>");
-        pushCurrentMessage();
-    } else if (messages.length > 0) { 
-        const lastMsg = messages[messages.length - 1];
-        if (!lastMsg.includes("PNL is approximate")) {
-            messages[messages.length - 1] = lastMsg + '\n\n' + "<i>PNL is approximate. Verify independently.</i>";
-        }
-    } else {
-        if (messages.length === 1 && !messages[0].includes("PNL is approximate")) {
-            messages[0] += '\n\n' + "<i>PNL is approximate. Verify independently.</i>";
-        }
-    }
-    
-    return messages.filter(msg => msg.trim().length > 0);
+    } // End loop over walletAddresses
   }
+
+  /**
+   * Analyzes advanced trading statistics for a single wallet.
+   * @param ctx - The Telegraf context
+   * @param walletAddress - The wallet address to analyze
+   * @param transactionCount - Optional number of transactions to consider
+   */
+  async analyzeAdvancedStats(ctx: Context, walletAddresses: string[], transactionCount?: number) {
+    for (const walletAddress of walletAddresses) {
+        try {
+          await ctx.reply(`🔄 Analyzing advanced trading statistics for ${walletAddress}... This may take a moment.`);
+
+          // Sync wallet data first
+          if (this.heliusSyncService) {
+            const syncOptions: SyncOptions = {
+              limit: 100,
+              fetchAll: false,
+              skipApi: false,
+              fetchOlder: false,
+              maxSignatures: Math.max((transactionCount || DEFAULT_RECENT_TRANSACTION_COUNT) * 1.5, 300),
+              smartFetch: true
+            };
+            await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+          }
+
+          // Get swap records
+          const swapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+          
+          if (!swapRecords || swapRecords.length === 0) {
+            await ctx.reply(`❌ No sufficient data found for advanced analysis for ${walletAddress}.`);
+            continue; // Skip to next wallet
+          }
+
+          // Convert swap records to OnChainAnalysisResult format
+          const results: OnChainAnalysisResult[] = swapRecords.map(record => ({
+            tokenAddress: record.mint,
+            mint: record.mint,
+            firstTransferTimestamp: record.timestamp,
+            lastTransferTimestamp: record.timestamp,
+            netSolProfitLoss: record.associatedSolValue || 0,
+            totalAmountIn: record.direction === 'in' ? record.amount : 0,
+            totalAmountOut: record.direction === 'out' ? record.amount : 0,
+            netAmountChange: record.direction === 'in' ? record.amount : -record.amount,
+            totalSolSpent: record.direction === 'out' ? record.associatedSolValue || 0 : 0,
+            totalSolReceived: record.direction === 'in' ? record.associatedSolValue || 0 : 0,
+            transferCountIn: record.direction === 'in' ? 1 : 0,
+            transferCountOut: record.direction === 'out' ? 1 : 0
+          }));
+
+          // Analyze advanced stats
+          const stats = this.advancedStatsAnalyzer.analyze(results);
+          
+          if (!stats) {
+            await ctx.reply(`❌ Could not calculate advanced statistics for ${walletAddress}.`);
+            continue; // Skip to next wallet
+          }
+
+          // Generate report
+          const report = generateDetailedAdvancedStatsHtmlTelegram(walletAddress, stats);
+          await ctx.replyWithHTML(report);
+
+        } catch (error) {
+          const err = error as Error;
+          logger.error(`Error in analyzeAdvancedStats for ${walletAddress}:`, err);
+          await ctx.reply(`❌ Error analyzing advanced stats for ${walletAddress}: ${err.message}`);
+        }
+    } // End loop over walletAddresses
+  }
+
+  // --- NEW COMMAND HANDLERS FOR CONCISE SUMMARIES ---
+
+  async getPnlOverview(ctx: Context, walletAddresses: string[]) {
+    for (const walletAddress of walletAddresses) {
+      const startTime = Date.now();
+      let activityLogId: string | null = null;
+      let analysisStatus: 'SUCCESS' | 'FAILURE' = 'SUCCESS';
+      let errorMessage: string | undefined = undefined;
+
+      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+        await ctx.reply(`❌ Invalid Solana wallet address format: ${walletAddress}`);
+        continue; // Skip to next wallet
+      }
+
+      if (this.isBotUserInitialized && this.botSystemUserId) {
+        try {
+          const logData = {
+            telegramUserId: ctx.from?.id,
+            telegramChatId: ctx.chat?.id,
+            walletAddress: walletAddress, // Log for individual wallet
+            commandArgs: ctx.message && 'text' in ctx.message ? ctx.message.text : 'N/A'
+          };
+          const initialLog = await this.databaseService.logActivity(
+            this.botSystemUserId,
+            'telegram_command_pnl_overview',
+            logData,
+            'INITIATED'
+          );
+          if (initialLog) activityLogId = initialLog.id;
+        } catch (logError) {
+          logger.error('Failed to create initial activity log for getPnlOverview:', logError);
+        }
+      }
+
+      try {
+        await ctx.reply(`🔍 Fetching PNL overview for ${walletAddress}...`);
+        
+        const pnlData = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress);
+
+        if (!pnlData || pnlData.analysisSkipped) {
+          errorMessage = `Could not retrieve PNL data for ${walletAddress}. Analysis might have been skipped or no data found.`;
+          analysisStatus = 'FAILURE';
+          await ctx.reply(`⚠️ ${errorMessage}`);
+        } else {
+          const summaryForReport: SwapAnalysisSummary = pnlData;
+          const report = generatePnlOverviewHtmlTelegram(walletAddress, summaryForReport);
+          await ctx.replyWithHTML(report);
+        }
+      } catch (error: any) {
+        logger.error(`Error in getPnlOverview for ${walletAddress}:`, error);
+        errorMessage = error.message || 'An unexpected error occurred.';
+        analysisStatus = 'FAILURE';
+        await ctx.reply(`❌ Error fetching PNL overview for ${walletAddress}: ${errorMessage}`);
+      } finally {
+        if (activityLogId) {
+          const durationMs = Date.now() - startTime;
+          await this.databaseService.logActivity(
+            this.botSystemUserId!,
+            'telegram_command_pnl_overview',
+            { originalLogId: activityLogId, processingTimeMs: durationMs, walletAddress: walletAddress },
+            analysisStatus,
+            durationMs,
+            analysisStatus === 'FAILURE' ? errorMessage : undefined
+          );
+        }
+      }
+    } // End loop over walletAddresses
+  }
+
+  async getBehaviorSummary(ctx: Context, walletAddresses: string[]) {
+    for (const walletAddress of walletAddresses) {
+      const startTime = Date.now();
+      let activityLogId: string | null = null;
+      let analysisStatus: 'SUCCESS' | 'FAILURE' = 'SUCCESS';
+      let errorMessage: string | undefined = undefined;
+      
+      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+        await ctx.reply(`❌ Invalid Solana wallet address format: ${walletAddress}`);
+        continue; // Skip to next wallet
+      }
+
+      if (this.isBotUserInitialized && this.botSystemUserId) {
+        try {
+          const logData = {
+            telegramUserId: ctx.from?.id,
+            telegramChatId: ctx.chat?.id,
+            walletAddress: walletAddress, // Log for individual wallet
+            commandArgs: ctx.message && 'text' in ctx.message ? ctx.message.text : 'N/A'
+          };
+          const initialLog = await this.databaseService.logActivity(
+            this.botSystemUserId,
+            'telegram_command_behavior_summary',
+            logData,
+            'INITIATED'
+          );
+          if (initialLog) activityLogId = initialLog.id;
+        } catch (logError) {
+          logger.error('Failed to create initial activity log for getBehaviorSummary:', logError);
+        }
+      }
+
+      try {
+        await ctx.reply(`🧠 Fetching behavior summary for ${walletAddress}...`);
+        
+        const behaviorMetrics = await this.behaviorService.analyzeWalletBehavior(walletAddress);
+
+        if (!behaviorMetrics) {
+          errorMessage = `Could not retrieve behavior metrics for ${walletAddress}.`;
+          analysisStatus = 'FAILURE';
+          await ctx.reply(`⚠️ ${errorMessage}`);
+        } else {
+          const report = generateBehaviorSummaryHtmlTelegram(walletAddress, behaviorMetrics);
+          await ctx.replyWithHTML(report);
+        }
+      } catch (error: any) {
+        logger.error(`Error in getBehaviorSummary for ${walletAddress}:`, error);
+        errorMessage = error.message || 'An unexpected error occurred.';
+        analysisStatus = 'FAILURE';
+        await ctx.reply(`❌ Error fetching behavior summary for ${walletAddress}: ${errorMessage}`);
+      } finally {
+        if (activityLogId) {
+          const durationMs = Date.now() - startTime;
+          await this.databaseService.logActivity(
+            this.botSystemUserId!,
+            'telegram_command_behavior_summary',
+            { originalLogId: activityLogId, processingTimeMs: durationMs, walletAddress: walletAddress },
+            analysisStatus,
+            durationMs,
+            analysisStatus === 'FAILURE' ? errorMessage : undefined
+          );
+        }
+      }
+    } // End loop over walletAddresses
+  }
+  // --- END NEW COMMAND HANDLERS ---
 } 

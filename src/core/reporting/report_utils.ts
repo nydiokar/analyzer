@@ -2,8 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from 'core/utils/logger'; 
 import { BehavioralMetrics } from '@/types/behavior'; 
-import { CorrelationMetrics } from '@/types/correlation'; 
-import { WalletInfo } from '@/types/wallet'; 
+import { CorrelationMetrics, GlobalTokenStats, CorrelatedPairData } from '@/types/correlation'; 
+import { WalletInfo, WalletCluster } from '@/types/wallet'; 
 import { ComprehensiveSimilarityResult } from 'core/analysis/similarity/similarity-service';
 import { SwapAnalysisSummary, OnChainAnalysisResult, AdvancedTradeStats } from '@/types/helius-api';
 import Papa from 'papaparse';
@@ -11,6 +11,13 @@ import { table } from 'table';
 import { formatTimestamp, formatSolAmount, formatNumber } from 'core/utils/formatters';
 
 const logger = createLogger('ReportUtils');
+
+// --- Local ProcessingStats interface (Consider moving to a shared types file later) ---
+interface ProcessingStats {
+  totalTransactions: number;
+  timeRangeHours: number; // Kept for interface consistency, though not used in HTML
+}
+// --- End Local ProcessingStats ---
 
 // --- Known Tokens & Helpers (Copied from transfer-analyzer-service) ---
 const KNOWN_TOKENS: Record<string, string> = {
@@ -412,78 +419,90 @@ function formatMatrix(matrix: Record<string, Record<string, number | string>>, w
 }
 
 /**
- * Generates a Markdown report summarizing swap P/L analysis.
- * Uses existing helper functions like formatDate, formatSolAmount etc. defined above.
+ * Generates a detailed Markdown report for Swap P/L analysis.
+ *
+ * @param summary The SwapAnalysisSummary containing all P/L data.
+ * @param walletAddress The wallet address being reported on.
+ * @param timeRange Optional string describing the time range of the analysis.
+ * @returns A string containing the formatted Markdown report.
  */
 export function generateSwapPnlReport(
     summary: SwapAnalysisSummary,
     walletAddress: string,
-    timeRange?: string // Added timeRange parameter based on previous version
+    timeRange?: string
 ): string {
-    logger.debug(`Generating Markdown PNL report for wallet: ${walletAddress}`);
-    let report = `# Swap P/L Analysis Report for ${walletAddress}\n\n`;
+    const lines: string[] = [];
+    const { results, advancedStats } = summary;
+
+    lines.push(`## 📊 Solana Wallet P/L Analysis: ${walletAddress}`);
     if (timeRange) {
-        report += `**Time Range:** ${timeRange}\n`;
+        lines.push(`**Analysis Period:** ${timeRange}`);
+    }
+    lines.push(`**Report Generated:** ${new Date().toISOString()}`);
+    lines.push(`**Data from:** ${summary.overallFirstTimestamp ? formatTimestamp(summary.overallFirstTimestamp) : 'N/A'} to ${summary.overallLastTimestamp ? formatTimestamp(summary.overallLastTimestamp) : 'N/A'}`);
+    lines.push("\n---\n");
+
+    // Overall Summary Section - Directly from SwapAnalysisSummary
+    lines.push("### 📈 Overall Performance Summary");
+    lines.push(`- **Total Realized P/L (SOL):** ${formatSolAmount(summary.realizedPnl)}`);
+    const totalTrades = summary.profitableSwaps + summary.unprofitableSwaps; // Calculate total trades
+    const winRate = totalTrades > 0 ? (summary.profitableSwaps / totalTrades) * 100 : 0;
+    lines.push(`- **Total SOL Volume (Buy+Sell):** ${formatSolAmount(summary.totalVolume)}`);
+    lines.push(`- **Total Trades:** ${totalTrades}`);
+    lines.push(`- **Winning Trades:** ${summary.profitableSwaps} (${winRate.toFixed(1)}%)`);
+    lines.push(`- **Losing Trades:** ${summary.unprofitableSwaps}`);
+    // Breakeven trades are not directly available in SwapAnalysisSummary, so we omit or infer if necessary.
+    // For average P/L, largest win/loss, these would need to be calculated from `results` or added to SwapAnalysisSummary if critical for this report.
+    // For now, sticking to what's directly available or easily derived from SwapAnalysisSummary.
+    lines.push("\n---\n");
+
+    // Advanced Stats Section - Directly from SwapAnalysisSummary.advancedStats (type AdvancedTradeStats)
+    if (advancedStats) {
+        lines.push("### 🔬 Advanced Statistics (from Helius API advancedStats)");
+        lines.push(`- **Median P/L per Token (SOL):** ${formatSolAmount(advancedStats.medianPnlPerToken)}`);
+        lines.push(`- **Token Win Rate:** ${formatNumber(advancedStats.tokenWinRatePercent, 1)}%`);
+        lines.push(`- **Standard Deviation of P/L:** ${formatSolAmount(advancedStats.standardDeviationPnl)}`);
+        lines.push(`- **Profit Consistency Index (PCI):** ${formatNumber(advancedStats.profitConsistencyIndex, 2)}`);
+        lines.push(`- **Weighted Efficiency Score:** ${formatNumber(advancedStats.weightedEfficiencyScore, 2)}`);
+        lines.push(`- **Average P/L per Day Active (Approx):** ${formatSolAmount(advancedStats.averagePnlPerDayActiveApprox)}`);
+        lines.push("\n---\n");
     }
 
-    report += `**First Transaction:** ${summary.firstTransactionTimestamp ? formatTimestamp(summary.firstTransactionTimestamp) : 'N/A'}\n`;
-    report += `**Last Transaction:** ${summary.lastTransactionTimestamp ? formatTimestamp(summary.lastTransactionTimestamp) : 'N/A'}\n\n`;
+    // Token Details Table - from SwapAnalysisSummary.results (OnChainAnalysisResult[])
+    lines.push("### 🪙 Token P/L Details (Top 15 by Realized P/L)");
+    const tableData: any[][] = [[
+        'Token', 'Symbol', 'Realized P/L (SOL)', 'Net Change', 'SOL Spent', 'SOL Received', 'Trades In/Out', 'First/Last Seen'
+    ]];
 
-    report += `## Overall Summary\n`;
-    report += `- **Total Signatures Processed:** ${summary.totalSignaturesProcessed}\n`;
-    report += `- **Total Trading Volume (Approx):** ${formatSolAmount(summary.totalVolume)} SOL\n`;
-    report += `- **Total Fees Paid (SOL):** ${formatSolAmount(summary.totalFees)}\n`;
-    report += `- **Realized P/L:** ${formatSolAmount(summary.realizedPnl)} SOL\n`;
-    report += `- **Unrealized P/L (Stablecoins/HODL):** ${formatSolAmount(summary.unrealizedPnl)} SOL\n`;
-    report += `- **Net P/L:** ${formatSolAmount(summary.netPnl)} SOL\n`;
-    report += `- **Stablecoin Net Flow:** ${formatSolAmount(summary.stablecoinNetFlow)} SOL\n`;
-    report += `- **Average Swap Size (Approx):** ${formatSolAmount(summary.averageSwapSize)} SOL\n`;
-    report += `- **Profitable Tokens:** ${summary.profitableSwaps}\n`;
-    report += `- **Unprofitable Tokens:** ${summary.unprofitableSwaps}\n\n`;
+    // Sort tokens by realized P/L descending, take top 15
+    const sortedTokenDetails = [...results].sort((a, b) => b.netSolProfitLoss - a.netSolProfitLoss).slice(0, 15);
 
-    if (summary.advancedStats) {
-        report += `## Advanced Trading Stats\n`;
-        report += `- **Median P/L per Token:** ${formatSolAmount(summary.advancedStats.medianPnlPerToken)} SOL\n`;
-        report += `- **Trimmed Mean P/L per Token:** ${formatSolAmount(summary.advancedStats.trimmedMeanPnlPerToken)} SOL\n`;
-        report += `- **Token Win Rate:** ${formatNumber(summary.advancedStats.tokenWinRatePercent, 2)}%\n`;
-        report += `- **Standard Deviation of P/L:** ${formatSolAmount(summary.advancedStats.standardDeviationPnl)} SOL\n`;
-        report += `\n`;
-    }
-
-    report += `## Detailed Results per Token\n`;
-    const tableData: (string | number)[][] = [
-        ['Token Address', 'Net Change', 'SOL Spent', 'SOL Received', 'Fees (SOL)', 'Net P/L (SOL)', 'First Seen', 'Last Seen']
-    ];
-
-    // Sort results by Net SOL P/L (descending) - using netSolProfitLoss for sorting consistency
-    const sortedResults = [...summary.results].sort((a, b) => (b.netSolProfitLoss ?? 0) - (a.netSolProfitLoss ?? 0));
-
-    sortedResults.forEach(result => {
+    for (const token of sortedTokenDetails) {
         tableData.push([
-            getTokenDisplayName(result.tokenAddress), // Use helper
-            formatTokenQuantity(result.netAmountChange), // Use helper
-            formatSolAmount(result.totalSolSpent),
-            formatSolAmount(result.totalSolReceived),
-            formatSolAmount(result.totalFeesPaidInSol ?? 0),
-            formatSolAmount(result.netSolProfitLoss), // Display individual token PNL
-            formatDate(result.firstTransferTimestamp), // Use helper
-            formatDate(result.lastTransferTimestamp) // Use helper
+            token.tokenAddress.substring(0, 6) + '...',
+            getTokenDisplayName(token.tokenAddress),
+            formatSolAmount(token.netSolProfitLoss),
+            formatTokenQuantity(token.netAmountChange),
+            formatSolAmount(token.totalSolSpent),
+            formatSolAmount(token.totalSolReceived),
+            `${token.transferCountIn}/${token.transferCountOut}`,
+            `${formatDate(token.firstTransferTimestamp)} / ${formatDate(token.lastTransferTimestamp)}`
         ]);
-    });
-
-    if (tableData.length > 1) {
-        report += table(tableData);
-    } else {
-        report += 'No detailed swap results found.\n';
     }
+    lines.push(table(tableData, { border: getBorderCharacters('markdown') }));
+    lines.push("\n---\n");
+    lines.push("Generated by Solana P/L Analyzer.");
 
-    logger.debug(`Finished generating Markdown PNL report for wallet: ${walletAddress}`);
-    return report;
+    return lines.join('\n');
 }
 
 /**
- * Generates a CSV string from the swap P/L analysis summary.
- * Includes optional walletAddress and runId columns if provided.
+ * Generates a CSV string from the SwapAnalysisSummary.
+ *
+ * @param summary The SwapAnalysisSummary object.
+ * @param walletAddress Optional wallet address to include in the CSV metadata (if applicable).
+ * @param runId Optional run ID to include in the CSV metadata.
+ * @returns A string in CSV format.
  */
 export function generateSwapPnlCsv(summary: SwapAnalysisSummary, walletAddress?: string, runId?: number): string {
     logger.debug(`Generating CSV PNL report for wallet: ${walletAddress}`);
@@ -577,4 +596,351 @@ export function saveReport(id: string, content: string, type: 'individual' | 'co
         logger.error(`Failed to save report to ${reportPath}:`, { error });
         throw error; // Re-throw the error for calling function to handle
     }
-} 
+}
+
+// Helper function to define table border characters for 'table' package
+// This was potentially in a different util file or part of the original script, ensure it's defined.
+function getBorderCharacters(templateName: string): any {
+    if (templateName === 'markdown') {
+        return {
+            top: '-',
+            topMid: '+',
+            topLeft: '|',
+            topRight: '|',
+            bottom: '-',
+            bottomMid: '+',
+            bottomLeft: '|',
+            bottomRight: '|',
+            left: '|',
+            leftMid: '+',
+            mid: '-',
+            midMid: '+',
+            right: '|',
+            rightMid: '+',
+            middle: '|',
+        };
+    }
+    // Default: norc (as used in other examples, if any)
+    return {
+        top: '-' , topMid: '-' , topLeft: '-' , topRight: '-'
+        , bottom: '-' , bottomMid: '-' , bottomLeft: '-' , bottomRight: '-'
+        , left: ' ' , leftMid: '' , mid: '-' , midMid: '-'
+        , right: ' ' , rightMid: '' , middle: ' '
+    };
+}
+
+// -- Telegram Specific Report Utilities (Now HTML) --
+
+/**
+ * Generates a concise PNL overview string in HTML for Telegram.
+ *
+ * @param walletAddress The wallet address.
+ * @param summary The SwapAnalysisSummary object from PnlAnalysisService.
+ * @returns A string formatted as HTML for a Telegram message.
+ */
+export function generatePnlOverviewHtmlTelegram(
+    walletAddress: string,
+    summary: SwapAnalysisSummary | null | undefined 
+): string {
+    if (!summary) {
+        return `<b>💰 PNL Overview for <code>${walletAddress}</code>:</b>\n⚠️ No PNL data available or analysis was skipped.`;
+    }
+    const { realizedPnl, profitableSwaps, unprofitableSwaps, totalVolume, advancedStats } = summary;
+    const totalTrades = (profitableSwaps ?? 0) + (unprofitableSwaps ?? 0);
+    const winRate = totalTrades > 0 ? ((profitableSwaps ?? 0) / totalTrades) * 100 : 0;
+    const avgPnlPerTrade = totalTrades > 0 ? (realizedPnl ?? 0) / totalTrades : 0;
+
+    let message = `<b>💰 PNL Overview for <code>${walletAddress}</code>:</b>\n`;
+    message += `  Realized PNL: <b>${formatSolAmount(realizedPnl ?? 0)} SOL</b>\n`;
+    message += `  Win Rate: <b>${winRate.toFixed(1)}%</b> (${profitableSwaps ?? 0}/${totalTrades} wins)\n`;
+    message += `  Avg P/L Trade: <b>${formatSolAmount(avgPnlPerTrade)} SOL</b>\n`;
+
+    if (advancedStats) {
+        message += `  Token Win Rate: <b>${formatNumber(advancedStats.tokenWinRatePercent ?? 0, 1)}%</b>\n`;
+        message += `  Median P/L Token: <b>${formatSolAmount(advancedStats.medianPnlPerToken ?? 0)} SOL</b>\n`;
+    } else {
+        message += `  Advanced stats: N/A\n`;
+    }
+    message += `  Total Volume: <b>${formatSolAmount(totalVolume ?? 0)} SOL</b>`;
+
+    return message;
+}
+
+/**
+ * Generates a concise behavior summary string in HTML for Telegram.
+ *
+ * @param walletAddress The wallet address.
+ * @param metrics The BehavioralMetrics object from BehaviorService.
+ * @returns A string formatted as HTML for a Telegram message.
+ */
+export function generateBehaviorSummaryHtmlTelegram(
+    walletAddress: string,
+    metrics: BehavioralMetrics | null | undefined
+): string {
+    if (!metrics) {
+        return `<b>🧠 Behavior Summary for <code>${walletAddress}</code>:</b>\n⚠️ No behavior data available.`;
+    }
+
+    let message = `<b>🧠 Behavior Summary for <code>${walletAddress}</code>:</b>\n`;
+    message += `  Style: <b>${metrics.tradingStyle ?? 'N/A'}</b> (Confidence: ${((metrics.confidenceScore ?? 0) * 100).toFixed(1)}%)\n`;
+    message += `  Avg. Flip: <b>${(metrics.averageFlipDurationHours ?? 0).toFixed(1)} hrs</b> | Med. Hold: <b>${(metrics.medianHoldTime ?? 0).toFixed(1)} hrs</b>\n`;
+    message += `  Key Traits: %&lt;1hr: <b>${((metrics.percentTradesUnder1Hour ?? 0) * 100).toFixed(0)}%</b>, Buy/Sell Symm: <b>${((metrics.buySellSymmetry ?? 0) * 100).toFixed(0)}%</b>\n`;
+    message += `  Unique Tokens: <b>${metrics.uniqueTokensTraded ?? 0}</b> | Total Trades: <b>${metrics.totalTradeCount ?? 0}</b>`;
+
+    return message;
+}
+
+// --- NEW DETAILED HTML GENERATORS FOR TELEGRAM ---
+
+/**
+ * Generates a detailed HTML report for behavioral analysis for Telegram.
+ * @param walletAddress - The wallet address.
+ * @param metrics - The behavioral metrics.
+ * @returns HTML string report.
+ */
+export function generateDetailedBehaviorHtmlTelegram(walletAddress: string, metrics: BehavioralMetrics | null | undefined): string {
+    if (!metrics) {
+        return `<b>📊 Behavioral Analysis Report for ${walletAddress}</b>\n⚠️ No behavioral metrics data available to generate a detailed report.`;
+    }
+    const lines: string[] = [];
+    
+    lines.push(`<b>📊 Behavioral Analysis Report for ${walletAddress}</b>`);
+    lines.push(`<i>Generated: ${new Date().toLocaleString()}</i>\n`);
+    
+    // Trading Style
+    lines.push(`<b>Trading Style:</b> ${metrics.tradingStyle ?? 'N/A'} (Confidence: ${((metrics.confidenceScore ?? 0) * 100).toFixed(1)}%)`);
+    lines.push(`<b>Flipper Score:</b> ${(metrics.flipperScore ?? 0).toFixed(3)}\n`);
+    
+    // Time Distribution
+    lines.push('<b>Time Distribution:</b>');
+    lines.push(`• Ultra Fast (&lt;30min): ${((metrics.tradingTimeDistribution?.ultraFast ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• Very Fast (30-60min): ${((metrics.tradingTimeDistribution?.veryFast ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• Fast (1-4h): ${((metrics.tradingTimeDistribution?.fast ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• Moderate (4-8h): ${((metrics.tradingTimeDistribution?.moderate ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• Day Trader (8-24h): ${((metrics.tradingTimeDistribution?.dayTrader ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• Swing (1-7d): ${((metrics.tradingTimeDistribution?.swing ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• Position (>7d): ${((metrics.tradingTimeDistribution?.position ?? 0) * 100).toFixed(1)}%\n`);
+    
+    // Activity Summary
+    lines.push('<b>Activity Summary:</b>');
+    lines.push(`• Unique Tokens: ${metrics.uniqueTokensTraded ?? 'N/A'}`);
+    lines.push(`• Tokens with Both Buy/Sell: ${metrics.tokensWithBothBuyAndSell ?? 'N/A'}`);
+    lines.push(`• Total Trades: ${metrics.totalTradeCount ?? 'N/A'} (${metrics.totalBuyCount ?? 0} buys, ${metrics.totalSellCount ?? 0} sells)`);
+    lines.push(`• Complete Pairs: ${metrics.completePairsCount ?? 'N/A'}\n`);
+    
+    // Key Metrics
+    lines.push('<b>Key Metrics:</b>');
+    const buySellRatio = metrics.buySellRatio ?? 0;
+    lines.push(`• Buy/Sell Ratio: ${buySellRatio === Infinity ? 'INF' : buySellRatio.toFixed(2)}:1`);
+    lines.push(`• Buy/Sell Symmetry: ${((metrics.buySellSymmetry ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• Sequence Consistency: ${((metrics.sequenceConsistency ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• Average Hold Time: ${(metrics.averageFlipDurationHours ?? 0).toFixed(1)}h`);
+    lines.push(`• Median Hold Time: ${(metrics.medianHoldTime ?? 0).toFixed(1)}h`);
+    lines.push(`• % Trades Under 1h: ${((metrics.percentTradesUnder1Hour ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• % Trades Under 4h: ${((metrics.percentTradesUnder4Hours ?? 0) * 100).toFixed(1)}%`);
+
+    return lines.join('\n');
+}
+
+/**
+ * Generates a detailed HTML report for advanced trading statistics for Telegram.
+ * @param walletAddress - The wallet address.
+ * @param stats - The advanced trade statistics.
+ * @returns HTML string report.
+ */
+export function generateDetailedAdvancedStatsHtmlTelegram(walletAddress: string, stats: AdvancedTradeStats | null | undefined): string {
+    if (!stats) {
+        return `<b>📈 Advanced Trading Statistics for ${walletAddress}</b>\n⚠️ No advanced statistics data available to generate a detailed report.`;
+    }
+    const lines: string[] = [];
+    
+    lines.push(`<b>📈 Advanced Trading Statistics for ${walletAddress}</b>`);
+    lines.push(`<i>Generated: ${new Date().toLocaleString()}</i>\n`);
+    
+    // Core Statistics
+    lines.push('<b>Core Statistics:</b>');
+    lines.push(`• Median PnL per Token: ${(stats.medianPnlPerToken ?? 0).toFixed(4)} SOL`);
+    lines.push(`• Trimmed Mean PnL: ${(stats.trimmedMeanPnlPerToken ?? 0).toFixed(4)} SOL`);
+    lines.push(`• Token Win Rate: ${(stats.tokenWinRatePercent ?? 0).toFixed(1)}%`);
+    lines.push(`• Standard Deviation: ${(stats.standardDeviationPnl ?? 0).toFixed(4)} SOL\n`);
+    
+    // Advanced Metrics
+    lines.push('<b>Advanced Metrics:</b>');
+    lines.push(`• Profit Consistency Index: ${(stats.profitConsistencyIndex ?? 0).toFixed(4)}`);
+    lines.push(`• Weighted Efficiency Score: ${(stats.weightedEfficiencyScore ?? 0).toFixed(4)}`);
+    lines.push(`• Average PnL per Day Active: ${(stats.averagePnlPerDayActiveApprox ?? 0).toFixed(4)} SOL`);
+
+    return lines.join('\n');
+}
+
+// --- NEW CORRELATION HTML GENERATOR FOR TELEGRAM ---
+
+/**
+ * Generates a multi-part HTML report for Telegram, summarizing wallet correlation analysis results.
+ * Splits the report into multiple messages if it exceeds Telegram's message length limits.
+ * @param requestedWalletsCount - The initial number of wallets requested for analysis.
+ * @param analyzedWalletsCount - The number of wallets actually analyzed after filtering.
+ * @param botFilteredCount - The number of wallets filtered out due to suspected bot activity.
+ * @param walletPnLs - A map of wallet addresses to their calculated PnL.
+ * @param globalTokenStats - Statistics about token distribution.
+ * @param identifiedClusters - An array of identified wallet clusters.
+ * @param topCorrelatedPairs - An array of top correlated wallet pairs.
+ * @param processingStats - Statistics about the transaction processing.
+ * @param uniqueTokenCountsPerWallet - A map of wallet addresses to their unique token counts.
+ * @returns An array of strings, where each string is a part of the report formatted for Telegram (HTML).
+ */
+export function generateCorrelationReportTelegram(
+    requestedWalletsCount: number,
+    analyzedWalletsCount: number,
+    botFilteredCount: number,
+    walletPnLs: Record<string, number>,
+    globalTokenStats: GlobalTokenStats | null,
+    identifiedClusters: WalletCluster[],
+    topCorrelatedPairs: CorrelatedPairData[],
+    processingStats: ProcessingStats, // Re-enabled
+    uniqueTokenCountsPerWallet: Record<string, number>
+  ): string[] {
+    const messages: string[] = [];
+    let currentMessageLines: string[] = [];
+    const MAX_MESSAGE_LENGTH = 3800; // Telegram message length limit
+
+    const addLine = (line: string) => currentMessageLines.push(line);
+    const pushCurrentMessage = () => {
+      if (currentMessageLines.length > 0) {
+        messages.push(currentMessageLines.join('\n'));
+        currentMessageLines = [];
+      }
+    };
+
+    addLine('<b>📊 Wallet Correlation Analysis Report</b>');
+    addLine(`<i>Generated: ${new Date().toLocaleString()}</i>`);
+    addLine('');
+    addLine('<b>📋 Summary:</b>');
+    addLine(`Requested for Analysis: ${requestedWalletsCount} wallets`);
+    
+    if (botFilteredCount > 0) {
+      addLine(`Wallets Filtered (e.g., bot-like): ${botFilteredCount}`);
+    }
+    addLine(`Wallets Analyzed (post-filter): ${analyzedWalletsCount}`);
+    if (globalTokenStats && analyzedWalletsCount > 0) {
+        addLine(`Total Unique Mints (in analyzed wallets): ${globalTokenStats.totalUniqueTokens ?? 'N/A'}`);
+    }
+    if (processingStats && analyzedWalletsCount > 0) { // Added check for processingStats
+        addLine(`Total Transactions Analyzed (post-filter): ${processingStats.totalTransactions}`);
+    }
+    // Ensure first message is pushed if it has content, to avoid empty initial messages
+    if (currentMessageLines.length > 0) {
+        pushCurrentMessage(); 
+    }
+
+    if (identifiedClusters.length > 0) {
+      if (messages.length > 0 && messages[messages.length-1].trim() !== '') currentMessageLines.push(''); 
+      addLine('<b>🔗 Identified Wallet Clusters (3+ members):</b>');
+
+      identifiedClusters.forEach((cluster, index) => {
+        const clusterSpecificLines: string[] = [];
+        clusterSpecificLines.push(''); // Add a blank line for spacing before each cluster
+        clusterSpecificLines.push(`🧲 <b>Cluster ${index + 1}:</b> (${cluster.wallets.length} wallets)`);
+        clusterSpecificLines.push(`Avg Pair Score in Cluster: ${(cluster.score ?? 0).toFixed(2)}`);
+        
+        if (cluster.sharedNonObviousTokens) {
+            clusterSpecificLines.push(`Shared Non-Obvious Tokens in Cluster: ${cluster.sharedNonObviousTokens.length}`);
+        } else {
+            clusterSpecificLines.push('Shared Non-Obvious Tokens in Cluster: 0');
+        }
+
+        clusterSpecificLines.push('Wallets (PNL approx.):');
+        cluster.wallets.forEach(walletAddr => {
+            const pnl = walletPnLs[walletAddr]?.toFixed(2) ?? 'N/A';
+            const uniqueTokenCount = uniqueTokenCountsPerWallet[walletAddr] ?? 0;
+            clusterSpecificLines.push(`  - <code>${walletAddr}</code> (${uniqueTokenCount} unique tokens, ${pnl} SOL)`);
+        });
+
+        const tempClusterReportFragment = clusterSpecificLines.join('\n');
+        // Check if adding this fragment would overflow the current message part
+        if (currentMessageLines.join('\n').length + tempClusterReportFragment.length > MAX_MESSAGE_LENGTH && currentMessageLines.length > 0) {
+            pushCurrentMessage(); // Push what we have so far
+            // Start new message part with continued header if necessary
+            if (messages.length === 0 || !messages[messages.length-1].includes('Identified Wallet Clusters')){
+                 currentMessageLines.push('<b>🔗 Identified Wallet Clusters (3+ members) (continued):</b>');
+            }
+        }
+        currentMessageLines.push(...clusterSpecificLines);
+      });
+    } else if (analyzedWalletsCount >= 2) {
+      if (messages.length > 0 && messages[messages.length-1].trim() !== '') currentMessageLines.push(''); 
+      addLine('<i>No significant clusters (3+ wallets) identified with current settings.</i>');
+      addLine('<i>This means no groups of 3 or more wallets were found where pairs consistently met the minimum correlation score for clustering.</i>');
+    } else if (requestedWalletsCount > 0 && analyzedWalletsCount < 2 ) {
+        if (messages.length > 0 && messages[messages.length-1].trim() !== '') currentMessageLines.push(''); 
+        addLine('<i>Not enough wallets remained after filtering to perform cluster analysis (need at least 2).</i>');
+    } else {
+      if (messages.length > 0 && messages[messages.length-1].trim() !== '') currentMessageLines.push(''); 
+      addLine('<i>No wallets provided or all failed initial processing.</i>');
+    }
+    
+    // Potentially push message before adding pairs if clusters section was large
+    if (currentMessageLines.join('\n').length > MAX_MESSAGE_LENGTH - 500) { // Check before adding next section title
+        pushCurrentMessage();
+    }
+
+    if (topCorrelatedPairs.length > 0) {
+      // Start a new message part for pairs if the current one is too full or to ensure the header is with its content
+      if (currentMessageLines.join('\n').length > MAX_MESSAGE_LENGTH - 500 && currentMessageLines.length > 0) { 
+        pushCurrentMessage();
+      }
+      if (messages.length > 0 && messages[messages.length-1].trim() !== '' && currentMessageLines.length === 0) currentMessageLines.push(''); // Add separator if starting new message for pairs
+      
+      let pairsHeaderAdded = false;
+      topCorrelatedPairs.forEach((pair, index) => {
+        if (!pairsHeaderAdded) {
+            addLine('<b>✨ Top Correlated Wallet Pairs:</b>');
+            pairsHeaderAdded = true;
+        }
+        const pairLines: string[] = [];
+        const pnlA = walletPnLs[pair.walletA_address]?.toFixed(2) ?? 'N/A';
+        const pnlB = walletPnLs[pair.walletB_address]?.toFixed(2) ?? 'N/A';
+        const uniqueTokensA = uniqueTokenCountsPerWallet[pair.walletA_address] ?? 0;
+        const uniqueTokensB = uniqueTokenCountsPerWallet[pair.walletB_address] ?? 0;
+
+        pairLines.push(''); // Add a blank line for spacing before each pair
+        pairLines.push(`Pair #${index + 1} (Score: ${(pair.score ?? 0).toFixed(2)}):`);
+        pairLines.push(`  A: <code>${pair.walletA_address}</code> (PNL: ${pnlA} SOL, ${uniqueTokensA} unique tokens)`);
+        pairLines.push(`  B: <code>${pair.walletB_address}</code> (PNL: ${pnlB} SOL, ${uniqueTokensB} unique tokens)`);
+        
+        const tempPairReportFragment = pairLines.join('\n');
+        if (currentMessageLines.join('\n').length + tempPairReportFragment.length > MAX_MESSAGE_LENGTH && currentMessageLines.length > 0) {
+          pushCurrentMessage();
+            // Start new message part with continued header if necessary
+            if (messages.length === 0 || !messages[messages.length-1].includes('Top Correlated Wallet Pairs')){
+                 currentMessageLines.push('<b>✨ Top Correlated Wallet Pairs (continued):</b>');
+                 pairsHeaderAdded = true; // Ensure header is marked as added for this new part
+            } else {
+                 pairsHeaderAdded = false; // Reset if new message doesn't start with header
+            }
+        }
+        currentMessageLines.push(...pairLines);
+      });
+    }
+
+    // Finalize last message part
+    if (currentMessageLines.length > 0) {
+        if (!currentMessageLines.some(line => line.includes("<i>PNL is approximate. Verify independently.</i>"))) {
+            currentMessageLines.push('');
+            currentMessageLines.push("<i>PNL is approximate. Verify independently.</i>");
+        }
+        pushCurrentMessage();
+    } else if (messages.length > 0) { 
+        const lastMsgIndex = messages.length - 1;
+        if (!messages[lastMsgIndex].includes("<i>PNL is approximate. Verify independently.</i>")) {
+            messages[lastMsgIndex] = messages[lastMsgIndex] + '\n\n' + "<i>PNL is approximate. Verify independently.</i>";
+        }
+    } else { // Case where no content was generated at all (e.g., no wallets analyzed)
+         if (messages.length === 0 && currentMessageLines.length === 0) { // Truly empty
+            currentMessageLines.push('<i>No correlation data to report.</i>');
+            pushCurrentMessage();
+        }
+    }
+    
+    return messages.filter(msg => msg.trim().length > 0);
+  } 

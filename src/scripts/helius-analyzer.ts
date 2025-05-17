@@ -169,8 +169,8 @@ async function analyzeWalletWithHelius() {
     const wallet = await dbService.getWallet(walletAddress);
     let pnlAnalysisSkipped = false;
 
-    if (!isHistoricalView && wallet && wallet.newestProcessedSignature && wallet.lastSignatureAnalyzed === wallet.newestProcessedSignature) {
-        logger.info(`--- Skipping P/L Analysis for ${walletAddress}: No new transactions since last analysis (Last Analyzed Signature: ${wallet.lastSignatureAnalyzed}). ---`);
+    if (!isHistoricalView && wallet && wallet.newestProcessedSignature && (wallet as any).lastSignatureAnalyzed === wallet.newestProcessedSignature) {
+        logger.info(`--- Skipping P/L Analysis for ${walletAddress}: No new transactions since last analysis (Last Analyzed Signature: ${(wallet as any).lastSignatureAnalyzed}). ---`);
         pnlAnalysisSkipped = true;
         // Optionally, create a "skipped" AnalysisRun record here if desired for complete audit trails
         // For now, we just log. The reporting step might need to know this.

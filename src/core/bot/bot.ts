@@ -112,23 +112,27 @@ Command: ${commandText}`);
         await ctx.reply(
           'Welcome to the Wallet Analysis Bot!\n\n' +
           'Available commands:\n' +
-          '  /analyze <wallet1> [w2] .. [tx_count] - Analyzes addresses. Optional tx count (default: 300, max: 1000).\n\n' +
+          '  /correlation_analysis <wallet1> [w2] .. [tx_count] - Analyzes multiple Solana wallet addresses for correlations. Optional tx count (default: 300, max: 1000).\n\n' +
+          '  /analyze_behavior <wallet> [tx_count] - Analyzes trading behavior patterns (sends detailed HTML report).\n' +
+          '  /analyze_advanced <wallet> [tx_count] - Analyzes advanced trading statistics (sends detailed HTML report).\n\n' +
+          '  /pnl_overview <wallet> - Shows a PNL overview for the wallet (sends concise HTML summary).\n' +
+          '  /behavior_summary <wallet> - Shows a behavior summary for the wallet (sends concise HTML summary).\n\n' +
           '  You can also upload a CSV file with wallet addresses (one per line or in the first column) to analyze multiple wallets (max 100 from file).\n' +
           '  /help - Shows this help message.'
         );
       });
 
-      // Use telegraf/filters to ensure message is of type text for /analyze
-      this.bot.command('analyze', async (ctx) => {
+      // Use telegraf/filters to ensure message is of type text for /correlation_analysis
+      this.bot.command('correlation_analysis', async (ctx) => {
         const userId = ctx.from.id;
         // Check if the message is a text message before accessing ctx.message.text
         if (ctx.message && 'text' in ctx.message) {
-          logger.info(`/analyze command from user ID: ${userId}, message: ${ctx.message.text}`);
-          const text = ctx.message.text.replace('/analyze', '').trim();
+          logger.info(`/correlation_analysis command from user ID: ${userId}, message: ${ctx.message.text}`);
+          const text = ctx.message.text.replace('/correlation_analysis', '').trim();
           const args = text.split(/\s+/).filter(arg => arg.length > 0);
 
           if (args.length === 0) {
-            await ctx.reply('Please provide at least one wallet address after /analyze. Usage: /analyze <wallet1> [wallet2] ... [tx_count]');
+            await ctx.reply('Please provide at least one wallet address after /correlation_analysis. Usage: /correlation_analysis <wallet1> [wallet2] ... [tx_count]');
             return;
           }
 
@@ -155,10 +159,10 @@ Command: ${commandText}`);
                  transactionCount = potentialTxCount;
                  walletAddresses = args.slice(0, -1);
             } else if (args.length === 1 && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(lastArg) && potentialTxCount > 0 && potentialTxCount <= MAX_ALLOWED_TX_COUNT){
-                // Special case: /analyze 500 (intending to analyze 0 wallets with 500 tx count which is not useful)
+                // Special case: /correlation_analysis 500 (intending to analyze 0 wallets with 500 tx count which is not useful)
                 // Or it could be a very short (invalid) wallet address that happens to be numeric.
                 // Let's require at least one wallet if a tx_count is specified this way.
-                await ctx.reply('Please provide wallet addresses before specifying a transaction count. Usage: /analyze <wallet1> [tx_count]');
+                await ctx.reply('Please provide wallet addresses before specifying a transaction count. Usage: /correlation_analysis <wallet1> [tx_count]');
                 return;
             }
              else { // Assume all are wallet addresses
@@ -181,7 +185,7 @@ Command: ${commandText}`);
           }
           
           if (walletAddresses.length === 0) {
-            await ctx.reply('Please provide at least one wallet address. Usage: /analyze <wallet1> [wallet2] ... [tx_count]');
+            await ctx.reply('Please provide at least one wallet address. Usage: /correlation_analysis <wallet1> [wallet2] ... [tx_count]');
             return;
           }
 
@@ -194,9 +198,130 @@ Command: ${commandText}`);
           // Pass undefined if user didn't specify, so commands.ts can use default
           await this.commands.analyzeWallets(ctx, walletAddresses, transactionCount);
         } else {
-          // This case might be triggered if /analyze is sent via a non-text method or by a channel post if bot is in a channel
-          logger.warn(`/analyze command received without text content from user ID: ${userId} or in unsupported context.`);
-          await ctx.reply("Invalid /analyze command. Please provide wallet addresses as text after the command.");
+          // This case might be triggered if /correlation_analysis is sent via a non-text method or by a channel post if bot is in a channel
+          logger.warn(`/correlation_analysis command received without text content from user ID: ${userId} or in unsupported context.`);
+          await ctx.reply("Invalid /correlation_analysis command. Please provide wallet addresses as text after the command.");
+        }
+      });
+
+      this.bot.command('analyze_behavior', async (ctx) => {
+        const userId = ctx.from.id;
+        if (ctx.message && 'text' in ctx.message) {
+          logger.info(`/analyze_behavior command from user ID: ${userId}, message: ${ctx.message.text}`);
+          const text = ctx.message.text.replace('/analyze_behavior', '').trim();
+          const args = text.split(/\s+/).filter(arg => arg.length > 0);
+
+          let walletAddresses: string[] = [];
+          let transactionCount: number | undefined = undefined;
+          const MAX_ALLOWED_TX_COUNT = 1000;
+
+          if (args.length === 0) {
+            await ctx.reply('Please provide at least one wallet address. Usage: /analyze_behavior <wallet1> [wallet2...] [tx_count]');
+            return;
+          }
+
+          const lastArg = args[args.length - 1];
+          const potentialTxCount = parseInt(lastArg, 10);
+
+          if (!isNaN(potentialTxCount) && potentialTxCount > 0 && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(lastArg)) {
+            if (args.length > 1) { // Ensure there's at least one wallet address before tx_count
+                transactionCount = Math.min(potentialTxCount, MAX_ALLOWED_TX_COUNT);
+                walletAddresses = args.slice(0, -1).filter(arg => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(arg));
+            } else { // Only arg is a number, treat as error or prompt for wallet
+                await ctx.reply('Please provide wallet addresses before specifying a transaction count.');
+                return;
+            }
+          } else { // All args are wallet addresses
+            walletAddresses = args.filter(arg => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(arg));
+          }
+
+          if (walletAddresses.length === 0) {
+            await ctx.reply('No valid Solana wallet addresses provided. Usage: /analyze_behavior <wallet1> [wallet2...] [tx_count]');
+            return;
+          }
+          // TODO: Later, add logic for N > 10 wallets -> file output
+          await this.commands.analyzeWalletBehavior(ctx, walletAddresses, transactionCount);
+        }
+      });
+
+      this.bot.command('analyze_advanced', async (ctx) => {
+        const userId = ctx.from.id;
+        if (ctx.message && 'text' in ctx.message) {
+          logger.info(`/analyze_advanced command from user ID: ${userId}, message: ${ctx.message.text}`);
+          const text = ctx.message.text.replace('/analyze_advanced', '').trim();
+          const args = text.split(/\s+/).filter(arg => arg.length > 0);
+          
+          let walletAddresses: string[] = [];
+          let transactionCount: number | undefined = undefined;
+          const MAX_ALLOWED_TX_COUNT = 1000;
+
+          if (args.length === 0) {
+            await ctx.reply('Please provide at least one wallet address. Usage: /analyze_advanced <wallet1> [wallet2...] [tx_count]');
+            return;
+          }
+
+          const lastArg = args[args.length - 1];
+          const potentialTxCount = parseInt(lastArg, 10);
+
+          if (!isNaN(potentialTxCount) && potentialTxCount > 0 && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(lastArg)) {
+             if (args.length > 1) { // Ensure there's at least one wallet address before tx_count
+                transactionCount = Math.min(potentialTxCount, MAX_ALLOWED_TX_COUNT);
+                walletAddresses = args.slice(0, -1).filter(arg => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(arg));
+            } else { // Only arg is a number
+                await ctx.reply('Please provide wallet addresses before specifying a transaction count.');
+                return;
+            }
+          } else { // All args are wallet addresses
+            walletAddresses = args.filter(arg => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(arg));
+          }
+
+          if (walletAddresses.length === 0) {
+            await ctx.reply('No valid Solana wallet addresses provided. Usage: /analyze_advanced <wallet1> [wallet2...] [tx_count]');
+            return;
+          }
+          // TODO: Later, add logic for N > 10 wallets -> file output
+          await this.commands.analyzeAdvancedStats(ctx, walletAddresses, transactionCount);
+        } else {
+          logger.warn(`/analyze_advanced command received without text content from user ID: ${userId} or in unsupported context.`);
+          await ctx.reply('This command requires text input. Please try again with /analyze_advanced <wallet_address1> [wallet_address2] ... [tx_count]');
+        }
+      });
+
+      this.bot.command('pnl_overview', async (ctx) => {
+        const userId = ctx.from.id;
+        if (ctx.message && 'text' in ctx.message) {
+          logger.info(`/pnl_overview command from user ID: ${userId}, message: ${ctx.message.text}`);
+          const text = ctx.message.text.replace('/pnl_overview', '').trim();
+          const walletAddresses = text.split(/\s+/).filter(arg => arg.length > 0 && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(arg));
+
+          if (walletAddresses.length === 0) {
+            await ctx.reply('Please provide at least one valid Solana wallet address. Usage: /pnl_overview <wallet1> [wallet2] ...');
+            return;
+          }
+          // TODO: Later, add logic for N > 10 wallets -> file output
+          await this.commands.getPnlOverview(ctx, walletAddresses); // Pass array
+        } else {
+          logger.warn(`/pnl_overview command received without text content from user ID: ${userId} or in unsupported context.`);
+          await ctx.reply('This command requires text input. Please try again with /pnl_overview <wallet_address1> [wallet_address2] ...');
+        }
+      });
+
+      this.bot.command('behavior_summary', async (ctx) => {
+        const userId = ctx.from.id;
+        if (ctx.message && 'text' in ctx.message) {
+          logger.info(`/behavior_summary command from user ID: ${userId}, message: ${ctx.message.text}`);
+          const text = ctx.message.text.replace('/behavior_summary', '').trim();
+          const walletAddresses = text.split(/\s+/).filter(arg => arg.length > 0 && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(arg));
+
+          if (walletAddresses.length === 0) {
+            await ctx.reply('Please provide at least one valid Solana wallet address. Usage: /behavior_summary <wallet1> [wallet2] ...');
+            return;
+          }
+          // TODO: Later, add logic for N > 10 wallets -> file output
+          await this.commands.getBehaviorSummary(ctx, walletAddresses); // Pass array
+        } else {
+          logger.warn(`/behavior_summary command received without text content from user ID: ${userId} or in unsupported context.`);
+          await ctx.reply('This command requires text input. Please try again with /behavior_summary <wallet_address1> [wallet_address2] ...');
         }
       });
 
@@ -205,8 +330,10 @@ Command: ${commandText}`);
         await ctx.reply(
           'Wallet Analysis Bot Help:\n\n' +
           'Available commands:\n\n' +
-          '  /analyze <wallet1> [w2] .. [tx_count] - Analyzes one or more Solana wallet addresses.\n\n' +
-          'Optionally, specify transaction count (default: 300, max: 1000). Ex: /analyze ADDR1 ADDR2 500\n\n' +
+          '  /correlation_analysis <wallet1> [w2] .. [tx_count] - Analyzes one or more Solana wallet addresses for correlations.\n\n' +
+          '  /analyze_behavior <wallet> [tx_count] - Analyzes trading behavior patterns of a wallet.\n' +
+          '  /analyze_advanced <wallet> [tx_count] - Analyzes advanced trading statistics of a wallet.\n\n' +
+          'Optionally, specify transaction count (default: 300, max: 1000). Ex: /correlation_analysis ADDR1 ADDR2 500\n\n' +
           'File Upload:\n' +
           '  You can upload a CSV file containing Solana wallet addresses. \n' +
           '  - The bot will look for addresses in the first column, or assume one address per line if only one column exists.\n' +

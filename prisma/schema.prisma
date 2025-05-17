@@ -27,7 +27,7 @@ model Wallet {
   // Timestamp of the last time a fetch was successfully run for this wallet
   lastSuccessfulFetchTimestamp DateTime?
   // Signature of the newest transaction that was successfully included in the last analysis run
-  lastSignatureAnalyzed     String? 
+  lastSignatureAnalyzed    String? 
 }
 
 // Stores raw Helius transaction details.

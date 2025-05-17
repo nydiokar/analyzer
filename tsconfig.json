@@ -31,6 +31,6 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "src/scripts/activityCorrelator.ts", "src/scripts/helius-analyzer.ts", "src/scripts/kpi-comparison-report.ts", "src/scripts/wallet-behavior-analyzer.ts", "src/scripts/walletSimilarity.ts"],
   "exclude": ["node_modules", "dist", "test"]
 }
