@@ -31,6 +31,22 @@ export class AdvancedStatsAnalyzer {
         return null;
       }
 
+      let overallFirstTimestamp: number | undefined = undefined;
+      let overallLastTimestamp: number | undefined = undefined;
+
+      results.forEach(r => {
+        if (r.firstTransferTimestamp) {
+          if (overallFirstTimestamp === undefined || r.firstTransferTimestamp < overallFirstTimestamp) {
+            overallFirstTimestamp = r.firstTransferTimestamp;
+          }
+        }
+        if (r.lastTransferTimestamp) {
+          if (overallLastTimestamp === undefined || r.lastTransferTimestamp > overallLastTimestamp) {
+            overallLastTimestamp = r.lastTransferTimestamp;
+          }
+        }
+      });
+
       const pnlValues = results.map(r => r.netSolProfitLoss).sort((a, b) => a - b);
       const n = pnlValues.length;
 
@@ -117,6 +133,8 @@ export class AdvancedStatsAnalyzer {
         profitConsistencyIndex,
         weightedEfficiencyScore,
         averagePnlPerDayActiveApprox,
+        firstTransactionTimestamp: overallFirstTimestamp,
+        lastTransactionTimestamp: overallLastTimestamp,
       };
     }
 

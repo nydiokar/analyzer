@@ -19,6 +19,7 @@ tests/
 *.db-lock
 *.db-trace
 *.db-lock
+tsconfig.tsbuildinfo
 migrate_rawdata_to_compressed.py
 run_vacuum.py
 

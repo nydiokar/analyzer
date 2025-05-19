@@ -1,5 +1,5 @@
 // Default number of recent transactions to analyze per wallet
-export const DEFAULT_RECENT_TRANSACTION_COUNT = 300;
+export const DEFAULT_RECENT_TRANSACTION_COUNT = 700;
 
 // Mints to exclude from analysis (common tokens, system tokens, etc.)
 export const DEFAULT_EXCLUDED_MINTS = [

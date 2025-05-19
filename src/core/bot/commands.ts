@@ -35,7 +35,8 @@ const BOT_SYSTEM_USER_DESCRIPTION = "SystemUser_TelegramBot";
  */
 interface ProcessingStats {
   totalTransactions: number;
-  timeRangeHours: number;
+  overallFirstTimestamp?: number;
+  overallLastTimestamp?: number;
 }
 
 /**
@@ -203,7 +204,7 @@ export class WalletAnalysisCommands {
             // logger.info(`Initiating sync for wallet: ${walletAddress}.`); // Logged by syncWalletData or too verbose here
             const walletState = await this.databaseService.getWallet(walletAddress);
             const isInitialFetch = !walletState || !walletState.lastSuccessfulFetchTimestamp;
-            const maxSignaturesToConsiderForSync = Math.max(targetTxCountInDb * 1.5, 300);
+            const maxSignaturesToConsiderForSync = Math.max(targetTxCountInDb * 1.5, 500);
 
             const syncOptions: SyncOptions = {
               limit: 100, 
@@ -314,6 +315,9 @@ export class WalletAnalysisCommands {
       // Now, prepare allFetchedCorrelatorTransactions for the wallets that passed bot filtering,
       // applying the excludedMints filter at this stage.
       const allFetchedCorrelatorTransactions: Record<string, TransactionData[]> = {};
+      let overallMinTimestamp: number | undefined = undefined;
+      let overallMaxTimestamp: number | undefined = undefined;
+
       for (const walletInfo of walletsPostBotFilter) {
           const walletAddress = walletInfo.address;
           // Use the already fetched and sliced SwapAnalysisInput data for this wallet
@@ -321,13 +325,25 @@ export class WalletAnalysisCommands {
           
           const correlatorTxsForWallet = originalSwapInputsForThisWallet
               .filter(input => !CLUSTERING_CONFIG.excludedMints.includes(input.mint)) // Apply mint exclusion here
-              .map(input => ({
-                  mint: input.mint,
-                  timestamp: input.timestamp,
-                  direction: input.direction as 'in' | 'out',
-                  amount: input.amount,
-                  associatedSolValue: input.associatedSolValue || 0,
-              }));
+              .map(input => {
+                  const txData: TransactionData = { // Explicitly type for clarity
+                      mint: input.mint,
+                      timestamp: input.timestamp,
+                      direction: input.direction as 'in' | 'out',
+                      amount: input.amount,
+                      associatedSolValue: input.associatedSolValue || 0,
+                  };
+                  // Update overall min/max timestamps
+                  if (txData.timestamp) {
+                      if (overallMinTimestamp === undefined || txData.timestamp < overallMinTimestamp) {
+                          overallMinTimestamp = txData.timestamp;
+                      }
+                      if (overallMaxTimestamp === undefined || txData.timestamp > overallMaxTimestamp) {
+                          overallMaxTimestamp = txData.timestamp;
+                      }
+                  }
+                  return txData;
+              });
           allFetchedCorrelatorTransactions[walletAddress] = correlatorTxsForWallet;
           
           logger.debug(`Prepared ${correlatorTxsForWallet.length} CorrelatorTransactionData records for ${walletAddress} (post-bot-filter and mint-exclusion).`);
@@ -391,16 +407,16 @@ export class WalletAnalysisCommands {
       });
       
       const processingStats: ProcessingStats = {
-         totalTransactions: totalRelevantCorrelatorTransactions, 
-         timeRangeHours: 0 
+        totalTransactions: totalRelevantCorrelatorTransactions,
+        overallFirstTimestamp: overallMinTimestamp,
+        overallLastTimestamp: overallMaxTimestamp,
       };
 
-      const uniqueTokenCountsPerWalletInAnalysis: Record<string, number> = {};
-      for (const walletAddress of walletsPostBotFilter.map(w => w.address)) {
-        const txs = allFetchedCorrelatorTransactions[walletAddress] || [];
-        const uniqueMints = new Set(txs.map(tx => tx.mint));
-        uniqueTokenCountsPerWalletInAnalysis[walletAddress] = uniqueMints.size;
-      }
+      const uniqueTokenCountsPerWallet: Record<string, number> = {};
+      Object.entries(allFetchedCorrelatorTransactions).forEach(([walletAddr, txs]) => {
+          const uniqueMints = new Set(txs.map(tx => tx.mint));
+          uniqueTokenCountsPerWallet[walletAddr] = uniqueMints.size;
+      });
 
       const reportMessages: string[] = generateCorrelationReportTelegram(
         initialWallets.length, 
@@ -411,7 +427,7 @@ export class WalletAnalysisCommands {
         clusters,
         topCorrelatedPairs,
         processingStats,
-        uniqueTokenCountsPerWalletInAnalysis
+        uniqueTokenCountsPerWallet
       );
 
       for (const messagePart of reportMessages) {
@@ -518,39 +534,67 @@ export class WalletAnalysisCommands {
    * @param transactionCount - Optional number of transactions to consider
    */
   async analyzeWalletBehavior(ctx: Context, walletAddresses: string[], transactionCount?: number) {
+    // Outer try-catch for each wallet address iteration to handle errors per wallet
     for (const walletAddress of walletAddresses) {
+        const startTime = Date.now(); // Specific to this wallet's processing
+        let analysisStatus: 'SUCCESS' | 'FAILURE' = 'SUCCESS';
+        let errorMessage: string | undefined = undefined;
+        // Note: Activity logging for individual wallets within a multi-wallet command might need a different strategy
+        // For simplicity, we'll assume logging is handled per individual call or not at all for this example modification.
+
         try {
-          await ctx.reply(`🔄 Analyzing wallet behavior for ${walletAddress}... This may take a moment.`);
+            // Main logic for a single wallet
+            try {
+                await ctx.reply(`🔄 Analyzing wallet behavior for ${walletAddress}... This may take a moment.`);
 
-          // Sync wallet data first
-          if (this.heliusSyncService) {
-            const syncOptions: SyncOptions = {
-              limit: 100,
-              fetchAll: false,
-              skipApi: false,
-              fetchOlder: false,
-              maxSignatures: Math.max((transactionCount || DEFAULT_RECENT_TRANSACTION_COUNT) * 1.5, 300),
-              smartFetch: true
-            };
-            await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-          }
+                // Sync wallet data first
+                if (this.heliusSyncService) {
+                    const syncOptions: SyncOptions = {
+                        limit: 100,
+                        fetchAll: false,
+                        skipApi: false,
+                        fetchOlder: false,
+                        maxSignatures: Math.max((transactionCount || DEFAULT_RECENT_TRANSACTION_COUNT) * 1.5, 500),
+                        smartFetch: true
+                    };
+                    await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+                }
 
-          // Get behavioral metrics
-          const metrics = await this.behaviorService.analyzeWalletBehavior(walletAddress);
-          
-          if (!metrics) {
-            await ctx.reply(`❌ No sufficient data found for behavioral analysis for ${walletAddress}.`);
-            continue; // Skip to next wallet
-          }
+                const metrics = await this.behaviorService.analyzeWalletBehavior(walletAddress);
+                
+                if (!metrics) {
+                    errorMessage = `No sufficient data found for behavioral analysis for ${walletAddress}.`;
+                    analysisStatus = 'FAILURE';
+                    await ctx.reply(`⚠️ ${errorMessage}`);
+                    // continue; // This would be part of the original loop logic, handled by the outer try/catch now
+                } else {
+                    const report = generateDetailedBehaviorHtmlTelegram(walletAddress, metrics);
+                    await ctx.replyWithHTML(report);
+                }
 
-          // Generate report
-          const report = generateDetailedBehaviorHtmlTelegram(walletAddress, metrics);
-          await ctx.replyWithHTML(report);
+            } catch (error) { // Inner catch for main logic
+                const err = error as Error;
+                logger.error(`Error in analyzeWalletBehavior for ${walletAddress}:`, err);
+                analysisStatus = 'FAILURE';
+                errorMessage = err.message;
+                // No separate reply here, let outer catch handle it for consistency
+                // throw err; // Re-throw to be caught by the outer per-wallet catch
+            }
+        } catch (e: any) { // Outer catch for this specific wallet_address processing
+            logger.error(`CRITICAL: Top-level command handler error in analyzeWalletBehavior for ${walletAddress}:`, e);
+            analysisStatus = 'FAILURE';
+            errorMessage = (e instanceof Error) ? e.message : 'Unknown critical error';
 
-        } catch (error) {
-          const err = error as Error;
-          logger.error(`Error in analyzeWalletBehavior for ${walletAddress}:`, err);
-          await ctx.reply(`❌ Error analyzing wallet behavior for ${walletAddress}: ${err.message}`);
+            if (e.name === 'TimeoutError') {
+                errorMessage = 'Behavior analysis timed out for ' + walletAddress + '. ' + errorMessage;
+                await ctx.reply(`🚨 Apologies, behavior analysis for ${walletAddress} took too long and was stopped.`);
+            } else {
+                await ctx.reply(`🚨 An unexpected error occurred during behavior analysis for ${walletAddress}.`);
+            }
+        } finally {
+            // Example: Log completion for this specific wallet if needed
+            // This is where you'd put the per-wallet activity log update if you had one here.
+            logger.info(`Processing for analyzeWalletBehavior on ${walletAddress} completed with status: ${analysisStatus}. Duration: ${Date.now() - startTime}ms. Error: ${errorMessage || 'None'}`);
         }
     } // End loop over walletAddresses
   }
@@ -563,64 +607,82 @@ export class WalletAnalysisCommands {
    */
   async analyzeAdvancedStats(ctx: Context, walletAddresses: string[], transactionCount?: number) {
     for (const walletAddress of walletAddresses) {
-        try {
-          await ctx.reply(`🔄 Analyzing advanced trading statistics for ${walletAddress}... This may take a moment.`);
+        const startTime = Date.now();
+        let analysisStatus: 'SUCCESS' | 'FAILURE' = 'SUCCESS';
+        let errorMessage: string | undefined = undefined;
 
-          // Sync wallet data first
-          if (this.heliusSyncService) {
-            const syncOptions: SyncOptions = {
-              limit: 100,
-              fetchAll: false,
-              skipApi: false,
-              fetchOlder: false,
-              maxSignatures: Math.max((transactionCount || DEFAULT_RECENT_TRANSACTION_COUNT) * 1.5, 300),
-              smartFetch: true
-            };
-            await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-          }
+        try { // Outer try for this wallet_address
+            try { // Inner try for main logic
+                await ctx.reply(`🔄 Analyzing advanced trading statistics for ${walletAddress}... This may take a moment.`);
 
-          // Get swap records
-          const swapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
-          
-          if (!swapRecords || swapRecords.length === 0) {
-            await ctx.reply(`❌ No sufficient data found for advanced analysis for ${walletAddress}.`);
-            continue; // Skip to next wallet
-          }
+                if (this.heliusSyncService) {
+                    const syncOptions: SyncOptions = {
+                        limit: 100,
+                        fetchAll: false,
+                        skipApi: false,
+                        fetchOlder: false,
+                        maxSignatures: Math.max((transactionCount || DEFAULT_RECENT_TRANSACTION_COUNT) * 1.5, 500),
+                        smartFetch: true
+                    };
+                    await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+                }
 
-          // Convert swap records to OnChainAnalysisResult format
-          const results: OnChainAnalysisResult[] = swapRecords.map(record => ({
-            tokenAddress: record.mint,
-            mint: record.mint,
-            firstTransferTimestamp: record.timestamp,
-            lastTransferTimestamp: record.timestamp,
-            netSolProfitLoss: record.associatedSolValue || 0,
-            totalAmountIn: record.direction === 'in' ? record.amount : 0,
-            totalAmountOut: record.direction === 'out' ? record.amount : 0,
-            netAmountChange: record.direction === 'in' ? record.amount : -record.amount,
-            totalSolSpent: record.direction === 'out' ? record.associatedSolValue || 0 : 0,
-            totalSolReceived: record.direction === 'in' ? record.associatedSolValue || 0 : 0,
-            transferCountIn: record.direction === 'in' ? 1 : 0,
-            transferCountOut: record.direction === 'out' ? 1 : 0
-          }));
+                const swapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+                
+                if (!swapRecords || swapRecords.length === 0) {
+                    errorMessage = `No sufficient data found for advanced analysis for ${walletAddress}.`;
+                    analysisStatus = 'FAILURE';
+                    await ctx.reply(`⚠️ ${errorMessage}`);
+                    // continue; // Original loop logic, now handled by outer try/catch structure
+                } else {
+                    const results: OnChainAnalysisResult[] = swapRecords.map(record => ({
+                        tokenAddress: record.mint,
+                        mint: record.mint,
+                        firstTransferTimestamp: record.timestamp,
+                        lastTransferTimestamp: record.timestamp,
+                        netSolProfitLoss: record.associatedSolValue || 0,
+                        totalAmountIn: record.direction === 'in' ? record.amount : 0,
+                        totalAmountOut: record.direction === 'out' ? record.amount : 0,
+                        netAmountChange: record.direction === 'in' ? record.amount : -record.amount,
+                        totalSolSpent: record.direction === 'out' ? record.associatedSolValue || 0 : 0,
+                        totalSolReceived: record.direction === 'in' ? record.associatedSolValue || 0 : 0,
+                        transferCountIn: record.direction === 'in' ? 1 : 0,
+                        transferCountOut: record.direction === 'out' ? 1 : 0
+                    }));
 
-          // Analyze advanced stats
-          const stats = this.advancedStatsAnalyzer.analyze(results);
-          
-          if (!stats) {
-            await ctx.reply(`❌ Could not calculate advanced statistics for ${walletAddress}.`);
-            continue; // Skip to next wallet
-          }
+                    const stats = this.advancedStatsAnalyzer.analyze(results);
+                    
+                    if (!stats) {
+                        errorMessage = `Could not calculate advanced statistics for ${walletAddress}.`;
+                        analysisStatus = 'FAILURE';
+                        await ctx.reply(`⚠️ ${errorMessage}`);
+                    } else {
+                        const report = generateDetailedAdvancedStatsHtmlTelegram(walletAddress, stats);
+                        await ctx.replyWithHTML(report);
+                    }
+                }
+            } catch (error) { // Inner catch
+                const err = error as Error;
+                logger.error(`Error in analyzeAdvancedStats for ${walletAddress}:`, err);
+                analysisStatus = 'FAILURE';
+                errorMessage = err.message;
+                // throw err; // Re-throw to be caught by outer
+            }
+        } catch (e: any) { // Outer catch for this wallet_address
+            logger.error(`CRITICAL: Top-level command handler error in analyzeAdvancedStats for ${walletAddress}:`, e);
+            analysisStatus = 'FAILURE';
+            errorMessage = (e instanceof Error) ? e.message : 'Unknown critical error';
 
-          // Generate report
-          const report = generateDetailedAdvancedStatsHtmlTelegram(walletAddress, stats);
-          await ctx.replyWithHTML(report);
-
-        } catch (error) {
-          const err = error as Error;
-          logger.error(`Error in analyzeAdvancedStats for ${walletAddress}:`, err);
-          await ctx.reply(`❌ Error analyzing advanced stats for ${walletAddress}: ${err.message}`);
+            if (e.name === 'TimeoutError') {
+                errorMessage = 'Advanced stats analysis timed out for ' + walletAddress + '. ' + errorMessage;
+                await ctx.reply(`🚨 Apologies, advanced stats analysis for ${walletAddress} took too long and was stopped.`);
+            } else {
+                await ctx.reply(`🚨 An unexpected error occurred during advanced stats analysis for ${walletAddress}.`);
+            }
+        } finally {
+            logger.info(`Processing for analyzeAdvancedStats on ${walletAddress} completed with status: ${analysisStatus}. Duration: ${Date.now() - startTime}ms. Error: ${errorMessage || 'None'}`);
         }
-    } // End loop over walletAddresses
+    } // End loop
   }
 
   // --- NEW COMMAND HANDLERS FOR CONCISE SUMMARIES ---
@@ -632,61 +694,86 @@ export class WalletAnalysisCommands {
       let analysisStatus: 'SUCCESS' | 'FAILURE' = 'SUCCESS';
       let errorMessage: string | undefined = undefined;
 
-      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
-        await ctx.reply(`❌ Invalid Solana wallet address format: ${walletAddress}`);
-        continue; // Skip to next wallet
-      }
-
-      if (this.isBotUserInitialized && this.botSystemUserId) {
-        try {
-          const logData = {
-            telegramUserId: ctx.from?.id,
-            telegramChatId: ctx.chat?.id,
-            walletAddress: walletAddress, // Log for individual wallet
-            commandArgs: ctx.message && 'text' in ctx.message ? ctx.message.text : 'N/A'
-          };
-          const initialLog = await this.databaseService.logActivity(
-            this.botSystemUserId,
-            'telegram_command_pnl_overview',
-            logData,
-            'INITIATED'
-          );
-          if (initialLog) activityLogId = initialLog.id;
-        } catch (logError) {
-          logger.error('Failed to create initial activity log for getPnlOverview:', logError);
+      try { // Outer try for this wallet_address
+        if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+          await ctx.reply(`❌ Invalid Solana wallet address format: ${walletAddress}`);
+          // This is a validation error, not a timeout. We might want to log it differently or just skip.
+          // For now, let it be caught by the generic outer catch, or add specific handling.
+          // To keep it simple, we'll let the outer catch handle it for now, though it won't be a 'TimeoutError'.
+          throw new Error('Invalid Solana wallet address format');
         }
-      }
 
-      try {
-        await ctx.reply(`🔍 Fetching PNL overview for ${walletAddress}...`);
-        
-        const pnlData = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress);
+        if (this.isBotUserInitialized && this.botSystemUserId) {
+          try {
+            const logData = {
+              telegramUserId: ctx.from?.id,
+              telegramChatId: ctx.chat?.id,
+              walletAddress: walletAddress,
+              commandArgs: ctx.message && 'text' in ctx.message ? ctx.message.text : 'N/A'
+            };
+            const initialLog = await this.databaseService.logActivity(
+              this.botSystemUserId,
+              'telegram_command_pnl_overview',
+              logData,
+              'INITIATED'
+            );
+            if (initialLog) activityLogId = initialLog.id;
+          } catch (logError) {
+            logger.error('Failed to create initial activity log for getPnlOverview:', logError);
+            // Non-fatal, continue with the main operation
+          }
+        }
 
-        if (!pnlData || pnlData.analysisSkipped) {
-          errorMessage = `Could not retrieve PNL data for ${walletAddress}. Analysis might have been skipped or no data found.`;
+        try { // Inner try for main PNL logic
+          await ctx.reply(`🔍 Fetching PNL overview for ${walletAddress}...`);
+          
+          const pnlData = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress);
+
+          if (!pnlData || pnlData.analysisSkipped) {
+            errorMessage = `Could not retrieve PNL data for ${walletAddress}. Analysis might have been skipped or no data found.`;
+            analysisStatus = 'FAILURE';
+            await ctx.reply(`⚠️ ${errorMessage}`);
+          } else {
+            const summaryForReport: SwapAnalysisSummary = pnlData;
+            const report = generatePnlOverviewHtmlTelegram(walletAddress, summaryForReport);
+            await ctx.replyWithHTML(report);
+          }
+        } catch (error: any) { // Inner catch for PNL logic error
+          logger.error(`Error in PNL logic for ${walletAddress}:`, error);
           analysisStatus = 'FAILURE';
-          await ctx.reply(`⚠️ ${errorMessage}`);
-        } else {
-          const summaryForReport: SwapAnalysisSummary = pnlData;
-          const report = generatePnlOverviewHtmlTelegram(walletAddress, summaryForReport);
-          await ctx.replyWithHTML(report);
+          errorMessage = error.message || 'An unexpected error occurred in PNL logic.';
+          // Let outer catch handle user reply for consistency if it's a more general failure
+          // No specific reply here to avoid double-messaging if it's a timeout.
         }
-      } catch (error: any) {
-        logger.error(`Error in getPnlOverview for ${walletAddress}:`, error);
-        errorMessage = error.message || 'An unexpected error occurred.';
-        analysisStatus = 'FAILURE';
-        await ctx.reply(`❌ Error fetching PNL overview for ${walletAddress}: ${errorMessage}`);
+      } catch (e: any) { // Outer catch for this wallet_address (includes validation, timeout, etc.)
+        logger.error(`CRITICAL: Top-level command handler error in getPnlOverview for ${walletAddress}:`, e);
+        analysisStatus = 'FAILURE'; // Ensure status is failure
+        errorMessage = (e instanceof Error) ? e.message : 'Unknown critical error'; // Ensure errorMessage is set
+
+        if (e.name === 'TimeoutError') {
+          errorMessage = 'PNL overview timed out for ' + walletAddress + '. ' + errorMessage;
+          await ctx.reply(`🚨 Apologies, PNL overview for ${walletAddress} took too long and was stopped.`);
+        } else if (errorMessage === 'Invalid Solana wallet address format') {
+           // Already handled by initial reply, or if we removed that, reply here.
+           // Assuming the initial reply is fine, or if we want to consolidate:
+           // await ctx.reply(`❌ Invalid Solana wallet address format: ${walletAddress}`);
+           // No further generic message needed if specific error handled.
+        } else {
+          await ctx.reply(`🚨 An unexpected error occurred while fetching PNL overview for ${walletAddress}.`);
+        }
       } finally {
-        if (activityLogId) {
+        if (activityLogId && this.isBotUserInitialized && this.botSystemUserId) { // Check isBotUserInitialized too
           const durationMs = Date.now() - startTime;
           await this.databaseService.logActivity(
             this.botSystemUserId!,
-            'telegram_command_pnl_overview',
+            'telegram_command_pnl_overview_completed', // Changed event name for final log
             { originalLogId: activityLogId, processingTimeMs: durationMs, walletAddress: walletAddress },
             analysisStatus,
             durationMs,
             analysisStatus === 'FAILURE' ? errorMessage : undefined
           );
+        } else {
+          logger.info(`Processing for getPnlOverview on ${walletAddress} completed (no activityLogId or bot user not init). Status: ${analysisStatus}. Duration: ${Date.now() - startTime}ms. Error: ${errorMessage || 'None'}`);
         }
       }
     } // End loop over walletAddresses
@@ -699,60 +786,77 @@ export class WalletAnalysisCommands {
       let analysisStatus: 'SUCCESS' | 'FAILURE' = 'SUCCESS';
       let errorMessage: string | undefined = undefined;
       
-      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
-        await ctx.reply(`❌ Invalid Solana wallet address format: ${walletAddress}`);
-        continue; // Skip to next wallet
-      }
-
-      if (this.isBotUserInitialized && this.botSystemUserId) {
-        try {
-          const logData = {
-            telegramUserId: ctx.from?.id,
-            telegramChatId: ctx.chat?.id,
-            walletAddress: walletAddress, // Log for individual wallet
-            commandArgs: ctx.message && 'text' in ctx.message ? ctx.message.text : 'N/A'
-          };
-          const initialLog = await this.databaseService.logActivity(
-            this.botSystemUserId,
-            'telegram_command_behavior_summary',
-            logData,
-            'INITIATED'
-          );
-          if (initialLog) activityLogId = initialLog.id;
-        } catch (logError) {
-          logger.error('Failed to create initial activity log for getBehaviorSummary:', logError);
+      try { // Outer try for this wallet_address
+        if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+          // Let outer catch handle this specific error message if desired, or reply & throw here
+          throw new Error('Invalid Solana wallet address format');
         }
-      }
 
-      try {
-        await ctx.reply(`🧠 Fetching behavior summary for ${walletAddress}...`);
-        
-        const behaviorMetrics = await this.behaviorService.analyzeWalletBehavior(walletAddress);
+        if (this.isBotUserInitialized && this.botSystemUserId) {
+          try {
+            const logData = {
+              telegramUserId: ctx.from?.id,
+              telegramChatId: ctx.chat?.id,
+              walletAddress: walletAddress,
+              commandArgs: ctx.message && 'text' in ctx.message ? ctx.message.text : 'N/A'
+            };
+            const initialLog = await this.databaseService.logActivity(
+              this.botSystemUserId,
+              'telegram_command_behavior_summary',
+              logData,
+              'INITIATED'
+            );
+            if (initialLog) activityLogId = initialLog.id;
+          } catch (logError) {
+            logger.error('Failed to create initial activity log for getBehaviorSummary:', logError);
+          }
+        }
 
-        if (!behaviorMetrics) {
-          errorMessage = `Could not retrieve behavior metrics for ${walletAddress}.`;
+        try { // Inner try for main behavior summary logic
+          await ctx.reply(`🧠 Fetching behavior summary for ${walletAddress}...`);
+          
+          const behaviorMetrics = await this.behaviorService.analyzeWalletBehavior(walletAddress);
+
+          if (!behaviorMetrics) {
+            errorMessage = `Could not retrieve behavior metrics for ${walletAddress}.`;
+            analysisStatus = 'FAILURE';
+            await ctx.reply(`⚠️ ${errorMessage}`);
+          } else {
+            const report = generateBehaviorSummaryHtmlTelegram(walletAddress, behaviorMetrics);
+            await ctx.replyWithHTML(report);
+          }
+        } catch (error: any) { // Inner catch for behavior logic error
+          logger.error(`Error in behavior summary logic for ${walletAddress}:`, error);
           analysisStatus = 'FAILURE';
-          await ctx.reply(`⚠️ ${errorMessage}`);
-        } else {
-          const report = generateBehaviorSummaryHtmlTelegram(walletAddress, behaviorMetrics);
-          await ctx.replyWithHTML(report);
+          errorMessage = error.message || 'An unexpected error occurred in behavior summary logic.';
+          // No specific reply here; let outer catch handle for consistency.
         }
-      } catch (error: any) {
-        logger.error(`Error in getBehaviorSummary for ${walletAddress}:`, error);
-        errorMessage = error.message || 'An unexpected error occurred.';
+      } catch (e: any) { // Outer catch for this wallet_address
+        logger.error(`CRITICAL: Top-level command handler error in getBehaviorSummary for ${walletAddress}:`, e);
         analysisStatus = 'FAILURE';
-        await ctx.reply(`❌ Error fetching behavior summary for ${walletAddress}: ${errorMessage}`);
+        errorMessage = (e instanceof Error) ? e.message : 'Unknown critical error';
+
+        if (e.name === 'TimeoutError') {
+          errorMessage = 'Behavior summary timed out for ' + walletAddress + '. ' + errorMessage;
+          await ctx.reply(`🚨 Apologies, behavior summary for ${walletAddress} took too long and was stopped.`);
+        } else if (errorMessage === 'Invalid Solana wallet address format') {
+          await ctx.reply(`❌ Invalid Solana wallet address format: ${walletAddress}`);
+        } else {
+          await ctx.reply(`🚨 An unexpected error occurred while fetching behavior summary for ${walletAddress}.`);
+        }
       } finally {
-        if (activityLogId) {
+        if (activityLogId && this.isBotUserInitialized && this.botSystemUserId) {
           const durationMs = Date.now() - startTime;
           await this.databaseService.logActivity(
             this.botSystemUserId!,
-            'telegram_command_behavior_summary',
+            'telegram_command_behavior_summary_completed',
             { originalLogId: activityLogId, processingTimeMs: durationMs, walletAddress: walletAddress },
             analysisStatus,
             durationMs,
             analysisStatus === 'FAILURE' ? errorMessage : undefined
           );
+        } else {
+          logger.info(`Processing for getBehaviorSummary on ${walletAddress} completed (no activityLogId or bot user not init). Status: ${analysisStatus}. Duration: ${Date.now() - startTime}ms. Error: ${errorMessage || 'None'}`);
         }
       }
     } // End loop over walletAddresses

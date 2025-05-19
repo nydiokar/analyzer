@@ -15,7 +15,8 @@ const logger = createLogger('ReportUtils');
 // --- Local ProcessingStats interface (Consider moving to a shared types file later) ---
 interface ProcessingStats {
   totalTransactions: number;
-  timeRangeHours: number; // Kept for interface consistency, though not used in HTML
+  overallFirstTimestamp?: number;
+  overallLastTimestamp?: number;
 }
 // --- End Local ProcessingStats ---
 
@@ -645,23 +646,26 @@ export function generatePnlOverviewHtmlTelegram(
     if (!summary) {
         return `<b>💰 PNL Overview for <code>${walletAddress}</code>:</b>\n⚠️ No PNL data available or analysis was skipped.`;
     }
-    const { realizedPnl, profitableSwaps, unprofitableSwaps, totalVolume, advancedStats } = summary;
+    const { realizedPnl, profitableSwaps, unprofitableSwaps, totalVolume, advancedStats, overallFirstTimestamp, overallLastTimestamp } = summary;
     const totalTrades = (profitableSwaps ?? 0) + (unprofitableSwaps ?? 0);
     const winRate = totalTrades > 0 ? ((profitableSwaps ?? 0) / totalTrades) * 100 : 0;
     const avgPnlPerTrade = totalTrades > 0 ? (realizedPnl ?? 0) / totalTrades : 0;
 
     let message = `<b>💰 PNL Overview for <code>${walletAddress}</code>:</b>\n`;
-    message += `  Realized PNL: <b>${formatSolAmount(realizedPnl ?? 0)} SOL</b>\n`;
+    if (overallFirstTimestamp && overallLastTimestamp) {
+        message += `<i>Data from: ${formatTimestamp(overallFirstTimestamp)} to ${formatTimestamp(overallLastTimestamp)}</i>\n`;
+    }
+    message += `  Realized PNL: <b>${formatSolAmount(realizedPnl ?? 0, 2)} SOL</b>\n`;
     message += `  Win Rate: <b>${winRate.toFixed(1)}%</b> (${profitableSwaps ?? 0}/${totalTrades} wins)\n`;
-    message += `  Avg P/L Trade: <b>${formatSolAmount(avgPnlPerTrade)} SOL</b>\n`;
+    message += `  Avg P/L Trade: <b>${formatSolAmount(avgPnlPerTrade, 2)} SOL</b>\n`;
 
     if (advancedStats) {
         message += `  Token Win Rate: <b>${formatNumber(advancedStats.tokenWinRatePercent ?? 0, 1)}%</b>\n`;
-        message += `  Median P/L Token: <b>${formatSolAmount(advancedStats.medianPnlPerToken ?? 0)} SOL</b>\n`;
+        message += `  Median P/L Token: <b>${formatSolAmount(advancedStats.medianPnlPerToken ?? 0, 2)} SOL</b>\n`;
     } else {
         message += `  Advanced stats: N/A\n`;
     }
-    message += `  Total Volume: <b>${formatSolAmount(totalVolume ?? 0)} SOL</b>`;
+    message += `  Total Volume: <b>${formatSolAmount(totalVolume ?? 0, 2)} SOL</b>`;
 
     return message;
 }
@@ -682,7 +686,10 @@ export function generateBehaviorSummaryHtmlTelegram(
     }
 
     let message = `<b>🧠 Behavior Summary for <code>${walletAddress}</code>:</b>\n`;
-    message += `  Style: <b>${metrics.tradingStyle ?? 'N/A'}</b> (Confidence: ${((metrics.confidenceScore ?? 0) * 100).toFixed(1)}%)\n`;
+    if (metrics.firstTransactionTimestamp && metrics.lastTransactionTimestamp) {
+        message += `<i>Data from: ${formatTimestamp(metrics.firstTransactionTimestamp)} to ${formatTimestamp(metrics.lastTransactionTimestamp)}</i>\n`;
+    }
+    message += `  Style: <b>${metrics.tradingStyle ?? 'N/A'}</b> (Confidence: <b>${((metrics.confidenceScore ?? 0) * 100).toFixed(1)}%</b>)\n`;
     message += `  Avg. Flip: <b>${(metrics.averageFlipDurationHours ?? 0).toFixed(1)} hrs</b> | Med. Hold: <b>${(metrics.medianHoldTime ?? 0).toFixed(1)} hrs</b>\n`;
     message += `  Key Traits: %&lt;1hr: <b>${((metrics.percentTradesUnder1Hour ?? 0) * 100).toFixed(0)}%</b>, Buy/Sell Symm: <b>${((metrics.buySellSymmetry ?? 0) * 100).toFixed(0)}%</b>\n`;
     message += `  Unique Tokens: <b>${metrics.uniqueTokensTraded ?? 0}</b> | Total Trades: <b>${metrics.totalTradeCount ?? 0}</b>`;
@@ -700,44 +707,47 @@ export function generateBehaviorSummaryHtmlTelegram(
  */
 export function generateDetailedBehaviorHtmlTelegram(walletAddress: string, metrics: BehavioralMetrics | null | undefined): string {
     if (!metrics) {
-        return `<b>📊 Behavioral Analysis Report for ${walletAddress}</b>\n⚠️ No behavioral metrics data available to generate a detailed report.`;
+        return `<b>📊 Behavioral Analysis Report for <code>${walletAddress}</code></b>\n⚠️ No behavioral metrics data available to generate a detailed report.`;
     }
     const lines: string[] = [];
     
-    lines.push(`<b>📊 Behavioral Analysis Report for ${walletAddress}</b>`);
+    lines.push(`<b>📊 Behavioral Analysis Report for <code>${walletAddress}</code></b>`);
+    if (metrics.firstTransactionTimestamp && metrics.lastTransactionTimestamp) {
+        lines.push(`<i>Data from: ${formatTimestamp(metrics.firstTransactionTimestamp)} to ${formatTimestamp(metrics.lastTransactionTimestamp)}</i>`);
+    }
     lines.push(`<i>Generated: ${new Date().toLocaleString()}</i>\n`);
     
     // Trading Style
-    lines.push(`<b>Trading Style:</b> ${metrics.tradingStyle ?? 'N/A'} (Confidence: ${((metrics.confidenceScore ?? 0) * 100).toFixed(1)}%)`);
-    lines.push(`<b>Flipper Score:</b> ${(metrics.flipperScore ?? 0).toFixed(3)}\n`);
+    lines.push(`Trading Style: <b>${metrics.tradingStyle ?? 'N/A'}</b> (Confidence: <b>${((metrics.confidenceScore ?? 0) * 100).toFixed(1)}%</b>)`);
+    lines.push(`Flipper Score: <b>${formatNumber(metrics.flipperScore ?? 0, 2)}</b>\n`);
     
     // Time Distribution
     lines.push('<b>Time Distribution:</b>');
-    lines.push(`• Ultra Fast (&lt;30min): ${((metrics.tradingTimeDistribution?.ultraFast ?? 0) * 100).toFixed(1)}%`);
-    lines.push(`• Very Fast (30-60min): ${((metrics.tradingTimeDistribution?.veryFast ?? 0) * 100).toFixed(1)}%`);
-    lines.push(`• Fast (1-4h): ${((metrics.tradingTimeDistribution?.fast ?? 0) * 100).toFixed(1)}%`);
-    lines.push(`• Moderate (4-8h): ${((metrics.tradingTimeDistribution?.moderate ?? 0) * 100).toFixed(1)}%`);
-    lines.push(`• Day Trader (8-24h): ${((metrics.tradingTimeDistribution?.dayTrader ?? 0) * 100).toFixed(1)}%`);
-    lines.push(`• Swing (1-7d): ${((metrics.tradingTimeDistribution?.swing ?? 0) * 100).toFixed(1)}%`);
-    lines.push(`• Position (>7d): ${((metrics.tradingTimeDistribution?.position ?? 0) * 100).toFixed(1)}%\n`);
+    lines.push(`• Ultra Fast (&lt;30min): <b>${((metrics.tradingTimeDistribution?.ultraFast ?? 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`• Very Fast (30-60min): <b>${((metrics.tradingTimeDistribution?.veryFast ?? 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`• Fast (1-4h): <b>${((metrics.tradingTimeDistribution?.fast ?? 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`• Moderate (4-8h): <b>${((metrics.tradingTimeDistribution?.moderate ?? 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`• Day Trader (8-24h): <b>${((metrics.tradingTimeDistribution?.dayTrader ?? 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`• Swing (1-7d): <b>${((metrics.tradingTimeDistribution?.swing ?? 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`• Position (>7d): <b>${((metrics.tradingTimeDistribution?.position ?? 0) * 100).toFixed(1)}%</b>\n`);
     
     // Activity Summary
     lines.push('<b>Activity Summary:</b>');
-    lines.push(`• Unique Tokens: ${metrics.uniqueTokensTraded ?? 'N/A'}`);
-    lines.push(`• Tokens with Both Buy/Sell: ${metrics.tokensWithBothBuyAndSell ?? 'N/A'}`);
-    lines.push(`• Total Trades: ${metrics.totalTradeCount ?? 'N/A'} (${metrics.totalBuyCount ?? 0} buys, ${metrics.totalSellCount ?? 0} sells)`);
-    lines.push(`• Complete Pairs: ${metrics.completePairsCount ?? 'N/A'}\n`);
+    lines.push(`• Unique Tokens: <b>${metrics.uniqueTokensTraded ?? 'N/A'}</b>`);
+    lines.push(`• Tokens with Both Buy/Sell: <b>${metrics.tokensWithBothBuyAndSell ?? 'N/A'}</b>`);
+    lines.push(`• Total Trades: <b>${metrics.totalTradeCount ?? 'N/A'}</b> (<b>${metrics.totalBuyCount ?? 0}</b> buys, <b>${metrics.totalSellCount ?? 0}</b> sells)`);
+    lines.push(`• Complete Pairs: <b>${metrics.completePairsCount ?? 'N/A'}</b>\n`);
     
     // Key Metrics
     lines.push('<b>Key Metrics:</b>');
     const buySellRatio = metrics.buySellRatio ?? 0;
-    lines.push(`• Buy/Sell Ratio: ${buySellRatio === Infinity ? 'INF' : buySellRatio.toFixed(2)}:1`);
-    lines.push(`• Buy/Sell Symmetry: ${((metrics.buySellSymmetry ?? 0) * 100).toFixed(1)}%`);
-    lines.push(`• Sequence Consistency: ${((metrics.sequenceConsistency ?? 0) * 100).toFixed(1)}%`);
-    lines.push(`• Average Hold Time: ${(metrics.averageFlipDurationHours ?? 0).toFixed(1)}h`);
-    lines.push(`• Median Hold Time: ${(metrics.medianHoldTime ?? 0).toFixed(1)}h`);
-    lines.push(`• % Trades Under 1h: ${((metrics.percentTradesUnder1Hour ?? 0) * 100).toFixed(1)}%`);
-    lines.push(`• % Trades Under 4h: ${((metrics.percentTradesUnder4Hours ?? 0) * 100).toFixed(1)}%`);
+    lines.push(`• Buy/Sell Ratio: <b>${buySellRatio === Infinity ? 'INF' : formatNumber(buySellRatio, 2)}:1</b>`);
+    lines.push(`• Buy/Sell Symmetry: <b>${((metrics.buySellSymmetry ?? 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`• Sequence Consistency: <b>${((metrics.sequenceConsistency ?? 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`• Average Hold Time: <b>${(metrics.averageFlipDurationHours ?? 0).toFixed(1)}h</b>`);
+    lines.push(`• Median Hold Time: <b>${(metrics.medianHoldTime ?? 0).toFixed(1)}h</b>`);
+    lines.push(`• % Trades Under 1h: <b>${((metrics.percentTradesUnder1Hour ?? 0) * 100).toFixed(1)}%</b>`);
+    lines.push(`• % Trades Under 4h: <b>${((metrics.percentTradesUnder4Hours ?? 0) * 100).toFixed(1)}%</b>`);
 
     return lines.join('\n');
 }
@@ -750,25 +760,28 @@ export function generateDetailedBehaviorHtmlTelegram(walletAddress: string, metr
  */
 export function generateDetailedAdvancedStatsHtmlTelegram(walletAddress: string, stats: AdvancedTradeStats | null | undefined): string {
     if (!stats) {
-        return `<b>📈 Advanced Trading Statistics for ${walletAddress}</b>\n⚠️ No advanced statistics data available to generate a detailed report.`;
+        return `<b>📈 Advanced Trading Statistics for <code>${walletAddress}</code></b>\n⚠️ No advanced statistics data available to generate a detailed report.`;
     }
     const lines: string[] = [];
     
-    lines.push(`<b>📈 Advanced Trading Statistics for ${walletAddress}</b>`);
+    lines.push(`<b>📈 Advanced Trading Statistics for <code>${walletAddress}</code></b>`);
+    if (stats.firstTransactionTimestamp && stats.lastTransactionTimestamp) {
+        lines.push(`<i>Data from: ${formatTimestamp(stats.firstTransactionTimestamp)} to ${formatTimestamp(stats.lastTransactionTimestamp)}</i>`);
+    }
     lines.push(`<i>Generated: ${new Date().toLocaleString()}</i>\n`);
     
     // Core Statistics
     lines.push('<b>Core Statistics:</b>');
-    lines.push(`• Median PnL per Token: ${(stats.medianPnlPerToken ?? 0).toFixed(4)} SOL`);
-    lines.push(`• Trimmed Mean PnL: ${(stats.trimmedMeanPnlPerToken ?? 0).toFixed(4)} SOL`);
-    lines.push(`• Token Win Rate: ${(stats.tokenWinRatePercent ?? 0).toFixed(1)}%`);
-    lines.push(`• Standard Deviation: ${(stats.standardDeviationPnl ?? 0).toFixed(4)} SOL\n`);
+    lines.push(`• Median PnL per Token: <b>${formatSolAmount(stats.medianPnlPerToken ?? 0, 2)} SOL</b>`);
+    lines.push(`• Trimmed Mean PnL: <b>${formatSolAmount(stats.trimmedMeanPnlPerToken ?? 0, 2)} SOL</b>`);
+    lines.push(`• Token Win Rate: <b>${formatNumber(stats.tokenWinRatePercent ?? 0, 1)}%</b>`);
+    lines.push(`• Standard Deviation: <b>${formatSolAmount(stats.standardDeviationPnl ?? 0, 2)} SOL</b>\n`);
     
     // Advanced Metrics
     lines.push('<b>Advanced Metrics:</b>');
-    lines.push(`• Profit Consistency Index: ${(stats.profitConsistencyIndex ?? 0).toFixed(4)}`);
-    lines.push(`• Weighted Efficiency Score: ${(stats.weightedEfficiencyScore ?? 0).toFixed(4)}`);
-    lines.push(`• Average PnL per Day Active: ${(stats.averagePnlPerDayActiveApprox ?? 0).toFixed(4)} SOL`);
+    lines.push(`• Profit Consistency Index: <b>${formatNumber(stats.profitConsistencyIndex ?? 0, 2)}</b>`);
+    lines.push(`• Weighted Efficiency Score: <b>${formatNumber(stats.weightedEfficiencyScore ?? 0, 2)}</b>`);
+    lines.push(`• Average PnL per Day Active: <b>${formatSolAmount(stats.averagePnlPerDayActiveApprox ?? 0, 2)} SOL</b>`);
 
     return lines.join('\n');
 }
@@ -814,6 +827,11 @@ export function generateCorrelationReportTelegram(
 
     addLine('<b>📊 Wallet Correlation Analysis Report</b>');
     addLine(`<i>Generated: ${new Date().toLocaleString()}</i>`);
+    if (processingStats.overallFirstTimestamp && processingStats.overallLastTimestamp) {
+      addLine(`<i>Data from: ${formatTimestamp(processingStats.overallFirstTimestamp)} to ${formatTimestamp(processingStats.overallLastTimestamp)}</i>`);
+    } else {
+      addLine('<i>Data period: Not available</i>'); // Fallback if timestamps are missing
+    }
     addLine('');
     addLine('<b>📋 Summary:</b>');
     addLine(`Requested for Analysis: ${requestedWalletsCount} wallets`);

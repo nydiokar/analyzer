@@ -4,6 +4,7 @@ import { createLogger } from 'core/utils/logger';
 import axios from 'axios';
 import Papa from 'papaparse';
 import { DEFAULT_RECENT_TRANSACTION_COUNT } from '../../config/constants';
+import { commandList } from './commandRegistry';
 
 const logger = createLogger('WalletAnalysisBot');
 
@@ -109,17 +110,7 @@ Command: ${commandText}`);
     try {
       this.bot.start(async (ctx) => {
         logger.info(`/start command received from user ID: ${ctx.from.id}`);
-        await ctx.reply(
-          'Welcome to the Wallet Analysis Bot!\n\n' +
-          'Available commands:\n' +
-          '  /correlation_analysis <wallet1> [w2] .. [tx_count] - Analyzes multiple Solana wallet addresses for correlations. Optional tx count (default: 300, max: 1000).\n\n' +
-          '  /analyze_behavior <wallet> [tx_count] - Analyzes trading behavior patterns (sends detailed HTML report).\n' +
-          '  /analyze_advanced <wallet> [tx_count] - Analyzes advanced trading statistics (sends detailed HTML report).\n\n' +
-          '  /pnl_overview <wallet> - Shows a PNL overview for the wallet (sends concise HTML summary).\n' +
-          '  /behavior_summary <wallet> - Shows a behavior summary for the wallet (sends concise HTML summary).\n\n' +
-          '  You can also upload a CSV file with wallet addresses (one per line or in the first column) to analyze multiple wallets (max 100 from file).\n' +
-          '  /help - Shows this help message.'
-        );
+        await ctx.reply(generateHelpOrStartMessage('start'), { parse_mode: 'HTML' });
       });
 
       // Use telegraf/filters to ensure message is of type text for /correlation_analysis
@@ -138,7 +129,7 @@ Command: ${commandText}`);
 
           let walletAddresses: string[] = [];
           let transactionCount: number | undefined = undefined;
-          const MAX_ALLOWED_TX_COUNT = 1000; // Max allowed transactions by user
+          const MAX_ALLOWED_TX_COUNT = 1500; // Max allowed transactions by user
 
           // Check if the last argument is a number (potential transaction count)
           const lastArg = args[args.length - 1];
@@ -213,7 +204,7 @@ Command: ${commandText}`);
 
           let walletAddresses: string[] = [];
           let transactionCount: number | undefined = undefined;
-          const MAX_ALLOWED_TX_COUNT = 1000;
+          const MAX_ALLOWED_TX_COUNT = 5000;
 
           if (args.length === 0) {
             await ctx.reply('Please provide at least one wallet address. Usage: /analyze_behavior <wallet1> [wallet2...] [tx_count]');
@@ -253,7 +244,7 @@ Command: ${commandText}`);
           
           let walletAddresses: string[] = [];
           let transactionCount: number | undefined = undefined;
-          const MAX_ALLOWED_TX_COUNT = 1000;
+          const MAX_ALLOWED_TX_COUNT = 5000;
 
           if (args.length === 0) {
             await ctx.reply('Please provide at least one wallet address. Usage: /analyze_advanced <wallet1> [wallet2...] [tx_count]');
@@ -327,21 +318,7 @@ Command: ${commandText}`);
 
       this.bot.help(async (ctx) => {
         logger.info(`/help command received from user ID: ${ctx.from.id}`);
-        await ctx.reply(
-          'Wallet Analysis Bot Help:\n\n' +
-          'Available commands:\n\n' +
-          '  /correlation_analysis <wallet1> [w2] .. [tx_count] - Analyzes one or more Solana wallet addresses for correlations.\n\n' +
-          '  /analyze_behavior <wallet> [tx_count] - Analyzes trading behavior patterns of a wallet.\n' +
-          '  /analyze_advanced <wallet> [tx_count] - Analyzes advanced trading statistics of a wallet.\n\n' +
-          'Optionally, specify transaction count (default: 300, max: 1000). Ex: /correlation_analysis ADDR1 ADDR2 500\n\n' +
-          'File Upload:\n' +
-          '  You can upload a CSV file containing Solana wallet addresses. \n' +
-          '  - The bot will look for addresses in the first column, or assume one address per line if only one column exists.\n' +
-          '  - A maximum of 100 wallets will be processed from the file.\n' +
-          '  - The default transaction count (300) will be used for analysis from files.\n\n' +
-          '  /start - Shows the welcome message.\n' +
-          '  /help - Shows this help message.'
-        );
+        await ctx.reply(generateHelpOrStartMessage('help'), { parse_mode: 'HTML' });
       });
 
       // Handler for document uploads
@@ -399,7 +376,7 @@ Command: ${commandText}`);
             return;
           }
 
-          const MAX_WALLETS_FROM_FILE = 100;
+          const MAX_WALLETS_FROM_FILE = 300;
           let walletsToProcess = extractedWallets;
           if (extractedWallets.length > MAX_WALLETS_FROM_FILE) {
             walletsToProcess = extractedWallets.slice(0, MAX_WALLETS_FROM_FILE);
@@ -466,4 +443,59 @@ Command: ${commandText}`);
     logger.info('Bot stopped gracefully.');
     process.exit(0);
   }
+}
+
+// --- Helper to generate grouped, styled help/start message ---
+function generateHelpOrStartMessage(type: 'help' | 'start'): string {
+  if (type === 'start') {
+    let msg = '🚀 <b>Welcome to the Wallet Analysis Bot!</b>\n\n';
+    msg += 'Quickly analyze wallet behavior, discover advanced stats, or find correlations.\n\n';
+    msg += '<b>Try these commands:</b>\n';
+
+    const exampleCommands = commandList.filter(cmd => cmd.name === '/analyze_behavior' || cmd.name === '/correlation_analysis');
+    for (const cmd of exampleCommands) {
+      msg += `${cmd.emoji} <b>${cmd.name}</b> — ${cmd.description}\n`;
+      msg += `  <i>Usage:</i> <code>${cmd.usage}</code>\n`;
+    }
+    msg += '\nYou can also upload a CSV file with wallet addresses.\n\n';
+    msg += 'Type /help for a full list of commands and more details.';
+    return msg.trim();
+  }
+
+  // Help message generation (full list)
+  const groupOrder = ['Analysis', 'Reporting', 'General']; // File Upload is handled separately
+  const groupTitles: Record<string, string> = {
+    'Analysis': '📊 <b>Reporting Commands</b>',
+    'Reporting': '🧠 <b>Overview Commands</b>',
+    'General': '⚙️ <b>General Commands</b>'
+  };
+  let msg = '🤖 <b>Wallet Analysis Bot Help</b>\n\n';
+
+  const grouped: Record<string, typeof commandList> = {};
+  for (const cmd of commandList) {
+    if (!grouped[cmd.group]) grouped[cmd.group] = [];
+    grouped[cmd.group].push(cmd);
+  }
+
+  for (const group of groupOrder) {
+    if (grouped[group] && grouped[group].length > 0) {
+      msg += `${groupTitles[group]}\n`;
+      for (const cmd of grouped[group]) {
+        // For /help, exclude /start from the detailed list if it's in 'General'
+        if (cmd.name === '/start' && group === 'General') continue;
+        
+        msg += `${cmd.emoji} <b>${cmd.name}</b> — ${cmd.description}\n`;
+        msg += `  <i>Usage:</i> <code>${cmd.usage}</code>\n`;
+        if (cmd.example && cmd.name !== '/start') { // Don't show example for /start in /help
+             msg += `  <i>Example:</i> <code>${cmd.example}</code>\n`;
+        }
+      }
+      msg += '\n';
+    }
+  }
+
+  msg += '📂 <b>File Upload</b>\n';
+  msg += 'Upload a CSV file with wallet addresses for Correlation Analysis (one per line or in the first column) to analyze multiple wallets (max 300 from file).\n\n';
+
+  return msg.trim();
 } 

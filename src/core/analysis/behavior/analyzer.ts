@@ -44,10 +44,17 @@ export class BehaviorAnalyzer {
   public analyze(swapRecords: SwapAnalysisInput[]): BehavioralMetrics {
     this.logger.debug(`Starting behavior analysis for ${swapRecords.length} swap records.`);
     
+    let firstTransactionTimestamp: number | undefined = undefined;
+    let lastTransactionTimestamp: number | undefined = undefined;
+
     if (swapRecords.length === 0) {
       this.logger.warn('No swap records provided to analyze, returning empty metrics.');
-      return this.getEmptyMetrics();
+      return this.getEmptyMetrics(); // Empty metrics won't have timestamps
     }
+
+    // Calculate min/max timestamps from the records used for analysis
+    firstTransactionTimestamp = Math.min(...swapRecords.map(r => r.timestamp));
+    lastTransactionTimestamp = Math.max(...swapRecords.map(r => r.timestamp));
     
     // 1. Build token sequences
     const tokenSequences = this.buildTokenSequences(swapRecords);
@@ -57,6 +64,10 @@ export class BehaviorAnalyzer {
     
     // 3. Classify trading style based on revised criteria
     this.classifyTradingStyle(metrics);
+
+    // Add timestamps to the final metrics object
+    metrics.firstTransactionTimestamp = firstTransactionTimestamp;
+    metrics.lastTransactionTimestamp = lastTransactionTimestamp;
     
     this.logger.debug('Completed behavior analysis orchestration.');
     return metrics;

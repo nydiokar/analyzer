@@ -48,4 +48,6 @@ export interface BehavioralMetrics {
     averageProfitPerTrade: number;
     profitConsistency: number;
   };
+  firstTransactionTimestamp?: number;
+  lastTransactionTimestamp?: number;
 } 
