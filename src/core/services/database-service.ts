@@ -597,7 +597,7 @@ export class DatabaseService {
             return inputs;
         } catch (error) {
             this.logger.error(`Error fetching SwapAnalysisInputs for ${walletAddress}`, { error });
-            return [];
+            throw error;
         }
     }
     
@@ -932,6 +932,65 @@ export class DatabaseService {
         } catch (error) {
             this.logger.error(`Error fetching paginated AnalysisResults for ${walletAddress}`, { error });
             return { data: [], total: 0 }; // Return empty on error
+        }
+    }
+
+    /**
+     * Retrieves the most recent AnalysisRun for a given wallet.
+     * @param walletAddress The wallet address.
+     * @returns The latest AnalysisRun object or null if not found.
+     */
+    async getLatestAnalysisRun(walletAddress: string): Promise<AnalysisRun | null> {
+        this.logger.debug(`Fetching latest AnalysisRun for wallet: ${walletAddress}`);
+        try {
+            const run = await this.prismaClient.analysisRun.findFirst({
+                where: { walletAddress: walletAddress },
+                orderBy: {
+                    runTimestamp: 'desc',
+                },
+            });
+            if (!run) {
+                this.logger.warn(`No AnalysisRun found for wallet ${walletAddress}`);
+            }
+            return run;
+        } catch (error) {
+            this.logger.error(`Error fetching latest AnalysisRun for wallet ${walletAddress}`, { error });
+            return null;
+        }
+    }
+
+    async getLatestPnlAggregates(walletAddress: string): Promise<{ overallRealizedPnl: number; totalSolSpent: number; totalSolReceived: number } | null> {
+        this.logger.debug(`Fetching latest PNL aggregates for wallet: ${walletAddress}`);
+        try {
+            const results = await this.prismaClient.analysisResult.findMany({
+                where: { walletAddress: walletAddress },
+            });
+
+            if (!results || results.length === 0) {
+                this.logger.warn(`No AnalysisResult records found for wallet ${walletAddress} to aggregate PNL.`);
+                return null;
+            }
+
+            let overallRealizedPnl = 0;
+            let totalSolSpent = 0;
+            let totalSolReceived = 0;
+
+            for (const result of results) {
+                overallRealizedPnl += result.netSolProfitLoss;
+                totalSolSpent += result.totalSolSpent;
+                totalSolReceived += result.totalSolReceived;
+            }
+
+            return {
+                overallRealizedPnl,
+                totalSolSpent,
+                totalSolReceived,
+            };
+        } catch (error) {
+            this.logger.error(`Error fetching PNL aggregates for wallet ${walletAddress}`, { error });
+            // Consider re-throwing or returning a more specific error structure if needed by controller
+            // For now, rethrow to be caught by the controller's generic error handling.
+            throw new Error(`Failed to fetch PNL aggregates for wallet ${walletAddress}`);
         }
     }
 }

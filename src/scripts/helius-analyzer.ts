@@ -238,20 +238,47 @@ async function analyzeWalletWithHelius() {
 
     logger.info(`Analysis finished successfully for wallet: ${walletAddress}`);
 
-  } catch (error: any) {
+  } catch (error) {
+    let errMessage = 'Unknown error during analysis';
+    let errName = 'UnknownError';
+    let errStack;
+
+    if (error instanceof Error) {
+      errMessage = error.message;
+      errName = error.name;
+      errStack = error.stack;
+    } else if (typeof error === 'string') {
+      errMessage = error;
+    } else if (typeof error === 'object' && error !== null) {
+      // More robust check for properties on a generic object
+      if ('message' in error && typeof (error as { message?: unknown }).message === 'string') {
+        errMessage = (error as { message: string }).message;
+      } else {
+        errMessage = JSON.stringify(error);
+      }
+      if ('name' in error && typeof (error as { name?: unknown }).name === 'string') {
+        errName = (error as { name: string }).name;
+      } else {
+        errName = 'ObjectError';
+      }
+      if ('stack' in error && typeof (error as { stack?: unknown }).stack === 'string') {
+        errStack = (error as { stack: string }).stack;
+      }
+    }
+
     logger.error(`An error occurred during the analysis for wallet ${walletAddress}:`,
         {
-            message: error?.message, 
-            name: error?.name,
-            stack: error?.stack,
-            details: error // Log the full error object for more details
+            message: errMessage,
+            name: errName,
+            stack: errStack,
+            originalError: error // Log the full error object for more details
         });
-    // Update run status to FAILED if applicable (runId and isHistoricalView are now in scope)
+    // Update run status to FAILED if applicable
     if (runId && !isHistoricalView) {
          try {
              await prisma.analysisRun.update({
                 where: { id: runId },
-                data: { status: 'FAILED', errorMessage: String(error) }
+                data: { status: 'FAILED', errorMessage: errMessage }
             });
             logger.warn(`Updated AnalysisRun ${runId} status to FAILED due to script error.`);
          } catch (updateError) {

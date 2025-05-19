@@ -64,9 +64,17 @@ export class PnlAnalysisService {
                 }
                 logger.debug(`[PnlAnalysis] Fetched ${swapInputs.length} swap input records from DB.`);
             } catch (dbError: any) {
-                logger.error(`[PnlAnalysis] Error fetching swap inputs for ${walletAddress}:`, { dbError });
-                analysisRunErrorMessage = dbError.message || String(dbError);
-                throw dbError; // Re-throw to be caught by the main try-catch, which will set FAILED status
+                const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+                const errorStack = dbError instanceof Error ? dbError.stack : undefined;
+                logger.error(
+                    `[PnlAnalysis] Error fetching swap inputs for ${walletAddress}. Message: ${errorMessage}`,
+                    {
+                        originalError: dbError,
+                        stack: errorStack
+                    }
+                );
+                analysisRunErrorMessage = errorMessage;
+                throw dbError;
             }
             
             let overallFirstTimestamp: number | undefined = undefined;

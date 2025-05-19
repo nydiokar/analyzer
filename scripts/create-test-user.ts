@@ -1,4 +1,5 @@
-import { DatabaseService } from '../src/api/database/database.service';
+import 'reflect-metadata';
+import { DatabaseService } from '../src/core/services/database-service';
 import { prisma } from '../src/core/services/database-service';
 
 async function main() {
