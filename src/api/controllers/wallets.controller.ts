@@ -21,6 +21,7 @@ import { PnlOverviewService, PnlOverviewResponse } from '../wallets/pnl_overview
 
 // DTOs
 import { TokenPerformanceQueryDto } from '../wallets/token_performance/token-performance-query.dto';
+import { WalletSummaryResponse } from '../wallets/summary/wallet-summary-response.dto';
 
 @ApiTags('Wallets')
 @Controller('wallets')
@@ -35,11 +36,21 @@ export class WalletsController {
   ) {}
 
   @Get(':walletAddress/summary')
-  @ApiOperation({ summary: 'Get a summary of a wallet including key metrics and behavior classification.' })
+  @ApiOperation({
+    summary: 'Get a comprehensive summary for a Solana wallet.',
+    description: 
+      'Retrieves a wallet summary including latest activity, active duration, key performance indicators (KPIs) like PNL and token win rate, \n' +
+      'a high-level behavior classification, and the raw advanced statistics and behavior metrics objects. \n' +
+      'This endpoint serves as a primary overview for a wallet, combining data from multiple underlying analyses.'
+  })
   @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address', type: String })
-  @ApiResponse({ status: 200, description: 'Wallet summary retrieved successfully.' })
-  @ApiResponse({ status: 404, description: 'Wallet not found or no analysis data available.' })
-  @ApiResponse({ status: 500, description: 'Internal server error.' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Wallet summary retrieved successfully. Provides a snapshot of wallet activity, performance, and behavior.',
+    type: WalletSummaryResponse 
+  })
+  @ApiResponse({ status: 404, description: 'Wallet not found or no analysis data available to generate a summary.' })
+  @ApiResponse({ status: 500, description: 'Internal server error encountered while generating wallet summary.' })
   async getWalletSummary(@Param('walletAddress') walletAddress: string, @Req() req: Request & { user?: any }) {
     const actionType = 'get_wallet_summary';
     const userId = req.user?.id;
@@ -75,14 +86,28 @@ export class WalletsController {
       }
       
       const lastActiveTimestamp = walletInfo?.newestProcessedTimestamp || advancedStats?.run?.runTimestamp?.getTime() / 1000 || null;
-      const daysActive = '[Days Active - Placeholder]';
+      let daysActive: string | number = '[Days Active - Placeholder]';
+      if (walletInfo?.firstProcessedTimestamp && lastActiveTimestamp) {
+        const firstActive = walletInfo.firstProcessedTimestamp;
+        const lastActive = lastActiveTimestamp;
+        if (lastActive >= firstActive) {
+          const diffSeconds = lastActive - firstActive;
+          daysActive = Math.ceil(diffSeconds / (60 * 60 * 24));
+        } else {
+          daysActive = 0;
+        }
+      } else if (lastActiveTimestamp && !walletInfo?.firstProcessedTimestamp) {
+        daysActive = 1;
+      } else if (!lastActiveTimestamp) {
+        daysActive = 0;
+      }
 
       const summary = {
         walletAddress,
         lastActiveTimestamp,
         daysActive,
         latestPnl: advancedStats?.medianPnlPerToken,
-        winRate: advancedStats?.tokenWinRatePercent,
+        tokenWinRate: advancedStats?.tokenWinRatePercent,
         behaviorClassification: behaviorMetrics?.tradingStyle || 'N/A',
         rawAdvancedStats: advancedStats, 
         rawBehaviorMetrics: behaviorMetrics,
@@ -174,11 +199,21 @@ export class WalletsController {
   }
 
   @Get(':walletAddress/pnl-overview')
-  @ApiOperation({ summary: 'Get PNL overview for a wallet.' })
+  @ApiOperation({
+    summary: 'Get a detailed Profit and Loss (PNL) overview for a wallet.',
+    description: 
+      'Provides a detailed breakdown of the wallet\'s profit and loss metrics. This includes realized PNL, SOL spent/received, \n' +
+      'swap-level win rates, trade volumes, and various advanced trading statistics like median PNL per token, \n' +
+      'profit consistency, and efficiency scores. Data is derived from the latest PNL analysis run.'
+  })
   @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address', type: String })
-  @ApiResponse({ status: 200, description: 'PNL overview retrieved successfully.', type: PnlOverviewResponse })
-  @ApiResponse({ status: 404, description: 'Wallet not found or no PNL overview available.' })
-  @ApiResponse({ status: 500, description: 'Internal server error.' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'PNL overview retrieved successfully, offering in-depth financial performance metrics.', 
+    type: PnlOverviewResponse 
+  })
+  @ApiResponse({ status: 404, description: 'Wallet not found or no PNL overview data is available (e.g., analysis pending or no relevant transactions).' })
+  @ApiResponse({ status: 500, description: 'Internal server error encountered while retrieving PNL overview.' })
   async getPnlOverview(@Param('walletAddress') walletAddress: string, @Req() req: Request & { user?: any }): Promise<PnlOverviewResponse> {
     const actionType = 'get_pnl_overview';
     const userId = req.user?.id;

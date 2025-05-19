@@ -6,7 +6,7 @@ import { SwapAnalysisSummary, AdvancedTradeStats } from '../../../types/helius-a
 export class PnlOverviewResponse {
   dataFrom?: string; 
   realizedPnl: number;
-  winRate?: number; 
+  swapWinRate?: number;
   winLossCount?: string; 
   avgPLTrade?: number;
   totalVolume?: number;
@@ -77,7 +77,7 @@ export class PnlOverviewService {
     return {
       dataFrom: dataFromString,
       realizedPnl: realizedPnl,
-      winRate: formatAdvancedStat(winRate, 1),
+      swapWinRate: formatAdvancedStat(winRate, 1),
       winLossCount: `${profitableSwaps}/${totalTrades} wins`,
       avgPLTrade: formatAdvancedStat(avgPLTrade, 2),
       totalVolume: formatAdvancedStat(totalVolume, 2),
