@@ -1,8 +1,9 @@
 import { BehaviorAnalyzer } from 'core/analysis/behavior/analyzer';
-import { DatabaseService } from 'core/services/database-service'; // Assuming export will be fixed
+import { DatabaseService, WalletBehaviorProfileUpsertData } from 'core/services/database-service'; // Assuming export will be fixed
 import { BehaviorAnalysisConfig } from '@/types/analysis';
-import { BehavioralMetrics } from '@/types/behavior';
+import { BehavioralMetrics, ActiveTradingPeriods } from '@/types/behavior';
 import { createLogger } from 'core/utils/logger';
+import { Prisma } from '@prisma/client'; // Import Prisma
 
 const logger = createLogger('BehaviorService');
 
@@ -37,9 +38,8 @@ export class BehaviorService {
 
       if (!swapRecords || swapRecords.length === 0) {
         logger.warn(`No swap records found for wallet ${walletAddress} within the specified time range.`);
-        // Return null instead of empty metrics to signify no data found for analysis
+        // Optionally, delete existing profile if no data? Or leave stale? For now, leave.
         return null; 
-        // Alternatively, return behaviorAnalyzer.getEmptyMetrics() if that's preferred downstream
       }
 
       // Use the injected BehaviorAnalyzer for calculations
@@ -47,19 +47,90 @@ export class BehaviorService {
       // and orchestrates the internal steps (build sequences, calc metrics, classify).
       const metrics = this.behaviorAnalyzer.analyze(swapRecords); 
 
-      // // 1. Build token sequences (Assuming analyzer handles this)
-      // // This might be internal to calculateBehavioralMetrics or a separate public method
-      // // Let's assume calculateBehavioralMetrics takes swapRecords directly for now
-      // 
-      // // 2. Calculate core metrics (Main analysis method)
-      // const metrics = this.behaviorAnalyzer.calculateBehavioralMetrics(swapRecords); // Pass raw swaps
-      // 
-      // // 3. Classify trading style (Assuming analyzer handles this)
-      // // This might be part of calculateBehavioralMetrics or a separate method
-      // // Let's assume calculateBehavioralMetrics returns metrics including style
-      // 
-      // // If classification is separate:
-      // // this.behaviorAnalyzer.classifyTradingStyle(metrics); 
+      if (metrics) {
+        // Destructure metrics to prepare for DB save
+        const {
+          // Core flipper metrics
+          buySellRatio,
+          buySellSymmetry,
+          averageFlipDurationHours,
+          medianHoldTime,
+          sequenceConsistency,
+          flipperScore,
+          // Supporting metrics
+          uniqueTokensTraded,
+          tokensWithBothBuyAndSell,
+          totalTradeCount,
+          totalBuyCount,
+          totalSellCount,
+          completePairsCount,
+          averageTradesPerToken,
+          // Time distribution
+          tradingTimeDistribution,
+          // Additional time metrics
+          percentTradesUnder1Hour,
+          percentTradesUnder4Hours,
+          // Classification
+          tradingStyle,
+          confidenceScore,
+          // New/Refined metrics from plan
+          tradingFrequency,
+          tokenPreferences,
+          riskMetrics,
+          reentryRate,
+          percentageOfUnpairedTokens,
+          sessionCount,
+          avgTradesPerSession,
+          activeTradingPeriods, // This is a JSON object
+          averageSessionStartHour,
+          averageSessionDurationMinutes,
+          firstTransactionTimestamp,
+          lastTransactionTimestamp,
+        } = metrics;
+
+        const profileDataToSave: WalletBehaviorProfileUpsertData = {
+          walletAddress,
+          buySellRatio,
+          buySellSymmetry,
+          averageFlipDurationHours,
+          medianHoldTime,
+          sequenceConsistency,
+          flipperScore,
+          uniqueTokensTraded,
+          tokensWithBothBuyAndSell,
+          totalTradeCount,
+          totalBuyCount,
+          totalSellCount,
+          completePairsCount,
+          averageTradesPerToken,
+          tradingTimeDistribution: tradingTimeDistribution as unknown as Prisma.InputJsonValue,
+          percentTradesUnder1Hour,
+          percentTradesUnder4Hours,
+          tradingStyle,
+          confidenceScore,
+          tradingFrequency: tradingFrequency as unknown as Prisma.InputJsonValue,
+          tokenPreferences: tokenPreferences as unknown as Prisma.InputJsonValue,
+          riskMetrics: riskMetrics as unknown as Prisma.InputJsonValue,
+          reentryRate,
+          percentageOfUnpairedTokens,
+          sessionCount,
+          avgTradesPerSession,
+          activeTradingPeriods: activeTradingPeriods as unknown as Prisma.InputJsonValue,
+          averageSessionStartHour,
+          averageSessionDurationMinutes,
+          firstTransactionTimestamp,
+          lastTransactionTimestamp,
+        };
+        
+        // Use the new DatabaseService method
+        const savedProfile = await this.databaseService.upsertWalletBehaviorProfile(profileDataToSave);
+        if (savedProfile) {
+          logger.info(`Successfully upserted WalletBehaviorProfile for ${walletAddress}`);
+        } else {
+          logger.error(`Failed to upsert WalletBehaviorProfile for ${walletAddress}`);
+          // Decide if this should be a critical error that stops the process or just a warning
+        }
+      }
 
       logger.info(`Completed behavior analysis for ${walletAddress}`);
       return metrics;

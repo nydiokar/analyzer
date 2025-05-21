@@ -4,7 +4,8 @@ import {
     SwapAnalysisInput,
     AnalysisRun,
     AnalysisResult,
-    AdvancedStatsResult,
+    AdvancedTradeStats,
+    WalletBehaviorProfile,
     Prisma, // Import Prisma namespace for input types
     User,         // Added User
     ActivityLog   // Added ActivityLog
@@ -47,7 +48,10 @@ export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'i
 // Type for creating an AdvancedStatsResult record (omit auto-generated id, add runId and walletAddress explicitly)
 // Define this type within or import it for the class method
 /** Data structure for the INPUT to saveAdvancedStats, containing the raw data points. */
-export type AdvancedStatsInput = Omit<Prisma.AdvancedStatsResultCreateInput, 'id' | 'run'> & { runId: number; /* walletAddress is already included */ };
+export type AdvancedTradeStatsInput = Omit<Prisma.AdvancedTradeStatsCreateInput, 'id' | 'run'> & { runId: number; /* walletAddress is already included */ };
+
+// Type for WalletBehaviorProfile upsert
+export type WalletBehaviorProfileUpsertData = Omit<Prisma.WalletBehaviorProfileCreateInput, 'wallet'> & { walletAddress: string };
 
 // --- DatabaseService Class ---
 
@@ -252,20 +256,59 @@ export class DatabaseService {
      * @returns The updated or newly created Wallet object, or null on error.
      */
     async updateWallet(walletAddress: string, data: WalletUpdateData): Promise<Wallet | null> {
-      this.logger.debug(`Upserting wallet data for: ${walletAddress}`, data);
+      this.logger.debug(`[DB Test] Attempting upsert for wallet: ${walletAddress}. Input data:`, data);
+
+      // For the UPDATE part, prepare the payload as usual
+      const updatePayload: Prisma.WalletUpdateInput = {};
+      if (data.firstProcessedTimestamp !== undefined && data.firstProcessedTimestamp !== null) {
+        updatePayload.firstProcessedTimestamp = Number(data.firstProcessedTimestamp);
+      }
+      if (data.newestProcessedSignature !== undefined && data.newestProcessedSignature !== null) {
+        updatePayload.newestProcessedSignature = String(data.newestProcessedSignature);
+      }
+      if (data.newestProcessedTimestamp !== undefined && data.newestProcessedTimestamp !== null) {
+        updatePayload.newestProcessedTimestamp = Number(data.newestProcessedTimestamp);
+      }
+      if (data.lastSuccessfulFetchTimestamp !== undefined && data.lastSuccessfulFetchTimestamp !== null) {
+        const tsDate = data.lastSuccessfulFetchTimestamp instanceof Date 
+            ? data.lastSuccessfulFetchTimestamp 
+            : new Date(data.lastSuccessfulFetchTimestamp);
+        if (!isNaN(tsDate.getTime())) {
+            updatePayload.lastSuccessfulFetchTimestamp = tsDate;
+        }
+      }
+      if (data.lastSignatureAnalyzed !== undefined && data.lastSignatureAnalyzed !== null) {
+        updatePayload.lastSignatureAnalyzed = String(data.lastSignatureAnalyzed);
+      }
+
+      const filteredUpdatePayload = Object.fromEntries(
+        Object.entries(updatePayload).filter(([, value]) => value !== undefined)
+      ) as Prisma.WalletUpdateInput;
+
+      // For the CREATE part, construct a full WalletCreateInput, including address.
+      // This is to directly address the runtime P2011 "Null constraint violation on address".
+      // Linter may complain about 'address' here based on previous observations, but we are testing runtime behavior.
+      const createPayloadForUpsert = {
+        where: { address: walletAddress },
+        create: {
+          address: walletAddress,
+          ...(data.firstProcessedTimestamp !== undefined && data.firstProcessedTimestamp !== null && { firstProcessedTimestamp: Number(data.firstProcessedTimestamp) }),
+          ...(data.newestProcessedSignature !== undefined && data.newestProcessedSignature !== null && { newestProcessedSignature: String(data.newestProcessedSignature) }),
+          ...(data.newestProcessedTimestamp !== undefined && data.newestProcessedTimestamp !== null && { newestProcessedTimestamp: Number(data.newestProcessedTimestamp) }),
+          ...(data.lastSuccessfulFetchTimestamp !== undefined && data.lastSuccessfulFetchTimestamp !== null && !isNaN(new Date(data.lastSuccessfulFetchTimestamp instanceof Date ? data.lastSuccessfulFetchTimestamp.toISOString() : data.lastSuccessfulFetchTimestamp).getTime()) && { lastSuccessfulFetchTimestamp: new Date(data.lastSuccessfulFetchTimestamp instanceof Date ? data.lastSuccessfulFetchTimestamp.toISOString() : data.lastSuccessfulFetchTimestamp) }),
+          ...(data.lastSignatureAnalyzed !== undefined && data.lastSignatureAnalyzed !== null && { lastSignatureAnalyzed: String(data.lastSignatureAnalyzed) }),
+        },
+        update: filteredUpdatePayload,
+      };
+
+      this.logger.debug(`[DB Test] Using createPayloadForUpsert: ${JSON.stringify(createPayloadForUpsert)}`);
+
       try {
-        const updatedWallet = await this.prismaClient.wallet.upsert({
-            where: { address: walletAddress },
-            update: data,
-            create: {
-                address: walletAddress,
-                ...data,
-            },
-        });
-        this.logger.info(`Successfully upserted wallet data for: ${walletAddress}`);
+        const updatedWallet = await this.prismaClient.wallet.upsert(createPayloadForUpsert);
+        this.logger.info(`[DB Test] Successfully upserted wallet: ${walletAddress}`);
         return updatedWallet;
-      } catch (error) {
-          this.logger.error(`Error upserting wallet ${walletAddress}`, { error, data });
+      } catch (error: any) {
+          this.logger.error(`[DB Test] Error upserting wallet ${walletAddress}. Create Payload: ${JSON.stringify(createPayloadForUpsert)}, Update Payload: ${JSON.stringify(filteredUpdatePayload)}`, { error: { message: error.message, code: error.code, meta: error.meta, name: error.name }, data });
           return null;
       }
     }
@@ -766,38 +809,37 @@ export class DatabaseService {
      * @param inputData The data object containing runId, walletAddress, and all individual stat fields.
      * @returns The newly created AdvancedStatsResult object, or null if stats already existed for the runId or an error occurred.
      */
-    async saveAdvancedStats(inputData: AdvancedStatsInput): Promise<AdvancedStatsResult | null> {
+    async saveAdvancedStats(inputData: AdvancedTradeStatsInput): Promise<AdvancedTradeStats | null> {
         const { runId, ...statsFields } = inputData; // Separate runId from stats fields
-        const walletAddress = statsFields.walletAddress; // Extract walletAddress for logging
-        
-        this.logger.debug(`Attempting to save advanced stats for run ID: ${runId}, wallet: ${walletAddress}...`);
+        // walletAddress for logging is tricky here as statsFields.walletPnlSummary is a create/connect input.
+        // For logging purposes, we'll acknowledge it might not be directly available or use the runId (which is walletPnlSummaryId).
+        this.logger.debug(`Attempting to save advanced stats for walletPnlSummary ID (runId): ${runId}...`);
         
         try {
-            // Construct the data payload required by Prisma create, including the relation connection
-            const dataToCreate: Prisma.AdvancedStatsResultCreateInput = {
-                ...statsFields, // Spread the individual statistic fields (medianPnlPerToken, etc.)
-                run: { // Explicitly connect to the AnalysisRun
-                    connect: { id: runId }
+            const dataToCreate: Prisma.AdvancedTradeStatsCreateInput = {
+                ...statsFields, 
+                walletPnlSummary: { 
+                    connect: { id: runId } // runId here is walletPnlSummaryId
                 }
             };
 
-            const savedStats = await this.prismaClient.advancedStatsResult.create({
+            const savedStats = await this.prismaClient.advancedTradeStats.create({
                 data: dataToCreate, 
             });
             return savedStats;
         } catch (error) {
-            // Handle potential unique constraint violation (P2002 on runId)
             if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
                 const target = (error.meta?.target as string[] | undefined) || [];
-                if (target.includes('runId')) { // Check if the unique constraint is indeed on runId
-                    this.logger.warn(`Advanced stats already exist for run ID: ${runId}. Ignoring duplicate save.`);
-                    return null; // Return null as per original function logic
+                // The unique constraint on AdvancedTradeStats is walletPnlSummaryId
+                if (target.includes('walletPnlSummaryId')) { 
+                    this.logger.warn(`Advanced stats already exist for walletPnlSummary ID: ${runId}. Ignoring duplicate save.`);
+                    return null; 
                 } else {
-                    this.logger.error(`Prisma unique constraint violation (P2002) on unexpected fields: ${target.join(', ')}`, { error, runId, walletAddress });
+                    this.logger.error(`Prisma unique constraint violation (P2002) on unexpected fields: ${target.join(', ')} for walletPnlSummaryId ${runId}`, { error });
                     return null;
                 }
             } else {
-                this.logger.error(`Error saving advanced stats for run ID: ${runId}`, { error, inputData });
+                this.logger.error(`Error saving advanced stats for walletPnlSummary ID: ${runId}`, { error, inputData });
                 return null;
             }
         }
@@ -832,20 +874,19 @@ export class DatabaseService {
      * @param runId The ID of the analysis run.
      * @returns The AdvancedStatsResult object or null if not found. 
      */
-    async getAdvancedStatsForRun(runId: number): Promise<AdvancedStatsResult | null> {
-        // This might need adjustment if multiple stats per run are possible
-        this.logger.debug(`Fetching AdvancedStatsResult for run ID: ${runId}`);
+    async getAdvancedStatsForRun(runId: number): Promise<AdvancedTradeStats | null> {
+        // Assuming runId here refers to walletPnlSummaryId based on schema
+        this.logger.debug(`Fetching AdvancedTradeStats for walletPnlSummary ID: ${runId}`);
         try {
-            // If there's only one expected per run, findFirst might be suitable
-            const stats = await this.prismaClient.advancedStatsResult.findFirst({
-                where: { runId: runId },
+            const stats = await this.prismaClient.advancedTradeStats.findUnique({ // findUnique as walletPnlSummaryId is unique
+                where: { walletPnlSummaryId: runId }, 
             });
              if (!stats) {
-                 this.logger.debug(`No AdvancedStatsResult found for run ${runId}.`);
+                 this.logger.debug(`No AdvancedTradeStats found for walletPnlSummaryId ${runId}.`);
              }
             return stats;
         } catch (error) {
-            this.logger.error(`Error fetching AdvancedStatsResult for run ${runId}`, { error });
+            this.logger.error(`Error fetching AdvancedTradeStats for walletPnlSummaryId ${runId}`, { error });
             return null;
         }
     }
@@ -856,24 +897,23 @@ export class DatabaseService {
      * @param walletAddress The public key of the wallet.
      * @returns The latest AdvancedStatsResult object if found, otherwise null.
      */
-    async getLatestAdvancedStatsByWallet(walletAddress: string): Promise<(AdvancedStatsResult & { run: AnalysisRun | null }) | null> {
+    async getLatestAdvancedStatsByWallet(walletAddress: string): Promise<AdvancedTradeStats | null> { // Return type simplified
       this.logger.debug(`Fetching latest advanced stats for wallet: ${walletAddress}`);
       try {
-        const advancedStats = await this.prismaClient.advancedStatsResult.findFirst({
-          where: { walletAddress: walletAddress },
+        const advancedStats = await this.prismaClient.advancedTradeStats.findFirst({
+          where: { walletPnlSummary: { walletAddress: walletAddress } },
           orderBy: {
-            run: {
-              runTimestamp: 'desc',
+            walletPnlSummary: { // Order by the related WalletPnlSummary's update timestamp
+              updatedAt: 'desc',
             },
           },
-          include: {
-            run: true, // Include the associated AnalysisRun data
-          },
+          // Removed: include: { run: true } - 'run' relation doesn't exist here
         });
 
         if (advancedStats) {
-          this.logger.debug(`Found latest advanced stats for wallet ${walletAddress}, run ID: ${advancedStats.runId}`);
-          return advancedStats as (AdvancedStatsResult & { run: AnalysisRun | null });
+          // Removed: advancedStats.runId - runId is not a direct field of AdvancedTradeStats
+          this.logger.debug(`Found latest advanced stats for wallet ${walletAddress}, associated with walletPnlSummaryId: ${advancedStats.walletPnlSummaryId}`);
+          return advancedStats;
         } else {
           this.logger.debug(`No advanced stats found for wallet ${walletAddress}`);
           return null;
@@ -993,4 +1033,35 @@ export class DatabaseService {
             throw new Error(`Failed to fetch PNL aggregates for wallet ${walletAddress}`);
         }
     }
+
+    /**
+     * Upserts a WalletBehaviorProfile record.
+     * @param data The data for creating or updating the wallet behavior profile.
+     * @returns The upserted WalletBehaviorProfile object or null on error.
+     */
+    async upsertWalletBehaviorProfile(data: WalletBehaviorProfileUpsertData): Promise<WalletBehaviorProfile | null> {
+        const { walletAddress, ...profileData } = data;
+        this.logger.debug(`Upserting WalletBehaviorProfile for wallet: ${walletAddress}`);
+        try {
+            const profile = await this.prismaClient.walletBehaviorProfile.upsert({
+                where: { walletAddress },
+                create: {
+                    ...profileData,
+                    wallet: {
+                        connectOrCreate: {
+                            where: { address: walletAddress },
+                            create: { address: walletAddress }
+                        }
+                    }
+                },
+                update: profileData
+            });
+            this.logger.info(`Successfully upserted WalletBehaviorProfile for wallet: ${walletAddress}`);
+            return profile;
+        } catch (error) {
+            this.logger.error(`Error upserting WalletBehaviorProfile for wallet ${walletAddress}:`, { error });
+            return null;
+        }
+    }
+
 }

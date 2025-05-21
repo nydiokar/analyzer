@@ -85,7 +85,7 @@ export class WalletsController {
         throw new NotFoundException(`No summary data available for wallet ${walletAddress}`);
       }
       
-      const lastActiveTimestamp = walletInfo?.newestProcessedTimestamp || advancedStats?.run?.runTimestamp?.getTime() / 1000 || null;
+      const lastActiveTimestamp = walletInfo?.newestProcessedTimestamp || advancedStats?.lastTransactionTimestamp || null;
       let daysActive: string | number = '[Days Active - Placeholder]';
       if (walletInfo?.firstProcessedTimestamp && lastActiveTimestamp) {
         const firstActive = walletInfo.firstProcessedTimestamp;

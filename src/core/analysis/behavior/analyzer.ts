@@ -3,6 +3,14 @@ import { BehavioralMetrics, ActiveTradingPeriods, IdentifiedTradingWindow } from
 import { SwapAnalysisInput } from '@prisma/client';
 import { createLogger } from 'core/utils/logger';
 
+// List of common utility token mints to exclude from behavioral analysis
+const EXCLUDED_TOKEN_MINTS: string[] = [
+  'So11111111111111111111111111111111111111112', // SOL / wSOL
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  // Add other quasi-native or stablecoin mints here if needed (e.g., JitoSOL, mSOL, other stables)
+];
+
 // Create logger at module level? Or pass instance?
 // Let's keep it internal to the class for now.
 
@@ -41,9 +49,15 @@ export class BehaviorAnalyzer {
    * @param swapRecords - Array of SwapAnalysisInput records for the wallet.
    * @returns BehavioralMetrics object.
    */
-  public analyze(swapRecords: SwapAnalysisInput[]): BehavioralMetrics {
-    this.logger.debug(`Starting behavior analysis for ${swapRecords.length} swap records.`);
-    
+  public analyze(rawSwapRecords: SwapAnalysisInput[]): BehavioralMetrics {
+    this.logger.debug(`Starting behavior analysis for ${rawSwapRecords.length} raw swap records.`);
+
+    // Filter out records involving excluded tokens FIRST
+    const swapRecords = rawSwapRecords.filter(
+      record => !EXCLUDED_TOKEN_MINTS.includes(record.mint)
+    );
+    this.logger.debug(`Filtered down to ${swapRecords.length} swap records after excluding utility tokens.`);
+
     let firstTransactionTimestamp: number | undefined = undefined;
     let lastTransactionTimestamp: number | undefined = undefined;
 
@@ -77,13 +91,42 @@ export class BehaviorAnalyzer {
     
     // Calculate trading frequency
     if (metrics.totalTradeCount > 0 && firstTransactionTimestamp && lastTransactionTimestamp && lastTransactionTimestamp >= firstTransactionTimestamp) {
-      let durationDays = (lastTransactionTimestamp - firstTransactionTimestamp) / (60 * 60 * 24);
-      if (durationDays <= 0) {
-        durationDays = 1; // Avoid division by zero or negative for single-day activity, count as 1 day
+      const wallClockDurationSeconds = lastTransactionTimestamp - firstTransactionTimestamp;
+      // actualDurationDays can be 0 if first and last timestamp are the same.
+      let actualDurationDays = wallClockDurationSeconds / (60 * 60 * 24);
+
+      // For tradesPerDay:
+      // If activity spans less than a day (i.e., actualDurationDays < 1),
+      // normalizationDaysForTpd becomes 1. So, tradesPerDay effectively becomes totalTradeCount.
+      // If activity spans more than a day, tradesPerDay is totalTradeCount / actualDurationDays.
+      const normalizationDaysForTpd = Math.max(1.0, actualDurationDays);
+      metrics.tradingFrequency.tradesPerDay = metrics.totalTradeCount / normalizationDaysForTpd;
+      
+      // For rate calculations (week/month), ensure we don't divide by zero if actualDurationDays is 0.
+      // Use a minimum of 1 minute (in days) for the denominator if actualDurationDays is 0.
+      // This handles cases like a single trade, or multiple trades at the exact same timestamp.
+      const minRateCalculationDurationDays = (actualDurationDays === 0) 
+        ? (1 / (24 * 60)) // 1 minute in days
+        : actualDurationDays;
+
+      // For tradesPerWeek:
+      if (actualDurationDays < 7) {
+        // If the observation period is less than 7 days, tradesPerWeek reflects the total count of trades observed.
+        metrics.tradingFrequency.tradesPerWeek = metrics.totalTradeCount;
+      } else {
+        // If observation period is 7 days or more, calculate the weekly rate.
+        metrics.tradingFrequency.tradesPerWeek = (metrics.totalTradeCount / minRateCalculationDurationDays) * 7;
       }
-      metrics.tradingFrequency.tradesPerDay = metrics.totalTradeCount / durationDays;
-      metrics.tradingFrequency.tradesPerWeek = metrics.tradingFrequency.tradesPerDay * 7;
-      metrics.tradingFrequency.tradesPerMonth = metrics.tradingFrequency.tradesPerDay * 30.4375; // Average days per month
+
+      // For tradesPerMonth:
+      const daysInAverageMonth = 30.4375;
+      if (actualDurationDays < daysInAverageMonth) {
+        // If the observation period is less than a month, tradesPerMonth reflects the total count of trades observed.
+        metrics.tradingFrequency.tradesPerMonth = metrics.totalTradeCount;
+      } else {
+        // If observation period is a month or more, calculate the monthly rate.
+        metrics.tradingFrequency.tradesPerMonth = (metrics.totalTradeCount / minRateCalculationDurationDays) * daysInAverageMonth;
+      }
     }
 
     // Calculate session metrics
@@ -122,6 +165,8 @@ export class BehaviorAnalyzer {
       // Supporting metrics
       uniqueTokensTraded: 0,
       tokensWithBothBuyAndSell: 0,
+      tokensWithOnlyBuys: 0,
+      tokensWithOnlySells: 0,
       totalTradeCount: 0,
       totalBuyCount: 0,
       totalSellCount: 0,
@@ -307,6 +352,19 @@ export class BehaviorAnalyzer {
 
     metrics.uniqueTokensTraded = sequences.length;
     metrics.tokensWithBothBuyAndSell = sequences.filter(s => s.buyCount > 0 && s.sellCount > 0).length;
+    metrics.tokensWithOnlyBuys = sequences.filter(s => s.buyCount > 0 && s.sellCount === 0).length;
+    metrics.tokensWithOnlySells = sequences.filter(s => s.sellCount > 0 && s.buyCount === 0).length;
+    
+    // Verification (can be logged or asserted during development)
+    if (metrics.uniqueTokensTraded !== (metrics.tokensWithBothBuyAndSell + metrics.tokensWithOnlyBuys + metrics.tokensWithOnlySells)) {
+      this.logger.warn(
+        `Token category sanity check failed: uniqueTokensTraded (${metrics.uniqueTokensTraded}) !== ` +
+        `tokensWithBothBuyAndSell (${metrics.tokensWithBothBuyAndSell}) + ` +
+        `tokensWithOnlyBuys (${metrics.tokensWithOnlyBuys}) + ` +
+        `tokensWithOnlySells (${metrics.tokensWithOnlySells})`
+      );
+    }
+
     metrics.totalBuyCount = sequences.reduce((sum, s) => sum + s.buyCount, 0);
     metrics.totalSellCount = sequences.reduce((sum, s) => sum + s.sellCount, 0);
     metrics.totalTradeCount = metrics.totalBuyCount + metrics.totalSellCount;
@@ -643,21 +701,17 @@ export class BehaviorAnalyzer {
   private calculateSessionMetrics(swapRecords: SwapAnalysisInput[]): {
     sessionCount: number;
     avgTradesPerSession: number;
-    activeTradingPeriods: ActiveTradingPeriods; // Changed from activeHoursDistribution
+    activeTradingPeriods: ActiveTradingPeriods;
     averageSessionStartHour: number;
     averageSessionDurationMinutes: number;
   } {
-    const hourlyTradeCounts: Record<number, number> = {};
-    for (let i = 0; i < 24; i++) hourlyTradeCounts[i] = 0;
-    
-    let totalNetworkTransactions = 0; // To pass to _identifyActiveTradingWindows
-
+    this.logger.debug(`Calculating session metrics for ${swapRecords.length} records.`);
     if (swapRecords.length === 0) {
       return {
         sessionCount: 0,
         avgTradesPerSession: 0,
         activeTradingPeriods: {
-          hourlyTradeCounts,
+          hourlyTradeCounts: {},
           identifiedWindows: [],
           activityFocusScore: 0,
         },
@@ -666,81 +720,79 @@ export class BehaviorAnalyzer {
       };
     }
 
-    const sortedRecords = [...swapRecords].sort((a, b) => a.timestamp - b.timestamp);
-    const SESSION_GAP_THRESHOLD_MINUTES = 60;
-    let sessionCount = 0;
-    let currentSessionTrades: SwapAnalysisInput[] = [];
-    const sessionStartHours: number[] = []; // Keep collecting individual start hours
-    const sessionDurationsMinutes: number[] = [];
-    let totalTradesInSessions = 0;
+    const timestamps = swapRecords.map(r => r.timestamp).sort((a, b) => a - b);
+    const totalTrades = timestamps.length;
 
-    sortedRecords.forEach((record, index) => {
-      const hour = new Date(record.timestamp * 1000).getUTCHours();
+    // --- 1. Calculate hourlyTradeCounts (raw UTC hourly counts) ---
+    const hourlyTradeCounts: Record<number, number> = {};
+    for (let i = 0; i < 24; i++) hourlyTradeCounts[i] = 0; 
+
+    timestamps.forEach(ts => {
+      const date = new Date(ts * 1000);
+      const hour = date.getUTCHours();
       hourlyTradeCounts[hour] = (hourlyTradeCounts[hour] || 0) + 1;
-      totalNetworkTransactions++; // Increment total transactions count
+    });
 
-      if (currentSessionTrades.length === 0) {
-        currentSessionTrades.push(record);
-        sessionStartHours.push(new Date(record.timestamp * 1000).getUTCHours());
-      } else {
-        const prevRecord = currentSessionTrades[currentSessionTrades.length - 1];
-        const gapMinutes = (record.timestamp - prevRecord.timestamp) / 60;
-        if (gapMinutes <= SESSION_GAP_THRESHOLD_MINUTES) {
-          currentSessionTrades.push(record);
-        } else {
-          // End current session
+    // --- 2. Identify Trading Windows using the sophisticated _identifyActiveTradingWindows method ---
+    const identifiedWindows = this._identifyActiveTradingWindows(hourlyTradeCounts, totalTrades);
+    
+    // --- 3. Calculate Activity Focus Score ---
+    const tradesInAllWindows = identifiedWindows.reduce((sum, w) => sum + w.tradeCountInWindow, 0);
+    const activityFocusScore = totalTrades > 0 ? (tradesInAllWindows / totalTrades) * 100 : 0;
+
+    // --- 4. Session Identification (Original/Simplified Logic) ---
+    let sessionCount = 0;
+    let currentSessionTradeCount = 0; 
+    let currentSessionStartTime = 0;
+    let totalSessionDurationMinutes = 0;
+    const sessionStartHours: number[] = [];
+    const SESSION_GAP_THRESHOLD_HOURS = this.config.sessionGapThresholdHours ?? 2;
+
+    if (timestamps.length > 0) {
+      sessionCount = 1;
+      currentSessionTradeCount = 1;
+      currentSessionStartTime = timestamps[0];
+      const startDate = new Date(timestamps[0] * 1000);
+      sessionStartHours.push(startDate.getUTCHours());
+
+      for (let i = 1; i < timestamps.length; i++) {
+        const previousTimestamp = timestamps[i-1];
+        const currentTimestamp = timestamps[i];
+        const diffHours = (currentTimestamp - previousTimestamp) / 3600;
+
+        if (diffHours > SESSION_GAP_THRESHOLD_HOURS) {
+          totalSessionDurationMinutes += (previousTimestamp - currentSessionStartTime) / 60;
           sessionCount++;
-          totalTradesInSessions += currentSessionTrades.length;
-          const sessionDuration = (currentSessionTrades[currentSessionTrades.length -1].timestamp - currentSessionTrades[0].timestamp) / 60;
-          sessionDurationsMinutes.push(sessionDuration);
-          // Start new session
-          currentSessionTrades = [record];
-          sessionStartHours.push(new Date(record.timestamp * 1000).getUTCHours());
+          currentSessionTradeCount = 1;
+          currentSessionStartTime = currentTimestamp;
+          const currentStartDate = new Date(currentTimestamp * 1000);
+          sessionStartHours.push(currentStartDate.getUTCHours());
+        } else {
+          currentSessionTradeCount++;
         }
       }
-    });
-
-    // Account for the last session
-    if (currentSessionTrades.length > 0) {
-      sessionCount++;
-      totalTradesInSessions += currentSessionTrades.length;
-      const sessionDuration = (currentSessionTrades[currentSessionTrades.length -1].timestamp - currentSessionTrades[0].timestamp) / 60;
-      sessionDurationsMinutes.push(sessionDuration);
+      totalSessionDurationMinutes += (timestamps[timestamps.length - 1] - currentSessionStartTime) / 60;
     }
-
-    const avgTradesPerSession = sessionCount > 0 ? totalTradesInSessions / sessionCount : 0;
     
-    // Calculate circular mean for averageSessionStartHour
+    const avgTradesPerSession = sessionCount > 0 ? totalTrades / sessionCount : 0;
+    const averageSessionDurationMinutes = sessionCount > 0 ? totalSessionDurationMinutes / sessionCount : 0;
+    
     let averageSessionStartHour = 0;
     if (sessionStartHours.length > 0) {
-      const angleSumX = sessionStartHours.reduce((sum, hour) => sum + Math.cos(hour * (2 * Math.PI / 24)), 0);
-      const angleSumY = sessionStartHours.reduce((sum, hour) => sum + Math.sin(hour * (2 * Math.PI / 24)), 0);
-      const meanAngle = Math.atan2(angleSumY, angleSumX);
-      averageSessionStartHour = (meanAngle * (24 / (2 * Math.PI)) + 24) % 24;
-    } // else remains 0
-
-    const averageSessionDurationMinutes = sessionDurationsMinutes.length > 0 ? sessionDurationsMinutes.reduce((a,b) => a+b,0) / sessionDurationsMinutes.length : 0;
-
-    // New logic for activeTradingPeriods
-    const identifiedWindows = this._identifyActiveTradingWindows(hourlyTradeCounts, totalNetworkTransactions);
-    
-    let tradesInAllWindows = 0;
-    identifiedWindows.forEach(window => {
-      tradesInAllWindows += window.tradeCountInWindow;
-    });
-
-    const activityFocusScore = totalNetworkTransactions > 0 ? tradesInAllWindows / totalNetworkTransactions : 0;
-
-    const activeTradingPeriods: ActiveTradingPeriods = {
-      hourlyTradeCounts,
-      identifiedWindows,
-      activityFocusScore,
-    };
+        const sumSin = sessionStartHours.reduce((sum, h) => sum + Math.sin(h * (2 * Math.PI / 24)), 0);
+        const sumCos = sessionStartHours.reduce((sum, h) => sum + Math.cos(h * (2 * Math.PI / 24)), 0);
+        averageSessionStartHour = (Math.atan2(sumSin, sumCos) * (24 / (2 * Math.PI)) + 24) % 24;
+        if (averageSessionStartHour < 0) averageSessionStartHour += 24;
+    }
 
     return {
       sessionCount,
       avgTradesPerSession,
-      activeTradingPeriods, // Now returning the full object
+      activeTradingPeriods: {
+        hourlyTradeCounts,
+        identifiedWindows, // Now populated by _identifyActiveTradingWindows
+        activityFocusScore,
+      },
       averageSessionStartHour,
       averageSessionDurationMinutes,
     };

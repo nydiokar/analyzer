@@ -7,7 +7,7 @@ import { WalletInfo, WalletCluster } from '@/types/wallet';
 import { ComprehensiveSimilarityResult } from 'core/analysis/similarity/similarity-service';
 import { SwapAnalysisSummary, OnChainAnalysisResult, AdvancedTradeStats } from '@/types/helius-api';
 import Papa from 'papaparse';
-import { table } from 'table';
+import { table, getBorderCharacters as getTableBorderChars } from 'table';
 import { formatTimestamp, formatSolAmount, formatNumber } from 'core/utils/formatters';
 
 const logger = createLogger('ReportUtils');
@@ -71,57 +71,137 @@ export function generateBehaviorReport(
     logger.debug(`Generating behavior report for ${walletAddress}`);
     const lines: string[] = [];
 
-    lines.push(`=== WALLET BEHAVIOR REPORT: ${walletAddress} ===`);
+    lines.push(`## WALLET BEHAVIOR REPORT: ${walletAddress}`);
     lines.push(`Generated on: ${new Date().toISOString()}`);
     lines.push('');
 
-    // Trading Style Classification
-    lines.push('**Trading Style Classification**');
+    // --- Trading Style Classification ---
+    lines.push('### Trading Style Classification');
     lines.push(`- Style: **${metrics.tradingStyle}**`);
-    lines.push(`- Confidence: ${(metrics.confidenceScore * 100).toFixed(1)}%`);
-    lines.push(`- Flipper Score: ${metrics.flipperScore.toFixed(3)}`);
+    lines.push(`- Confidence: ${formatNumber(metrics.confidenceScore * 100, 1)}%`);
+    lines.push(`- Flipper Score: ${formatNumber(metrics.flipperScore, 3)}`);
     lines.push('');
 
-    // Key Speed Metrics
-    lines.push('**Speed & Hold Time**');
-    lines.push(`- Avg Flip Duration: ${metrics.averageFlipDurationHours.toFixed(2)} hours`);
-    lines.push(`- Median Hold Time: ${metrics.medianHoldTime.toFixed(2)} hours`);
-    lines.push(`- % Trades < 1 Hour: ${(metrics.percentTradesUnder1Hour * 100).toFixed(1)}%`);
-    lines.push(`- % Trades < 4 Hours: ${(metrics.percentTradesUnder4Hours * 100).toFixed(1)}%`);
+    // --- Key Speed Metrics & Hold Time ---
+    lines.push('### Speed & Hold Time');
+    lines.push(`- Average Flip Duration: ${formatNumber(metrics.averageFlipDurationHours, 2)} hours`);
+    lines.push(`- Median Hold Time: ${formatNumber(metrics.medianHoldTime, 2)} hours`);
+    lines.push(`- % Trades < 1 Hour: ${formatNumber(metrics.percentTradesUnder1Hour * 100, 1)}%`);
+    lines.push(`- % Trades < 4 Hours: ${formatNumber(metrics.percentTradesUnder4Hours * 100, 1)}%`);
     lines.push('');
 
-    // Trading Time Distribution Table
-    lines.push('**Trading Time Distribution**');
-    lines.push('| Window   | % Trades |');
-    lines.push('|----------|----------|');
-    lines.push(`| < 30 min | ${(metrics.tradingTimeDistribution.ultraFast * 100).toFixed(1)}% |`);
-    lines.push(`| 30-60min | ${(metrics.tradingTimeDistribution.veryFast * 100).toFixed(1)}% |`);
-    lines.push(`| 1-4h     | ${(metrics.tradingTimeDistribution.fast * 100).toFixed(1)}% |`);
-    lines.push(`| 4-8h     | ${(metrics.tradingTimeDistribution.moderate * 100).toFixed(1)}% |`);
-    lines.push(`| 8-24h    | ${(metrics.tradingTimeDistribution.dayTrader * 100).toFixed(1)}% |`);
-    lines.push(`| 1-7d     | ${(metrics.tradingTimeDistribution.swing * 100).toFixed(1)}% |`);
-    lines.push(`| > 7d     | ${(metrics.tradingTimeDistribution.position * 100).toFixed(1)}% |`);
+    // --- Trading Time Distribution (Existing Bucketed) ---
+    lines.push('### Trading Time Distribution (Categorized)');
+    lines.push('| Window          | % Trades |');
+    lines.push('|-----------------|----------|');
+    lines.push(`| < 30 min        | ${formatNumber(metrics.tradingTimeDistribution.ultraFast * 100, 1)}% |`);
+    lines.push(`| 30-60 min       | ${formatNumber(metrics.tradingTimeDistribution.veryFast * 100, 1)}% |`);
+    lines.push(`| 1-4 hours       | ${formatNumber(metrics.tradingTimeDistribution.fast * 100, 1)}% |`);
+    lines.push(`| 4-8 hours       | ${formatNumber(metrics.tradingTimeDistribution.moderate * 100, 1)}% |`);
+    lines.push(`| 8-24 hours      | ${formatNumber(metrics.tradingTimeDistribution.dayTrader * 100, 1)}% |`);
+    lines.push(`| 1-7 days        | ${formatNumber(metrics.tradingTimeDistribution.swing * 100, 1)}% |`);
+    lines.push(`| > 7 days        | ${formatNumber(metrics.tradingTimeDistribution.position * 100, 1)}% |`);
     lines.push('');
 
-    // Buy/Sell Patterns
-    lines.push('**Buy/Sell Patterns**');
+    // --- Trading Frequency ---
+    lines.push('### Trading Frequency');
+    lines.push(`- Trades per Day: ${formatNumber(metrics.tradingFrequency.tradesPerDay, 2)}`);
+    lines.push(`- Trades per Week: ${formatNumber(metrics.tradingFrequency.tradesPerWeek, 2)}`);
+    lines.push(`- Trades per Month: ${formatNumber(metrics.tradingFrequency.tradesPerMonth, 2)}`);
+    lines.push('');
+
+    // --- Session-Based Metrics ---
+    lines.push('### Session-Based Metrics');
+    lines.push(`- Session Count: ${metrics.sessionCount}`);
+    lines.push(`- Average Trades per Session: ${formatNumber(metrics.avgTradesPerSession, 2)}`);
+    lines.push(`- Average Session Start Hour (UTC): ${metrics.averageSessionStartHour === -1 ? 'N/A' : metrics.averageSessionStartHour.toFixed(0).padStart(2, '0') + ':00'}`);
+    lines.push(`- Average Session Duration: ${formatNumber(metrics.averageSessionDurationMinutes, 1)} minutes`);
+    lines.push('');
+    
+    // --- Active Trading Periods ---
+    lines.push('### Active Trading Periods');
+    lines.push(`- Activity Focus Score: ${formatNumber(metrics.activeTradingPeriods.activityFocusScore, 1)}%`);
+    lines.push('');
+
+    lines.push('#### Hourly Trade Counts (UTC)');
+    if (Object.keys(metrics.activeTradingPeriods.hourlyTradeCounts).length > 0) {
+        const hourlyData = [['Hour (UTC)', 'Trade Count']];
+        for (const hour in metrics.activeTradingPeriods.hourlyTradeCounts) {
+            hourlyData.push([`${hour.padStart(2, '0')}:00-${(parseInt(hour) + 1).toString().padStart(2, '0')}:00`, metrics.activeTradingPeriods.hourlyTradeCounts[hour].toString()]);
+        }
+        lines.push(table(hourlyData));
+    } else {
+        lines.push('No hourly trade data available.');
+    }
+    lines.push('');
+
+    lines.push('#### Identified Trading Windows');
+    if (metrics.activeTradingPeriods.identifiedWindows.length > 0) {
+        const windowsData = [['Start (UTC)', 'End (UTC)', 'Duration (hrs)', 'Trades', '% Total Trades', 'Avg Trades/hr']];
+        metrics.activeTradingPeriods.identifiedWindows.forEach(w => {
+            windowsData.push([
+                `${w.startTimeUTC.toString().padStart(2, '0')}:00 UTC`,
+                `${w.endTimeUTC.toString().padStart(2, '0')}:00 UTC`,
+                formatNumber(w.durationHours, 2),
+                w.tradeCountInWindow.toString(),
+                formatNumber(w.percentageOfTotalTrades, 1) + '%',
+                formatNumber(w.avgTradesPerHourInWindow, 2)
+            ]);
+        });
+        lines.push(table(windowsData));
+    } else {
+        lines.push('No significant trading windows identified.');
+    }
+    lines.push('');
+
+    // --- Buy/Sell Patterns & Token Interaction ---
+    lines.push('### Buy/Sell Patterns & Token Interaction');
     lines.push(`- Total Buy Count: ${metrics.totalBuyCount}`);
     lines.push(`- Total Sell Count: ${metrics.totalSellCount}`);
-    lines.push(`- Buy:Sell Ratio (Overall): ${metrics.buySellRatio === Infinity ? 'INF' : metrics.buySellRatio.toFixed(2)}:1`);
-    lines.push(`- Token-Level Symmetry: ${(metrics.buySellSymmetry * 100).toFixed(1)}%`);
-    lines.push(`- Sequence Consistency: ${(metrics.sequenceConsistency * 100).toFixed(1)}%`);
+    lines.push(`- Buy:Sell Ratio (Overall): ${metrics.buySellRatio === Infinity ? 'INF' : formatNumber(metrics.buySellRatio, 2)}:1`);
+    lines.push(`- Token-Level Buy/Sell Symmetry: ${formatNumber(metrics.buySellSymmetry * 100, 1)}%`);
+    lines.push(`- Sequence Consistency (Buy before Sell): ${formatNumber(metrics.sequenceConsistency * 100, 1)}%`);
     lines.push(`- Complete Buy->Sell Pairs: ${metrics.completePairsCount}`);
+    lines.push(`- Re-entry Rate (Repurchasing sold tokens): ${formatNumber(metrics.reentryRate * 100, 1)}%`);
+    lines.push(`- Percentage of Unpaired Tokens: ${formatNumber(metrics.percentageOfUnpairedTokens, 1)}%`);
     lines.push('');
 
-    // Activity Summary
-    lines.push('**Activity Summary**');
+    // --- Risk & Value Metrics ---
+    lines.push('### Risk & Value Metrics');
+    lines.push(`- Average Transaction Value (SOL): ${formatSolAmount(metrics.riskMetrics.averageTransactionValueSol)}`);
+    lines.push(`- Largest Transaction Value (SOL): ${formatSolAmount(metrics.riskMetrics.largestTransactionValueSol)}`);
+    // Diversification score was removed.
+    lines.push('');
+
+    // --- Token Preferences ---
+    lines.push('### Token Preferences');
+    lines.push('#### Most Traded Tokens (by Count)');
+    if (metrics.tokenPreferences.mostTradedTokens.length > 0) {
+        const mostTradedData = [['Token', 'Count']];
+        metrics.tokenPreferences.mostTradedTokens.slice(0, 10).forEach(t => {
+            mostTradedData.push([
+                getTokenDisplayName(t.mint),
+                t.count.toString()
+            ]);
+        });
+        lines.push(table(mostTradedData));
+    } else {
+        lines.push('No trading activity to determine most traded tokens.');
+    }
+    lines.push('');
+    // mostProfitableTokens was removed. topNetPositiveAmountTokens was postponed.
+
+    // --- Activity Summary (Counts) ---
+    lines.push('### Activity Summary (Counts)');
     lines.push(`- Unique Tokens Traded: ${metrics.uniqueTokensTraded}`);
-    lines.push(`- Tokens with Buys & Sells: ${metrics.tokensWithBothBuyAndSell}`);
-    lines.push(`- Total Trades Recorded: ${metrics.totalTradeCount}`);
-    lines.push(`- Avg Trades Per Token: ${metrics.averageTradesPerToken.toFixed(2)}`);
+    lines.push(`- Tokens with Both Buys & Sells: ${metrics.tokensWithBothBuyAndSell}`);
+    lines.push(`- Tokens with Only Buys (No Sells): ${metrics.tokensWithOnlyBuys}`);
+    lines.push(`- Tokens with Only Sells (No Buys): ${metrics.tokensWithOnlySells}`);
+    lines.push(`- Total Swaps Recorded: ${metrics.totalTradeCount}`); // totalTradeCount is more aligned with swaps
+    lines.push(`- Average Swaps Per Token: ${formatNumber(metrics.averageTradesPerToken, 2)}`);
     lines.push('');
 
-    lines.push('=== END REPORT ===');
+    lines.push('--- END OF BEHAVIOR REPORT ---');
 
     return lines.join('\n');
 }
@@ -433,28 +513,49 @@ export function generateSwapPnlReport(
     timeRange?: string
 ): string {
     const lines: string[] = [];
-    const { results, advancedStats } = summary;
+    const {
+        results,
+        netPnl,
+        profitableTokensCount,
+        unprofitableTokensCount,
+        totalExecutedSwapsCount,
+        averageRealizedPnlPerExecutedSwap,
+        realizedPnlToTotalVolumeRatio,
+        advancedStats,
+        overallFirstTimestamp,
+        overallLastTimestamp,
+        totalVolume
+    } = summary;
+
+    // Calculate overallSolSpent and overallSolReceived from results if not directly on summary
+    // PnlAnalysisService *should* be adding these if they are for top-level reporting.
+    // For this fix, we'll assume PnlAnalysisService ensures summary has these,
+    // or we calculate them. Let's calculate for robustness here.
+    const calculatedOverallSolSpent = results.reduce((acc, r) => acc + (r.totalSolSpent || 0), 0);
+    const calculatedOverallSolReceived = results.reduce((acc, r) => acc + (r.totalSolReceived || 0), 0);
 
     lines.push(`## 📊 Solana Wallet P/L Analysis: ${walletAddress}`);
     if (timeRange) {
         lines.push(`**Analysis Period:** ${timeRange}`);
     }
     lines.push(`**Report Generated:** ${new Date().toISOString()}`);
-    lines.push(`**Data from:** ${summary.overallFirstTimestamp ? formatTimestamp(summary.overallFirstTimestamp) : 'N/A'} to ${summary.overallLastTimestamp ? formatTimestamp(summary.overallLastTimestamp) : 'N/A'}`);
+    lines.push(`**Data from:** ${overallFirstTimestamp ? formatTimestamp(overallFirstTimestamp) : 'N/A'} to ${overallLastTimestamp ? formatTimestamp(overallLastTimestamp) : 'N/A'}`);
     lines.push("\n---\n");
 
     // Overall Summary Section - Directly from SwapAnalysisSummary
     lines.push("### 📈 Overall Performance Summary");
-    lines.push(`- **Total Realized P/L (SOL):** ${formatSolAmount(summary.realizedPnl)}`);
-    const totalTrades = summary.profitableSwaps + summary.unprofitableSwaps; // Calculate total trades
-    const winRate = totalTrades > 0 ? (summary.profitableSwaps / totalTrades) * 100 : 0;
-    lines.push(`- **Total SOL Volume (Buy+Sell):** ${formatSolAmount(summary.totalVolume)}`);
-    lines.push(`- **Total Trades:** ${totalTrades}`);
-    lines.push(`- **Winning Trades:** ${summary.profitableSwaps} (${winRate.toFixed(1)}%)`);
-    lines.push(`- **Losing Trades:** ${summary.unprofitableSwaps}`);
-    // Breakeven trades are not directly available in SwapAnalysisSummary, so we omit or infer if necessary.
-    // For average P/L, largest win/loss, these would need to be calculated from `results` or added to SwapAnalysisSummary if critical for this report.
-    // For now, sticking to what's directly available or easily derived from SwapAnalysisSummary.
+    lines.push(`- **Total Realized P/L (SOL):** ${formatSolAmount(netPnl)}`);
+    lines.push(`- **Total SOL Spent (on buys):** ${formatSolAmount(calculatedOverallSolSpent)}`);
+    lines.push(`- **Total SOL Received (from sells):** ${formatSolAmount(calculatedOverallSolReceived)}`);
+    lines.push(`- **Profitable Tokens:** ${profitableTokensCount}`);
+    lines.push(`- **Unprofitable Tokens:** ${unprofitableTokensCount}`);
+    const totalTokensCounted = profitableTokensCount + unprofitableTokensCount;
+    const winRatePercent = totalTokensCounted > 0 ? (profitableTokensCount / totalTokensCounted) * 100 : 0;
+    lines.push(`- **Token Win Rate:** ${formatNumber(winRatePercent, 1)}% (based on ${totalTokensCounted} tokens)`);
+    lines.push(`- **Total Executed Swaps:** ${totalExecutedSwapsCount}`);
+    lines.push(`- **Avg. Realized PNL per Executed Swap:** ${formatSolAmount(averageRealizedPnlPerExecutedSwap)}`);
+    lines.push(`- **Realized PNL to Total Volume Ratio:** ${formatNumber(realizedPnlToTotalVolumeRatio * 100, 2)}%`);
+    lines.push(`- **Total SOL Volume (Buy+Sell):** ${formatSolAmount(totalVolume)}`);
     lines.push("\n---\n");
 
     // Advanced Stats Section - Directly from SwapAnalysisSummary.advancedStats (type AdvancedTradeStats)
@@ -490,10 +591,11 @@ export function generateSwapPnlReport(
             `${formatDate(token.firstTransferTimestamp)} / ${formatDate(token.lastTransferTimestamp)}`
         ]);
     }
-    lines.push(table(tableData, { border: getBorderCharacters('markdown') }));
+    lines.push(table(tableData, { border: getTableBorderChars('ramac') }));
     lines.push("\n---\n");
     lines.push("Generated by Solana P/L Analyzer.");
 
+    lines.push('--- END OF P/L REPORT ---');
     return lines.join('\n');
 }
 
@@ -506,66 +608,75 @@ export function generateSwapPnlReport(
  * @returns A string in CSV format.
  */
 export function generateSwapPnlCsv(summary: SwapAnalysisSummary, walletAddress?: string, runId?: number): string {
-    logger.debug(`Generating CSV PNL report for wallet: ${walletAddress}`);
-    
-    // Base headers
-    const baseHeaders = [
-        'Token Address', 'Token Symbol',
-        'Total Amount In', 'Total Amount Out', 'Net Amount Change', 
-        'Total SOL Spent', 'Total SOL Received', 'Total Fees Paid (SOL)', 
-        'Net SOL P/L', 'Is Value Preservation', 'Preservation Type', 
-        'Estimated Preserved Value (SOL)', 'Adjusted Net SOL P/L',
-        'Transfer Count In', 'Transfer Count Out', 
-        'First Transfer Timestamp', 'Last Transfer Timestamp',
-        // Overall summary stats added to each row
-        'Overall First Tx Timestamp', 'Overall Last Tx Timestamp', 
-        'Overall Realized PNL', 'Overall Unrealized PNL', 'Overall Net PNL', 'Overall Stablecoin Net Flow'
-    ];
+    if (!summary || !summary.results) {
+        logger.warn('[ReportUtils] No summary or results provided for CSV generation.');
+        return '';
+    }
 
-    // Dynamically add headers for optional fields
-    let finalHeaders = [...baseHeaders];
-    if (walletAddress) finalHeaders.unshift('Wallet Address');
-    if (runId) finalHeaders.unshift('Run ID');
+    const csvData = summary.results.map(res => ({
+        Wallet: walletAddress || 'N/A',
+        RunID: runId || 'N/A',
+        TokenAddress: res.tokenAddress,
+        TokenSymbol: getTokenDisplayName(res.tokenAddress),
+        TotalSolSpent: res.totalSolSpent,
+        TotalSolReceived: res.totalSolReceived,
+        NetSolProfitLoss: res.netSolProfitLoss,
+        TotalTokenIn: res.totalAmountIn,
+        TotalTokenOut: res.totalAmountOut,
+        NetAmountChange: res.netAmountChange,
+        AvgBuyPriceSol: 'N/A',
+        AvgSellPriceSol: 'N/A',
+        FirstTransferTimestamp: formatTimestamp(res.firstTransferTimestamp),
+        LastTransferTimestamp: formatTimestamp(res.lastTransferTimestamp),
+        TransferCountIn: res.transferCountIn,
+        TransferCountOut: res.transferCountOut,
+        ValuePreservation: res.isValuePreservation,
+        EstimatedPreservedValue: res.estimatedPreservedValue,
+    }));
 
-    const rows = summary.results.map(result => {
-        const rowData = [
-            result.tokenAddress, getTokenDisplayName(result.tokenAddress),
-            result.totalAmountIn,
-            result.totalAmountOut,
-            result.netAmountChange,
-            result.totalSolSpent,
-            result.totalSolReceived,
-            result.totalFeesPaidInSol ?? 0,
-            result.netSolProfitLoss,
-            result.isValuePreservation ? 'TRUE' : 'FALSE',
-            result.preservationType ?? 'N/A',
-            result.estimatedPreservedValue ?? 0,
-            result.adjustedNetSolProfitLoss ?? result.netSolProfitLoss,
-            result.transferCountIn,
-            result.transferCountOut,
-            result.firstTransferTimestamp,
-            result.lastTransferTimestamp,
-            // Add overall summary stats
-            summary.firstTransactionTimestamp ?? 'N/A',
-            summary.lastTransactionTimestamp ?? 'N/A',
-            summary.realizedPnl,
-            summary.unrealizedPnl,
-            summary.netPnl,
-            summary.stablecoinNetFlow
-        ];
-        // Add optional fields in correct order
-        if (walletAddress) rowData.unshift(walletAddress);
-        if (runId) rowData.unshift(runId);
-        return rowData;
-    });
+    // Calculate these from summary.results for robustness if not on top-level summary passed to this function
+    const calculatedOverallSolSpent = summary.results.reduce((acc, r) => acc + (r.totalSolSpent || 0), 0);
+    const calculatedOverallSolReceived = summary.results.reduce((acc, r) => acc + (r.totalSolReceived || 0), 0);
+
+    const overallSummaryLine = {
+        Wallet: walletAddress || 'N/A',
+        RunID: runId || 'N/A',
+        TokenAddress: 'OVERALL_SUMMARY',
+        TokenSymbol: 'N/A',
+        TotalSolSpent: calculatedOverallSolSpent,
+        TotalSolReceived: calculatedOverallSolReceived,
+        NetSolProfitLoss: summary.netPnl,
+        TotalTokenIn: 'N/A',
+        TotalTokenOut: 'N/A',
+        NetAmountChange: 'N/A',
+        AvgBuyPriceSol: 'N/A',
+        AvgSellPriceSol: 'N/A',
+        FirstTransferTimestamp: formatTimestamp(summary.overallFirstTimestamp),
+        LastTransferTimestamp: formatTimestamp(summary.overallLastTimestamp),
+        TransferCountIn: 'N/A',
+        TransferCountOut: 'N/A',
+        ValuePreservation: 'N/A',
+        EstimatedPreservedValue: 'N/A',
+        ProfitableTokensCount: summary.profitableTokensCount,
+        UnprofitableTokensCount: summary.unprofitableTokensCount,
+        TotalExecutedSwapsCount: summary.totalExecutedSwapsCount,
+        AverageRealizedPnlPerExecutedSwap: summary.averageRealizedPnlPerExecutedSwap,
+        RealizedPnlToTotalVolumeRatio: summary.realizedPnlToTotalVolumeRatio,
+        TotalVolume: summary.totalVolume,
+    };
+
+    if (summary.advancedStats) {
+        // @ts-ignore - Assuming these fields exist for the CSV
+        overallSummaryLine.WinRate = summary.advancedStats.tokenWinRatePercent;
+        // @ts-ignore
+        overallSummaryLine.ProfitFactor = summary.advancedStats.profitFactor;
+    }
 
     try {
-        const csvContent = Papa.unparse({ fields: finalHeaders, data: rows }, { header: true });
-        logger.debug(`Finished generating CSV PNL report`);
-        return csvContent;
-    } catch (error) {
-        logger.error('Failed to generate CSV string:', { error });
-        return ''; // Return empty string on error
+        return Papa.unparse([overallSummaryLine, ...csvData]);
+    } catch (err) {
+        logger.error('Error unparsing CSV data:', err);
+        return '';
     }
 }
 
@@ -577,7 +688,7 @@ export function generateSwapPnlCsv(summary: SwapAnalysisSummary, walletAddress?:
  * @param type - The type of report ('individual' or 'comparison') used for subfolder.
  * @returns The full path to the saved report file.
  */
-export function saveReport(id: string, content: string, type: 'individual' | 'comparison' | 'correlation' | 'similarity' | 'swap_pnl' | 'swap_pnl_csv' | string, fileExtension: 'md' | 'csv' = 'md'): string { // Added types and extension
+export function saveReport(id: string, content: string, type: 'individual' | 'comparison' | 'correlation' | 'similarity' | 'swap_pnl' | 'swap_pnl_csv' | string, fileExtension: 'md' | 'csv' = 'md'): string {
     const reportsDir = path.join(process.cwd(), 'analysis_reports', type); // Use type for subfolder
     if (!fs.existsSync(reportsDir)) {
         fs.mkdirSync(reportsDir, { recursive: true });
@@ -599,37 +710,6 @@ export function saveReport(id: string, content: string, type: 'individual' | 'co
     }
 }
 
-// Helper function to define table border characters for 'table' package
-// This was potentially in a different util file or part of the original script, ensure it's defined.
-function getBorderCharacters(templateName: string): any {
-    if (templateName === 'markdown') {
-        return {
-            top: '-',
-            topMid: '+',
-            topLeft: '|',
-            topRight: '|',
-            bottom: '-',
-            bottomMid: '+',
-            bottomLeft: '|',
-            bottomRight: '|',
-            left: '|',
-            leftMid: '+',
-            mid: '-',
-            midMid: '+',
-            right: '|',
-            rightMid: '+',
-            middle: '|',
-        };
-    }
-    // Default: norc (as used in other examples, if any)
-    return {
-        top: '-' , topMid: '-' , topLeft: '-' , topRight: '-'
-        , bottom: '-' , bottomMid: '-' , bottomLeft: '-' , bottomRight: '-'
-        , left: ' ' , leftMid: '' , mid: '-' , midMid: '-'
-        , right: ' ' , rightMid: '' , middle: ' '
-    };
-}
-
 // -- Telegram Specific Report Utilities (Now HTML) --
 
 /**
@@ -646,26 +726,26 @@ export function generatePnlOverviewHtmlTelegram(
     if (!summary) {
         return `<b>💰 PNL Overview for <code>${walletAddress}</code>:</b>\n⚠️ No PNL data available or analysis was skipped.`;
     }
-    const { realizedPnl, profitableSwaps, unprofitableSwaps, totalVolume, advancedStats, overallFirstTimestamp, overallLastTimestamp } = summary;
-    const totalTrades = (profitableSwaps ?? 0) + (unprofitableSwaps ?? 0);
-    const winRate = totalTrades > 0 ? ((profitableSwaps ?? 0) / totalTrades) * 100 : 0;
-    const avgPnlPerTrade = totalTrades > 0 ? (realizedPnl ?? 0) / totalTrades : 0;
+    const { realizedPnl, profitableTokensCount, unprofitableTokensCount, totalVolume, advancedStats, overallFirstTimestamp, overallLastTimestamp } = summary;
+    const totalTrades = (profitableTokensCount || 0) + (unprofitableTokensCount || 0);
+    const winRate = totalTrades > 0 ? ((profitableTokensCount || 0) / totalTrades) * 100 : 0;
+    const avgPnlPerTrade = totalTrades > 0 ? (realizedPnl || 0) / totalTrades : 0;
 
     let message = `<b>💰 PNL Overview for <code>${walletAddress}</code>:</b>\n`;
     if (overallFirstTimestamp && overallLastTimestamp) {
         message += `<i>Data from: ${formatTimestamp(overallFirstTimestamp)} to ${formatTimestamp(overallLastTimestamp)}</i>\n`;
     }
-    message += `  Realized PNL: <b>${formatSolAmount(realizedPnl ?? 0, 2)} SOL</b>\n`;
-    message += `  Win Rate: <b>${winRate.toFixed(1)}%</b> (${profitableSwaps ?? 0}/${totalTrades} wins)\n`;
+    message += `  Realized PNL: <b>${formatSolAmount(realizedPnl || 0, 2)} SOL</b>\n`;
+    message += `  Win Rate: <b>${winRate.toFixed(1)}%</b> (${profitableTokensCount || 0}/${totalTrades} wins)\n`;
     message += `  Avg P/L Trade: <b>${formatSolAmount(avgPnlPerTrade, 2)} SOL</b>\n`;
 
     if (advancedStats) {
-        message += `  Token Win Rate: <b>${formatNumber(advancedStats.tokenWinRatePercent ?? 0, 1)}%</b>\n`;
-        message += `  Median P/L Token: <b>${formatSolAmount(advancedStats.medianPnlPerToken ?? 0, 2)} SOL</b>\n`;
+        message += `  Token Win Rate: <b>${formatNumber(advancedStats.tokenWinRatePercent, 1)}%</b>\n`;
+        message += `  Median P/L Token: <b>${formatSolAmount(advancedStats.medianPnlPerToken, 2)} SOL</b>\n`;
     } else {
         message += `  Advanced stats: N/A\n`;
     }
-    message += `  Total Volume: <b>${formatSolAmount(totalVolume ?? 0, 2)} SOL</b>`;
+    message += `  Total Volume: <b>${formatSolAmount(totalVolume || 0, 2)} SOL</b>`;
 
     return message;
 }

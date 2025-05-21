@@ -67,6 +67,14 @@ async function main() {
             description: `Comma-separated list of token mints to exclude. Adds to defaults: ${DEFAULT_EXCLUDED_MINTS.join(', ')}`,
             default: '' 
         })
+        .option('sessionGapThresholdHours', {
+            type: 'number',
+            description: 'Override default session gap threshold in hours for behavior analysis.'
+        })
+        .option('activityWindowThresholdMultiplier', {
+            type: 'number',
+            description: 'Override default activity window threshold multiplier for behavior analysis.'
+        })
         .help()
         .alias('help', 'h')
         .argv;
@@ -91,7 +99,9 @@ async function main() {
     const dbService = new DatabaseService(); 
     const analysisConfig: BehaviorAnalysisConfig = {
         timeRange: timeRange,
-        excludedMints: finalExcludedMints
+        excludedMints: finalExcludedMints,
+        sessionGapThresholdHours: argv.sessionGapThresholdHours,
+        activityWindowThresholdMultiplier: argv.activityWindowThresholdMultiplier,
     }; 
     const behaviorService = new BehaviorService(dbService, analysisConfig); 
     
@@ -109,7 +119,7 @@ async function main() {
             // 2. Generate and save the report using ReportingService
             logger.info(`Generating and saving report for ${walletId}...`);
             // Use the specific method added to ReportingService
-            reportingService.generateAndSaveIndividualBehaviorReport(walletAddress, metrics);
+            reportingService.generateAndSaveBehaviorReportMD(walletAddress, metrics);
             logger.info(`Analysis and report generation complete for ${walletId}.`);
         } else {
             logger.warn(`No metrics could be generated for wallet ${walletId}. Report not created.`);

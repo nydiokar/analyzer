@@ -19,6 +19,8 @@ import { HeliusSyncService, SyncOptions } from 'core/services/helius-sync-servic
 import { PnlAnalysisService } from 'core/services/pnl-analysis-service';
 import { DatabaseService, prisma } from 'core/services/database-service'; 
 import { ReportingService } from 'core/reporting/reportGenerator'; 
+import { BehaviorService } from 'core/analysis/behavior/behavior-service';
+import { BehaviorAnalysisConfig } from '@/types/analysis';
 
 // Initialize environment variables
 dotenv.config();
@@ -68,6 +70,11 @@ async function analyzeWalletWithHelius() {
       default: false,
       description: 'Skip Helius API calls and analyze only data already in the database',
     })
+    .option('analyzeBehavior', {
+        type: 'boolean',
+        default: false,
+        description: 'Perform behavioral analysis in addition to P/L analysis',
+    })
     .option('startDate', { 
         type: 'string', 
         description: 'Start date (YYYY-MM-DD) for analysis period (inclusive)' 
@@ -116,7 +123,8 @@ async function analyzeWalletWithHelius() {
       endDate, 
       saveAnalysisCsv, 
       saveReportMd,
-      displayLimit
+      displayLimit,
+      analyzeBehavior,
     } = argv;
 
   logger.info(`Starting analysis for wallet: ${walletAddress}`);
@@ -140,6 +148,21 @@ async function analyzeWalletWithHelius() {
   const pnlAnalysisService = new PnlAnalysisService(dbService);
   // Use undefined instead of null for optional service dependencies
   const reportingService = new ReportingService(undefined, undefined, undefined, undefined, pnlAnalysisService);
+  let behaviorService: BehaviorService | null = null;
+  let behavioralMetrics: any = null;
+
+  // Instantiate BehaviorService if requested
+  if (analyzeBehavior) {
+    // Define a default behavior config, potentially allowing overrides later via CLI
+    const defaultBehaviorConfig: BehaviorAnalysisConfig = {
+        // Uses defaults from BehaviorAnalyzer for thresholds if not specified here
+        // timeRange can be inherited from the main PNL timeRange if appropriate
+        timeRange: parseTimeRange(startDate, endDate),
+        excludedMints: [], // Add CLI option for this if needed, or use a shared one
+    };
+    behaviorService = new BehaviorService(dbService, defaultBehaviorConfig);
+    logger.info('Behavioral analysis will be performed.');
+  }
 
   // --- Orchestration Flow ---
   let runId: number | null = null;
@@ -212,6 +235,25 @@ async function analyzeWalletWithHelius() {
         // Potentially create a FAILED AnalysisRun here if one wasn't made by PnlService
     }
 
+    // *** NEW: Perform Behavioral Analysis if requested ***
+    if (analyzeBehavior && behaviorService) {
+        logger.info('--- Step 3a: Performing Behavioral Analysis ---');
+        try {
+            behavioralMetrics = await behaviorService.analyzeWalletBehavior(walletAddress, timeRange);
+            if (behavioralMetrics) {
+                logger.info('Behavioral analysis complete. Metrics generated.');
+                // TODO: Integrate behavioralMetrics into console display and reporting
+                logger.debug('Behavioral Metrics:', behavioralMetrics);
+            } else {
+                logger.warn('Behavioral analysis did not produce any metrics.');
+            }
+        } catch (behaviorError) {
+            logger.error('Error during behavioral analysis:', behaviorError);
+            // Continue with PNL reporting even if behavioral analysis fails
+        }
+        logger.info('--- Behavioral Analysis Attempt Complete ---');
+    }
+
     // 4. Display Results in Console
     logger.info('--- Step 4: Displaying Results ---');
     if (analysisSummary && Array.isArray(analysisSummary.results)) {
@@ -229,10 +271,19 @@ async function analyzeWalletWithHelius() {
     logger.info('--- Step 5: Generating Reports ---');
     if (saveReportMd) {
       await reportingService.generateAndSaveSwapPnlReport(walletAddress, analysisSummary);
+      if (analyzeBehavior && behavioralMetrics) {
+        await reportingService.generateAndSaveBehaviorReportMD(walletAddress, behavioralMetrics);
+        logger.info('Behavioral metrics Markdown report generated.');
+      }
     }
     if (saveAnalysisCsv) {
       // Ensure runId passed as undefined if null
       await reportingService.generateAndSaveSwapPnlCsv(walletAddress, analysisSummary, runId ?? undefined);
+      if (analyzeBehavior && behavioralMetrics) {
+        // TODO: Implement CSV reporting for behavioral metrics if needed
+        // Example: await reportingService.generateAndSaveBehaviorReportCSV(walletAddress, behavioralMetrics);
+        logger.info('CSV reporting for behavioral metrics is a TODO.');
+      }
     }
     logger.info('--- Report Generation Complete ---');
 

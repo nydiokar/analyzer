@@ -24,6 +24,8 @@ export interface BehavioralMetrics {
   flipperScore: number;
   uniqueTokensTraded: number;
   tokensWithBothBuyAndSell: number;
+  tokensWithOnlyBuys: number;
+  tokensWithOnlySells: number;
   totalTradeCount: number;
   totalBuyCount: number;
   totalSellCount: number;

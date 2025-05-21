@@ -28,6 +28,11 @@ model Wallet {
   lastSuccessfulFetchTimestamp DateTime?
   // Signature of the newest transaction that was successfully included in the last analysis run
   lastSignatureAnalyzed    String? 
+
+  // Relations to the latest summaries and profiles - fixed to be referenced by children
+  pnlSummary                WalletPnlSummary?
+  behaviorProfile           WalletBehaviorProfile?
+  // analysisRuns              AnalysisRun[] // If you want to navigate from Wallet to its runs
 }
 
 // Stores raw Helius transaction details.
@@ -63,62 +68,152 @@ model SwapAnalysisInput {
   @@index([mint])
 }
 
-// Tracks metadata for each analysis execution.
-model AnalysisRun {
-  id                   Int       @id @default(autoincrement())
-  walletAddress        String
-  runTimestamp         DateTime  @default(now())
-  status               String    // e.g., 'completed', 'failed', 'in_progress'
-  // Time range covered by this specific analysis run
-  analysisStartTs      Int?      
-  analysisEndTs        Int?
-  signaturesProcessed  Int?      
-  errorMessage         String?   
-
-  advancedStats        AdvancedStatsResult?
-
-  @@index([walletAddress, runTimestamp])
-}
-
-// Stores calculated per-token results for an AnalysisRun.
-// This model is being refactored to store THE authoritative, latest analyzed state per token.
+// Stores per-token PNL & stats - LATEST ALL-TIME
 model AnalysisResult {
   id                     Int      @id @default(autoincrement())
-  walletAddress          String   // KEPT: For easier querying
+  walletAddress          String
   tokenAddress           String
-  totalAmountIn          Float    // REVERTED: Back to Float
-  totalAmountOut         Float    // REVERTED: Back to Float
-  netAmountChange        Float    // REVERTED: Back to Float
-  totalSolSpent          Float    // REVERTED: Back to Float. This will represent GROSS SOL spent.
-  totalSolReceived       Float    // REVERTED: Back to Float. This will represent GROSS SOL received.
-  totalFeesPaidInSol     Float?   // NEW: Sum of explicit SOL fees from SwapAnalysisInput
-  netSolProfitLoss       Float    // REVERTED: Back to Float. Will be calculated as GrossReceived - GrossSpent - Fees.
+  
+  totalAmountIn          Float
+  totalAmountOut         Float
+  netAmountChange        Float
+  totalSolSpent          Float
+  totalSolReceived       Float
+  totalFeesPaidInSol     Float?
+  netSolProfitLoss       Float
   transferCountIn        Int
   transferCountOut       Int
   firstTransferTimestamp Int?
   lastTransferTimestamp  Int?
 
-  @@index([walletAddress]) // KEPT index (already exists)
-  @@index([tokenAddress]) // ADDED index for tokenAddress
-  @@unique([walletAddress, tokenAddress]) // ADDED unique constraint
+  isValuePreservation    Boolean? 
+  estimatedPreservedValue Float?
+  preservationType       String?  // Consider Enum: enum PreservationType { STABLECOIN HODL }
+
+  updatedAt              DateTime @updatedAt
+
+  @@unique([walletAddress, tokenAddress])
+  @@index([walletAddress])
+  @@index([tokenAddress])
 }
 
-// Stores calculated advanced metrics for an AnalysisRun.
-model AdvancedStatsResult {
+// Stores aggregated PNL metrics for a wallet - LATEST ALL-TIME
+model WalletPnlSummary {
+  id                            Int      @id @default(autoincrement())
+  walletAddress                 String   @unique 
+  wallet                        Wallet   @relation(fields: [walletAddress], references: [address])
+
+  totalVolume                   Float
+  totalFees                     Float
+  realizedPnl                   Float
+  unrealizedPnl                 Float
+  netPnl                        Float
+  stablecoinNetFlow             Float
+  averageSwapSize               Float
+  profitableTokensCount         Int
+  unprofitableTokensCount       Int
+  totalExecutedSwapsCount       Int
+  averageRealizedPnlPerExecutedSwap Float
+  realizedPnlToTotalVolumeRatio Float
+  totalSignaturesProcessed      Int
+
+  overallFirstTimestamp         Int?
+  overallLastTimestamp          Int?
+  
+  advancedStats                 AdvancedTradeStats? // One-to-one relation via walletPnlSummaryId field on AdvancedTradeStats
+
+  updatedAt                     DateTime @updatedAt
+
+  @@index([walletAddress])
+}
+
+// Stores advanced trade statistics for a wallet - LATEST ALL-TIME
+model AdvancedTradeStats {
   id                           Int     @id @default(autoincrement())
-  runId                        Int     @unique 
-  walletAddress                String  // KEPT: For easier querying
-  medianPnlPerToken            Float   // REVERTED: Back to Float
-  trimmedMeanPnlPerToken       Float   // REVERTED: Back to Float
-  tokenWinRatePercent          Float   // REVERTED: Back to Float
-  standardDeviationPnl         Float   // REVERTED: Back to Float
-  profitConsistencyIndex       Float   // REVERTED: Back to Float
-  weightedEfficiencyScore      Float   // REVERTED: Back to Float
-  averagePnlPerDayActiveApprox Float   // REVERTED: Back to Float
+  walletPnlSummaryId           Int     @unique 
+  walletPnlSummary             WalletPnlSummary @relation(fields: [walletPnlSummaryId], references: [id], onDelete: Cascade)
 
-  run                          AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  medianPnlPerToken            Float
+  trimmedMeanPnlPerToken       Float
+  tokenWinRatePercent          Float
+  standardDeviationPnl         Float
+  profitConsistencyIndex       Float
+  weightedEfficiencyScore      Float
+  averagePnlPerDayActiveApprox Float
+  firstTransactionTimestamp    Int?
+  lastTransactionTimestamp     Int?
 
-  @@index([walletAddress]) // KEPT index
+  updatedAt                    DateTime @updatedAt
+}
+
+// Stores behavioral profile for a wallet - LATEST ALL-TIME
+model WalletBehaviorProfile {
+  id                            Int      @id @default(autoincrement())
+  walletAddress                 String   @unique
+  wallet                        Wallet   @relation(fields: [walletAddress], references: [address])
+
+  buySellRatio                  Float
+  buySellSymmetry               Float
+  averageFlipDurationHours      Float
+  medianHoldTime                Float
+  sequenceConsistency           Float
+  flipperScore                  Float
+  uniqueTokensTraded            Int
+  tokensWithBothBuyAndSell      Int
+  totalTradeCount               Int
+  totalBuyCount                 Int
+  totalSellCount                Int
+  completePairsCount            Int
+  averageTradesPerToken         Float
+  
+  tradingTimeDistribution       Json     // BehavioralMetrics.tradingTimeDistribution
+  percentTradesUnder1Hour       Float
+  percentTradesUnder4Hours      Float
+  
+  tradingStyle                  String
+  confidenceScore               Float
+  
+  tradingFrequency              Json     // BehavioralMetrics.tradingFrequency
+  tokenPreferences              Json     // BehavioralMetrics.tokenPreferences
+  riskMetrics                   Json     // BehavioralMetrics.riskMetrics
+  
+  reentryRate                   Float
+  percentageOfUnpairedTokens    Float
+  
+  sessionCount                  Int
+  avgTradesPerSession           Float
+  activeTradingPeriods          Json     // BehavioralMetrics.activeTradingPeriods
+  averageSessionStartHour       Float
+  averageSessionDurationMinutes Float
+  
+  firstTransactionTimestamp     Int?
+  lastTransactionTimestamp      Int?
+
+  updatedAt                     DateTime @updatedAt
+
+  @@index([walletAddress])
+}
+
+// Refined: Tracks metadata for each analysis PROCESS execution
+model AnalysisRun {
+  id                   Int       @id @default(autoincrement())
+  walletAddress        String    
+  serviceInvoked       String    // e.g., 'PnlAnalysisService', 'BehaviorService', 'FullWalletAnalysis'
+  runTimestamp         DateTime  @default(now())
+  status               String    // e.g., 'COMPLETED', 'FAILED', 'STARTED'
+  
+  inputDataStartTs     Int?      
+  inputDataEndTs       Int?      
+  signaturesConsidered Int?      
+  
+  durationMs           Int?      
+  errorMessage         String?   
+  notes                String?   
+
+  // wallet               Wallet    @relation(fields: [walletAddress], references: [address]) // If linking back to Wallet
+  @@index([walletAddress, runTimestamp])
+  @@index([serviceInvoked])
+  @@index([status])
 }
 
 model User {
@@ -148,3 +243,9 @@ model ActivityLog {
   @@index([actionType])
   @@index([timestamp])
 }
+
+// Example Enum (if you want to use it for preservationType)
+// enum PreservationType {
+//   STABLECOIN
+//   HODL
+// }

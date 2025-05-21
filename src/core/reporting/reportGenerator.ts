@@ -100,23 +100,23 @@ export class ReportingService {
     }
 
     /**
-     * Generates and saves an individual behavior report for a single wallet.
+     * Generates and saves an individual behavior report (Markdown) for a single wallet.
      * 
      * @param walletAddress - The address of the wallet.
      * @param metrics - The calculated BehavioralMetrics for the wallet.
      */
-    generateAndSaveIndividualBehaviorReport(walletAddress: string, metrics: BehavioralMetrics): void {
+    generateAndSaveBehaviorReportMD(walletAddress: string, metrics: BehavioralMetrics): void {
         if (!metrics) {
-            logger.warn(`No metrics provided for wallet ${walletAddress}. Cannot generate individual report.`);
+            logger.warn(`No metrics provided for wallet ${walletAddress}. Cannot generate individual behavior report.`);
             return;
         }
-        logger.debug(`Generating individual behavior report for ${walletAddress}`);
+        logger.debug(`Generating individual behavior report (MD) for ${walletAddress}`);
         try {
             const reportContent = generateBehaviorReport(walletAddress, metrics);
-            const reportPath = saveReport(walletAddress, reportContent, 'individual');
-            logger.info(`Saved individual behavior report for ${walletAddress} to ${reportPath}`);
+            const reportPath = saveReport(walletAddress, reportContent, 'behavior_metrics_md', 'md');
+            logger.info(`Saved individual behavior report (MD) for ${walletAddress} to ${reportPath}`);
         } catch (error) {
-            logger.error(`Error generating or saving individual behavior report for ${walletAddress}:`, { error });
+            logger.error(`Error generating or saving individual behavior report (MD) for ${walletAddress}:`, { error });
         }
     }
 

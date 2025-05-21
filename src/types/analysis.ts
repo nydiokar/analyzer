@@ -14,6 +14,8 @@ export interface BaseAnalysisConfig {
 // Configuration specific to Behavior Analysis
 export interface BehaviorAnalysisConfig extends BaseAnalysisConfig {
   // Add behavior-specific config options here in the future if needed
+  sessionGapThresholdHours?: number; // Added for session calculation
+  activityWindowThresholdMultiplier?: number; // For identifying active trading windows
 }
 
 // Configuration specific to Correlation Analysis

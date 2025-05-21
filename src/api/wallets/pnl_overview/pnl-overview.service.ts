@@ -42,17 +42,18 @@ export class PnlOverviewService {
     }
 
     const {
+      results,
       realizedPnl,
-      profitableSwaps,
-      unprofitableSwaps,
+      profitableTokensCount,
+      unprofitableTokensCount,
       totalVolume,
       overallFirstTimestamp,
       overallLastTimestamp,
       advancedStats, // This is of type AdvancedTradeStats | undefined
     } = analysisSummary;
 
-    const totalTrades = profitableSwaps + unprofitableSwaps;
-    const winRate = totalTrades > 0 ? (profitableSwaps / totalTrades) * 100 : 0;
+    const totalTrades = profitableTokensCount + unprofitableTokensCount;
+    const winRate = totalTrades > 0 ? (profitableTokensCount / totalTrades) * 100 : 0;
     const avgPLTrade = totalTrades > 0 ? realizedPnl / totalTrades : 0;
     
     let calculatedTotalSolSpent = 0;
@@ -78,7 +79,7 @@ export class PnlOverviewService {
       dataFrom: dataFromString,
       realizedPnl: realizedPnl,
       swapWinRate: formatAdvancedStat(winRate, 1),
-      winLossCount: `${profitableSwaps}/${totalTrades} wins`,
+      winLossCount: `${profitableTokensCount}/${totalTrades} wins`,
       avgPLTrade: formatAdvancedStat(avgPLTrade, 2),
       totalVolume: formatAdvancedStat(totalVolume, 2),
       totalSolSpent: formatAdvancedStat(calculatedTotalSolSpent, 2) as number, // Cast as non-undefined as it's always calculated

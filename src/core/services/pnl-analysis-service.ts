@@ -44,12 +44,14 @@ export class PnlAnalysisService {
             const run = await prisma.analysisRun.create({
                 data: {
                     walletAddress: walletAddress,
+                    serviceInvoked: 'PnlAnalysisService',
                     status: 'IN_PROGRESS',
-                    analysisStartTs: timeRange?.startTs,
-                    analysisEndTs: timeRange?.endTs,
+                    inputDataStartTs: timeRange?.startTs,
+                    inputDataEndTs: timeRange?.endTs,
                 }
             });
             runId = run.id;
+            const startTimeMs = Date.now();
 
             let swapInputs: SwapAnalysisInput[] = [];
             try {
@@ -58,7 +60,7 @@ export class PnlAnalysisService {
                     logger.warn(`[PnlAnalysis] No swap analysis input records found for ${walletAddress}${isHistoricalView ? ' in time range' : ''}.`);
                     await prisma.analysisRun.update({
                         where: { id: runId },
-                        data: { status: 'COMPLETED', signaturesProcessed: 0 },
+                        data: { status: 'COMPLETED', signaturesConsidered: 0 },
                     });
                     return { results: [], totalSignaturesProcessed: 0, overallFirstTimestamp: 0, overallLastTimestamp: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, firstTransactionTimestamp: 0, lastTransactionTimestamp: 0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId };
                 }
@@ -96,7 +98,7 @@ export class PnlAnalysisService {
 
             await prisma.analysisRun.update({
                 where: { id: runId },
-                data: { signaturesProcessed: processedSignaturesCount },
+                data: { signaturesConsidered: processedSignaturesCount },
             });
 
             if (!swapAnalysisResultsFromAnalyzer || swapAnalysisResultsFromAnalyzer.length === 0) {
@@ -119,6 +121,9 @@ export class PnlAnalysisService {
                     lastTransferTimestamp: r.lastTransferTimestamp,
                     transferCountIn: r.transferCountIn,
                     transferCountOut: r.transferCountOut,
+                    isValuePreservation: r.isValuePreservation,
+                    estimatedPreservedValue: r.estimatedPreservedValue,
+                    preservationType: r.preservationType,
                 }));
                 for (const record of resultsToUpsert) {
                     await prisma.analysisResult.upsert({
@@ -162,32 +167,7 @@ export class PnlAnalysisService {
                 logger.error(`[PnlAnalysis] Error during advanced stats calculation for ${walletAddress}:`, { statsError });
             }
 
-            if (!isHistoricalView && advancedStatsData && runId) {
-                // Sanitize advancedStatsData to prevent PrismaClientValidationError for NaN/Infinity
-                const sanitizedStats = {
-                    medianPnlPerToken: !isFinite(advancedStatsData.medianPnlPerToken) ? 0 : advancedStatsData.medianPnlPerToken,
-                    trimmedMeanPnlPerToken: !isFinite(advancedStatsData.trimmedMeanPnlPerToken) ? 0 : advancedStatsData.trimmedMeanPnlPerToken,
-                    tokenWinRatePercent: !isFinite(advancedStatsData.tokenWinRatePercent) ? 0 : advancedStatsData.tokenWinRatePercent,
-                    standardDeviationPnl: !isFinite(advancedStatsData.standardDeviationPnl) ? 0 : advancedStatsData.standardDeviationPnl,
-                    profitConsistencyIndex: !isFinite(advancedStatsData.profitConsistencyIndex) ? 0 : advancedStatsData.profitConsistencyIndex,
-                    weightedEfficiencyScore: !isFinite(advancedStatsData.weightedEfficiencyScore) ? 0 : advancedStatsData.weightedEfficiencyScore,
-                    averagePnlPerDayActiveApprox: !isFinite(advancedStatsData.averagePnlPerDayActiveApprox) ? 0 : advancedStatsData.averagePnlPerDayActiveApprox
-                };
-
-                const createData = {
-                    runId: runId, 
-                    walletAddress: walletAddress, 
-                    ...sanitizedStats // Use the sanitized stats
-                };
-                await prisma.advancedStatsResult.upsert({
-                    where: { runId: runId },
-                    create: createData,
-                    update: createData,
-                });
-                logger.info(`[PnlAnalysis] Saved AdvancedStatsResult for run ${runId}.`);
-            }
-
-            const summary: SwapAnalysisSummary = {
+            const summaryForReturn: SwapAnalysisSummary = {
                 results: swapAnalysisResultsFromAnalyzer,
                 totalSignaturesProcessed: processedSignaturesCount,
                 overallFirstTimestamp: overallFirstTimestamp || 0,
@@ -198,8 +178,6 @@ export class PnlAnalysisService {
                 unrealizedPnl,
                 netPnl: finalNetPnl,
                 stablecoinNetFlow,
-                firstTransactionTimestamp: overallFirstTimestamp,
-                lastTransactionTimestamp: overallLastTimestamp,
                 averageSwapSize,
                 profitableTokensCount,
                 unprofitableTokensCount,
@@ -209,29 +187,93 @@ export class PnlAnalysisService {
                 advancedStats: advancedStatsData ?? undefined,
             };
 
-            if (!isHistoricalView && newestProcessedSignatureFromWallet) {
-                await prisma.wallet.update({
-                    where: { address: walletAddress },
-                    data: { lastSignatureAnalyzed: newestProcessedSignatureFromWallet },
-                });
-                logger.info(`[PnlAnalysis] Updated Wallet.lastSignatureAnalyzed for ${walletAddress} to ${newestProcessedSignatureFromWallet}.`);
+            if (!isHistoricalView) {
+                const pnlSummaryDataForDb = {
+                    walletAddress: walletAddress,
+                    totalVolume: summaryForReturn.totalVolume,
+                    totalFees: summaryForReturn.totalFees,
+                    realizedPnl: summaryForReturn.realizedPnl,
+                    unrealizedPnl: summaryForReturn.unrealizedPnl,
+                    netPnl: summaryForReturn.netPnl,
+                    stablecoinNetFlow: summaryForReturn.stablecoinNetFlow,
+                    averageSwapSize: summaryForReturn.averageSwapSize,
+                    profitableTokensCount: summaryForReturn.profitableTokensCount,
+                    unprofitableTokensCount: summaryForReturn.unprofitableTokensCount,
+                    totalExecutedSwapsCount: summaryForReturn.totalExecutedSwapsCount,
+                    averageRealizedPnlPerExecutedSwap: summaryForReturn.averageRealizedPnlPerExecutedSwap,
+                    realizedPnlToTotalVolumeRatio: summaryForReturn.realizedPnlToTotalVolumeRatio,
+                    totalSignaturesProcessed: summaryForReturn.totalSignaturesProcessed,
+                    overallFirstTimestamp: summaryForReturn.overallFirstTimestamp,
+                    overallLastTimestamp: summaryForReturn.overallLastTimestamp,
+                };
+
+                if (advancedStatsData) {
+                    const sanitizedStats = {
+                        medianPnlPerToken: !isFinite(advancedStatsData.medianPnlPerToken) ? 0 : advancedStatsData.medianPnlPerToken,
+                        trimmedMeanPnlPerToken: !isFinite(advancedStatsData.trimmedMeanPnlPerToken) ? 0 : advancedStatsData.trimmedMeanPnlPerToken,
+                        tokenWinRatePercent: !isFinite(advancedStatsData.tokenWinRatePercent) ? 0 : advancedStatsData.tokenWinRatePercent,
+                        standardDeviationPnl: !isFinite(advancedStatsData.standardDeviationPnl) ? 0 : advancedStatsData.standardDeviationPnl,
+                        profitConsistencyIndex: !isFinite(advancedStatsData.profitConsistencyIndex) ? 0 : advancedStatsData.profitConsistencyIndex,
+                        weightedEfficiencyScore: !isFinite(advancedStatsData.weightedEfficiencyScore) ? 0 : advancedStatsData.weightedEfficiencyScore,
+                        averagePnlPerDayActiveApprox: !isFinite(advancedStatsData.averagePnlPerDayActiveApprox) ? 0 : advancedStatsData.averagePnlPerDayActiveApprox,
+                        firstTransactionTimestamp: advancedStatsData.firstTransactionTimestamp,
+                        lastTransactionTimestamp: advancedStatsData.lastTransactionTimestamp,
+                    };
+
+                    await prisma.walletPnlSummary.upsert({
+                        where: { walletAddress: walletAddress }, 
+                        create: {
+                            ...pnlSummaryDataForDb,
+                            advancedStats: {
+                                create: sanitizedStats,
+                            },
+                        },
+                        update: {
+                            ...pnlSummaryDataForDb,
+                            advancedStats: {
+                                upsert: {
+                                    create: sanitizedStats,
+                                    update: sanitizedStats,
+                                },
+                            },
+                        },
+                    });
+                    logger.info(`[PnlAnalysis] Upserted WalletPnlSummary and AdvancedTradeStats for ${walletAddress}.`);
+
+                } else {
+                    await prisma.walletPnlSummary.upsert({
+                        where: { walletAddress: walletAddress },
+                        create: pnlSummaryDataForDb,
+                        update: pnlSummaryDataForDb,
+                    });
+                    logger.info(`[PnlAnalysis] Upserted WalletPnlSummary (no advanced stats) for ${walletAddress}.`);
+                }
+                
+                if (newestProcessedSignatureFromWallet) {
+                    await prisma.wallet.update({
+                        where: { address: walletAddress },
+                        data: { lastSignatureAnalyzed: newestProcessedSignatureFromWallet },
+                    });
+                    logger.info(`[PnlAnalysis] Updated Wallet.lastSignatureAnalyzed for ${walletAddress} to ${newestProcessedSignatureFromWallet}.`);
+                }
             }
 
             analysisRunStatus = 'COMPLETED';
-            // Update the AnalysisRun record to COMPLETED status in the database
             if (runId) { 
                 await prisma.analysisRun.update({
                     where: { id: runId },
                     data: { 
                         status: 'COMPLETED', 
-                        errorMessage: null // Clear any previous error message if it was a retry
+                        errorMessage: null,
+                        durationMs: Date.now() - startTimeMs,
+                        signaturesConsidered: swapInputs.length,
                     },
                 });
                 logger.info(`[PnlAnalysis] Successfully marked AnalysisRun ${runId} as COMPLETED.`);
             }
 
-            logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summary.netPnl.toFixed(4)} SOL`);
-            return { ...summary, runId };
+            logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summaryForReturn.netPnl.toFixed(4)} SOL`);
+            return { ...summaryForReturn, runId };
 
         } catch (error: any) {
             logger.error(`[PnlAnalysis] Critical error during PNL analysis for ${walletAddress}:`, { error });
