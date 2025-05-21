@@ -179,7 +179,6 @@ export class SwapAnalyzer {
             totalSolReceived: aggregatedData.totalSolReceived ?? 0,
             totalFeesPaidInSol: aggregatedData.totalFeesPaidInSol ?? 0,
             netSolProfitLoss: netSolProfitLoss,
-            adjustedNetSolProfitLoss: netSolProfitLoss, // Same as netSolProfitLoss now
             estimatedPreservedValue: isStablecoin ? stablecoinSolValue : 0,
             isValuePreservation: isStablecoin,
             preservationType: isStablecoin ? 'stablecoin' : undefined,

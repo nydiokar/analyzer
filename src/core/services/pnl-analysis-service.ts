@@ -60,7 +60,7 @@ export class PnlAnalysisService {
                         where: { id: runId },
                         data: { status: 'COMPLETED', signaturesProcessed: 0 },
                     });
-                    return { results: [], totalSignaturesProcessed: 0, overallFirstTimestamp: 0, overallLastTimestamp: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, firstTransactionTimestamp: 0, lastTransactionTimestamp: 0, averageSwapSize: 0, profitableSwaps: 0, unprofitableSwaps: 0, advancedStats: undefined, runId };
+                    return { results: [], totalSignaturesProcessed: 0, overallFirstTimestamp: 0, overallLastTimestamp: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, firstTransactionTimestamp: 0, lastTransactionTimestamp: 0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId };
                 }
                 logger.debug(`[PnlAnalysis] Fetched ${swapInputs.length} swap input records from DB.`);
             } catch (dbError: any) {
@@ -100,9 +100,8 @@ export class PnlAnalysisService {
             });
 
             if (!swapAnalysisResultsFromAnalyzer || swapAnalysisResultsFromAnalyzer.length === 0) {
-                logger.warn(`[PnlAnalysis] Core swap analysis yielded no results for ${walletAddress}.`);
-                analysisRunStatus = 'COMPLETED';
-                return { results: [], totalSignaturesProcessed: processedSignaturesCount, overallFirstTimestamp: overallFirstTimestamp || 0, overallLastTimestamp: overallLastTimestamp || 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, firstTransactionTimestamp: overallFirstTimestamp || 0, lastTransactionTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableSwaps: 0, unprofitableSwaps: 0, advancedStats: undefined, runId };
+                logger.warn(`[PnlAnalysis] No results from SwapAnalyzer for wallet ${walletAddress}. Returning empty summary.`);
+                return { results: [], totalSignaturesProcessed: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, overallFirstTimestamp: overallFirstTimestamp ||0, overallLastTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId };
             }
 
             if (!isHistoricalView) {
@@ -131,19 +130,28 @@ export class PnlAnalysisService {
                 logger.info(`[PnlAnalysis] Upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
             }
 
-            let totalVolume = 0, totalFees = 0, realizedPnl = 0, unrealizedPnl = 0, profitableSwaps = 0, unprofitableSwaps = 0;
+            let totalVolume = 0, totalFees = 0, realizedPnl = 0, unrealizedPnl = 0, profitableTokensCount = 0, unprofitableTokensCount = 0;
+            let totalExecutedSwapsCount = 0;
+
             for (const result of swapAnalysisResultsFromAnalyzer) {
                 totalVolume += (result.totalSolSpent || 0) + (result.totalSolReceived || 0);
                 totalFees += result.totalFeesPaidInSol || 0;
-                realizedPnl += result.adjustedNetSolProfitLoss ?? (result.netSolProfitLoss || 0);
-                if (result.isValuePreservation && result.estimatedPreservedValue) unrealizedPnl += result.estimatedPreservedValue;
-                const finalPnl = result.adjustedNetSolProfitLoss ?? (result.netSolProfitLoss || 0);
-                if (finalPnl > 0) profitableSwaps++;
-                else if (finalPnl < 0) unprofitableSwaps++;
+                
+                if (!result.isValuePreservation) {
+                    realizedPnl += result.netSolProfitLoss ?? 0;
+                    totalExecutedSwapsCount += (result.transferCountIn || 0) + (result.transferCountOut || 0);
+                    const finalPnl = result.netSolProfitLoss ?? 0;
+                    if (finalPnl > 0) profitableTokensCount++;
+                    else if (finalPnl < 0) unprofitableTokensCount++;
+                } else if (result.isValuePreservation && result.estimatedPreservedValue) {
+                    unrealizedPnl += result.estimatedPreservedValue;
+                }
             }
             const finalNetPnl = realizedPnl + unrealizedPnl;
-            const totalPnlSwaps = profitableSwaps + unprofitableSwaps;
-            const averageSwapSize = totalPnlSwaps > 0 ? totalVolume / totalPnlSwaps : 0;
+            const totalPnlTokens = profitableTokensCount + unprofitableTokensCount;
+            const averageSwapSize = totalPnlTokens > 0 ? totalVolume / totalPnlTokens : 0;
+            const averageRealizedPnlPerExecutedSwap = totalExecutedSwapsCount > 0 ? realizedPnl / totalExecutedSwapsCount : 0;
+            const realizedPnlToTotalVolumeRatio = totalVolume > 0 ? realizedPnl / totalVolume : 0;
 
             let advancedStatsData: AdvancedTradeStats | null = null;
             try {
@@ -193,8 +201,11 @@ export class PnlAnalysisService {
                 firstTransactionTimestamp: overallFirstTimestamp,
                 lastTransactionTimestamp: overallLastTimestamp,
                 averageSwapSize,
-                profitableSwaps,
-                unprofitableSwaps,
+                profitableTokensCount,
+                unprofitableTokensCount,
+                totalExecutedSwapsCount,
+                averageRealizedPnlPerExecutedSwap,
+                realizedPnlToTotalVolumeRatio,
                 advancedStats: advancedStatsData ?? undefined,
             };
 

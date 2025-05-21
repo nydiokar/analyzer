@@ -189,7 +189,6 @@ export interface OnChainAnalysisResult {
   // Value preservation fields for stablecoins and HODL tokens 
   isValuePreservation?: boolean;           // Indicates if token is treated as a value store (stablecoin, etc)
   estimatedPreservedValue?: number;        // Estimated SOL value still preserved in the token
-  adjustedNetSolProfitLoss?: number;       // P/L adjusted for preserved value
   preservationType?: 'stablecoin' | 'hodl'; // Type of value preservation
 }
 
@@ -222,8 +221,11 @@ export interface SwapAnalysisSummary {
   firstTransactionTimestamp?: number;
   lastTransactionTimestamp?: number;
   averageSwapSize: number;
-  profitableSwaps: number;
-  unprofitableSwaps: number;
+  profitableTokensCount: number;
+  unprofitableTokensCount: number;
+  totalExecutedSwapsCount: number;
+  averageRealizedPnlPerExecutedSwap: number;
+  realizedPnlToTotalVolumeRatio: number;
   results: OnChainAnalysisResult[];
   totalSignaturesProcessed: number;
   overallFirstTimestamp: number;

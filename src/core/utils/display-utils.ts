@@ -70,10 +70,7 @@ export function displaySummary(results: OnChainAnalysisResult[], walletAddress: 
     
     console.log('\nTop 5 Most Profitable Tokens:');
     topProfitable.forEach((result, index) => {
-        const adjustedInfo = result.adjustedNetSolProfitLoss && result.adjustedNetSolProfitLoss !== result.netSolProfitLoss ? 
-            ` (Adjusted: ${formatProfitLoss(result.adjustedNetSolProfitLoss)})` : '';
-            
-        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}${adjustedInfo}`);
+        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}`);
     });
     
     // Bottom 5 unprofitable tokens
@@ -82,10 +79,7 @@ export function displaySummary(results: OnChainAnalysisResult[], walletAddress: 
     
     console.log('\nTop 5 Least Profitable Tokens:');
     bottomUnprofitable.forEach((result, index) => {
-        const adjustedInfo = result.adjustedNetSolProfitLoss && result.adjustedNetSolProfitLoss !== result.netSolProfitLoss ? 
-            ` (Adjusted: ${formatProfitLoss(result.adjustedNetSolProfitLoss)})` : '';
-            
-        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}${adjustedInfo}`);
+        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}`);
     });
     
     // Activity time range

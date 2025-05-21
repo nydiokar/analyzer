@@ -1,5 +1,20 @@
 import { TokenMetrics } from './analysis';
 
+export interface IdentifiedTradingWindow {
+  startTimeUTC: number; // Start hour of the window (0-23)
+  endTimeUTC: number;   // End hour of the window (0-23), inclusive
+  durationHours: number; // Duration of the window
+  tradeCountInWindow: number; // Total trades within this window
+  percentageOfTotalTrades: number; // Percentage of the user's total trades that fall into this window
+  avgTradesPerHourInWindow: number; // tradeCountInWindow / durationHours
+}
+
+export interface ActiveTradingPeriods {
+  hourlyTradeCounts: Record<number, number>; // Raw trade counts for each UTC hour (0-23)
+  identifiedWindows: IdentifiedTradingWindow[]; // Array of dynamically identified significant trading windows
+  activityFocusScore: number; // Metric (e.g., 0-1) indicating how concentrated trades are
+}
+
 export interface BehavioralMetrics {
   buySellRatio: number;
   buySellSymmetry: number;
@@ -28,26 +43,25 @@ export interface BehavioralMetrics {
   tradingStyle: string;
   confidenceScore: number;
   tradingFrequency: {
-    daily: number;
-    weekly: number;
-    monthly: number;
+    tradesPerDay: number;
+    tradesPerWeek: number;
+    tradesPerMonth: number;
   };
   tokenPreferences: {
-    mostTraded: TokenMetrics[];
-    mostProfitable: TokenMetrics[];
+    mostTradedTokens: TokenMetrics[];
     mostHeld: TokenMetrics[];
   };
   riskMetrics: {
-    averageTransactionSize: number;
-    largestTransaction: number;
-    diversificationScore: number;
+    averageTransactionValueSol: number;
+    largestTransactionValueSol: number;
   };
-  profitMetrics: {
-    totalPnL: number;
-    winRate: number;
-    averageProfitPerTrade: number;
-    profitConsistency: number;
-  };
+  reentryRate: number;
+  percentageOfUnpairedTokens: number;
+  sessionCount: number;
+  avgTradesPerSession: number;
+  activeTradingPeriods: ActiveTradingPeriods; // Replaces activeHoursDistribution
+  averageSessionStartHour: number;
+  averageSessionDurationMinutes: number;
   firstTransactionTimestamp?: number;
   lastTransactionTimestamp?: number;
 } 
