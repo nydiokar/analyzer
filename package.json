@@ -1,6 +1,6 @@
 {
   "name": "wallet-analyzer",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "Array of analizers. Major assets live crypto exchange from CoinGecko with verifiable storage, wallet address analysis, staking calculator, price change reporter, and more.",
   "main": "dist/index.js",
   "scripts": {
@@ -52,6 +52,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/csv-stringify": "^1.4.3",
     "axios": "^1.8.4",
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.9.1",
     "bignumber.js": "^9.3.0",
     "chalk": "^4.1.2",
@@ -68,15 +69,18 @@
     "swagger-ui-express": "^5.0.1",
     "table": "^6.9.0",
     "telegraf": "^4.15.3",
+    "uuid": "^11.1.0",
     "winston": "^3.12.0",
     "yargs": "^17.7.2"
   },
   "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
     "@types/chai": "^5.2.2",
     "@types/crypto-js": "^4.2.2",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.12.12",
     "@types/papaparse": "^5.3.15",
+    "@types/uuid": "^10.0.0",
     "@types/yargs": "^17.0.33",
     "chai": "^5.2.0",
     "mocha": "^11.2.2",

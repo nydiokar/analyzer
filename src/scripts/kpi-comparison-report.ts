@@ -15,8 +15,6 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import * as fs from 'fs';
-import * as path from 'path';
 import { createLogger } from 'core/utils/logger';
 import { DatabaseService } from 'core/services/database-service';
 import { BehaviorService } from 'core/analysis/behavior/behavior-service';
@@ -38,39 +36,21 @@ const DEFAULT_EXCLUDED_MINTS: string[] = [
 ];
 
 /**
- * Loads wallet information from a JSON file.
- */
-function loadWallets(filePath: string): WalletInfo[] {
-    try {
-        const absolutePath = path.resolve(filePath);
-        if (!fs.existsSync(absolutePath)) {
-            logger.error(`Wallet list file not found: ${absolutePath}`);
-            throw new Error(`File not found: ${absolutePath}`);
-        }
-        const fileContent = fs.readFileSync(absolutePath, 'utf-8');
-        const wallets: WalletInfo[] = JSON.parse(fileContent);
-        // Basic validation
-        if (!Array.isArray(wallets) || wallets.some(w => typeof w.address !== 'string')) {
-            throw new Error('Invalid wallet list format. Expected an array of {address: string, label?: string}.');
-        }
-        logger.info(`Loaded ${wallets.length} wallets from ${absolutePath}`);
-        return wallets;
-    } catch (error) {
-        logger.error(`Failed to load or parse wallet list from ${filePath}:`, error);
-        throw error; // Re-throw to be caught by main handler
-    }
-}
-
-/**
  * Main execution function.
  */
 async function main() {
     const argv = await yargs(hideBin(process.argv))
-        .option('walletList', {
-      alias: 'w',
-            description: 'Path to the JSON file containing the list of wallet addresses and optional labels',
-      type: 'string',
+        .option('wallets', {
+            alias: 'w',
+            description: 'A comma-separated list of wallet addresses (e.g., "addr1,addr2,addr3")',
+            type: 'string',
             demandOption: true,
+            coerce: (arg: string): WalletInfo[] => { // Coerce the comma-separated string into WalletInfo[]
+                if (!arg || typeof arg !== 'string') {
+                    return [];
+                }
+                return arg.split(',').map(address => ({ address: address.trim() })).filter(w => w.address);
+            }
         })
         // Add Time Range Options
         .option('startDate', {
@@ -93,12 +73,14 @@ async function main() {
         .argv;
 
     try {
-        // 1. Load wallets from the specified file
-        const wallets = loadWallets(argv.walletList);
-        if (wallets.length === 0) {
-            logger.warn('Wallet list is empty. No report generated.');
+        // 1. Get wallets from CLI arguments
+        const wallets: WalletInfo[] = argv.wallets;
+
+        if (!wallets || wallets.length === 0) {
+            logger.warn('No wallets provided or invalid format. Use --wallets "addr1,addr2,addr3". No report generated.');
             return; 
         }
+        logger.info(`Processing ${wallets.length} wallets provided via CLI: ${wallets.map(w => w.address).join(', ')}`);
 
         // Parse other CLI args for config
         const timeRange = parseTimeRange(argv.startDate, argv.endDate);

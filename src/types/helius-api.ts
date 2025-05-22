@@ -200,8 +200,9 @@ export interface AdvancedTradeStats {
   trimmedMeanPnlPerToken: number; // e.g., 10% trim
   tokenWinRatePercent: number; // % of tokens with PnL > 0
   standardDeviationPnl: number;
-  profitConsistencyIndex: number; // PCI
+  // profitConsistencyIndex: number; // PCI
   weightedEfficiencyScore: number;
+  medianPnlToVolatilityRatio: number;
   // Proxy metric with caveats
   averagePnlPerDayActiveApprox: number; // Average PnL per token / Average days between first/last tx
   firstTransactionTimestamp?: number;

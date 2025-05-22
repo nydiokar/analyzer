@@ -90,18 +90,22 @@ export class AdvancedStatsAnalyzer {
       // --- Standard Deviation PnL (uses original pnlValues) ---
       const standardDeviationPnl = this.calculateStandardDeviation(pnlValues);
 
-      // --- Profit Consistency Index (PCI) ---
-      let profitConsistencyIndex = 0;
+      // --- Profit Consistency Index (PCI) -> Median PnL to Volatility Ratio ---
+      let medianPnlToVolatilityRatio = 0;
       if (standardDeviationPnl > 0) {
-        profitConsistencyIndex = (medianPnlPerToken * tokenWinRatePercent) / standardDeviationPnl;
+        medianPnlToVolatilityRatio = medianPnlPerToken / standardDeviationPnl;
       } else {
-        profitConsistencyIndex = medianPnlPerToken > WIN_THRESHOLD_SOL ? Infinity : (medianPnlPerToken < WIN_THRESHOLD_SOL ? -Infinity : 0); 
+        // If SD is 0, behavior depends on medianPnl
+        // If medianPnl is positive, ratio is infinitely good (perfectly consistent positive returns)
+        // If medianPnl is negative, ratio is infinitely bad (perfectly consistent negative returns)
+        // If medianPnl is zero, ratio is undefined or 0.
+        medianPnlToVolatilityRatio = medianPnlPerToken === 0 ? 0 : (medianPnlPerToken > 0 ? Infinity : -Infinity);
       }
 
       // --- Weighted Efficiency Score ---
       const winRateDecimal = tokenWinRatePercent / 100;
       const weightedEfficiencyScore = totalTokens > 0
-        ? (overallNetPnl / totalTokens) * Math.log(1 + winRateDecimal) * 100 // Using natural log and scaling by 100
+        ? (overallNetPnl / totalTokens) * (1 + winRateDecimal) * 10 // Linear win rate impact, scaled by 10
         : 0;
 
       // --- Average PnL Per Day Active (Proxy) ---
@@ -130,7 +134,7 @@ export class AdvancedStatsAnalyzer {
         trimmedMeanPnlPerToken,
         tokenWinRatePercent,
         standardDeviationPnl,
-        profitConsistencyIndex,
+        medianPnlToVolatilityRatio,
         weightedEfficiencyScore,
         averagePnlPerDayActiveApprox,
         firstTransactionTimestamp: overallFirstTimestamp,

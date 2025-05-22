@@ -71,9 +71,9 @@ export interface AnalysisResult<T> {
 export interface TokenMetrics {
   mint: string;
   count: number;
-  totalValue: number;
-  firstSeen: number;
-  lastSeen: number;
+  totalValue?: number;
+  firstSeen?: number;
+  lastSeen?: number;
 }
 
 export interface WalletMetrics {

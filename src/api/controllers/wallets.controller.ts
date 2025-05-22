@@ -9,9 +9,11 @@ import {
   InternalServerErrorException,
   Logger,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiKeyAuthGuard } from '../auth/api-key-auth.guard';
 
 // Services from their respective feature folders
 import { DatabaseService } from '../database/database.service';
@@ -22,9 +24,12 @@ import { PnlOverviewService, PnlOverviewResponse } from '../wallets/pnl_overview
 // DTOs
 import { TokenPerformanceQueryDto } from '../wallets/token_performance/token-performance-query.dto';
 import { WalletSummaryResponse } from '../wallets/summary/wallet-summary-response.dto';
+import { BehaviorAnalysisResponseDto } from '../wallets/behavior/behavior-analysis-response.dto';
+import { BehaviorAnalysisConfig } from '../../types/analysis';
 
 @ApiTags('Wallets')
 @Controller('wallets')
+@UseGuards(ApiKeyAuthGuard)
 export class WalletsController {
   private readonly logger = new Logger(WalletsController.name);
 
@@ -109,8 +114,6 @@ export class WalletsController {
         latestPnl: advancedStats?.medianPnlPerToken,
         tokenWinRate: advancedStats?.tokenWinRatePercent,
         behaviorClassification: behaviorMetrics?.tradingStyle || 'N/A',
-        rawAdvancedStats: advancedStats, 
-        rawBehaviorMetrics: behaviorMetrics,
       };
 
       if (userId) {
@@ -248,11 +251,82 @@ export class WalletsController {
         await this.databaseService.logActivity(userId, actionType, {...requestParameters, errorDetails: errorMessage}, 'FAILURE', durationMs, errorMessage, sourceIp);
       }
 
-      if (error instanceof NotFoundException || error instanceof InternalServerErrorException) {
+      if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Error fetching PNL overview for wallet ${walletAddress} via service:`, error);
+      this.logger.error(`Error fetching PNL overview for wallet ${walletAddress}:`, error);
       throw new InternalServerErrorException('Failed to retrieve PNL overview.');
+    }
+  }
+
+  @Get(':walletAddress/behavior-analysis')
+  @ApiOperation({
+    summary: 'Get detailed behavior analysis for a Solana wallet.',
+    description:
+      'Retrieves a detailed breakdown of the wallet\'s trading behavior. This includes trader classification, ' +
+      'pattern timelines, consistency metrics, efficiency scores, strategic tags, temporal behavior details, and more, ' +
+      'based on the latest available analysis data.',
+  })
+  @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address', type: String })
+  @ApiResponse({
+    status: 200,
+    description: 'Behavior analysis retrieved successfully.',
+    type: BehaviorAnalysisResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Wallet not found or no behavior analysis data available.' })
+  @ApiResponse({ status: 500, description: 'Internal server error encountered while retrieving behavior analysis.' })
+  async getBehaviorAnalysis(
+    @Param('walletAddress') walletAddress: string,
+    @Req() req: Request & { user?: any },
+  ): Promise<BehaviorAnalysisResponseDto> {
+    const actionType = 'get_behavior_analysis';
+    const userId = req.user?.id;
+    const sourceIp = req.ip;
+    const requestParameters = { walletAddress: walletAddress, query: req.query }; 
+    const startTime = Date.now();
+
+    if (userId) {
+      this.databaseService.logActivity(
+        userId,
+        actionType,
+        requestParameters,
+        'INITIATED',
+        undefined,
+        undefined,
+        sourceIp
+      ).catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}:`, err));
+    }
+
+    try {
+      const config: BehaviorAnalysisConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
+      const behaviorMetrics = await this.behaviorService.getWalletBehavior(walletAddress, config);
+
+      if (!behaviorMetrics) {
+        this.logger.warn(`No behavior analysis data found for wallet: ${walletAddress}`);
+        if (userId) {
+          const durationMs = Date.now() - startTime;
+          await this.databaseService.logActivity(userId, actionType, requestParameters, 'FAILURE', durationMs, 'Not Found', sourceIp);
+        }
+        throw new NotFoundException(`No behavior analysis data available for wallet ${walletAddress}`);
+      }
+      
+      if (userId) {
+        const durationMs = Date.now() - startTime;
+        await this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp);
+      }
+      return behaviorMetrics; // This should conform to BehaviorAnalysisResponseDto
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown server error';
+      if (userId) {
+        await this.databaseService.logActivity(userId, actionType, {...requestParameters, errorDetails: errorMessage}, 'FAILURE', durationMs, errorMessage, sourceIp);
+      }
+
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Error fetching behavior analysis for wallet ${walletAddress}:`, error);
+      throw new InternalServerErrorException('Failed to retrieve behavior analysis.');
     }
   }
 } 

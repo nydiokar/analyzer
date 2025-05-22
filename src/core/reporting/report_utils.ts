@@ -564,7 +564,7 @@ export function generateSwapPnlReport(
         lines.push(`- **Median P/L per Token (SOL):** ${formatSolAmount(advancedStats.medianPnlPerToken)}`);
         lines.push(`- **Token Win Rate:** ${formatNumber(advancedStats.tokenWinRatePercent, 1)}%`);
         lines.push(`- **Standard Deviation of P/L:** ${formatSolAmount(advancedStats.standardDeviationPnl)}`);
-        lines.push(`- **Profit Consistency Index (PCI):** ${formatNumber(advancedStats.profitConsistencyIndex, 2)}`);
+        lines.push(`- **Median PnL to Volatility Ratio:** ${formatNumber(advancedStats.medianPnlToVolatilityRatio, 2)}`);
         lines.push(`- **Weighted Efficiency Score:** ${formatNumber(advancedStats.weightedEfficiencyScore, 2)}`);
         lines.push(`- **Average P/L per Day Active (Approx):** ${formatSolAmount(advancedStats.averagePnlPerDayActiveApprox)}`);
         lines.push("\n---\n");
@@ -573,7 +573,7 @@ export function generateSwapPnlReport(
     // Token Details Table - from SwapAnalysisSummary.results (OnChainAnalysisResult[])
     lines.push("### 🪙 Token P/L Details (Top 15 by Realized P/L)");
     const tableData: any[][] = [[
-        'Token', 'Symbol', 'Realized P/L (SOL)', 'Net Change', 'SOL Spent', 'SOL Received', 'Swaps In/Out', 'First/Last Seen'
+        'Token', 'Symbol', 'Realized P/L (SOL)', 'Net Token Change (Units)', 'SOL Spent', 'SOL Received', 'Swaps In/Out', 'First/Last Seen'
     ]];
 
     // Sort tokens by realized P/L descending, take top 15
@@ -864,7 +864,7 @@ export function generateDetailedAdvancedStatsHtmlTelegram(walletAddress: string,
     
     // Advanced Metrics
     lines.push('<b>Advanced Metrics:</b>');
-    lines.push(`• Profit Consistency Index: <b>${formatNumber(stats.profitConsistencyIndex ?? 0, 2)}</b>`);
+    lines.push(`• Median PnL to Volatility Ratio: <b>${formatNumber(stats.medianPnlToVolatilityRatio ?? 0, 2)}</b>`);
     lines.push(`• Weighted Efficiency Score: <b>${formatNumber(stats.weightedEfficiencyScore ?? 0, 2)}</b>`);
     lines.push(`• Average PnL per Day Active: <b>${formatSolAmount(stats.averagePnlPerDayActiveApprox ?? 0, 2)} SOL</b>`);
 

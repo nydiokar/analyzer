@@ -15,6 +15,8 @@ import { TransactionData } from '@/types/correlation'; // Needed for getTransact
 import { BaseAnalysisConfig } from '@/types/analysis'; // Needed for getTransactionsForAnalysis
 import { createLogger } from 'core/utils/logger'; // Assuming createLogger function is defined in utils
 import zlib from 'zlib'; // Added zlib
+import { v4 as uuidv4 } from 'uuid';
+import * as bcrypt from 'bcrypt';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 export const prisma = new PrismaClient(); 
@@ -68,36 +70,29 @@ export class DatabaseService {
 
     /**
      * Creates a new user with a generated API key.
-     * IMPORTANT: API key generation and hashing are placeholders and NOT secure for production.
-     * TODO: Implement secure random API key generation and bcrypt hashing.
      * @param description Optional description for the user.
      * @returns The created User object and the plaintext API key (to be shown once).
      */
     async createUser(description?: string): Promise<{ user: User; apiKey: string } | null> {
         this.logger.debug('Attempting to create a new user.');
         try {
-            // IMPORTANT: Placeholder for secure API key generation
-            const plaintextApiKey = `temp_api_key_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
-            
-            // IMPORTANT: Placeholder for API key hashing (e.g., using bcrypt)
-            // const hashedApiKey = await bcrypt.hash(plaintextApiKey, 10); 
-            // For now, storing plaintext - HIGHLY INSECURE, for dev only.
-            const hashedApiKey = plaintextApiKey; 
+            const plaintextApiKey = uuidv4(); // Generate a UUID v4 for the API key
+            const saltRounds = 10;
+            const hashedApiKey = await bcrypt.hash(plaintextApiKey, saltRounds); 
 
             const user = await this.prismaClient.user.create({
                 data: {
-                    apiKey: hashedApiKey, // Store the HASHED key in production
+                    apiKey: hashedApiKey, // Store the HASHED key
                     description: description,
                 },
             });
             this.logger.info('User created with ID: ' + user.id);
-            // Return the new user and the PLAINTEXT API key for one-time display
             return { user, apiKey: plaintextApiKey }; 
         } catch (error) {
             this.logger.error('Error creating user', { error });
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
-                if (error.code === 'P2002') { // Unique constraint violation (e.g. apiKey)
-                    this.logger.warn('Failed to create user due to unique constraint violation. This might happen if API key generation is not truly unique (especially with placeholder).');
+                if (error.code === 'P2002') { 
+                    this.logger.warn('Failed to create user due to unique constraint violation (apiKey should be unique).');
                 }
             }
             return null;
@@ -105,34 +100,30 @@ export class DatabaseService {
     }
 
     /**
-     * Validates an API key.
-     * IMPORTANT: This current implementation validates against PLAINTEXT keys if stored that way (dev placeholder).
-     * TODO: Modify to use bcrypt.compare if API keys are properly hashed in the database.
-     * @param apiKey The plaintext API key to validate.
+     * Validates an API key against stored hashed keys.
+     * @param apiKeyToValidate The plaintext API key to validate.
      * @returns The User object if the key is valid and the user is active, otherwise null.
      */
-    async validateApiKey(apiKey: string): Promise<User | null> {
-        this.logger.debug('Validating API key.');
+    async validateApiKey(apiKeyToValidate: string): Promise<User | null> {
+        this.logger.debug('Attempting to validate API key.');
         try {
-            // IMPORTANT: In production, you would hash the provided apiKey and search for the hash,
-            // or, if using a prefix system, find by prefix then use bcrypt.compare.
-            // Current placeholder finds by plaintext apiKey (INSECURE if used in prod).
-            const user = await this.prismaClient.user.findUnique({
-                where: { apiKey: apiKey }, // This assumes apiKey is unique and plaintext (dev only)
+            // Fetch all active users. For a very large number of users, this approach will be slow.
+            // A more scalable solution might involve a lookup key or prefix if API keys were structured for it.
+            const activeUsers = await this.prismaClient.user.findMany({
+                where: { isActive: true },
             });
 
-            if (user && user.isActive) {
-                this.logger.debug('API key validated for user ID: ' + user.id);
-                // Optionally update lastSeenAt here or make it a separate call
-                await this.updateUserLastSeen(user.id);
-                return user;
-            } else if (user && !user.isActive) {
-                this.logger.warn('API key belongs to inactive user ID: ' + user.id);
-                return null;
-            } else {
-                this.logger.warn('Invalid API key provided.');
-                return null;
+            for (const user of activeUsers) {
+                const isValid = await bcrypt.compare(apiKeyToValidate, user.apiKey);
+                if (isValid) {
+                    this.logger.debug('API key validated for user ID: ' + user.id);
+                    await this.updateUserLastSeen(user.id); // Update lastSeenAt upon successful validation
+                    return user;
+                }
             }
+
+            this.logger.warn('Invalid API key provided or user not active.');
+            return null;
         } catch (error) {
             this.logger.error('Error validating API key', { error });
             return null;

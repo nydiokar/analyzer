@@ -21,10 +21,4 @@ export class WalletSummaryResponse {
 
   @ApiProperty({ example: 'True Flipper', description: 'Behavioral classification of the wallet based on trading patterns.' })
   behaviorClassification: string;
-
-  @ApiProperty({ description: 'Raw advanced statistics object for the wallet.', type: () => Object, nullable: true, additionalProperties: true })
-  rawAdvancedStats?: any; // Replace 'any' with a more specific DTO if available (e.g., AdvancedStatsDto)
-
-  @ApiProperty({ description: 'Raw behavior metrics object for the wallet.', type: () => Object, nullable: true, additionalProperties: true })
-  rawBehaviorMetrics?: any; // Replace 'any' with a more specific DTO if available (e.g., BehaviorMetricsDto)
 } 

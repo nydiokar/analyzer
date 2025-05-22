@@ -18,7 +18,7 @@ export class PnlOverviewResponse {
   trimmedMeanPnlPerToken?: number; // New
   tokenWinRate?: number; 
   standardDeviationPnl?: number; // New
-  profitConsistencyIndex?: number; // New
+  medianPnlToVolatilityRatio?: number; // New
   weightedEfficiencyScore?: number; // New
   averagePnlPerDayActiveApprox?: number; // New
 }
@@ -90,7 +90,7 @@ export class PnlOverviewService {
       trimmedMeanPnlPerToken: formatAdvancedStat(advancedStats?.trimmedMeanPnlPerToken, 2),
       tokenWinRate: formatAdvancedStat(advancedStats?.tokenWinRatePercent, 1),
       standardDeviationPnl: formatAdvancedStat(advancedStats?.standardDeviationPnl, 2),
-      profitConsistencyIndex: formatAdvancedStat(advancedStats?.profitConsistencyIndex, 2),
+      medianPnlToVolatilityRatio: formatAdvancedStat(advancedStats?.medianPnlToVolatilityRatio, 2),
       weightedEfficiencyScore: formatAdvancedStat(advancedStats?.weightedEfficiencyScore, 2),
       averagePnlPerDayActiveApprox: formatAdvancedStat(advancedStats?.averagePnlPerDayActiveApprox, 2),
     };

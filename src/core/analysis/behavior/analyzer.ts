@@ -469,13 +469,6 @@ export class BehaviorAnalyzer {
       score = Math.min(1, score + 0.2);
     }
     
-    // Penalize heavily lopsided buy/sell ratios unless total trades are very low
-    if (metrics.totalTradeCount > 10) {
-      if (metrics.buySellRatio > 3 || metrics.buySellRatio < (1/3)) {
-        score *= 0.7; 
-      }
-    }
-    
     return Math.max(0, Math.min(1, score)); // Clamp between 0 and 1
   }
 
