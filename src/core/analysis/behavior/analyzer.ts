@@ -110,23 +110,13 @@ export class BehaviorAnalyzer {
         : actualDurationDays;
 
       // For tradesPerWeek:
-      if (actualDurationDays < 7) {
-        // If the observation period is less than 7 days, tradesPerWeek reflects the total count of trades observed.
-        metrics.tradingFrequency.tradesPerWeek = metrics.totalTradeCount;
-      } else {
-        // If observation period is 7 days or more, calculate the weekly rate.
-        metrics.tradingFrequency.tradesPerWeek = (metrics.totalTradeCount / minRateCalculationDurationDays) * 7;
-      }
+      // Always calculate the weekly rate based on the observed duration.
+      metrics.tradingFrequency.tradesPerWeek = (metrics.totalTradeCount / minRateCalculationDurationDays) * 7;
 
       // For tradesPerMonth:
       const daysInAverageMonth = 30.4375;
-      if (actualDurationDays < daysInAverageMonth) {
-        // If the observation period is less than a month, tradesPerMonth reflects the total count of trades observed.
-        metrics.tradingFrequency.tradesPerMonth = metrics.totalTradeCount;
-      } else {
-        // If observation period is a month or more, calculate the monthly rate.
-        metrics.tradingFrequency.tradesPerMonth = (metrics.totalTradeCount / minRateCalculationDurationDays) * daysInAverageMonth;
-      }
+      // Always calculate the monthly rate based on the observed duration.
+      metrics.tradingFrequency.tradesPerMonth = (metrics.totalTradeCount / minRateCalculationDurationDays) * daysInAverageMonth;
     }
 
     // Calculate session metrics
@@ -226,9 +216,10 @@ export class BehaviorAnalyzer {
       const buyCount = records.filter(r => r.direction === 'in').length;
       const sellCount = records.filter(r => r.direction === 'out').length;
       let buySellRatio = 0;
-      if (buyCount > 0 && sellCount > 0) {
+      if (sellCount > 0) {
         buySellRatio = buyCount / sellCount;
-        if (buySellRatio < 1) buySellRatio = 1 / buySellRatio;
+      } else if (buyCount > 0) {
+        buySellRatio = Infinity; // Only buys
       }
       sequences.push({
         mint,
@@ -398,7 +389,7 @@ export class BehaviorAnalyzer {
       }, 0);
       metrics.sequenceConsistency = consistencySum / metrics.tokensWithBothBuyAndSell;
 
-      metrics.averageTradesPerToken = metrics.totalTradeCount / metrics.uniqueTokensTraded;
+      metrics.averageTradesPerToken = metrics.uniqueTokensTraded > 0 ? metrics.totalTradeCount / metrics.uniqueTokensTraded : 0;
     }
     
     const timeCalcs = this.calculateTimeDistributions(sequences);

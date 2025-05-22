@@ -256,59 +256,46 @@ export class DatabaseService {
      * @returns The updated or newly created Wallet object, or null on error.
      */
     async updateWallet(walletAddress: string, data: WalletUpdateData): Promise<Wallet | null> {
-      this.logger.debug(`[DB Test] Attempting upsert for wallet: ${walletAddress}. Input data:`, data);
+      // Prepare the payload for create/update operations.
+      // This will contain all optional fields from 'data', transformed and validated.
+      const payloadData: Partial<Omit<Wallet, 'address' | 'createdAt' | 'updatedAt' | 'id'>> = {};
 
-      // For the UPDATE part, prepare the payload as usual
-      const updatePayload: Prisma.WalletUpdateInput = {};
       if (data.firstProcessedTimestamp !== undefined && data.firstProcessedTimestamp !== null) {
-        updatePayload.firstProcessedTimestamp = Number(data.firstProcessedTimestamp);
+        payloadData.firstProcessedTimestamp = Number(data.firstProcessedTimestamp);
       }
       if (data.newestProcessedSignature !== undefined && data.newestProcessedSignature !== null) {
-        updatePayload.newestProcessedSignature = String(data.newestProcessedSignature);
+        payloadData.newestProcessedSignature = String(data.newestProcessedSignature);
       }
       if (data.newestProcessedTimestamp !== undefined && data.newestProcessedTimestamp !== null) {
-        updatePayload.newestProcessedTimestamp = Number(data.newestProcessedTimestamp);
+        payloadData.newestProcessedTimestamp = Number(data.newestProcessedTimestamp);
       }
       if (data.lastSuccessfulFetchTimestamp !== undefined && data.lastSuccessfulFetchTimestamp !== null) {
         const tsDate = data.lastSuccessfulFetchTimestamp instanceof Date 
             ? data.lastSuccessfulFetchTimestamp 
             : new Date(data.lastSuccessfulFetchTimestamp);
         if (!isNaN(tsDate.getTime())) {
-            updatePayload.lastSuccessfulFetchTimestamp = tsDate;
+            payloadData.lastSuccessfulFetchTimestamp = tsDate;
         }
       }
       if (data.lastSignatureAnalyzed !== undefined && data.lastSignatureAnalyzed !== null) {
-        updatePayload.lastSignatureAnalyzed = String(data.lastSignatureAnalyzed);
+        payloadData.lastSignatureAnalyzed = String(data.lastSignatureAnalyzed);
       }
 
-      const filteredUpdatePayload = Object.fromEntries(
-        Object.entries(updatePayload).filter(([, value]) => value !== undefined)
-      ) as Prisma.WalletUpdateInput;
-
-      // For the CREATE part, construct a full WalletCreateInput, including address.
-      // This is to directly address the runtime P2011 "Null constraint violation on address".
-      // Linter may complain about 'address' here based on previous observations, but we are testing runtime behavior.
-      const createPayloadForUpsert = {
+      const upsertOptions = {
         where: { address: walletAddress },
         create: {
-          address: walletAddress,
-          ...(data.firstProcessedTimestamp !== undefined && data.firstProcessedTimestamp !== null && { firstProcessedTimestamp: Number(data.firstProcessedTimestamp) }),
-          ...(data.newestProcessedSignature !== undefined && data.newestProcessedSignature !== null && { newestProcessedSignature: String(data.newestProcessedSignature) }),
-          ...(data.newestProcessedTimestamp !== undefined && data.newestProcessedTimestamp !== null && { newestProcessedTimestamp: Number(data.newestProcessedTimestamp) }),
-          ...(data.lastSuccessfulFetchTimestamp !== undefined && data.lastSuccessfulFetchTimestamp !== null && !isNaN(new Date(data.lastSuccessfulFetchTimestamp instanceof Date ? data.lastSuccessfulFetchTimestamp.toISOString() : data.lastSuccessfulFetchTimestamp).getTime()) && { lastSuccessfulFetchTimestamp: new Date(data.lastSuccessfulFetchTimestamp instanceof Date ? data.lastSuccessfulFetchTimestamp.toISOString() : data.lastSuccessfulFetchTimestamp) }),
-          ...(data.lastSignatureAnalyzed !== undefined && data.lastSignatureAnalyzed !== null && { lastSignatureAnalyzed: String(data.lastSignatureAnalyzed) }),
+          address: walletAddress, // Explicitly set address for creation
+          ...payloadData,         // Spread the processed optional fields
         },
-        update: filteredUpdatePayload,
+        update: payloadData,           // Use the same processed optional fields for update
       };
 
-      this.logger.debug(`[DB Test] Using createPayloadForUpsert: ${JSON.stringify(createPayloadForUpsert)}`);
-
       try {
-        const updatedWallet = await this.prismaClient.wallet.upsert(createPayloadForUpsert);
-        this.logger.info(`[DB Test] Successfully upserted wallet: ${walletAddress}`);
+        const updatedWallet = await this.prismaClient.wallet.upsert(upsertOptions);
+        this.logger.info(`[DB] Successfully upserted wallet: ${walletAddress}`);
         return updatedWallet;
       } catch (error: any) {
-          this.logger.error(`[DB Test] Error upserting wallet ${walletAddress}. Create Payload: ${JSON.stringify(createPayloadForUpsert)}, Update Payload: ${JSON.stringify(filteredUpdatePayload)}`, { error: { message: error.message, code: error.code, meta: error.meta, name: error.name }, data });
+          this.logger.error(`[DB] Error upserting wallet ${walletAddress}. Create Payload: ${JSON.stringify(upsertOptions.create)}, Update Payload: ${JSON.stringify(upsertOptions.update)}`, { error: { message: error.message, code: error.code, meta: error.meta, name: error.name }, data });
           return null;
       }
     }
@@ -897,7 +884,7 @@ export class DatabaseService {
      * @param walletAddress The public key of the wallet.
      * @returns The latest AdvancedStatsResult object if found, otherwise null.
      */
-    async getLatestAdvancedStatsByWallet(walletAddress: string): Promise<AdvancedTradeStats | null> { // Return type simplified
+    async getLatestAdvancedStatsByWallet(walletAddress: string): Promise<AdvancedTradeStats | null> {
       this.logger.debug(`Fetching latest advanced stats for wallet: ${walletAddress}`);
       try {
         const advancedStats = await this.prismaClient.advancedTradeStats.findFirst({

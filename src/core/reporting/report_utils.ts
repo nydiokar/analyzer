@@ -86,13 +86,13 @@ export function generateBehaviorReport(
     lines.push('### Speed & Hold Time');
     lines.push(`- Average Flip Duration: ${formatNumber(metrics.averageFlipDurationHours, 2)} hours`);
     lines.push(`- Median Hold Time: ${formatNumber(metrics.medianHoldTime, 2)} hours`);
-    lines.push(`- % Trades < 1 Hour: ${formatNumber(metrics.percentTradesUnder1Hour * 100, 1)}%`);
-    lines.push(`- % Trades < 4 Hours: ${formatNumber(metrics.percentTradesUnder4Hours * 100, 1)}%`);
+    lines.push(`- % Swaps < 1 Hour: ${formatNumber(metrics.percentTradesUnder1Hour * 100, 1)}%`);
+    lines.push(`- % Swaps < 4 Hours: ${formatNumber(metrics.percentTradesUnder4Hours * 100, 1)}%`);
     lines.push('');
 
     // --- Trading Time Distribution (Existing Bucketed) ---
     lines.push('### Trading Time Distribution (Categorized)');
-    lines.push('| Window          | % Trades |');
+    lines.push('| Window          | % Swaps |');
     lines.push('|-----------------|----------|');
     lines.push(`| < 30 min        | ${formatNumber(metrics.tradingTimeDistribution.ultraFast * 100, 1)}% |`);
     lines.push(`| 30-60 min       | ${formatNumber(metrics.tradingTimeDistribution.veryFast * 100, 1)}% |`);
@@ -105,15 +105,15 @@ export function generateBehaviorReport(
 
     // --- Trading Frequency ---
     lines.push('### Trading Frequency');
-    lines.push(`- Trades per Day: ${formatNumber(metrics.tradingFrequency.tradesPerDay, 2)}`);
-    lines.push(`- Trades per Week: ${formatNumber(metrics.tradingFrequency.tradesPerWeek, 2)}`);
-    lines.push(`- Trades per Month: ${formatNumber(metrics.tradingFrequency.tradesPerMonth, 2)}`);
+    lines.push(`- Swaps per Day: ${formatNumber(metrics.tradingFrequency.tradesPerDay, 2)}`);
+    lines.push(`- Swaps per Week: ${formatNumber(metrics.tradingFrequency.tradesPerWeek, 2)}`);
+    lines.push(`- Swaps per Month: ${formatNumber(metrics.tradingFrequency.tradesPerMonth, 2)}`);
     lines.push('');
 
     // --- Session-Based Metrics ---
     lines.push('### Session-Based Metrics');
     lines.push(`- Session Count: ${metrics.sessionCount}`);
-    lines.push(`- Average Trades per Session: ${formatNumber(metrics.avgTradesPerSession, 2)}`);
+    lines.push(`- Average Swaps per Session: ${formatNumber(metrics.avgTradesPerSession, 2)}`);
     lines.push(`- Average Session Start Hour (UTC): ${metrics.averageSessionStartHour === -1 ? 'N/A' : metrics.averageSessionStartHour.toFixed(0).padStart(2, '0') + ':00'}`);
     lines.push(`- Average Session Duration: ${formatNumber(metrics.averageSessionDurationMinutes, 1)} minutes`);
     lines.push('');
@@ -123,21 +123,21 @@ export function generateBehaviorReport(
     lines.push(`- Activity Focus Score: ${formatNumber(metrics.activeTradingPeriods.activityFocusScore, 1)}%`);
     lines.push('');
 
-    lines.push('#### Hourly Trade Counts (UTC)');
+    lines.push('#### Hourly Swap Counts (UTC)');
     if (Object.keys(metrics.activeTradingPeriods.hourlyTradeCounts).length > 0) {
-        const hourlyData = [['Hour (UTC)', 'Trade Count']];
+        const hourlyData = [['Hour (UTC)', 'Swap Count']];
         for (const hour in metrics.activeTradingPeriods.hourlyTradeCounts) {
             hourlyData.push([`${hour.padStart(2, '0')}:00-${(parseInt(hour) + 1).toString().padStart(2, '0')}:00`, metrics.activeTradingPeriods.hourlyTradeCounts[hour].toString()]);
         }
         lines.push(table(hourlyData));
     } else {
-        lines.push('No hourly trade data available.');
+        lines.push('No hourly swap data available.');
     }
     lines.push('');
 
     lines.push('#### Identified Trading Windows');
     if (metrics.activeTradingPeriods.identifiedWindows.length > 0) {
-        const windowsData = [['Start (UTC)', 'End (UTC)', 'Duration (hrs)', 'Trades', '% Total Trades', 'Avg Trades/hr']];
+        const windowsData = [['Start (UTC)', 'End (UTC)', 'Duration (hrs)', 'Swaps', '% Total Swaps', 'Avg Swaps/hr']];
         metrics.activeTradingPeriods.identifiedWindows.forEach(w => {
             windowsData.push([
                 `${w.startTimeUTC.toString().padStart(2, '0')}:00 UTC`,
@@ -177,7 +177,7 @@ export function generateBehaviorReport(
     lines.push('### Token Preferences');
     lines.push('#### Most Traded Tokens (by Count)');
     if (metrics.tokenPreferences.mostTradedTokens.length > 0) {
-        const mostTradedData = [['Token', 'Count']];
+        const mostTradedData = [['Token', 'Swap Count']];
         metrics.tokenPreferences.mostTradedTokens.slice(0, 10).forEach(t => {
             mostTradedData.push([
                 getTokenDisplayName(t.mint),
@@ -573,7 +573,7 @@ export function generateSwapPnlReport(
     // Token Details Table - from SwapAnalysisSummary.results (OnChainAnalysisResult[])
     lines.push("### 🪙 Token P/L Details (Top 15 by Realized P/L)");
     const tableData: any[][] = [[
-        'Token', 'Symbol', 'Realized P/L (SOL)', 'Net Change', 'SOL Spent', 'SOL Received', 'Trades In/Out', 'First/Last Seen'
+        'Token', 'Symbol', 'Realized P/L (SOL)', 'Net Change', 'SOL Spent', 'SOL Received', 'Swaps In/Out', 'First/Last Seen'
     ]];
 
     // Sort tokens by realized P/L descending, take top 15
@@ -726,18 +726,20 @@ export function generatePnlOverviewHtmlTelegram(
     if (!summary) {
         return `<b>💰 PNL Overview for <code>${walletAddress}</code>:</b>\n⚠️ No PNL data available or analysis was skipped.`;
     }
-    const { realizedPnl, profitableTokensCount, unprofitableTokensCount, totalVolume, advancedStats, overallFirstTimestamp, overallLastTimestamp } = summary;
-    const totalTrades = (profitableTokensCount || 0) + (unprofitableTokensCount || 0);
-    const winRate = totalTrades > 0 ? ((profitableTokensCount || 0) / totalTrades) * 100 : 0;
-    const avgPnlPerTrade = totalTrades > 0 ? (realizedPnl || 0) / totalTrades : 0;
+    const { realizedPnl, profitableTokensCount, unprofitableTokensCount, totalVolume, advancedStats, overallFirstTimestamp, overallLastTimestamp, totalExecutedSwapsCount } = summary;
+    const totalPnlTokens = (profitableTokensCount || 0) + (unprofitableTokensCount || 0);
+    const winRate = totalPnlTokens > 0 ? ((profitableTokensCount || 0) / totalPnlTokens) * 100 : 0;
+    // Use totalExecutedSwapsCount for avgPnlPerSwap if available and makes sense, otherwise stick to totalPnlTokens for per-token-pnl-event average
+    const avgPnlPerSwap = (totalExecutedSwapsCount ?? 0) > 0 ? (realizedPnl || 0) / (totalExecutedSwapsCount! ) : 0; 
 
     let message = `<b>💰 PNL Overview for <code>${walletAddress}</code>:</b>\n`;
     if (overallFirstTimestamp && overallLastTimestamp) {
         message += `<i>Data from: ${formatTimestamp(overallFirstTimestamp)} to ${formatTimestamp(overallLastTimestamp)}</i>\n`;
     }
     message += `  Realized PNL: <b>${formatSolAmount(realizedPnl || 0, 2)} SOL</b>\n`;
-    message += `  Win Rate: <b>${winRate.toFixed(1)}%</b> (${profitableTokensCount || 0}/${totalTrades} wins)\n`;
-    message += `  Avg P/L Trade: <b>${formatSolAmount(avgPnlPerTrade, 2)} SOL</b>\n`;
+    message += `  Win Rate: <b>${winRate.toFixed(1)}%</b> (${profitableTokensCount || 0}/${totalPnlTokens} wins)\n`;
+    // Changed Avg P/L Trade to Avg P/L Swap
+    message += `  Avg P/L Swap: <b>${formatSolAmount(avgPnlPerSwap, 2)} SOL</b>\n`; 
 
     if (advancedStats) {
         message += `  Token Win Rate: <b>${formatNumber(advancedStats.tokenWinRatePercent, 1)}%</b>\n`;
@@ -772,7 +774,8 @@ export function generateBehaviorSummaryHtmlTelegram(
     message += `  Style: <b>${metrics.tradingStyle ?? 'N/A'}</b> (Confidence: <b>${((metrics.confidenceScore ?? 0) * 100).toFixed(1)}%</b>)\n`;
     message += `  Avg. Flip: <b>${(metrics.averageFlipDurationHours ?? 0).toFixed(1)} hrs</b> | Med. Hold: <b>${(metrics.medianHoldTime ?? 0).toFixed(1)} hrs</b>\n`;
     message += `  Key Traits: %&lt;1hr: <b>${((metrics.percentTradesUnder1Hour ?? 0) * 100).toFixed(0)}%</b>, Buy/Sell Symm: <b>${((metrics.buySellSymmetry ?? 0) * 100).toFixed(0)}%</b>\n`;
-    message += `  Unique Tokens: <b>${metrics.uniqueTokensTraded ?? 0}</b> | Total Trades: <b>${metrics.totalTradeCount ?? 0}</b>`;
+    // Changed Total Trades to Total Swaps
+    message += `  Unique Tokens: <b>${metrics.uniqueTokensTraded ?? 0}</b> | Total Swaps: <b>${metrics.totalTradeCount ?? 0}</b>`; 
 
     return message;
 }
@@ -815,7 +818,8 @@ export function generateDetailedBehaviorHtmlTelegram(walletAddress: string, metr
     lines.push('<b>Activity Summary:</b>');
     lines.push(`• Unique Tokens: <b>${metrics.uniqueTokensTraded ?? 'N/A'}</b>`);
     lines.push(`• Tokens with Both Buy/Sell: <b>${metrics.tokensWithBothBuyAndSell ?? 'N/A'}</b>`);
-    lines.push(`• Total Trades: <b>${metrics.totalTradeCount ?? 'N/A'}</b> (<b>${metrics.totalBuyCount ?? 0}</b> buys, <b>${metrics.totalSellCount ?? 0}</b> sells)`);
+    // Changed Total Trades to Total Swaps
+    lines.push(`• Total Swaps: <b>${metrics.totalTradeCount ?? 'N/A'}</b> (<b>${metrics.totalBuyCount ?? 0}</b> buys, <b>${metrics.totalSellCount ?? 0}</b> sells)`); 
     lines.push(`• Complete Pairs: <b>${metrics.completePairsCount ?? 'N/A'}</b>\n`);
     
     // Key Metrics
@@ -826,8 +830,9 @@ export function generateDetailedBehaviorHtmlTelegram(walletAddress: string, metr
     lines.push(`• Sequence Consistency: <b>${((metrics.sequenceConsistency ?? 0) * 100).toFixed(1)}%</b>`);
     lines.push(`• Average Hold Time: <b>${(metrics.averageFlipDurationHours ?? 0).toFixed(1)}h</b>`);
     lines.push(`• Median Hold Time: <b>${(metrics.medianHoldTime ?? 0).toFixed(1)}h</b>`);
-    lines.push(`• % Trades Under 1h: <b>${((metrics.percentTradesUnder1Hour ?? 0) * 100).toFixed(1)}%</b>`);
-    lines.push(`• % Trades Under 4h: <b>${((metrics.percentTradesUnder4Hours ?? 0) * 100).toFixed(1)}%</b>`);
+    // Changed % Trades to % Swaps
+    lines.push(`• % Swaps Under 1h: <b>${((metrics.percentTradesUnder1Hour ?? 0) * 100).toFixed(1)}%</b>`); 
+    lines.push(`• % Swaps Under 4h: <b>${((metrics.percentTradesUnder4Hours ?? 0) * 100).toFixed(1)}%</b>`); 
 
     return lines.join('\n');
 }

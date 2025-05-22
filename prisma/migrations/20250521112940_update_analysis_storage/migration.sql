@@ -117,7 +117,7 @@ CREATE TABLE "new_AnalysisResult" (
     "isValuePreservation" BOOLEAN,
     "estimatedPreservedValue" REAL,
     "preservationType" TEXT,
-    "updatedAt" DATETIME NOT NULL
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 INSERT INTO "new_AnalysisResult" ("firstTransferTimestamp", "id", "lastTransferTimestamp", "netAmountChange", "netSolProfitLoss", "tokenAddress", "totalAmountIn", "totalAmountOut", "totalFeesPaidInSol", "totalSolReceived", "totalSolSpent", "transferCountIn", "transferCountOut", "walletAddress") SELECT "firstTransferTimestamp", "id", "lastTransferTimestamp", "netAmountChange", "netSolProfitLoss", "tokenAddress", "totalAmountIn", "totalAmountOut", "totalFeesPaidInSol", "totalSolReceived", "totalSolSpent", "transferCountIn", "transferCountOut", "walletAddress" FROM "AnalysisResult";
 DROP TABLE "AnalysisResult";

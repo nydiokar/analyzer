@@ -90,7 +90,7 @@ model AnalysisResult {
   estimatedPreservedValue Float?
   preservationType       String?  // Consider Enum: enum PreservationType { STABLECOIN HODL }
 
-  updatedAt              DateTime @updatedAt
+  updatedAt              DateTime @default(now()) @updatedAt
 
   @@unique([walletAddress, tokenAddress])
   @@index([walletAddress])

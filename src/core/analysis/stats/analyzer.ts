@@ -85,7 +85,7 @@ export class AdvancedStatsAnalyzer {
 
       // --- Token Win Rate (uses original pnlValues) ---
       const profitableTokens = pnlValues.filter(pnl => pnl > WIN_THRESHOLD_SOL).length;
-      const tokenWinRatePercent = totalTokens > 0 ? (profitableTokens / totalTokens) * 100 : 0;
+      const tokenWinRatePercent = nz_n > 0 ? (profitableTokens / nz_n) * 100 : 0;
 
       // --- Standard Deviation PnL (uses original pnlValues) ---
       const standardDeviationPnl = this.calculateStandardDeviation(pnlValues);
@@ -101,7 +101,7 @@ export class AdvancedStatsAnalyzer {
       // --- Weighted Efficiency Score ---
       const winRateDecimal = tokenWinRatePercent / 100;
       const weightedEfficiencyScore = totalTokens > 0
-        ? (overallNetPnl / totalTokens) * Math.log(1 + winRateDecimal) // Using natural log
+        ? (overallNetPnl / totalTokens) * Math.log(1 + winRateDecimal) * 100 // Using natural log and scaling by 100
         : 0;
 
       // --- Average PnL Per Day Active (Proxy) ---
