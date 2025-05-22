@@ -11,6 +11,8 @@ const FEE_PRECISION_THRESHOLD = 0.000000001; // Avoid assigning near-zero fees
 const FEE_TRANSFER_THRESHOLD_SOL = 0.1; // Heuristic: Native transfers OUT below this are considered fees/tips
 // const TOKEN_FEE_AMOUNT_MATCH_TOLERANCE = 0.001; // 0.1% tolerance for matching token fee amounts (commented out as we are trying a new heuristic)
 const TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD = 0.05; // 5% - Heuristic for mapper-level fee identification
+const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL = 0.1; // Min SOL value for fee-payer heuristic
+const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC = 1.0; // Min USDC value for fee-payer heuristic
 
 // Define the output type matching Prisma's expectations
 type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
@@ -362,6 +364,234 @@ export function mapHeliusTransactionsToIntermediateRecords(
            processedRecordKeys.add(recordKey);
       }
 
+      // --- Fee Payer Heuristic Block ---
+      const isFeePayerWalletA = tx.feePayer?.toLowerCase() === lowerWalletAddress;
+
+      // DEBUG LOGGING TO CHECK FEE PAYER AND RAW EVENTS OBJECT
+      if (tx.signature === "3Kc5xozpxra6g5UGKxLPH1nEda8jRyfyxsJcpS2tJNboYrWm3a1MFyHpgJRYvqxWt77srSRJMBsYkvdf86mqR4CX") {
+        logger.warn(`FEE_PAYER_DEBUG_PRE_CHECK for ${tx.signature}: isFeePayerWalletA = ${isFeePayerWalletA}, tx.feePayer = ${tx.feePayer}, lowerWalletAddress = ${lowerWalletAddress}`);
+        logger.warn(`FEE_PAYER_DEBUG_PRE_CHECK for ${tx.signature}: tx.events object: ${JSON.stringify(tx.events, null, 2)}`);
+      }
+
+      if (isFeePayerWalletA && tx.events?.swap) {
+          // Original conditional debug log for swapEvent data (can be kept or removed if the one above is sufficient)
+          if (tx.signature === "3Kc5xozpxra6g5UGKxLPH1nEda8jRyfyxsJcpS2tJNboYrWm3a1MFyHpgJRYvqxWt77srSRJMBsYkvdf86mqR4CX") {
+            logger.warn(`FEE_PAYER_DEBUG_IN_BLOCK for ${tx.signature}: swapEvent data: ${JSON.stringify(tx.events.swap, null, 2)}`);
+          }
+          const swapEvent = tx.events.swap;
+          let heuristicAssociatedSolValue = 0;
+          let heuristicAssociatedUsdcValue = 0;
+
+          // Determine SOL/USDC value of this specific swap event more globally
+          // Prioritize WSOL from outputs first, then inputs for heuristic SOL value.
+          for (const out of swapEvent.tokenOutputs || []) {
+              if (out.mint === SOL_MINT) {
+                  heuristicAssociatedSolValue = Math.max(heuristicAssociatedSolValue, Math.abs(safeParseAmount(out)));
+              }
+              if (out.mint === USDC_MINT) {
+                  heuristicAssociatedUsdcValue = Math.max(heuristicAssociatedUsdcValue, Math.abs(safeParseAmount(out)));
+              }
+          }
+          // If no significant SOL value found in outputs, check inputs.
+          if (heuristicAssociatedSolValue < FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL) {
+              for (const inp of swapEvent.tokenInputs || []) {
+                  if (inp.mint === SOL_MINT) {
+                      heuristicAssociatedSolValue = Math.max(heuristicAssociatedSolValue, Math.abs(safeParseAmount(inp)));
+                  }
+              }
+          }
+          // If no significant USDC value found in outputs, check inputs.
+          if (heuristicAssociatedUsdcValue < FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC) {
+              for (const inp of swapEvent.tokenInputs || []) {
+                  if (inp.mint === USDC_MINT) {
+                      heuristicAssociatedUsdcValue = Math.max(heuristicAssociatedUsdcValue, Math.abs(safeParseAmount(inp)));
+                  }
+              }
+          }
+
+          // Fallback to innerSwaps if still not significant enough from top-level event data
+          if ((heuristicAssociatedSolValue < FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL && heuristicAssociatedUsdcValue < FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC) && swapEvent.innerSwaps) {
+              for (const inner of swapEvent.innerSwaps) {
+                  for (const out of inner.tokenOutputs || []) {
+                      const amount = Math.abs(safeParseAmount(out));
+                      if (out.mint === SOL_MINT) heuristicAssociatedSolValue = Math.max(heuristicAssociatedSolValue, amount);
+                      if (out.mint === USDC_MINT) heuristicAssociatedUsdcValue = Math.max(heuristicAssociatedUsdcValue, amount);
+                  }
+                  for (const inp of inner.tokenInputs || []) {
+                      const amount = Math.abs(safeParseAmount(inp));
+                      if (inp.mint === SOL_MINT) heuristicAssociatedSolValue = Math.max(heuristicAssociatedSolValue, amount);
+                      if (inp.mint === USDC_MINT) heuristicAssociatedUsdcValue = Math.max(heuristicAssociatedUsdcValue, amount);
+                  }
+              }
+          }
+          
+          const meetsSolSignificance = heuristicAssociatedSolValue >= FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL;
+          const meetsUsdcSignificance = heuristicAssociatedUsdcValue >= FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC;
+
+          if (meetsSolSignificance || meetsUsdcSignificance) {
+              logger.debug(`Tx ${tx.signature}: Fee payer heuristic triggered for ${walletAddress} with swap value ~${heuristicAssociatedSolValue.toFixed(4)} SOL / ~${heuristicAssociatedUsdcValue.toFixed(4)} USDC.`);
+
+              // Process token inputs of the swap event as 'out' for walletAddress
+              for (const tokenIn of swapEvent.tokenInputs || []) {
+                  const inputMint = tokenIn.mint;
+                  // Only attribute SPL tokens this way, not the SOL/USDC itself if it's the value metric
+                  if (!inputMint || inputMint === SOL_MINT || inputMint === USDC_MINT) continue;
+
+                  const inputAmount = safeParseAmount(tokenIn);
+                  const isFeePayerTheOwner = tokenIn.userAccount?.toLowerCase() === lowerWalletAddress ||
+                                            (tokenIn.tokenAccount && userAccounts.has(tokenIn.tokenAccount));
+
+                  if (!isFeePayerTheOwner && Math.abs(inputAmount) > 0) {
+                      const recordKey = `${tx.signature}:${inputMint}:out:FEE_PAYER_HEURISTIC:${walletAddress}:${Math.abs(inputAmount).toFixed(9)}`;
+                      if (!processedRecordKeys.has(recordKey)) {
+                          analysisInputs.push({
+                              walletAddress: walletAddress, signature: tx.signature, timestamp: tx.timestamp,
+                              mint: inputMint, amount: -Math.abs(inputAmount), direction: 'out',
+                              associatedSolValue: heuristicAssociatedSolValue,
+                              associatedUsdcValue: heuristicAssociatedUsdcValue,
+                              interactionType: 'SWAP_FEE_PAYER',
+                              feeAmount: null, feePercentage: null,
+                          });
+                          processedRecordKeys.add(recordKey);
+                          logger.debug(`Tx ${tx.signature} Mint ${inputMint}: FEE PAYER heuristic - Attributed SWAP EVENT INPUT to ${walletAddress} as OUT.`);
+                      }
+                  }
+              }
+
+              // Process token outputs of the swap event as 'in' for walletAddress
+              for (const tokenOut of swapEvent.tokenOutputs || []) {
+                  const outputMint = tokenOut.mint;
+                  if (!outputMint || outputMint === SOL_MINT || outputMint === USDC_MINT) continue;
+
+                  const outputAmount = safeParseAmount(tokenOut);
+                  const isFeePayerTheOwner = tokenOut.userAccount?.toLowerCase() === lowerWalletAddress ||
+                                             (tokenOut.tokenAccount && userAccounts.has(tokenOut.tokenAccount));
+
+                  if (!isFeePayerTheOwner && Math.abs(outputAmount) > 0) {
+                      const recordKey = `${tx.signature}:${outputMint}:in:FEE_PAYER_HEURISTIC:${walletAddress}:${Math.abs(outputAmount).toFixed(9)}`;
+                      if (!processedRecordKeys.has(recordKey)) {
+                          analysisInputs.push({
+                              walletAddress: walletAddress, signature: tx.signature, timestamp: tx.timestamp,
+                              mint: outputMint, amount: Math.abs(outputAmount), direction: 'in',
+                              associatedSolValue: heuristicAssociatedSolValue,
+                              associatedUsdcValue: heuristicAssociatedUsdcValue,
+                              interactionType: 'SWAP_FEE_PAYER',
+                              feeAmount: null, feePercentage: null,
+                          });
+                          processedRecordKeys.add(recordKey);
+                          logger.debug(`Tx ${tx.signature} Mint ${outputMint}: FEE PAYER heuristic - Attributed SWAP EVENT OUTPUT to ${walletAddress} as IN.`);
+                      }
+                  }
+              }
+          }
+      }
+      // --- End of Fee Payer Heuristic Block ---
+
+      // --- Fallback Fee Payer Heuristic (if tx.events.swap was missing) ---
+      /**
+       * Fallback Fee-Payer Heuristic for Swap Attribution.
+       *
+       * This heuristic attempts to attribute a swap to the transaction's fee payer
+       * when the primary `tx.events.swap` object is missing from the Helius transaction data.
+       * This can occur for certain swap protocols or complex transactions where Helius
+       * might not fully parse the swap event structure into the `events.swap` path.
+       *
+       * The core logic is as follows:
+       * 1. Activates if the currently analyzed `walletAddress` is the `tx.feePayer` AND
+       *    `tx.events.swap` is undefined or null.
+       * 2. It inspects `tx.tokenTransfers` to find a potential swap:
+       *    a. Identifies the largest outgoing SPL (non-WSOL, non-USDC) token transfer
+       *       FROM an account that is NOT the fee payer. This is considered the token sold.
+       *    b. Identifies a corresponding incoming WSOL token transfer
+       *       TO an account that is NOT the fee payer (ideally the same account that sent the SPL token).
+       *       This is considered the SOL received for the sold token.
+       * 3. If a significant SPL-out and WSOL-in pair is found (WSOL amount meets
+       *    `FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL`), both legs of this inferred swap
+       *    (the SPL token out and the WSOL token in) are attributed to the `walletAddress`
+       *    (the fee payer).
+       * 4. The `associatedSolValue` for both generated records is set to the amount of WSOL involved.
+       * 5. The `interactionType` for these records is set to 'SWAP_FEE_PAYER_FB' (FB for Fallback).
+       *
+       * This allows capturing economic activity that would otherwise be missed if relying solely
+       * on `tx.events.swap`.
+       */
+      if (isFeePayerWalletA && !tx.events?.swap && tx.tokenTransfers && tx.tokenTransfers.length > 0) {
+        logger.debug(`Tx ${tx.signature}: Entering fallback fee-payer heuristic because tx.events.swap is missing.`);
+
+        let splOutAmount = 0;
+        let splOutMint: string | undefined = undefined;
+        let splOutOwner: string | undefined = undefined;
+
+        let wsolInAmount = 0;
+        let wsolInOwner: string | undefined = undefined;
+
+        // Find the main SPL token going out from a non-fee-payer wallet
+        for (const transfer of tx.tokenTransfers) {
+            if (transfer.mint !== SOL_MINT && transfer.mint !== USDC_MINT && // It's an SPL token
+                transfer.fromUserAccount && transfer.fromUserAccount.toLowerCase() !== lowerWalletAddress // Not from fee payer
+            ) {
+                const currentAmount = Math.abs(safeParseAmount(transfer));
+                if (currentAmount > splOutAmount) { // Take the largest outgoing SPL as the primary candidate
+                    splOutAmount = currentAmount;
+                    splOutMint = transfer.mint;
+                    splOutOwner = transfer.fromUserAccount;
+                }
+            }
+        }
+
+        // Find the main WSOL coming in to a non-fee-payer wallet (ideally the same one as splOutOwner)
+        for (const transfer of tx.tokenTransfers) {
+            if (transfer.mint === SOL_MINT && // It's WSOL
+                transfer.toUserAccount && transfer.toUserAccount.toLowerCase() !== lowerWalletAddress // Not to fee payer
+            ) {
+                const currentAmount = Math.abs(safeParseAmount(transfer));
+                if (splOutOwner && transfer.toUserAccount.toLowerCase() === splOutOwner.toLowerCase()) {
+                     wsolInAmount = currentAmount; // Prefer this direct match
+                     wsolInOwner = transfer.toUserAccount;
+                     break; // Found the matching WSOL leg
+                } else if (!splOutOwner && currentAmount > wsolInAmount) { // Generic largest WSOL if no splOutOwner match
+                    wsolInAmount = currentAmount;
+                    wsolInOwner = transfer.toUserAccount;
+                }
+            }
+        }
+        
+        if (splOutMint && splOutAmount > 0 && wsolInAmount >= FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL) {
+            logger.debug(`Tx ${tx.signature}: Fallback heuristic identified SPL out: ${splOutAmount} ${splOutMint} (from ${splOutOwner}) and WSOL in: ${wsolInAmount} (to ${wsolInOwner}). Attributing to fee payer ${walletAddress}.`);
+
+            const outRecordKey = `${tx.signature}:${splOutMint}:out:FEE_PAYER_FALLBACK:${walletAddress}:${splOutAmount.toFixed(9)}`;
+            if (!processedRecordKeys.has(outRecordKey)) {
+                analysisInputs.push({
+                    walletAddress: walletAddress, signature: tx.signature, timestamp: tx.timestamp,
+                    mint: splOutMint, amount: splOutAmount, direction: 'out',
+                    associatedSolValue: wsolInAmount, // Value is the WSOL received
+                    associatedUsdcValue: 0,
+                    interactionType: 'SWAP_FEE_PAYER_FB',
+                    feeAmount: null, feePercentage: null,
+                });
+                processedRecordKeys.add(outRecordKey);
+            }
+
+            const inRecordKey = `${tx.signature}:${SOL_MINT}:in:FEE_PAYER_FALLBACK:${walletAddress}:${wsolInAmount.toFixed(9)}`;
+             if (!processedRecordKeys.has(inRecordKey)) {
+                analysisInputs.push({
+                    walletAddress: walletAddress, signature: tx.signature, timestamp: tx.timestamp,
+                    mint: SOL_MINT, amount: wsolInAmount, direction: 'in',
+                    associatedSolValue: wsolInAmount, // Value is itself
+                    associatedUsdcValue: 0,
+                    interactionType: 'SWAP_FEE_PAYER_FB',
+                    feeAmount: null, feePercentage: null,
+                });
+                processedRecordKeys.add(inRecordKey);
+            }
+        } else {
+            if (isFeePayerWalletA && tx.tokenTransfers && tx.tokenTransfers.length > 0) { // only log if we expected something
+                logger.debug(`Tx ${tx.signature}: Fallback fee-payer heuristic did not find a clear SPL-WSOL pair to attribute to fee payer ${walletAddress}. splOutMint: ${splOutMint}, wsolInAmount: ${wsolInAmount}`);
+            }
+        }
+    }
+    // --- End of Fallback Fee Payer Heuristic ---
+
       // Process SPL Token Transfers
       for (const transfer of tx.tokenTransfers || []) {
             let currentTransferAmount = 0, mint: string | undefined, isWsol = false, isUsdc = false;
@@ -526,7 +756,13 @@ export function mapHeliusTransactionsToIntermediateRecords(
             // --- Push Record ---
             const recordAmount = currentTransferAmount;
             const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromTokenAccount ?? 'N/A'}:${transfer.toTokenAccount ?? 'N/A'}:${recordAmount.toFixed(9)}`;
-            if (processedRecordKeys.has(recordKey)) continue;
+            if (processedRecordKeys.has(recordKey)) {
+                // If a record with this exact key (meaning direct involvement of walletAddress in this transfer leg)
+                // was already added, we skip. This inherently handles cases where the fee payer is also the direct owner.
+                // The fee payer heuristic adds records with a *different* key format if it's attributing
+                // a leg not directly owned by walletAddress.
+                continue;
+            }
 
             analysisInputs.push({
                  walletAddress: walletAddress,
