@@ -5,7 +5,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 3001;
 
   // Global prefix for all API routes, as per plan (e.g., /api/v1)
   app.setGlobalPrefix('api/v1'); 
