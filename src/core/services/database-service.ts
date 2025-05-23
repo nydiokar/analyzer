@@ -107,46 +107,114 @@ export class DatabaseService {
     async validateApiKey(apiKeyToValidate: string): Promise<User | null> {
         this.logger.debug('Attempting to validate API key.');
         try {
-            // Fetch all active users. For a very large number of users, this approach will be slow.
-            // A more scalable solution might involve a lookup key or prefix if API keys were structured for it.
-            const activeUsers = await this.prismaClient.user.findMany({
-                where: { isActive: true },
+            const users = await this.prismaClient.user.findMany({
+                where: { isActive: true }, // Only consider active users
             });
 
-            for (const user of activeUsers) {
-                const isValid = await bcrypt.compare(apiKeyToValidate, user.apiKey);
-                if (isValid) {
-                    this.logger.debug('API key validated for user ID: ' + user.id);
-                    await this.updateUserLastSeen(user.id); // Update lastSeenAt upon successful validation
+            for (const user of users) {
+                const isMatch = await bcrypt.compare(apiKeyToValidate, user.apiKey);
+                if (isMatch) {
+                    this.logger.info(`API key validated successfully for user ID: ${user.id}`);
                     return user;
                 }
             }
 
-            this.logger.warn('Invalid API key provided or user not active.');
+            this.logger.warn('API key validation failed: No matching active user found for the provided key.');
             return null;
         } catch (error) {
-            this.logger.error('Error validating API key', { error });
-            return null;
+            this.logger.error('Error during API key validation:', error);
+            throw new Error('Could not validate API key due to a server error.'); // Generic error to client
         }
     }
 
     /**
-     * Updates the lastSeenAt timestamp for a user.
-     * @param userId The ID of the user.
-     * @returns The updated User object or null on error.
+     * Retrieves all users from the database.
+     * @returns A promise that resolves to an array of User objects.
      */
-    async updateUserLastSeen(userId: string): Promise<User | null> {
-        this.logger.debug('Updating lastSeenAt for user ID: ' + userId);
+    async getAllUsers(): Promise<User[]> {
+        this.logger.debug('Fetching all users.');
+        try {
+            const users = await this.prismaClient.user.findMany();
+            this.logger.info(`Retrieved ${users.length} users.`);
+            return users;
+        } catch (error) {
+            this.logger.error('Error fetching all users:', error);
+            throw new Error('Could not retrieve users due to a server error.');
+        }
+    }
+
+    /**
+     * Activates a user by their ID.
+     * @param userId The ID of the user to activate.
+     * @returns The updated User object or null if not found.
+     */
+    async activateUser(userId: string): Promise<User | null> {
+        this.logger.debug(`Attempting to activate user with ID: ${userId}`);
         try {
             const user = await this.prismaClient.user.update({
-                where: { id: userId },
-                data: { lastSeenAt: new Date() },
+                where: { id: userId, isActive: false }, // Only update if currently inactive
+                data: { isActive: true },
             });
-            this.logger.debug('Successfully updated lastSeenAt for user ID: ' + userId);
+            this.logger.info(`User ${userId} activated successfully.`);
             return user;
-        } catch (error) {
-            this.logger.error('Error updating lastSeenAt for user ID: ' + userId, { error });
-            return null;
+        } catch (error: any) {
+            // Prisma throws P2025 if record to update is not found
+            if (error.code === 'P2025') {
+                this.logger.warn(`User ${userId} not found or already active.`);
+                return null; 
+            }
+            this.logger.error(`Error activating user ${userId}:`, error);
+            throw new Error('Could not activate user due to a server error.');
+        }
+    }
+
+    /**
+     * Deactivates a user by their ID.
+     * @param userId The ID of the user to deactivate.
+     * @returns The updated User object or null if not found.
+     */
+    async deactivateUser(userId: string): Promise<User | null> {
+        this.logger.debug(`Attempting to deactivate user with ID: ${userId}`);
+        try {
+            const user = await this.prismaClient.user.update({
+                where: { id: userId, isActive: true }, // Only update if currently active
+                data: { isActive: false },
+            });
+            this.logger.info(`User ${userId} deactivated successfully.`);
+            return user;
+        } catch (error: any) {
+             // Prisma throws P2025 if record to update is not found
+            if (error.code === 'P2025') {
+                this.logger.warn(`User ${userId} not found or already inactive.`);
+                return null;
+            }
+            this.logger.error(`Error deactivating user ${userId}:`, error);
+            throw new Error('Could not deactivate user due to a server error.');
+        }
+    }
+
+    /**
+     * Deletes a user by their ID.
+     * IMPORTANT: This is a permanent deletion.
+     * @param userId The ID of the user to delete.
+     * @returns The deleted User object or null if not found.
+     */
+    async deleteUser(userId: string): Promise<User | null> {
+        this.logger.debug(`Attempting to delete user with ID: ${userId}`);
+        try {
+            const user = await this.prismaClient.user.delete({
+                where: { id: userId },
+            });
+            this.logger.info(`User ${userId} deleted successfully.`);
+            return user;
+        } catch (error: any) {
+            // Prisma throws P2025 if record to delete is not found
+            if (error.code === 'P2025') {
+                this.logger.warn(`User ${userId} not found for deletion.`);
+                return null;
+            }
+            this.logger.error(`Error deleting user ${userId}:`, error);
+            throw new Error('Could not delete user due to a server error.');
         }
     }
 
