@@ -13,11 +13,11 @@ export default function Sidebar() {
           <li className="mb-2">
             <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">Wallets</p>
             {/* Placeholder for wallet list/selection */}
-            <Link href="/wallets/So11111111111111111111111111111111111111112" className="block py-1 hover:text-blue-600 truncate">
-              So11...1112 (Example)
+            <Link href="/wallets/DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm" className="block py-1 hover:text-blue-600 truncate">
+            Gake
             </Link>
-            <Link href="/wallets/ARKSVsdjpZk9c422e13a732269e8f49799a69f275c" className="block py-1 hover:text-blue-600 truncate">
-              ARKS...75c (Example)
+            <Link href="/wallets/EaVboaPxFCYanjoNWdkxTbPvt57nhXGu5i6m9m6ZS2kK" className="block py-1 hover:text-blue-600 truncate">
+            EaVb...S2kK (real-loaded)
             </Link>
             <Link href="/wallets/empty-wallet" className="block py-1 hover:text-blue-600 truncate">
               Empty Wallet (Test)

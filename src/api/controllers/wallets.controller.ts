@@ -20,12 +20,15 @@ import { DatabaseService } from '../database/database.service';
 import { BehaviorService } from '../wallets/behavior/behavior.service';
 import { TokenPerformanceService, PaginatedTokenPerformanceResponse } from '../wallets/token_performance/token-performance.service';
 import { PnlOverviewService, PnlOverviewResponse } from '../wallets/pnl_overview/pnl-overview.service';
+import { WalletTimeRangeInfo } from '../../core/services/database-service';
 
 // DTOs
 import { TokenPerformanceQueryDto } from '../wallets/token_performance/token-performance-query.dto';
 import { WalletSummaryResponse } from '../wallets/summary/wallet-summary-response.dto';
+import { WalletSummaryQueryDto } from '../wallets/summary/wallet-summary-query.dto';
 import { BehaviorAnalysisResponseDto } from '../wallets/behavior/behavior-analysis-response.dto';
 import { BehaviorAnalysisConfig } from '../../types/analysis';
+
 
 @ApiTags('Wallets')
 @Controller('wallets')
@@ -56,12 +59,29 @@ export class WalletsController {
   })
   @ApiResponse({ status: 404, description: 'Wallet not found or no analysis data available to generate a summary.' })
   @ApiResponse({ status: 500, description: 'Internal server error encountered while generating wallet summary.' })
-  async getWalletSummary(@Param('walletAddress') walletAddress: string, @Req() req: Request & { user?: any }) {
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async getWalletSummary(
+    @Param('walletAddress') walletAddress: string, 
+    @Query() queryDto: WalletSummaryQueryDto,
+    @Req() req: Request & { user?: any }
+  ) {
     const actionType = 'get_wallet_summary';
     const userId = req.user?.id;
     const sourceIp = req.ip;
-    const requestParameters = { walletAddress: walletAddress, query: req.query }; 
+    const requestParameters = { walletAddress: walletAddress, query: req.query, startDate: queryDto.startDate, endDate: queryDto.endDate }; 
     const startTime = Date.now();
+
+    this.logger.debug(`getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
+
+    // Prepare timeRange for services if dates are provided
+    let serviceTimeRange: { startTs?: number; endTs?: number } | undefined = undefined;
+    if (queryDto.startDate && queryDto.endDate) {
+        const startTs = new Date(queryDto.startDate).getTime() / 1000;
+        const endTs = new Date(queryDto.endDate).getTime() / 1000;
+        if (!isNaN(startTs) && !isNaN(endTs)) {
+            serviceTimeRange = { startTs, endTs };
+        }
+    }
 
     if (userId) {
       await this.databaseService.logActivity(
@@ -76,12 +96,51 @@ export class WalletsController {
     }
 
     try {
-      const walletInfo = await this.databaseService.getWallet(walletAddress);
-      const advancedStats = await this.databaseService.getLatestAdvancedStatsByWallet(walletAddress);
-      const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
+      // Fetch period-specific PNL and advanced stats using PnlAnalysisService in view-only mode
+      const pnlSummaryForPeriod = await this.pnlOverviewService.getPnlAnalysisForSummary(walletAddress, serviceTimeRange);
+
+      let periodSpecificTimestamps: WalletTimeRangeInfo | null = null;
+      let overallWalletInfo: Awaited<ReturnType<typeof this.databaseService.getWallet>> | null = null;
+
+      if (serviceTimeRange && serviceTimeRange.startTs && serviceTimeRange.endTs) {
+        periodSpecificTimestamps = await this.databaseService.getWalletTimestampsForRange(walletAddress, {
+            startTs: serviceTimeRange.startTs,
+            endTs: serviceTimeRange.endTs,
+        });
+      } else {
+        overallWalletInfo = await this.databaseService.getWallet(walletAddress);
+      }
+      
+      const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig(); // Potentially adapt for time range in future
       const behaviorMetrics = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig);
 
-      if (!advancedStats && !behaviorMetrics && !walletInfo) {
+      // Determine lastActiveTimestamp and daysActive
+      let finalLastActiveTimestamp: number | null = null;
+      let finalDaysActive: string | number = 0;
+
+      if (periodSpecificTimestamps && periodSpecificTimestamps.lastObservedTsInPeriod) {
+        finalLastActiveTimestamp = periodSpecificTimestamps.lastObservedTsInPeriod;
+        if (periodSpecificTimestamps.firstObservedTsInPeriod) {
+          const diffSeconds = periodSpecificTimestamps.lastObservedTsInPeriod - periodSpecificTimestamps.firstObservedTsInPeriod;
+          finalDaysActive = Math.max(1, Math.ceil(diffSeconds / (60 * 60 * 24))); // Ensure at least 1 day if activity in range
+        }
+      } else if (overallWalletInfo) {
+        finalLastActiveTimestamp = overallWalletInfo.newestProcessedTimestamp || (pnlSummaryForPeriod?.advancedStats?.lastTransactionTimestamp || null) ;
+        if (overallWalletInfo.firstProcessedTimestamp && finalLastActiveTimestamp) {
+          const diffSeconds = finalLastActiveTimestamp - overallWalletInfo.firstProcessedTimestamp;
+          finalDaysActive = Math.max(1, Math.ceil(diffSeconds / (60 * 60 * 24)));
+        }
+      } else if (pnlSummaryForPeriod?.advancedStats?.lastTransactionTimestamp) { // Fallback if no wallet info but PNL has it
+          finalLastActiveTimestamp = pnlSummaryForPeriod.advancedStats.lastTransactionTimestamp;
+          if (pnlSummaryForPeriod.advancedStats.firstTransactionTimestamp) {
+            const diffSeconds = finalLastActiveTimestamp - pnlSummaryForPeriod.advancedStats.firstTransactionTimestamp;
+            finalDaysActive = Math.max(1, Math.ceil(diffSeconds / (60 * 60 * 24)));
+          } else {
+            finalDaysActive = 1; // Active for at least one day if there's a last transaction
+          }
+      }
+
+      if (!pnlSummaryForPeriod && !behaviorMetrics && !finalLastActiveTimestamp) {
         this.logger.warn(`No data found for wallet summary: ${walletAddress}`);
         if (userId) {
           const durationMs = Date.now() - startTime;
@@ -89,31 +148,16 @@ export class WalletsController {
         }
         throw new NotFoundException(`No summary data available for wallet ${walletAddress}`);
       }
-      
-      const lastActiveTimestamp = walletInfo?.newestProcessedTimestamp || advancedStats?.lastTransactionTimestamp || null;
-      let daysActive: string | number = '[Days Active - Placeholder]';
-      if (walletInfo?.firstProcessedTimestamp && lastActiveTimestamp) {
-        const firstActive = walletInfo.firstProcessedTimestamp;
-        const lastActive = lastActiveTimestamp;
-        if (lastActive >= firstActive) {
-          const diffSeconds = lastActive - firstActive;
-          daysActive = Math.ceil(diffSeconds / (60 * 60 * 24));
-        } else {
-          daysActive = 0;
-        }
-      } else if (lastActiveTimestamp && !walletInfo?.firstProcessedTimestamp) {
-        daysActive = 1;
-      } else if (!lastActiveTimestamp) {
-        daysActive = 0;
-      }
 
       const summary = {
         walletAddress,
-        lastActiveTimestamp,
-        daysActive,
-        latestPnl: advancedStats?.medianPnlPerToken,
-        tokenWinRate: advancedStats?.tokenWinRatePercent,
+        lastActiveTimestamp: finalLastActiveTimestamp,
+        daysActive: finalDaysActive,
+        latestPnl: pnlSummaryForPeriod?.realizedPnl, // Use PNL from period-specific analysis
+        tokenWinRate: pnlSummaryForPeriod?.advancedStats?.tokenWinRatePercent, // Use win rate from period-specific analysis
         behaviorClassification: behaviorMetrics?.tradingStyle || 'N/A',
+        receivedStartDate: queryDto.startDate || null,
+        receivedEndDate: queryDto.endDate || null,
       };
 
       if (userId) {

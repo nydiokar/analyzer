@@ -34,6 +34,12 @@ interface SwapInputTimeRange {
     endTs?: number;
 }
 
+// Type for the return of getWalletTimestampsForRange
+export interface WalletTimeRangeInfo {
+    firstObservedTsInPeriod: number | null;
+    lastObservedTsInPeriod: number | null;
+}
+
 // Use Prisma generated types directly where possible, or derive carefully
 export type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 export type AnalysisRunCreateData = Omit<Prisma.AnalysisRunCreateInput, 'id' | 'results' | 'advancedStats'>;
@@ -1107,6 +1113,44 @@ export class DatabaseService {
         } catch (error) {
             this.logger.error(`Error upserting WalletBehaviorProfile for wallet ${walletAddress}:`, { error });
             return null;
+        }
+    }
+
+    /**
+     * Retrieves the earliest and latest SwapAnalysisInput timestamps for a wallet within a given time range.
+     * @param walletAddress The wallet address.
+     * @param timeRange The start and end timestamps for the query period.
+     * @returns An object with firstObservedTsInPeriod and lastObservedTsInPeriod, or nulls if no records found.
+     */
+    async getWalletTimestampsForRange(
+        walletAddress: string,
+        timeRange: Required<SwapInputTimeRange> // Ensure startTs and endTs are provided
+    ): Promise<WalletTimeRangeInfo> {
+        this.logger.debug(`Fetching wallet timestamps for range for ${walletAddress}`, { timeRange });
+        try {
+            const result = await this.prismaClient.swapAnalysisInput.aggregate({
+                where: {
+                    walletAddress: walletAddress,
+                    timestamp: {
+                        gte: timeRange.startTs,
+                        lte: timeRange.endTs,
+                    },
+                },
+                _min: {
+                    timestamp: true,
+                },
+                _max: {
+                    timestamp: true,
+                },
+            });
+
+            return {
+                firstObservedTsInPeriod: result._min.timestamp,
+                lastObservedTsInPeriod: result._max.timestamp,
+            };
+        } catch (error) {
+            this.logger.error(`Error fetching wallet timestamps for range for ${walletAddress}`, { error });
+            throw error; // Or return { firstObservedTsInPeriod: null, lastObservedTsInPeriod: null }
         }
     }
 

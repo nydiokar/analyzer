@@ -29,6 +29,30 @@ export class PnlOverviewService {
     private readonly pnlAnalysisService: PnlAnalysisService,
   ) {}
 
+  /**
+   * Fetches PNL analysis summary for a wallet, optionally for a specific time range, in a view-only mode.
+   * This method is intended for API endpoints that display summary data and should not create AnalysisRun records.
+   * @param walletAddress The wallet address.
+   * @param timeRange Optional start and end timestamps (in seconds).
+   * @returns A promise resolving to SwapAnalysisSummary or a relevant subset, or null.
+   */
+  async getPnlAnalysisForSummary(
+    walletAddress: string,
+    timeRange?: { startTs?: number; endTs?: number },
+  ): Promise<(SwapAnalysisSummary & { runId?: undefined }) | null> { // runId will be undefined due to isViewOnly
+    // Call the core PnlAnalysisService with isViewOnly: true
+    const analysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
+      walletAddress,
+      timeRange,
+      undefined, // newestProcessedSignatureFromWallet - not relevant for view-only summary
+      { isViewOnly: true },
+    );
+
+    // The analyzeWalletPnl already returns a suitable structure (SwapAnalysisSummary & { runId?: number ... })
+    // When isViewOnly is true, runId will be undefined as per our modifications to PnlAnalysisService.
+    return analysisSummary as (SwapAnalysisSummary & { runId?: undefined }) | null;
+  }
+
   async getPnlOverview(walletAddress: string): Promise<PnlOverviewResponse> {
     const analysisSummary: (SwapAnalysisSummary & { runId?: number | undefined; analysisSkipped?: boolean | undefined; }) | null = 
         await this.pnlAnalysisService.analyzeWalletPnl(walletAddress);

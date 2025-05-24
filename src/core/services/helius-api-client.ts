@@ -281,7 +281,7 @@ export class HeliusApiClient {
     newestProcessedTimestamp?: number, // Optional timestamp to filter results (exclusive)
     includeCached: boolean = true, // Flag to control whether to include cached transactions in results
     untilTimestamp?: number,
-    phase2InternalConcurrency: number = 2 // New parameter for internal concurrency
+    phase2InternalConcurrency: number = 3 // New parameter for internal concurrency
   ): Promise<HeliusTransaction[]> {
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run

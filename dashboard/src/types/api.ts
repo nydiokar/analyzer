@@ -16,18 +16,13 @@ export interface BehaviorMetrics {
 
 export interface WalletSummaryData {
   walletAddress: string;
-  lastActiveTimestamp: string | null; // ISO date string or null
-  daysActive: number | null;
-  keyPerformanceIndicators: {
-    latestPnl: number | null;
-    tokenWinRate: number | null;
-    // Potentially more KPIs from AdvancedStatsResult
-  };
+  lastActiveTimestamp: number | null; // Unix timestamp in seconds or null
+  daysActive: number | string | null; // Backend seems to send string or number
+  latestPnl?: number | null; // Moved from keyPerformanceIndicators
+  tokenWinRate?: number | null; // Moved from keyPerformanceIndicators
   behaviorClassification: string | null; // High-level classification from BehaviorService
   rawAdvancedStats?: AdvancedStatsResult; // Full raw object for more detail if needed by client
   rawBehaviorMetrics?: BehaviorMetrics; // Full raw object for more detail if needed by client
-  receivedStartDate?: string | null; // For verification, added by mock API
-  receivedEndDate?: string | null;   // For verification, added by mock API
 }
 
 export interface WalletSummaryError {

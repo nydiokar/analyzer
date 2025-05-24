@@ -4,11 +4,18 @@ import React from 'react';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
   walletAddress: string;
 }
+
+const truncateWalletAddress = (address: string, startChars = 6, endChars = 4): string => {
+  if (!address) return '';
+  if (address.length <= startChars + endChars) return address;
+  return `${address.substring(0, startChars)}...${address.substring(address.length - endChars)}`;
+};
 
 export default function WalletProfileLayout({
   children,
@@ -19,11 +26,16 @@ export default function WalletProfileLayout({
       {/* Original Simpler Header - sticky top-0 is fine for this single header */}
       <header className="sticky top-0 z-30 p-3 bg-background border-b shadow-sm">
         <div className="container mx-auto flex flex-col md:flex-row items-center justify-between gap-2">
-          <div className='flex-shrink-0 min-w-0'> 
+          <div className='flex-shrink-0 min-w-0 flex items-center gap-2'> 
             {walletAddress && (
-              <h2 className="text-lg font-semibold truncate">
-                Wallet: {walletAddress}
-              </h2>
+              <>
+                <h2 className="text-base font-semibold text-muted-foreground">
+                  Wallet:
+                </h2>
+                <Badge variant="outline" className="px-2 py-1 text-sm font-mono">
+                  {truncateWalletAddress(walletAddress, 8, 6)} 
+                </Badge>
+              </>
             )}
           </div>
           <div className="flex items-center gap-3 flex-shrink-0">

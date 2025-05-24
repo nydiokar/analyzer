@@ -25,44 +25,55 @@ export class PnlAnalysisService {
      * @param walletAddress The wallet address to analyze.
      * @param timeRange Optional object with startTs and/or endTs for filtering.
      * @param newestProcessedSignatureFromWallet Optional signature to update Wallet.lastSignatureAnalyzed
+     * @param options Optional options for view-only mode
      * @returns A promise resolving to the SwapAnalysisSummary or null if no data/results.
      */
     async analyzeWalletPnl(
         walletAddress: string,
         timeRange?: { startTs?: number, endTs?: number },
-        newestProcessedSignatureFromWallet?: string | null 
+        newestProcessedSignatureFromWallet?: string | null,
+        options?: { isViewOnly?: boolean }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean }) | null> {
-        logger.info(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, newSignatureToAnalyze: newestProcessedSignatureFromWallet });
+        logger.info(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, newSignatureToAnalyze: newestProcessedSignatureFromWallet, options });
 
         let runId: number | undefined = undefined;
         let analysisRunStatus: 'COMPLETED' | 'FAILED' | 'IN_PROGRESS' = 'IN_PROGRESS';
         let analysisRunErrorMessage: string | null = null;
 
         const isHistoricalView = !!timeRange;
+        const isViewOnlyMode = !!options?.isViewOnly;
+
+        let startTimeMs: number = 0;
 
         try {
-            const run = await prisma.analysisRun.create({
-                data: {
-                    walletAddress: walletAddress,
-                    serviceInvoked: 'PnlAnalysisService',
-                    status: 'IN_PROGRESS',
-                    inputDataStartTs: timeRange?.startTs,
-                    inputDataEndTs: timeRange?.endTs,
-                }
-            });
-            runId = run.id;
-            const startTimeMs = Date.now();
+            if (!isViewOnlyMode) {
+                const run = await prisma.analysisRun.create({
+                    data: {
+                        walletAddress: walletAddress,
+                        serviceInvoked: 'PnlAnalysisService',
+                        status: 'IN_PROGRESS',
+                        inputDataStartTs: timeRange?.startTs,
+                        inputDataEndTs: timeRange?.endTs,
+                    }
+                });
+                runId = run.id;
+                startTimeMs = Date.now();
+            } else {
+                startTimeMs = Date.now();
+            }
 
             let swapInputs: SwapAnalysisInput[] = [];
             try {
-                swapInputs = await this.databaseService.getSwapAnalysisInputs(walletAddress, isHistoricalView ? timeRange : undefined);
+                swapInputs = await this.databaseService.getSwapAnalysisInputs(walletAddress, timeRange);
                 if (swapInputs.length === 0) {
-                    logger.warn(`[PnlAnalysis] No swap analysis input records found for ${walletAddress}${isHistoricalView ? ' in time range' : ''}.`);
-                    await prisma.analysisRun.update({
-                        where: { id: runId },
-                        data: { status: 'COMPLETED', signaturesConsidered: 0 },
-                    });
-                    return { results: [], totalSignaturesProcessed: 0, overallFirstTimestamp: 0, overallLastTimestamp: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, firstTransactionTimestamp: 0, lastTransactionTimestamp: 0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId };
+                    logger.warn(`[PnlAnalysis] No swap analysis input records found for ${walletAddress}${timeRange ? ' in time range' : ''}.`);
+                    if (runId) {
+                        await prisma.analysisRun.update({
+                            where: { id: runId },
+                            data: { status: 'COMPLETED', signaturesConsidered: 0, durationMs: Date.now() - startTimeMs },
+                        });
+                    }
+                    return { results: [], totalSignaturesProcessed: 0, overallFirstTimestamp: 0, overallLastTimestamp: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, firstTransactionTimestamp: 0, lastTransactionTimestamp: 0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId };
                 }
                 logger.debug(`[PnlAnalysis] Fetched ${swapInputs.length} swap input records from DB.`);
             } catch (dbError: any) {
@@ -96,17 +107,19 @@ export class PnlAnalysisService {
             const swapAnalysisCore = this.swapAnalyzer.analyze(swapInputs, walletAddress);
             const { results: swapAnalysisResultsFromAnalyzer, processedSignaturesCount, stablecoinNetFlow } = swapAnalysisCore;
 
-            await prisma.analysisRun.update({
-                where: { id: runId },
-                data: { signaturesConsidered: processedSignaturesCount },
-            });
+            if (runId) {
+                await prisma.analysisRun.update({
+                    where: { id: runId },
+                    data: { signaturesConsidered: processedSignaturesCount },
+                });
+            }
 
             if (!swapAnalysisResultsFromAnalyzer || swapAnalysisResultsFromAnalyzer.length === 0) {
                 logger.warn(`[PnlAnalysis] No results from SwapAnalyzer for wallet ${walletAddress}. Returning empty summary.`);
-                return { results: [], totalSignaturesProcessed: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, overallFirstTimestamp: overallFirstTimestamp ||0, overallLastTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId };
+                return { results: [], totalSignaturesProcessed: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, overallFirstTimestamp: overallFirstTimestamp ||0, overallLastTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId };
             }
 
-            if (!isHistoricalView) {
+            if (!isHistoricalView && !isViewOnlyMode) {
                 const resultsToUpsert = swapAnalysisResultsFromAnalyzer.map((r: OnChainAnalysisResult) => ({
                     walletAddress: walletAddress,
                     tokenAddress: r.tokenAddress,
@@ -187,7 +200,7 @@ export class PnlAnalysisService {
                 advancedStats: advancedStatsData ?? undefined,
             };
 
-            if (!isHistoricalView) {
+            if (!isHistoricalView && !isViewOnlyMode) {
                 const pnlSummaryDataForDb = {
                     walletAddress: walletAddress,
                     totalVolume: summaryForReturn.totalVolume,
@@ -213,7 +226,7 @@ export class PnlAnalysisService {
                         trimmedMeanPnlPerToken: !isFinite(advancedStatsData.trimmedMeanPnlPerToken) ? 0 : advancedStatsData.trimmedMeanPnlPerToken,
                         tokenWinRatePercent: !isFinite(advancedStatsData.tokenWinRatePercent) ? 0 : advancedStatsData.tokenWinRatePercent,
                         standardDeviationPnl: !isFinite(advancedStatsData.standardDeviationPnl) ? 0 : advancedStatsData.standardDeviationPnl,
-                        profitConsistencyIndex: !isFinite(advancedStatsData.medianPnlToVolatilityRatio) ? 0 : advancedStatsData.medianPnlToVolatilityRatio, // TODO: rename to medianPnlToVolatilityRatio in db later on
+                        profitConsistencyIndex: !isFinite(advancedStatsData.medianPnlToVolatilityRatio) ? 0 : advancedStatsData.medianPnlToVolatilityRatio,
                         weightedEfficiencyScore: !isFinite(advancedStatsData.weightedEfficiencyScore) ? 0 : advancedStatsData.weightedEfficiencyScore,
                         averagePnlPerDayActiveApprox: !isFinite(advancedStatsData.averagePnlPerDayActiveApprox) ? 0 : advancedStatsData.averagePnlPerDayActiveApprox,
                         firstTransactionTimestamp: advancedStatsData.firstTransactionTimestamp,
@@ -259,7 +272,7 @@ export class PnlAnalysisService {
             }
 
             analysisRunStatus = 'COMPLETED';
-            if (runId) { 
+            if (runId) {
                 await prisma.analysisRun.update({
                     where: { id: runId },
                     data: { 
@@ -273,7 +286,7 @@ export class PnlAnalysisService {
             }
 
             logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summaryForReturn.netPnl.toFixed(4)} SOL`);
-            return { ...summaryForReturn, runId };
+            return { ...summaryForReturn, runId: isViewOnlyMode ? undefined : runId };
 
         } catch (error: any) {
             logger.error(`[PnlAnalysis] Critical error during PNL analysis for ${walletAddress}:`, { error });
@@ -282,7 +295,7 @@ export class PnlAnalysisService {
             if (runId) {
                 await prisma.analysisRun.update({
                     where: { id: runId },
-                    data: { status: analysisRunStatus, errorMessage: analysisRunErrorMessage },
+                    data: { status: analysisRunStatus, errorMessage: analysisRunErrorMessage, durationMs: Date.now() - startTimeMs },
                 }).catch(err => logger.error(`[PnlAnalysis] FAILED to update AnalysisRun ${runId} to FAILED status:`, err));
             }
             return null;
@@ -292,7 +305,8 @@ export class PnlAnalysisService {
                     where: { id: runId },
                     data: { 
                         status: analysisRunStatus === 'IN_PROGRESS' ? 'FAILED' : analysisRunStatus,
-                        errorMessage: analysisRunErrorMessage ?? (analysisRunStatus === 'IN_PROGRESS' ? 'Unknown error, service exited prematurely' : null)
+                        errorMessage: analysisRunErrorMessage ?? (analysisRunStatus === 'IN_PROGRESS' ? 'Unknown error, service exited prematurely' : null),
+                        durationMs: Date.now() - startTimeMs,
                     },
                 }).catch(err => logger.error(`[PnlAnalysis] Error in finally block updating AnalysisRun ${runId}:`, err));
             }

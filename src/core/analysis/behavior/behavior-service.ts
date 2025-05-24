@@ -88,47 +88,53 @@ export class BehaviorService {
           lastTransactionTimestamp,
         } = metrics;
 
-        const profileDataToSave: WalletBehaviorProfileUpsertData = {
-          walletAddress,
-          buySellRatio,
-          buySellSymmetry,
-          averageFlipDurationHours,
-          medianHoldTime,
-          sequenceConsistency,
-          flipperScore,
-          uniqueTokensTraded,
-          tokensWithBothBuyAndSell,
-          totalTradeCount,
-          totalBuyCount,
-          totalSellCount,
-          completePairsCount,
-          averageTradesPerToken,
-          tradingTimeDistribution: tradingTimeDistribution as unknown as Prisma.InputJsonValue,
-          percentTradesUnder1Hour,
-          percentTradesUnder4Hours,
-          tradingStyle,
-          confidenceScore,
-          tradingFrequency: tradingFrequency as unknown as Prisma.InputJsonValue,
-          tokenPreferences: tokenPreferences as unknown as Prisma.InputJsonValue,
-          riskMetrics: riskMetrics as unknown as Prisma.InputJsonValue,
-          reentryRate,
-          percentageOfUnpairedTokens,
-          sessionCount,
-          avgTradesPerSession,
-          activeTradingPeriods: activeTradingPeriods as unknown as Prisma.InputJsonValue,
-          averageSessionStartHour,
-          averageSessionDurationMinutes,
-          firstTransactionTimestamp,
-          lastTransactionTimestamp,
-        };
-        
-        // Use the new DatabaseService method
-        const savedProfile = await this.databaseService.upsertWalletBehaviorProfile(profileDataToSave);
-        if (savedProfile) {
-          logger.info(`Successfully upserted WalletBehaviorProfile for ${walletAddress}`);
+        // Only save the profile if NO specific timeRange was provided for this analysis run.
+        // This means we are doing a full analysis, not a view of a specific period.
+        if (!timeRange) {
+          const profileDataToSave: WalletBehaviorProfileUpsertData = {
+            walletAddress,
+            buySellRatio,
+            buySellSymmetry,
+            averageFlipDurationHours,
+            medianHoldTime,
+            sequenceConsistency,
+            flipperScore,
+            uniqueTokensTraded,
+            tokensWithBothBuyAndSell,
+            totalTradeCount,
+            totalBuyCount,
+            totalSellCount,
+            completePairsCount,
+            averageTradesPerToken,
+            tradingTimeDistribution: tradingTimeDistribution as unknown as Prisma.InputJsonValue,
+            percentTradesUnder1Hour,
+            percentTradesUnder4Hours,
+            tradingStyle,
+            confidenceScore,
+            tradingFrequency: tradingFrequency as unknown as Prisma.InputJsonValue,
+            tokenPreferences: tokenPreferences as unknown as Prisma.InputJsonValue,
+            riskMetrics: riskMetrics as unknown as Prisma.InputJsonValue,
+            reentryRate,
+            percentageOfUnpairedTokens,
+            sessionCount,
+            avgTradesPerSession,
+            activeTradingPeriods: activeTradingPeriods as unknown as Prisma.InputJsonValue,
+            averageSessionStartHour,
+            averageSessionDurationMinutes,
+            firstTransactionTimestamp,
+            lastTransactionTimestamp,
+          };
+          
+          // Use the new DatabaseService method
+          const savedProfile = await this.databaseService.upsertWalletBehaviorProfile(profileDataToSave);
+          if (savedProfile) {
+            logger.info(`Successfully upserted WalletBehaviorProfile for ${walletAddress}`);
+          } else {
+            logger.error(`Failed to upsert WalletBehaviorProfile for ${walletAddress}`);
+            // Decide if this should be a critical error that stops the process or just a warning
+          }
         } else {
-          logger.error(`Failed to upsert WalletBehaviorProfile for ${walletAddress}`);
-          // Decide if this should be a critical error that stops the process or just a warning
+          logger.info(`Skipping WalletBehaviorProfile upsert for ${walletAddress} because a specific timeRange was provided.`);
         }
       }
 
