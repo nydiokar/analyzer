@@ -27,6 +27,7 @@ import { TokenPerformanceQueryDto } from '../wallets/token_performance/token-per
 import { WalletSummaryResponse } from '../wallets/summary/wallet-summary-response.dto';
 import { WalletSummaryQueryDto } from '../wallets/summary/wallet-summary-query.dto';
 import { BehaviorAnalysisResponseDto } from '../wallets/behavior/behavior-analysis-response.dto';
+import { BehaviorAnalysisQueryDto } from '../wallets/behavior/behavior-analysis-query.dto';
 import { BehaviorAnalysisConfig } from '../../types/analysis';
 
 
@@ -83,6 +84,9 @@ export class WalletsController {
         }
     }
 
+    // Corrected log message to be more general for the getWalletSummary context
+    this.logger.debug(`[WalletsController] Calculated serviceTimeRange: ${JSON.stringify(serviceTimeRange)} from queryDto: ${JSON.stringify(queryDto)}`);
+
     if (userId) {
       await this.databaseService.logActivity(
         userId,
@@ -112,7 +116,7 @@ export class WalletsController {
       }
       
       const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig(); // Potentially adapt for time range in future
-      const behaviorMetrics = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig);
+      const behaviorMetrics = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig, serviceTimeRange);
 
       // Determine lastActiveTimestamp and daysActive
       let finalLastActiveTimestamp: number | null = null;
@@ -121,8 +125,20 @@ export class WalletsController {
       if (periodSpecificTimestamps && periodSpecificTimestamps.lastObservedTsInPeriod) {
         finalLastActiveTimestamp = periodSpecificTimestamps.lastObservedTsInPeriod;
         if (periodSpecificTimestamps.firstObservedTsInPeriod) {
-          const diffSeconds = periodSpecificTimestamps.lastObservedTsInPeriod - periodSpecificTimestamps.firstObservedTsInPeriod;
-          finalDaysActive = Math.max(1, Math.ceil(diffSeconds / (60 * 60 * 24))); // Ensure at least 1 day if activity in range
+          // Check if the query range is ~24h or less
+          const queryStart = queryDto.startDate ? new Date(queryDto.startDate).getTime() : 0;
+          const queryEnd = queryDto.endDate ? new Date(queryDto.endDate).getTime() : 0;
+          const queryDurationMs = queryEnd - queryStart;
+          const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+
+          if (queryDurationMs > 0 && queryDurationMs <= twentyFourHoursMs + (2 * 60 * 60 * 1000)) { // Allow a small buffer (e.g., 2 hours) for exact 24h selections
+            finalDaysActive = 1;
+          } else {
+            const diffSeconds = periodSpecificTimestamps.lastObservedTsInPeriod - periodSpecificTimestamps.firstObservedTsInPeriod;
+            finalDaysActive = Math.max(1, Math.ceil(diffSeconds / (60 * 60 * 24))); // Ensure at least 1 day
+          }
+        } else if (finalLastActiveTimestamp) { // Activity in period, but no firstObservedTsInPeriod (e.g. single event)
+            finalDaysActive = 1;
         }
       } else if (overallWalletInfo) {
         finalLastActiveTimestamp = overallWalletInfo.newestProcessedTimestamp || (pnlSummaryForPeriod?.advancedStats?.lastTransactionTimestamp || null) ;
@@ -319,15 +335,28 @@ export class WalletsController {
   })
   @ApiResponse({ status: 404, description: 'Wallet not found or no behavior analysis data available.' })
   @ApiResponse({ status: 500, description: 'Internal server error encountered while retrieving behavior analysis.' })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   async getBehaviorAnalysis(
     @Param('walletAddress') walletAddress: string,
+    @Query() queryDto: BehaviorAnalysisQueryDto,
     @Req() req: Request & { user?: any },
   ): Promise<BehaviorAnalysisResponseDto> {
     const actionType = 'get_behavior_analysis';
     const userId = req.user?.id;
     const sourceIp = req.ip;
-    const requestParameters = { walletAddress: walletAddress, query: req.query }; 
+    const requestParameters = { walletAddress: walletAddress, query: req.query, startDate: queryDto.startDate, endDate: queryDto.endDate }; 
     const startTime = Date.now();
+
+    // Prepare timeRange for BehaviorService if dates are provided
+    let serviceTimeRange: { startTs?: number; endTs?: number } | undefined = undefined;
+    if (queryDto.startDate && queryDto.endDate) {
+        const startTs = new Date(queryDto.startDate).getTime() / 1000;
+        const endTs = new Date(queryDto.endDate).getTime() / 1000;
+        if (!isNaN(startTs) && !isNaN(endTs)) {
+            serviceTimeRange = { startTs, endTs };
+        }
+    }
+    this.logger.debug(`[WalletsController] serviceTimeRange for BehaviorService: ${JSON.stringify(serviceTimeRange)} based on queryDto: ${JSON.stringify(queryDto)}`);
 
     if (userId) {
       this.databaseService.logActivity(
@@ -343,7 +372,8 @@ export class WalletsController {
 
     try {
       const config: BehaviorAnalysisConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
-      const behaviorMetrics = await this.behaviorService.getWalletBehavior(walletAddress, config);
+      // Pass the derived serviceTimeRange to getWalletBehavior
+      const behaviorMetrics = await this.behaviorService.getWalletBehavior(walletAddress, config, serviceTimeRange);
 
       if (!behaviorMetrics) {
         this.logger.warn(`No behavior analysis data found for wallet: ${walletAddress}`);

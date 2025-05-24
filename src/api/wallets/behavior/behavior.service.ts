@@ -25,13 +25,13 @@ export class BehaviorService {
   ): Promise<BehavioralMetrics | null> {
     this.logger.debug(`Getting wallet behavior for ${walletAddress}`);
     
-    // The original BehaviorService expects the original DatabaseService (not the NestJS one)
-    // We need to ensure that the Prisma client instance is correctly handled.
-    // The original DatabaseService instantiates its own logger and uses the global prisma client.
-    // This should be acceptable for now.
-    const prismaDbService = new PrismaDatabaseService(); 
+    // The original BehaviorService expects the original DatabaseService (not the NestJS one).
+    // The nestDatabaseService is an instance of the NestJS DatabaseService, which extends the core DatabaseService.
+    // So, we can pass nestDatabaseService directly.
+    // const prismaDbService = new PrismaDatabaseService(); // Remove this line
 
-    const originalService = new OriginalBehaviorService(prismaDbService, config);
+    // Pass the injected nestDatabaseService (which is a PrismaDatabaseService instance)
+    const originalService = new OriginalBehaviorService(this.nestDatabaseService, config);
     
     try {
       // Pass the timeRange from the parameters if provided, otherwise it relies on config or undefined

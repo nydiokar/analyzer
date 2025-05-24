@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { PnlOverviewService } from './pnl-overview.service';
 import { DatabaseModule } from '../../database/database.module';
 import { PnlAnalysisService as CorePnlAnalysisService } from '../../../core/services/pnl-analysis-service';
-import { DatabaseService as CoreDatabaseService } from '../../../core/services/database-service';
+import { DatabaseService as NestDatabaseService } from '../../database/database.service';
 
 @Module({
   imports: [
@@ -12,11 +12,10 @@ import { DatabaseService as CoreDatabaseService } from '../../../core/services/d
     PnlOverviewService,
     {
       provide: CorePnlAnalysisService,
-      useFactory: () => {
-        const coreDbService = new CoreDatabaseService();
-        return new CorePnlAnalysisService(coreDbService);
+      useFactory: (nestDbService: NestDatabaseService) => {
+        return new CorePnlAnalysisService(nestDbService);
       },
-      inject: [],
+      inject: [NestDatabaseService],
     },
   ],
   exports: [PnlOverviewService],

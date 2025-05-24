@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Max, Min, IsDateString } from 'class-validator';
 
 export enum SortOrder {
   ASC = 'ASC',
@@ -58,4 +58,22 @@ export class TokenPerformanceQueryDto {
   @IsOptional()
   @IsEnum(SortOrder)
   sortOrder?: SortOrder = SortOrder.DESC;
+
+  @ApiPropertyOptional({
+    description: 'Start date for the time range (ISO 8601 format).',
+    type: String,
+    format: 'date-time',
+  })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'End date for the time range (ISO 8601 format).',
+    type: String,
+    format: 'date-time',
+  })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 } 

@@ -16,9 +16,9 @@ This document provides an overview of the React components created for the Walle
 
 -   **File Path:** `dashboard/src/components/layout/WalletProfileLayout.tsx`
 -   **Purpose:** Provides the main layout structure for individual wallet profile pages.
--   **Current State:** Features a single sticky header (`sticky top-0`) that includes the wallet address, the `AccountSummaryCard`, and the `TimeRangeSelector`. Below the header, a `Tabs` component (from `shadcn/ui`) is used to organize content. The `TabsList` and `TabsContent` will scroll with the main page content. It is a client component (`"use client"`) to manage tab state.
+-   **Current State:** Features a sticky header that includes an improved wallet address display (WalletIcon, truncated address in a Badge, and a copy-to-clipboard Button with toast feedback). The header also contains the `AccountSummaryCard` and the `TimeRangeSelector`. Below the header, a `Tabs` component (from `shadcn/ui`) is used to organize content. It now dynamically renders `TokenPerformanceTab` and `BehavioralPatternsTab` components. It is a client component (`"use client"`) to manage tab state and copy-to-clipboard functionality.
 -   **Key Props:** `children: React.ReactNode`, `walletAddress: string`.
--   **Planned Next Steps:** Populate tab content with relevant data visualizations and components.
+-   **Planned Next Steps:** Populate remaining tab content (Account Stats & PNL, Notes). Consider making the main sidebar toggleable for more content space.
 
 ## Dashboard Specific Components
 
@@ -26,9 +26,25 @@ This document provides an overview of the React components created for the Walle
 
 -   **File Path:** `dashboard/src/components/dashboard/AccountSummaryCard.tsx`
 -   **Purpose:** To display a snapshot of key account-level metrics in the header.
--   **Current State:** Implemented as a client component (`"use client"`). Accepts a `walletAddress` prop. Uses SWR to fetch data from the mock API endpoint `/api/v1/wallets/{walletAddress}/summary`. Displays loading, error, or data states. Uses Tremor components (`Card`, `Text`, `Metric`, `Flex`, `Grid`) for data presentation. `date-fns` is used for formatting dates.
+-   **Current State:** Implemented as a client component (`"use client"`). Accepts a `walletAddress` prop. Uses SWR to fetch data from the live API endpoint `/api/v1/wallets/{walletAddress}/summary`. SWR is configured with `revalidateOnFocus: false` and custom `onErrorRetry` logic for robustness. Displays loading, error (customized display), or data states. Uses Tremor components for data presentation and `date-fns` for formatting.
 -   **Key Props:** `walletAddress: string`.
--   **Planned Next Steps:** Connect to a live API. Potentially add more visual elements or refine existing ones.
+-   **Planned Next Steps:** Monitor and refine based on feedback. Ensure all data points remain robustly handled by the time filter.
+
+### 2. `TokenPerformanceTab.tsx`
+
+-   **File Path:** `dashboard/src/components/dashboard/TokenPerformanceTab.tsx`
+-   **Purpose:** Displays a sortable and paginated table of token performance data for the selected wallet, filterable by the global time range.
+-   **Current State:** Implemented as a client component (`"use client"`). Accepts `walletAddress`. Uses SWR and a shared `fetcher` to call `/api/v1/wallets/{walletAddress}/token-performance`. Incorporates global `startDate` and `endDate` from `useTimeRangeStore`. Manages local state for pagination (page, pageSize) and sorting (sortBy, sortOrder). Handles loading, error, and no-data states. Table headers are sticky, and the table body is scrollable. Rows have alternating background colors (zebra striping) and bottom borders for clarity. Pagination is positioned at the bottom of the card.
+-   **Key Props:** `walletAddress: string`.
+-   **Planned Next Steps:** Further UI polish as needed based on feedback.
+
+### 3. `BehavioralPatternsTab.tsx`
+
+-   **File Path:** `dashboard/src/components/dashboard/BehavioralPatternsTab.tsx` (Assuming this exists as per plan)
+-   **Purpose:** Displays behavioral analysis for the selected wallet, including classifications, metrics, and visualizations, filterable by the global time range.
+-   **Current State:** Implemented as a client component. Uses SWR to fetch data from `/api/v1/wallets/{walletAddress}/behavior-analysis`, passing `startDate` and `endDate` from `useTimeRangeStore`. Handles loading, error, and no-data states. Displays basic behavioral metrics.
+-   **Key Props:** `walletAddress: string`.
+-   **Planned Next Steps:** Verify that all displayed data and any visualizations (e.g., heatmaps) correctly reflect the selected time scope.
 
 ## Shared Components
 
@@ -69,4 +85,10 @@ This document provides an overview of the React components created for the Walle
 ### 1. `dashboard/src/lib/utils.ts`
 
 -   **Purpose:** Utility functions, primarily for `cn` (class name helper) provided by `shadcn/ui`.
--   **Current State:** Contains the `cn` function. 
+-   **Current State:** Contains the `cn` function.
+
+### 2. `dashboard/src/lib/fetcher.ts`
+
+-   **File Path:** `dashboard/src/lib/fetcher.ts`
+-   **Purpose:** Provides a shared SWR fetcher function for making API calls.
+-   **Current State:** Contains an `async` function that takes a URL, includes the `X-API-Key` header (from `NEXT_PUBLIC_API_KEY` environment variable), handles response errors (including parsing JSON error payloads), and returns the JSON response. 

@@ -1,6 +1,6 @@
 {
   "name": "wallet-analyzer",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "Array of analizers. Major assets live crypto exchange from CoinGecko with verifiable storage, wallet address analysis, staking calculator, price change reporter, and more.",
   "main": "dist/index.js",
   "scripts": {
