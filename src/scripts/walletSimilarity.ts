@@ -10,6 +10,7 @@ import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path'; 
+import Papa from 'papaparse'; // Added for CSV parsing
 
 dotenv.config();
 
@@ -141,7 +142,7 @@ if (require.main === module) {
         .option('walletsFile', {
             alias: 'f',
             type: 'string',
-            description: 'Path to a JSON file containing wallet addresses or {address, label} objects',
+            description: 'Path to a JSON or CSV file containing wallet addresses or {address, label} objects. CSV should have headers like \'address\' and optional \'label\'.',
         })
         .option('excludeMints', {
             alias: 'e',
@@ -175,6 +176,57 @@ if (require.main === module) {
     let targetWallets: WalletInfo[] = [];
     let finalExcludedMints: string[] = DEFAULT_EXCLUDED_MINTS;
 
+    // Helper function to parse wallets from CSV
+    function parseWalletsFromCsv(fileContent: string): WalletInfo[] {
+        const parsed = Papa.parse(fileContent, { header: true, skipEmptyLines: true });
+        const wallets: WalletInfo[] = [];
+
+        if (parsed.errors.length > 0) {
+            parsed.errors.forEach(err => logger.warn(`CSV parsing error: ${err.message} on row ${err.row}`));
+            // Decide if to throw or continue with partial data
+            if (!parsed.data || parsed.data.length === 0) {
+                 throw new Error('Failed to parse CSV or CSV is empty after errors.');
+            }
+        }
+
+        const data = parsed.data as Record<string, string>[];
+        const addressHeaderCandidates = ['address', 'wallet', 'addresses', 'wallets'];
+        const labelHeaderCandidates = ['label', 'name', 'tag'];
+
+        let actualAddressHeader: string | undefined = undefined;
+        let actualLabelHeader: string | undefined = undefined;
+
+        if (data.length > 0) {
+            const headers = Object.keys(data[0]).map(h => h.toLowerCase());
+            actualAddressHeader = addressHeaderCandidates.find(cand => headers.includes(cand));
+            actualLabelHeader = labelHeaderCandidates.find(cand => headers.includes(cand));
+        }
+
+        if (!actualAddressHeader && data.length > 0 && Object.keys(data[0]).length === 1) {
+            // If no specific address header, but only one column, assume it's addresses
+            actualAddressHeader = Object.keys(data[0])[0];
+            logger.info(`No specific address header found in CSV, but only one column detected. Using column '${actualAddressHeader}' for addresses.`);
+        } else if (!actualAddressHeader) {
+            throw new Error('CSV file must contain an address column (e.g., \'address\', \'wallet\') or be a single column of addresses.');
+        }
+
+        for (const row of data) {
+            const address = row[actualAddressHeader!]?.trim();
+            const label = actualLabelHeader ? row[actualLabelHeader]?.trim() : undefined;
+
+            if (address && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
+                const walletInfo: WalletInfo = { address };
+                if (label) {
+                    walletInfo.label = label;
+                }
+                wallets.push(walletInfo);
+            } else if (address) {
+                logger.warn(`Skipping invalid wallet address from CSV: ${address}`);
+            }
+        }
+        return wallets;
+    }
+
     // Parse Wallets
     if (argv.wallets) {
         targetWallets = argv.wallets.split(',').map((address: string) => ({ address: address.trim() }));
@@ -186,40 +238,49 @@ if (require.main === module) {
                  throw new Error(`Wallets file not found at: ${filePath}`);
             }
             const fileContent = fs.readFileSync(filePath, 'utf-8');
-            const walletsData = JSON.parse(fileContent);
-            if (Array.isArray(walletsData)) {
-                 // Simplify the mapping and filtering approach
-                 targetWallets = walletsData
-                    .map((item: any): WalletInfo | null => { // Map to WalletInfo | null
-                        let address = '';
-                        let label: string | undefined = undefined;
-                        if (typeof item === 'string') {
-                            address = item.trim();
-                        } else if (item && typeof item.address === 'string') {
-                            address = item.address.trim();
-                            label = item.label;
-                        } else {
-                            // logger.warn(...) // Log removed for brevity
-                            return null;
-                        }
-                        if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
-                            // logger.warn(...) // Log removed for brevity
-                            return null;
-                        }
-                        // Return WalletInfo object
-                        const walletInfo: WalletInfo = { address };
-                        if (label !== undefined) {
-                            walletInfo.label = label;
-                        }
-                        return walletInfo;
-                    })
-                    .filter((w): w is WalletInfo => w !== null); // Standard type guard filter
+            
+            if (filePath.toLowerCase().endsWith('.csv')) {
+                logger.info('Parsing wallets from CSV file.');
+                targetWallets = parseWalletsFromCsv(fileContent);
+            } else if (filePath.toLowerCase().endsWith('.json')) {
+                logger.info('Parsing wallets from JSON file.');
+                const walletsData = JSON.parse(fileContent);
+                if (Array.isArray(walletsData)) {
+                     // Simplify the mapping and filtering approach
+                     targetWallets = walletsData
+                        .map((item: any): WalletInfo | null => { // Map to WalletInfo | null
+                            let address = '';
+                            let label: string | undefined = undefined;
+                            if (typeof item === 'string') {
+                                address = item.trim();
+                            } else if (item && typeof item.address === 'string') {
+                                address = item.address.trim();
+                                label = item.label;
+                            } else {
+                                // logger.warn(...) // Log removed for brevity
+                                return null;
+                            }
+                            if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
+                                // logger.warn(...) // Log removed for brevity
+                                return null;
+                            }
+                            // Return WalletInfo object
+                            const walletInfo: WalletInfo = { address };
+                            if (label !== undefined) {
+                                walletInfo.label = label;
+                            }
+                            return walletInfo;
+                        })
+                        .filter((w): w is WalletInfo => w !== null); // Standard type guard filter
 
-                if (targetWallets.length < 2) {
-                   throw new Error(`The wallets file must contain at least two valid wallet entries. Found ${targetWallets.length}.`);
+                    if (targetWallets.length < 2) {
+                       throw new Error(`The wallets file must contain at least two valid wallet entries. Found ${targetWallets.length}.`);
+                    }
+                } else {
+                    throw new Error('Wallets file is not a valid JSON array.');
                 }
             } else {
-                throw new Error('Wallets file is not a valid JSON array.');
+                throw new Error('Wallets file must be a .json or .csv file.');
             }
         } catch (error: any) {
             logger.error(`Error reading or parsing wallets file '${argv.walletsFile}': ${error.message}`);

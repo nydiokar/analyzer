@@ -69,8 +69,8 @@ async function main(
             undefined
         );
 
-        const walletAddresses = targetWallets.map(w => w.address);
-        await reportingService.generateAndSaveCorrelationReport(walletAddresses);
+        // Pass targetWallets (WalletInfo[]) instead of just addresses
+        await reportingService.generateAndSaveCorrelationReport(targetWallets);
 
         logger.info('Correlation analysis and report generation finished successfully.');
 

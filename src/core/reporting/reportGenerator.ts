@@ -123,29 +123,53 @@ export class ReportingService {
     /**
      * Generates and saves a correlation report for a list of wallets.
      */
-    async generateAndSaveCorrelationReport(walletAddresses: string[]): Promise<void> {
+    async generateAndSaveCorrelationReport(targetWallets: WalletInfo[]): Promise<void> {
         if (!this.correlationService) {
             logger.error('CorrelationService not injected. Cannot generate correlation report.');
             return;
         }
-        logger.info(`Generating correlation report for ${walletAddresses.length} wallets...`);
+        if (!targetWallets || targetWallets.length === 0) {
+            logger.warn('No wallets provided for correlation report.');
+            return;
+        }
+        logger.info(`Generating correlation report for ${targetWallets.length} wallets...`);
         try {
-            const result = await this.correlationService.runCorrelationAnalysis(walletAddresses);
+            // Pass WalletInfo[] to runCorrelationAnalysis
+            const result = await this.correlationService.runCorrelationAnalysis(targetWallets); 
             if (result) {
-                // Need WalletInfo for labels - fetch them?
-                // Assuming CorrelationService can provide them or we fetch separately
-                // Placeholder: Fetch WalletInfo based on addresses in result.pairs/clusters
-                const involvedAddresses = new Set<string>();
-                result.pairs.forEach(p => { involvedAddresses.add(p.walletA_address); involvedAddresses.add(p.walletB_address); });
-                result.clusters.forEach(c => c.wallets.forEach(w => involvedAddresses.add(w)));
-                // TODO: Fetch WalletInfo for involvedAddresses using DatabaseService if needed
-                const walletInfos: WalletInfo[] = Array.from(involvedAddresses).map(addr => ({ address: addr })); // Placeholder
+                // The result might contain data for a subset of targetWallets if some had no transactions.
+                // We need to ensure the WalletInfo passed to generateCorrelationReport matches the wallets in the 'result'.
+
+                // Extract addresses from the correlation result to filter targetWallets
+                const involvedAddressesInResult = new Set<string>();
+                result.pairs.forEach(p => { 
+                    involvedAddressesInResult.add(p.walletA_address); 
+                    involvedAddressesInResult.add(p.walletB_address); 
+                });
+                result.clusters.forEach(c => c.wallets.forEach(wAddr => involvedAddressesInResult.add(wAddr)));
+                // Add addresses from walletPnLs as well, if they exist
+                if (result.walletPnLs) {
+                    Object.keys(result.walletPnLs).forEach(addr => involvedAddressesInResult.add(addr));
+                }
+
+                // Filter the original targetWallets to only include those present in the analysis results
+                const walletInfosForReport = targetWallets.filter(w => involvedAddressesInResult.has(w.address));
+
+                if (walletInfosForReport.length === 0 && (result.pairs.length > 0 || result.clusters.length > 0)) {
+                    // This case should ideally not happen if runCorrelationAnalysis returns results for at least two wallets.
+                    // However, as a safeguard, if we have pairs/clusters but no WalletInfo, log a warning.
+                    // For the report, we might have to use addresses directly if labels are missing.
+                    logger.warn('Correlation result has pairs/clusters, but could not map all to original WalletInfo. Report might lack labels.');
+                    // Fallback: create basic WalletInfo from result addresses if labels are critical for the report
+                    // const fallbackWalletInfos = Array.from(involvedAddressesInResult).map(addr => ({ address: addr }));
+                    // For now, we proceed with potentially empty walletInfosForReport if all else fails, 
+                    // generateCorrelationReport should handle this gracefully.
+                }
 
                 const reportContent = generateCorrelationReport(
                     result,
-                    walletInfos, // Pass fetched WalletInfo
+                    walletInfosForReport, // Pass filtered WalletInfo based on actual analysis results
                     result.walletPnLs // Pass PNLs from result
-                    // Pass config if needed by generateCorrelationReport
                 );
                 const reportPath = saveReport('correlation', reportContent, 'correlation');
                 logger.info(`Saved correlation report to ${reportPath}`);

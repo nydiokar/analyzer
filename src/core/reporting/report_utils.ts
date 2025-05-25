@@ -7,7 +7,7 @@ import { WalletInfo, WalletCluster } from '@/types/wallet';
 import { ComprehensiveSimilarityResult } from 'core/analysis/similarity/similarity-service';
 import { SwapAnalysisSummary, OnChainAnalysisResult, AdvancedTradeStats } from '@/types/helius-api';
 import Papa from 'papaparse';
-import { table, getBorderCharacters as getTableBorderChars } from 'table';
+import { table, getBorderCharacters } from 'table'; // Added getBorderCharacters
 import { formatTimestamp, formatSolAmount, formatNumber } from 'core/utils/formatters';
 
 const logger = createLogger('ReportUtils');
@@ -315,15 +315,13 @@ export function generateSimilarityReport(
     const walletLabels: Record<string, string> = {};
     walletInfos.forEach(w => { walletLabels[w.address] = w.label || w.address.substring(0, 8); });
 
-    // Pre-calculate unique traded token counts for percentage calculation (needed for Connection Strength)
-    // This might need the original transaction data OR be calculated/passed within metrics
-    // For now, assume it needs to be recalculated or is missing for the summary
-    // Let's fetch unique token counts directly from the vectors used if available
+    // Pre-calculate unique traded token counts for percentage calculation
     const uniqueTokensPerWallet: Record<string, number> = {};
     for (const addr of walletAddresses) {
         const vector = metrics.walletVectorsUsed[addr];
         if (vector) {
-            uniqueTokensPerWallet[addr] = Object.values(vector).filter(v => v > 0).length; // Count non-zero entries
+            // For 'capital' vector, count tokens with >0 capital. For 'binary', count tokens with presence (value=1).
+            uniqueTokensPerWallet[addr] = Object.values(vector).filter(v => v > 0).length;
         } else {
             uniqueTokensPerWallet[addr] = 0;
         }
@@ -336,11 +334,152 @@ export function generateSimilarityReport(
     lines.push(`Generated on: ${new Date().toISOString()}`);
     lines.push(`Wallets Analyzed (${walletInfos.length}):`);
     walletInfos.forEach(w => lines.push(`- ${w.address}${w.label ? ' (' + w.label + ')' : ''}`));
-    // Add excluded mints if available in metrics? config needs passing?
-    // lines.push(`Excluded Mints (${excludedMints.length}): ${excludedMints.join(', ')}`);
     lines.push('');
 
-    // --- 2. Connection Strength Summary (Re-implemented) ---
+    // --- NEW: Key Insights & Potential Wallets for Review ---
+    lines.push('=== Key Insights & Potential Wallets for Review ===');
+    const keyInsights: string[] = [];
+    const insightProcessedPairs = new Set<string>(); // To avoid duplicate insights for pairs
+
+    // Define thresholds for insights - these can be tuned
+    const INSIGHT_THRESHOLDS = {
+        VERY_HIGH_SIM_CAPITAL: 0.9,
+        VERY_HIGH_SIM_BINARY: 0.25, // Binary scores are often lower
+        STRONG_CONCORDANCE_SIM: 0.5,
+        STRONG_CONCORDANCE_PCT: 50, // A and B must both be > 50%
+        ASYMMETRY_SIM: 0.4,
+        ASYMMETRY_HIGH_PCT: 70,
+        ASYMMETRY_LOW_PCT: 20,
+    };
+
+    for (let i = 0; i < walletAddresses.length; i++) {
+        for (let j = i + 1; j < walletAddresses.length; j++) {
+            const addrA = walletAddresses[i];
+            const addrB = walletAddresses[j];
+            const pairKey = [addrA, addrB].sort().join('|');
+            if (insightProcessedPairs.has(pairKey)) continue;
+            insightProcessedPairs.add(pairKey);
+
+            const labelA = walletLabels[addrA];
+            const labelB = walletLabels[addrB];
+
+            const primarySimPair = metrics.pairwiseSimilarities.find(p =>
+                (p.walletA === addrA && p.walletB === addrB) || (p.walletA === addrB && p.walletB === addrA)
+            );
+            const primarySim = primarySimPair?.similarityScore || 0;
+            const count = metrics.sharedTokenCountsMatrix[addrA]?.[addrB] || 0;
+            const uniqueA = uniqueTokensPerWallet[addrA] || 0;
+            const uniqueB = uniqueTokensPerWallet[addrB] || 0;
+            const pctA = uniqueA > 0 ? (count / uniqueA) * 100 : 0;
+            const pctB = uniqueB > 0 ? (count / uniqueB) * 100 : 0;
+
+            const veryHighSimThreshold = metrics.vectorTypeUsed === 'capital' ? INSIGHT_THRESHOLDS.VERY_HIGH_SIM_CAPITAL : INSIGHT_THRESHOLDS.VERY_HIGH_SIM_BINARY;
+            if (primarySim >= veryHighSimThreshold) {
+                keyInsights.push(`- **Very High Similarity:** ${labelA} & ${labelB} (Score: ${primarySim.toFixed(3)}, Shared: ${count}, A:${pctA.toFixed(1)}%, B:${pctB.toFixed(1)}%). Investigate further.`);
+            }
+
+            if (primarySim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_SIM && pctA >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT && pctB >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT) {
+                keyInsights.push(`- **Strong Concordance:** ${labelA} & ${labelB} (Score: ${primarySim.toFixed(3)}, Shared: ${count} [A:${pctA.toFixed(1)}%, B:${pctB.toFixed(1)}%]). Both wallets have a significant portion of their unique token ${metrics.vectorTypeUsed === 'capital' ? 'investments' : 'interactions'} overlapping with notable similarity.`);
+            }
+            
+            const isAsymmetricAB = pctA >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctB <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
+            const isAsymmetricBA = pctB >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctA <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
+            if (primarySim >= INSIGHT_THRESHOLDS.ASYMMETRY_SIM && (isAsymmetricAB || isAsymmetricBA)) {
+                keyInsights.push(`- **Significant Asymmetry:** ${labelA} & ${labelB} (Score: ${primarySim.toFixed(3)}, Shared: ${count} [A:${pctA.toFixed(1)}%, B:${pctB.toFixed(1)}%]). One wallet's shared tokens are a large part of its ${metrics.vectorTypeUsed === 'capital' ? 'investments' : 'interactions'}, while for the other, it's minor, despite notable similarity.`);
+            }
+            
+            if (pctA > 100 || pctB > 100) {
+                 const walletWithOver100 = pctA > 100 ? labelA : labelB;
+                 const otherWallet = pctA > 100 ? labelB : labelA;
+                 const overPct = pctA > 100 ? pctA : pctB;
+                 const uniqueInvestedCount = pctA > 100 ? uniqueA : uniqueB;
+                 keyInsights.push(`- **Focused Investment Pattern:** For ${walletWithOver100} in pair with ${otherWallet} (Shared: ${count}, ${walletWithOver100}:${overPct.toFixed(1)}%), the ${count} shared tokens exceed its ${uniqueInvestedCount} unique capital-invested tokens. This implies ${walletWithOver100} has a very narrow capital focus, and all its capital-invested tokens are shared with ${otherWallet}, plus it trades other shared tokens without capital commitment.`);
+            }
+        }
+    }
+    if (keyInsights.length === 0) {
+        lines.push('No specific key insights or outstanding pairs identified based on current criteria.');
+    } else {
+        lines.push(...keyInsights);
+    }
+
+    // NEW: Summarize wallets appearing in multiple key insight categories
+    const walletKeyInsightCounts: Record<string, { count: number, labels: Set<string> }> = {};
+    keyInsights.forEach(insight => {
+        // Extract wallet labels mentioned in the insight string (this is a bit rudimentary)
+        // Example insight: "- **Very High Similarity:** labelA & labelB (...)"
+        const matches = insight.match(/\*\*:(.*?)&\s*(.*?)\s*\(/);
+        if (matches && matches.length >= 3) {
+            const walletLabelA = matches[1].trim();
+            const walletLabelB = matches[2].trim();
+            
+            // Find original addresses for these labels to use as consistent keys
+            const addrA = Object.keys(walletLabels).find(k => walletLabels[k] === walletLabelA);
+            const addrB = Object.keys(walletLabels).find(k => walletLabels[k] === walletLabelB);
+
+            if (addrA) {
+                if (!walletKeyInsightCounts[addrA]) walletKeyInsightCounts[addrA] = { count: 0, labels: new Set() };
+                walletKeyInsightCounts[addrA].count++;
+                walletKeyInsightCounts[addrA].labels.add(insight.substring(0, insight.indexOf(':') +1 ).replace('-','').trim()); //e.g. "**Very High Similarity:**"
+            }
+            if (addrB) {
+                if (!walletKeyInsightCounts[addrB]) walletKeyInsightCounts[addrB] = { count: 0, labels: new Set() };
+                walletKeyInsightCounts[addrB].count++;
+                // Avoid double counting for the same insight type if labels were extracted imperfectly
+                walletKeyInsightCounts[addrB].labels.add(insight.substring(0, insight.indexOf(':') +1 ).replace('-','').trim()); 
+            }
+        }
+    });
+
+    const multiInsightWallets: string[] = [];
+    Object.entries(walletKeyInsightCounts).forEach(([addr, data]) => {
+        if (data.labels.size > 1) { // Count distinct types of insights a wallet is involved in
+            multiInsightWallets.push(`- Wallet ${walletLabels[addr] || addr.substring(0,8)} (${addr.substring(0,4)}...${addr.substring(addr.length-4)}) involved in ${data.labels.size} distinct key insight categories. Worth closer review.`);
+        }
+    });
+
+    if (multiInsightWallets.length > 0) {
+        lines.push('\n**Wallets with Multiple Key Insight Triggers:**');
+        lines.push(...multiInsightWallets);
+    }
+
+    lines.push('');
+
+    // --- 2. Top Similar Pairs (Moved Up for Prominence) ---
+    lines.push(`--- Top ${Math.min(topKResults, metrics.globalMetrics.mostSimilarPairs.length)} Most Similar Pairs (Primary Score: ${metrics.vectorTypeUsed}) ---`);
+    if (metrics.globalMetrics.mostSimilarPairs.length === 0) {
+        lines.push('No similarity pairs found.');
+    } else {
+        metrics.globalMetrics.mostSimilarPairs.slice(0, topKResults).forEach((pair, index) => {
+            const labelA = walletLabels[pair.walletA] || pair.walletA.substring(0,8);
+            const labelB = walletLabels[pair.walletB] || pair.walletB.substring(0,8);
+            lines.push(`\n#${index + 1}: ${labelA} <-> ${labelB} (Score: ${pair.similarityScore.toFixed(4)})`);
+
+            const count = metrics.sharedTokenCountsMatrix[pair.walletA]?.[pair.walletB] || 0;
+            const uniqueA = uniqueTokensPerWallet[pair.walletA] || 0;
+            const uniqueB = uniqueTokensPerWallet[pair.walletB] || 0;
+            const pctA = uniqueA > 0 ? (count / uniqueA) * 100 : 0;
+            const pctB = uniqueB > 0 ? (count / uniqueB) * 100 : 0;
+            lines.push(`  Shared Token Count: ${count} (${pctA.toFixed(1)}% of ${labelA}\'s unique ${metrics.vectorTypeUsed === 'capital' ? 'invested' : 'traded'} tokens, ${pctB.toFixed(1)}% of ${labelB}\'s)`);
+
+            if (pair.sharedTokens && pair.sharedTokens.length > 0) {
+                 lines.push(`  Top Shared Tokens (Max 5 by Weight - ${metrics.vectorTypeUsed === 'capital' ? '% of wallet capital in token' : 'presence'}):`);
+                 pair.sharedTokens.slice(0, 5).forEach(t => {
+                    let tokenWeightDetail = '';
+                    if (metrics.vectorTypeUsed === 'capital') {
+                        tokenWeightDetail = `(Capital: ${labelA}-${(t.weightA * 100).toFixed(1)}%, ${labelB}-${(t.weightB * 100).toFixed(1)}%)`;
+                    } else { // Binary
+                        tokenWeightDetail = `(Present for both)`;
+                    }
+                    lines.push(`    - ${getTokenDisplayName(t.mint)} ${tokenWeightDetail}`);
+                 });
+                 if(pair.sharedTokens.length > 5) lines.push('    ...');
+            }
+        });
+    }
+    lines.push('');
+
+    // --- 3. Connection Strength Summary --- 
     lines.push('=== Connection Strength Summary ===');
     lines.push('(Based on Shared Token Counts, Jaccard Similarity, and Primary Similarity Score)');
     lines.push('');
@@ -353,6 +492,7 @@ export function generateSimilarityReport(
         MILD:   { count: 5,  primarySim: 0.5,  jaccardSim: 0.3, sharedPct: 0.25 },
         BARELY: { count: 3,  primarySim: 0.25, jaccardSim: 0.15, sharedPct: 0.1 },
     };
+    const legendMarkers: string[] = [];
 
     for (let i = 0; i < walletAddresses.length; i++) {
         for (let j = i + 1; j < walletAddresses.length; j++) {
@@ -378,7 +518,24 @@ export function generateSimilarityReport(
             const pctB = uniqueB > 0 ? (count / uniqueB) * 100 : 0;
             const maxSharedPct = Math.max(pctA / 100, pctB / 100); // Use the larger percentage
 
-            const details = `(Shared: ${count} [A:${pctA.toFixed(1)}%, B:${pctB.toFixed(1)}%], Primary Sim (${metrics.vectorTypeUsed}): ${primarySim.toFixed(3)}, Jaccard Sim: ${jaccardSim.toFixed(3)})`;
+            let details = `(Shared: ${count} [A:${pctA.toFixed(1)}%, B:${pctB.toFixed(1)}%], Primary Sim (${metrics.vectorTypeUsed}): ${primarySim.toFixed(3)}, Jaccard Sim: ${jaccardSim.toFixed(3)})`;
+            let extraMarker = '';
+
+            // Add markers based on key insight criteria
+            const veryHighSimThreshold = metrics.vectorTypeUsed === 'capital' ? INSIGHT_THRESHOLDS.VERY_HIGH_SIM_CAPITAL : INSIGHT_THRESHOLDS.VERY_HIGH_SIM_BINARY;
+            if (primarySim >= veryHighSimThreshold) { extraMarker += ' *VHS*'; if (!legendMarkers.includes('*VHS*: Very High Similarity')) legendMarkers.push('*VHS*: Very High Similarity');}
+            if (primarySim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_SIM && pctA >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT && pctB >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT) {
+                extraMarker += ' *SC*'; if (!legendMarkers.includes('*SC*: Strong Concordance')) legendMarkers.push('*SC*: Strong Concordance');
+            }
+            const isAsymmetricAB = pctA >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctB <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
+            const isAsymmetricBA = pctB >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctA <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
+            if (primarySim >= INSIGHT_THRESHOLDS.ASYMMETRY_SIM && (isAsymmetricAB || isAsymmetricBA)) {
+                 extraMarker += ' *SA*'; if (!legendMarkers.includes('*SA*: Significant Asymmetry')) legendMarkers.push('*SA*: Significant Asymmetry');
+            }
+             if (pctA > 100 || pctB > 100) {
+                 extraMarker += ' *FIP*'; if (!legendMarkers.includes('*FIP*: Focused Investment Pattern (see Key Insights)')) legendMarkers.push('*FIP*: Focused Investment Pattern (see Key Insights)');
+            }
+            details += extraMarker;
             
             // Apply thresholds (adjust logic as needed to match original intent)
             if ( (primarySim >= THRESHOLDS.STRONG.primarySim && count >= THRESHOLDS.STRONG.count && maxSharedPct >= THRESHOLDS.STRONG.sharedPct) || 
@@ -404,10 +561,16 @@ export function generateSimilarityReport(
     if (categories.Mildly.length > 0) { lines.push('Mildly Connected Pairs:'); categories.Mildly.forEach(s => lines.push(`- ${s}`)); lines.push(''); }
     if (categories.Barely.length > 0) { lines.push('Barely Connected Pairs:'); categories.Barely.forEach(s => lines.push(`- ${s}`)); lines.push(''); }
     if (categories.Strongly.length === 0 && categories.Mildly.length === 0 && categories.Barely.length === 0) {
-        lines.push('No significant connections found based on current thresholds.','');
+        lines.push('No significant connections found based on current thresholds.', '\n');
     }
 
-    // --- 3. Detailed Matrices ---
+    if (legendMarkers.length > 0) {
+        lines.push('Legend: ' + legendMarkers.join(', '));
+        lines.push('');
+    }
+
+    // --- 4. Detailed Matrices ---
+    // The original section 3 is now section 4
     lines.push(...formatMatrix(metrics.sharedTokenCountsMatrix, walletAddresses, walletLabels, 'Wallet-Pair Shared Token Counts (Raw)', (v) => String(v)));
     // Decide whether to show Cosine matrix explicitly based on primary type
     // This uses the pairwiseSimilarities which should be cosine scores
@@ -420,48 +583,87 @@ export function generateSimilarityReport(
             cosineMatrixForReport[addrA][addrB] = pair?.similarityScore ?? 0;
         });
     });
-    lines.push(...formatMatrix(cosineMatrixForReport, walletAddresses, walletLabels, `Primary Similarity (${metrics.vectorTypeUsed} - Cosine)`, (v) => typeof v === 'number' ? v.toFixed(4) : String(v)));
-    lines.push(...formatMatrix(metrics.jaccardSimilarityMatrix, walletAddresses, walletLabels, 'Asset Overlap Similarity (Jaccard)', (v) => typeof v === 'number' ? v.toFixed(4) : String(v)));
+    lines.push(...formatMatrix(cosineMatrixForReport, walletAddresses, walletLabels, `Primary Similarity (${metrics.vectorTypeUsed} - Cosine)`, (v) => typeof v === 'number' ? v.toFixed(4) : String(v), metrics.vectorTypeUsed === 'capital' ? 0.75 : 0.2)); // Added significance threshold for primary sim
+    lines.push(...formatMatrix(metrics.jaccardSimilarityMatrix, walletAddresses, walletLabels, 'Asset Overlap Similarity (Jaccard)', (v) => typeof v === 'number' ? v.toFixed(4) : String(v), 0.5)); // Added significance threshold for Jaccard
 
-    // --- 4. Shared Token Details (Token-Centric) ---
+    // --- 5. Shared Token Details (Token-Centric) ---
+    // The original section 4 is now section 5
     lines.push('=== Shared Token Details (Token-Centric, Post-Exclusion) ===');
+    const minWalletsForSharedTokenDisplay = Math.max(2, Math.floor(walletAddresses.length / 3)); // e.g., for 10 wallets, min is 3; for 4 wallets, min is 2.
+    const maxWalletsToListPerToken = 5;
+
     if (metrics.fullSharedTokenList && metrics.fullSharedTokenList.length > 0) {
-        lines.push(`Found ${metrics.fullSharedTokenList.length} tokens shared by 2 or more wallets.`);
-        lines.push('(Mint Address | Shared by X Wallets | Wallet Addresses)');
-        lines.push('---');
-        metrics.fullSharedTokenList.forEach(info => {
-            lines.push(`- ${info.mint} | ${info.count} Wallets | ${info.sharedByWallets.join(', ')}`);
-        });
+        const significantSharedTokens = metrics.fullSharedTokenList.filter(info => info.count >= minWalletsForSharedTokenDisplay);
+
+        if (significantSharedTokens.length > 0) {
+            lines.push(`Found ${significantSharedTokens.length} tokens shared by at least ${minWalletsForSharedTokenDisplay} wallets (out of ${metrics.fullSharedTokenList.length} total shared tokens).`);
+            lines.push(`(Mint Address | Shared by X Wallets | Sample Wallet Addresses (max ${maxWalletsToListPerToken}))`);
+            lines.push('---'); // Corrected to --- for markdown horizontal rule
+            significantSharedTokens.sort((a,b) => b.count - a.count).slice(0, 25).forEach(info => { // Show top 25 of these significant tokens
+                let walletsDisplay = info.sharedByWallets.slice(0, maxWalletsToListPerToken).map(addr => walletLabels[addr] || addr.substring(0,6)).join(', ');
+                if (info.sharedByWallets.length > maxWalletsToListPerToken) {
+                    walletsDisplay += `, ...and ${info.sharedByWallets.length - maxWalletsToListPerToken} more`;
+                }
+                lines.push(`- ${info.mint} | ${info.count} Wallets | ${walletsDisplay}`);
+            });
+            if (significantSharedTokens.length > 25) {
+                lines.push(`... and ${significantSharedTokens.length - 25} more tokens shared by at least ${minWalletsForSharedTokenDisplay} wallets.`);
+            }
+        } else {
+            lines.push(`No tokens were found to be shared by at least ${minWalletsForSharedTokenDisplay} wallets (out of ${metrics.fullSharedTokenList.length} total shared tokens).`);
+        }
     } else {
         lines.push('No tokens were found to be shared by 2 or more specified wallets after exclusions.');
     }
     lines.push('');
 
     // --- 5. Top Similar Pairs (Simplified - already in globalMetrics) ---
-    lines.push(`--- Top ${Math.min(topKResults, metrics.globalMetrics.mostSimilarPairs.length)} Most Similar Pairs (Primary Score: ${metrics.vectorTypeUsed}) ---`);
-    if (metrics.globalMetrics.mostSimilarPairs.length === 0) {
-        lines.push('No similarity pairs found.');
-    } else {
-        metrics.globalMetrics.mostSimilarPairs.slice(0, topKResults).forEach((pair, index) => {
-            const labelA = walletLabels[pair.walletA] || pair.walletA.substring(0,8);
-            const labelB = walletLabels[pair.walletB] || pair.walletB.substring(0,8);
-            lines.push(`
-#${index + 1}: ${labelA} <-> ${labelB} (Score: ${pair.similarityScore.toFixed(4)})`);
-            if (pair.sharedTokens && pair.sharedTokens.length > 0) {
-                 lines.push(`  Top Shared Tokens (Max 5 by Weight):`);
-                 pair.sharedTokens.slice(0, 5).forEach(t => {
-                    lines.push(`    - ${t.mint} (Weight A: ${t.weightA.toFixed(3)}, B: ${t.weightB.toFixed(3)})`);
-                 });
-                 if(pair.sharedTokens.length > 5) lines.push('    ...');
-            }
-        });
-    }
-    lines.push('');
+    // THIS SECTION IS MOVED UP AND RENAMED/INTEGRATED as section 2.
+    // The old logic for section 5 (which was this) is removed from here.
     
     // --- Clusters (if implemented) ---
     // lines.push('--- Similarity Clusters ---');
     // if (metrics.clusters.length === 0) { lines.push('Clustering not implemented or no clusters found.'); } else { /* ... */ }
     // lines.push('');
+
+    // --- Metrics Glossary ---
+    lines.push('\n=== Metrics Glossary ===');
+    lines.push('This section explains the key metrics and symbols used in this report.\n');
+
+    lines.push('**Primary Similarity (capital):**');
+    lines.push('- Measures the cosine similarity between wallets based on their *capital allocation* to different tokens. ');
+    lines.push('- A score closer to 1 indicates that wallets have invested their capital proportionally in the same set of tokens.');
+    lines.push('- Values range from 0 (no similarity) to 1 (identical capital distribution across shared tokens).\n');
+
+    lines.push('**Primary Similarity (binary):**');
+    lines.push('- Measures the cosine similarity between wallets based on the *presence or absence* of token trades (buys/sells).');
+    lines.push('- It considers whether wallets have interacted with the same tokens, regardless of the amount traded or invested.');
+    lines.push('- Values range from 0 (no common tokens traded) to 1 (traded all the same tokens).\n');
+
+    lines.push('**Asset Overlap Similarity (Jaccard):**');
+    lines.push('- Calculates the Jaccard Index based on the sets of unique tokens each wallet has interacted with (traded/held).');
+    lines.push('- Formula: (Number of Shared Tokens) / (Total Number of Unique Tokens held by Either Wallet). ');
+    lines.push('- A score closer to 1 means a higher proportion of their total unique tokens are shared. Ranges from 0 to 1.\n');
+
+    lines.push('**Shared: X [A:Y%, B:Z%]** (in Connection Strength Summary & Top Pairs): ');
+    lines.push('- `X`: The absolute number of unique tokens shared between Wallet A and Wallet B (based on the vector type context - capital or binary interaction).');
+    lines.push('- `A:Y%`: The `X` shared tokens represent `Y%` of Wallet A\'s total unique tokens (for which it has capital allocated if \'capital\' type, or interacted with if \'binary\' type). Formula: (X / Wallet A\'s Unique Tokens) * 100.');
+    lines.push('- `B:Z%`: Similarly, the `X` shared tokens represent `Z%` of Wallet B\'s total unique tokens. Formula: (X / Wallet B\'s Unique Tokens) * 100.');
+    lines.push('- *Why >100%?* If a wallet (e.g., B) has \`Z% > 100%\` (like \`B:200.0%\`), it means the number of shared tokens \`X\` is greater than the number of unique tokens Wallet B has *capital invested in* (for \'capital\' type reports). This occurs when Wallet B has a very narrow capital focus (e.g., invested in only 3 unique tokens), and *all* of those are shared with Wallet A. Additionally, Wallet B might have interacted with other tokens (bringing the shared count \`X\` up) without committing capital to them, and these additional interactions are also shared with A. It signals a strong overlap where Wallet B\'s core capital strategy is entirely contained within its shared activity with A, plus some extra non-capital shared interactions.\n');
+
+    lines.push('**Token Weights (in Top Similar Pairs for `capital` type):**');
+    lines.push('- Example: `(Capital: WalletA-WW.W%, WalletB-XX.X%)` for a shared token.');
+    lines.push('- `WalletA-WW.W%`: Indicates that this specific shared token constitutes WW.W% of Wallet A\'s *total capital analyzed* in the report.');
+    lines.push('- This helps understand if a high similarity score is driven by a few tokens where both wallets have significant capital concentration.\n');
+
+    lines.push('**Insight Markers (in Connection Strength Summary):**');
+    lines.push('- `*VHS* (Very High Similarity):` Primary similarity score meets a high threshold (e.g., >0.9 capital, >0.25 binary).');
+    lines.push('- `*SC* (Strong Concordance):` High primary similarity AND shared tokens are a significant percentage of *both* wallets\' unique activities.');
+    lines.push('- `*SA* (Significant Asymmetry):` Notable primary similarity, but shared tokens are a large part of one wallet\'s activity and minor for the other.');
+    lines.push('- `*FIP* (Focused Investment Pattern):` Number of shared tokens exceeds a wallet\'s unique capital-invested tokens (see explanation for `A:Y%, B:Z% >100%` above).\n');
+
+    lines.push('**Table Value Highlighting:**');
+    lines.push('- `*` (asterisk next to a value in a matrix): Indicates the value meets or exceeds a pre-defined significance threshold for that particular metric (e.g., Primary Similarity > 0.75). Helps to quickly spot potentially important scores in large tables.\n');
 
     lines.push('=== END REPORT ===');
     return lines.join('\n');
@@ -471,7 +673,19 @@ export function generateSimilarityReport(
  * Utility function to format a matrix for reporting.
  * (Copied from original script - keep as internal helper or move to shared utils)
  */
-function formatMatrix(matrix: Record<string, Record<string, number | string>>, walletOrder: string[], labels: Record<string, string>, title: string, valueFormatter: (val: number | string) => string): string[] {
+function formatMatrix(
+    matrix: Record<string, Record<string, number | string>>, 
+    walletOrder: string[], 
+    labels: Record<string, string>, 
+    title: string, 
+    valueFormatter: (val: number | string) => string,
+    significanceThreshold?: number // Optional threshold for marking values
+): string[] {
+    const MAX_WALLETS_FOR_FULL_MATRIX = 15;
+    if (walletOrder.length > MAX_WALLETS_FOR_FULL_MATRIX) {
+        return [`=== ${title} ===`, `\nFull matrix omitted for brevity as number of wallets (${walletOrder.length}) > ${MAX_WALLETS_FOR_FULL_MATRIX}.\nKey relationships are in 'Connection Strength Summary' and 'Top Similar Pairs'.\n`]; // Corrected: Removed trailing escaped backtick
+    }
+
     const lines: string[] = [`=== ${title} ===`, ''];
     const displayLabels = walletOrder.map(addr => labels[addr] || addr.substring(0, 10));
     const colWidth = 12; // Adjust as needed
@@ -490,12 +704,20 @@ function formatMatrix(matrix: Record<string, Record<string, number | string>>, w
                 row += "N/A".padEnd(colWidth);
             } else {
                 const value = matrix[walletA_addr]?.[walletB_addr] ?? 0;
-                row += valueFormatter(value).padEnd(colWidth);
+                let formattedValue = valueFormatter(value);
+                if (significanceThreshold !== undefined && typeof value === 'number' && value >= significanceThreshold) {
+                    formattedValue += '*'; // Mark significant values
+                }
+                row += formattedValue.padEnd(colWidth);
             }
         }
         lines.push(row);
     }
     lines.push(''); // Add space after matrix
+    if (significanceThreshold !== undefined) {
+        lines.push(`  (* values >= ${significanceThreshold.toFixed(2)} are marked as potentially significant)`);
+        lines.push('');
+    }
     return lines;
 }
 
@@ -591,7 +813,7 @@ export function generateSwapPnlReport(
             `${formatDate(token.firstTransferTimestamp)} / ${formatDate(token.lastTransferTimestamp)}`
         ]);
     }
-    lines.push(table(tableData, { border: getTableBorderChars('ramac') }));
+    lines.push(table(tableData, { border: getBorderCharacters('ramac') }));
     lines.push("\n---\n");
     lines.push("Generated by Solana P/L Analyzer.");
 

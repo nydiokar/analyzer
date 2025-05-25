@@ -429,7 +429,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
           const meetsUsdcSignificance = heuristicAssociatedUsdcValue >= FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC;
 
           if (meetsSolSignificance || meetsUsdcSignificance) {
-              logger.debug(`Tx ${tx.signature}: Fee payer heuristic triggered for ${walletAddress} with swap value ~${heuristicAssociatedSolValue.toFixed(4)} SOL / ~${heuristicAssociatedUsdcValue.toFixed(4)} USDC.`);
+              // logger.debug(`Tx ${tx.signature}: Fee payer heuristic triggered for ${walletAddress} with swap value ~${heuristicAssociatedSolValue.toFixed(4)} SOL / ~${heuristicAssociatedUsdcValue.toFixed(4)} USDC.`); // too verbose unccomment when needed
 
               // Process token inputs of the swap event as 'out' for walletAddress
               for (const tokenIn of swapEvent.tokenInputs || []) {
@@ -623,7 +623,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
                     currentAbsTransferAmount < largestAmtForThisMint && // Ensure it's not the largest amount itself
                     currentAbsTransferAmount < (TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD * largestAmtForThisMint)) {
                     applyFeeHeuristic = true;
-                    logger.debug(`Tx ${tx.signature}, Mint ${mint}: Applying mapper heuristic. Outgoing amount ${currentAbsTransferAmount.toFixed(6)} is < ${TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD*100}% of largest amount ${largestAmtForThisMint.toFixed(6)} for this mint in tx (and other transfers of this mint exist). Setting associatedSolValue to 0.`);
+                    // logger.debug(`Tx ${tx.signature}, Mint ${mint}: Applying mapper heuristic. Outgoing amount ${currentAbsTransferAmount.toFixed(6)} is < ${TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD*100}% of largest amount ${largestAmtForThisMint.toFixed(6)} for this mint in tx (and other transfers of this mint exist). Setting associatedSolValue to 0.`); // too verbose unccomment when needed
                 }
              }
 

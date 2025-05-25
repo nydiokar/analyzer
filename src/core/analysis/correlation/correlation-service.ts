@@ -32,46 +32,51 @@ export class CorrelationService {
   /**
    * Fetches data for specified wallets, filters potential bots,
    * calculates PNL, and runs correlation analysis.
-   * @param walletAddresses - An array of wallet addresses to analyze.
+   * @param initialWalletInfos - An array of wallet information to analyze.
    * @returns A promise resolving to CorrelationMetrics or null if an error occurs.
    */
   async runCorrelationAnalysis(
-    walletAddresses: string[]
+    initialWalletInfos: WalletInfo[] // Changed from walletAddresses: string[]
   ): Promise<CorrelationMetrics & { walletPnLs?: Record<string, number> } | null> { // Extend return type for PNL
-    logger.info(`Running correlation analysis for ${walletAddresses.length} wallets.`);
+    logger.info(`Running correlation analysis for ${initialWalletInfos.length} wallets.`);
 
-    let allTransactionData: Record<string, TransactionData[]> = {}; // Store all initially fetched data
-    let walletInfos: WalletInfo[] = [];
+    let allTransactionData: Record<string, TransactionData[]> = {};
+    let walletInfosToProcess: WalletInfo[]; // Declare here to be in scope
 
-    // 1. Fetch required data (Transactions and WalletInfo)
+    // 1. Extract addresses and check if enough wallets for analysis
+    const walletAddresses = initialWalletInfos.map(w => w.address);
+    if (walletAddresses.length < 2) {
+        logger.warn('Need at least 2 wallets to proceed with correlation analysis.');
+        return this.getEmptyMetrics();
+    }
+
+    // 2. Fetch required data (Transactions)
     try {
-      walletInfos = await this.databaseService.getWallets(walletAddresses); // Assuming a method like this exists
-      const validAddresses = new Set(walletInfos.map(w => w.address));
-      const requestedAddresses = [...walletAddresses]; // Keep original list for logging
-      walletAddresses = walletAddresses.filter(addr => validAddresses.has(addr)); // Filter based on found WalletInfo
-      if (walletAddresses.length !== requestedAddresses.length) {
-           logger.warn(`Could not fetch WalletInfo for all requested addresses. Proceeding with ${walletAddresses.length} wallets.`);
-      }
-      if (walletAddresses.length < 2) {
-          logger.warn('Need at least 2 wallets with WalletInfo to proceed.');
-          return this.getEmptyMetrics();
-      }
-
-      // Fetch Transactions using correlation config
       allTransactionData = await this.databaseService.getTransactionsForAnalysis(
           walletAddresses, 
           this.config // Pass the CorrelationAnalysisConfig object
       );
       logger.debug(`Fetched transaction data for ${Object.keys(allTransactionData).length} wallets.`);
+      
+      const addressesWithTransactions = new Set(Object.keys(allTransactionData));
+      walletInfosToProcess = initialWalletInfos.filter(w => addressesWithTransactions.has(w.address)); // Assign here
+
+      if (walletInfosToProcess.length < 2) {
+          logger.warn(`Less than 2 wallets have transaction data after fetching. Cannot perform correlation. Found transactions for: ${walletInfosToProcess.map(w => w.address).join(', ')}`);
+          return this.getEmptyMetrics();
+      }
+       if (walletInfosToProcess.length < initialWalletInfos.length) {
+        logger.info(`Proceeding with ${walletInfosToProcess.length} wallets that have transaction data out of ${initialWalletInfos.length} initially provided.`);
+      }
 
     } catch (error) {
         logger.error('Error fetching data for correlation analysis:', { error });
         return null;
     }
 
-    // 2. Filter wallets (Bot Detection Logic)
+    // 3. Filter wallets (Bot Detection Logic) - walletInfosToProcess is now in scope
     const { filteredWalletInfos, filteredTransactionData } = this.filterWalletsByActivity(
-        walletInfos, // Pass original WalletInfo array
+        walletInfosToProcess, // Pass the WalletInfo array for wallets with transactions
         allTransactionData
     );
 
@@ -80,10 +85,10 @@ export class CorrelationService {
         return this.getEmptyMetrics();
     }
 
-    // 3. Calculate PNL for filtered wallets
+    // 4. Calculate PNL for filtered wallets
     const walletPnLs = calculatePnlForWallets(filteredTransactionData);
 
-    // 4. Run the analysis using the core analyzer methods on FILTERED data
+    // 5. Run the analysis using the core analyzer methods on FILTERED data
     try {
       const pairs: CorrelatedPairData[] = await this.correlationAnalyzer.analyzeCorrelations(filteredTransactionData, filteredWalletInfos);
       const clusters = await this.correlationAnalyzer.identifyClusters(pairs);
