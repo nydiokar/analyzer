@@ -7,18 +7,18 @@ This document provides an overview of the React components created for the Walle
 ### 1. `Sidebar.tsx`
 
 -   **File Path:** `dashboard/src/components/layout/Sidebar.tsx`
--   **Purpose:** Provides main navigation for the dashboard.
--   **Current State:** Basic stub with static placeholder links for Dashboard Home, Wallets (example links), Settings, and Help/Documentation. Uses Tailwind CSS for basic styling.
--   **Key Props:** None currently.
--   **Planned Next Steps:** Make wallet links dynamic, integrate with `shadcn/ui` navigation components (e.g., `Collapsible`, `NavigationMenu`) for better UX and styling, implement active link highlighting.
+-   **Purpose:** Provides main navigation for the dashboard. It is collapsible.
+-   **Current State:** Implemented with Tailwind CSS and Lucide icons. Manages its collapsed/expanded state based on props passed from `RootLayout`. Includes a toggle button. Displays placeholder links for Dashboard Home, Wallets, Settings, and Help/Documentation. Conditionally renders text labels based on collapsed state. Expanded width is `12rem` (`w-48`), collapsed width is `5rem` (`w-20`).
+-   **Key Props:** `isCollapsed: boolean`, `toggleSidebar: () => void`.
+-   **Planned Next Steps:** Make wallet links dynamic. Implement active link highlighting.
 
 ### 2. `WalletProfileLayout.tsx`
 
 -   **File Path:** `dashboard/src/components/layout/WalletProfileLayout.tsx`
 -   **Purpose:** Provides the main layout structure for individual wallet profile pages.
--   **Current State:** Features a sticky header that includes an improved wallet address display (WalletIcon, truncated address in a Badge, and a copy-to-clipboard Button with toast feedback). The header also contains the `AccountSummaryCard` and the `TimeRangeSelector`. Below the header, a `Tabs` component (from `shadcn/ui`) is used to organize content. It now dynamically renders `TokenPerformanceTab` and `BehavioralPatternsTab` components. It is a client component (`"use client"`) to manage tab state and copy-to-clipboard functionality.
+-   **Current State:** Features a sticky header that includes an improved wallet address display (WalletIcon, truncated address in a Badge, copy-to-clipboard Button) and the `ThemeToggleButton`. The `AccountSummaryCard` and `TimeRangeSelector` are also part of this sticky header. The main navigation `TabsList` (for Overview, Token Performance, Account Stats & PNL, etc.) is also integrated into the sticky header, below the summary components. The parent `Tabs` component wraps the entire layout (header and main content area) to ensure `TabsList` functions correctly. Dynamically renders `TokenPerformanceTab`, `AccountStatsPnlTab`, and `BehavioralPatternsTab` components within their respective `TabsContent`. It is a client component (`"use client"`) to manage tab state and copy-to-clipboard functionality. Padding has been minimized.
 -   **Key Props:** `children: React.ReactNode`, `walletAddress: string`.
--   **Planned Next Steps:** Populate remaining tab content (Account Stats & PNL, Notes). Consider making the main sidebar toggleable for more content space.
+-   **Planned Next Steps:** Populate remaining tab content (Notes).
 
 ## Dashboard Specific Components
 
@@ -40,11 +40,27 @@ This document provides an overview of the React components created for the Walle
 
 ### 3. `BehavioralPatternsTab.tsx`
 
--   **File Path:** `dashboard/src/components/dashboard/BehavioralPatternsTab.tsx` (Assuming this exists as per plan)
+-   **File Path:** `dashboard/src/components/dashboard/BehavioralPatternsTab.tsx`
 -   **Purpose:** Displays behavioral analysis for the selected wallet, including classifications, metrics, and visualizations, filterable by the global time range.
--   **Current State:** Implemented as a client component. Uses SWR to fetch data from `/api/v1/wallets/{walletAddress}/behavior-analysis`, passing `startDate` and `endDate` from `useTimeRangeStore`. Handles loading, error, and no-data states. Displays basic behavioral metrics.
+-   **Current State:** Implemented as a client component. Uses SWR and the shared `fetcher` to fetch data from `/api/v1/wallets/{walletAddress}/behavior-analysis`, passing `startDate` and `endDate` from `useTimeRangeStore`. Handles loading, error, and no-data states. Displays basic behavioral metrics using Tremor components.
 -   **Key Props:** `walletAddress: string`.
--   **Planned Next Steps:** Verify that all displayed data and any visualizations (e.g., heatmaps) correctly reflect the selected time scope.
+-   **Planned Next Steps:** Implement visualizations (e.g., heatmaps, histograms) using ECharts. Verify that all displayed data and visualizations correctly reflect the selected time scope.
+
+### 4. `AccountStatsPnlTab.tsx`
+
+-   **File Path:** `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx`
+-   **Purpose:** Displays detailed Profit and Loss (PNL) overview statistics for the selected wallet, including both period-specific and all-time data.
+-   **Current State:** Implemented as a client component. Uses SWR and the shared `fetcher` to call the `/api/v1/wallets/{walletAddress}/pnl-overview` API endpoint, passing global `startDate` and `endDate` from `useTimeRangeStore`. Handles loading, error, and no-data states. The UI presents "Period Specific Data" and "All-Time Data" in two horizontally arranged `Card` components (using a `Grid`). Within each card, data is grouped into sections ("Overall Performance", "Volume & Activity", "Advanced Token Stats") with headers and borders. Uses `AccountStatsPnlDisplay.tsx` for rendering the metric groups. Tooltips (shadcn/ui `Tooltip`) are implemented for advanced metrics.
+-   **Key Props:** `walletAddress: string`.
+-   **Planned Next Steps:** Monitor for any further feedback on data presentation or layout.
+
+### 5. `AccountStatsPnlDisplay.tsx`
+
+-   **File Path:** `dashboard/src/components/dashboard/AccountStatsPnlDisplay.tsx`
+-   **Purpose:** A sub-component responsible for rendering groups of PNL metrics within the `AccountStatsPnlTab.tsx`.
+-   **Current State:** Receives data for either period-specific or all-time PNL. Displays metrics using Tremor `Metric` and `Text` components. Metrics are grouped with `Title` and `Flex` for layout. PNL values are color-coded (green for positive, red for negative). "Volume & Activity" metrics have a blue accent. Advanced Token Stats section has a subtle background and padding for visual distinction. Font sizes for metrics and labels have been adjusted for balance. Tooltips are integrated.
+-   **Key Props:** `data: PnlOverviewResponseData | null | undefined`, `title: string`, `isLoading: boolean`.
+-   **Planned Next Steps:** Considered largely complete unless further refinements are needed based on `AccountStatsPnlTab.tsx` evolution.
 
 ## Shared Components
 
@@ -78,7 +94,8 @@ This document provides an overview of the React components created for the Walle
 ### 1. `dashboard/src/app/layout.tsx`
 
 -   **Purpose:** The main root layout for the entire dashboard application.
--   **Current State:** Integrates the `Sidebar` component and provides a main content area for page content. Sets up global styles, fonts (Geist Sans/Mono), and metadata. Includes `suppressHydrationWarning`.
+-   **Current State:** It's a client component (`"use client"`) to manage the sidebar's collapsed state. Integrates the `Sidebar` component and passes down the state and toggle function. Provides a main content area whose `marginLeft` adjusts based on the sidebar's collapsed state (`12rem` for expanded, `5rem` for collapsed). Sets up global styles, fonts (Geist Sans/Mono), and `ThemeProvider`. Includes `suppressHydrationWarning`. The `metadata` export has been moved to `page.tsx`.
+-   **Key Props:** `children: React.ReactNode`.
 
 ## Utility Files
 

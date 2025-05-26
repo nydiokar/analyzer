@@ -139,4 +139,30 @@ export interface PaginatedTokenPerformanceResponse {
   page: number;
   pageSize: number;
   totalPages: number;
+}
+
+// --- PNL Overview Types ---
+// Based on src/api/wallets/pnl_overview/pnl-overview.service.ts
+
+export interface PnlOverviewResponseData {
+  dataFrom?: string;
+  realizedPnl: number;
+  swapWinRate?: number;
+  winLossCount?: string; 
+  avgPLTrade?: number;
+  totalVolume?: number;
+  totalSolSpent: number; 
+  totalSolReceived: number;
+  medianPLToken?: number; 
+  trimmedMeanPnlPerToken?: number; 
+  tokenWinRate?: number; 
+  standardDeviationPnl?: number; 
+  medianPnlToVolatilityRatio?: number; 
+  weightedEfficiencyScore?: number; 
+  averagePnlPerDayActiveApprox?: number; 
+}
+
+export interface PnlOverviewResponse {
+  periodData: PnlOverviewResponseData | null;
+  allTimeData: PnlOverviewResponseData;
 } 

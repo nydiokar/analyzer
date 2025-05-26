@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast"
 // Import the new tab component
 import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
 import TokenPerformanceTab from '@/components/dashboard/TokenPerformanceTab';
+import AccountStatsPnlTab from '@/components/dashboard/AccountStatsPnlTab';
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
 
 interface WalletProfileLayoutProps {
@@ -52,10 +53,9 @@ export default function WalletProfileLayout({
   };
 
   return (
-    <div className="flex flex-col h-screen bg-muted/40">
-      {/* Original Simpler Header - sticky top-0 is fine for this single header */}
-      <header className="sticky top-0 z-30 p-3 bg-background border-b shadow-sm">
-        <div className="container mx-auto flex flex-col md:flex-row items-center justify-between gap-2">
+    <Tabs defaultValue="overview" className="flex flex-col w-full h-full bg-muted/40">
+      <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
+        <div className="container mx-auto flex flex-col md:flex-row items-center justify-between gap-2 py-3 px-1">
           <div className='flex-shrink-0 min-w-0 flex items-center gap-2'> 
             {walletAddress && (
               <>
@@ -76,55 +76,47 @@ export default function WalletProfileLayout({
             <ThemeToggleButton />
           </div>
         </div>
+        <TabsList className="flex items-center justify-start gap-1 p-1 px-1 border-t w-full">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="token-performance">Token Performance</TabsTrigger>
+          <TabsTrigger value="account-stats">Account Stats & PNL</TabsTrigger>
+          <TabsTrigger value="behavioral-patterns">Behavioral Patterns</TabsTrigger>
+          <TabsTrigger value="notes">Notes</TabsTrigger>
+        </TabsList>
       </header>
 
-      {/* Main Content Area for Tabs - TabsList will scroll with content for now */}
-      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
-        <div className="container mx-auto">
-          <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="grid w-full grid-cols-4 md:grid-cols-5 mb-4 border-b">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="token-performance">Token Performance</TabsTrigger>
-              <TabsTrigger value="account-stats">Account Stats & PNL</TabsTrigger>
-              <TabsTrigger value="behavioral-patterns">Behavioral Patterns</TabsTrigger>
-              <TabsTrigger value="notes">Notes</TabsTrigger>
-            </TabsList>
+      <main className="flex-1 overflow-y-auto p-0">
+        <div className="w-full h-full">
+          <TabsContent value="overview">
+            {children}
+            <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
+              <h3 className="text-lg font-semibold mb-2">Overview Section Placeholder</h3>
+              <p className="text-sm text-muted-foreground">This is where the main page content (passed as children) is displayed.</p>
+              <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center"> (Overview Content Area) </div>
+            </div>
+          </TabsContent>
 
-            <TabsContent value="overview">
-              {children}
-              <div className="p-6 bg-card border rounded-lg shadow-sm mt-4">
-                <h3 className="text-lg font-semibold mb-2">Overview Section Placeholder</h3>
-                <p className="text-sm text-muted-foreground">This is where the main page content (passed as children) is displayed.</p>
-                <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center"> (Overview Content Area) </div>
-              </div>
-            </TabsContent>
+          <TabsContent value="token-performance">
+            <TokenPerformanceTab walletAddress={walletAddress} />
+          </TabsContent>
 
-            <TabsContent value="token-performance">
-              <TokenPerformanceTab walletAddress={walletAddress} />
-            </TabsContent>
+          <TabsContent value="account-stats">
+            <AccountStatsPnlTab walletAddress={walletAddress} />
+          </TabsContent>
 
-            <TabsContent value="account-stats">
-              <div className="p-6 bg-card border rounded-lg shadow-sm">
-                <h3 className="text-lg font-semibold mb-2">Account Stats & PNL</h3>
-                <p className="text-sm text-muted-foreground">Placeholder content for detailed account-level PNL...</p>
-                <div className="h-96 bg-muted rounded-md mt-4 flex items-center justify-center"> (Scrollable Content Area for Stats) </div>
-              </div>
-            </TabsContent>
+          <TabsContent value="behavioral-patterns">
+            <BehavioralPatternsTab walletAddress={walletAddress} />
+          </TabsContent>
 
-            <TabsContent value="behavioral-patterns">
-              <BehavioralPatternsTab walletAddress={walletAddress} />
-            </TabsContent>
-
-            <TabsContent value="notes">
-              <div className="p-6 bg-card border rounded-lg shadow-sm">
-                <h3 className="text-lg font-semibold mb-2">Reviewer Log / Notes</h3>
-                <p className="text-sm text-muted-foreground">Placeholder for an editable area...</p>
-                <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center"> (Scrollable Content Area for Notes) </div>
-              </div>
-            </TabsContent>
-          </Tabs>
+          <TabsContent value="notes">
+            <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
+              <h3 className="text-lg font-semibold mb-2">Reviewer Log / Notes</h3>
+              <p className="text-sm text-muted-foreground">Placeholder for an editable area...</p>
+              <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center"> (Scrollable Content Area for Notes) </div>
+            </div>
+          </TabsContent>
         </div>
       </main>
-    </div>
+    </Tabs>
   );
 } 

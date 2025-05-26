@@ -1,4 +1,10 @@
 import Image from "next/image";
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: "Wallet Analyzer Dashboard",
+  description: "Insights into wallet performance and behavior",
+};
 
 export default function Home() {
   return (
