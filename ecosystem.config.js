@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'wallet-analyzer_0.0.12',
+      name: 'wallet-analyzer_0.0.14',
       script: 'dist/core/index.js',
       cwd: '.',
       exec_mode: 'fork',

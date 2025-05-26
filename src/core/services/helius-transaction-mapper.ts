@@ -515,6 +515,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
        * This allows capturing economic activity that would otherwise be missed if relying solely
        * on `tx.events.swap`.
        */
+      /*
       if (isFeePayerWalletA && !tx.events?.swap && tx.tokenTransfers && tx.tokenTransfers.length > 0) {
         logger.debug(`Tx ${tx.signature}: Entering fallback fee-payer heuristic because tx.events.swap is missing.`);
 
@@ -590,6 +591,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
             }
         }
     }
+    */
     // --- End of Fallback Fee Payer Heuristic ---
 
       // Process SPL Token Transfers

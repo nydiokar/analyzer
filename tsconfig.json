@@ -15,11 +15,11 @@
     "baseUrl": "./src",
     "paths": {
       "@config/*": ["config/*"],
-      "@/core/*": ["wallet_analysis/core/*"],
-      "@/services/*": ["wallet_analysis/services/*"],
-      "@/reporting/*": ["wallet_analysis/reporting/*"],
+      "@/core/*": ["core/*"],
+      "@/services/*": ["core/services/*"],
+      "@/reporting/*": ["core/reporting/*"],
       "@/types/*": ["types/*"],
-      "@/utils/*": ["wallet_analysis/utils/*"]
+      "@/utils/*": ["core/utils/*"]
     },
     "removeComments": true,
     "emitDecoratorMetadata": true,
@@ -29,7 +29,8 @@
     "strictNullChecks": false,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "downlevelIteration": true
   },
   "include": ["src/**/*", "src/core/scripts/activityCorrelator.ts", "src/core/scripts/helius-analyzer.ts", "src/core/scripts/kpi-comparison-report.ts", "src/core/scripts/wallet-behavior-analyzer.ts", "src/core/scripts/walletSimilarity.ts"],
   "exclude": ["node_modules", "dist", "test"]

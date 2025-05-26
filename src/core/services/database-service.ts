@@ -593,7 +593,7 @@ export class DatabaseService {
 
             // Check if this exact record (sig + key) is already added in this current batch
             if (batchRecordTracker.has(record.signature) && batchRecordTracker.get(record.signature)!.has(recordKey)) {
-                this.logger.warn(`[DB] Duplicate SwapAnalysisInput within incoming batch (sig: ${record.signature}, key: ${recordKey}). Skipping.`);
+                // this.logger.warn(`[DB] Duplicate SwapAnalysisInput within incoming batch (sig: ${record.signature}, key: ${recordKey}). Skipping.`);
                 continue; // Duplicate within this batch
             }
 

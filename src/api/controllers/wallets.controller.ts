@@ -28,6 +28,7 @@ import { WalletSummaryResponse } from '../wallets/summary/wallet-summary-respons
 import { WalletSummaryQueryDto } from '../wallets/summary/wallet-summary-query.dto';
 import { BehaviorAnalysisResponseDto } from '../wallets/behavior/behavior-analysis-response.dto';
 import { BehaviorAnalysisQueryDto } from '../wallets/behavior/behavior-analysis-query.dto';
+import { PnlOverviewQueryDto } from '../wallets/pnl_overview/pnl-overview-query.dto';
 import { BehaviorAnalysisConfig } from '../../types/analysis';
 
 
@@ -265,23 +266,29 @@ export class WalletsController {
   @ApiOperation({
     summary: 'Get a detailed Profit and Loss (PNL) overview for a wallet.',
     description: 
-      'Provides a detailed breakdown of the wallet\'s profit and loss metrics. This includes realized PNL, SOL spent/received, \n' +
-      'swap-level win rates, trade volumes, and various advanced trading statistics like median PNL per token, \n' +
-      'profit consistency, and efficiency scores. Data is derived from the latest PNL analysis run.'
+      'Provides a detailed breakdown of the wallet\'s profit and loss metrics, for all-time and optionally for a specified period. \n' +
+      'This includes realized PNL, SOL spent/received, swap-level win rates, trade volumes, and various advanced trading statistics. \n' +
+      'Data is derived from PNL analysis runs.'
   })
   @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address', type: String })
   @ApiResponse({ 
     status: 200, 
-    description: 'PNL overview retrieved successfully, offering in-depth financial performance metrics.', 
+    description: 'PNL overview retrieved successfully, offering all-time and period-specific financial performance metrics.', 
     type: PnlOverviewResponse 
   })
-  @ApiResponse({ status: 404, description: 'Wallet not found or no PNL overview data is available (e.g., analysis pending or no relevant transactions).' })
+  @ApiResponse({ status: 400, description: 'Invalid query parameters (e.g., date format).' })
+  @ApiResponse({ status: 404, description: 'Wallet not found or no PNL overview data is available.' })
   @ApiResponse({ status: 500, description: 'Internal server error encountered while retrieving PNL overview.' })
-  async getPnlOverview(@Param('walletAddress') walletAddress: string, @Req() req: Request & { user?: any }): Promise<PnlOverviewResponse> {
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async getPnlOverview(
+    @Param('walletAddress') walletAddress: string, 
+    @Query() queryDto: PnlOverviewQueryDto,
+    @Req() req: Request & { user?: any }
+  ): Promise<PnlOverviewResponse> {
     const actionType = 'get_pnl_overview';
     const userId = req.user?.id;
     const sourceIp = req.ip;
-    const requestParameters = { walletAddress: walletAddress, query: req.query };
+    const requestParameters = { walletAddress: walletAddress, query: queryDto }; 
     const startTime = Date.now();
 
     if (userId) {
@@ -297,7 +304,18 @@ export class WalletsController {
     }
 
     try {
-      const pnlOverview = await this.pnlOverviewService.getPnlOverview(walletAddress);
+      let serviceTimeRange: { startTs?: number; endTs?: number } | undefined = undefined;
+      if (queryDto.startDate && queryDto.endDate) {
+        const startTs = new Date(queryDto.startDate).getTime() / 1000;
+        const endTs = new Date(queryDto.endDate).getTime() / 1000;
+        if (!isNaN(startTs) && !isNaN(endTs) && endTs >= startTs) {
+          serviceTimeRange = { startTs, endTs };
+        } else {
+          this.logger.warn(`Invalid date range provided for PNL overview: ${JSON.stringify(queryDto)}`);
+        }
+      }
+      
+      const pnlOverview = await this.pnlOverviewService.getPnlOverview(walletAddress, serviceTimeRange);
       
       if (userId) {
         const durationMs = Date.now() - startTime;

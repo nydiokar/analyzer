@@ -3,8 +3,8 @@ import { PnlAnalysisService } from '../../../core/services/pnl-analysis-service'
 import { SwapAnalysisSummary, AdvancedTradeStats } from '../../../types/helius-api'; // Added AdvancedTradeStats
 
 // Updated PnlOverviewResponse to include more fields
-export class PnlOverviewResponse {
-  dataFrom?: string; 
+export class PnlOverviewResponseData {
+  dataFrom?: string;
   realizedPnl: number;
   swapWinRate?: number;
   winLossCount?: string; 
@@ -23,57 +23,35 @@ export class PnlOverviewResponse {
   averagePnlPerDayActiveApprox?: number; // New
 }
 
+export class PnlOverviewResponse {
+  periodData: PnlOverviewResponseData | null;
+  allTimeData: PnlOverviewResponseData;
+}
+
 @Injectable()
 export class PnlOverviewService {
   constructor(
     private readonly pnlAnalysisService: PnlAnalysisService,
   ) {}
 
-  /**
-   * Fetches PNL analysis summary for a wallet, optionally for a specific time range, in a view-only mode.
-   * This method is intended for API endpoints that display summary data and should not create AnalysisRun records.
-   * @param walletAddress The wallet address.
-   * @param timeRange Optional start and end timestamps (in seconds).
-   * @returns A promise resolving to SwapAnalysisSummary or a relevant subset, or null.
-   */
-  async getPnlAnalysisForSummary(
-    walletAddress: string,
-    timeRange?: { startTs?: number; endTs?: number },
-  ): Promise<(SwapAnalysisSummary & { runId?: undefined }) | null> { // runId will be undefined due to isViewOnly
-    // Call the core PnlAnalysisService with isViewOnly: true
-    const analysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
-      walletAddress,
-      timeRange,
-      undefined, // newestProcessedSignatureFromWallet - not relevant for view-only summary
-      { isViewOnly: true },
-    );
-
-    // The analyzeWalletPnl already returns a suitable structure (SwapAnalysisSummary & { runId?: number ... })
-    // When isViewOnly is true, runId will be undefined as per our modifications to PnlAnalysisService.
-    return analysisSummary as (SwapAnalysisSummary & { runId?: undefined }) | null;
-  }
-
-  async getPnlOverview(walletAddress: string): Promise<PnlOverviewResponse> {
-    const analysisSummary: (SwapAnalysisSummary & { runId?: number | undefined; analysisSkipped?: boolean | undefined; }) | null = 
-        await this.pnlAnalysisService.analyzeWalletPnl(walletAddress);
-
+  private formatPnlData(analysisSummary: (SwapAnalysisSummary & { analysisSkipped?: boolean }) | null): PnlOverviewResponseData | null {
     if (!analysisSummary || (analysisSummary.results.length === 0 && !analysisSummary.analysisSkipped)) {
-      throw new NotFoundException(`No PNL overview data available for wallet ${walletAddress}. Analysis might have failed or yielded no results.`);
+      return null;
     }
     
     if (analysisSummary.analysisSkipped) {
-        throw new NotFoundException(`PNL analysis for ${walletAddress} was skipped (e.g., no new transactions).`);
+        // Decide how to handle skipped analysis, maybe return a specific marker or null
+        return null; 
     }
 
     const {
-      results,
       realizedPnl,
       profitableTokensCount,
       unprofitableTokensCount,
       totalVolume,
       overallFirstTimestamp,
       overallLastTimestamp,
-      advancedStats, // This is of type AdvancedTradeStats | undefined
+      advancedStats,
     } = analysisSummary;
 
     const totalTrades = profitableTokensCount + unprofitableTokensCount;
@@ -94,7 +72,6 @@ export class PnlOverviewService {
     
     const dataFromString = `${formatDate(overallFirstTimestamp)} to ${formatDate(overallLastTimestamp)}`;
 
-    // Helper to parse float and fix decimals, returning undefined if input is undefined
     const formatAdvancedStat = (value: number | undefined, decimals: number = 2): number | undefined => {
         return value !== undefined ? parseFloat(value.toFixed(decimals)) : undefined;
     };
@@ -106,10 +83,8 @@ export class PnlOverviewService {
       winLossCount: `${profitableTokensCount}/${totalTrades} wins`,
       avgPLTrade: formatAdvancedStat(avgPLTrade, 2),
       totalVolume: formatAdvancedStat(totalVolume, 2),
-      totalSolSpent: formatAdvancedStat(calculatedTotalSolSpent, 2) as number, // Cast as non-undefined as it's always calculated
-      totalSolReceived: formatAdvancedStat(calculatedTotalSolReceived, 2) as number, // Cast as non-undefined
-
-      // Populate from advancedStats
+      totalSolSpent: formatAdvancedStat(calculatedTotalSolSpent, 2) as number,
+      totalSolReceived: formatAdvancedStat(calculatedTotalSolReceived, 2) as number,
       medianPLToken: formatAdvancedStat(advancedStats?.medianPnlPerToken, 2),
       trimmedMeanPnlPerToken: formatAdvancedStat(advancedStats?.trimmedMeanPnlPerToken, 2),
       tokenWinRate: formatAdvancedStat(advancedStats?.tokenWinRatePercent, 1),
@@ -118,5 +93,60 @@ export class PnlOverviewService {
       weightedEfficiencyScore: formatAdvancedStat(advancedStats?.weightedEfficiencyScore, 2),
       averagePnlPerDayActiveApprox: formatAdvancedStat(advancedStats?.averagePnlPerDayActiveApprox, 2),
     };
+  }
+
+  async getPnlOverview(
+    walletAddress: string,
+    timeRange?: { startTs?: number; endTs?: number },
+  ): Promise<PnlOverviewResponse> {
+    // Fetch all-time data
+    const allTimeAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
+      walletAddress,
+      undefined, // No time range for all-time
+      undefined, 
+      { isViewOnly: true },
+    );
+
+    const allTimeData = this.formatPnlData(allTimeAnalysisSummary);
+    if (!allTimeData) {
+      throw new NotFoundException(`No PNL overview data available for wallet ${walletAddress}. All-time analysis might have failed, yielded no results, or was skipped.`);
+    }
+
+    let periodData: PnlOverviewResponseData | null = null;
+    if (timeRange && timeRange.startTs && timeRange.endTs) {
+      const periodAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
+        walletAddress,
+        timeRange,
+        undefined,
+        { isViewOnly: true },
+      );
+      periodData = this.formatPnlData(periodAnalysisSummary);
+      // If periodData is null (e.g. no transactions in period), it's fine, it will be returned as null.
+    }
+
+    return {
+      allTimeData,
+      periodData,
+    };
+  }
+  
+  /**
+   * Fetches PNL analysis summary for a wallet, optionally for a specific time range, in a view-only mode.
+   * This method is intended for API endpoints that display summary data and should not create AnalysisRun records.
+   * @param walletAddress The wallet address.
+   * @param timeRange Optional start and end timestamps (in seconds).
+   * @returns A promise resolving to SwapAnalysisSummary or a relevant subset, or null.
+   */
+  async getPnlAnalysisForSummary(
+    walletAddress: string,
+    timeRange?: { startTs?: number; endTs?: number },
+  ): Promise<(SwapAnalysisSummary & { runId?: undefined }) | null> { 
+    const analysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
+      walletAddress,
+      timeRange,
+      undefined, 
+      { isViewOnly: true },
+    );
+    return analysisSummary as (SwapAnalysisSummary & { runId?: undefined }) | null;
   }
 } 
