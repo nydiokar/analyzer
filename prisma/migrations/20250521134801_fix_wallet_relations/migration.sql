@@ -1,7 +1,7 @@
 -- RedefineTables
 PRAGMA defer_foreign_keys=ON;
 PRAGMA foreign_keys=OFF;
-CREATE TABLE IF NOT EXISTS "Wallet" (
+CREATE TABLE "new_Wallet" (
     "address" TEXT NOT NULL PRIMARY KEY,
     "firstProcessedTimestamp" INTEGER,
     "newestProcessedSignature" TEXT,
@@ -13,7 +13,7 @@ INSERT INTO "new_Wallet" ("address", "firstProcessedTimestamp", "lastSignatureAn
 DROP TABLE "Wallet";
 ALTER TABLE "new_Wallet" RENAME TO "Wallet";
 CREATE UNIQUE INDEX IF NOT EXISTS "Wallet_address_key" ON "Wallet"("address");
-CREATE TABLE IF NOT EXISTS "WalletBehaviorProfile" (
+CREATE TABLE "new_WalletBehaviorProfile" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "buySellRatio" REAL NOT NULL,
@@ -54,7 +54,7 @@ DROP TABLE "WalletBehaviorProfile";
 ALTER TABLE "new_WalletBehaviorProfile" RENAME TO "WalletBehaviorProfile";
 CREATE UNIQUE INDEX IF NOT EXISTS "WalletBehaviorProfile_walletAddress_key" ON "WalletBehaviorProfile"("walletAddress");
 CREATE INDEX IF NOT EXISTS "WalletBehaviorProfile_walletAddress_idx" ON "WalletBehaviorProfile"("walletAddress");
-CREATE TABLE IF NOT EXISTS "WalletPnlSummary" (
+CREATE TABLE "new_WalletPnlSummary" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "totalVolume" REAL NOT NULL,
