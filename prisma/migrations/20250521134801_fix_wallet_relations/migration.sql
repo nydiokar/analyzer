@@ -1,7 +1,7 @@
 -- RedefineTables
 PRAGMA defer_foreign_keys=ON;
 PRAGMA foreign_keys=OFF;
-CREATE TABLE "new_Wallet" (
+CREATE TABLE IF NOT EXISTS "Wallet" (
     "address" TEXT NOT NULL PRIMARY KEY,
     "firstProcessedTimestamp" INTEGER,
     "newestProcessedSignature" TEXT,
@@ -12,8 +12,8 @@ CREATE TABLE "new_Wallet" (
 INSERT INTO "new_Wallet" ("address", "firstProcessedTimestamp", "lastSignatureAnalyzed", "lastSuccessfulFetchTimestamp", "newestProcessedSignature", "newestProcessedTimestamp") SELECT "address", "firstProcessedTimestamp", "lastSignatureAnalyzed", "lastSuccessfulFetchTimestamp", "newestProcessedSignature", "newestProcessedTimestamp" FROM "Wallet";
 DROP TABLE "Wallet";
 ALTER TABLE "new_Wallet" RENAME TO "Wallet";
-CREATE UNIQUE INDEX "Wallet_address_key" ON "Wallet"("address");
-CREATE TABLE "new_WalletBehaviorProfile" (
+CREATE UNIQUE INDEX IF NOT EXISTS "Wallet_address_key" ON "Wallet"("address");
+CREATE TABLE IF NOT EXISTS "WalletBehaviorProfile" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "buySellRatio" REAL NOT NULL,
@@ -52,9 +52,9 @@ CREATE TABLE "new_WalletBehaviorProfile" (
 INSERT INTO "new_WalletBehaviorProfile" ("activeTradingPeriods", "averageFlipDurationHours", "averageSessionDurationMinutes", "averageSessionStartHour", "averageTradesPerToken", "avgTradesPerSession", "buySellRatio", "buySellSymmetry", "completePairsCount", "confidenceScore", "firstTransactionTimestamp", "flipperScore", "id", "lastTransactionTimestamp", "medianHoldTime", "percentTradesUnder1Hour", "percentTradesUnder4Hours", "percentageOfUnpairedTokens", "reentryRate", "riskMetrics", "sequenceConsistency", "sessionCount", "tokenPreferences", "tokensWithBothBuyAndSell", "totalBuyCount", "totalSellCount", "totalTradeCount", "tradingFrequency", "tradingStyle", "tradingTimeDistribution", "uniqueTokensTraded", "updatedAt", "walletAddress") SELECT "activeTradingPeriods", "averageFlipDurationHours", "averageSessionDurationMinutes", "averageSessionStartHour", "averageTradesPerToken", "avgTradesPerSession", "buySellRatio", "buySellSymmetry", "completePairsCount", "confidenceScore", "firstTransactionTimestamp", "flipperScore", "id", "lastTransactionTimestamp", "medianHoldTime", "percentTradesUnder1Hour", "percentTradesUnder4Hours", "percentageOfUnpairedTokens", "reentryRate", "riskMetrics", "sequenceConsistency", "sessionCount", "tokenPreferences", "tokensWithBothBuyAndSell", "totalBuyCount", "totalSellCount", "totalTradeCount", "tradingFrequency", "tradingStyle", "tradingTimeDistribution", "uniqueTokensTraded", "updatedAt", "walletAddress" FROM "WalletBehaviorProfile";
 DROP TABLE "WalletBehaviorProfile";
 ALTER TABLE "new_WalletBehaviorProfile" RENAME TO "WalletBehaviorProfile";
-CREATE UNIQUE INDEX "WalletBehaviorProfile_walletAddress_key" ON "WalletBehaviorProfile"("walletAddress");
-CREATE INDEX "WalletBehaviorProfile_walletAddress_idx" ON "WalletBehaviorProfile"("walletAddress");
-CREATE TABLE "new_WalletPnlSummary" (
+CREATE UNIQUE INDEX IF NOT EXISTS "WalletBehaviorProfile_walletAddress_key" ON "WalletBehaviorProfile"("walletAddress");
+CREATE INDEX IF NOT EXISTS "WalletBehaviorProfile_walletAddress_idx" ON "WalletBehaviorProfile"("walletAddress");
+CREATE TABLE IF NOT EXISTS "WalletPnlSummary" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "totalVolume" REAL NOT NULL,
@@ -78,7 +78,7 @@ CREATE TABLE "new_WalletPnlSummary" (
 INSERT INTO "new_WalletPnlSummary" ("averageRealizedPnlPerExecutedSwap", "averageSwapSize", "id", "netPnl", "overallFirstTimestamp", "overallLastTimestamp", "profitableTokensCount", "realizedPnl", "realizedPnlToTotalVolumeRatio", "stablecoinNetFlow", "totalExecutedSwapsCount", "totalFees", "totalSignaturesProcessed", "totalVolume", "unprofitableTokensCount", "unrealizedPnl", "updatedAt", "walletAddress") SELECT "averageRealizedPnlPerExecutedSwap", "averageSwapSize", "id", "netPnl", "overallFirstTimestamp", "overallLastTimestamp", "profitableTokensCount", "realizedPnl", "realizedPnlToTotalVolumeRatio", "stablecoinNetFlow", "totalExecutedSwapsCount", "totalFees", "totalSignaturesProcessed", "totalVolume", "unprofitableTokensCount", "unrealizedPnl", "updatedAt", "walletAddress" FROM "WalletPnlSummary";
 DROP TABLE "WalletPnlSummary";
 ALTER TABLE "new_WalletPnlSummary" RENAME TO "WalletPnlSummary";
-CREATE UNIQUE INDEX "WalletPnlSummary_walletAddress_key" ON "WalletPnlSummary"("walletAddress");
-CREATE INDEX "WalletPnlSummary_walletAddress_idx" ON "WalletPnlSummary"("walletAddress");
+CREATE UNIQUE INDEX IF NOT EXISTS "WalletPnlSummary_walletAddress_key" ON "WalletPnlSummary"("walletAddress");
+CREATE INDEX IF NOT EXISTS "WalletPnlSummary_walletAddress_idx" ON "WalletPnlSummary"("walletAddress");
 PRAGMA foreign_keys=ON;
 PRAGMA defer_foreign_keys=OFF;

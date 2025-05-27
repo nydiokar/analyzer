@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "Wallet" (
+CREATE TABLE IF NOT EXISTS "Wallet" (
     "address" TEXT NOT NULL PRIMARY KEY,
     "firstProcessedTimestamp" INTEGER,
     "newestProcessedSignature" TEXT,
@@ -9,7 +9,7 @@ CREATE TABLE "Wallet" (
 );
 
 -- CreateTable
-CREATE TABLE "HeliusTransactionCache" (
+CREATE TABLE IF NOT EXISTS "HeliusTransactionCache" (
     "signature" TEXT NOT NULL PRIMARY KEY,
     "timestamp" INTEGER NOT NULL,
     "rawData" BLOB NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE "HeliusTransactionCache" (
 );
 
 -- CreateTable
-CREATE TABLE "SwapAnalysisInput" (
+CREATE TABLE IF NOT EXISTS "SwapAnalysisInput" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "signature" TEXT NOT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE "SwapAnalysisInput" (
 );
 
 -- CreateTable
-CREATE TABLE "AnalysisRun" (
+CREATE TABLE IF NOT EXISTS "AnalysisRun" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "runTimestamp" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -45,7 +45,7 @@ CREATE TABLE "AnalysisRun" (
 );
 
 -- CreateTable
-CREATE TABLE "AnalysisResult" (
+CREATE TABLE IF NOT EXISTS "AnalysisResult" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "tokenAddress" TEXT NOT NULL,
@@ -63,7 +63,7 @@ CREATE TABLE "AnalysisResult" (
 );
 
 -- CreateTable
-CREATE TABLE "AdvancedStatsResult" (
+CREATE TABLE IF NOT EXISTS "AdvancedStatsResult" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "runId" INTEGER NOT NULL,
     "walletAddress" TEXT NOT NULL,
@@ -78,7 +78,7 @@ CREATE TABLE "AdvancedStatsResult" (
 );
 
 -- CreateTable
-CREATE TABLE "User" (
+CREATE TABLE IF NOT EXISTS "User" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "apiKey" TEXT NOT NULL,
     "description" TEXT,
@@ -88,7 +88,7 @@ CREATE TABLE "User" (
 );
 
 -- CreateTable
-CREATE TABLE "ActivityLog" (
+CREATE TABLE IF NOT EXISTS "ActivityLog" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "userId" TEXT NOT NULL,
     "actionType" TEXT NOT NULL,
@@ -102,52 +102,52 @@ CREATE TABLE "ActivityLog" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Wallet_address_key" ON "Wallet"("address");
+CREATE UNIQUE INDEX IF NOT EXISTS "Wallet_address_key" ON "Wallet"("address");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "HeliusTransactionCache_signature_key" ON "HeliusTransactionCache"("signature");
+CREATE UNIQUE INDEX IF NOT EXISTS "HeliusTransactionCache_signature_key" ON "HeliusTransactionCache"("signature");
 
 -- CreateIndex
-CREATE INDEX "HeliusTransactionCache_timestamp_idx" ON "HeliusTransactionCache"("timestamp");
+CREATE INDEX IF NOT EXISTS "HeliusTransactionCache_timestamp_idx" ON "HeliusTransactionCache"("timestamp");
 
 -- CreateIndex
-CREATE INDEX "SwapAnalysisInput_walletAddress_timestamp_idx" ON "SwapAnalysisInput"("walletAddress", "timestamp");
+CREATE INDEX IF NOT EXISTS "SwapAnalysisInput_walletAddress_timestamp_idx" ON "SwapAnalysisInput"("walletAddress", "timestamp");
 
 -- CreateIndex
-CREATE INDEX "SwapAnalysisInput_signature_idx" ON "SwapAnalysisInput"("signature");
+CREATE INDEX IF NOT EXISTS "SwapAnalysisInput_signature_idx" ON "SwapAnalysisInput"("signature");
 
 -- CreateIndex
-CREATE INDEX "SwapAnalysisInput_mint_idx" ON "SwapAnalysisInput"("mint");
+CREATE INDEX IF NOT EXISTS "SwapAnalysisInput_mint_idx" ON "SwapAnalysisInput"("mint");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "SwapAnalysisInput_signature_mint_direction_amount_key" ON "SwapAnalysisInput"("signature", "mint", "direction", "amount");
+CREATE UNIQUE INDEX IF NOT EXISTS "SwapAnalysisInput_signature_mint_direction_amount_key" ON "SwapAnalysisInput"("signature", "mint", "direction", "amount");
 
 -- CreateIndex
-CREATE INDEX "AnalysisRun_walletAddress_runTimestamp_idx" ON "AnalysisRun"("walletAddress", "runTimestamp");
+CREATE INDEX IF NOT EXISTS "AnalysisRun_walletAddress_runTimestamp_idx" ON "AnalysisRun"("walletAddress", "runTimestamp");
 
 -- CreateIndex
-CREATE INDEX "AnalysisResult_walletAddress_idx" ON "AnalysisResult"("walletAddress");
+CREATE INDEX IF NOT EXISTS "AnalysisResult_walletAddress_idx" ON "AnalysisResult"("walletAddress");
 
 -- CreateIndex
-CREATE INDEX "AnalysisResult_tokenAddress_idx" ON "AnalysisResult"("tokenAddress");
+CREATE INDEX IF NOT EXISTS "AnalysisResult_tokenAddress_idx" ON "AnalysisResult"("tokenAddress");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AnalysisResult_walletAddress_tokenAddress_key" ON "AnalysisResult"("walletAddress", "tokenAddress");
+CREATE UNIQUE INDEX IF NOT EXISTS "AnalysisResult_walletAddress_tokenAddress_key" ON "AnalysisResult"("walletAddress", "tokenAddress");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AdvancedStatsResult_runId_key" ON "AdvancedStatsResult"("runId");
+CREATE UNIQUE INDEX IF NOT EXISTS "AdvancedStatsResult_runId_key" ON "AdvancedStatsResult"("runId");
 
 -- CreateIndex
-CREATE INDEX "AdvancedStatsResult_walletAddress_idx" ON "AdvancedStatsResult"("walletAddress");
+CREATE INDEX IF NOT EXISTS "AdvancedStatsResult_walletAddress_idx" ON "AdvancedStatsResult"("walletAddress");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "User_apiKey_key" ON "User"("apiKey");
+CREATE UNIQUE INDEX IF NOT EXISTS "User_apiKey_key" ON "User"("apiKey");
 
 -- CreateIndex
-CREATE INDEX "ActivityLog_userId_idx" ON "ActivityLog"("userId");
+CREATE INDEX IF NOT EXISTS "ActivityLog_userId_idx" ON "ActivityLog"("userId");
 
 -- CreateIndex
-CREATE INDEX "ActivityLog_actionType_idx" ON "ActivityLog"("actionType");
+CREATE INDEX IF NOT EXISTS "ActivityLog_actionType_idx" ON "ActivityLog"("actionType");
 
 -- CreateIndex
-CREATE INDEX "ActivityLog_timestamp_idx" ON "ActivityLog"("timestamp");
+CREATE INDEX IF NOT EXISTS "ActivityLog_timestamp_idx" ON "ActivityLog"("timestamp");

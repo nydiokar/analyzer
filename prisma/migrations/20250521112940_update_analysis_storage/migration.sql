@@ -21,7 +21,7 @@ DROP TABLE "AdvancedStatsResult";
 PRAGMA foreign_keys=on;
 
 -- CreateTable
-CREATE TABLE "WalletPnlSummary" (
+CREATE TABLE IF NOT EXISTS "WalletPnlSummary" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "totalVolume" REAL NOT NULL,
@@ -43,7 +43,7 @@ CREATE TABLE "WalletPnlSummary" (
 );
 
 -- CreateTable
-CREATE TABLE "AdvancedTradeStats" (
+CREATE TABLE IF NOT EXISTS "AdvancedTradeStats" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletPnlSummaryId" INTEGER NOT NULL,
     "medianPnlPerToken" REAL NOT NULL,
@@ -60,7 +60,7 @@ CREATE TABLE "AdvancedTradeStats" (
 );
 
 -- CreateTable
-CREATE TABLE "WalletBehaviorProfile" (
+CREATE TABLE IF NOT EXISTS "WalletBehaviorProfile" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "buySellRatio" REAL NOT NULL,
@@ -99,7 +99,7 @@ CREATE TABLE "WalletBehaviorProfile" (
 -- RedefineTables
 PRAGMA defer_foreign_keys=ON;
 PRAGMA foreign_keys=OFF;
-CREATE TABLE "new_AnalysisResult" (
+CREATE TABLE IF NOT EXISTS "AnalysisResult" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "tokenAddress" TEXT NOT NULL,
@@ -122,10 +122,10 @@ CREATE TABLE "new_AnalysisResult" (
 INSERT INTO "new_AnalysisResult" ("firstTransferTimestamp", "id", "lastTransferTimestamp", "netAmountChange", "netSolProfitLoss", "tokenAddress", "totalAmountIn", "totalAmountOut", "totalFeesPaidInSol", "totalSolReceived", "totalSolSpent", "transferCountIn", "transferCountOut", "walletAddress") SELECT "firstTransferTimestamp", "id", "lastTransferTimestamp", "netAmountChange", "netSolProfitLoss", "tokenAddress", "totalAmountIn", "totalAmountOut", "totalFeesPaidInSol", "totalSolReceived", "totalSolSpent", "transferCountIn", "transferCountOut", "walletAddress" FROM "AnalysisResult";
 DROP TABLE "AnalysisResult";
 ALTER TABLE "new_AnalysisResult" RENAME TO "AnalysisResult";
-CREATE INDEX "AnalysisResult_walletAddress_idx" ON "AnalysisResult"("walletAddress");
-CREATE INDEX "AnalysisResult_tokenAddress_idx" ON "AnalysisResult"("tokenAddress");
-CREATE UNIQUE INDEX "AnalysisResult_walletAddress_tokenAddress_key" ON "AnalysisResult"("walletAddress", "tokenAddress");
-CREATE TABLE "new_AnalysisRun" (
+CREATE INDEX IF NOT EXISTS "AnalysisResult_walletAddress_idx" ON "AnalysisResult"("walletAddress");
+CREATE INDEX IF NOT EXISTS "AnalysisResult_tokenAddress_idx" ON "AnalysisResult"("tokenAddress");
+CREATE UNIQUE INDEX IF NOT EXISTS "AnalysisResult_walletAddress_tokenAddress_key" ON "AnalysisResult"("walletAddress", "tokenAddress");
+CREATE TABLE IF NOT EXISTS "AnalysisRun" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "serviceInvoked" TEXT NOT NULL,
@@ -141,10 +141,10 @@ CREATE TABLE "new_AnalysisRun" (
 INSERT INTO "new_AnalysisRun" ("errorMessage", "id", "runTimestamp", "status", "walletAddress") SELECT "errorMessage", "id", "runTimestamp", "status", "walletAddress" FROM "AnalysisRun";
 DROP TABLE "AnalysisRun";
 ALTER TABLE "new_AnalysisRun" RENAME TO "AnalysisRun";
-CREATE INDEX "AnalysisRun_walletAddress_runTimestamp_idx" ON "AnalysisRun"("walletAddress", "runTimestamp");
-CREATE INDEX "AnalysisRun_serviceInvoked_idx" ON "AnalysisRun"("serviceInvoked");
-CREATE INDEX "AnalysisRun_status_idx" ON "AnalysisRun"("status");
-CREATE TABLE "new_Wallet" (
+CREATE INDEX IF NOT EXISTS "AnalysisRun_walletAddress_runTimestamp_idx" ON "AnalysisRun"("walletAddress", "runTimestamp");
+CREATE INDEX IF NOT EXISTS "AnalysisRun_serviceInvoked_idx" ON "AnalysisRun"("serviceInvoked");
+CREATE INDEX IF NOT EXISTS "AnalysisRun_status_idx" ON "AnalysisRun"("status");
+CREATE TABLE IF NOT EXISTS "Wallet" (
     "address" TEXT NOT NULL PRIMARY KEY,
     "firstProcessedTimestamp" INTEGER,
     "newestProcessedSignature" TEXT,
@@ -157,21 +157,21 @@ CREATE TABLE "new_Wallet" (
 INSERT INTO "new_Wallet" ("address", "firstProcessedTimestamp", "lastSignatureAnalyzed", "lastSuccessfulFetchTimestamp", "newestProcessedSignature", "newestProcessedTimestamp") SELECT "address", "firstProcessedTimestamp", "lastSignatureAnalyzed", "lastSuccessfulFetchTimestamp", "newestProcessedSignature", "newestProcessedTimestamp" FROM "Wallet";
 DROP TABLE "Wallet";
 ALTER TABLE "new_Wallet" RENAME TO "Wallet";
-CREATE UNIQUE INDEX "Wallet_address_key" ON "Wallet"("address");
+CREATE UNIQUE INDEX IF NOT EXISTS "Wallet_address_key" ON "Wallet"("address");
 PRAGMA foreign_keys=ON;
 PRAGMA defer_foreign_keys=OFF;
 
 -- CreateIndex
-CREATE UNIQUE INDEX "WalletPnlSummary_walletAddress_key" ON "WalletPnlSummary"("walletAddress");
+CREATE UNIQUE INDEX IF NOT EXISTS "WalletPnlSummary_walletAddress_key" ON "WalletPnlSummary"("walletAddress");
 
 -- CreateIndex
-CREATE INDEX "WalletPnlSummary_walletAddress_idx" ON "WalletPnlSummary"("walletAddress");
+CREATE INDEX IF NOT EXISTS "WalletPnlSummary_walletAddress_idx" ON "WalletPnlSummary"("walletAddress");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AdvancedTradeStats_walletPnlSummaryId_key" ON "AdvancedTradeStats"("walletPnlSummaryId");
+CREATE UNIQUE INDEX IF NOT EXISTS "AdvancedTradeStats_walletPnlSummaryId_key" ON "AdvancedTradeStats"("walletPnlSummaryId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "WalletBehaviorProfile_walletAddress_key" ON "WalletBehaviorProfile"("walletAddress");
+CREATE UNIQUE INDEX IF NOT EXISTS "WalletBehaviorProfile_walletAddress_key" ON "WalletBehaviorProfile"("walletAddress");
 
 -- CreateIndex
-CREATE INDEX "WalletBehaviorProfile_walletAddress_idx" ON "WalletBehaviorProfile"("walletAddress");
+CREATE INDEX IF NOT EXISTS "WalletBehaviorProfile_walletAddress_idx" ON "WalletBehaviorProfile"("walletAddress");
