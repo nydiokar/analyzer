@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS "WalletBehaviorProfile" (
 -- RedefineTables
 PRAGMA defer_foreign_keys=ON;
 PRAGMA foreign_keys=OFF;
-CREATE TABLE IF NOT EXISTS "AnalysisResult" (
+CREATE TABLE "new_AnalysisResult" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "tokenAddress" TEXT NOT NULL,
@@ -125,7 +125,7 @@ ALTER TABLE "new_AnalysisResult" RENAME TO "AnalysisResult";
 CREATE INDEX IF NOT EXISTS "AnalysisResult_walletAddress_idx" ON "AnalysisResult"("walletAddress");
 CREATE INDEX IF NOT EXISTS "AnalysisResult_tokenAddress_idx" ON "AnalysisResult"("tokenAddress");
 CREATE UNIQUE INDEX IF NOT EXISTS "AnalysisResult_walletAddress_tokenAddress_key" ON "AnalysisResult"("walletAddress", "tokenAddress");
-CREATE TABLE IF NOT EXISTS "AnalysisRun" (
+CREATE TABLE "new_AnalysisRun" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "walletAddress" TEXT NOT NULL,
     "serviceInvoked" TEXT NOT NULL,
@@ -138,13 +138,13 @@ CREATE TABLE IF NOT EXISTS "AnalysisRun" (
     "errorMessage" TEXT,
     "notes" TEXT
 );
-INSERT INTO "new_AnalysisRun" ("errorMessage", "id", "runTimestamp", "status", "walletAddress") SELECT "errorMessage", "id", "runTimestamp", "status", "walletAddress" FROM "AnalysisRun";
+INSERT INTO "new_AnalysisRun" ("errorMessage", "id", "runTimestamp", "status", "walletAddress", "serviceInvoked") SELECT "errorMessage", "id", "runTimestamp", "status", "walletAddress", 'unknown_service_during_migration' FROM "AnalysisRun";
 DROP TABLE "AnalysisRun";
 ALTER TABLE "new_AnalysisRun" RENAME TO "AnalysisRun";
 CREATE INDEX IF NOT EXISTS "AnalysisRun_walletAddress_runTimestamp_idx" ON "AnalysisRun"("walletAddress", "runTimestamp");
 CREATE INDEX IF NOT EXISTS "AnalysisRun_serviceInvoked_idx" ON "AnalysisRun"("serviceInvoked");
 CREATE INDEX IF NOT EXISTS "AnalysisRun_status_idx" ON "AnalysisRun"("status");
-CREATE TABLE IF NOT EXISTS "Wallet" (
+CREATE TABLE "new_Wallet" (
     "address" TEXT NOT NULL PRIMARY KEY,
     "firstProcessedTimestamp" INTEGER,
     "newestProcessedSignature" TEXT,
