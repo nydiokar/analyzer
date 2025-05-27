@@ -1,9 +1,12 @@
 import { createLogger } from 'core/utils/logger';
 import { HeliusApiClient } from 'core/services/helius-api-client';
 import { DatabaseService } from 'core/services/database-service';
-import { mapHeliusTransactionsToIntermediateRecords } from 'core/services/helius-transaction-mapper';
+import {
+    mapHeliusTransactionsToIntermediateRecords,
+    MappingResult
+} from 'core/services/helius-transaction-mapper';
 import { HeliusTransaction } from '@/types/helius-api';
-import { Prisma } from '@prisma/client';
+import { Prisma, Wallet } from '@prisma/client';
 
 const logger = createLogger('HeliusSyncService');
 
@@ -129,7 +132,7 @@ export class HeliusSyncService {
            newerTransactionsFetchedCount = newerTransactions.length;
            logger.info(`[Sync] SmartFetch Phase 1 (Newer): Fetched ${newerTransactionsFetchedCount} potentially newer transactions from API for ${walletAddress}.`);
            if (newerTransactionsFetchedCount > 0) {
-               await this.processAndSaveTransactions(walletAddress, newerTransactions, true, options); // true for isNewerFetchOrInitial
+               await this.processAndSaveTransactions(walletAddress, newerTransactions, true, options);
            }
         } catch (fetchError) {
            logger.error(`[Sync] SmartFetch Phase 1 (Newer): Failed to fetch/process newer transactions for ${walletAddress}:`, { fetchError });
@@ -163,7 +166,7 @@ export class HeliusSyncService {
                     );
                     logger.info(`[Sync] SmartFetch Phase 2 (Older): Fetched ${olderTransactions.length} potentially older transactions from API for ${walletAddress}.`);
                     if (olderTransactions.length > 0) {
-                        await this.processAndSaveTransactions(walletAddress, olderTransactions, false, options); // false for isNewerFetchOrInitial
+                        await this.processAndSaveTransactions(walletAddress, olderTransactions, false, options);
                     }
                 } catch (fetchError) {
                     logger.error(`[Sync] SmartFetch Phase 2 (Older): Failed to fetch/process older transactions for ${walletAddress}:`, { fetchError });
@@ -243,55 +246,63 @@ export class HeliusSyncService {
       walletAddress: string, 
       transactions: HeliusTransaction[], 
       isNewerFetchOrInitial: boolean, 
-      options: SyncOptions // Added options parameter
+      options: SyncOptions
     ): Promise<void> {
-      logger.debug(`[Sync] Processing ${transactions.length} transactions...`);
+      logger.info(`[Sync] Processing ${transactions.length} transactions for wallet ${walletAddress}...`);
       
-      const analysisInputsToSave: Prisma.SwapAnalysisInputCreateInput[] = 
-        mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
-      
-      if (analysisInputsToSave.length > 0) {
-        logger.debug(`[Sync] Saving ${analysisInputsToSave.length} analysis input records...`);
-        try {
-          // Use DatabaseService method
-          const saveResult = await this.databaseService.saveSwapAnalysisInputs(analysisInputsToSave);
-          logger.info(`[Sync] Successfully saved ${saveResult.count} new analysis input records.`);
-        } catch (dbError) {
-          logger.error('[Sync] Error saving analysis input records:', dbError);
-          // Consider if error should halt sync or just be logged
+      const mappingResult: MappingResult = mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
+      const analysisInputsToSave = mappingResult.analysisInputs;
+      const mappingStats = mappingResult.stats;
+
+      if (mappingStats) {
+          try {
+              await this.databaseService.saveMappingActivityLog(walletAddress, mappingStats);
+              logger.info(`[Sync] Successfully saved mapping activity log for ${walletAddress}`);
+          } catch (error) {
+              logger.error(`[Sync] Failed to save mapping activity log for ${walletAddress}`, { error });
+          }
+      }
+
+      if (analysisInputsToSave.length === 0) {
+        logger.info(`[Sync] No analysis input records to save for ${walletAddress} from this batch.`);
+      } else {
+        logger.info(`[Sync] Saving ${analysisInputsToSave.length} analysis input records for ${walletAddress}...`);
+        await this.databaseService.saveSwapAnalysisInputs(analysisInputsToSave);
+        logger.info(`[Sync] Successfully saved ${analysisInputsToSave.length} new analysis input records for ${walletAddress}.`);
+      }
+    
+      if (transactions.length > 0) {
+        const newestTx = transactions[0];
+        const oldestTx = transactions[transactions.length - 1];
+
+        // Use the imported Wallet type for Partial<Omit<Wallet, 'address'>>
+        const updateData: Partial<Omit<Wallet, 'address'>> = { 
+            lastSuccessfulFetchTimestamp: new Date() 
+        };
+
+        if (isNewerFetchOrInitial) {
+            if (newestTx) {
+                updateData.newestProcessedSignature = newestTx.signature;
+                updateData.newestProcessedTimestamp = newestTx.timestamp;
+            }
+        }
+        
+        const currentWallet = await this.databaseService.getWallet(walletAddress);
+        if (oldestTx && (!currentWallet || typeof currentWallet.firstProcessedTimestamp !== 'number' || oldestTx.timestamp < currentWallet.firstProcessedTimestamp)) {
+            updateData.firstProcessedTimestamp = oldestTx.timestamp;
+        }
+        
+        if (Object.keys(updateData).length > 1) { 
+          await this.databaseService.updateWallet(walletAddress, updateData);
+          logger.debug(`[Sync] Wallet state updated for ${walletAddress}.`, updateData);
+        } else if (Object.keys(updateData).length > 0) {
+             await this.databaseService.updateWallet(walletAddress, updateData);
+             logger.debug(`[Sync] Wallet lastSuccessfulFetchTimestamp updated for ${walletAddress}.`, updateData);
         }
       } else {
-        logger.debug('[Sync] Mapping resulted in 0 analysis input records to save.');
+        logger.info(`[Sync] No transactions in this batch to update wallet state for ${walletAddress}.`);
       }
-
-      // Update Wallet State
-      if (transactions.length > 0) {
-        const latestTx = transactions.reduce((latest, current) => 
-            (!latest || current.timestamp > latest.timestamp) ? current : latest, null as HeliusTransaction | null);
-        const oldestTx = transactions.reduce((oldest, current) => 
-            (!oldest || current.timestamp < oldest.timestamp) ? current : oldest, null as HeliusTransaction | null);
-
-        if (latestTx && oldestTx) {
-          const updateData: any = { lastSuccessfulFetchTimestamp: new Date() };
-          
-          if (isNewerFetchOrInitial && latestTx) {
-            updateData.newestProcessedSignature = latestTx.signature;
-            updateData.newestProcessedTimestamp = latestTx.timestamp;
-          }
-          // Update oldest timestamp only if this is first fetch or fetching older data explicitly
-          if (!isNewerFetchOrInitial && !options.fetchOlder) {
-             // Don't update oldest if it was purely an incremental (newer) fetch
-          } else if (oldestTx) {
-             updateData.firstProcessedTimestamp = oldestTx.timestamp; 
-          }
-          
-          // Use DatabaseService method
-          await this.databaseService.updateWallet(walletAddress, updateData);
-          logger.info('[Sync] Wallet state updated.');
-        } else {
-          logger.warn('[Sync] Failed to find latest/oldest transaction for state update.');
-        }
-      }
+      logger.info(`[Sync] Finished processing batch of ${transactions.length} transactions for ${walletAddress}.`);
     }
 
     /** Helper to get DB count (example) */

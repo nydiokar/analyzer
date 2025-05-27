@@ -249,3 +249,39 @@ model ActivityLog {
 //   STABLECOIN
 //   HODL
 // }
+
+// New model for storing mapping statistics
+model MappingActivityLog {
+  id                                String   @id @default(cuid())
+  walletAddress                     String
+  timestamp                         DateTime @default(now())
+
+  totalTransactionsReceived         Int
+  transactionsSkippedError          Int
+  transactionsSuccessfullyProcessed Int
+  analysisInputsGenerated           Int
+  nativeSolTransfersProcessed       Int
+  tokenTransfersProcessed           Int
+  wsolTransfersProcessed            Int
+  usdcTransfersProcessed            Int
+  otherTokenTransfersProcessed      Int
+  feePayerHeuristicApplied          Int
+  feesCalculated                    Int
+  eventMatcherAttempts              Int
+  eventMatcherPrimaryMintsIdentified Int
+  eventMatcherConsistentSolFound    Int
+  eventMatcherConsistentUsdcFound   Int
+  eventMatcherAmbiguous             Int
+  eventMatcherNoConsistentValue     Int
+  splToSplSwapDetections            Int
+  associatedValueFromSplToSpl       Int
+  associatedValueFromEventMatcher   Int
+  associatedValueFromTotalMovement  Int
+  associatedValueFromNetChange      Int
+  smallOutgoingHeuristicApplied     Int
+  skippedDuplicateRecordKey         Int
+  countByInteractionType            Json // Stores the { [type: string]: number } object
+
+  @@index([walletAddress])
+  @@index([timestamp])
+}

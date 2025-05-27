@@ -6,6 +6,7 @@ import {
     AnalysisResult,
     AdvancedTradeStats,
     WalletBehaviorProfile,
+    MappingActivityLog,
     Prisma, // Import Prisma namespace for input types
     User,         // Added User
     ActivityLog   // Added ActivityLog
@@ -71,6 +72,29 @@ export class DatabaseService {
     constructor() {
         this.logger.info('DatabaseService instantiated.');
     }
+
+    // --- Mapping Activity Log Methods ---
+    async saveMappingActivityLog(
+        walletAddress: string,
+        stats: Omit<Prisma.MappingActivityLogCreateInput, 'walletAddress' | 'timestamp' | 'id'> // Use Prisma generated type
+    ): Promise<MappingActivityLog | null> {
+        this.logger.debug(`Saving mapping activity log for wallet: ${walletAddress}`);
+        try {
+            const logEntry = await this.prismaClient.mappingActivityLog.create({
+                data: {
+                    walletAddress,
+                    timestamp: new Date(), // Set timestamp at save time
+                    ...stats,
+                },
+            });
+            this.logger.info(`Mapping activity log saved with ID: ${logEntry.id} for wallet ${walletAddress}`);
+            return logEntry;
+        } catch (error) {
+            this.logger.error('Error saving mapping activity log', { error, walletAddress });
+            return null;
+        }
+    }
+    // --- End Mapping Activity Log Methods ---
 
     // --- User Management Methods ---
 

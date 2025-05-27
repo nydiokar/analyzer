@@ -14,6 +14,45 @@ const TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD = 0.05; // 5% - Heuristic for mapper-
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL = 0.1; // Min SOL value for fee-payer heuristic
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC = 1.0; // Min USDC value for fee-payer heuristic
 
+// --- Add MappingStats Interface ---
+interface MappingStats {
+  totalTransactionsReceived: number;
+  transactionsSkippedError: number;
+  transactionsSuccessfullyProcessed: number;
+  analysisInputsGenerated: number;
+  nativeSolTransfersProcessed: number;
+  tokenTransfersProcessed: number;
+  wsolTransfersProcessed: number;
+  usdcTransfersProcessed: number;
+  otherTokenTransfersProcessed: number;
+  feePayerHeuristicApplied: number;
+  feesCalculated: number;
+  // --- New Counters ---
+  eventMatcherAttempts: number;
+  eventMatcherPrimaryMintsIdentified: number;
+  eventMatcherConsistentSolFound: number;
+  eventMatcherConsistentUsdcFound: number;
+  eventMatcherAmbiguous: number;
+  eventMatcherNoConsistentValue: number;
+  splToSplSwapDetections: number;
+  associatedValueFromSplToSpl: number;
+  associatedValueFromEventMatcher: number;
+  associatedValueFromTotalMovement: number;
+  associatedValueFromNetChange: number;
+  smallOutgoingHeuristicApplied: number;
+  skippedDuplicateRecordKey: number;
+  countByInteractionType: { [type: string]: number };
+  // --- End New Counters ---
+}
+// --- End MappingStats Interface ---
+
+// --- Add MappingResult Interface ---
+export interface MappingResult {
+  analysisInputs: SwapAnalysisInputCreateData[];
+  stats: MappingStats;
+}
+// --- End MappingResult Interface ---
+
 // Define the output type matching Prisma's expectations
 type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 
@@ -83,11 +122,13 @@ function safeParseAmount(transfer: TokenTransfer | any): number {
 function findIntermediaryValueFromEvent(
     tx: HeliusTransaction,
     userAccounts: Set<string>,
+    stats: MappingStats
 ): { solValue: number; usdcValue: number; primaryOutMint: string | null; primaryInMint: string | null } {
-
+    stats.eventMatcherAttempts++;
     const defaultValue = { solValue: 0, usdcValue: 0, primaryOutMint: null, primaryInMint: null };
 
     if (!tx.events?.swap || !Array.isArray(tx.events.swap.innerSwaps)) {
+        stats.eventMatcherNoConsistentValue++;
         return defaultValue;
     }
     const swapEvent = tx.events.swap;
@@ -110,8 +151,10 @@ function findIntermediaryValueFromEvent(
 
     if (!primaryOutMint || !primaryInMint) {
         // logger.debug(`Event Matcher: Could not identify primary user IN/OUT non-WSOL/USDC mints. Sig: ${tx.signature}`); // Removed debug
+        stats.eventMatcherNoConsistentValue++;
         return currentResult;
     }
+    stats.eventMatcherPrimaryMintsIdentified++;
     // logger.debug(`Event Matcher: Identified Primary OUT: ${primaryOutMint}, Primary IN: ${primaryInMint}. Sig: ${tx.signature}`); // Removed debug
 
     // 2. Scan innerSwaps for values associated with these primaries
@@ -158,22 +201,27 @@ function findIntermediaryValueFromEvent(
         if (solConsistent && (!usdcConsistent || total_usdc_from_sell < significanceThreshold)) {
             // logger.debug(`Event Matcher: Found consistent SOL value: ${total_wsol_from_sell.toFixed(9)}. Sig: ${tx.signature}`); // Removed debug
             currentResult.solValue = total_wsol_from_sell;
+            stats.eventMatcherConsistentSolFound++;
             return currentResult;
         } else if (usdcConsistent && (!solConsistent || total_wsol_from_sell < significanceThreshold)) {
             // logger.debug(`Event Matcher: Found consistent USDC value: ${total_usdc_from_sell.toFixed(9)}. Sig: ${tx.signature}`); // Removed debug
             currentResult.usdcValue = total_usdc_from_sell;
+            stats.eventMatcherConsistentUsdcFound++;
             return currentResult;
         } else {
              if (solConsistent || usdcConsistent) {
                  logger.warn(`Event Matcher: Ambiguous - Cannot choose between consistent SOL (${solConsistent}) and USDC (${usdcConsistent}). Sig: ${tx.signature}`);
+                 stats.eventMatcherAmbiguous++;
              } else {
                  // logger.debug(`Event Matcher: No single consistent intermediary value found. Sig: ${tx.signature}`); // Removed debug
+                 stats.eventMatcherNoConsistentValue++;
              }
             return currentResult; // Return with values still 0
         }
 
     } catch (error) {
         logger.error(`Error during 'Matching Value' event processing. Sig: ${tx.signature}`, { error });
+        stats.eventMatcherNoConsistentValue++;
         return currentResult; // Return identified mints even if error occurs
     }
 }
@@ -190,15 +238,48 @@ function findIntermediaryValueFromEvent(
 export function mapHeliusTransactionsToIntermediateRecords(
   walletAddress: string,
   transactions: HeliusTransaction[],
-): SwapAnalysisInputCreateData[] {
+): MappingResult {
   const analysisInputs: SwapAnalysisInputCreateData[] = [];
   const lowerWalletAddress = walletAddress.toLowerCase();
+
+  const mappingStats: MappingStats = {
+    totalTransactionsReceived: transactions.length,
+    transactionsSkippedError: 0,
+    transactionsSuccessfullyProcessed: 0,
+    analysisInputsGenerated: 0,
+    nativeSolTransfersProcessed: 0,
+    tokenTransfersProcessed: 0,
+    wsolTransfersProcessed: 0,
+    usdcTransfersProcessed: 0,
+    otherTokenTransfersProcessed: 0,
+    feePayerHeuristicApplied: 0,
+    feesCalculated: 0,
+    // --- Initialize New Counters ---
+    eventMatcherAttempts: 0,
+    eventMatcherPrimaryMintsIdentified: 0,
+    eventMatcherConsistentSolFound: 0,
+    eventMatcherConsistentUsdcFound: 0,
+    eventMatcherAmbiguous: 0,
+    eventMatcherNoConsistentValue: 0,
+    splToSplSwapDetections: 0,
+    associatedValueFromSplToSpl: 0,
+    associatedValueFromEventMatcher: 0,
+    associatedValueFromTotalMovement: 0,
+    associatedValueFromNetChange: 0,
+    smallOutgoingHeuristicApplied: 0,
+    skippedDuplicateRecordKey: 0,
+    countByInteractionType: {},
+    // --- End Initialize New Counters ---
+  };
 
   for (const tx of transactions) {
     if (tx.transactionError) {
       // logger.debug(`Skipping tx ${tx.signature} due to transaction error.`); // Removed debug
+      mappingStats.transactionsSkippedError++; // Increment counter
       continue;
     }
+
+    let inputsGeneratedThisTransaction = 0; // Track inputs for current transaction
 
     try {
       const processedRecordKeys = new Set<string>();
@@ -321,15 +402,18 @@ export function mapHeliusTransactionsToIntermediateRecords(
       if (hasTokensInBothDirections && largestWsolTransfer > 0 && (isApproximatelyDouble || hasReasonableTokenCount)) {
           isSplToSplSwap = true;
           correctSolValueForSplToSpl = largestWsolTransfer; // Use largest WSOL transfer as value
+          mappingStats.splToSplSwapDetections++;
           // logger.debug(`Detected SPL-to-SPL swap with WSOL intermediary: ${tx.signature}`); // Removed debug
           // logger.debug(`Using largest WSOL transfer (${correctSolValueForSplToSpl.toFixed(9)}) as SOL value.`); // Removed debug
       }
 
       // Attempt to find intermediary value from swap events if not detected as SPL-to-SPL
       const interactionType = tx.type?.toUpperCase() || 'UNKNOWN';
+      mappingStats.countByInteractionType[interactionType] = (mappingStats.countByInteractionType[interactionType] || 0) + 1;
+
       let eventResult: { solValue: number; usdcValue: number; primaryOutMint: string | null; primaryInMint: string | null } = { solValue: 0, usdcValue: 0, primaryOutMint: null, primaryInMint: null };
       if (!isSplToSplSwap && tx.events?.swap) {
-          eventResult = findIntermediaryValueFromEvent(tx, userAccounts);
+          eventResult = findIntermediaryValueFromEvent(tx, userAccounts, mappingStats);
       }
 
       // Process Native SOL Transfers (excluding dust amounts)
@@ -362,6 +446,9 @@ export function mapHeliusTransactionsToIntermediateRecords(
                feePercentage: null,
            });
            processedRecordKeys.add(recordKey);
+           mappingStats.nativeSolTransfersProcessed++; // Increment counter
+           mappingStats.analysisInputsGenerated++;
+           inputsGeneratedThisTransaction++;
       }
 
       // --- Fee Payer Heuristic Block ---
@@ -430,6 +517,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
           if (meetsSolSignificance || meetsUsdcSignificance) {
               // logger.debug(`Tx ${tx.signature}: Fee payer heuristic triggered for ${walletAddress} with swap value ~${heuristicAssociatedSolValue.toFixed(4)} SOL / ~${heuristicAssociatedUsdcValue.toFixed(4)} USDC.`); // too verbose unccomment when needed
+
+              mappingStats.feePayerHeuristicApplied++;
 
               // Process token inputs of the swap event as 'out' for walletAddress
               for (const tokenIn of swapEvent.tokenInputs || []) {
@@ -625,7 +714,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
                     currentAbsTransferAmount < largestAmtForThisMint && // Ensure it's not the largest amount itself
                     currentAbsTransferAmount < (TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD * largestAmtForThisMint)) {
                     applyFeeHeuristic = true;
-                    // logger.debug(`Tx ${tx.signature}, Mint ${mint}: Applying mapper heuristic. Outgoing amount ${currentAbsTransferAmount.toFixed(6)} is < ${TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD*100}% of largest amount ${largestAmtForThisMint.toFixed(6)} for this mint in tx (and other transfers of this mint exist). Setting associatedSolValue to 0.`); // too verbose unccomment when needed
+                    mappingStats.smallOutgoingHeuristicApplied++;
                 }
              }
 
@@ -679,6 +768,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
                            // Original tiered logic for other transaction types (SWAP, etc.)
                            if (isSplToSplSwap && correctSolValueForSplToSpl > 0) {
                                associatedSolValue = correctSolValueForSplToSpl;
+                               mappingStats.associatedValueFromSplToSpl++;
                            } else {
                                // 2. Event Matching Check
                                const eventSolFound = eventResult.solValue > 0; const eventUsdcFound = eventResult.usdcValue > 0;
@@ -686,8 +776,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
                                const isPrimaryOutTokenFromEvent = direction === 'out' && mint === eventResult.primaryOutMint;
                                const isPrimaryInTokenFromEvent = direction === 'in' && mint === eventResult.primaryInMint;
                                if ((isPrimaryInTokenFromEvent || isPrimaryOutTokenFromEvent)) {
-                                   if (eventSolFound) { associatedSolValue = eventResult.solValue; eventValueApplied = true; }
-                                   else if (eventUsdcFound) { associatedUsdcValue = eventResult.usdcValue; eventValueApplied = true; }
+                                   if (eventSolFound) { associatedSolValue = eventResult.solValue; eventValueApplied = true; mappingStats.associatedValueFromEventMatcher++; }
+                                   else if (eventUsdcFound) { associatedUsdcValue = eventResult.usdcValue; eventValueApplied = true; mappingStats.associatedValueFromEventMatcher++; }
                                }
 
                                // 3. Fallback: Total Movement Heuristic
@@ -696,10 +786,11 @@ export function mapHeliusTransactionsToIntermediateRecords(
                                 const usdcMoveIsSignificant = totalUsdcMovement >= movementSignificanceThreshold;
                                 if (wsolMoveIsSignificant && !usdcMoveIsSignificant) {
                                     associatedSolValue = totalWsolMovement;
+                                    mappingStats.associatedValueFromTotalMovement++;
                                 } else if (usdcMoveIsSignificant && !wsolMoveIsSignificant) {
                                     associatedUsdcValue = totalUsdcMovement;
+                                    mappingStats.associatedValueFromTotalMovement++;
                                 }
-                                // If both or neither significant, do nothing here, move to next fallback
                             }
 
                             // 4. Fallback: Net User SOL/USDC Change
@@ -711,7 +802,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
                                 if (solChangeIsSignificant && !usdcChangeIsSignificant) {
                                     associatedSolValue = absSolChange;
-                                    // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Assigned via Fallback Net SOL Change: ${associatedSolValue.toFixed(9)}`);
+                                    mappingStats.associatedValueFromNetChange++;
                                 } else if (usdcChangeIsSignificant && !solChangeIsSignificant) {
                                     associatedUsdcValue = absUsdcChange; // If USDC logic is needed
                                 }
@@ -759,10 +850,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
             const recordAmount = currentTransferAmount;
             const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromTokenAccount ?? 'N/A'}:${transfer.toTokenAccount ?? 'N/A'}:${recordAmount.toFixed(9)}`;
             if (processedRecordKeys.has(recordKey)) {
-                // If a record with this exact key (meaning direct involvement of walletAddress in this transfer leg)
-                // was already added, we skip. This inherently handles cases where the fee payer is also the direct owner.
-                // The fee payer heuristic adds records with a *different* key format if it's attributing
-                // a leg not directly owned by walletAddress.
+                mappingStats.skippedDuplicateRecordKey++;
                 continue;
             }
 
@@ -780,6 +868,22 @@ export function mapHeliusTransactionsToIntermediateRecords(
                  feePercentage: feePercentage, // Calculated percentage (or null)
             });
             processedRecordKeys.add(recordKey);
+            mappingStats.analysisInputsGenerated++;
+            inputsGeneratedThisTransaction++;
+
+            // Increment token type counters (already present from previous edit)
+            mappingStats.tokenTransfersProcessed++;
+            if (isWsol) mappingStats.wsolTransfersProcessed++;
+            else if (isUsdc) mappingStats.usdcTransfersProcessed++;
+            else mappingStats.otherTokenTransfersProcessed++;
+
+            if (feeAmount !== null && Math.abs(feeAmount) > FEE_PRECISION_THRESHOLD) {
+                mappingStats.feesCalculated++;
+            }
+      }
+
+      if (inputsGeneratedThisTransaction > 0) {
+        mappingStats.transactionsSuccessfullyProcessed++;
       }
 
     } catch (err) {
@@ -788,9 +892,15 @@ export function mapHeliusTransactionsToIntermediateRecords(
             stack: err instanceof Error ? err.stack : undefined,
             sig: tx.signature,
         });
+        // --- Log stats on specific error ---
+        logger.debug(`Mapping stats at time of error for tx ${tx.signature}:`, mappingStats);
+        // --- End Log stats on specific error ---
+        mappingStats.transactionsSkippedError++; // Also count this as skipped due to error in processing
     }
   }
 
-  logger.info(`Mapped ${transactions.length} transactions into ${analysisInputs.length} analysis records for ${walletAddress}`);
-  return analysisInputs;
+  // --- Log Final Stats ---
+  logger.info(`Finished mapping ${transactions.length} transactions for ${walletAddress}. Mapping statistics:`, mappingStats);
+  // --- End Log Final Stats ---
+  return { analysisInputs, stats: mappingStats };
 }
