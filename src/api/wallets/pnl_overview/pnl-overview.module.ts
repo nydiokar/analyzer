@@ -3,6 +3,7 @@ import { PnlOverviewService } from './pnl-overview.service';
 import { DatabaseModule } from '../../database/database.module';
 import { PnlAnalysisService as CorePnlAnalysisService } from '../../../core/services/pnl-analysis-service';
 import { DatabaseService as NestDatabaseService } from '../../database/database.service';
+import { HeliusApiClient } from '@/core/services/helius-api-client';
 
 @Module({
   imports: [
@@ -12,10 +13,10 @@ import { DatabaseService as NestDatabaseService } from '../../database/database.
     PnlOverviewService,
     {
       provide: CorePnlAnalysisService,
-      useFactory: (nestDbService: NestDatabaseService) => {
-        return new CorePnlAnalysisService(nestDbService);
+      useFactory: (nestDbService: NestDatabaseService, heliusApiClient: HeliusApiClient) => {
+        return new CorePnlAnalysisService(nestDbService, heliusApiClient);
       },
-      inject: [NestDatabaseService],
+      inject: [NestDatabaseService, HeliusApiClient],
     },
   ],
   exports: [PnlOverviewService],

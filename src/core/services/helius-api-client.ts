@@ -1,7 +1,13 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { createLogger } from 'core/utils/logger';
-import { HeliusApiConfig, HeliusTransaction } from '@/types/helius-api';
-import { DatabaseService } from 'core/services/database-service'; 
+import {
+  HeliusApiConfig,
+  HeliusTransaction,
+  GetMultipleAccountsResult,
+  GetTokenAccountsByOwnerResult,
+  // RpcAccountInfo, // Not directly used as a parameter/return type of public methods here yet
+} from '@/types/helius-api';
+import { DatabaseService } from 'core/services/database-service';
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
 interface SignatureInfo {
@@ -29,6 +35,11 @@ async function delay(ms: number): Promise<void> {
 const DEFAULT_RPS = 10; // Default target Requests Per Second (Developer Plan)
 const RATE_LIMIT_SAFETY_BUFFER_MS = 15; // Add small buffer
 
+// Define RPC URLs at the module level
+const MODULE_SOLANA_RPC_URL_MAINNET = 'https://mainnet.helius-rpc.com/';
+const MODULE_SOLANA_RPC_URL_DEVNET = 'https://devnet.helius-rpc.com/';
+
+
 /**
  * Client for interacting with the Helius API and Solana RPC for transaction data.
  * Includes rate limiting, retry logic, and caching integration.
@@ -40,7 +51,7 @@ export class HeliusApiClient {
   private readonly BATCH_SIZE = 100; // Maximum signatures to process in one batch
   private lastRequestTime: number = 0;
   private readonly minRequestIntervalMs: number; // Calculated based on RPS
-  private readonly SOLANA_RPC_URL_MAINNET = 'https://mainnet.helius-rpc.com/'; // Using Helius RPC for consistency
+  private readonly rpcUrl: string; // Store the full RPC URL with API key
   private readonly RPC_SIGNATURE_LIMIT = 1000; // Max limit for getSignaturesForAddress
   private dbService: DatabaseService; // Add DatabaseService member
 
@@ -51,9 +62,12 @@ export class HeliusApiClient {
    */
   constructor(config: HeliusApiConfig, dbService: DatabaseService) {
     this.apiKey = config.apiKey;
+    // Allow network to be specified for RPC URL construction
+    const rpcNetworkUrl = config.network === 'devnet' ? MODULE_SOLANA_RPC_URL_DEVNET : MODULE_SOLANA_RPC_URL_MAINNET;
     this.baseUrl = config.baseUrl || (config.network === 'mainnet' 
       ? 'https://api.helius.xyz'
       : 'https://api-devnet.helius.xyz');
+    this.rpcUrl = `${rpcNetworkUrl}?api-key=${this.apiKey}`; // Store the full RPC URL with API key
     
     const targetRps = config.requestsPerSecond || DEFAULT_RPS;
     // Calculate interval: (1000 ms / RPS) + safety buffer
@@ -98,7 +112,7 @@ export class HeliusApiClient {
     limit: number,
     before?: string | null
   ): Promise<SignatureInfo[]> {
-    const url = `${this.SOLANA_RPC_URL_MAINNET}?api-key=${this.apiKey}`;
+    const url = `${this.rpcUrl}`;
     const payload = {
         jsonrpc: '2.0',
         id: `fetch-rpc-signatures-${address}-${before || 'first'}`,
@@ -578,5 +592,185 @@ export class HeliusApiClient {
     
     // Fallback for unknown error types
     return String(error); 
+  }
+
+  private async makeRpcRequest<T>(method: string, params: any[]): Promise<T> {
+    await this.rateLimit(); // Apply rate limiting before each RPC call
+    const payload = {
+      jsonrpc: '2.0',
+      id: `helius-rpc-${method}-${Date.now()}`,
+      method: method,
+      params: params,
+    };
+
+    let retries = 0;
+    while (retries < MAX_RETRIES) {
+      try {
+        // Use the stored rpcUrl which already includes the API key
+        const response = await this.api.post<{
+          jsonrpc: string;
+          id: string;
+          result: T;
+          error?: { code: number; message: string };
+        }>(this.rpcUrl, payload, {
+          // Override baseURL for RPC calls if it was set for REST API
+          // Ensuring this post goes to the RPC endpoint (e.g. mainnet.helius-rpc.com or devnet.helius-rpc.com)
+          // This is now handled by using this.rpcUrl directly, which is constructed with the correct RPC base.
+        });
+
+        if (response.data.error) {
+          logger.error(
+            `RPC Error for method ${method}: ${response.data.error.message} (Code: ${response.data.error.code})`,
+            { params }
+          );
+          throw new Error(
+            `RPC Error for ${method}: ${response.data.error.message}`
+          );
+        }
+        this.lastRequestTime = Date.now(); // Update last request time on successful call
+        return response.data.result;
+      } catch (error: any) {
+        retries++;
+        const sanitizedError = this.sanitizeError(error);
+        logger.warn(
+          `Attempt ${retries}/${MAX_RETRIES} failed for RPC method ${method}. Error: ${JSON.stringify(sanitizedError)}`,
+          { params, error: sanitizedError }
+        );
+        if (retries >= MAX_RETRIES) {
+          logger.error(
+            `All ${MAX_RETRIES} retries failed for RPC method ${method}.`,
+            { params, lastError: sanitizedError }
+          );
+          throw new Error(
+            `Failed to execute RPC method ${method} after ${MAX_RETRIES} retries: ${sanitizedError.message || 'Unknown RPC Error'}`
+          );
+        }
+        const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries - 1); // Exponential backoff
+        logger.info(`Retrying RPC method ${method} in ${backoffTime}ms...`);
+        await delay(backoffTime);
+      }
+    }
+    // Should not be reached due to throw in loop, but typescript needs a return path
+    throw new Error(`RPC method ${method} failed unexpectedly after retries.`);
+  }
+
+  /**
+   * Fetches account information for a list of public keys using the `getMultipleAccounts` RPC method.
+   *
+   * @param pubkeys An array of base-58 encoded public key strings.
+   * @param commitment Optional commitment level (e.g., "finalized", "confirmed", "processed").
+   * @param encoding Optional encoding for account data (e.g., "base64", "jsonParsed"). Defaults to "base64".
+   * @returns A promise resolving to the `GetMultipleAccountsResult` structure.
+   * @throws Throws an error if the RPC call fails after all retries.
+   */
+  public async getMultipleAccounts(
+    pubkeys: string[],
+    commitment?: string,
+    encoding: string = 'base64' // Default to base64 as it's common for SOL balance checks
+  ): Promise<GetMultipleAccountsResult> {
+    if (!pubkeys || pubkeys.length === 0) {
+      // Return a structure consistent with a successful call for no accounts
+      // Attempt to get api version or default, ensuring it's a string
+      const apiVersionHeader = this.api.defaults.headers?.common?.['X-API-Version'];
+      return {
+        context: { slot: 0, apiVersion: typeof apiVersionHeader === 'string' ? apiVersionHeader : 'unknown' }, 
+        value: [],
+      };
+    }
+    // Max 100 pubkeys per request for getMultipleAccounts
+    if (pubkeys.length > 100) {
+        // This case should ideally be handled by the calling service (WalletBalanceService)
+        // by batching requests to getMultipleAccounts if more than 100 keys are provided.
+        // For now, log a warning and proceed, Helius might truncate or error.
+        logger.warn(`getMultipleAccounts called with ${pubkeys.length} pubkeys, exceeding the typical limit of 100. The RPC node might truncate or error.`);
+    }
+
+    const params: any[] = [pubkeys];
+    const options: { commitment?: string; encoding?: string } = {};
+    if (commitment) {
+      options.commitment = commitment;
+    }
+    if (encoding) {
+      options.encoding = encoding;
+    }
+    if (Object.keys(options).length > 0) {
+      params.push(options);
+    }
+
+    logger.debug(`Fetching multiple accounts for ${pubkeys.length} pubkeys with options:`, options);
+    try {
+      const result = await this.makeRpcRequest<GetMultipleAccountsResult>(
+        'getMultipleAccounts',
+        params
+      );
+      logger.info(`Successfully fetched multiple accounts for ${pubkeys.length} pubkeys.`);
+      return result;
+    } catch (error) {
+      logger.error(
+        `Failed to fetch multiple accounts for pubkeys: ${pubkeys.join(', ')}`,
+        { error: this.sanitizeError(error) }
+      );
+      // Re-throw to allow the caller to handle it, or transform into a standard error response
+      throw error;
+    }
+  }
+
+  /**
+   * Fetches all token accounts owned by a given public key using the `getTokenAccountsByOwner` RPC method.
+   *
+   * @param ownerPubkey The base-58 encoded public key of the account owner.
+   * @param mintPubkey Optional. The base-58 encoded public key of the specific token mint to filter by.
+   *                   If not provided, token accounts for all mints owned by `ownerPubkey` are returned.
+   * @param programId The base-58 encoded public key of the Token Program ID. Defaults to SPL Token Program.
+   *                  Crucially, use `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` for standard SPL tokens.
+   * @param commitment Optional commitment level (e.g., "finalized", "confirmed", "processed").
+   * @param encoding Optional encoding for account data. **Highly recommended to use `jsonParsed`** for structured token data.
+   * @returns A promise resolving to the `GetTokenAccountsByOwnerResult` structure.
+   * @throws Throws an error if the RPC call fails after all retries.
+   */
+  public async getTokenAccountsByOwner(
+    ownerPubkey: string,
+    mintPubkey?: string, // Optional: if you only want accounts for a specific mint
+    programId: string = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL Token Program ID
+    commitment?: string,
+    encoding: string = 'jsonParsed' // Default and recommended for token accounts
+  ): Promise<GetTokenAccountsByOwnerResult> {
+    if (!ownerPubkey) {
+      throw new Error('ownerPubkey is required for getTokenAccountsByOwner.');
+    }
+
+    const programFilter = mintPubkey ? { mint: mintPubkey } : { programId };
+    const params: any[] = [ownerPubkey, programFilter];
+
+    const options: { commitment?: string; encoding?: string; dataSlice?: { offset: number; length: number } } = {};
+    if (commitment) {
+      options.commitment = commitment;
+    }
+    options.encoding = encoding; // Always include encoding, defaults to jsonParsed
+    // dataSlice is typically not needed with jsonParsed for token accounts unless accounts are unusually large
+
+    params.push(options);
+
+    logger.debug(
+      `Fetching token accounts for owner ${ownerPubkey} with program/mint filter: `,
+      programFilter,
+      ` and options: `,
+      options
+    );
+
+    try {
+      const result = await this.makeRpcRequest<GetTokenAccountsByOwnerResult>(
+        'getTokenAccountsByOwner',
+        params
+      );
+      logger.info(`Successfully fetched token accounts for owner ${ownerPubkey}. Count: ${result.value.length}`);
+      return result;
+    } catch (error) {
+      logger.error(
+        `Failed to fetch token accounts for owner ${ownerPubkey}`,
+        { error: this.sanitizeError(error), ownerPubkey, programFilter, options }
+      );
+      throw error; // Re-throw to allow the caller to handle it
+    }
   }
 } 

@@ -15,17 +15,12 @@ import { BehavioralMetrics } from '@/types/behavior';
 import { AdvancedStatsAnalyzer } from 'core/analysis/stats/analyzer';
 import { AdvancedTradeStats, OnChainAnalysisResult, SwapAnalysisSummary } from '@/types/helius-api';
 import { PnlAnalysisService } from 'core/services/pnl-analysis-service';
-import {
-    generatePnlOverviewHtmlTelegram,
-    generateBehaviorSummaryHtmlTelegram,
-    generateDetailedBehaviorHtmlTelegram,
-    generateDetailedAdvancedStatsHtmlTelegram,
-    generateCorrelationReportTelegram
-} from 'core/reporting/report_utils';
+import { ReportingService } from '../reporting/reportGenerator';
+import { generatePnlOverviewHtmlTelegram, generateBehaviorSummaryHtmlTelegram, generateDetailedBehaviorHtmlTelegram, generateDetailedAdvancedStatsHtmlTelegram, generateCorrelationReportTelegram } from '../reporting/report_utils';
+import { HeliusApiClient } from '../services/helius-api-client';
 
 const logger = createLogger('WalletAnalysisCommands');
-
-const BOT_SYSTEM_USER_DESCRIPTION = "SystemUser_TelegramBot";
+const BOT_SYSTEM_USER_DESCRIPTION = "SystemUser_TelegramBot"; // Define it here as it was originally
 
 /**
  * @interface ProcessingStats
@@ -45,8 +40,9 @@ interface ProcessingStats {
  * correlation analysis, and report generation.
  */
 export class WalletAnalysisCommands {
-  private readonly heliusApiKey: string | undefined;
+  private readonly heliusApiKey_string: string | undefined;
   private readonly databaseService: DatabaseService;
+  private readonly heliusApiClient: HeliusApiClient | null;
   private readonly heliusSyncService: HeliusSyncService | undefined;
   private botSystemUserId: string | null = null;
   private isBotUserInitialized: boolean = false;
@@ -56,23 +52,35 @@ export class WalletAnalysisCommands {
 
   /**
    * @constructor
-   * @param {string} [heliusApiKey] - Optional API key for the Helius service. If not provided,
+   * @param {string} [heliusApiKey_input] - Optional API key for the Helius service. If not provided,
    * functionality relying on Helius API calls will be limited or disabled.
    */
-  constructor(heliusApiKey?: string) {
-    this.heliusApiKey = heliusApiKey;
+  constructor(heliusApiKey_input?: string) {
+    this.heliusApiKey_string = heliusApiKey_input;
     this.databaseService = new DatabaseService();
-    if (heliusApiKey) {
+
+    // Create HeliusApiClient instance (or null)
+    if (this.heliusApiKey_string) {
+      this.heliusApiClient = new HeliusApiClient({ 
+          apiKey: this.heliusApiKey_string, 
+          network: 'mainnet' 
+      }, this.databaseService);
+    } else {
+      this.heliusApiClient = null;
+    }
+
+    // Initialize HeliusSyncService with the client instance
+    if (this.heliusApiClient) {
       try {
-        this.heliusSyncService = new HeliusSyncService(this.databaseService, heliusApiKey);
+        this.heliusSyncService = new HeliusSyncService(this.databaseService, this.heliusApiClient);
         logger.info('WalletAnalysisCommands initialized with HeliusSyncService.');
       } catch (error) {
-        logger.error('Failed to initialize HeliusSyncService even with API key:', error);
+        logger.error('Failed to initialize HeliusSyncService even with API client:', error);
         this.heliusSyncService = undefined;
       }
     } else {
       this.heliusSyncService = undefined;
-      logger.warn('WalletAnalysisCommands initialized WITHOUT a Helius API key. HeliusSyncService is not available.');
+      logger.warn('WalletAnalysisCommands initialized WITHOUT a Helius API client. HeliusSyncService is not available.');
     }
     
     // Initialize analyzers
@@ -82,7 +90,7 @@ export class WalletAnalysisCommands {
     };
     this.behaviorService = new BehaviorService(this.databaseService, behaviorConfig);
     this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
-    this.pnlAnalysisService = new PnlAnalysisService(this.databaseService);
+    this.pnlAnalysisService = new PnlAnalysisService(this.databaseService, this.heliusApiClient);
     
     // Initialize bot system user asynchronously
     this.initializeBotSystemUser().catch(err => {
@@ -197,8 +205,8 @@ export class WalletAnalysisCommands {
             if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
               throw new Error(`Invalid Solana address format`);
             }
-            if (!this.heliusApiKey || !this.heliusSyncService) {
-              throw new Error('Helius API key not configured or HeliusSyncService not initialized.');
+            if (!this.heliusApiClient || !this.heliusSyncService) {
+              throw new Error('Helius API client not configured or HeliusSyncService not initialized.');
             }
             
             // logger.info(`Initiating sync for wallet: ${walletAddress}.`); // Logged by syncWalletData or too verbose here
@@ -558,6 +566,10 @@ export class WalletAnalysisCommands {
                         smartFetch: true
                     };
                     await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+                } else {
+                    logger.warn(`[analyzeWalletBehavior] HeliusSyncService not available for ${walletAddress}, skipping sync. API client might be missing or service failed to init.`);
+                    // Optionally inform the user if sync is critical for this command
+                    // await ctx.reply(`️ Sync service is not available. Analysis may be based on stale data for ${walletAddress}.`);
                 }
 
                 const metrics = await this.behaviorService.analyzeWalletBehavior(walletAddress);
@@ -625,6 +637,10 @@ export class WalletAnalysisCommands {
                         smartFetch: true
                     };
                     await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+                } else {
+                    logger.warn(`[analyzeAdvancedStats] HeliusSyncService not available for ${walletAddress}, skipping sync. API client might be missing or service failed to init.`);
+                    // Optionally inform the user
+                    // await ctx.reply(`️ Sync service is not available. Analysis may be based on stale data for ${walletAddress}.`);
                 }
 
                 const swapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);

@@ -190,6 +190,11 @@ export interface OnChainAnalysisResult {
   isValuePreservation?: boolean;           // Indicates if token is treated as a value store (stablecoin, etc)
   estimatedPreservedValue?: number;        // Estimated SOL value still preserved in the token
   preservationType?: 'stablecoin' | 'hodl'; // Type of value preservation
+
+  // Fields for current token balance snapshot from WalletState integration
+  currentRawBalance?: string;          // Current raw token balance (string to preserve precision)
+  balanceDecimals?: number;          // Decimals for the current balance fields
+  balanceFetchedAt?: Date;           // Timestamp when this specific token balance was part of a WalletState fetch
 }
 
 /**
@@ -232,4 +237,83 @@ export interface SwapAnalysisSummary {
   overallFirstTimestamp: number;
   overallLastTimestamp: number;
   advancedStats?: AdvancedTradeStats | undefined;
+
+  // Fields for current SOL balance snapshot from WalletState integration
+  currentSolBalance?: number;
+  balancesFetchedAt?: Date; 
+}
+
+// RPC Method Specific Types
+
+// Types for getMultipleAccounts
+export interface RpcAccountInfo {
+  lamports: number;
+  owner: string;
+  data: string[] | Record<string, any>; // string[] for base64, object for jsonParsed
+  executable: boolean;
+  rentEpoch: number;
+  space?: number; // Optional as per some RPC responses
+  size?: number; // Solana official RPC docs use 'size' sometimes, Helius might use 'space'
+}
+
+export interface GetMultipleAccountsResultContext {
+  slot: number;
+  apiVersion?: string;
+}
+
+export interface GetMultipleAccountsResult {
+  context: GetMultipleAccountsResultContext;
+  value: (RpcAccountInfo | null)[];
+}
+
+// Types for getTokenAccountsByOwner
+export interface ParsedTokenAmount {
+  amount: string;
+  decimals: number;
+  uiAmount: number;
+  uiAmountString: string;
+}
+
+export interface ParsedTokenAccountInfoData {
+  mint: string;
+  owner: string;
+  state?: string; // e.g., 'initialized'
+  tokenAmount: ParsedTokenAmount;
+}
+
+export interface ParsedAccountData {
+  info: ParsedTokenAccountInfoData;
+  type: string; // e.g., 'account'
+}
+
+export interface TokenAccountData {
+  parsed?: ParsedAccountData;
+  program?: string; // e.g., 'spl-token'
+  space?: number;
+  // If not jsonParsed, it might contain a string array like ["raw_data_string", "base64"]
+  raw?: [string, string]; 
+}
+
+export interface TokenAccountInfo {
+  data: TokenAccountData | string[]; // string[] for non-jsonParsed, non-verbose responses
+  executable: boolean;
+  lamports: number; // Lamports for the token account itself (rent)
+  owner: string;    // Owning program (e.g., SPL Token Program ID)
+  rentEpoch: number;
+  space?: number; // Can also be at this level
+}
+
+export interface TokenAccount {
+  pubkey: string; // The token account's public key
+  account: TokenAccountInfo;
+}
+
+export interface GetTokenAccountsByOwnerResultContext {
+  slot: number;
+  apiVersion?: string;
+}
+
+export interface GetTokenAccountsByOwnerResult {
+  context: GetTokenAccountsByOwnerResultContext;
+  value: TokenAccount[];
 }

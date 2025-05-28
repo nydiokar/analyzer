@@ -26,17 +26,14 @@ export class HeliusSyncService {
 
     constructor(
         private databaseService: DatabaseService,
-        heliusApiKey: string // Directly require API key here
+        heliusApiClient: HeliusApiClient // Changed from heliusApiKey: string
     ) {
-        if (!heliusApiKey) {
-            // Service requires API key to function, unlike script which could skip
-            throw new Error('HeliusSyncService requires a valid Helius API key.');
+        if (!heliusApiClient) {
+            // Service requires an API client instance
+            throw new Error('HeliusSyncService requires a valid HeliusApiClient instance.');
         }
-        this.heliusClient = new HeliusApiClient({
-            apiKey: heliusApiKey,
-            network: 'mainnet', // Assuming mainnet, could be configurable
-        }, this.databaseService); // Pass DatabaseService instance
-        logger.info('HeliusSyncService instantiated.');
+        this.heliusClient = heliusApiClient; // Use the provided instance
+        logger.info('HeliusSyncService instantiated with provided HeliusApiClient.');
     }
 
     /**

@@ -735,89 +735,91 @@ export function generateSwapPnlReport(
     timeRange?: string
 ): string {
     const lines: string[] = [];
-    const {
-        results,
-        netPnl,
-        profitableTokensCount,
-        unprofitableTokensCount,
-        totalExecutedSwapsCount,
-        averageRealizedPnlPerExecutedSwap,
-        realizedPnlToTotalVolumeRatio,
-        advancedStats,
-        overallFirstTimestamp,
-        overallLastTimestamp,
-        totalVolume
-    } = summary;
-
-    // Calculate overallSolSpent and overallSolReceived from results if not directly on summary
-    // PnlAnalysisService *should* be adding these if they are for top-level reporting.
-    // For this fix, we'll assume PnlAnalysisService ensures summary has these,
-    // or we calculate them. Let's calculate for robustness here.
-    const calculatedOverallSolSpent = results.reduce((acc, r) => acc + (r.totalSolSpent || 0), 0);
-    const calculatedOverallSolReceived = results.reduce((acc, r) => acc + (r.totalSolReceived || 0), 0);
-
-    lines.push(`## 📊 Solana Wallet P/L Analysis: ${walletAddress}`);
+    lines.push(`## Swap P&L Report for Wallet: ${walletAddress}`);
     if (timeRange) {
-        lines.push(`**Analysis Period:** ${timeRange}`);
+        lines.push(`Time Range: ${timeRange}`);
     }
-    lines.push(`**Report Generated:** ${new Date().toISOString()}`);
-    lines.push(`**Data from:** ${overallFirstTimestamp ? formatTimestamp(overallFirstTimestamp) : 'N/A'} to ${overallLastTimestamp ? formatTimestamp(overallLastTimestamp) : 'N/A'}`);
-    lines.push("\n---\n");
+    lines.push(`Report Generated: ${new Date().toISOString()}`);
+    lines.push('');
 
-    // Overall Summary Section - Directly from SwapAnalysisSummary
-    lines.push("### 📈 Overall Performance Summary");
-    lines.push(`- **Total Realized P/L (SOL):** ${formatSolAmount(netPnl)}`);
-    lines.push(`- **Total SOL Spent (on buys):** ${formatSolAmount(calculatedOverallSolSpent)}`);
-    lines.push(`- **Total SOL Received (from sells):** ${formatSolAmount(calculatedOverallSolReceived)}`);
-    lines.push(`- **Profitable Tokens:** ${profitableTokensCount}`);
-    lines.push(`- **Unprofitable Tokens:** ${unprofitableTokensCount}`);
-    const totalTokensCounted = profitableTokensCount + unprofitableTokensCount;
-    const winRatePercent = totalTokensCounted > 0 ? (profitableTokensCount / totalTokensCounted) * 100 : 0;
-    lines.push(`- **Token Win Rate:** ${formatNumber(winRatePercent, 1)}% (based on ${totalTokensCounted} tokens)`);
-    lines.push(`- **Total Executed Swaps:** ${totalExecutedSwapsCount}`);
-    lines.push(`- **Avg. Realized PNL per Executed Swap:** ${formatSolAmount(averageRealizedPnlPerExecutedSwap)}`);
-    lines.push(`- **Realized PNL to Total Volume Ratio:** ${formatNumber(realizedPnlToTotalVolumeRatio * 100, 2)}%`);
-    lines.push(`- **Total SOL Volume (Buy+Sell):** ${formatSolAmount(totalVolume)}`);
-    lines.push("\n---\n");
+    // Overall Summary Section
+    lines.push('### I. Overall P&L Summary');
+    lines.push('| Metric                          | Value               |');
+    lines.push('|---------------------------------|---------------------|');
+    lines.push(`| Realized P&L (SOL)            | ${formatSolAmount(summary.realizedPnl)}          |`);
+    lines.push(`| Unrealized P&L (SOL)          | ${formatSolAmount(summary.unrealizedPnl)}        |`);
+    lines.push(`| **Net P&L (SOL)**             | **${formatSolAmount(summary.netPnl)}**         |`);
+    lines.push(`| Total Volume Traded (SOL)       | ${formatSolAmount(summary.totalVolume)}         |`);
+    lines.push(`| Total Fees Paid (SOL)         | ${formatSolAmount(summary.totalFees)}           |`);
+    lines.push(`| Stablecoin Net Flow (SOL)     | ${formatSolAmount(summary.stablecoinNetFlow)}   |`);
+    lines.push(`| Total Signatures Processed      | ${summary.totalSignaturesProcessed?.toString() || 'N/A'}         |`);
+    lines.push(`| First Transaction (Overall)   | ${summary.overallFirstTimestamp ? formatDate(summary.overallFirstTimestamp) : 'N/A'} |`);
+    lines.push(`| Last Transaction (Overall)    | ${summary.overallLastTimestamp ? formatDate(summary.overallLastTimestamp) : 'N/A'}  |`);
+    lines.push(`| Current SOL Balance           | ${summary.currentSolBalance !== undefined ? formatSolAmount(summary.currentSolBalance) : 'N/A'} |`);
+    lines.push(`| Balances Fetched At         | ${summary.balancesFetchedAt ? summary.balancesFetchedAt.toISOString() : 'N/A'} |`);
+    lines.push('');
 
-    // Advanced Stats Section - Directly from SwapAnalysisSummary.advancedStats (type AdvancedTradeStats)
-    if (advancedStats) {
-        lines.push("### 🔬 Advanced Statistics (from Helius API advancedStats)");
-        lines.push(`- **Median P/L per Token (SOL):** ${formatSolAmount(advancedStats.medianPnlPerToken)}`);
-        lines.push(`- **Token Win Rate:** ${formatNumber(advancedStats.tokenWinRatePercent, 1)}%`);
-        lines.push(`- **Standard Deviation of P/L:** ${formatSolAmount(advancedStats.standardDeviationPnl)}`);
-        lines.push(`- **Median PnL to Volatility Ratio:** ${formatNumber(advancedStats.medianPnlToVolatilityRatio, 2)}`);
-        lines.push(`- **Weighted Efficiency Score:** ${formatNumber(advancedStats.weightedEfficiencyScore, 2)}`);
-        lines.push(`- **Average P/L per Day Active (Approx):** ${formatSolAmount(advancedStats.averagePnlPerDayActiveApprox)}`);
+    // Advanced Trading Stats Section
+    if (summary.advancedStats) {
+        lines.push("### II. Advanced Statistics"); // Changed from Helius API to generic
+        lines.push(`- Median P/L per Token (SOL): ${formatSolAmount(summary.advancedStats.medianPnlPerToken)}`);
+        lines.push(`- Token Win Rate: ${formatNumber(summary.advancedStats.tokenWinRatePercent, 1)}%`);
+        lines.push(`- Standard Deviation of P/L: ${formatSolAmount(summary.advancedStats.standardDeviationPnl)}`);
+        lines.push(`- Median PnL to Volatility Ratio: ${formatNumber(summary.advancedStats.medianPnlToVolatilityRatio, 2)}`);
+        lines.push(`- Weighted Efficiency Score: ${formatNumber(summary.advancedStats.weightedEfficiencyScore, 2)}`);
+        lines.push(`- Average P/L per Day Active (Approx): ${formatSolAmount(summary.advancedStats.averagePnlPerDayActiveApprox)}`);
         lines.push("\n---\n");
     }
 
-    // Token Details Table - from SwapAnalysisSummary.results (OnChainAnalysisResult[])
-    lines.push("### 🪙 Token P/L Details (Top 15 by Realized P/L)");
-    const tableData: any[][] = [[
-        'Token', 'Symbol', 'Realized P/L (SOL)', 'Net Token Change (Units)', 'SOL Spent', 'SOL Received', 'Swaps In/Out', 'First/Last Seen'
-    ]];
+    // Per-Token P&L Details Section
+    lines.push('### III. Per-Token P&L Details');
+    if (summary.results && summary.results.length > 0) {
+        const tokenDataHeader = [
+            'Token',
+            'Net P&L (SOL)',
+            'Total In', 
+            'Total Out', 
+            'Net Change',
+            'SOL Spent', 
+            'SOL Recv\'d', // Corrected: removed extra 'd'
+            'Fees (SOL)',
+            '# In', '# Out',
+            'First Swap', 'Last Swap',
+            'Is Stable?', 'Preserved Val (SOL)',
+            'Cur. Balance', 'Dec.', 'Balance Fetched'
+        ];
+        const tokenData = [tokenDataHeader];
 
-    // Sort tokens by realized P/L descending, take top 15
-    const sortedTokenDetails = [...results].sort((a, b) => b.netSolProfitLoss - a.netSolProfitLoss).slice(0, 15);
+        summary.results.forEach((r: OnChainAnalysisResult) => {
+            tokenData.push([
+                getTokenDisplayName(r.tokenAddress),
+                formatSolAmount(r.netSolProfitLoss),
+                formatTokenQuantity(r.totalAmountIn),
+                formatTokenQuantity(r.totalAmountOut),
+                formatTokenQuantity(r.netAmountChange),
+                formatSolAmount(r.totalSolSpent),
+                formatSolAmount(r.totalSolReceived),
+                r.totalFeesPaidInSol ? formatSolAmount(r.totalFeesPaidInSol) : '0.00',
+                r.transferCountIn.toString(),
+                r.transferCountOut.toString(),
+                formatDate(r.firstTransferTimestamp),
+                formatDate(r.lastTransferTimestamp),
+                r.isValuePreservation ? (r.preservationType || 'Yes') : 'No',
+                r.isValuePreservation && r.estimatedPreservedValue ? formatSolAmount(r.estimatedPreservedValue) : 'N/A',
+                r.currentRawBalance !== undefined ? r.currentRawBalance : 'N/A',
+                r.balanceDecimals !== undefined ? r.balanceDecimals.toString() : 'N/A',
+                r.balanceFetchedAt ? formatDate(Math.floor(r.balanceFetchedAt.getTime() / 1000)) : 'N/A' // Ensure it's a number (Unix timestamp in seconds)
+            ]);
+        });
 
-    for (const token of sortedTokenDetails) {
-        tableData.push([
-            token.tokenAddress.substring(0, 6) + '...',
-            getTokenDisplayName(token.tokenAddress),
-            formatSolAmount(token.netSolProfitLoss),
-            formatTokenQuantity(token.netAmountChange),
-            formatSolAmount(token.totalSolSpent),
-            formatSolAmount(token.totalSolReceived),
-            `${token.transferCountIn}/${token.transferCountOut}`,
-            `${formatDate(token.firstTransferTimestamp)} / ${formatDate(token.lastTransferTimestamp)}`
-        ]);
+        lines.push(table(tokenData, { border: getBorderCharacters('ramac') }));
+        lines.push("\n---\n");
+        lines.push("Generated by Solana P/L Analyzer.");
+    } else {
+        lines.push('No per-token P&L data available.');
     }
-    lines.push(table(tableData, { border: getBorderCharacters('ramac') }));
-    lines.push("\n---\n");
-    lines.push("Generated by Solana P/L Analyzer.");
 
-    lines.push('--- END OF P/L REPORT ---');
+    lines.push('--- END OF P&L REPORT ---');
     return lines.join('\n');
 }
 

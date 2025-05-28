@@ -21,6 +21,7 @@ import { DatabaseService, prisma } from 'core/services/database-service';
 import { ReportingService } from 'core/reporting/reportGenerator'; 
 import { BehaviorService } from 'core/analysis/behavior/behavior-service';
 import { BehaviorAnalysisConfig } from '@/types/analysis';
+import { HeliusApiClient } from 'core/services/helius-api-client';
 
 // Initialize environment variables
 dotenv.config();
@@ -138,14 +139,28 @@ async function analyzeWalletWithHelius() {
 
   // --- Instantiate Services ---
   const dbService = new DatabaseService();
+  
+  // Instantiate HeliusApiClient once
+  let heliusApiClient: HeliusApiClient | null = null;
+  if (heliusApiKey) {
+    heliusApiClient = new HeliusApiClient({ 
+        apiKey: heliusApiKey, 
+        network: 'mainnet' // Or make configurable if needed
+    }, dbService); // Pass dbService if HeliusApiClient constructor needs it
+  }
+
   let syncService: HeliusSyncService | null = null;
-  if (heliusApiKey) { 
-      syncService = new HeliusSyncService(dbService, heliusApiKey);
+  if (heliusApiClient) { 
+      syncService = new HeliusSyncService(dbService, heliusApiClient); // Pass the client instance
   } else if (!skipApi) {
-      logger.error("Cannot proceed without Helius API key when skipApi is false.");
+      logger.error("Cannot proceed with sync service without Helius API key/client when skipApi is false.");
       process.exit(1);
   }
-  const pnlAnalysisService = new PnlAnalysisService(dbService);
+  
+  // Pass HeliusApiClient to PnlAnalysisService
+  // Ensure PnlAnalysisService also uses dbService as its first argument if needed
+  const pnlAnalysisService = new PnlAnalysisService(dbService, heliusApiClient);
+  
   // Use undefined instead of null for optional service dependencies
   const reportingService = new ReportingService(undefined, undefined, undefined, undefined, pnlAnalysisService);
   let behaviorService: BehaviorService | null = null;

@@ -90,6 +90,11 @@ model AnalysisResult {
   estimatedPreservedValue Float?
   preservationType       String?  // Consider Enum: enum PreservationType { STABLECOIN HODL }
 
+  // New fields for current token balance snapshot
+  currentRawBalance      String?   // Current raw token balance (string to preserve precision)
+  balanceDecimals        Int?      // Decimals for the current balance fields
+  balanceFetchedAt       DateTime? // Timestamp when this specific token balance was part of a WalletState fetch
+
   updatedAt              DateTime @default(now()) @updatedAt
 
   @@unique([walletAddress, tokenAddress])
@@ -121,6 +126,10 @@ model WalletPnlSummary {
   overallLastTimestamp          Int?
   
   advancedStats                 AdvancedTradeStats? // One-to-one relation via walletPnlSummaryId field on AdvancedTradeStats
+
+  // New fields for SOL balance snapshot
+  currentSolBalance             Float?    // Current SOL balance at the time of analysis
+  solBalanceFetchedAt           DateTime? // Timestamp when SOL balance was fetched (should be same as token balances)
 
   updatedAt                     DateTime @updatedAt
 

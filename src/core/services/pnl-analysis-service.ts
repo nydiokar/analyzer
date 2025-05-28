@@ -2,21 +2,35 @@ import { createLogger } from 'core/utils/logger';
 import { DatabaseService, prisma } from 'core/services/database-service';
 import { SwapAnalyzer } from 'core/analysis/swap/analyzer';
 import { AdvancedStatsAnalyzer } from 'core/analysis/stats/analyzer';
-import { OnChainAnalysisResult, SwapAnalysisSummary, AdvancedTradeStats } from '@/types/helius-api';
-import { SwapAnalysisInput, Wallet } from '@prisma/client';
+import { OnChainAnalysisResult, SwapAnalysisSummary, AdvancedTradeStats as PrismaAdvancedTradeStats } from '@/types/helius-api';
+import { SwapAnalysisInput, Wallet, AnalysisRun } from '@prisma/client';
+import { HeliusApiClient } from './helius-api-client';
+import { WalletBalanceService } from './wallet-balance-service';
+import { WalletBalance } from '@/types/wallet';
 
 const logger = createLogger('PnlAnalysisService');
 
 export class PnlAnalysisService {
     private swapAnalyzer: SwapAnalyzer;
     private advancedStatsAnalyzer: AdvancedStatsAnalyzer;
+    private walletBalanceService: WalletBalanceService | null;
+    private heliusApiClient: HeliusApiClient | null;
 
     constructor(
-        private databaseService: DatabaseService
+        private databaseService: DatabaseService,
+        heliusApiClient: HeliusApiClient | null
     ) {
         this.swapAnalyzer = new SwapAnalyzer();
         this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
-        logger.info('PnlAnalysisService instantiated.');
+        this.heliusApiClient = heliusApiClient;
+
+        if (this.heliusApiClient) {
+            this.walletBalanceService = new WalletBalanceService(this.heliusApiClient);
+            logger.info('PnlAnalysisService instantiated with HeliusApiClient. WalletBalanceService active.');
+        } else {
+            this.walletBalanceService = null;
+            logger.info('PnlAnalysisService instantiated without HeliusApiClient. WalletBalanceService inactive.');
+        }
     }
 
     /**
@@ -33,7 +47,7 @@ export class PnlAnalysisService {
         timeRange?: { startTs?: number, endTs?: number },
         newestProcessedSignatureFromWallet?: string | null,
         options?: { isViewOnly?: boolean }
-    ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean }) | null> {
+    ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
         logger.info(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, newSignatureToAnalyze: newestProcessedSignatureFromWallet, options });
 
         let runId: number | undefined = undefined;
@@ -44,6 +58,27 @@ export class PnlAnalysisService {
         const isViewOnlyMode = !!options?.isViewOnly;
 
         let startTimeMs: number = 0;
+
+        // Fetch current wallet state (SOL & Token Balances)
+        let currentWalletBalance: WalletBalance | undefined;
+        let balancesFetchedAt: Date | undefined;
+
+        if (this.walletBalanceService) {
+            try {
+                logger.debug(`[PnlAnalysis] Fetching current wallet state for ${walletAddress}...`);
+                const walletBalancesMap = await this.walletBalanceService.fetchWalletBalances([walletAddress]);
+                currentWalletBalance = walletBalancesMap.get(walletAddress);
+                if (currentWalletBalance) {
+                    balancesFetchedAt = currentWalletBalance.fetchedAt;
+                    logger.info(`[PnlAnalysis] Successfully fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, FetchedAt: ${balancesFetchedAt}`);
+                }
+            } catch (balanceError: any) {
+                logger.warn(`[PnlAnalysis] Failed to fetch wallet state for ${walletAddress}. Proceeding without live balances. Error: ${balanceError.message || balanceError}`);
+                // Non-critical, proceed with PNL analysis without current balances if fetch fails
+            }
+        } else {
+            logger.info(`[PnlAnalysis] WalletBalanceService is not active (no HeliusApiClient provided). Skipping live balance fetch for ${walletAddress}.`);
+        }
 
         try {
             if (!isViewOnlyMode) {
@@ -73,7 +108,7 @@ export class PnlAnalysisService {
                             data: { status: 'COMPLETED', signaturesConsidered: 0, durationMs: Date.now() - startTimeMs },
                         });
                     }
-                    return { results: [], totalSignaturesProcessed: 0, overallFirstTimestamp: 0, overallLastTimestamp: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, firstTransactionTimestamp: 0, lastTransactionTimestamp: 0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId };
+                    return { results: [], totalSignaturesProcessed: 0, overallFirstTimestamp: 0, overallLastTimestamp: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, firstTransactionTimestamp: 0, lastTransactionTimestamp: 0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId, currentSolBalance: currentWalletBalance?.solBalance, balancesFetchedAt: balancesFetchedAt };
                 }
                 logger.debug(`[PnlAnalysis] Fetched ${swapInputs.length} swap input records from DB.`);
             } catch (dbError: any) {
@@ -107,6 +142,17 @@ export class PnlAnalysisService {
             const swapAnalysisCore = this.swapAnalyzer.analyze(swapInputs, walletAddress);
             const { results: swapAnalysisResultsFromAnalyzer, processedSignaturesCount, stablecoinNetFlow } = swapAnalysisCore;
 
+            // Enrich with token balances
+            const enrichedSwapAnalysisResults = swapAnalysisResultsFromAnalyzer.map(res => {
+                const tokenBalanceDetail = currentWalletBalance?.tokenBalances.find(tb => tb.mint === res.tokenAddress);
+                return {
+                    ...res,
+                    currentRawBalance: tokenBalanceDetail?.balance,
+                    balanceDecimals: tokenBalanceDetail?.decimals,
+                    balanceFetchedAt: tokenBalanceDetail ? balancesFetchedAt : undefined,
+                };
+            });
+
             if (runId) {
                 await prisma.analysisRun.update({
                     where: { id: runId },
@@ -116,11 +162,12 @@ export class PnlAnalysisService {
 
             if (!swapAnalysisResultsFromAnalyzer || swapAnalysisResultsFromAnalyzer.length === 0) {
                 logger.warn(`[PnlAnalysis] No results from SwapAnalyzer for wallet ${walletAddress}. Returning empty summary.`);
-                return { results: [], totalSignaturesProcessed: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, overallFirstTimestamp: overallFirstTimestamp ||0, overallLastTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId };
+                return { results: [], totalSignaturesProcessed: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, overallFirstTimestamp: overallFirstTimestamp ||0, overallLastTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId, currentSolBalance: currentWalletBalance?.solBalance, balancesFetchedAt: balancesFetchedAt };
             }
 
             if (!isHistoricalView && !isViewOnlyMode) {
-                const resultsToUpsert = swapAnalysisResultsFromAnalyzer.map((r: OnChainAnalysisResult) => ({
+                // Upsert AnalysisResult records with token balances
+                const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
                     walletAddress: walletAddress,
                     tokenAddress: r.tokenAddress,
                     totalAmountIn: r.totalAmountIn,
@@ -137,6 +184,9 @@ export class PnlAnalysisService {
                     isValuePreservation: r.isValuePreservation,
                     estimatedPreservedValue: r.estimatedPreservedValue,
                     preservationType: r.preservationType,
+                    currentRawBalance: r.currentRawBalance,
+                    balanceDecimals: r.balanceDecimals,
+                    balanceFetchedAt: r.balanceFetchedAt,
                 }));
                 for (const record of resultsToUpsert) {
                     await prisma.analysisResult.upsert({
@@ -171,7 +221,7 @@ export class PnlAnalysisService {
             const averageRealizedPnlPerExecutedSwap = totalExecutedSwapsCount > 0 ? realizedPnl / totalExecutedSwapsCount : 0;
             const realizedPnlToTotalVolumeRatio = totalVolume > 0 ? realizedPnl / totalVolume : 0;
 
-            let advancedStatsData: AdvancedTradeStats | null = null;
+            let advancedStatsData: PrismaAdvancedTradeStats | null = null;
             try {
                 const resultsForAdvancedStats = swapAnalysisResultsFromAnalyzer.filter(r => !r.isValuePreservation);
                 if (resultsForAdvancedStats.length > 0) advancedStatsData = this.advancedStatsAnalyzer.analyze(resultsForAdvancedStats);
@@ -181,7 +231,7 @@ export class PnlAnalysisService {
             }
 
             const summaryForReturn: SwapAnalysisSummary = {
-                results: swapAnalysisResultsFromAnalyzer,
+                results: enrichedSwapAnalysisResults,
                 totalSignaturesProcessed: processedSignaturesCount,
                 overallFirstTimestamp: overallFirstTimestamp || 0,
                 overallLastTimestamp: overallLastTimestamp || 0,
@@ -198,6 +248,8 @@ export class PnlAnalysisService {
                 averageRealizedPnlPerExecutedSwap,
                 realizedPnlToTotalVolumeRatio,
                 advancedStats: advancedStatsData ?? undefined,
+                currentSolBalance: currentWalletBalance?.solBalance,
+                balancesFetchedAt: balancesFetchedAt,
             };
 
             if (!isHistoricalView && !isViewOnlyMode) {
@@ -218,6 +270,8 @@ export class PnlAnalysisService {
                     totalSignaturesProcessed: summaryForReturn.totalSignaturesProcessed,
                     overallFirstTimestamp: summaryForReturn.overallFirstTimestamp,
                     overallLastTimestamp: summaryForReturn.overallLastTimestamp,
+                    currentSolBalance: currentWalletBalance?.solBalance,
+                    solBalanceFetchedAt: balancesFetchedAt,
                 };
 
                 if (advancedStatsData) {
@@ -252,7 +306,6 @@ export class PnlAnalysisService {
                         },
                     });
                     logger.info(`[PnlAnalysis] Upserted WalletPnlSummary and AdvancedTradeStats for ${walletAddress}.`);
-
                 } else {
                     await prisma.walletPnlSummary.upsert({
                         where: { walletAddress: walletAddress },
@@ -312,4 +365,4 @@ export class PnlAnalysisService {
             }
         }
     }
-} 
+}

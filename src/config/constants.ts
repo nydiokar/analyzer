@@ -13,6 +13,16 @@ export const DEFAULT_EXCLUDED_MINTS = [
   '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', // RAY
 ];
 
+// Define specific program IDs
+export const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+export const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxAPds';
+
+// Consider if SOL_TOKEN_PROGRAM_ID is still needed or if its usages should be updated.
+// For now, I'll leave it commented out or you can decide to remove it if it's fully replaced.
+// export const SOL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA, TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxAPds';
+
+export const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
+
 // Analysis configuration
 export const CLUSTERING_CONFIG = {
   excludedMints: DEFAULT_EXCLUDED_MINTS,
