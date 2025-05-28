@@ -7,6 +7,7 @@ import { createLogger } from 'core/utils/logger';
 import { mapHeliusTransactionsToIntermediateRecords } from '../../core/services/helius-transaction-mapper';
 import { HeliusTransaction } from '../../types/helius-api';
 import zlib from 'zlib';
+import { DatabaseService } from '../../core/services/database-service';
 
 // Initialize environment variables
 dotenv.config();
@@ -161,6 +162,8 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 async function backfillForWallet(walletAddress: string, batchSize: number): Promise<void> {
   logger.info(`Starting backfill for wallet: ${walletAddress} with batch size: ${batchSize}`);
   logger.info(`<<< MODE: UPSERT. Existing SwapAnalysisInput records will be updated or new ones created. >>>`);
+
+  const dbService = new DatabaseService();
 
   let processedTransactions = 0;
   let totalUpserted = 0;
@@ -339,21 +342,23 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
     }
 
     logger.debug(`Mapping ${parsedTransactions.length} transactions...`);
-    // Process transactions through the mapper (same as before)
-    const mappedInputs = mapHeliusTransactionsToIntermediateRecords(walletAddress, parsedTransactions);
-    // Debug output (same as before)
+    // Process transactions through the mapper
+    const mappingResult = mapHeliusTransactionsToIntermediateRecords(walletAddress, parsedTransactions);
+    const mappedInputs: ExtendedSwapAnalysisInput[] = mappingResult.analysisInputs as ExtendedSwapAnalysisInput[]; // Added type assertion
+
+    // Debug output
     if (mappedInputs.length > 0) {
         debugMapperOutput(mappedInputs);
     }
 
-    // Group inputs by signature (same as before)
+    // Group inputs by signature
     const signatureToInputsMap = new Map<string, ExtendedSwapAnalysisInput[]>();
     for (const input of mappedInputs) {
         const sig = input.signature as string;
         if (!signatureToInputsMap.has(sig)) {
             signatureToInputsMap.set(sig, []);
         }
-        signatureToInputsMap.get(sig)!.push(input as unknown as ExtendedSwapAnalysisInput);
+        signatureToInputsMap.get(sig)!.push(input);
     }
 
     // --- Process Mapped Transactions (UPSERT) ---
@@ -400,9 +405,6 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
                 try {
                     await prisma.swapAnalysisInput.upsert({
                         where: {
-                            // This assumes a unique constraint named 'walletAddress_signature_mint_direction'
-                            // (default for @@unique([walletAddress, signature, mint, direction]))
-                            // Adjust if your schema uses a custom name or different fields.
                             signature_mint_direction_amount: {
                                 signature: data.signature,
                                 mint: data.mint,
@@ -412,8 +414,6 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
                         },
                         create: data,
                         update: {
-                            // Fields NOT in the unique key 'signature_mint_direction_amount'
-                            // are updated if the record exists.
                             walletAddress: data.walletAddress,
                             timestamp: data.timestamp,
                             associatedSolValue: data.associatedSolValue,
@@ -427,8 +427,6 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
                     if (data.feeAmount !== null) sigFeeDataCount++;
 
                 } catch (dbError) {
-                     // No longer need isUniqueConstraintViolation check, upsert handles it.
-                     // WSOL check moved before the try block.
                      batchErrors++;
                      const errorType = getErrorType(dbError);
                      incrementErrorCount(errorType, `Upsert error for ${signature}/${data.mint}/${data.direction}: ${dbError}`,
@@ -459,6 +457,17 @@ async function backfillForWallet(walletAddress: string, batchSize: number): Prom
     logger.info(`Batch results: Upserted ${batchUpserted}, WSOL Upserts Skipped ${batchWsolSkipped}, Fee data count ${batchFeeDataCount}, Errors ${batchErrors}`);
 
     processedTransactions += parsedTransactions.length; // Count processed transactions
+
+    // Log mapping stats for this batch using dbService
+    if (mappingResult.stats) {
+        try {
+            await dbService.saveMappingActivityLog(walletAddress, mappingResult.stats);
+            logger.info(`Mapping activity log saved for wallet ${walletAddress} (batch starting skip: ${skip})`);
+        } catch (logError) {
+            logger.error(`Failed to save mapping activity log for wallet ${walletAddress}`, { error: logError });
+        }
+    }
+
     skip += cachedTransactionsData.length; // Advance skip based on fetched cache count
 
     // Periodically log error distributions (same as before)

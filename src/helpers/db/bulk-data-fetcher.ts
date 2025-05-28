@@ -39,7 +39,7 @@ async function processAndSaveTransactions(
 
   // Map transactions to analysis inputs
   const analysisInputsToSave: Prisma.SwapAnalysisInputCreateInput[] =
-    mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
+    mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions).analysisInputs;
 
   if (analysisInputsToSave.length > 0) {
     logger.debug(`${logPrefix} Saving ${analysisInputsToSave.length} analysis input records to database...`);

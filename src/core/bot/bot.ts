@@ -239,42 +239,87 @@ Command: ${commandText}`);
         const userId = ctx.from.id;
         if (ctx.message && 'text' in ctx.message) {
           logger.info(`/analyze_advanced command from user ID: ${userId}, message: ${ctx.message.text}`);
-          const text = ctx.message.text.replace('/analyze_advanced', '').trim();
-          const args = text.split(/\s+/).filter(arg => arg.length > 0);
+          const rawInputText = ctx.message.text.replace('/analyze_advanced', '').trim();
           
+          // Enhanced address parsing
+          // 1. Replace <br> tags (case-insensitive) with a common separator (e.g., space)
+          const textWithoutBr = rawInputText.replace(/<br\s*\/?\>/gi, ' ');
+
+          // 2. Split by a regex that includes spaces, commas, semicolons, newlines
+          // Also, trim each part and filter out empty strings resulting from multiple separators.
+          const potentialAddresses: string[] = textWithoutBr
+            .split(/[\\s,;\\n\"']+/) // Split by spaces, commas, semicolons, newlines, quotes
+            .map(arg => arg.trim())
+            .filter(arg => arg.length > 0);
+
           let walletAddresses: string[] = [];
+          const invalidInputs: { input: string; reason: string }[] = [];
           let transactionCount: number | undefined = undefined;
           const MAX_ALLOWED_TX_COUNT = 5000;
 
-          if (args.length === 0) {
+          if (potentialAddresses.length === 0) {
             await ctx.reply('Please provide at least one wallet address. Usage: /analyze_advanced <wallet1> [wallet2...] [tx_count]');
             return;
           }
 
-          const lastArg = args[args.length - 1];
+          // Check if the last argument is a transaction count
+          const lastArg = potentialAddresses[potentialAddresses.length - 1];
           const potentialTxCount = parseInt(lastArg, 10);
+          let addressesToProcess = potentialAddresses;
 
           if (!isNaN(potentialTxCount) && potentialTxCount > 0 && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(lastArg)) {
-             if (args.length > 1) { // Ensure there's at least one wallet address before tx_count
+            if (potentialAddresses.length > 1) { // Ensure there's at least one wallet address before tx_count
                 transactionCount = Math.min(potentialTxCount, MAX_ALLOWED_TX_COUNT);
-                walletAddresses = args.slice(0, -1).filter(arg => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(arg));
-            } else { // Only arg is a number
-                await ctx.reply('Please provide wallet addresses before specifying a transaction count.');
+                addressesToProcess = potentialAddresses.slice(0, -1);
+            } else { // Only arg is a number, treat as error
+                await ctx.reply('Please provide wallet addresses before specifying a transaction count. Usage: /analyze_advanced <wallet1> [wallet2...] [tx_count]');
                 return;
             }
-          } else { // All args are wallet addresses
-            walletAddresses = args.filter(arg => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(arg));
+          }
+
+          // Validate each potential address
+          const solanaAddressRegex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+          addressesToProcess.forEach(input => {
+            // Further clean each input: remove any remaining quotes just in case
+            const cleanedInput = input.replace(/['"]+/g, '');
+            if (solanaAddressRegex.test(cleanedInput)) {
+              if (!walletAddresses.includes(cleanedInput)) { // Add if valid and not already added
+                walletAddresses.push(cleanedInput);
+              }
+            } else {
+              invalidInputs.push({ input: input, reason: 'Invalid Solana address format or characters.' });
+            }
+          });
+          
+          // Deduplicate walletAddresses (already handled by pushing only if not includes, but good as a safeguard)
+          walletAddresses = Array.from(new Set(walletAddresses));
+
+
+          let feedbackMessage = "";
+          if (invalidInputs.length > 0) {
+            feedbackMessage += "<b>⚠️ Encountered issues with some inputs:</b>\\n";
+            invalidInputs.forEach(invalid => {
+              // Ensure user-provided input is escaped for HTML
+              const escapedInput = invalid.input.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              feedbackMessage += `• <code>${escapedInput}</code>: ${invalid.reason}\\n`;
+            });
+            feedbackMessage += "\\n";
           }
 
           if (walletAddresses.length === 0) {
-            await ctx.reply('No valid Solana wallet addresses provided. Usage: /analyze_advanced <wallet1> [wallet2...] [tx_count]');
+            feedbackMessage += "No valid Solana wallet addresses to process after filtering. Please check your input.";
+            await ctx.replyWithHTML(feedbackMessage);
             return;
           }
-          // TODO: Later, add logic for N > 10 wallets -> file output
+
+          feedbackMessage += `✅ Processing ${walletAddresses.length} valid wallet address(es).`;
+          if (transactionCount) {
+            feedbackMessage += ` (Transaction count set to: ${transactionCount})`;
+          }
+          await ctx.replyWithHTML(feedbackMessage);
+          
+          // Proceed with analysis if valid addresses exist
           await this.commands.analyzeAdvancedStats(ctx, walletAddresses, transactionCount);
-        } else {
-          logger.warn(`/analyze_advanced command received without text content from user ID: ${userId} or in unsupported context.`);
-          await ctx.reply('This command requires text input. Please try again with /analyze_advanced <wallet_address1> [wallet_address2] ... [tx_count]');
         }
       });
 

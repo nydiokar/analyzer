@@ -1059,6 +1059,18 @@ export function generateDetailedBehaviorHtmlTelegram(walletAddress: string, metr
     return lines.join('\n');
 }
 
+// HTML Escaping utility function
+function escapeHtml(unsafe: string | number | undefined | null): string {
+    if (unsafe === null || unsafe === undefined) return '';
+    const str = String(unsafe);
+    return str
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
+
 /**
  * Generates a detailed HTML report for advanced trading statistics for Telegram.
  * @param walletAddress - The wallet address.
@@ -1067,11 +1079,11 @@ export function generateDetailedBehaviorHtmlTelegram(walletAddress: string, metr
  */
 export function generateDetailedAdvancedStatsHtmlTelegram(walletAddress: string, stats: AdvancedTradeStats | null | undefined): string {
     if (!stats) {
-        return `<b>📈 Advanced Trading Statistics for <code>${walletAddress}</code></b>\n⚠️ No advanced statistics data available to generate a detailed report.`;
+        return `<b>📈 Advanced Trading Statistics for <code>${escapeHtml(walletAddress)}</code></b>\n⚠️ No advanced statistics data available to generate a detailed report.`;
     }
     const lines: string[] = [];
     
-    lines.push(`<b>📈 Advanced Trading Statistics for <code>${walletAddress}</code></b>`);
+    lines.push(`<b>📈 Advanced Trading Statistics for <code>${escapeHtml(walletAddress)}</code></b>`);
     if (stats.firstTransactionTimestamp && stats.lastTransactionTimestamp) {
         lines.push(`<i>Data from: ${formatTimestamp(stats.firstTransactionTimestamp)} to ${formatTimestamp(stats.lastTransactionTimestamp)}</i>`);
     }
@@ -1178,7 +1190,8 @@ export function generateCorrelationReportTelegram(
         cluster.wallets.forEach(walletAddr => {
             const pnl = walletPnLs[walletAddr]?.toFixed(2) ?? 'N/A';
             const uniqueTokenCount = uniqueTokenCountsPerWallet[walletAddr] ?? 0;
-            clusterSpecificLines.push(`  - <code>${walletAddr}</code> (${uniqueTokenCount} unique tokens, ${pnl} SOL)`);
+            // Apply escapeHtml to walletAddr
+            clusterSpecificLines.push(`  - <code>${escapeHtml(walletAddr)}</code> (${uniqueTokenCount} unique tokens, ${pnl} SOL)`);
         });
 
         const tempClusterReportFragment = clusterSpecificLines.join('\n');
@@ -1230,8 +1243,9 @@ export function generateCorrelationReportTelegram(
 
         pairLines.push(''); // Add a blank line for spacing before each pair
         pairLines.push(`Pair #${index + 1} (Score: ${(pair.score ?? 0).toFixed(2)}):`);
-        pairLines.push(`  A: <code>${pair.walletA_address}</code> (PNL: ${pnlA} SOL, ${uniqueTokensA} unique tokens)`);
-        pairLines.push(`  B: <code>${pair.walletB_address}</code> (PNL: ${pnlB} SOL, ${uniqueTokensB} unique tokens)`);
+        // Apply escapeHtml to pair.walletA_address and pair.walletB_address
+        pairLines.push(`  A: <code>${escapeHtml(pair.walletA_address)}</code> (PNL: ${pnlA} SOL, ${uniqueTokensA} unique tokens)`);
+        pairLines.push(`  B: <code>${escapeHtml(pair.walletB_address)}</code> (PNL: ${pnlB} SOL, ${uniqueTokensB} unique tokens)`);
         
         const tempPairReportFragment = pairLines.join('\n');
         if (currentMessageLines.join('\n').length + tempPairReportFragment.length > MAX_MESSAGE_LENGTH && currentMessageLines.length > 0) {
