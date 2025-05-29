@@ -16,7 +16,7 @@ This document provides an overview of the React components created for the Walle
 
 -   **File Path:** `dashboard/src/components/layout/WalletProfileLayout.tsx`
 -   **Purpose:** Provides the main layout structure for individual wallet profile pages.
--   **Current State:** Features a sticky header that includes an improved wallet address display (WalletIcon, truncated address in a Badge, copy-to-clipboard Button) and the `ThemeToggleButton`. The `AccountSummaryCard` and `TimeRangeSelector` are also part of this sticky header. The main navigation `TabsList` (for Overview, Token Performance, Account Stats & PNL, etc.) is also integrated into the sticky header, below the summary components. The parent `Tabs` component wraps the entire layout (header and main content area) to ensure `TabsList` functions correctly. Dynamically renders `TokenPerformanceTab`, `AccountStatsPnlTab`, and `BehavioralPatternsTab` components within their respective `TabsContent`. It is a client component (`"use client"`) to manage tab state and copy-to-clipboard functionality. Padding has been minimized.
+-   **Current State:** Features a sticky header that includes an improved wallet address display (WalletIcon, truncated address in a Badge, copy-to-clipboard Button) and the `ThemeToggleButton`. The `AccountSummaryCard` (which now also displays current SOL balance) and `TimeRangeSelector` are also part of this sticky header. The main navigation `TabsList` (for Overview, Token Performance, Account Stats & PNL, etc.) is also integrated into the sticky header, below the summary components. The parent `Tabs` component wraps the entire layout (header and main content area) to ensure `TabsList` functions correctly. Dynamically renders `TokenPerformanceTab`, `AccountStatsPnlTab`, and `BehavioralPatternsTab` components within their respective `TabsContent`. It is a client component (`"use client"`) to manage tab state and copy-to-clipboard functionality. Padding has been minimized.
 -   **Key Props:** `children: React.ReactNode`, `walletAddress: string`.
 -   **Planned Next Steps:** Populate remaining tab content (Notes).
 
@@ -25,16 +25,16 @@ This document provides an overview of the React components created for the Walle
 ### 1. `AccountSummaryCard.tsx`
 
 -   **File Path:** `dashboard/src/components/dashboard/AccountSummaryCard.tsx`
--   **Purpose:** To display a snapshot of key account-level metrics in the header.
--   **Current State:** Implemented as a client component (`"use client"`). Accepts a `walletAddress` prop. Uses SWR to fetch data from the live API endpoint `/api/v1/wallets/{walletAddress}/summary`. SWR is configured with `revalidateOnFocus: false` and custom `onErrorRetry` logic for robustness. Displays loading, error (customized display), or data states. Uses Tremor components for data presentation and `date-fns` for formatting.
+-   **Purpose:** To display a snapshot of key account-level metrics in the header, including the current SOL balance.
+-   **Current State:** Implemented as a client component (`"use client"`). Accepts a `walletAddress` prop. Uses SWR to fetch data from the live API endpoint `/api/v1/wallets/{walletAddress}/summary`. This data includes `currentSolBalance` and `balancesFetchedAt`. SWR is configured with `revalidateOnFocus: false` and custom `onErrorRetry` logic for robustness. Displays loading, error (customized display), or data states. Uses Tremor components for data presentation and `date-fns` for formatting.
 -   **Key Props:** `walletAddress: string`.
 -   **Planned Next Steps:** Monitor and refine based on feedback. Ensure all data points remain robustly handled by the time filter.
 
 ### 2. `TokenPerformanceTab.tsx`
 
 -   **File Path:** `dashboard/src/components/dashboard/TokenPerformanceTab.tsx`
--   **Purpose:** Displays a sortable and paginated table of token performance data for the selected wallet, filterable by the global time range.
--   **Current State:** Implemented as a client component (`"use client"`). Accepts `walletAddress`. Uses SWR and a shared `fetcher` to call `/api/v1/wallets/{walletAddress}/token-performance`. Incorporates global `startDate` and `endDate` from `useTimeRangeStore`. Manages local state for pagination (page, pageSize) and sorting (sortBy, sortOrder). Handles loading, error, and no-data states. Table headers are sticky, and the table body is scrollable. Rows have alternating background colors (zebra striping) and bottom borders for clarity. Pagination is positioned at the bottom of the card.
+-   **Purpose:** Displays a sortable and paginated table of token performance data for the selected wallet, filterable by the global time range. It also shows the current UI-friendly balance for each token and allows filtering to show only current holdings.
+-   **Current State:** Implemented as a client component (`"use client"`). Accepts `walletAddress`. Uses SWR and a shared `fetcher` to call `/api/v1/wallets/{walletAddress}/token-performance`. This API response now includes `currentUiBalance` and `currentUiBalanceString` for each token. Incorporates global `startDate`, `endDate`, and a new `showOnlyHoldings` flag (from `useTokenPerformanceStore`, which is passed to the API if true) from `useTimeRangeStore`. Manages local state for pagination (page, pageSize) and sorting (sortBy, sortOrder). Handles loading, error, and no-data states. The "Net Amount" column has been repurposed to "Current Supply", displaying `currentUiBalanceString` or a formatted `currentUiBalance`. Table headers are sticky, and the table body is scrollable. Rows have alternating background colors (zebra striping) and bottom borders for clarity. Pagination is positioned at the bottom of the card. A toggle for "Show Only Current Holdings" is implemented and functional.
 -   **Key Props:** `walletAddress: string`.
 -   **Planned Next Steps:** Further UI polish as needed based on feedback.
 

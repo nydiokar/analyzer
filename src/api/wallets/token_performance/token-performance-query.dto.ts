@@ -78,7 +78,7 @@ export class TokenPerformanceQueryDto {
   endDate?: string;
 
   @ApiPropertyOptional({
-    description: 'If true, only shows tokens with a current UI balance greater than 0.',
+    description: 'If true, only shows tokens with a current SPL balance greater than 0.',
     type: Boolean,
     default: false,
   })

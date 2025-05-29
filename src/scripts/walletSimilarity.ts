@@ -5,6 +5,10 @@ import { DatabaseService } from 'core/services/database-service';
 import { SimilarityService } from 'core/analysis/similarity/similarity-service'; 
 import { ReportingService } from 'core/reporting/reportGenerator'; 
 import { createLogger } from 'core/utils/logger'; 
+import { WalletBalanceService } from 'core/services/wallet-balance-service';
+import { HeliusApiClient } from 'core/services/helius-api-client';
+import { HeliusApiConfig } from '@/types/helius-api';
+import { WalletBalance } from '@/types/wallet';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
@@ -20,7 +24,7 @@ const logger = createLogger('WalletSimilarityScript');
 // --- Configuration ---
 // Keep default excluded mints here or move fully to a central config file later
 const DEFAULT_EXCLUDED_MINTS: string[] = [
-    'So11111111111111111111111111111111111111112', // WSOL
+    'So1111111111111111111111111111111111111112', // WSOL
     'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
     'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
 ];
@@ -72,15 +76,50 @@ async function runSimilarityAnalysisScript(
     };
     const similarityService = new SimilarityService(dbService, similarityConfig);
     
+    // ---- Instantiate WalletBalanceService ----
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+    if (!heliusApiKey) {
+        logger.error("HELIUS_API_KEY is not set in .env file. Cannot fetch wallet balances.");
+        // Decide if to proceed without balances or exit
+        // For now, we'll log and proceed, but services below will need to handle missing balances.
+        // Consider exiting: process.exit(1); 
+    }
+
+    // Construct HeliusApiConfig
+    const heliusConfig: HeliusApiConfig = {
+        apiKey: heliusApiKey || '', // Provide empty string if undefined, HeliusApiClient should handle or error
+        network: 'mainnet' // Assuming mainnet, adjust if needed or make configurable
+    };
+    const heliusClient = new HeliusApiClient(heliusConfig, dbService);
+    const walletBalanceService = new WalletBalanceService(heliusClient);
+    // ---- End WalletBalanceService Instantiation ----
+    
     // Instantiate ReportingService: Pass dbService first, undefined for BehaviorService, similarityService third.
     const reportingService = new ReportingService(undefined, undefined, undefined, similarityService, undefined);
+
+    // ---- Fetch Wallet Balances ----
+    let walletBalancesMap: Map<string, WalletBalance> = new Map();
+    if (heliusApiKey) { // Only attempt fetch if API key is present
+        try {
+            logger.info("Fetching current wallet balances for similarity analysis...");
+            walletBalancesMap = await walletBalanceService.fetchWalletBalances(walletAddresses);
+            logger.info(`Successfully fetched balances for ${walletBalancesMap.size} wallets.`);
+        } catch (balanceError) {
+            logger.error("Error fetching wallet balances for similarity analysis. Proceeding without live balances.", { balanceError });
+            // Continue with an empty map, services should handle this gracefully or report it.
+        }
+    } else {
+        logger.warn("HELIUS_API_KEY not found, skipping live balance fetching for similarity analysis.");
+    }
+    // ---- End Fetch Wallet Balances ----
 
     // 2. Run Analysis via Service
     let analysisResults: SimilarityMetrics | null = null;
     try {
         analysisResults = await similarityService.calculateWalletSimilarity(
             walletAddresses,
-            vectorType
+            vectorType,
+            walletBalancesMap // Pass the balances map
         );
     } catch (error) {
         logger.error('Error occurred during similarity calculation via SimilarityService:', { error });
@@ -100,7 +139,8 @@ async function runSimilarityAnalysisScript(
         // Assuming the logical signature despite previous linter error
         await reportingService.generateAndSaveSimilarityReport(
             walletAddresses,
-            vectorType
+            vectorType,
+            walletBalancesMap // Pass the balances map
         );
         reportSavedSuccessfully = true; 
     } catch (error) {

@@ -307,6 +307,39 @@ export class SimilarityAnalyzer {
       };
   }
 
+  // ---- NEW: Method for Current Holdings Presence Vectors ----
+  /**
+   * Creates binary token vectors based on current holdings (1 if token is held with uiBalance > 0, 0 otherwise).
+   * @param walletBalances - A map where keys are wallet addresses and values are their WalletBalance data.
+   * @param allUniqueHeldTokens - An array of all unique token mints currently held across all provided wallets.
+   * @returns A record mapping wallet addresses to their holdings presence TokenVector.
+   */
+  public createHoldingsPresenceVectors(
+    walletBalances: Map<string, import('@/types/wallet').WalletBalance>,
+    allUniqueHeldTokens: string[]
+  ): Record<string, TokenVector> {
+    const vectors: Record<string, TokenVector> = {};
+    logger.debug('[createHoldingsPresenceVectors] Creating binary vectors based on current token holdings...');
+
+    for (const [walletAddress, balanceData] of walletBalances.entries()) {
+        vectors[walletAddress] = {};
+        const heldTokensByWallet = new Set<string>();
+        if (balanceData && balanceData.tokenBalances) {
+            balanceData.tokenBalances.forEach(tb => {
+                if (tb.uiBalance !== undefined && tb.uiBalance > 0) {
+                    heldTokensByWallet.add(tb.mint);
+                }
+            });
+        }
+        
+        for (const tokenMint of allUniqueHeldTokens) {
+            vectors[walletAddress][tokenMint] = heldTokensByWallet.has(tokenMint) ? 1 : 0;
+        }
+    }
+    return vectors;
+  }
+  // ---- END NEW Method ----
+
   // Potential private helper methods:
   // private buildTokenVectors(...)? -> Might belong in a service layer
   // private computeCosineSimilarity(...)

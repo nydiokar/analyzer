@@ -5,7 +5,7 @@ import { SimilarityService, ComprehensiveSimilarityResult } from 'core/analysis/
 import { KPIComparisonAnalyzer } from 'core/analysis/behavior/kpi_analyzer';
 import { generateBehaviorReport, generateCorrelationReport, generateSimilarityReport, saveReport } from './report_utils'; // Import utils
 import { BehavioralMetrics } from '@/types/behavior';
-import { WalletInfo } from '@/types/wallet';
+import { WalletInfo, WalletBalance } from '@/types/wallet';
 import { PnlAnalysisService } from 'core/services/pnl-analysis-service';
 import { SwapAnalysisSummary } from '@/types/helius-api';
 import { generateSwapPnlReport, generateSwapPnlCsv } from './report_utils'; // Import additional report utils
@@ -185,7 +185,11 @@ export class ReportingService {
      * Generates and saves a similarity report for a list of wallets.
      * It now calls the enhanced similarity service and passes the comprehensive results to the report utility.
      */
-    async generateAndSaveSimilarityReport(walletAddresses: string[], vectorType: 'capital' | 'binary' = 'capital'): Promise<void> {
+    async generateAndSaveSimilarityReport(
+        walletAddresses: string[], 
+        vectorType: 'capital' | 'binary' = 'capital',
+        walletBalances?: Map<string, WalletBalance>
+    ): Promise<void> {
         if (!this.similarityService) {
             logger.error('SimilarityService not injected. Cannot generate similarity report.');
             return;
@@ -193,7 +197,11 @@ export class ReportingService {
         logger.info(`Generating similarity report for ${walletAddresses.length} wallets (type: ${vectorType})...`);
         try {
             // Call the enhanced service method which returns ComprehensiveSimilarityResult | null
-            const comprehensiveMetrics: ComprehensiveSimilarityResult | null = await this.similarityService.calculateWalletSimilarity(walletAddresses, vectorType);
+            const comprehensiveMetrics: ComprehensiveSimilarityResult | null = await this.similarityService.calculateWalletSimilarity(
+                walletAddresses, 
+                vectorType,
+                walletBalances
+            );
             
             if (comprehensiveMetrics) {
                  // Need WalletInfo for labels - create placeholders or fetch if necessary
@@ -201,8 +209,13 @@ export class ReportingService {
                  const walletInfos: WalletInfo[] = walletAddresses.map(addr => ({ address: addr })); // Simple placeholder
 
                 // Pass the comprehensive metrics object to the updated report utility
-                const reportContent = generateSimilarityReport(comprehensiveMetrics, walletInfos);
-                const reportPath = saveReport(`similarity_${vectorType}`, reportContent, 'similarity');
+                const reportContent = generateSimilarityReport(
+                    comprehensiveMetrics, 
+                    walletInfos, // Pass WalletInfo for labels
+                    walletBalances // <-- Pass walletBalancesMap again
+                    // vectorType is available in comprehensiveMetrics.vectorTypeUsed
+                );
+                const reportPath = saveReport(`similarity_${comprehensiveMetrics.vectorTypeUsed}`, reportContent, 'similarity');
                 logger.info(`Saved similarity report to ${reportPath}`);
             } else {
                 logger.warn('Similarity analysis did not produce results. Report not generated.');

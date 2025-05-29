@@ -9,6 +9,7 @@ import { SwapAnalysisSummary, OnChainAnalysisResult, AdvancedTradeStats } from '
 import Papa from 'papaparse';
 import { table, getBorderCharacters } from 'table'; // Added getBorderCharacters
 import { formatTimestamp, formatSolAmount, formatNumber } from 'core/utils/formatters';
+import { WalletBalance } from '@/types/wallet';
 
 const logger = createLogger('ReportUtils');
 
@@ -306,7 +307,8 @@ export function generateCorrelationReport(
  */
 export function generateSimilarityReport(
     metrics: ComprehensiveSimilarityResult,
-    walletInfos: WalletInfo[]
+    walletInfos: WalletInfo[],
+    walletBalances?: Map<string, WalletBalance>
 ): string {
     logger.debug(`Generating similarity report for ${walletInfos.length} wallets.`);
     const lines: string[] = [];
@@ -314,6 +316,21 @@ export function generateSimilarityReport(
     const walletAddresses = walletInfos.map(w => w.address).sort();
     const walletLabels: Record<string, string> = {};
     walletInfos.forEach(w => { walletLabels[w.address] = w.label || w.address.substring(0, 8); });
+
+    // Define INSIGHT_THRESHOLDS early as it's used by cluster detection and key insights
+    const INSIGHT_THRESHOLDS = {
+        VERY_HIGH_HISTORICAL_CAPITAL: 0.9,
+        VERY_HIGH_HISTORICAL_BINARY: 0.25, // Primary binary can be lower
+        VERY_HIGH_HOLDINGS_JACCARD: 0.7,  // Threshold for current holdings Jaccard
+        VERY_HIGH_HOLDINGS_COSINE: 0.8,   // Threshold for current holdings Cosine
+        STRONG_CONCORDANCE_HISTORICAL_SIM: 0.5,
+        STRONG_CONCORDANCE_HOLDINGS_SIM: 0.5, // e.g., Jaccard for holdings
+        STRONG_CONCORDANCE_PCT: 50,
+        ASYMMETRY_SIM: 0.4, // Generic similarity threshold for asymmetry checks
+        ASYMMETRY_HIGH_PCT: 70,
+        ASYMMETRY_LOW_PCT: 20,
+        MODERATE_SIM: 0.3, // A general moderate threshold
+    };
 
     // Pre-calculate unique traded token counts for percentage calculation
     const uniqueTokensPerWallet: Record<string, number> = {};
@@ -336,21 +353,12 @@ export function generateSimilarityReport(
     walletInfos.forEach(w => lines.push(`- ${w.address}${w.label ? ' (' + w.label + ')' : ''}`));
     lines.push('');
 
-    // --- NEW: Key Insights & Potential Wallets for Review ---
+    // --- Key Insights & Potential Wallets for Review (Enhanced) ---
     lines.push('=== Key Insights & Potential Wallets for Review ===');
     const keyInsights: string[] = [];
-    const insightProcessedPairs = new Set<string>(); // To avoid duplicate insights for pairs
+    const insightProcessedPairs = new Set<string>();
 
-    // Define thresholds for insights - these can be tuned
-    const INSIGHT_THRESHOLDS = {
-        VERY_HIGH_SIM_CAPITAL: 0.9,
-        VERY_HIGH_SIM_BINARY: 0.25, // Binary scores are often lower
-        STRONG_CONCORDANCE_SIM: 0.5,
-        STRONG_CONCORDANCE_PCT: 50, // A and B must both be > 50%
-        ASYMMETRY_SIM: 0.4,
-        ASYMMETRY_HIGH_PCT: 70,
-        ASYMMETRY_LOW_PCT: 20,
-    };
+    // INSIGHT_THRESHOLDS is now defined earlier
 
     for (let i = 0; i < walletAddresses.length; i++) {
         for (let j = i + 1; j < walletAddresses.length; j++) {
@@ -363,37 +371,94 @@ export function generateSimilarityReport(
             const labelA = walletLabels[addrA];
             const labelB = walletLabels[addrB];
 
-            const primarySimPair = metrics.pairwiseSimilarities.find(p =>
+            // Gather all scores for the pair
+            const primaryHistPair = metrics.pairwiseSimilarities.find(p =>
                 (p.walletA === addrA && p.walletB === addrB) || (p.walletA === addrB && p.walletB === addrA)
             );
-            const primarySim = primarySimPair?.similarityScore || 0;
-            const count = metrics.sharedTokenCountsMatrix[addrA]?.[addrB] || 0;
-            const uniqueA = uniqueTokensPerWallet[addrA] || 0;
-            const uniqueB = uniqueTokensPerWallet[addrB] || 0;
-            const pctA = uniqueA > 0 ? (count / uniqueA) * 100 : 0;
-            const pctB = uniqueB > 0 ? (count / uniqueB) * 100 : 0;
+            const primaryHistoricalSim = primaryHistPair?.similarityScore || 0;
+            const historicalVectorType = metrics.vectorTypeUsed;
+            
+            const holdingsJaccardSim = metrics.holdingsPresenceJaccardMatrix?.[addrA]?.[addrB] ?? metrics.holdingsPresenceJaccardMatrix?.[addrB]?.[addrA] ?? 0;
+            const holdingsCosineSim = metrics.holdingsPresenceCosineMatrix?.[addrA]?.[addrB] ?? metrics.holdingsPresenceCosineMatrix?.[addrB]?.[addrA] ?? 0;
 
-            const veryHighSimThreshold = metrics.vectorTypeUsed === 'capital' ? INSIGHT_THRESHOLDS.VERY_HIGH_SIM_CAPITAL : INSIGHT_THRESHOLDS.VERY_HIGH_SIM_BINARY;
-            if (primarySim >= veryHighSimThreshold) {
-                keyInsights.push(`- **Very High Similarity:** ${labelA} & ${labelB} (Score: ${primarySim.toFixed(3)}, Shared: ${count}, A:${pctA.toFixed(1)}%, B:${pctB.toFixed(1)}%). Investigate further.`);
+            // Shared token counts and percentages (based on historical vectors for now, could adapt if needed)
+            const countHistorical = metrics.sharedTokenCountsMatrix[addrA]?.[addrB] || 0;
+            const uniqueAHist = uniqueTokensPerWallet[addrA] || 0; // uniqueTokensPerWallet is based on historical vectors
+            const uniqueBHist = uniqueTokensPerWallet[addrB] || 0;
+            const pctAHist = uniqueAHist > 0 ? (countHistorical / uniqueAHist) * 100 : 0;
+            const pctBHist = uniqueBHist > 0 ? (countHistorical / uniqueBHist) * 100 : 0;
+
+            let insightAddedForPair = false;
+
+            // Insight 1: Sustained Alignment (High Historical + High Current)
+            if (primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM && 
+                (holdingsJaccardSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HOLDINGS_SIM || holdingsCosineSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HOLDINGS_SIM)
+            ) {
+                keyInsights.push(`- **Sustained Alignment:** ${labelA} & ${labelB}. Strong historical similarity (Primary ${historicalVectorType}: ${primaryHistoricalSim.toFixed(3)}) AND high current holdings similarity (Holdings Jaccard: ${holdingsJaccardSim.toFixed(3)}, Holdings Cosine: ${holdingsCosineSim.toFixed(3)}). Suggests consistent strategic alignment.`);
+                insightAddedForPair = true;
             }
 
-            if (primarySim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_SIM && pctA >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT && pctB >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT) {
-                keyInsights.push(`- **Strong Concordance:** ${labelA} & ${labelB} (Score: ${primarySim.toFixed(3)}, Shared: ${count} [A:${pctA.toFixed(1)}%, B:${pctB.toFixed(1)}%]). Both wallets have a significant portion of their unique token ${metrics.vectorTypeUsed === 'capital' ? 'investments' : 'interactions'} overlapping with notable similarity.`);
+            // Insight 2: Recent Convergence (Moderate/Low Historical + High Current)
+            if (!insightAddedForPair && 
+                primaryHistoricalSim < INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM && 
+                (holdingsJaccardSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_JACCARD || holdingsCosineSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_COSINE)
+            ) {
+                keyInsights.push(`- **Recent Convergence:** ${labelA} & ${labelB}. Moderate/low historical similarity (Primary ${historicalVectorType}: ${primaryHistoricalSim.toFixed(3)}) BUT high current holdings similarity (Holdings Jaccard: ${holdingsJaccardSim.toFixed(3)}, Holdings Cosine: ${holdingsCosineSim.toFixed(3)}). Implies portfolios became similar more recently.`);
+                insightAddedForPair = true;
+            }
+
+            // Insight 3: Recent Divergence (High Historical + Moderate/Low Current)
+            if (!insightAddedForPair && 
+                primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM && 
+                (holdingsJaccardSim < INSIGHT_THRESHOLDS.MODERATE_SIM && holdingsCosineSim < INSIGHT_THRESHOLDS.MODERATE_SIM)
+            ) {
+                keyInsights.push(`- **Recent Divergence:** ${labelA} & ${labelB}. Strong historical similarity (Primary ${historicalVectorType}: ${primaryHistoricalSim.toFixed(3)}) BUT lower current holdings similarity (Holdings Jaccard: ${holdingsJaccardSim.toFixed(3)}, Holdings Cosine: ${holdingsCosineSim.toFixed(3)}). Suggests strategies have diverged.`);
+                insightAddedForPair = true;
+            }
+
+            // Insight 4: Very High Score in a Specific Dimension (if not covered by above)
+            const veryHighPrimaryThresh = historicalVectorType === 'capital' ? INSIGHT_THRESHOLDS.VERY_HIGH_HISTORICAL_CAPITAL : INSIGHT_THRESHOLDS.VERY_HIGH_HISTORICAL_BINARY;
+            if (!insightAddedForPair && primaryHistoricalSim >= veryHighPrimaryThresh) {
+                let insightLine = `- **Very High Historical Similarity:** ${labelA} & ${labelB} (Primary ${historicalVectorType}: ${primaryHistoricalSim.toFixed(3)}, Shared Hist. Tokens: ${countHistorical} [A:${pctAHist.toFixed(1)}%, B:${pctBHist.toFixed(1)}%]).`;
+                if (holdingsJaccardSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_JACCARD || holdingsCosineSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_COSINE) {
+                    if (holdingsJaccardSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_JACCARD && holdingsCosineSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_COSINE) {
+                        insightLine += ` ***(Also strong current: Jaccard ${holdingsJaccardSim.toFixed(3)}, Cosine ${holdingsCosineSim.toFixed(3)})***`;
+                    } else if (holdingsJaccardSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_JACCARD) {
+                        insightLine += ` ***(Also strong current Jaccard: ${holdingsJaccardSim.toFixed(3)})***`;
+                    } else {
+                        insightLine += ` ***(Also strong current Cosine: ${holdingsCosineSim.toFixed(3)})***`;
+                    }
+                }
+                keyInsights.push(insightLine);
+                insightAddedForPair = true;
+            }
+            if (!insightAddedForPair && holdingsJaccardSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_JACCARD) {
+                keyInsights.push(`- **Very High Current Holdings Overlap (Jaccard):** ${labelA} & ${labelB} (Score: ${holdingsJaccardSim.toFixed(3)}).`);
+                insightAddedForPair = true;
+            }
+            if (!insightAddedForPair && holdingsCosineSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_COSINE) {
+                keyInsights.push(`- **Very High Current Holdings Similarity (Cosine):** ${labelA} & ${labelB} (Score: ${holdingsCosineSim.toFixed(3)}).`);
+                insightAddedForPair = true;
             }
             
-            const isAsymmetricAB = pctA >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctB <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
-            const isAsymmetricBA = pctB >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctA <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
-            if (primarySim >= INSIGHT_THRESHOLDS.ASYMMETRY_SIM && (isAsymmetricAB || isAsymmetricBA)) {
-                keyInsights.push(`- **Significant Asymmetry:** ${labelA} & ${labelB} (Score: ${primarySim.toFixed(3)}, Shared: ${count} [A:${pctA.toFixed(1)}%, B:${pctB.toFixed(1)}%]). One wallet's shared tokens are a large part of its ${metrics.vectorTypeUsed === 'capital' ? 'investments' : 'interactions'}, while for the other, it's minor, despite notable similarity.`);
+            // Keep Asymmetry and Focused Investment Pattern insights (based on historical for now, could be adapted)
+            // Asymmetry check needs a primary score to compare against.
+            // We can use the highest score among all calculated for the pair for this check or historical one.
+            const highestSimScoreForAsymmetry = Math.max(primaryHistoricalSim, holdingsJaccardSim, holdingsCosineSim);
+            if (highestSimScoreForAsymmetry >= INSIGHT_THRESHOLDS.ASYMMETRY_SIM) {
+                const isAsymmetricABHist = pctAHist >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctBHist <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
+                const isAsymmetricBAHist = pctBHist >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctAHist <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
+                if (isAsymmetricABHist || isAsymmetricBAHist) {
+                    keyInsights.push(`- **Significant Asymmetry (Historical):** ${labelA} & ${labelB} (Highest Sim: ${highestSimScoreForAsymmetry.toFixed(3)}, Shared Hist. Tokens: ${countHistorical} [A:${pctAHist.toFixed(1)}%, B:${pctBHist.toFixed(1)}%]). One wallet's shared historical tokens are a large part of its activity, while for the other, it's minor.`);
+                }
             }
             
-            if (pctA > 100 || pctB > 100) {
-                 const walletWithOver100 = pctA > 100 ? labelA : labelB;
-                 const otherWallet = pctA > 100 ? labelB : labelA;
-                 const overPct = pctA > 100 ? pctA : pctB;
-                 const uniqueInvestedCount = pctA > 100 ? uniqueA : uniqueB;
-                 keyInsights.push(`- **Focused Investment Pattern:** For ${walletWithOver100} in pair with ${otherWallet} (Shared: ${count}, ${walletWithOver100}:${overPct.toFixed(1)}%), the ${count} shared tokens exceed its ${uniqueInvestedCount} unique capital-invested tokens. This implies ${walletWithOver100} has a very narrow capital focus, and all its capital-invested tokens are shared with ${otherWallet}, plus it trades other shared tokens without capital commitment.`);
+            if (pctAHist > 100 || pctBHist > 100) {
+                  const walletWithOver100 = pctAHist > 100 ? labelA : labelB;
+                  const otherWallet = pctAHist > 100 ? labelB : labelA;
+                  const overPct = pctAHist > 100 ? pctAHist : pctBHist;
+                  const uniqueInvestedCount = pctAHist > 100 ? uniqueAHist : uniqueBHist;
+                  keyInsights.push(`- **Focused Investment Pattern (Historical):** For ${walletWithOver100} in pair with ${otherWallet} (Shared Hist. Tokens: ${countHistorical}, ${walletWithOver100}:${overPct.toFixed(1)}%), the ${countHistorical} shared tokens exceed its ${uniqueInvestedCount} unique capital-invested/traded tokens. This implies ${walletWithOver100} has a narrow focus, and its relevant tokens are shared with ${otherWallet}.`);
             }
         }
     }
@@ -479,6 +544,80 @@ export function generateSimilarityReport(
     }
     lines.push('');
 
+    // --- NEW: Current Holdings Snapshot for Wallets in Top Similar Pairs (or Top Holdings-Similar Pairs) ---
+    // Decide which pairs to show balances for: top historical, or top by new holdings scores if available
+    let pairsForSnapshot = metrics.globalMetrics.mostSimilarPairs.slice(0, Math.min(topKResults, 3));
+    let snapshotTitle = '--- Current Holdings Snapshot (for wallets in Top Historically Similar Pairs) ---';
+
+    // If we have holdings-based similarity, prioritize showing snapshots for those top pairs
+    if (metrics.holdingsPresenceJaccardMatrix) {
+        // Create a sorted list of pairs from holdingsPresenceJaccardMatrix
+        const jaccardPairs: { walletA: string, walletB: string, score: number }[] = [];
+        for (const addrA in metrics.holdingsPresenceJaccardMatrix) {
+            for (const addrB in metrics.holdingsPresenceJaccardMatrix[addrA]) {
+                if (addrA < addrB) { // Avoid duplicates and self-comparison
+                    jaccardPairs.push({ walletA: addrA, walletB: addrB, score: metrics.holdingsPresenceJaccardMatrix[addrA][addrB] });
+                }
+            }
+        }
+        jaccardPairs.sort((a, b) => b.score - a.score);
+        if (jaccardPairs.length > 0) {
+            pairsForSnapshot = jaccardPairs.slice(0, Math.min(topKResults, 3)).map(p => ({ walletA: p.walletA, walletB: p.walletB, similarityScore: p.score, sharedTokens: [] })); // Adapt to expected structure
+            snapshotTitle = '--- Current Holdings Snapshot (for wallets in Top Pairs by Current Holdings Jaccard Similarity) ---';
+        }
+    }
+
+    if (pairsForSnapshot.length > 0) {
+        lines.push(snapshotTitle);
+        const walletsToShowBalances = new Set<string>();
+        pairsForSnapshot.forEach(pair => { 
+            walletsToShowBalances.add(pair.walletA);
+            walletsToShowBalances.add(pair.walletB);
+        });
+
+        if (walletBalances && walletBalances.size > 0) {
+            walletsToShowBalances.forEach(walletAddress => {
+                const balanceInfo = walletBalances.get(walletAddress);
+                const label = walletLabels[walletAddress] || walletAddress.substring(0,8);
+                lines.push(`\n**Wallet:** ${label} (${walletAddress})`);
+                if (balanceInfo) {
+                    lines.push(`  - SOL Balance: ${balanceInfo.solBalance.toFixed(4)} SOL (as of ${balanceInfo.fetchedAt.toISOString()})`);
+                    if (balanceInfo.tokenBalances.length > 0) {
+                        lines.push(`  - Token Holdings (Top 5 by SPL Balance):`);
+                        const tokenTableData = [['Token', 'SPL Balance', 'Mint']];
+                        const sortedTokens = [...balanceInfo.tokenBalances]
+                            .filter(tb => tb.uiBalance !== undefined && tb.uiBalance > 0) // Only show tokens with actual balance
+                            .sort((a, b) => (b.uiBalance ?? 0) - (a.uiBalance ?? 0))
+                            .slice(0, 5);
+                        
+                        if (sortedTokens.length > 0) {
+                            sortedTokens.forEach(tb => {
+                                tokenTableData.push([
+                                    getTokenDisplayName(tb.mint),
+                                    tb.uiBalanceString ?? (tb.uiBalance !== undefined ? formatTokenQuantity(tb.uiBalance) : 'N/A'),
+                                    tb.mint
+                                ]);
+                            });
+                            lines.push(table(tokenTableData, { 
+                                columns: { 0: { width: 20 }, 1: { width: 20, alignment: 'right' }, 2: { width: 44 } }
+                            }).split('\n').map(l => `    ${l}`).join('\n'));
+                        } else {
+                            lines.push(`    No SPL token balances with SPL balance > 0 found.`);
+                        }
+                    } else {
+                        lines.push(`  - No SPL token balances found.`);
+                    }
+                } else {
+                    lines.push(`  - Current balance data not available for this wallet.`);
+                }
+            });
+        } else {
+            lines.push('No current balance data (walletBalances map) was provided to the report generator for these wallets.');
+        }
+        lines.push(''); // Add a blank line after the snapshots
+    }
+    // --- END NEW Current Holdings Snapshot ---
+
     // --- 3. Connection Strength Summary --- 
     lines.push('=== Connection Strength Summary ===');
     lines.push('(Based on Shared Token Counts, Jaccard Similarity, and Primary Similarity Score)');
@@ -522,18 +661,18 @@ export function generateSimilarityReport(
             let extraMarker = '';
 
             // Add markers based on key insight criteria
-            const veryHighSimThreshold = metrics.vectorTypeUsed === 'capital' ? INSIGHT_THRESHOLDS.VERY_HIGH_SIM_CAPITAL : INSIGHT_THRESHOLDS.VERY_HIGH_SIM_BINARY;
-            if (primarySim >= veryHighSimThreshold) { extraMarker += ' *VHS*'; if (!legendMarkers.includes('*VHS*: Very High Similarity')) legendMarkers.push('*VHS*: Very High Similarity');}
-            if (primarySim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_SIM && pctA >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT && pctB >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT) {
-                extraMarker += ' *SC*'; if (!legendMarkers.includes('*SC*: Strong Concordance')) legendMarkers.push('*SC*: Strong Concordance');
+            const veryHighSimThreshold = metrics.vectorTypeUsed === 'capital' ? INSIGHT_THRESHOLDS.VERY_HIGH_HISTORICAL_CAPITAL : INSIGHT_THRESHOLDS.VERY_HIGH_HISTORICAL_BINARY;
+            if (primarySim >= veryHighSimThreshold) { extraMarker += ' ***VHS***'; if (!legendMarkers.includes('***VHS***: Very High Similarity')) legendMarkers.push('***VHS***: Very High Similarity');}
+            if (primarySim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM && pctA >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT && pctB >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_PCT) {
+                extraMarker += ' ***SC***'; if (!legendMarkers.includes('***SC***: Strong Concordance')) legendMarkers.push('***SC***: Strong Concordance');
             }
             const isAsymmetricAB = pctA >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctB <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
             const isAsymmetricBA = pctB >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctA <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
             if (primarySim >= INSIGHT_THRESHOLDS.ASYMMETRY_SIM && (isAsymmetricAB || isAsymmetricBA)) {
-                 extraMarker += ' *SA*'; if (!legendMarkers.includes('*SA*: Significant Asymmetry')) legendMarkers.push('*SA*: Significant Asymmetry');
+                 extraMarker += ' ***SA***'; if (!legendMarkers.includes('***SA***: Significant Asymmetry')) legendMarkers.push('***SA***: Significant Asymmetry');
             }
-             if (pctA > 100 || pctB > 100) {
-                 extraMarker += ' *FIP*'; if (!legendMarkers.includes('*FIP*: Focused Investment Pattern (see Key Insights)')) legendMarkers.push('*FIP*: Focused Investment Pattern (see Key Insights)');
+             if (pctA > 100 || pctB > 100) { // Check for FIP based on historical percentages
+                 extraMarker += ' ***FIP***'; if (!legendMarkers.includes('***FIP***: Focused Investment Pattern (see Key Insights)')) legendMarkers.push('***FIP***: Focused Investment Pattern (see Key Insights)');
             }
             details += extraMarker;
             
@@ -557,9 +696,20 @@ export function generateSimilarityReport(
         }
     }
 
+    const MAX_MILDLY_BARELY_TO_SHOW = 25;
+
     if (categories.Strongly.length > 0) { lines.push('Strongly Connected Pairs:'); categories.Strongly.forEach(s => lines.push(`- ${s}`)); lines.push(''); }
-    if (categories.Mildly.length > 0) { lines.push('Mildly Connected Pairs:'); categories.Mildly.forEach(s => lines.push(`- ${s}`)); lines.push(''); }
-    if (categories.Barely.length > 0) { lines.push('Barely Connected Pairs:'); categories.Barely.forEach(s => lines.push(`- ${s}`)); lines.push(''); }
+    
+    if (categories.Mildly.length > 0) { 
+        lines.push('Mildly Connected Pairs:' + (categories.Mildly.length > MAX_MILDLY_BARELY_TO_SHOW ? ` (Top ${MAX_MILDLY_BARELY_TO_SHOW} shown)` : '')); 
+        categories.Mildly.slice(0, MAX_MILDLY_BARELY_TO_SHOW).forEach(s => lines.push(`- ${s}`)); 
+        lines.push(''); 
+    }
+    if (categories.Barely.length > 0) { 
+        lines.push('Barely Connected Pairs:' + (categories.Barely.length > MAX_MILDLY_BARELY_TO_SHOW ? ` (Top ${MAX_MILDLY_BARELY_TO_SHOW} shown)` : '')); 
+        categories.Barely.slice(0, MAX_MILDLY_BARELY_TO_SHOW).forEach(s => lines.push(`- ${s}`)); 
+        lines.push(''); 
+    }
     if (categories.Strongly.length === 0 && categories.Mildly.length === 0 && categories.Barely.length === 0) {
         lines.push('No significant connections found based on current thresholds.', '\n');
     }
@@ -584,7 +734,30 @@ export function generateSimilarityReport(
         });
     });
     lines.push(...formatMatrix(cosineMatrixForReport, walletAddresses, walletLabels, `Primary Similarity (${metrics.vectorTypeUsed} - Cosine)`, (v) => typeof v === 'number' ? v.toFixed(4) : String(v), metrics.vectorTypeUsed === 'capital' ? 0.75 : 0.2)); // Added significance threshold for primary sim
-    lines.push(...formatMatrix(metrics.jaccardSimilarityMatrix, walletAddresses, walletLabels, 'Asset Overlap Similarity (Jaccard)', (v) => typeof v === 'number' ? v.toFixed(4) : String(v), 0.5)); // Added significance threshold for Jaccard
+    lines.push(...formatMatrix(metrics.jaccardSimilarityMatrix, walletAddresses, walletLabels, 'Asset Overlap Similarity (Jaccard - Historical Transactions)', (v) => typeof v === 'number' ? v.toFixed(4) : String(v), 0.5)); // Added significance threshold for Jaccard
+
+    // --- NEW: Display Holdings-Based Similarity Matrices ---
+    if (metrics.holdingsPresenceJaccardMatrix) {
+        lines.push(...formatMatrix(
+            metrics.holdingsPresenceJaccardMatrix, 
+            walletAddresses, // Ensure this order matches matrix keys
+            walletLabels, 
+            'Current Holdings Overlap (Jaccard - Presence)', 
+            (v) => typeof v === 'number' ? v.toFixed(4) : String(v), 
+            0.5 // Significance threshold for Jaccard
+        ));
+    }
+    if (metrics.holdingsPresenceCosineMatrix) {
+        lines.push(...formatMatrix(
+            metrics.holdingsPresenceCosineMatrix, 
+            walletAddresses, // Ensure this order matches matrix keys
+            walletLabels, 
+            'Current Holdings Similarity (Cosine - Presence)', 
+            (v) => typeof v === 'number' ? v.toFixed(4) : String(v), 
+            0.75 // Significance threshold for Cosine (can be higher for binary presence)
+        ));
+    }
+    // --- END NEW Matrices ---
 
     // --- 5. Shared Token Details (Token-Centric) ---
     // The original section 4 is now section 5
@@ -657,13 +830,22 @@ export function generateSimilarityReport(
     lines.push('- This helps understand if a high similarity score is driven by a few tokens where both wallets have significant capital concentration.\n');
 
     lines.push('**Insight Markers (in Connection Strength Summary):**');
-    lines.push('- `*VHS* (Very High Similarity):` Primary similarity score meets a high threshold (e.g., >0.9 capital, >0.25 binary).');
-    lines.push('- `*SC* (Strong Concordance):` High primary similarity AND shared tokens are a significant percentage of *both* wallets\' unique activities.');
-    lines.push('- `*SA* (Significant Asymmetry):` Notable primary similarity, but shared tokens are a large part of one wallet\'s activity and minor for the other.');
-    lines.push('- `*FIP* (Focused Investment Pattern):` Number of shared tokens exceeds a wallet\'s unique capital-invested tokens (see explanation for `A:Y%, B:Z% >100%` above).\n');
+    lines.push('- `***VHS*** (Very High Similarity):` Primary similarity score meets a high threshold (e.g., >0.9 capital, >0.25 binary).');
+    lines.push('- `***SC*** (Strong Concordance):` High primary similarity AND shared tokens are a significant percentage of *both* wallets\' unique activities.');
+    lines.push('- `***SA*** (Significant Asymmetry):` Notable primary similarity, but shared tokens are a large part of one wallet\'s activity and minor for the other.');
+    lines.push('- `***FIP*** (Focused Investment Pattern):` Number of shared tokens exceeds a wallet\'s unique capital-invested tokens (see explanation for `A:Y%, B:Z% >100%` above).\n');
 
     lines.push('**Table Value Highlighting:**');
     lines.push('- `*` (asterisk next to a value in a matrix): Indicates the value meets or exceeds a pre-defined significance threshold for that particular metric (e.g., Primary Similarity > 0.75). Helps to quickly spot potentially important scores in large tables.\n');
+
+    lines.push('**Current Holdings Overlap (Jaccard - Presence):**');
+    lines.push('- Measures similarity based on the set of unique tokens *currently held* by each wallet (uiBalance > 0).');
+    lines.push('- Formula: (Number of Shared Held Tokens) / (Total Number of Unique Tokens Held by Either Wallet).');
+    lines.push('- A score closer to 1 means a higher proportion of their currently held unique tokens are shared.');
+
+    lines.push('**Current Holdings Similarity (Cosine - Presence):**');
+    lines.push('- Measures cosine similarity based on binary vectors of *current token presence* (1 if held, 0 if not).');
+    lines.push('- Indicates how similar the overall set of currently held tokens is, considering co-occurrence.');
 
     lines.push('=== END REPORT ===');
     return lines.join('\n');

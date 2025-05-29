@@ -4,6 +4,7 @@ import { SimilarityAnalysisConfig } from '@/types/analysis';
 import { SimilarityMetrics, WalletSimilarity, TokenVector } from '@/types/similarity'; 
 import { TransactionData } from '@/types/correlation'; 
 import { createLogger } from 'core/utils/logger';
+import { WalletBalance } from '@/types/wallet'; // <-- Add this import
 
 const logger = createLogger('SimilarityService');
 
@@ -23,6 +24,12 @@ export interface ComprehensiveSimilarityResult extends SimilarityMetrics {
   fullSharedTokenList: { mint: string; sharedByWallets: string[]; count: number }[]; // For reporting
   walletVectorsUsed: Record<string, TokenVector>; // Include the vectors used for primary calc
   vectorTypeUsed: 'capital' | 'binary';
+
+  // ---- NEW: Fields for Current Holdings Similarity ----
+  holdingsPresenceJaccardMatrix?: Record<string, Record<string, number>>;
+  holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
+  // We might add holdingsValueCosineMatrix later if value-based similarity is implemented
+  // ---- END NEW Fields ----
 }
 
 export class SimilarityService {
@@ -42,13 +49,18 @@ export class SimilarityService {
    * Fetches transaction data and calculates comprehensive similarity metrics.
    * @param walletAddresses - An array of wallet addresses to analyze.
    * @param vectorType - Type of vector to use for the primary cosine similarity calculation.
+   * @param walletBalances - Optional pre-fetched wallet balances.
    * @returns A promise resolving to ComprehensiveSimilarityResult or null.
    */
   async calculateWalletSimilarity(
     walletAddresses: string[],
-    vectorType: 'capital' | 'binary' = 'capital'
+    vectorType: 'capital' | 'binary' = 'capital',
+    walletBalances?: Map<string, WalletBalance> 
   ): Promise<ComprehensiveSimilarityResult | null> {
-    logger.info(`Calculating comprehensive similarity for ${walletAddresses.length} wallets using primary vector type: ${vectorType}.`);
+    logger.info(`Calculating comprehensive similarity for ${walletAddresses.length} wallets using primary vectorType: ${vectorType}.`);
+    if (walletBalances && walletBalances.size > 0) {
+      logger.info(`Received pre-fetched wallet balances for ${walletBalances.size} wallets.`);
+    }
 
     if (walletAddresses.length < 2) {
       logger.warn('Similarity calculation requires at least 2 wallets.');
@@ -138,11 +150,66 @@ export class SimilarityService {
     const finalResult: ComprehensiveSimilarityResult = {
         ...coreMetrics, // Includes pairwiseSimilarities (Cosine), clusters (empty), globalMetrics (Cosine)
         sharedTokenCountsMatrix: sharedTokenCountsMatrix,
-        jaccardSimilarityMatrix: jaccardSimilarityMatrix,
+        jaccardSimilarityMatrix: jaccardSimilarityMatrix, // Historical Jaccard
         fullSharedTokenList: fullSharedTokenListForReport,
-        walletVectorsUsed: primaryVectors, // Vectors used for the main cosine calculation
-        vectorTypeUsed: vectorType,
+        walletVectorsUsed: primaryVectors, // Vectors used for the main historical cosine calculation
+        vectorTypeUsed: vectorType, // For historical calculation
     };
+
+    // ---- NEW: Calculate Similarity based on Current Holdings ----
+    if (walletBalances && walletBalances.size >= 2) {
+        const walletsWithBalanceData = Array.from(walletBalances.keys());
+        if (walletsWithBalanceData.length >= 2) {
+            logger.info(`Calculating similarity based on current holdings for ${walletsWithBalanceData.length} wallets.`);
+
+            // 1. Get all unique tokens currently held across these wallets
+            const allUniqueHeldTokensSet = new Set<string>();
+            walletBalances.forEach(balanceData => {
+                balanceData.tokenBalances?.forEach(tb => {
+                    if (tb.uiBalance !== undefined && tb.uiBalance > 0) {
+                        allUniqueHeldTokensSet.add(tb.mint);
+                    }
+                });
+            });
+            const allUniqueHeldTokens = Array.from(allUniqueHeldTokensSet).sort();
+
+            if (allUniqueHeldTokens.length > 0) {
+                // 2. Create Holdings Presence Vectors
+                const holdingsPresenceVectors = this.similarityAnalyzer.createHoldingsPresenceVectors(
+                    walletBalances, 
+                    allUniqueHeldTokens
+                );
+
+                const walletsWithHoldingsVectors = walletsWithBalanceData.filter(addr => holdingsPresenceVectors[addr]);
+
+                if (walletsWithHoldingsVectors.length >= 2) {
+                    // 3. Calculate Jaccard Similarity on Holdings Presence Vectors
+                    finalResult.holdingsPresenceJaccardMatrix = this.calculateGenericSimilarityMatrixInternal(
+                        holdingsPresenceVectors,
+                        walletsWithHoldingsVectors,
+                        this.similarityAnalyzer['calculateJaccardSimilarity']
+                    );
+                    logger.debug('Calculated Jaccard similarity for current holdings presence.');
+
+                    // 4. Calculate Cosine Similarity on Holdings Presence Vectors
+                    finalResult.holdingsPresenceCosineMatrix = this.similarityAnalyzer['calculateCosineSimilarityMatrix'](
+                        holdingsPresenceVectors, 
+                        walletsWithHoldingsVectors
+                    );
+                    logger.debug('Calculated Cosine similarity for current holdings presence.');
+                } else {
+                    logger.warn('Less than 2 wallets have valid holdings presence vectors. Skipping holdings similarity.');
+                }
+            } else {
+                logger.warn('No unique tokens found in current holdings. Skipping holdings similarity.');
+            }
+        } else {
+             logger.warn('Less than 2 wallets have balance data provided. Skipping holdings similarity.');
+        }
+    } else if (walletBalances && walletBalances.size > 0 && walletBalances.size < 2) {
+        logger.warn('Only 1 wallet has balance data; cannot calculate holdings-based similarity.');
+    }
+    // ---- END NEW Current Holdings Similarity Calculation ----
 
     logger.info(`Comprehensive similarity analysis completed for ${walletsWithFetchedData.length} wallets.`);
     return finalResult;
