@@ -2,6 +2,8 @@
  * Type definitions for Helius API integration
  */
 
+import { TokenBalanceDetails } from '@/types/wallet';
+
 export interface HeliusApiConfig {
   apiKey: string;
   network?: 'mainnet' | 'devnet';
@@ -193,6 +195,8 @@ export interface OnChainAnalysisResult {
 
   // Fields for current token balance snapshot from WalletState integration
   currentRawBalance?: string;          // Current raw token balance (string to preserve precision)
+  currentUiBalance?: number;         // NEW: Current UI-friendly token balance
+  currentUiBalanceString?: string; // NEW: Current UI-friendly token balance as a string
   balanceDecimals?: number;          // Decimals for the current balance fields
   balanceFetchedAt?: Date;           // Timestamp when this specific token balance was part of a WalletState fetch
 }
@@ -240,7 +244,8 @@ export interface SwapAnalysisSummary {
 
   // Fields for current SOL balance snapshot from WalletState integration
   currentSolBalance?: number;
-  balancesFetchedAt?: Date; 
+  balancesFetchedAt?: Date;
+  tokenBalances?: TokenBalanceDetails[];
 }
 
 // RPC Method Specific Types

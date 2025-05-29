@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { TokenBalanceDetails } from '../../../types/wallet';
 
 // Forward declare or import necessary types if they are complex
 // For now, using basic types or 'object' for simplicity
@@ -33,4 +34,13 @@ export class WalletSummaryResponse {
     example: '2024-01-31T23:59:59.999Z',
   })
   receivedEndDate?: string | null;
+
+  @ApiPropertyOptional({ type: Number, description: 'Current SOL balance of the wallet.', nullable: true })
+  currentSolBalance?: number;
+
+  @ApiPropertyOptional({ type: String, description: 'ISO timestamp of when the balances were last fetched.', nullable: true })
+  balancesFetchedAt?: string;
+
+  @ApiPropertyOptional({ type: () => [Object], description: 'Array of current token balances held by the wallet. Each object represents a token.', nullable: true })
+  tokenBalances?: TokenBalanceDetails[];
 } 

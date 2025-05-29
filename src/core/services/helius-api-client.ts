@@ -8,6 +8,7 @@ import {
   // RpcAccountInfo, // Not directly used as a parameter/return type of public methods here yet
 } from '@/types/helius-api';
 import { DatabaseService } from 'core/services/database-service';
+import { Injectable } from '@nestjs/common';
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
 interface SignatureInfo {
@@ -39,7 +40,7 @@ const RATE_LIMIT_SAFETY_BUFFER_MS = 15; // Add small buffer
 const MODULE_SOLANA_RPC_URL_MAINNET = 'https://mainnet.helius-rpc.com/';
 const MODULE_SOLANA_RPC_URL_DEVNET = 'https://devnet.helius-rpc.com/';
 
-
+@Injectable()
 /**
  * Client for interacting with the Helius API and Solana RPC for transaction data.
  * Includes rate limiting, retry logic, and caching integration.

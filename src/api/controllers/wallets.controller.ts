@@ -175,6 +175,9 @@ export class WalletsController {
         behaviorClassification: behaviorMetrics?.tradingStyle || 'N/A',
         receivedStartDate: queryDto.startDate || null,
         receivedEndDate: queryDto.endDate || null,
+        currentSolBalance: pnlSummaryForPeriod?.currentSolBalance,
+        balancesFetchedAt: pnlSummaryForPeriod?.balancesFetchedAt?.toISOString(),
+        tokenBalances: pnlSummaryForPeriod?.tokenBalances,
       };
 
       if (userId) {

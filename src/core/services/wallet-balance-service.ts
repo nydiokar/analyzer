@@ -84,7 +84,7 @@ export class WalletBalanceService {
     // HeliusApiClient handles internal rate limiting for its methods.
     for (const address of walletAddresses) {
       try {
-        logger.debug(`Fetching token balances for address: ${address} for SPL Token and Token-2022 programs.`);
+        logger.debug(`Fetching token balances for address: ${address} for SPL Token program.`);
         
         // Fetch for standard SPL Token Program
         const splTokenAccountsResult: GetTokenAccountsByOwnerResult = await this.heliusClient.getTokenAccountsByOwner(
@@ -95,28 +95,16 @@ export class WalletBalanceService {
           'jsonParsed' // Crucial for getting structured token data
         );
 
-        // Fetch for Token-2022 Program
-        const token2022AccountsResult: GetTokenAccountsByOwnerResult = await this.heliusClient.getTokenAccountsByOwner(
-          address,
-          undefined, // No specific mint, fetch all tokens
-          TOKEN_2022_PROGRAM_ID, // Token-2022 Program ID
-          commitment,
-          'jsonParsed'
-        );
-
-        const combinedTokenAccounts: TokenAccount[] = [];
+        const currentTokenAccounts: TokenAccount[] = [];
         if (splTokenAccountsResult && splTokenAccountsResult.value) {
-          combinedTokenAccounts.push(...splTokenAccountsResult.value);
-        }
-        if (token2022AccountsResult && token2022AccountsResult.value) {
-          combinedTokenAccounts.push(...token2022AccountsResult.value);
+          currentTokenAccounts.push(...splTokenAccountsResult.value);
         }
         
-        logger.debug(`Address ${address}: Found ${splTokenAccountsResult?.value?.length || 0} SPL accounts and ${token2022AccountsResult?.value?.length || 0} Token-2022 accounts. Total: ${combinedTokenAccounts.length}`);
+        logger.debug(`Address ${address}: Found ${currentTokenAccounts.length} SPL accounts.`);
 
         const tokenBalances: TokenBalanceDetails[] = [];
-        if (combinedTokenAccounts.length > 0) {
-          combinedTokenAccounts.forEach((tokenAccount: TokenAccount) => {
+        if (currentTokenAccounts.length > 0) {
+          currentTokenAccounts.forEach((tokenAccount: TokenAccount) => {
             // Type guard to ensure data is parsed as expected
             const accountData = tokenAccount.account.data;
             if (typeof accountData !== 'string' && !Array.isArray(accountData) && accountData.parsed) {

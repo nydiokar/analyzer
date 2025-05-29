@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { DatabaseService, prisma } from '../core/services/database-service'; // Adjusted path
+import { DatabaseService, prisma } from '../src/core/services/database-service'; // Adjusted path
 
 async function main() {
   const dbService = new DatabaseService();

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
-import { Prisma, SwapAnalysisInput } from '@prisma/client';
+import { Prisma, AnalysisResult as PrismaAnalysisResult } from '@prisma/client';
 import { TokenPerformanceQueryDto, SortOrder, TokenPerformanceSortBy } from './token-performance-query.dto';
 import { ApiProperty } from '@nestjs/swagger';
 import { TokenPerformanceDataDto } from './token-performance-data.dto';
@@ -39,7 +39,7 @@ export class TokenPerformanceService {
     walletAddress: string,
     queryDto: TokenPerformanceQueryDto,
   ): Promise<PaginatedTokenPerformanceResponse> {
-    this.logger.debug(`Getting paginated token performance for ${walletAddress} with DTO: ${JSON.stringify(queryDto)}`);
+    this.logger.debug(`Getting paginated token performance for ${walletAddress} from AnalysisResult with DTO: ${JSON.stringify(queryDto)}`);
     const {
         page = 1,
         pageSize = 20,
@@ -49,27 +49,64 @@ export class TokenPerformanceService {
         endDate,   // ISO Date String
     } = queryDto;
 
-    const timeRange: SwapInputTimeRange = {};
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+
+    const where: Prisma.AnalysisResultWhereInput = {
+      walletAddress: walletAddress,
+    };
+
+    if (queryDto.showOnlyHoldings) {
+      where.currentUiBalance = { gt: 0 };
+    }
+
+    // Apply time range filtering if startDate or endDate is provided
+    // This will filter based on when the token activity occurred (lastTransferTimestamp)
+    let timeFilter: Prisma.IntFilter | Prisma.IntNullableFilter | undefined = undefined;
+
+    if (typeof where.lastTransferTimestamp === 'object' && where.lastTransferTimestamp !== null) {
+        // If it's already an object (like IntFilter), preserve existing conditions
+        // Make sure to cast to a type that can be spread and then refined.
+        timeFilter = { ...(where.lastTransferTimestamp as Prisma.IntFilter) }; 
+    } else if (typeof where.lastTransferTimestamp === 'number') {
+        // If it was a direct number, this implies an equality check was set before.
+        // For a range query, we typically initialize timeFilter and overwrite this.
+        // If we needed to preserve an exact number match AND add range, logic would be more complex.
+        // Assuming here that if startDate/endDate are present, we build a range query.
+    }
+    
     if (startDate) {
-      timeRange.startTs = Math.floor(new Date(startDate).getTime() / 1000);
+      timeFilter = { ...(timeFilter || {}), gte: Math.floor(new Date(startDate).getTime() / 1000) };
     }
     if (endDate) {
-      timeRange.endTs = Math.floor(new Date(endDate).getTime() / 1000);
+      timeFilter = { ...(timeFilter || {}), lte: Math.floor(new Date(endDate).getTime() / 1000) };
     }
 
-    // Use the existing DatabaseService method
-    const swapInputs: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(
-      walletAddress,
-      (timeRange.startTs || timeRange.endTs) ? timeRange : undefined // Pass undefined if no time filter
-    );
+    if (timeFilter) {
+        where.lastTransferTimestamp = timeFilter;
+    }
     
-    // Order by timestamp client-side if service doesn't guarantee it (though it should for PNL)
-    // The getSwapAnalysisInputs from schema examination seems to do `orderBy: { timestamp: 'asc' }`
-    // so this client-side sort might be redundant but harmless.
-    swapInputs.sort((a, b) => a.timestamp - b.timestamp);
+    // If only startDate is provided, it means "from startDate onwards"
+    // If only endDate is provided, it means "up to endDate"
 
-    if (swapInputs.length === 0) {
-      this.logger.debug('No swap inputs found for the given criteria.');
+    const orderBy: Prisma.AnalysisResultOrderByWithRelationInput = {};
+    // Map DTO sortBy to Prisma field names if they differ, or use directly if same
+    // Assuming TokenPerformanceSortBy enum values match Prisma AnalysisResult field names for simplicity here.
+    // If not, a mapping object would be needed.
+    orderBy[sortBy] = sortOrder.toLowerCase() as Prisma.SortOrder;
+
+
+    const analysisResults: PrismaAnalysisResult[] = await this.databaseService.getAnalysisResults({
+        where,
+        orderBy,
+        skip,
+        take,
+    });
+    
+    const totalResults = await this.databaseService.countAnalysisResults({ where });
+
+    if (analysisResults.length === 0) {
+      this.logger.debug('No AnalysisResult records found for the given criteria.');
       return {
         data: [],
         total: 0,
@@ -79,109 +116,32 @@ export class TokenPerformanceService {
       };
     }
 
-    // STEP 1: Group swaps by tokenAddress (mint)
-    const swapsByToken = swapInputs.reduce((acc, swap) => {
-      const tokenMint = swap.mint;
-      if (!acc[tokenMint]) {
-        acc[tokenMint] = [];
-      }
-      acc[tokenMint].push(swap);
-      return acc;
-    }, {} as Record<string, SwapAnalysisInput[]>);
-
-    this.logger.debug(`Grouped ${swapInputs.length} swaps into ${Object.keys(swapsByToken).length} tokens.`);
-
-    // STEP 2: Calculate performance for each token
-    let tokenPerformanceDataList: TokenPerformanceDataDto[] = Object.entries(swapsByToken).map(([tokenMint, tokenSwaps]) => {
-        let totalSolSpentForToken = 0;
-        let totalSolReceivedForToken = 0;
-        let totalTokenAmountIn = 0;
-        let totalTokenAmountOut = 0;
-        let transferCountInForToken = 0;
-        let transferCountOutForToken = 0;
-        let firstTs: number | undefined = undefined;
-        let lastTs: number | undefined = undefined;
-        let totalFeesPaidInSolForToken = 0;
-
-        tokenSwaps.forEach(swap => {
-          if (firstTs === undefined || swap.timestamp < firstTs) {
-            firstTs = swap.timestamp;
-          }
-          if (lastTs === undefined || swap.timestamp > lastTs) {
-            lastTs = swap.timestamp;
-          }
-
-          if (swap.feeAmount) {
-            totalFeesPaidInSolForToken += swap.feeAmount;
-          }
-
-          if (swap.direction === 'in') {
-            totalTokenAmountIn += swap.amount;
-            transferCountInForToken++;
-            totalSolSpentForToken += swap.associatedSolValue;
-          } else if (swap.direction === 'out') {
-            totalTokenAmountOut += swap.amount;
-            transferCountOutForToken++;
-            totalSolReceivedForToken += swap.associatedSolValue;
-          }
-        });
-
-        const netTokenAmountChange = totalTokenAmountIn - totalTokenAmountOut;
-        const fees = totalFeesPaidInSolForToken || 0;
-        const netSolProfitLossForToken = totalSolReceivedForToken - totalSolSpentForToken - fees;
-
-        return {
-          walletAddress: walletAddress,
-          tokenAddress: tokenMint,
-          totalAmountIn: totalTokenAmountIn,
-          totalAmountOut: totalTokenAmountOut,
-          netAmountChange: netTokenAmountChange,
-          totalSolSpent: totalSolSpentForToken,
-          totalSolReceived: totalSolReceivedForToken,
-          totalFeesPaidInSol: totalFeesPaidInSolForToken,
-          netSolProfitLoss: netSolProfitLossForToken,
-          transferCountIn: transferCountInForToken,
-          transferCountOut: transferCountOutForToken,
-          firstTransferTimestamp: firstTs,
-          lastTransferTimestamp: lastTs,
-        };
-      });
+    const tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => ({
+      walletAddress: ar.walletAddress,
+      tokenAddress: ar.tokenAddress,
+      totalAmountIn: ar.totalAmountIn,
+      totalAmountOut: ar.totalAmountOut,
+      netAmountChange: ar.netAmountChange,
+      totalSolSpent: ar.totalSolSpent,
+      totalSolReceived: ar.totalSolReceived,
+      totalFeesPaidInSol: ar.totalFeesPaidInSol,
+      netSolProfitLoss: ar.netSolProfitLoss,
+      transferCountIn: ar.transferCountIn,
+      transferCountOut: ar.transferCountOut,
+      firstTransferTimestamp: ar.firstTransferTimestamp,
+      lastTransferTimestamp: ar.lastTransferTimestamp,
+      // Map new balance fields
+      currentRawBalance: ar.currentRawBalance,
+      currentUiBalance: ar.currentUiBalance,
+      currentUiBalanceString: ar.currentUiBalanceString,
+      balanceDecimals: ar.balanceDecimals,
+      balanceFetchedAt: ar.balanceFetchedAt ? ar.balanceFetchedAt.toISOString() : null,
+    }));
     
-    this.logger.debug(`Calculated performance for ${tokenPerformanceDataList.length} tokens.`);
-
-    // STEP 3: Sort the calculated data
-    tokenPerformanceDataList.sort((a, b) => {
-      // Make sure sortBy is a valid key of TokenPerformanceDataDto
-      const key = sortBy as keyof TokenPerformanceDataDto;
-      
-      let valA = a[key];
-      let valB = b[key];
-
-      // Handle undefined for optional fields like timestamps
-      if (valA === undefined || valA === null) valA = 0; // or handle as per desired sort order for undefined
-      if (valB === undefined || valB === null) valB = 0;
-
-
-      if (typeof valA === 'number' && typeof valB === 'number') {
-        return sortOrder === SortOrder.ASC ? valA - valB : valB - valA;
-      }
-      // Add string comparison if any sortable fields are strings
-      if (typeof valA === 'string' && typeof valB === 'string') {
-        return sortOrder === SortOrder.ASC ? valA.localeCompare(valB) : valB.localeCompare(valA);
-      }
-      return 0; // Default no change if types are mixed or not comparable
-    });
-
-    this.logger.debug(`Sorted token performance data by ${sortBy} ${sortOrder}.`);
-
-    // STEP 4: Paginate the sorted data
-    const totalResults = tokenPerformanceDataList.length;
-    const paginatedData = tokenPerformanceDataList.slice((page - 1) * pageSize, page * pageSize);
-
-    this.logger.debug(`Pagination: page=${page}, pageSize=${pageSize}, total=${totalResults}, returning ${paginatedData.length} items.`);
+    this.logger.debug(`Pagination: page=${page}, pageSize=${pageSize}, total=${totalResults}, returning ${tokenPerformanceDataList.length} items.`);
 
     return {
-      data: paginatedData,
+      data: tokenPerformanceDataList,
       total: totalResults,
       page: page,
       pageSize: pageSize,

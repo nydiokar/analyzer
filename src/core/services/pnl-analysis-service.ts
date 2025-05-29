@@ -148,6 +148,8 @@ export class PnlAnalysisService {
                 return {
                     ...res,
                     currentRawBalance: tokenBalanceDetail?.balance,
+                    currentUiBalance: tokenBalanceDetail?.uiBalance,
+                    currentUiBalanceString: tokenBalanceDetail?.uiBalanceString,
                     balanceDecimals: tokenBalanceDetail?.decimals,
                     balanceFetchedAt: tokenBalanceDetail ? balancesFetchedAt : undefined,
                 };
@@ -185,6 +187,8 @@ export class PnlAnalysisService {
                     estimatedPreservedValue: r.estimatedPreservedValue,
                     preservationType: r.preservationType,
                     currentRawBalance: r.currentRawBalance,
+                    currentUiBalance: r.currentUiBalance,
+                    currentUiBalanceString: r.currentUiBalanceString,
                     balanceDecimals: r.balanceDecimals,
                     balanceFetchedAt: r.balanceFetchedAt,
                 }));
@@ -230,46 +234,47 @@ export class PnlAnalysisService {
                 logger.error(`[PnlAnalysis] Error during advanced stats calculation for ${walletAddress}:`, { statsError });
             }
 
-            const summaryForReturn: SwapAnalysisSummary = {
+            const summary: SwapAnalysisSummary = {
                 results: enrichedSwapAnalysisResults,
                 totalSignaturesProcessed: processedSignaturesCount,
+                totalVolume: totalVolume,
+                totalFees: totalFees,
+                realizedPnl: realizedPnl,
+                unrealizedPnl: 0, // Placeholder, true unrealized PNL is complex
+                netPnl: realizedPnl, // For now, netPnl is realizedPnl
+                stablecoinNetFlow: stablecoinNetFlow,
                 overallFirstTimestamp: overallFirstTimestamp || 0,
                 overallLastTimestamp: overallLastTimestamp || 0,
-                totalVolume,
-                totalFees,
-                realizedPnl,
-                unrealizedPnl,
-                netPnl: finalNetPnl,
-                stablecoinNetFlow,
-                averageSwapSize,
                 profitableTokensCount,
                 unprofitableTokensCount,
-                totalExecutedSwapsCount,
-                averageRealizedPnlPerExecutedSwap,
-                realizedPnlToTotalVolumeRatio,
+                totalExecutedSwapsCount: totalExecutedSwapsCount,
+                averageSwapSize: averageSwapSize,
+                averageRealizedPnlPerExecutedSwap: averageRealizedPnlPerExecutedSwap,
+                realizedPnlToTotalVolumeRatio: realizedPnlToTotalVolumeRatio,
                 advancedStats: advancedStatsData ?? undefined,
                 currentSolBalance: currentWalletBalance?.solBalance,
                 balancesFetchedAt: balancesFetchedAt,
+                tokenBalances: currentWalletBalance?.tokenBalances,
             };
 
             if (!isHistoricalView && !isViewOnlyMode) {
                 const pnlSummaryDataForDb = {
                     walletAddress: walletAddress,
-                    totalVolume: summaryForReturn.totalVolume,
-                    totalFees: summaryForReturn.totalFees,
-                    realizedPnl: summaryForReturn.realizedPnl,
-                    unrealizedPnl: summaryForReturn.unrealizedPnl,
-                    netPnl: summaryForReturn.netPnl,
-                    stablecoinNetFlow: summaryForReturn.stablecoinNetFlow,
-                    averageSwapSize: summaryForReturn.averageSwapSize,
-                    profitableTokensCount: summaryForReturn.profitableTokensCount,
-                    unprofitableTokensCount: summaryForReturn.unprofitableTokensCount,
-                    totalExecutedSwapsCount: summaryForReturn.totalExecutedSwapsCount,
-                    averageRealizedPnlPerExecutedSwap: summaryForReturn.averageRealizedPnlPerExecutedSwap,
-                    realizedPnlToTotalVolumeRatio: summaryForReturn.realizedPnlToTotalVolumeRatio,
-                    totalSignaturesProcessed: summaryForReturn.totalSignaturesProcessed,
-                    overallFirstTimestamp: summaryForReturn.overallFirstTimestamp,
-                    overallLastTimestamp: summaryForReturn.overallLastTimestamp,
+                    totalVolume: summary.totalVolume,
+                    totalFees: summary.totalFees,
+                    realizedPnl: summary.realizedPnl,
+                    unrealizedPnl: summary.unrealizedPnl,
+                    netPnl: summary.netPnl,
+                    stablecoinNetFlow: summary.stablecoinNetFlow,
+                    averageSwapSize: summary.averageSwapSize,
+                    profitableTokensCount: summary.profitableTokensCount,
+                    unprofitableTokensCount: summary.unprofitableTokensCount,
+                    totalExecutedSwapsCount: summary.totalExecutedSwapsCount,
+                    averageRealizedPnlPerExecutedSwap: summary.averageRealizedPnlPerExecutedSwap,
+                    realizedPnlToTotalVolumeRatio: summary.realizedPnlToTotalVolumeRatio,
+                    totalSignaturesProcessed: summary.totalSignaturesProcessed,
+                    overallFirstTimestamp: summary.overallFirstTimestamp,
+                    overallLastTimestamp: summary.overallLastTimestamp,
                     currentSolBalance: currentWalletBalance?.solBalance,
                     solBalanceFetchedAt: balancesFetchedAt,
                 };
@@ -338,8 +343,8 @@ export class PnlAnalysisService {
                 logger.info(`[PnlAnalysis] Successfully marked AnalysisRun ${runId} as COMPLETED.`);
             }
 
-            logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summaryForReturn.netPnl.toFixed(4)} SOL`);
-            return { ...summaryForReturn, runId: isViewOnlyMode ? undefined : runId };
+            logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summary.netPnl} SOL`);
+            return { ...summary, runId: isViewOnlyMode ? undefined : runId };
 
         } catch (error: any) {
             logger.error(`[PnlAnalysis] Critical error during PNL analysis for ${walletAddress}:`, { error });

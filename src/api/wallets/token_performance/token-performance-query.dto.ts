@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min, IsDateString } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Max, Min, IsDateString, IsBoolean } from 'class-validator';
 
 export enum SortOrder {
   ASC = 'ASC',
@@ -76,4 +76,14 @@ export class TokenPerformanceQueryDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'If true, only shows tokens with a current UI balance greater than 0.',
+    type: Boolean,
+    default: false,
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  showOnlyHoldings?: boolean = false;
 } 

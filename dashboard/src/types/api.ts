@@ -23,6 +23,7 @@ export interface WalletSummaryData {
   behaviorClassification: string | null; // High-level classification from BehaviorService
   rawAdvancedStats?: AdvancedStatsResult; // Full raw object for more detail if needed by client
   rawBehaviorMetrics?: BehaviorMetrics; // Full raw object for more detail if needed by client
+  currentSolBalance?: number | null;
 }
 
 export interface WalletSummaryError {
@@ -130,6 +131,13 @@ export interface TokenPerformanceDataDto {
   transferCountOut: number;
   firstTransferTimestamp?: number | null; // Unix timestamp (seconds)
   lastTransferTimestamp?: number | null;  // Unix timestamp (seconds)
+
+  // Added fields for current balance
+  currentRawBalance?: string | null;
+  currentUiBalance?: number | null;
+  currentUiBalanceString?: string | null;
+  balanceDecimals?: number | null;
+  balanceFetchedAt?: string | null; // ISO String
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts

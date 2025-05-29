@@ -172,6 +172,12 @@ export default function AccountSummaryCard({ walletAddress, className }: Account
         <Text>Token Win Rate</Text>
         <Text>{formatWinRate(data.tokenWinRate ?? null)}</Text>
       </Flex>
+      {data.currentSolBalance !== undefined && (
+        <Flex justifyContent="between" alignItems="start" className="mt-1">
+          <Text>Current Balance</Text>
+          <Text>{data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL</Text>
+        </Flex>
+      )}
       {data.behaviorClassification && (
         <Flex justifyContent="between" alignItems="start" className="mt-1">
           <Text>Behavior Tag</Text>

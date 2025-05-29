@@ -92,6 +92,8 @@ model AnalysisResult {
 
   // New fields for current token balance snapshot
   currentRawBalance      String?   // Current raw token balance (string to preserve precision)
+  currentUiBalance       Float?   // Or Decimal?
+  currentUiBalanceString String?
   balanceDecimals        Int?      // Decimals for the current balance fields
   balanceFetchedAt       DateTime? // Timestamp when this specific token balance was part of a WalletState fetch
 

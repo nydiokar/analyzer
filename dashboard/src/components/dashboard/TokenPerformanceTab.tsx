@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store'; 
 import { fetcher } from '../../lib/fetcher'; 
@@ -9,6 +9,8 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from ".
 import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationLink, PaginationNext } from "../../components/ui/pagination"; 
 import { AlertTriangle, Hourglass, InfoIcon } from 'lucide-react';
 import { PaginatedTokenPerformanceResponse, TokenPerformanceDataDto } from '@/types/api'; 
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 interface TokenPerformanceTabProps {
   walletAddress: string;
@@ -29,7 +31,7 @@ const COLUMN_DEFINITIONS = [
   { id: 'netSolProfitLoss', name: 'Net PNL (SOL)', isSortable: true },
   { id: 'totalSolSpent', name: 'SOL Spent', isSortable: true },
   { id: 'totalSolReceived', name: 'SOL Received', isSortable: true },
-  { id: 'netAmountChange', name: 'Net Amount', isSortable: true },
+  { id: 'netAmountChange', name: 'Current Supply', isSortable: true },
   { id: 'transferCountIn', name: 'Trades In', isSortable: false },
   { id: 'transferCountOut', name: 'Trades Out', isSortable: false },
   { id: 'firstTransferTimestamp', name: 'First Seen', isSortable: false }, // Not in backend enum for sorting
@@ -42,6 +44,7 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
   const [sortOrder, setSortOrder] = useState('DESC');
+  const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
 
   const apiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
@@ -67,6 +70,9 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     if (endDate) {
       params.append('endDate', endDate.toISOString());
     }
+    if (showHoldingsOnly) {
+      params.append('showOnlyHoldings', 'true');
+    }
     swrKey = `${apiUrlBase}?${params.toString()}`;
   }
 
@@ -79,30 +85,13 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     }
   );
 
-  const handleSort = (columnId: string) => {
-    const columnDef = COLUMN_DEFINITIONS.find(c => c.id === columnId);
-    if (!columnDef || !columnDef.isSortable || !BACKEND_SORTABLE_IDS.includes(columnId)) {
-      // If column is not sortable by backend, do nothing or clear frontend sort state for it
-      console.log(`Column ${columnId} is not sortable by the backend.`);
-      return;
-    }
+  // Client-side filtering logic - Call useMemo before any early returns
+  const filteredTableData = useMemo(() => {
+    if (!data?.data) return [];
+    return data.data;
+  }, [data]);
 
-    if (sortBy === columnId) {
-      setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
-    } else {
-      setSortBy(columnId);
-      setSortOrder('DESC'); 
-    }
-    setPage(1); 
-  };
-  
-  const handlePageChange = (newPage: number) => {
-    if (newPage > 0 && newPage <= (data?.totalPages || 1)) {
-      setPage(newPage);
-    }
-  };
-
-
+  // --- Early returns START here, after all hooks have been called ---
   if (!walletAddress) {
     return (
       <Card>
@@ -156,15 +145,123 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     return new Date(timestamp * 1000).toLocaleDateString(); // Or toLocaleString for date and time
   };
 
+  const formatTokenDisplayValue = (value: number | null | undefined, uiString?: string | null) => {
+    if (typeof value === 'number' && !isNaN(value)) {
+      if (value === 0) return "0";
+      const absValue = Math.abs(value);
+      const suffixes = ["", "K", "M", "B", "T"]; // Add more if needed
+      const magnitude = Math.min(Math.floor(Math.log10(absValue) / 3), suffixes.length - 1);
+      const scaledValue = absValue / Math.pow(1000, magnitude);
+      
+      let precision = 2;
+      if (scaledValue < 10 && scaledValue !== Math.floor(scaledValue)) precision = 2;
+      else if (scaledValue < 100 && scaledValue !== Math.floor(scaledValue)) precision = 1;
+      else precision = 0;
+
+      // Ensure precision does not exceed the natural decimals of the scaled value unless it's intentionally set higher
+      const fixedValue = scaledValue.toFixed(precision);
+      const numPart = parseFloat(fixedValue);
+
+      return (value < 0 ? "-" : "") + numPart.toLocaleString(undefined, { 
+        minimumFractionDigits: precision, 
+        maximumFractionDigits: precision 
+      }) + suffixes[magnitude];
+    }
+    if (uiString) return uiString;
+    return 'N/A';
+  };
+
   const formatPnl = (pnl: number | null | undefined) => {
     if (pnl === null || pnl === undefined) return 'N/A';
     return pnl.toFixed(2); // Basic PNL formatting
   };
 
+  // Refined "no data" checks
+  if (!isLoading && !error && !data?.data) {
+    return (
+      <Card>
+        <Flex alignItems="center" justifyContent="center" className="h-full p-6">
+          <InfoIcon className="h-5 w-5 mr-2 text-tremor-content-subtle" />
+          <Text>No token performance data available for this wallet or period.</Text>
+        </Flex>
+      </Card>
+    );
+  }
+  
+  if (!isLoading && !error && data?.data && filteredTableData.length === 0 && showHoldingsOnly) {
+    // This case means data was fetched, but the "showHoldingsOnly" filter resulted in an empty list.
+    return (
+      <Card className="p-0 md:p-0 flex flex-col h-full">
+        <Title className="p-4 md:p-6 border-b flex-shrink-0">Token Performance</Title>
+        <div className="p-4 md:p-6 border-b">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="holdings-filter"
+              checked={showHoldingsOnly}
+              onCheckedChange={setShowHoldingsOnly}
+            />
+            <Label htmlFor="holdings-filter">Show Only still Holding (Balance &gt; 0)</Label>
+          </div>
+        </div>
+        <Flex alignItems="center" justifyContent="center" className="h-full p-6 flex-grow">
+          <InfoIcon className="h-5 w-5 mr-2 text-tremor-content-subtle" />
+          <Text>No current holdings match your filter.</Text>
+        </Flex>
+      </Card>
+    );
+  }
+  
+  // If data.data exists, but filteredTableData is empty (and not due to showHoldingsOnly being active),
+  // it implies the initial dataset was empty but passed the !data?.data check if data itself was an empty object for example.
+  // This scenario should ideally be caught by `!data?.data` earlier.
+  // If after all checks, filteredTableData is empty, but we didn't hit other conditions, it might mean no data.
+  if (filteredTableData.length === 0) {
+     return (
+      <Card>
+        <Flex alignItems="center" justifyContent="center" className="h-full p-6">
+          <InfoIcon className="h-5 w-5 mr-2 text-tremor-content-subtle" />
+          <Text>No token performance data to display.</Text>
+        </Flex>
+      </Card>
+    );
+  }
+
+  const handleSort = (columnId: string) => {
+    const columnDef = COLUMN_DEFINITIONS.find(c => c.id === columnId);
+    if (!columnDef || !columnDef.isSortable || !BACKEND_SORTABLE_IDS.includes(columnId)) {
+      // If column is not sortable by backend, do nothing or clear frontend sort state for it
+      console.log(`Column ${columnId} is not sortable by the backend.`);
+      return;
+    }
+
+    if (sortBy === columnId) {
+      setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
+    } else {
+      setSortBy(columnId);
+      setSortOrder('DESC'); 
+    }
+    setPage(1); 
+  };
+  
+  const handlePageChange = (newPage: number) => {
+    if (newPage > 0 && newPage <= (data?.totalPages || 1)) {
+      setPage(newPage);
+    }
+  };
 
   return (
     <Card className="p-0 md:p-0 flex flex-col h-full">
       <Title className="p-4 md:p-6 border-b flex-shrink-0">Token Performance</Title>
+      <div className="p-4 md:p-6 border-b">
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="holdings-filter"
+            checked={showHoldingsOnly}
+            onCheckedChange={setShowHoldingsOnly}
+          />
+          <Label htmlFor="holdings-filter">Show Only still Holding (Balance &gt; 0)</Label>
+        </div>
+      </div>
       <div className="flex-grow overflow-y-auto">
         <Table className="min-w-full">
           <TableHeader className="sticky top-0 z-10 bg-card">
@@ -182,7 +279,7 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data.data.map((item: TokenPerformanceDataDto, index: number) => (
+            {filteredTableData.map((item: TokenPerformanceDataDto, index: number) => (
               <TableRow 
                 key={`${item.tokenAddress}-${index}`} 
                 className="border-b hover:bg-muted/20 even:bg-muted/5"
@@ -191,7 +288,9 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
                 <TableCell className="whitespace-nowrap px-3 py-2 md:px-4 md:py-3 text-right text-xs md:text-sm">{formatPnl(item.netSolProfitLoss)}</TableCell>
                 <TableCell className="whitespace-nowrap px-3 py-2 md:px-4 md:py-3 text-right text-xs md:text-sm">{item.totalSolSpent.toFixed(2)}</TableCell>
                 <TableCell className="whitespace-nowrap px-3 py-2 md:px-4 md:py-3 text-right text-xs md:text-sm">{item.totalSolReceived.toFixed(2)}</TableCell>
-                <TableCell className="whitespace-nowrap px-3 py-2 md:px-4 md:py-3 text-right text-xs md:text-sm">{item.netAmountChange.toFixed(4)}</TableCell>
+                <TableCell className="whitespace-nowrap px-3 py-2 md:px-4 md:py-3 text-right text-xs md:text-sm">
+                  {formatTokenDisplayValue(item.currentUiBalance, item.currentUiBalanceString)}
+                </TableCell>
                 <TableCell className="whitespace-nowrap px-3 py-2 md:px-4 md:py-3 text-right text-xs md:text-sm">{item.transferCountIn}</TableCell>
                 <TableCell className="whitespace-nowrap px-3 py-2 md:px-4 md:py-3 text-right text-xs md:text-sm">{item.transferCountOut}</TableCell>
                 <TableCell className="whitespace-nowrap px-3 py-2 md:px-4 md:py-3 text-xs md:text-sm">{formatDate(item.firstTransferTimestamp)}</TableCell>

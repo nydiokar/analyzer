@@ -40,5 +40,21 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Unix timestamp (seconds) of the last transfer involving this token', type: Number, nullable: true, required: false })
   lastTransferTimestamp?: number | null;
 
+  // Fields for current token balance snapshot
+  @ApiProperty({ description: 'Current raw token balance (string to preserve precision)', type: String, nullable: true, required: false })
+  currentRawBalance?: string | null;
+
+  @ApiProperty({ description: 'Current UI-friendly token balance', type: Number, nullable: true, required: false })
+  currentUiBalance?: number | null;
+
+  @ApiProperty({ description: 'Current UI-friendly token balance as a string', type: String, nullable: true, required: false })
+  currentUiBalanceString?: string | null;
+
+  @ApiProperty({ description: 'Decimals for the current balance fields', type: Number, nullable: true, required: false })
+  balanceDecimals?: number | null;
+
+  @ApiProperty({ description: 'Timestamp when this specific token balance was part of a WalletState fetch', type: String, format: 'date-time', nullable: true, required: false })
+  balanceFetchedAt?: string | null; // Store as ISO string in DTO
+
   // Note: The 'id' field from AnalysisResult is typically not exposed in API responses unless specifically needed.
 } 

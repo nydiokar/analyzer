@@ -96,6 +96,35 @@ export class DatabaseService {
     }
     // --- End Mapping Activity Log Methods ---
 
+    // --- AnalysisResult Methods ---
+
+    async getAnalysisResults(params: {
+        where?: Prisma.AnalysisResultWhereInput;
+        orderBy?: Prisma.AnalysisResultOrderByWithRelationInput;
+        skip?: number;
+        take?: number;
+    }): Promise<AnalysisResult[]> {
+        this.logger.debug(`Fetching AnalysisResults with params: ${JSON.stringify(params)}`);
+        try {
+            return await this.prismaClient.analysisResult.findMany(params);
+        } catch (error) {
+            this.logger.error('Error fetching AnalysisResults', { error, params });
+            throw error; // Re-throw for service layer to handle
+        }
+    }
+
+    async countAnalysisResults(params: {
+        where?: Prisma.AnalysisResultWhereInput;
+    }): Promise<number> {
+        this.logger.debug(`Counting AnalysisResults with params: ${JSON.stringify(params)}`);
+        try {
+            return await this.prismaClient.analysisResult.count(params);
+        } catch (error) {
+            this.logger.error('Error counting AnalysisResults', { error, params });
+            throw error; // Re-throw for service layer to handle
+        }
+    }
+
     // --- User Management Methods ---
 
     /**
