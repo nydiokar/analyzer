@@ -2,12 +2,18 @@
 
 import React from 'react';
 import useSWR from 'swr';
-import { Card, Metric, Text, Flex, Badge, Title } from '@tremor/react';
+import { Card, Metric, Text, Flex, Badge } from '@tremor/react';
 import { WalletSummaryData, WalletSummaryError } from '@/types/api';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Hourglass } from 'lucide-react';
+import { AlertTriangle, Hourglass, Info, TrendingUp, Percent, CalendarDays, Landmark } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { useTimeRangeStore } from '@/store/time-range-store';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface AccountSummaryCardProps {
   walletAddress: string;
@@ -152,38 +158,78 @@ export default function AccountSummaryCard({ walletAddress, className }: Account
   };
 
   return (
-    <Card className={cn("w-full md:w-auto md:min-w-[300px]", className)}>
-      <Title>Summary</Title>
-      <Flex justifyContent="between" alignItems="start" className="mt-4">
-        <Text>Last Active</Text>
-        <Text>{data.lastActiveTimestamp ? format(new Date(data.lastActiveTimestamp * 1000), 'MMM dd, yyyy') : 'N/A'}</Text>
-      </Flex>
-      <Flex justifyContent="between" alignItems="start" className="mt-1">
-        <Text>Days Active</Text>
-        <Text>{data.daysActive ?? 'N/A'}</Text>
-      </Flex>
-      <Flex justifyContent="between" alignItems="start" className="mt-1">
-        <Text>Latest PNL</Text>
-        <Metric color={ (data.latestPnl ?? 0) >= 0 ? 'emerald' : 'red' }>
+    <Card className={cn("p-3 shadow-sm w-full md:w-auto md:min-w-[280px] lg:min-w-[300px]", className)}>
+      <div className="space-y-2">
+        <Flex justifyContent="between" alignItems="center" className="gap-2">
+          <Text className="text-sm font-medium">PNL</Text>
+          <Metric color={(data.latestPnl ?? 0) >= 0 ? 'emerald' : 'red'} className="text-base">
             {formatPnl(data.latestPnl ?? null)}
-        </Metric>
-      </Flex>
-      <Flex justifyContent="between" alignItems="start" className="mt-1">
-        <Text>Token Win Rate</Text>
-        <Text>{formatWinRate(data.tokenWinRate ?? null)}</Text>
-      </Flex>
-      {data.currentSolBalance !== undefined && (
-        <Flex justifyContent="between" alignItems="start" className="mt-1">
-          <Text>Current Balance</Text>
-          <Text>{data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL</Text>
+          </Metric>
         </Flex>
-      )}
-      {data.behaviorClassification && (
-        <Flex justifyContent="between" alignItems="start" className="mt-1">
-          <Text>Behavior Tag</Text>
-          <Badge color="sky">{data.behaviorClassification}</Badge>
+
+        <Flex justifyContent="between" alignItems="center" className="gap-2">
+          <Text className="text-sm font-medium">Win Rate</Text>
+          <Text className="text-base font-semibold">{formatWinRate(data.tokenWinRate ?? null)}</Text>
         </Flex>
-      )}
+
+        {data.currentSolBalance !== undefined && (
+          <Flex justifyContent="between" alignItems="center" className="gap-2">
+            <Text className="text-sm font-medium">Balance</Text>
+            <Text className="text-base font-semibold">{data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL</Text>
+          </Flex>
+        )}
+
+        <div className="mt-2 pt-2 border-t border-muted/50">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-2 gap-x-4">
+            
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center justify-between cursor-default">
+                    <div className="flex items-center gap-1.5">
+                      <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                      <Text className="text-xs text-muted-foreground">Last Active</Text>
+                    </div>
+                    <Text className="text-xs text-muted-foreground">
+                      {data.lastActiveTimestamp 
+                        ? format(new Date(data.lastActiveTimestamp * 1000), 'MMM d, yyyy') 
+                        : 'N/A'}
+                    </Text>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="center" sideOffset={6}>
+                  <p>{data.lastActiveTimestamp 
+                      ? format(new Date(data.lastActiveTimestamp * 1000), 'PPP p') 
+                      : 'No data available'}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            {data.behaviorClassification && (
+              <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center justify-between cursor-default">
+                      <div className="flex items-center gap-1.5">
+                        <Landmark className="h-4 w-4 text-muted-foreground" />
+                        <Text className="text-xs text-muted-foreground">Behavior</Text>
+                      </div>
+                      <Badge color="sky" size="xs" className="ml-1">
+                        {data.behaviorClassification}
+                      </Badge>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="center" sideOffset={6}>
+                    <p>{data.behaviorClassification}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
+          </div>
+        </div>
+      </div>
     </Card>
   );
 } 

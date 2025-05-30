@@ -26,8 +26,10 @@ model Wallet {
   newestProcessedTimestamp  Int?
   // Timestamp of the last time a fetch was successfully run for this wallet
   lastSuccessfulFetchTimestamp DateTime?
-  // Signature of the newest transaction that was successfully included in the last analysis run
-  lastSignatureAnalyzed    String? 
+  // Timestamp of the OLDEST transaction included in the last successful analysis
+  analyzedTimestampStart    Int?
+  // Timestamp of the NEWEST transaction included in the last successful analysis
+  analyzedTimestampEnd      Int?
 
   // Relations to the latest summaries and profiles - fixed to be referenced by children
   pnlSummary                WalletPnlSummary?
