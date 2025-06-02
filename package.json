@@ -43,10 +43,10 @@
   "license": "ISC",
   "dependencies": {
     "@nestjs/cli": "^11.0.7",
-    "@nestjs/common": "^11.1.1",
+    "@nestjs/common": "^11.1.2",
     "@nestjs/config": "^4.0.2",
-    "@nestjs/core": "^11.1.1",
-    "@nestjs/platform-express": "^11.1.1",
+    "@nestjs/core": "^11.1.2",
+    "@nestjs/platform-express": "^11.1.2",
     "@nestjs/swagger": "^11.2.0",
     "@prisma/client": "^6.8.2",
     "@types/better-sqlite3": "^7.6.13",
@@ -63,7 +63,7 @@
     "csv-stringify": "^6.5.2",
     "dotenv": "^16.3.1",
     "express": "^5.1.0",
-    "papaparse": "^5.5.2",
+    "papaparse": "^5.5.3",
     "react-wrap-balancer": "^1.1.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
@@ -73,7 +73,7 @@
     "telegraf": "^4.15.3",
     "uuid": "^11.1.0",
     "winston": "^3.12.0",
-    "yargs": "^17.7.2"
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
@@ -85,7 +85,7 @@
     "@types/uuid": "^10.0.0",
     "@types/yargs": "^17.0.33",
     "chai": "^5.2.0",
-    "mocha": "^11.2.2",
+    "mocha": "^11.5.0",
     "nodemon": "^3.1.0",
     "pm2": "^6.0.6",
     "prisma": "^6.8.2",
