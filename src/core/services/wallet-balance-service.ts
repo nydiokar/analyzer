@@ -97,7 +97,7 @@ export class WalletBalanceService {
     // HeliusApiClient handles internal rate limiting for its methods.
     for (const address of walletAddresses) {
       try {
-        logger.debug(`Fetching token balances for address: ${address} for SPL Token program.`);
+        // logger.debug(`Fetching token balances for address: ${address} for SPL Token program.`);
         
         // Fetch for standard SPL Token Program
         const splTokenAccountsResult: GetTokenAccountsByOwnerResult = await this.heliusClient.getTokenAccountsByOwner(

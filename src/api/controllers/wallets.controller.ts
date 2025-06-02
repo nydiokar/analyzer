@@ -73,16 +73,16 @@ export class WalletsController {
     @Param('walletAddress') walletAddress: string, 
     @Query() queryDto: WalletSummaryQueryDto,
     @Req() req: Request & { user?: any }
-  ) {
+  ): Promise<WalletSummaryResponse> {
     const actionType = 'get_wallet_summary';
     const userId = req.user?.id;
     const sourceIp = req.ip;
     const requestParameters = { walletAddress: walletAddress, query: req.query, startDate: queryDto.startDate, endDate: queryDto.endDate }; 
     const startTime = Date.now();
 
-    this.logger.debug(`getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
+    this.logger.debug(`[Refactored] getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
 
-    // Prepare timeRange for services if dates are provided
+    // Prepare timeRange for specific period data if dates are provided
     let serviceTimeRange: { startTs?: number; endTs?: number } | undefined = undefined;
     if (queryDto.startDate && queryDto.endDate) {
         const startTs = new Date(queryDto.startDate).getTime() / 1000;
@@ -91,100 +91,82 @@ export class WalletsController {
             serviceTimeRange = { startTs, endTs };
         }
     }
-
-    // Corrected log message to be more general for the getWalletSummary context
-    this.logger.debug(`[WalletsController] Calculated serviceTimeRange: ${JSON.stringify(serviceTimeRange)} from queryDto: ${JSON.stringify(queryDto)}`);
+    this.logger.debug(`[Refactored] ServiceTimeRange for period-specific data (if any): ${JSON.stringify(serviceTimeRange)}`);
 
     if (userId) {
-      await this.databaseService.logActivity(
-        userId,
-        actionType,
-        requestParameters,
-        'INITIATED',
-        undefined,
-        undefined,
-        sourceIp
-      ).catch(err => this.logger.error('Failed to log INITIATED activity:', err));
+      await this.databaseService.logActivity(userId, actionType, requestParameters, 'INITIATED', undefined, undefined, sourceIp)
+        .catch(err => this.logger.error('Failed to log INITIATED activity:', err));
     }
 
     try {
-      // Fetch period-specific PNL and advanced stats using PnlAnalysisService in view-only mode
-      const pnlSummaryForPeriod = await this.pnlOverviewService.getPnlAnalysisForSummary(walletAddress, serviceTimeRange);
+      // 1. Fetch the main persisted PNL Summary for overall KPIs and lastAnalyzedAt
+      const overallPnlSummary = await this.databaseService.getWalletPnlSummaryWithRelations(walletAddress);
 
-      let periodSpecificTimestamps: WalletTimeRangeInfo | null = null;
-      let overallWalletInfo: Awaited<ReturnType<typeof this.databaseService.getWallet>> | null = null;
-
-      if (serviceTimeRange && serviceTimeRange.startTs && serviceTimeRange.endTs) {
-        periodSpecificTimestamps = await this.databaseService.getWalletTimestampsForRange(walletAddress, {
-            startTs: serviceTimeRange.startTs,
-            endTs: serviceTimeRange.endTs,
-        });
-      } else {
-        overallWalletInfo = await this.databaseService.getWallet(walletAddress);
-      }
-      
-      const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig(); // Potentially adapt for time range in future
-      const behaviorMetrics = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig, serviceTimeRange);
-
-      // Determine lastActiveTimestamp and daysActive
-      let finalLastActiveTimestamp: number | null = null;
-      let finalDaysActive: string | number = 0;
-
-      if (periodSpecificTimestamps && periodSpecificTimestamps.lastObservedTsInPeriod) {
-        finalLastActiveTimestamp = periodSpecificTimestamps.lastObservedTsInPeriod;
-        if (periodSpecificTimestamps.firstObservedTsInPeriod) {
-          // Check if the query range is ~24h or less
-          const queryStart = queryDto.startDate ? new Date(queryDto.startDate).getTime() : 0;
-          const queryEnd = queryDto.endDate ? new Date(queryDto.endDate).getTime() : 0;
-          const queryDurationMs = queryEnd - queryStart;
-          const twentyFourHoursMs = 24 * 60 * 60 * 1000;
-
-          if (queryDurationMs > 0 && queryDurationMs <= twentyFourHoursMs + (2 * 60 * 60 * 1000)) { // Allow a small buffer (e.g., 2 hours) for exact 24h selections
-            finalDaysActive = 1;
-          } else {
-            const diffSeconds = periodSpecificTimestamps.lastObservedTsInPeriod - periodSpecificTimestamps.firstObservedTsInPeriod;
-            finalDaysActive = Math.max(1, Math.ceil(diffSeconds / (60 * 60 * 24))); // Ensure at least 1 day
-          }
-        } else if (finalLastActiveTimestamp) { // Activity in period, but no firstObservedTsInPeriod (e.g. single event)
-            finalDaysActive = 1;
-        }
-      } else if (overallWalletInfo) {
-        finalLastActiveTimestamp = overallWalletInfo.newestProcessedTimestamp || (pnlSummaryForPeriod?.advancedStats?.lastTransactionTimestamp || null) ;
-        if (overallWalletInfo.firstProcessedTimestamp && finalLastActiveTimestamp) {
-          const diffSeconds = finalLastActiveTimestamp - overallWalletInfo.firstProcessedTimestamp;
-          finalDaysActive = Math.max(1, Math.ceil(diffSeconds / (60 * 60 * 24)));
-        }
-      } else if (pnlSummaryForPeriod?.advancedStats?.lastTransactionTimestamp) { // Fallback if no wallet info but PNL has it
-          finalLastActiveTimestamp = pnlSummaryForPeriod.advancedStats.lastTransactionTimestamp;
-          if (pnlSummaryForPeriod.advancedStats.firstTransactionTimestamp) {
-            const diffSeconds = finalLastActiveTimestamp - pnlSummaryForPeriod.advancedStats.firstTransactionTimestamp;
-            finalDaysActive = Math.max(1, Math.ceil(diffSeconds / (60 * 60 * 24)));
-          } else {
-            finalDaysActive = 1; // Active for at least one day if there's a last transaction
-          }
-      }
-
-      if (!pnlSummaryForPeriod && !behaviorMetrics && !finalLastActiveTimestamp) {
-        this.logger.warn(`No data found for wallet summary: ${walletAddress}`);
+      if (!overallPnlSummary) {
+        this.logger.warn(`No WalletPnlSummary found for wallet: ${walletAddress}. Wallet might not be fully analyzed.`);
         if (userId) {
           const durationMs = Date.now() - startTime;
           await this.databaseService.logActivity(userId, actionType, requestParameters, 'FAILURE', durationMs, 'Not Found', sourceIp);
         }
-        throw new NotFoundException(`No summary data available for wallet ${walletAddress}`);
+        throw new NotFoundException(`No comprehensive analysis data available for wallet ${walletAddress}. Please trigger analysis if it's new.`);
       }
 
-      const summary = {
+      // 2. Fetch the main persisted Behavior Profile
+      const overallBehaviorProfile = await this.databaseService.getWalletBehaviorProfile(walletAddress);
+      
+      // 3. Determine lastAnalyzedAt from the PNL summary's updatedAt field
+      const lastAnalyzedAt = overallPnlSummary.updatedAt;
+
+      // 4. Use data from these persisted overall summaries
+      let latestPnl = overallPnlSummary.realizedPnl ?? 0; // Or netPnl
+      let tokenWinRate = overallPnlSummary.advancedStats?.tokenWinRatePercent;
+      let behaviorClassification = overallBehaviorProfile?.tradingStyle || 'N/A';
+      let currentSolBalance = overallPnlSummary.currentSolBalance;
+      let balancesFetchedAt = overallPnlSummary.solBalanceFetchedAt;
+      
+      // For lastActiveTimestamp and daysActive, use overall wallet info if available
+      // Fallback to PNL summary timestamps if wallet entity doesn't have them directly or is not fetched
+      let finalLastActiveTimestamp = overallPnlSummary.wallet?.newestProcessedTimestamp || overallPnlSummary.advancedStats?.lastTransactionTimestamp || null;
+      let finalDaysActive: string | number = 0;
+      const firstProcessedOverallTs = overallPnlSummary.wallet?.firstProcessedTimestamp || overallPnlSummary.advancedStats?.firstTransactionTimestamp || null;
+
+      if (firstProcessedOverallTs && finalLastActiveTimestamp) {
+        const diffSeconds = finalLastActiveTimestamp - firstProcessedOverallTs;
+        finalDaysActive = Math.max(1, Math.ceil(diffSeconds / (60 * 60 * 24)));
+      } else if (finalLastActiveTimestamp) {
+        finalDaysActive = 1; // Active for at least one day if there's a last transaction
+      }
+
+      // ---- Optional: Handle period-specific data if serviceTimeRange is provided ----
+      // This part can be added if specific KPIs for the selected time range are still needed
+      // AND can be fetched efficiently (e.g., from AnalysisResult or a lightweight PnlOverviewService call
+      // that *doesn't* re-trigger full balance fetches and core PnlAnalysisService.analyzeWalletPnl).
+      // For now, the primary summary uses overall persisted data.
+      // If serviceTimeRange is present, one might choose to call a *different*, more lightweight method
+      // on PnlOverviewService or BehaviorService that works primarily with indexed AnalysisResult entries.
+      // Example:
+      // let periodSpecificPnl: number | undefined;
+      // if (serviceTimeRange) {
+      //   const periodPnlData = await this.pnlOverviewService.getLightweightPnlForPeriod(walletAddress, serviceTimeRange);
+      //   periodSpecificPnl = periodPnlData?.realizedPnl;
+      //   // Potentially override latestPnl if period data is specifically requested to be the focus.
+      // }
+      // For simplicity in this refactor, we primarily use the overallPnlSummary for KPIs.
+      // The frontend time range selector influences other tabs more directly (Token Performance, PNL Overview tab).
+
+      const summary: WalletSummaryResponse = {
         walletAddress,
+        lastAnalyzedAt: lastAnalyzedAt.toISOString(), // Key field for frontend
         lastActiveTimestamp: finalLastActiveTimestamp,
         daysActive: finalDaysActive,
-        latestPnl: pnlSummaryForPeriod?.realizedPnl, // Use PNL from period-specific analysis
-        tokenWinRate: pnlSummaryForPeriod?.advancedStats?.tokenWinRatePercent, // Use win rate from period-specific analysis
-        behaviorClassification: behaviorMetrics?.tradingStyle || 'N/A',
+        latestPnl: latestPnl,
+        tokenWinRate: tokenWinRate,
+        behaviorClassification: behaviorClassification,
         receivedStartDate: queryDto.startDate || null,
         receivedEndDate: queryDto.endDate || null,
-        currentSolBalance: pnlSummaryForPeriod?.currentSolBalance,
-        balancesFetchedAt: pnlSummaryForPeriod?.balancesFetchedAt?.toISOString(),
-        tokenBalances: pnlSummaryForPeriod?.tokenBalances,
+        currentSolBalance: currentSolBalance,
+        balancesFetchedAt: balancesFetchedAt?.toISOString() || null,
+        // tokenBalances: pnlSummaryForPeriod?.tokenBalances, // This would require more thought on how to source efficiently
       };
 
       if (userId) {

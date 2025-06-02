@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from 'react';
-import { useSWRConfig } from 'swr';
+import React, { useState, useEffect } from 'react';
+import useSWR, { useSWRConfig } from 'swr';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -78,6 +78,42 @@ export default function WalletProfileLayout({
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
 
+  // SWR hook to fetch wallet summary data
+  const walletSummaryKey = walletAddress ? `/api/v1/wallets/${walletAddress}/summary` : null;
+  const { data: walletSummary, error: summaryError } = useSWR<{ lastAnalyzedAt?: string | null, [key: string]: any }>(
+    walletSummaryKey,
+    fetcher,
+    {
+      revalidateOnFocus: false, // Optional: prevent re-fetch on window focus for this piece of data
+    }
+  );
+
+  // Effect to initialize analysis status from fetched summary
+  useEffect(() => {
+    if (walletSummary && typeof walletSummary.lastAnalyzedAt === 'string') {
+      const analysisDate = new Date(walletSummary.lastAnalyzedAt);
+      if (isValid(analysisDate)) {
+        setLastAnalysisTimestamp(analysisDate);
+        const now = new Date();
+        // Consider analysis fresh if within the last 24 hours
+        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        if (analysisDate > twentyFourHoursAgo) {
+          setLastAnalysisStatus('success'); // Fresh
+        } else {
+          setLastAnalysisStatus('idle');    // Stale (was successful, but old)
+        }
+      } else { // Invalid date string from backend
+        setLastAnalysisTimestamp(null);
+        setLastAnalysisStatus('idle'); // Treat as never analyzed or unknown
+      }
+    } else if (walletSummary && !walletSummary.lastAnalyzedAt) { // Explicitly null or undefined means never analyzed
+      setLastAnalysisTimestamp(null);
+      setLastAnalysisStatus('idle'); // Means "never analyzed"
+    }
+    // If summaryError, we don't automatically set analysis status to 'error'
+    // as this effect is for initial load. `handleTriggerAnalysis` handles specific analysis errors.
+  }, [walletSummary]);
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(walletAddress)
       .then(() => {
@@ -124,39 +160,32 @@ export default function WalletProfileLayout({
       if (cache instanceof Map) { // Ensure cache is iterable, typically a Map
         for (const key of cache.keys()) {
           if (typeof key === 'string' && key.startsWith(`/api/v1/wallets/${walletAddress}`)) {
-            mutate(key);
+            mutate(key); // This will trigger the useEffect to update status and timestamp based on new server data
             revalidatedCount++;
           }
         }
       } else {
-        // Fallback for older SWR versions or different cache implementations if needed
-        // For now, we can just mutate the summary as a basic fallback if cache is not a Map
-        // but this part of SWR is quite stable.
         const baseApiUrl = `/api/v1/wallets/${walletAddress}/summary`;
         const queryParams = new URLSearchParams();
         if (startDate && isValid(startDate)) queryParams.append('startDate', startDate.toISOString());
         if (endDate && isValid(endDate)) queryParams.append('endDate', endDate.toISOString());
         const queryString = queryParams.toString();
         const apiUrlWithTime = queryString ? `${baseApiUrl}?${queryString}` : baseApiUrl;
-        mutate(apiUrlWithTime);
-        revalidatedCount = 1; // At least summary was targeted
+        mutate(apiUrlWithTime); // Trigger re-fetch of summary data
+        revalidatedCount = 1; 
       }
 
       toast({
-        title: "Analysis Complete & Data Refreshed",
-        description: `Data for ${walletAddress} has been updated. ${revalidatedCount} data source(s) were refreshed.`,
+        title: "Analysis Triggered & Refresh Queued",
+        description: `Data for ${walletAddress} will be updated shortly. ${revalidatedCount} data source(s) are being refreshed.`,
       });
-      setLastAnalysisStatus('success');
-      setLastAnalysisTimestamp(new Date());
     } catch (err: any) {
       console.error("Error triggering analysis:", err);
       toast({
-        title: "Analysis Failed",
+        title: "Analysis Failed to Trigger",
         description: err.message || "An unexpected error occurred. Please check console for details.",
         variant: "destructive",
       });
-      setLastAnalysisStatus('error');
-      setLastAnalysisTimestamp(new Date());
     } finally {
       setIsAnalyzing(false);
     }
@@ -188,21 +217,30 @@ export default function WalletProfileLayout({
                 >
                   <RefreshCw className={`mr-2 h-4 w-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
                   {isAnalyzing ? 'Analyzing...' : 'Refresh Wallet Analysis'}
-                  {lastAnalysisStatus !== 'idle' && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) && (
-                    <div className="flex items-center space-x-1.5 text-xs text-muted-foreground mt-1 ml-1">
+                  {/* Analysis Status Display */}
+                  {lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
+                    <div className="flex items-center space-x-1.5 text-xs text-muted-foreground mt-1 md:mt-0 md:ml-2">
                       <span
                         className={cn(
                           "h-2 w-2 rounded-full",
-                          lastAnalysisStatus === 'success' && "bg-green-500",
-                          lastAnalysisStatus === 'error' && "bg-red-500",
+                          lastAnalysisStatus === 'success' && "bg-green-500", // Fresh
+                          lastAnalysisStatus === 'error' && "bg-red-500",   // Error during last attempt
+                          lastAnalysisStatus === 'idle' && "bg-yellow-500",// Stale (successfully analyzed but old)
                         )}
-                        title={lastAnalysisStatus === 'success' ? 'Last analysis successful' : lastAnalysisStatus === 'error' ? 'Last analysis failed' : ''}
+                        title={
+                          lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
+                          lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
+                          lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''
+                        }
                       />
-                      <span className="text-xs">
-                        {formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}
-                      </span>
+                      <span>Refreshed {formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}</span>
                     </div>
-                  )}
+                  ) : lastAnalysisStatus === 'idle' && !isAnalyzing ? ( // lastAnalysisTimestamp is null, status is idle, not currently analyzing -> never analyzed or unknown
+                    <div className="flex items-center space-x-1.5 text-xs text-muted-foreground mt-1 md:mt-0 md:ml-2">
+                         <span className="h-2 w-2 rounded-full bg-gray-400" title="Wallet has not been analyzed yet or status is unknown" />
+                         <span>Not yet analyzed</span>
+                    </div>
+                  ) : null }
                 </Button>
               </>
             )}

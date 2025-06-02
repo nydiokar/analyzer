@@ -133,6 +133,51 @@ export class DatabaseService {
     }
     // --- End Mapping Activity Log Methods ---
 
+    // --- WalletPnlSummary and WalletBehaviorProfile Accessors for Summary Endpoint ---
+    /**
+     * Retrieves the WalletPnlSummary for a given wallet, including related AdvancedTradeStats and Wallet.
+     * Used by the main wallet summary endpoint.
+     *
+     * @param walletAddress The wallet address.
+     * @returns A promise that resolves to the WalletPnlSummary object with relations, or null if not found.
+     */
+    async getWalletPnlSummaryWithRelations(
+        walletAddress: string
+    ): Promise<(Prisma.WalletPnlSummaryGetPayload<{ include: { advancedStats: true, wallet: true } }>) | null> {
+        this.logger.debug(`Fetching WalletPnlSummary with relations for wallet: ${walletAddress}`);
+        try {
+            return await this.prismaClient.walletPnlSummary.findUnique({
+                where: { walletAddress },
+                include: { advancedStats: true, wallet: true },
+            });
+        } catch (error) {
+            this.logger.error('Error fetching WalletPnlSummary with relations', { error, walletAddress });
+            // Decide on error handling: re-throw, or return null for controller to handle as NotFound
+            throw new InternalServerErrorException('Could not fetch PNL summary data.'); 
+        }
+    }
+
+    /**
+     * Retrieves the WalletBehaviorProfile for a given wallet.
+     * Used by the main wallet summary endpoint.
+     *
+     * @param walletAddress The wallet address.
+     * @returns A promise that resolves to the WalletBehaviorProfile object, or null if not found.
+     */
+    async getWalletBehaviorProfile(walletAddress: string): Promise<WalletBehaviorProfile | null> {
+        this.logger.debug(`Fetching WalletBehaviorProfile for wallet: ${walletAddress}`);
+        try {
+            return await this.prismaClient.walletBehaviorProfile.findUnique({
+                where: { walletAddress },
+            });
+        } catch (error) {
+            this.logger.error('Error fetching WalletBehaviorProfile', { error, walletAddress });
+            // Decide on error handling: re-throw, or return null for controller to handle as NotFound
+            throw new InternalServerErrorException('Could not fetch behavior profile data.');
+        }
+    }
+    // --- End WalletPnlSummary and WalletBehaviorProfile Accessors ---
+
     // --- AnalysisResult Methods ---
 
     /**

@@ -55,7 +55,7 @@ const COLUMN_DEFINITIONS: Array<{id: string; name: string; isSortable: boolean; 
   { id: 'roi', name: 'ROI (%)', isSortable: false, className: 'text-right', icon: PercentIcon }, 
   { id: 'totalSolSpent', name: 'SOL Spent', isSortable: true, className: 'text-right', icon: ArrowLeftCircleIcon },
   { id: 'totalSolReceived', name: 'SOL Received', isSortable: true, className: 'text-right', icon: ArrowRightCircleIcon },
-  { id: 'netAmountChange', name: 'Current Supply', isSortable: true, className: 'text-right', icon: PackageIcon },
+  { id: 'currentBalanceDisplay', name: 'Current Balance', isSortable: false, className: 'text-right', icon: PackageIcon },
   { id: 'transferCountIn', name: 'In', isSortable: false, className: 'text-center text-right', icon: ArrowRightLeftIcon },
   { id: 'transferCountOut', name: 'Out', isSortable: false, className: 'text-center text-right'},
   { id: 'firstTransferTimestamp', name: 'First Trade', isSortable: false, className: 'text-center', icon: CalendarDaysIcon }, 

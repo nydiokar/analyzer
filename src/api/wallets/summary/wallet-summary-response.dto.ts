@@ -43,4 +43,7 @@ export class WalletSummaryResponse {
 
   @ApiPropertyOptional({ type: () => [Object], description: 'Array of current token balances held by the wallet. Each object represents a token.', nullable: true })
   tokenBalances?: TokenBalanceDetails[];
+
+  @ApiProperty({ description: 'The date and time the wallet was last analyzed successfully.', example: '2023-03-15T12:00:00.000Z', required: false, nullable: true })
+  lastAnalyzedAt?: string | null;
 } 
