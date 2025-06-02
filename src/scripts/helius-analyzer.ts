@@ -210,32 +210,49 @@ async function analyzeWalletWithHelius() {
     // Determine if P/L analysis should be skipped
     if (!isHistoricalView && wallet) {
       const neverAnalyzed = !wallet.analyzedTimestampStart || !wallet.analyzedTimestampEnd;
-      // Ensure we have valid timestamps from the wallet record (after sync) to compare against.
-      // These represent the full known range of fetched transactions.
-      const fetchedEarliestTxTs = wallet.firstProcessedTimestamp;
-      const fetchedLatestTxTs = wallet.newestProcessedTimestamp;
+      
+      // These are the wallet's global processed timestamps
+      const globalFirstProcessedTs = wallet.firstProcessedTimestamp;
+      const globalNewestProcessedTs = wallet.newestProcessedTimestamp;
+
+      // For the PNL check, we need to consider the effective range these represent
+      // if they are skewed or one is null.
+      let effectiveMinFetchedForPnlCheck: number | null = null;
+      let effectiveMaxFetchedForPnlCheck: number | null = null;
+
+      if (globalFirstProcessedTs !== null && globalNewestProcessedTs !== null) {
+        effectiveMinFetchedForPnlCheck = Math.min(globalFirstProcessedTs, globalNewestProcessedTs);
+        effectiveMaxFetchedForPnlCheck = Math.max(globalFirstProcessedTs, globalNewestProcessedTs);
+      } else if (globalFirstProcessedTs !== null) {
+        effectiveMinFetchedForPnlCheck = globalFirstProcessedTs;
+        effectiveMaxFetchedForPnlCheck = globalFirstProcessedTs;
+      } else if (globalNewestProcessedTs !== null) {
+        effectiveMinFetchedForPnlCheck = globalNewestProcessedTs;
+        effectiveMaxFetchedForPnlCheck = globalNewestProcessedTs;
+      }
+      // If both are null, effectiveMin/Max remain null, and it will likely proceed to analyze.
 
       if (neverAnalyzed) {
         logger.info(`--- Performing P/L Analysis for ${walletAddress}: Wallet has not been fully analyzed before. ---`);
         // pnlAnalysisSkipped remains false
-      } else if (fetchedEarliestTxTs !== null && fetchedLatestTxTs !== null && wallet.analyzedTimestampStart !== null && wallet.analyzedTimestampEnd !== null) {
+      } else if (effectiveMinFetchedForPnlCheck !== null && effectiveMaxFetchedForPnlCheck !== null && wallet.analyzedTimestampStart !== null && wallet.analyzedTimestampEnd !== null) {
         // Only proceed with this check if all necessary timestamps are available
-        const noNewOlderData = fetchedEarliestTxTs >= wallet.analyzedTimestampStart;
-        const noNewNewerData = fetchedLatestTxTs <= wallet.analyzedTimestampEnd;
+        const noNewOlderData = effectiveMinFetchedForPnlCheck >= wallet.analyzedTimestampStart;
+        const noNewNewerData = effectiveMaxFetchedForPnlCheck <= wallet.analyzedTimestampEnd;
 
         if (noNewOlderData && noNewNewerData) {
-          logger.info(`--- Skipping P/L Analysis for ${walletAddress}: No new transactions outside the previously analyzed range (${wallet.analyzedTimestampStart} - ${wallet.analyzedTimestampEnd}). Fetched range: ${fetchedEarliestTxTs} - ${fetchedLatestTxTs}. ---`);
+          logger.info(`--- Skipping P/L Analysis for ${walletAddress}: No new transactions outside the previously analyzed range (${wallet.analyzedTimestampStart} - ${wallet.analyzedTimestampEnd}). Effective fetched range for check based on wallet state: ${effectiveMinFetchedForPnlCheck} - ${effectiveMaxFetchedForPnlCheck}. (Wallet fields: firstProcessedTimestamp=${globalFirstProcessedTs}, newestProcessedTimestamp=${globalNewestProcessedTs}) ---`);
           pnlAnalysisSkipped = true;
         } else {
           let reason = [];
-          if (!noNewOlderData) reason.push(`older data (fetched: ${fetchedEarliestTxTs} < analyzed: ${wallet.analyzedTimestampStart})`);
-          if (!noNewNewerData) reason.push(`newer data (fetched: ${fetchedLatestTxTs} > analyzed: ${wallet.analyzedTimestampEnd})`);
-          logger.info(`--- Performing P/L Analysis for ${walletAddress}: New transactions detected (${reason.join(' and ')}). Analyzed range: ${wallet.analyzedTimestampStart}-${wallet.analyzedTimestampEnd}. Fetched range: ${fetchedEarliestTxTs}-${fetchedLatestTxTs}. ---`);
+          if (!noNewOlderData) reason.push(`older data (batch min ${effectiveMinFetchedForPnlCheck} < analyzed start ${wallet.analyzedTimestampStart})`);
+          if (!noNewNewerData) reason.push(`newer data (batch max ${effectiveMaxFetchedForPnlCheck} > analyzed end ${wallet.analyzedTimestampEnd})`);
+          logger.info(`--- Performing P/L Analysis for ${walletAddress}: New transactions detected (${reason.join(' and ')}). Analyzed range: ${wallet.analyzedTimestampStart}-${wallet.analyzedTimestampEnd}. Effective fetched range for check: ${effectiveMinFetchedForPnlCheck}-${effectiveMaxFetchedForPnlCheck}. (Wallet fields: firstProcessedTimestamp=${globalFirstProcessedTs}, newestProcessedTimestamp=${globalNewestProcessedTs}) ---`);
           // pnlAnalysisSkipped remains false
         }
       } else {
         // Fallback or if some timestamps are unexpectedly null after sync and it's not the first analysis
-        logger.warn(`--- Performing P/L Analysis for ${walletAddress}: Could not definitively determine skip logic due to missing timestamp data. Proceeding with analysis. Wallet data: ${JSON.stringify(wallet)} ---`);
+        logger.warn(`--- Performing P/L Analysis for ${walletAddress}: Could not definitively determine skip logic due to missing timestamp data (firstProcessed: ${globalFirstProcessedTs}, newestProcessed: ${globalNewestProcessedTs}). Proceeding with analysis. Wallet data: ${JSON.stringify(wallet)} ---`);
         // pnlAnalysisSkipped remains false (safer to analyze)
       }
     } else if (isHistoricalView) {

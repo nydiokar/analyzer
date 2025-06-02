@@ -47,7 +47,11 @@ export class TokenPerformanceService {
         sortOrder = SortOrder.DESC,
         startDate, // ISO Date String
         endDate,   // ISO Date String
-        searchTerm, // Added searchTerm
+        searchTerm,
+        showOnlyHoldings, // Explicitly destructure showOnlyHoldings here for clarity
+        pnlConditionOperator,
+        pnlConditionValue,
+        minTrades,
     } = queryDto;
 
     const skip = (page - 1) * pageSize;
@@ -57,7 +61,7 @@ export class TokenPerformanceService {
       walletAddress: walletAddress,
     };
 
-    if (queryDto.showOnlyHoldings) {
+    if (showOnlyHoldings) { // Use the destructured variable
       where.currentUiBalance = { gt: 0 };
     }
 
@@ -65,7 +69,56 @@ export class TokenPerformanceService {
     if (searchTerm) {
       where.tokenAddress = {
         contains: searchTerm,
+        // mode: 'insensitive', // Removed earlier, ensure DB collation handles case-insensitivity if needed
       };
+    }
+
+    // Apply PNL condition
+    if (pnlConditionOperator && typeof pnlConditionValue === 'number') {
+      const op = pnlConditionOperator.toLowerCase();
+      if (op === 'gt' || op === 'lt' || op === 'gte' || op === 'lte') {
+        where.netSolProfitLoss = { [op]: pnlConditionValue } as Prisma.FloatFilter;
+      } else if (op === 'eq') { // DTO enum uses 'eq', Prisma uses 'equals' for numbers
+        where.netSolProfitLoss = { equals: pnlConditionValue } as Prisma.FloatFilter;
+      } else {
+        this.logger.warn(`Unsupported PNL operator: ${pnlConditionOperator}. Expected gt, lt, gte, lte, or eq.`);
+      }
+    }
+
+    // Apply Min Trades condition
+    if (typeof minTrades === 'number' && minTrades > 0) {
+      // Generic condition for (transferCountIn + transferCountOut) >= minTrades
+      // This requires a more complex structure if minTrades can be other than 2, 
+      // or specific combinations are needed. For minTrades = 2, the logic is specific.
+      if (minTrades === 2) {
+        const minTradesCondition = {
+          OR: [
+            { transferCountIn: { gte: 2 } },
+            { transferCountOut: { gte: 2 } },
+            {
+              AND: [
+                { transferCountIn: { equals: 1 } },
+                { transferCountOut: { equals: 1 } },
+              ],
+            },
+          ],
+        };
+
+        if (where.AND) {
+          if (Array.isArray(where.AND)) {
+            where.AND.push(minTradesCondition);
+          } else {
+            where.AND = [where.AND, minTradesCondition];
+          }
+        } else {
+          where.AND = [minTradesCondition];
+        }
+      } else {
+        // For other minTrades values, if a simpler sum isn't directly possible, this might need raw SQL
+        // or a broader interpretation e.g. (transferCountIn >= minTrades OR transferCountOut >= minTrades)
+        // For now, only minTrades = 2 is explicitly handled with the sum logic.
+        this.logger.warn(`Min trades filter currently only implements specific logic for value 2. Received: ${minTrades}`);
+      }
     }
 
     // Apply time range filtering if startDate or endDate is provided

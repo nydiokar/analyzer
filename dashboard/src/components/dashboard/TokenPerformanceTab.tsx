@@ -106,6 +106,37 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     if (searchTerm) {
       params.append('searchTerm', searchTerm);
     }
+
+    // Convert minPnl state to pnlConditionOperator and pnlConditionValue
+    if (minPnl !== 'any') {
+      const operatorMatch = minPnl.match(/^([><]=?|=)/); 
+      const valueMatch = minPnl.match(/[0-9.-]+$/); // Allow negative numbers for PNL value
+      if (operatorMatch && valueMatch) {
+        let feOperator = operatorMatch[0]; // Frontend operator e.g. '>', '<'
+        const value = parseFloat(valueMatch[0]);
+        let beOperator: string | undefined = undefined; // Backend operator e.g. 'gt', 'lt'
+
+        if (feOperator === '>') beOperator = 'gt';
+        else if (feOperator === '<') beOperator = 'lt';
+        // Explicitly map other potential frontend operators if your dropdown supports them
+        // else if (feOperator === '>=') beOperator = 'gte'; 
+        // else if (feOperator === '<=') beOperator = 'lte';
+        // else if (feOperator === '=') beOperator = 'eq'; // DTO uses 'eq'
+
+        if (beOperator) {
+          params.append('pnlConditionOperator', beOperator);
+          params.append('pnlConditionValue', value.toString());
+        } else {
+          console.warn("Unsupported PNL filter operator from frontend state:", feOperator);
+        }
+      }
+    }
+
+    // Convert minTradesToggle to minTrades parameter
+    if (minTradesToggle) {
+      params.append('minTrades', '2'); // Backend logic is specific to 2 for now
+    }
+
     swrKey = `${apiUrlBase}?${params.toString()}`;
   }
 
@@ -159,34 +190,10 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
   };
 
   const tableData = useMemo(() => {
-    let filtered = data?.data || [];
-    // if (searchTerm) { // Backend now handles primary search filtering
-    //   filtered = filtered.filter(token => 
-    //     token.tokenAddress.toLowerCase().includes(searchTerm.toLowerCase())
-    //   );
-    // }
-    if (minTradesToggle) {
-      filtered = filtered.filter(token => 
-        ((token.transferCountIn ?? 0) + (token.transferCountOut ?? 0)) >= 2
-      );
-    }
-    if (minPnl !== 'any') {
-      const pnlValue = parseFloat(minPnl.substring(1)); 
-      const operator = minPnl.charAt(0); 
-      if (!isNaN(pnlValue)) {
-        filtered = filtered.filter(token => {
-          const currentPnl = token.netSolProfitLoss ?? 0;
-          if (operator === '>') {
-            return currentPnl > pnlValue;
-          } else if (operator === '<') {
-            return currentPnl < pnlValue;
-          }
-          return true; 
-        });
-      }
-    }
-    return filtered;
-  }, [data, minTradesToggle, minPnl]);
+    // All filtering is now ideally done server-side.
+    // The data received should be the final filtered and paginated set.
+    return data?.data || [];
+  }, [data]); // Only re-memoize if the backend data object changes
 
   // Correctly scoped helper functions
   const handleSort = (columnId: string) => {

@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min, IsDateString, IsBoolean, IsString } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Max, Min, IsDateString, IsBoolean, IsString, IsNumber, Allow } from 'class-validator';
 
 export enum SortOrder {
   ASC = 'ASC',
@@ -94,4 +94,36 @@ export class TokenPerformanceQueryDto {
   @IsOptional()
   @IsString()
   searchTerm?: string;
+
+  @ApiPropertyOptional({
+    description: 'PNL condition operator (e.g., \">\", \"<\"). Use with pnlConditionValue.',
+    type: String,
+    example: '>',
+  })
+  @IsOptional()
+  @IsString()
+  @IsEnum(['gt', 'lt', 'gte', 'lte', 'eq']) // Allow common operators
+  pnlConditionOperator?: string;
+
+  @ApiPropertyOptional({
+    description: 'PNL condition value. Use with pnlConditionOperator.',
+    type: Number,
+    example: 10,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  pnlConditionValue?: number;
+
+  @ApiPropertyOptional({
+    description: 'Minimum number of trades (in+out). Filters for tokens with total trades >= this value.',
+    type: Number,
+    example: 2,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  minTrades?: number;
 } 

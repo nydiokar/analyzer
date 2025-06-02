@@ -334,26 +334,65 @@ export class HeliusSyncService {
       }
     
       if (transactions.length > 0) {
-        const newestTx = transactions[0];
-        const oldestTx = transactions[transactions.length - 1];
+        // Determine actual min and max timestamps from the CURRENT BATCH
+        let batchMinTimestamp = Infinity;
+        let batchMaxTimestamp = 0;
+        let batchNewestSignature = ''; // To store the signature of the newest transaction in the batch
+        let batchOldestSignature = ''; // To store the signature of the oldest transaction in the batch
 
-        // Use the imported Wallet type for Partial<Omit<Wallet, 'address'>>
+        transactions.forEach(tx => {
+            if (tx.timestamp < batchMinTimestamp) {
+                batchMinTimestamp = tx.timestamp;
+                batchOldestSignature = tx.signature; // Capture oldest sig
+            }
+            if (tx.timestamp > batchMaxTimestamp) {
+                batchMaxTimestamp = tx.timestamp;
+                batchNewestSignature = tx.signature; // Capture newest sig
+            }
+        });
+        // If only one transaction, min and max are the same
+        if (transactions.length === 1) {
+            batchMinTimestamp = transactions[0].timestamp;
+            batchMaxTimestamp = transactions[0].timestamp;
+            batchOldestSignature = transactions[0].signature;
+            batchNewestSignature = transactions[0].signature;
+        }
+
         const updateData: Partial<Omit<Wallet, 'address'>> = { 
             lastSuccessfulFetchTimestamp: new Date() 
         };
 
-        if (isNewerFetchOrInitial) {
-            if (newestTx) {
-                updateData.newestProcessedSignature = newestTx.signature;
-                updateData.newestProcessedTimestamp = newestTx.timestamp;
+        const currentWallet = await this.databaseService.getWallet(walletAddress);
+
+        // Update firstProcessedTimestamp if the current batch's oldest is older than known, or if never set
+        if (batchMinTimestamp !== Infinity && 
+            (!currentWallet || currentWallet.firstProcessedTimestamp === null || batchMinTimestamp < currentWallet.firstProcessedTimestamp)) {
+            updateData.firstProcessedTimestamp = batchMinTimestamp;
+            // Potentially update oldestProcessedSignature if your Wallet model has it and it's useful
+        }
+        
+        // Update newestProcessedTimestamp if the current batch's newest is newer than known, or if never set
+        // Also update newestProcessedSignature accordingly
+        if (batchMaxTimestamp !== 0 &&
+            (!currentWallet || currentWallet.newestProcessedTimestamp === null || batchMaxTimestamp > currentWallet.newestProcessedTimestamp)) {
+            updateData.newestProcessedTimestamp = batchMaxTimestamp;
+            if (batchNewestSignature) { // Ensure we have a signature
+                 updateData.newestProcessedSignature = batchNewestSignature;
             }
         }
-        
-        const currentWallet = await this.databaseService.getWallet(walletAddress);
-        if (oldestTx && (!currentWallet || typeof currentWallet.firstProcessedTimestamp !== 'number' || oldestTx.timestamp < currentWallet.firstProcessedTimestamp)) {
-            updateData.firstProcessedTimestamp = oldestTx.timestamp;
+        // Edge case: if timestamps are equal but signature needs init/update (e.g. reprocessing)
+        // Or if only the signature was null but timestamp was already correct.
+        else if (batchMaxTimestamp !== 0 && batchNewestSignature && currentWallet && 
+                 batchMaxTimestamp === currentWallet.newestProcessedTimestamp && 
+                 currentWallet.newestProcessedSignature !== batchNewestSignature) {
+             updateData.newestProcessedSignature = batchNewestSignature; // Update if sig differs for same newest timestamp
         }
-        
+        // If the timestamp didn't change but the signature was null and now we have one
+        else if (batchMaxTimestamp !==0 && batchNewestSignature && currentWallet &&
+                batchMaxTimestamp === currentWallet.newestProcessedTimestamp && !currentWallet.newestProcessedSignature) {
+            updateData.newestProcessedSignature = batchNewestSignature;
+        }
+
         if (Object.keys(updateData).length > 1) { 
           await this.databaseService.updateWallet(walletAddress, updateData);
           logger.debug(`[Sync] Wallet state updated for ${walletAddress}.`, updateData);
