@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import { Card, Metric, Text, Flex, Badge } from '@tremor/react';
 import { WalletSummaryData, WalletSummaryError } from '@/types/api';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Hourglass, Info, TrendingUp, Percent, CalendarDays, Landmark } from 'lucide-react';
+import { AlertTriangle, Hourglass, Info, CalendarDays, Landmark } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import {
@@ -22,32 +22,38 @@ interface AccountSummaryCardProps {
 
 // Basic fetcher function for SWR - in a real app, this would be more robust
 // and likely live in a dedicated API utility file.
-const fetcher = async (url: string) => {
+const fetcher = async (url: string, options?: RequestInit) => {
   // In a real scenario, you might have a base URL configured
   // For now, we assume the Next.js dev server might proxy /api calls if set up,
   // or this would fail gracefully until the API is live.
   const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-  if (!apiKey) {
-    console.warn('API key is not set. Please set NEXT_PUBLIC_API_KEY environment variable.');
-    // Potentially throw an error or handle this case as per your app's needs
-  }
+  let baseHeaders: HeadersInit = {};
 
+  if (apiKey) {
+    baseHeaders['X-API-Key'] = apiKey;
+  } else {
+    console.warn(
+      'API key (NEXT_PUBLIC_API_KEY) is not set. API requests might fail if authentication is required.'
+    );
+  }
+  const mergedHeaders = {
+    ...baseHeaders,
+    ...(options?.headers || {}),
+  };
   const res = await fetch(url, {
-    headers: {
-      // Only add the X-API-Key header if the apiKey is available
-      ...(apiKey && { 'X-API-Key': apiKey }),
-    },
+    ...options, 
+    headers: mergedHeaders,
   });
   if (!res.ok) {
     // Try to parse the error response from the API
-    const errorData: WalletSummaryError = await res.json().catch(() => ({
-      message: 'Failed to parse error response from API.',
-      statusCode: res.status
-    }));
-    // Ensure message and statusCode are part of the thrown error, matching WalletSummaryError
-    const errToThrow = new Error(errorData.message) as WalletSummaryError;
-    errToThrow.statusCode = errorData.statusCode || res.status;
-    throw errToThrow; // Throw an object that conforms to WalletSummaryError
+    const errorPayload = await res.json().catch(() => ({ message: res.statusText }));
+    const error = new Error(errorPayload.message || 'An error occurred while fetching the data.') as any;
+    error.status = res.status;
+    error.payload = errorPayload;
+    throw error;
+  }
+  if (res.status === 204) {
+    return null; 
   }
   return res.json();
 };
@@ -68,31 +74,25 @@ export default function AccountSummaryCard({ walletAddress, className }: Account
   const apiUrlWithTime = queryString ? `${baseApiUrl}?${queryString}` : baseApiUrl;
 
   const { data, error, isLoading } = useSWR<WalletSummaryData, WalletSummaryError>(
-    // Construct the URL only if walletAddress and the time range are fully available
     (walletAddress && startDate && endDate) 
-      ? `/api/v1/wallets/${walletAddress}/summary?${queryString}` 
-      : null, // Pass null if not ready, SWR won't fetch
-    fetcher,
+      ? apiUrlWithTime 
+      : null,
+    (url: string) => fetcher(url, { method: 'GET' }),
     {
-      revalidateOnFocus: false, // Prevent re-fetching when the window gains focus
-      revalidateOnReconnect: true, // Default, good for resilience
-      // Optional: Add sophisticated error retry logic
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
       onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
-        // Don't retry for client-side errors that are unlikely to resolve on their own
         if (error.statusCode && (error.statusCode >= 400 && error.statusCode < 500)) {
           return;
         }
-        // Only retry up to 2 times for other errors (e.g., 500s, network issues)
-        if (retryCount >= 2) { // retryCount is 0-indexed, so 0, 1 are the retries
+        if (retryCount >= 2) {
           return;
         }
-        // Wait 5 seconds before retrying. Adjust timing as needed.
         setTimeout(() => revalidate({ retryCount }), 5000);
       }
     }
   );
 
-  // Temporary log for verification
   React.useEffect(() => {
     if (data) {
       console.log('AccountSummaryCard data from API:', data);
@@ -123,12 +123,20 @@ export default function AccountSummaryCard({ walletAddress, className }: Account
   if (error) {
     return (
       <Card className={cn("w-full md:w-auto md:min-w-[300px]", className)}>
-         <Flex alignItems="center" justifyContent="start" className="space-x-2">
-            <AlertTriangle className="h-5 w-5 text-red-500" />
-            <Text color="red">
-              Error: {error.message}
-              {error.statusCode && ` (Status: ${error.statusCode})`}
-            </Text>
+         <Flex flexDirection='col' alignItems="center" justifyContent="center" className="space-y-3 h-full">
+            <Flex alignItems="center" justifyContent="start" className="space-x-2">
+                <AlertTriangle className="h-5 w-5 text-red-500" />
+                <Text color="red">
+                  Error: {error.message}
+                  {error.statusCode && ` (Status: ${error.statusCode})`}
+                </Text>
+            </Flex>
+            {!data && (
+                 <Flex alignItems="center" justifyContent="center" className="h-full">
+                    <Info className="h-5 w-5 mr-2 text-tremor-content-subtle"/>
+                    <Text>No summary data available. Wallet might need analysis or an error occurred.</Text>
+                </Flex>
+            )}
         </Flex>
       </Card>
     );
@@ -144,16 +152,13 @@ export default function AccountSummaryCard({ walletAddress, className }: Account
     );
   }
 
-  // Helper to format PNL
   const formatPnl = (pnl: number | null) => {
     if (pnl === null || pnl === undefined) return 'N/A';
     return `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} SOL`;
   };
   
-  // Helper to format win rate
    const formatWinRate = (rate: number | null) => {
     if (rate === null || rate === undefined) return 'N/A';
-    // Assuming rate is already a percentage, e.g., 51.47 for 51.47%
     return `${rate.toFixed(1)}%`;
   };
 

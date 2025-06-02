@@ -8,19 +8,32 @@ const logger = createLogger('WalletBalanceService');
 const SOL_DECIMALS = 9;
 const SOL_MINT_ADDRESS = 'So11111111111111111111111111111111111111112'; // For reference, not used in SOL balance fetch
 
+/**
+ * Service responsible for fetching SOL and SPL token balances for wallet addresses.
+ * It uses the HeliusApiClient to interact with the Solana RPC.
+ */
 export class WalletBalanceService {
   private heliusClient: HeliusApiClient;
 
+  /**
+   * Constructs an instance of the WalletBalanceService.
+   *
+   * @param heliusClient An instance of HeliusApiClient to use for RPC calls.
+   */
   constructor(heliusClient: HeliusApiClient) {
     this.heliusClient = heliusClient;
   }
 
   /**
    * Fetches the SOL and SPL token balances for a list of wallet addresses.
-   * Batches requests to getMultipleAccounts if more than 100 wallet addresses are provided.
+   * Batches requests to `getMultipleAccounts` for SOL balances if more than 100 wallet addresses are provided.
+   * Fetches SPL token balances for each wallet sequentially using `getTokenAccountsByOwner`.
+   *
    * @param walletAddresses An array of public key strings for the wallets.
-   * @param commitment Optional commitment level for RPC calls.
-   * @returns A Promise resolving to a Map where keys are wallet addresses and values are WalletBalance objects.
+   * @param commitment Optional. The commitment level to use for RPC calls (e.g., "finalized", "confirmed").
+   * @returns A Promise resolving to a Map where keys are wallet addresses (string) and values are `WalletBalance` objects.
+   *          Each `WalletBalance` object contains the SOL balance, an array of token balances, and the timestamp when balances were fetched.
+   *          If a wallet address cannot be processed, its entry might have default/zero balances.
    */
   public async fetchWalletBalances(
     walletAddresses: string[],

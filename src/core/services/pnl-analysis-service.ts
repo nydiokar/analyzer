@@ -7,15 +7,28 @@ import { SwapAnalysisInput, Wallet, AnalysisRun } from '@prisma/client';
 import { HeliusApiClient } from './helius-api-client';
 import { WalletBalanceService } from './wallet-balance-service';
 import { WalletBalance } from '@/types/wallet';
+import { Injectable } from '@nestjs/common';
 
 const logger = createLogger('PnlAnalysisService');
 
+/**
+ * Service responsible for performing Profit and Loss (P&L) analysis for wallets.
+ * It coordinates fetching transaction data, running swap analysis, calculating advanced statistics,
+ * and saving the results to the database. It can also fetch and include current wallet balances.
+ */
+@Injectable()
 export class PnlAnalysisService {
     private swapAnalyzer: SwapAnalyzer;
     private advancedStatsAnalyzer: AdvancedStatsAnalyzer;
     private walletBalanceService: WalletBalanceService | null;
     private heliusApiClient: HeliusApiClient | null;
 
+    /**
+     * Constructs an instance of the PnlAnalysisService.
+     *
+     * @param databaseService Instance of DatabaseService for database interactions.
+     * @param heliusApiClient Optional instance of HeliusApiClient. If provided, WalletBalanceService will be activated for fetching live wallet balances.
+     */
     constructor(
         private databaseService: DatabaseService,
         heliusApiClient: HeliusApiClient | null
@@ -37,10 +50,13 @@ export class PnlAnalysisService {
      * Performs P/L and advanced stats analysis for a given wallet, optionally within a time range.
      *
      * @param walletAddress The wallet address to analyze.
-     * @param timeRange Optional object with startTs and/or endTs for filtering.
-     * @param newestProcessedSignatureFromWallet Optional signature to update Wallet.lastSignatureAnalyzed
-     * @param options Optional options for view-only mode
-     * @returns A promise resolving to the SwapAnalysisSummary or null if no data/results.
+     * @param timeRange Optional object with `startTs` and/or `endTs` (Unix timestamps in seconds) to filter SwapAnalysisInput records for the analysis.
+     * @param options Optional configuration for the analysis:
+     *                - `isViewOnly`: If true, results are not saved to the database (e.g., for historical views without altering records).
+     * @returns A promise resolving to an enriched `SwapAnalysisSummary` object, or null if a critical error occurs
+     *          or if no relevant swap input data is found. The summary includes P&L metrics, advanced stats,
+     *          and potentially the `runId` of the analysis if not in view-only mode. It may also include
+     *          `currentSolBalance` and `balancesFetchedAt` if live balance fetching is successful.
      */
     async analyzeWalletPnl(
         walletAddress: string,

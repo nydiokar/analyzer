@@ -217,8 +217,13 @@ export class HeliusApiClient {
 
             logger.debug(`Attempt ${attempt}: Retrieved ${response.data.length} full transactions.`);
              // Simple validation: Check if we got data for *most* requested signatures
-            if (response.data.length < signatures.length * 0.8 && signatures.length > 10) { // Heuristic threshold
-                logger.warn(`Attempt ${attempt}: Received significantly fewer transactions (${response.data.length}) than signatures requested (${signatures.length}). Some might be missing.`);
+            if (response.data.length < signatures.length * 0.8 && signatures.length > 5) { // Adjusted threshold slightly
+                logger.warn(
+                    `Attempt ${attempt}: Received significantly fewer transactions (${response.data.length}) ` +
+                    `than signatures requested (${signatures.length}). Some might be missing. ` +
+                    `Helius response data (first 5 if many):`, 
+                    JSON.stringify(response.data.slice(0, 5), null, 2) // Log a sample of the raw response
+                );
             }
             return response.data; // Success
 
@@ -661,8 +666,8 @@ export class HeliusApiClient {
    * @param pubkeys An array of base-58 encoded public key strings.
    * @param commitment Optional commitment level (e.g., "finalized", "confirmed", "processed").
    * @param encoding Optional encoding for account data (e.g., "base64", "jsonParsed"). Defaults to "base64".
-   * @returns A promise resolving to the `GetMultipleAccountsResult` structure.
-   * @throws Throws an error if the RPC call fails after all retries.
+   * @returns A promise resolving to the `GetMultipleAccountsResult` structure, which includes account data and context.
+   * @throws Throws an error if the RPC call fails after all retries or if input is invalid.
    */
   public async getMultipleAccounts(
     pubkeys: string[],
@@ -726,8 +731,8 @@ export class HeliusApiClient {
    *                  Crucially, use `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` for standard SPL tokens.
    * @param commitment Optional commitment level (e.g., "finalized", "confirmed", "processed").
    * @param encoding Optional encoding for account data. **Highly recommended to use `jsonParsed`** for structured token data.
-   * @returns A promise resolving to the `GetTokenAccountsByOwnerResult` structure.
-   * @throws Throws an error if the RPC call fails after all retries.
+   * @returns A promise resolving to the `GetTokenAccountsByOwnerResult` structure, containing token account details.
+   * @throws Throws an error if the RPC call fails, if `ownerPubkey` is not provided, or for other issues.
    */
   public async getTokenAccountsByOwner(
     ownerPubkey: string,

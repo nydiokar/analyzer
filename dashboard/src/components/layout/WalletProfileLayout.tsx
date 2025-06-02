@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
+import { useSWRConfig } from 'swr';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -15,7 +16,8 @@ import {
   ListChecks,      // Token Performance (could also be BarChartHorizontal or similar)
   Calculator,      // Account Stats & PNL
   Users,           // Behavioral Patterns (could also be Zap or ActivitySquare)
-  FileText         // Notes
+  FileText,        // Notes
+  RefreshCw      // Added for the refresh button
 } from 'lucide-react' 
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -24,6 +26,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useTimeRangeStore } from '@/store/time-range-store';
+import { isValid } from 'date-fns';
 
 // Import the new tab component
 import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
@@ -31,6 +35,24 @@ import TokenPerformanceTab from '@/components/dashboard/TokenPerformanceTab';
 import AccountStatsPnlTab from '@/components/dashboard/AccountStatsPnlTab';
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
 import ReviewerLogTab from '@/components/dashboard/ReviewerLogTab';
+
+// Basic fetcher function - can be co-located or imported if it's shared
+const fetcher = async (url: string, options?: RequestInit) => {
+  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
+  let baseHeaders: HeadersInit = {};
+  if (apiKey) baseHeaders['X-API-Key'] = apiKey;
+  const mergedHeaders = { ...baseHeaders, ...(options?.headers || {}) };
+  const res = await fetch(url, { ...options, headers: mergedHeaders });
+  if (!res.ok) {
+    const errorPayload = await res.json().catch(() => ({ message: res.statusText }));
+    const error = new Error(errorPayload.message || 'An error occurred') as any;
+    error.status = res.status;
+    error.payload = errorPayload;
+    throw error;
+  }
+  if (res.status === 204) return null;
+  return res.json();
+};
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
@@ -48,7 +70,10 @@ export default function WalletProfileLayout({
   walletAddress,
 }: WalletProfileLayoutProps) {
   const { toast } = useToast();
+  const { mutate } = useSWRConfig();
+  const { startDate, endDate } = useTimeRangeStore();
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(walletAddress)
@@ -70,29 +95,88 @@ export default function WalletProfileLayout({
       });
   };
 
+  const handleTriggerAnalysis = async () => {
+    if (!walletAddress) {
+      toast({
+        title: "Wallet Address Missing",
+        description: "Cannot trigger analysis without a wallet address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsAnalyzing(true);
+    toast({
+      title: "Analysis Started",
+      description: `Fetching and analyzing data for ${walletAddress}. This may take a moment.`,
+    });
+
+    try {
+      await fetcher(`/api/v1/analyses/wallets/${walletAddress}/trigger-analysis`, {
+        method: 'POST',
+      });
+      toast({
+        title: "Analysis Complete",
+        description: `Data for ${walletAddress} has been refreshed.`,
+      });
+      
+      const queryParams = new URLSearchParams();
+      if (startDate && isValid(startDate)) {
+        queryParams.append('startDate', startDate.toISOString());
+      }
+      if (endDate && isValid(endDate)) {
+        queryParams.append('endDate', endDate.toISOString());
+      }
+      const queryString = queryParams.toString();
+      const baseApiUrl = `/api/v1/wallets/${walletAddress}/summary`;
+      const apiUrlWithTime = queryString ? `${baseApiUrl}?${queryString}` : baseApiUrl;
+      
+      mutate(apiUrlWithTime);
+    } catch (err: any) {
+      console.error("Error triggering analysis:", err);
+      toast({
+        title: "Analysis Failed",
+        description: err.message || "An unexpected error occurred during analysis.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   return (
     <Tabs defaultValue="overview" className="flex flex-col w-full h-full bg-muted/40">
       <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
-        <div className="container mx-auto flex flex-row items-center justify-between gap-2 py-2 px-1 md:py-3">
-          <div className='flex items-center gap-1 flex-shrink min-w-0'> 
+        <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-2 py-2 px-1 md:py-3">
+          <div className='flex flex-col items-start gap-1 flex-shrink min-w-0'> 
             {walletAddress && (
               <>
-                <WalletIcon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                <Badge variant="outline" className="px-2 py-1 text-xs md:text-sm font-mono truncate">
-                  {truncateWalletAddress(walletAddress, 6, 4)} 
-                </Badge>
-                <Button variant="ghost" size="icon" onClick={copyToClipboard} className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0">
-                  <CopyIcon className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                  <span className="sr-only">Copy wallet address</span>
+                <div className="flex items-center gap-1">
+                  <WalletIcon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                  <Badge variant="outline" className="px-2 py-1 text-xs md:text-sm font-mono truncate">
+                    {truncateWalletAddress(walletAddress, 8, 6)} 
+                  </Badge>
+                  <Button variant="ghost" size="icon" onClick={copyToClipboard} className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0">
+                    <CopyIcon className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    <span className="sr-only">Copy wallet address</span>
+                  </Button>
+                </div>
+                <Button 
+                  onClick={handleTriggerAnalysis} 
+                  variant="outline"
+                  size="sm"
+                  className="mt-1 w-full md:w-auto"
+                  disabled={isAnalyzing || !walletAddress}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                  {isAnalyzing ? 'Analyzing...' : 'Refresh Wallet Analysis'}
                 </Button>
               </>
             )}
           </div>
-          {/* Summary, TimeRange, Toggles Section - allow it to take space but also shrink. Items inside will wrap if needed. */}
-          <div className="flex items-center gap-2 flex-wrap justify-end flex-grow md:flex-grow-0 flex-shrink min-w-0">
+          <div className="flex items-center gap-2 flex-wrap justify-end flex-grow md:flex-grow-0 flex-shrink min-w-0 mt-2 md:mt-0">
             {isHeaderExpanded && (
               <>
-                {/* AccountSummaryCard will need internal changes to be more compact */}
                 <AccountSummaryCard walletAddress={walletAddress || ""} /> 
                 <TimeRangeSelector />
               </>
@@ -113,7 +197,6 @@ export default function WalletProfileLayout({
             <ThemeToggleButton />
           </div>
         </div>
-        {/* Slimmer TabsList with reduced padding on Triggers, icons, and tooltips */}
         <TabsList className="flex items-center justify-start gap-0.5 p-0.5 px-1 border-t w-full bg-muted/20">
           <TooltipProvider delayDuration={100}>
             <Tooltip>

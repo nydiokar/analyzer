@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useMemo, useCallback } from 'react';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr'; // Import useSWRConfig for mutate
 import { useTimeRangeStore } from '@/store/time-range-store'; 
 import { fetcher } from '../../lib/fetcher'; 
-import { Card, Title, Text, Flex } from '@tremor/react';
+import { Card, Title, Text, Flex, Button } from '@tremor/react'; // Added Button
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
 import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationLink, PaginationNext } from "../../components/ui/pagination"; 
 import { 
@@ -25,13 +25,15 @@ import {
   CalendarDays as CalendarDaysIcon,    // For Dates
   Repeat as RepeatIcon,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  RefreshCw // Added RefreshCw icon for the button
 } from 'lucide-react';
 import { PaginatedTokenPerformanceResponse, TokenPerformanceDataDto } from '@/types/api'; 
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast"; // Added useToast
 
 interface TokenPerformanceTabProps {
   walletAddress: string;
@@ -62,17 +64,22 @@ const COLUMN_DEFINITIONS: Array<{id: string; name: string; isSortable: boolean; 
 
 export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
+  const { mutate } = useSWRConfig(); // For revalidating SWR cache
+  const { toast } = useToast(); // For displaying notifications
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
   const [sortOrder, setSortOrder] = useState('DESC');
   const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
-  const [showPnlAsPercentage, setShowPnlAsPercentage] = useState<boolean>(false); // State for PNL display mode
+  const [showPnlAsPercentage, setShowPnlAsPercentage] = useState<boolean>(false);
 
   // State for new quick filters
-  const [minPnl, setMinPnl] = useState<string>('any'); // PNL filter, e.g., '>10', '<0', 'any'
-  const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false); // For '>= 2 Trades' toggle
-  const [searchTerm, setSearchTerm] = useState<string>(''); // For text search
+  const [minPnl, setMinPnl] = useState<string>('any');
+  const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // New state for analysis triggering
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
 
   const apiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
@@ -99,7 +106,7 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     swrKey = `${apiUrlBase}?${params.toString()}`;
   }
 
-  const { data, error, isLoading } = useSWR<PaginatedTokenPerformanceResponse, Error>(
+  const { data, error, isLoading: isLoadingData } = useSWR<PaginatedTokenPerformanceResponse, Error>(
     swrKey,
     fetcher,
     {
@@ -107,6 +114,46 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
       keepPreviousData: true, 
     }
   );
+
+  const handleTriggerAnalysis = async () => {
+    if (!walletAddress) {
+      toast({
+        title: "Wallet Address Missing",
+        description: "Cannot trigger analysis without a wallet address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsAnalyzing(true);
+    toast({
+      title: "Analysis Started",
+      description: `Fetching and analyzing data for ${walletAddress}. This may take a moment.`,
+    });
+
+    try {
+      await fetcher(`/api/v1/analyses/wallets/${walletAddress}/trigger-analysis`, {
+        method: 'POST',
+      });
+      toast({
+        title: "Analysis Complete",
+        description: `Data for ${walletAddress} has been refreshed.`,
+      });
+      // Revalidate the SWR cache for the current data
+      if (swrKey) {
+        mutate(swrKey);
+      }
+    } catch (err: any) {
+      console.error("Error triggering analysis:", err);
+      toast({
+        title: "Analysis Failed",
+        description: err.message || "An unexpected error occurred during analysis.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const tableData = useMemo(() => {
     let filtered = data?.data || [];
@@ -163,12 +210,14 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
   // --- Render Logic Starts Here ---
 
   const renderTableContent = () => {
-    if (isLoading) {
+    const effectiveIsLoading = isLoadingData || isAnalyzing;
+
+    if (effectiveIsLoading) {
       return (
         <TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length} className="text-center p-6">
           <Flex alignItems="center" justifyContent="center" className="space-x-2">
             <Hourglass className="h-5 w-5 animate-spin text-tremor-content-subtle" />
-            <Text>Loading token performance data...</Text>
+            <Text>{isAnalyzing ? 'Analyzing wallet data...' : 'Loading token performance data...'}</Text>
           </Flex>
         </TableCell></TableRow>
       );
@@ -177,12 +226,22 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     if (error) {
       return (
         <TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length} className="text-center p-6 text-red-500">
-          <Flex alignItems="center" justifyContent="center" className="space-x-2">
-            <AlertTriangle className="h-5 w-5" />
-            <Text color="red">
-              Error: {error.message}
-              {(error as any).statusCode && ` (Status: ${(error as any).statusCode})`}
-            </Text>
+          <Flex flexDirection="col" alignItems="center" justifyContent="center" className="space-y-3">
+            <Flex alignItems="center" justifyContent="center" className="space-x-2">
+              <AlertTriangle className="h-5 w-5" />
+              <Text color="red">
+                Error: {error.message}
+                {(error as any).statusCode && ` (Status: ${(error as any).statusCode})`}
+              </Text>
+            </Flex>
+            <Button 
+              icon={RefreshCw} 
+              onClick={handleTriggerAnalysis} 
+              variant="secondary"
+              disabled={isAnalyzing}
+            >
+              {isAnalyzing ? 'Analysis in Progress...' : 'Refresh Analysis'}
+            </Button>
           </Flex>
         </TableCell></TableRow>
       );
@@ -197,9 +256,19 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
       
       return (
         <TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length} className="text-center p-6">
-          <Flex alignItems="center" justifyContent="center" className="space-x-2">
-            <InfoIcon className="h-5 w-5 text-tremor-content-subtle" />
-            <Text>{noDataMessage}</Text>
+          <Flex flexDirection="col" alignItems="center" justifyContent="center" className="space-y-3">
+            <Flex alignItems="center" justifyContent="center" className="space-x-2">
+              <InfoIcon className="h-5 w-5 text-tremor-content-subtle" />
+              <Text>{noDataMessage}</Text>
+            </Flex>
+            <Button 
+              icon={RefreshCw} 
+              onClick={handleTriggerAnalysis} 
+              variant="secondary"
+              disabled={isAnalyzing}
+            >
+              {isAnalyzing ? 'Analysis in Progress...' : 'Analyze This Wallet'}
+            </Button>
           </Flex>
         </TableCell></TableRow>
       );

@@ -7,23 +7,50 @@ import {
 } from 'core/services/helius-transaction-mapper';
 import { HeliusTransaction } from '@/types/helius-api';
 import { Prisma, Wallet } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
 
 const logger = createLogger('HeliusSyncService');
 
 // Define options structure for syncing
+/**
+ * Defines the configuration options for synchronizing wallet data.
+ * These options control the behavior of the HeliusSyncService when fetching
+ * and processing transaction data for a wallet.
+ */
 export interface SyncOptions {
-    limit: number;          // Batch size for API fetches
-    fetchAll: boolean;       // Attempt to fetch all history (may be limited by API/service)
-    skipApi: boolean;        // Skip API calls, rely only on existing DB data (no sync)
-    fetchOlder: boolean;     // Ignore wallet state and fetch older transactions
-    maxSignatures?: number | null; // Max transactions to fetch/ensure in DB
-    smartFetch: boolean;     // Use smart fetch logic (new first, then old up to maxSignatures)
+    /** Batch size for API fetches (number of signatures per Helius API request). */
+    limit: number;          
+    /** If true, attempts to fetch all available transaction history for the wallet. May be limited by API or service constraints. */
+    fetchAll: boolean;       
+    /** If true, skips all API calls and relies only on existing data in the database. No new data will be fetched or synced. */
+    skipApi: boolean;        
+    /** If true, ignores the current wallet state and fetches older transactions than what is already stored. */
+    fetchOlder: boolean;     
+    /** Optional. Maximum total number of signatures to fetch or ensure exist in the database for the wallet. */
+    maxSignatures?: number | null; 
+    /** If true, uses a smart fetch logic: fetches newer transactions first, then older ones if the maxSignatures target is not yet met. */
+    smartFetch: boolean;     
     // Note: timeRange/period is handled by the PnlAnalysisService, not the sync service
 }
 
+/**
+ * Service responsible for synchronizing Helius transaction data for wallets.
+ * It orchestrates fetching data from the Helius API via HeliusApiClient,
+ * processing it using HeliusTransactionMapper, and saving it to the database
+ * via DatabaseService. It supports various syncing strategies like incremental,
+ * full history, and smart fetching based on SyncOptions.
+ */
+@Injectable()
 export class HeliusSyncService {
     private heliusClient: HeliusApiClient;
 
+    /**
+     * Constructs an instance of the HeliusSyncService.
+     *
+     * @param databaseService Instance of DatabaseService for database interactions.
+     * @param heliusApiClient Instance of HeliusApiClient for Helius API interactions.
+     * @throws Error if heliusApiClient is not provided.
+     */
     constructor(
         private databaseService: DatabaseService,
         heliusApiClient: HeliusApiClient // Changed from heliusApiKey: string
@@ -48,6 +75,16 @@ export class HeliusSyncService {
         if (options.skipApi) {
             logger.info(`[Sync] Skipping API fetch for ${walletAddress} (--skipApi).`);
             return;
+        }
+
+        // Ensure wallet exists in the DB before starting sync operations
+        try {
+            await this.databaseService.ensureWalletExists(walletAddress);
+            logger.info(`[Sync] Wallet entry ensured for ${walletAddress}. Proceeding with sync.`);
+        } catch (error) {
+            logger.error(`[Sync] CRITICAL: Could not ensure wallet entry for ${walletAddress}. Aborting sync.`, { error });
+            // Depending on desired behavior, you might re-throw or just return to stop sync for this wallet.
+            throw error; // Re-throw to make it visible to the caller (e.g., AnalysesController)
         }
 
         logger.info(`[Sync] Starting data synchronization for wallet: ${walletAddress}`);
@@ -88,6 +125,16 @@ export class HeliusSyncService {
 
     // --- Private Helper Methods (Extracted/Adapted from helius-analyzer.ts) ---
     
+    /**
+     * Executes the "Smart Fetch" strategy for synchronizing wallet data.
+     * This strategy first fetches newer transactions since the last sync, then, if the
+     * `options.maxSignatures` target is not met, it fetches older transactions until
+     * the target is reached or no more older transactions are available.
+     *
+     * @param walletAddress The wallet address to synchronize.
+     * @param options Sync options, particularly `maxSignatures` which is crucial for this strategy.
+     * @returns A promise that resolves when the smart fetch process is complete.
+     */
     private async executeSmartFetch(walletAddress: string, options: SyncOptions): Promise<void> {
         logger.info(`[Sync] Executing SmartFetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures in DB.`);
         
@@ -177,6 +224,19 @@ export class HeliusSyncService {
         logger.info(`[Sync] SmartFetch process completed for ${walletAddress}.`);
     }
 
+    /**
+     * Executes the "Standard Fetch" strategy for synchronizing wallet data.
+     * This strategy fetches transactions based on the current wallet state and options.
+     * If `options.fetchOlder` is true or if it's an initial fetch, it attempts to get transactions
+     * up to `options.maxSignatures` (typically newest first unless specific cursors are used internally
+     * by HeliusApiClient for older data). Otherwise, it performs an incremental fetch for newer transactions
+     * since the last sync.
+     *
+     * @param walletAddress The wallet address to synchronize.
+     * @param options Sync options, including `maxSignatures`, `limit`, and `fetchOlder`.
+     * @returns A promise that resolves when the standard fetch process is complete.
+     * @throws Throws an error if the underlying Helius API client call fails critically.
+     */
     private async executeStandardFetch(walletAddress: string, options: SyncOptions): Promise<void> {
         logger.info(`[Sync] Executing Standard Fetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures.`);
 
@@ -235,9 +295,14 @@ export class HeliusSyncService {
     }
 
     /**
-     * Helper to process transactions (map, save inputs, update wallet state).
-     * Adapted from helius-analyzer.ts
-     * Added options parameter.
+     * Helper to process transactions: maps them to intermediate records, saves these records,
+     * saves mapping activity logs, and updates the wallet's sync state in the database.
+     * 
+     * @param walletAddress The wallet address for which transactions are being processed.
+     * @param transactions An array of HeliusTransaction objects to process.
+     * @param isNewerFetchOrInitial A boolean flag indicating if the transactions were fetched as part of a "newer" pass or an initial fetch. This influences how wallet state (e.g., newestProcessedSignature) is updated.
+     * @param options The original SyncOptions to ensure context.
+     * @returns A promise that resolves when processing and saving are complete.
      */
     private async processAndSaveTransactions(
       walletAddress: string, 
@@ -302,7 +367,14 @@ export class HeliusSyncService {
       logger.info(`[Sync] Finished processing batch of ${transactions.length} transactions for ${walletAddress}.`);
     }
 
-    /** Helper to get DB count (example) */
+    /** Helper to get DB count (example) 
+     * Retrieves the count of `SwapAnalysisInput` records for a given wallet address.
+     * This is used, for example, in the SmartFetch logic to determine how many more
+     * transactions need to be fetched to meet the `maxSignatures` target.
+     *
+     * @param walletAddress The wallet address for which to count records.
+     * @returns A promise that resolves to the number of `SwapAnalysisInput` records, or 0 if an error occurs.
+    */
     private async getDbTransactionCount(walletAddress: string): Promise<number> {
         try {
             const count = await this.databaseService['prismaClient'].swapAnalysisInput.count({

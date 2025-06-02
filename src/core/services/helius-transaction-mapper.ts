@@ -15,40 +15,75 @@ const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL = 0.1; // Min SOL value for fee-
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC = 1.0; // Min USDC value for fee-payer heuristic
 
 // --- Add MappingStats Interface ---
+/**
+ * Interface for collecting statistics during the Helius transaction mapping process.
+ * Tracks various counts related to transaction processing, errors, and generated records.
+ */
 interface MappingStats {
+  /** Total number of Helius transactions received for processing. */
   totalTransactionsReceived: number;
+  /** Number of transactions skipped due to an error during their processing. */
   transactionsSkippedError: number;
+  /** Number of transactions successfully processed without critical errors (may still have warnings). */
   transactionsSuccessfullyProcessed: number;
+  /** Total number of SwapAnalysisInput records generated from all processed transactions. */
   analysisInputsGenerated: number;
+  /** Number of native SOL transfer events processed. */
   nativeSolTransfersProcessed: number;
+  /** Total number of SPL token transfer events processed. */
   tokenTransfersProcessed: number;
+  /** Number of WSOL (Wrapped SOL) token transfer events processed. */
   wsolTransfersProcessed: number;
+  /** Number of USDC token transfer events processed. */
   usdcTransfersProcessed: number;
+  /** Number of other (non-WSOL, non-USDC) SPL token transfer events processed. */
   otherTokenTransfersProcessed: number;
+  /** Number of times the fee payer heuristic was applied to attribute swaps. */
   feePayerHeuristicApplied: number;
+  /** Number of records for which a fee amount was calculated and assigned. */
   feesCalculated: number;
   // --- New Counters ---
+  /** Number of attempts made by the event matcher to find intermediary values. */
   eventMatcherAttempts: number;
+  /** Number of times the event matcher identified primary input/output mints for a swap. */
   eventMatcherPrimaryMintsIdentified: number;
+  /** Number of times the event matcher found a consistent SOL value as an intermediary. */
   eventMatcherConsistentSolFound: number;
+  /** Number of times the event matcher found a consistent USDC value as an intermediary. */
   eventMatcherConsistentUsdcFound: number;
+  /** Number of times the event matcher found both SOL and USDC or other ambiguities. */
   eventMatcherAmbiguous: number;
+  /** Number of times the event matcher could not find a consistent intermediary value. */
   eventMatcherNoConsistentValue: number;
+  /** Number of SPL-to-SPL swaps detected (typically using WSOL as intermediary). */
   splToSplSwapDetections: number;
+  /** Number of records where associated SOL/USDC value was derived from SPL-to-SPL detection. */
   associatedValueFromSplToSpl: number;
+  /** Number of records where associated SOL/USDC value was derived from the event matcher. */
   associatedValueFromEventMatcher: number;
+  /** Number of records where associated SOL/USDC value was derived from total WSOL/USDC movement. */
   associatedValueFromTotalMovement: number;
+  /** Number of records where associated SOL/USDC value was derived from net user SOL/USDC change. */
   associatedValueFromNetChange: number;
+  /** Number of times the small outgoing transfer heuristic was applied to identify potential fees. */
   smallOutgoingHeuristicApplied: number;
+  /** Number of potential SwapAnalysisInput records skipped due to having an identical record key already processed for the same transaction. */
   skippedDuplicateRecordKey: number;
+  /** A count of transactions categorized by their Helius `type` (e.g., SWAP, TRANSFER). */
   countByInteractionType: { [type: string]: number };
   // --- End New Counters ---
 }
 // --- End MappingStats Interface ---
 
 // --- Add MappingResult Interface ---
+/**
+ * Represents the result of the Helius transaction mapping process.
+ * Contains the generated SwapAnalysisInput records and the collected mapping statistics.
+ */
 export interface MappingResult {
+  /** An array of `SwapAnalysisInputCreateData` objects ready to be saved to the database. */
   analysisInputs: SwapAnalysisInputCreateData[];
+  /** An object containing statistics collected during the mapping process. */
   stats: MappingStats;
 }
 // --- End MappingResult Interface ---
@@ -59,6 +94,9 @@ type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 /**
  * Converts lamports to SOL, returning the absolute value.
  * Handles undefined, null, string, and number inputs.
+ *
+ * @param lamports The amount in lamports. Can be a number, string, null, or undefined.
+ * @returns The equivalent amount in SOL (absolute value), or 0 if input is invalid or cannot be parsed.
  */
 function lamportsToSol(lamports: number | string | undefined | null): number {
     if (lamports === undefined || lamports === null) return 0;

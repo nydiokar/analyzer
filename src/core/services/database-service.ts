@@ -19,9 +19,13 @@ import { createLogger } from 'core/utils/logger'; // Assuming createLogger funct
 import zlib from 'zlib'; // Added zlib
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
-import { NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { NotFoundException, InternalServerErrorException, Injectable } from '@nestjs/common';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
+/**
+ * PrismaClient instance for database interactions.
+ * Exported for potential direct use, though the DatabaseService is the preferred interface.
+ */
 export const prisma = new PrismaClient(); 
 
 const logger = createLogger('DatabaseService');
@@ -29,11 +33,20 @@ const logger = createLogger('DatabaseService');
 // Corrected Type Definitions based on Prisma schema (inferred from usage/errors)
 
 // Type for wallet updates
+/**
+ * Defines the structure for partial updates to a Wallet record.
+ * Omits 'address' as it's the primary key and typically not updated.
+ */
 type WalletUpdateData = Partial<Omit<Wallet, 'address'>>;
 
 // Type for Swap Input time range filter
+/**
+ * Defines the structure for specifying a time range filter for SwapAnalysisInput records.
+ */
 interface SwapInputTimeRange {
+    /** Optional start timestamp (Unix seconds) of the time range (inclusive). */
     startTs?: number;
+    /** Optional end timestamp (Unix seconds) of the time range (inclusive). */
     endTs?: number;
 }
 
@@ -62,20 +75,42 @@ export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'i
 export type AdvancedTradeStatsInput = Omit<Prisma.AdvancedTradeStatsCreateInput, 'id' | 'run'> & { runId: number; /* walletAddress is already included */ };
 
 // Type for WalletBehaviorProfile upsert
+/**
+ * Defines the structure for creating or updating a WalletBehaviorProfile record.
+ * Omits 'wallet' relation field which is handled via connect/create on 'walletAddress'.
+ */
 export type WalletBehaviorProfileUpsertData = Omit<Prisma.WalletBehaviorProfileCreateInput, 'wallet'> & { walletAddress: string };
 
 // --- DatabaseService Class ---
 
+/**
+ * Provides a centralized service for interacting with the application's database.
+ * Encapsulates Prisma Client operations and includes logging for database activities.
+ * It manages various data models including Wallets, Transactions, Analysis Runs, User accounts, and more.
+ */
+@Injectable()
 export class DatabaseService {
     // Using the exported prisma instance
     private prismaClient: PrismaClient = prisma; 
     private logger = logger; // Use the module-level logger
 
+    /**
+     * Initializes a new instance of the DatabaseService.
+     * Sets up the Prisma client and logger.
+     */
     constructor() {
         this.logger.info('DatabaseService instantiated.');
     }
 
     // --- Mapping Activity Log Methods ---
+    /**
+     * Saves a mapping activity log entry to the database.
+     * Records statistics about the transaction mapping process for a specific wallet.
+     *
+     * @param walletAddress The address of the wallet for which the mapping activity is logged.
+     * @param stats An object containing the statistics of the mapping activity, excluding auto-generated fields.
+     * @returns A promise that resolves to the created MappingActivityLog object, or null if an error occurs.
+     */
     async saveMappingActivityLog(
         walletAddress: string,
         stats: Omit<Prisma.MappingActivityLogCreateInput, 'walletAddress' | 'timestamp' | 'id'> // Use Prisma generated type
@@ -100,6 +135,14 @@ export class DatabaseService {
 
     // --- AnalysisResult Methods ---
 
+    /**
+     * Retrieves multiple AnalysisResult records from the database based on specified criteria.
+     * Allows for filtering, ordering, and pagination of results.
+     *
+     * @param params Parameters for querying AnalysisResult records, including where, orderBy, skip, and take.
+     * @returns A promise that resolves to an array of AnalysisResult objects.
+     * @throws Throws an error if the database query fails.
+     */
     async getAnalysisResults(params: {
         where?: Prisma.AnalysisResultWhereInput;
         orderBy?: Prisma.AnalysisResultOrderByWithRelationInput;
@@ -115,6 +158,13 @@ export class DatabaseService {
         }
     }
 
+    /**
+     * Counts the number of AnalysisResult records in the database that match the specified criteria.
+     *
+     * @param params Parameters for querying AnalysisResult records, primarily the 'where' clause for filtering.
+     * @returns A promise that resolves to the total count of matching AnalysisResult records.
+     * @throws Throws an error if the database query fails.
+     */
     async countAnalysisResults(params: {
         where?: Prisma.AnalysisResultWhereInput;
     }): Promise<number> {
@@ -199,8 +249,56 @@ export class DatabaseService {
             this.logger.info(`Retrieved ${users.length} users.`);
             return users;
         } catch (error) {
-            this.logger.error('Error fetching all users:', error);
-            throw new Error('Could not retrieve users due to a server error.');
+            this.logger.error('Error fetching users', { error });
+            throw error; // Re-throw for service layer to handle
+        }
+    }
+
+    /**
+     * Ensures a wallet record exists in the database.
+     * If the wallet doesn't exist, it creates a new one with default values.
+     * 
+     * @param walletAddress The address of the wallet to find or create.
+     * @returns A promise that resolves to the found or newly created Wallet object.
+     * @throws Throws an error if the database operation fails unexpectedly.
+     */
+    async ensureWalletExists(walletAddress: string): Promise<Wallet> {
+        this.logger.debug(`Ensuring wallet exists for address: ${walletAddress}`);
+        try {
+            const existingWallet = await this.prismaClient.wallet.findUnique({
+                where: { address: walletAddress },
+            });
+
+            if (existingWallet) {
+                this.logger.debug(`Wallet ${walletAddress} found in database.`);
+                return existingWallet;
+            }
+
+            this.logger.info(`Wallet ${walletAddress} not found. Creating new entry.`);
+            const newWallet = await this.prismaClient.wallet.create({
+                data: {
+                    address: walletAddress,
+                    // Initialize other fields with sensible defaults or null
+                    // Timestamps can be null initially or set by sync service later
+                    firstProcessedTimestamp: null,
+                    newestProcessedTimestamp: null,
+                    newestProcessedSignature: null,
+                    analyzedTimestampStart: null,
+                    analyzedTimestampEnd: null,
+                    // Optional fields from your schema, ensure they are nullable or have defaults
+                    // e.g., totalSwaps: 0, totalSolSpent: 0, totalSolReceived: 0, etc.
+                    // These will be updated by actual analysis/sync later.
+                },
+            });
+            this.logger.info(`Wallet ${walletAddress} created successfully.`);
+            return newWallet;
+        } catch (error) {
+            this.logger.error(`Error ensuring wallet ${walletAddress} exists in database`, { error });
+            // Depending on the error, you might want to throw a more specific exception
+            if (error instanceof Prisma.PrismaClientKnownRequestError) {
+                // Handle known Prisma errors if necessary, e.g., unique constraints if address wasn't primary key
+            }            
+            throw new InternalServerErrorException(`Could not ensure wallet ${walletAddress} due to a database error.`);
         }
     }
 
@@ -1207,6 +1305,15 @@ export class DatabaseService {
     }
 
     // --- Wallet Note Management ---
+    /**
+     * Creates a new wallet note for a given wallet and user.
+     * @param walletAddress The address of the wallet associated with the note.
+     * @param userId The ID of the user creating the note.
+     * @param content The textual content of the note.
+     * @returns A promise that resolves to the created WalletNote object.
+     * @throws {NotFoundException} If the associated wallet or user does not exist.
+     * @throws {InternalServerErrorException} If a database error occurs.
+     */
     async createWalletNote(
       walletAddress: string,
       userId: string,
@@ -1235,6 +1342,13 @@ export class DatabaseService {
       }
     }
 
+    /**
+     * Retrieves wallet notes for a given wallet and user.
+     * @param walletAddress The address of the wallet associated with the notes.
+     * @param userId The ID of the user whose notes are being retrieved.
+     * @returns A promise that resolves to an array of WalletNote objects.
+     * @throws {InternalServerErrorException} If a database error occurs.
+     */
     async getWalletNotes(walletAddress: string, userId: string): Promise<WalletNote[]> {
       this.logger.debug(`CoreService: Fetching notes for wallet ${walletAddress} by user ${userId}`);
       try {
@@ -1254,6 +1368,14 @@ export class DatabaseService {
       }
     }
 
+    /**
+     * Deletes a wallet note for a given user.
+     * @param noteId The ID of the note to delete.
+     * @param userId The ID of the user attempting to delete the note (must be the owner).
+     * @returns A promise that resolves to the deleted WalletNote object, or null if not found or permission denied.
+     * @throws {NotFoundException} If the note is not found or the user does not have permission to delete it.
+     * @throws {InternalServerErrorException} If a database error occurs.
+     */
     async deleteWalletNote(noteId: string, userId: string): Promise<WalletNote | null> {
       this.logger.debug(`CoreService: Attempting to delete note ${noteId} by user ${userId}`);
       try {
@@ -1293,6 +1415,15 @@ export class DatabaseService {
       }
     }
 
+    /**
+     * Updates a wallet note for a given user.
+     * @param noteId The ID of the note to update.
+     * @param userId The ID of the user attempting to update the note (must be the owner).
+     * @param newContent The new textual content for the note.
+     * @returns A promise that resolves to the updated WalletNote object.
+     * @throws {NotFoundException} If the note is not found or the user does not have permission to update it.
+     * @throws {InternalServerErrorException} If a database error occurs.
+     */
     async updateWalletNote(
       noteId: string,
       userId: string,

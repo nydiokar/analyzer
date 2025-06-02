@@ -2,13 +2,15 @@
 
 import React, { useEffect, useState } from 'react';
 import { useTimeRangeStore } from '@/store/time-range-store';
-import { PnlOverviewResponse, PnlOverviewResponseData } from '@/types/api'; // Assuming API types are defined here
-import { Card, Metric, Text, Flex, Grid, Title, Subtitle, TabGroup, TabList, Tab } from '@tremor/react';
+import { PnlOverviewResponse, PnlOverviewResponseData } from '@/types/api'; 
+import { Card, Metric, Text, Flex, Grid, Title, Subtitle, TabGroup, TabList, Tab, Button } from '@tremor/react'; // Added Button
 import { useToast } from "@/hooks/use-toast";
 import { fetcher } from '@/lib/fetcher';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { HelpCircle, DollarSign, TrendingUp, ShieldAlert, Zap } from "lucide-react";
+import { HelpCircle, DollarSign, TrendingUp, ShieldAlert, Zap, Hourglass, AlertTriangle, Info, RefreshCw } from "lucide-react"; // Added icons
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+// Removed useSWRConfig as it's not directly used in this file for mutation like in AccountSummaryCard
+// If global SWR mutation is needed, it would be invoked differently or via a shared service/context.
 
 interface AccountStatsPnlTabProps {
   walletAddress: string;
@@ -37,16 +39,9 @@ const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, t
     if (value === undefined || value === null) return 'N/A';
     const sign = Math.sign(value);
     const textColor = sign === 1 ? 'text-green-500' : sign === -1 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle';
-    // const arrow = sign === 1 ? '▲ ' : sign === -1 ? '▼ ' : ''; // Usually no arrow for percentages, but can be added
     return <span className={textColor}>{value.toFixed(1)}%</span>;
   };
   
-  // const formatInteger = (value: number | undefined | null) => {
-  //   if (value === undefined || value === null) return 'N/A';
-  //   const textColor = value > 0 ? 'text-green-500' : value < 0 ? 'text-red-500' : 'text-inherit';
-  //   return <span className={textColor}>{value}</span>;
-  // };
-
   return (
     <Card>
       <Title>{title}</Title>
@@ -180,58 +175,139 @@ const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, t
 export default function AccountStatsPnlTab({ walletAddress }: AccountStatsPnlTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const [pnlData, setPnlData] = useState<PnlOverviewResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // This will now be primary data loading
   const [error, setError] = useState<string | null>(null);
-  const [displayMode, setDisplayMode] = useState<number>(2); // 0: Period, 1: All-Time, 2: Both (index for TabGroup)
+  const [displayMode, setDisplayMode] = useState<number>(2); 
   const { toast } = useToast();
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false); // New state for analysis process
+
+  // Original fetchData function - will be reused
+  const fetchData = async () => {
+    if (!walletAddress) return;
+    setIsLoading(true); // Indicate data loading, distinct from analysis loading
+    setError(null);
+    try {
+      let url = `/api/v1/wallets/${walletAddress}/pnl-overview`;
+      const queryParams = new URLSearchParams();
+      if (startDate) {
+        queryParams.append('startDate', startDate.toISOString());
+      }
+      if (endDate) {
+        queryParams.append('endDate', endDate.toISOString());
+      }
+      if (queryParams.toString()) {
+        url += `?${queryParams.toString()}`;
+      }
+
+      const data: PnlOverviewResponse = await fetcher(url);
+      setPnlData(data);
+    } catch (err: any) {
+      console.error("Error fetching PNL overview:", err);
+      setError(err.message || 'An unexpected error occurred.');
+      toast({
+        title: "Error fetching PNL Data",
+        description: err.message || "Could not load PNL overview data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false); // Data loading finished
+    }
+  };
 
   useEffect(() => {
-    if (!walletAddress) return;
-
-    const fetchData = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        let url = `/api/v1/wallets/${walletAddress}/pnl-overview`;
-        const queryParams = new URLSearchParams();
-        if (startDate) {
-          queryParams.append('startDate', startDate.toISOString());
-        }
-        if (endDate) {
-          queryParams.append('endDate', endDate.toISOString());
-        }
-        if (queryParams.toString()) {
-          url += `?${queryParams.toString()}`;
-        }
-
-        const data: PnlOverviewResponse = await fetcher(url);
-        setPnlData(data);
-      } catch (err: any) {
-        console.error("Error fetching PNL overview:", err);
-        setError(err.message || 'An unexpected error occurred.');
-        toast({
-          title: "Error fetching PNL Data",
-          description: err.message || "Could not load PNL overview data.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchData();
-  }, [walletAddress, startDate, endDate, toast]);
+  }, [walletAddress, startDate, endDate]); // Removed toast from dependencies of this useEffect
 
-  if (isLoading) {
-    return <div className="p-6"><Text>Loading PNL data...</Text></div>;
+  const handleTriggerAnalysis = async () => {
+    if (!walletAddress) {
+      toast({
+        title: "Wallet Address Missing",
+        description: "Cannot trigger analysis without a wallet address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsAnalyzing(true); // Indicate analysis process has started
+    setError(null); // Clear previous errors before starting analysis
+    setPnlData(null); // Clear previous data before starting analysis
+    setIsLoading(true); // Use main loader for analysis process as well
+
+    toast({
+      title: "Analysis Started",
+      description: `Fetching and analyzing data for ${walletAddress}. This may take a moment.`,
+    });
+
+    try {
+      await fetcher(`/api/v1/analyses/wallets/${walletAddress}/trigger-analysis`, {
+        method: 'POST',
+      });
+      toast({
+        title: "Analysis Complete",
+        description: `Data for ${walletAddress} has been refreshed.`,
+      });
+      // After analysis, re-fetch the PNL data for this tab
+      await fetchData(); 
+    } catch (err: any) {
+      console.error("Error triggering analysis:", err);
+      setError(err.message || "An unexpected error occurred during analysis."); // Set error state for this tab
+      toast({
+        title: "Analysis Failed",
+        description: err.message || "An unexpected error occurred during analysis.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false); // Analysis process finished
+      // setIsLoading(false); // setIsLoading is handled by fetchData
+    }
+  };
+  
+  // Combined loading state check
+  const effectiveIsLoading = isLoading || isAnalyzing;
+
+  if (effectiveIsLoading) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center">
+        <Hourglass className="h-8 w-8 animate-spin text-tremor-content-subtle mb-2" />
+        <Text>{isAnalyzing ? 'Analyzing wallet data, please wait...' : 'Loading PNL data...'}</Text>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="p-6 text-red-500"><Text>Error: {error}</Text></div>;
+    return (
+      <div className="p-6 text-center">
+        <AlertTriangle className="h-8 w-8 text-red-500 mx-auto mb-2" />
+        <Text color="red">Error: {error}</Text>
+        <Button 
+          icon={RefreshCw} 
+          onClick={handleTriggerAnalysis} 
+          variant="secondary"
+          className="mt-4"
+          disabled={isAnalyzing} // Keep disabled during analysis itself
+        >
+          {isAnalyzing ? 'Analyzing...' : 'Retry Analysis'}
+        </Button>
+      </div>
+    );
   }
 
   if (!pnlData) {
-    return <div className="p-6"><Text>No PNL data available for this wallet.</Text></div>;
+    return (
+      <div className="p-6 text-center">
+        <Info className="h-8 w-8 text-tremor-content-subtle mx-auto mb-2" />
+        <Text>No PNL data available for this wallet or period.</Text>
+        <Button 
+          icon={RefreshCw} 
+          onClick={handleTriggerAnalysis} 
+          variant="secondary"
+          className="mt-4"
+          disabled={isAnalyzing}
+        >
+          {isAnalyzing ? 'Analyzing...' : 'Analyze Wallet Now'}
+        </Button>
+      </div>
+    );
   }
 
   const periodCard = pnlData.periodData ? (
