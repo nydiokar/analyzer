@@ -211,6 +211,7 @@ export class HeliusApiClient {
             logger.debug(`Attempt ${attempt}: Fetching full transactions for ${signatures.length} signatures.`);
             
             const endpoint = `/v0/transactions?api-key=${this.apiKey}`;
+
             const response = await this.api.post(endpoint, {
                 transactions: signatures
             });
@@ -301,7 +302,7 @@ export class HeliusApiClient {
     newestProcessedTimestamp?: number, // Optional timestamp to filter results (exclusive)
     includeCached: boolean = true, // Flag to control whether to include cached transactions in results
     untilTimestamp?: number,
-    phase2InternalConcurrency: number = 3 // New parameter for internal concurrency
+    phase2InternalConcurrency: number = 3 // Changed default from 3 to 1
   ): Promise<HeliusTransaction[]> {
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run

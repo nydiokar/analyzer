@@ -27,7 +27,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useTimeRangeStore } from '@/store/time-range-store';
-import { isValid } from 'date-fns';
+import { isValid, formatDistanceToNow } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 // Import the new tab component
 import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
@@ -70,10 +71,12 @@ export default function WalletProfileLayout({
   walletAddress,
 }: WalletProfileLayoutProps) {
   const { toast } = useToast();
-  const { mutate } = useSWRConfig();
+  const { mutate, cache } = useSWRConfig();
   const { startDate, endDate } = useTimeRangeStore();
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(walletAddress)
@@ -115,30 +118,45 @@ export default function WalletProfileLayout({
       await fetcher(`/api/v1/analyses/wallets/${walletAddress}/trigger-analysis`, {
         method: 'POST',
       });
+      
+      // Revalidate all SWR keys related to this wallet
+      let revalidatedCount = 0;
+      if (cache instanceof Map) { // Ensure cache is iterable, typically a Map
+        for (const key of cache.keys()) {
+          if (typeof key === 'string' && key.startsWith(`/api/v1/wallets/${walletAddress}`)) {
+            mutate(key);
+            revalidatedCount++;
+          }
+        }
+      } else {
+        // Fallback for older SWR versions or different cache implementations if needed
+        // For now, we can just mutate the summary as a basic fallback if cache is not a Map
+        // but this part of SWR is quite stable.
+        const baseApiUrl = `/api/v1/wallets/${walletAddress}/summary`;
+        const queryParams = new URLSearchParams();
+        if (startDate && isValid(startDate)) queryParams.append('startDate', startDate.toISOString());
+        if (endDate && isValid(endDate)) queryParams.append('endDate', endDate.toISOString());
+        const queryString = queryParams.toString();
+        const apiUrlWithTime = queryString ? `${baseApiUrl}?${queryString}` : baseApiUrl;
+        mutate(apiUrlWithTime);
+        revalidatedCount = 1; // At least summary was targeted
+      }
+
       toast({
-        title: "Analysis Complete",
-        description: `Data for ${walletAddress} has been refreshed.`,
+        title: "Analysis Complete & Data Refreshed",
+        description: `Data for ${walletAddress} has been updated. ${revalidatedCount} data source(s) were refreshed.`,
       });
-      
-      const queryParams = new URLSearchParams();
-      if (startDate && isValid(startDate)) {
-        queryParams.append('startDate', startDate.toISOString());
-      }
-      if (endDate && isValid(endDate)) {
-        queryParams.append('endDate', endDate.toISOString());
-      }
-      const queryString = queryParams.toString();
-      const baseApiUrl = `/api/v1/wallets/${walletAddress}/summary`;
-      const apiUrlWithTime = queryString ? `${baseApiUrl}?${queryString}` : baseApiUrl;
-      
-      mutate(apiUrlWithTime);
+      setLastAnalysisStatus('success');
+      setLastAnalysisTimestamp(new Date());
     } catch (err: any) {
       console.error("Error triggering analysis:", err);
       toast({
         title: "Analysis Failed",
-        description: err.message || "An unexpected error occurred during analysis.",
+        description: err.message || "An unexpected error occurred. Please check console for details.",
         variant: "destructive",
       });
+      setLastAnalysisStatus('error');
+      setLastAnalysisTimestamp(new Date());
     } finally {
       setIsAnalyzing(false);
     }
@@ -170,6 +188,21 @@ export default function WalletProfileLayout({
                 >
                   <RefreshCw className={`mr-2 h-4 w-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
                   {isAnalyzing ? 'Analyzing...' : 'Refresh Wallet Analysis'}
+                  {lastAnalysisStatus !== 'idle' && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) && (
+                    <div className="flex items-center space-x-1.5 text-xs text-muted-foreground mt-1 ml-1">
+                      <span
+                        className={cn(
+                          "h-2 w-2 rounded-full",
+                          lastAnalysisStatus === 'success' && "bg-green-500",
+                          lastAnalysisStatus === 'error' && "bg-red-500",
+                        )}
+                        title={lastAnalysisStatus === 'success' ? 'Last analysis successful' : lastAnalysisStatus === 'error' ? 'Last analysis failed' : ''}
+                      />
+                      <span className="text-xs">
+                        {formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}
+                      </span>
+                    </div>
+                  )}
                 </Button>
               </>
             )}

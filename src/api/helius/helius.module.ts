@@ -22,7 +22,7 @@ import { HeliusSyncService } from '../../core/services/helius-sync-service';
           throw new Error('HELIUS_API_KEY is not configured.');
         }
         // Ensure HeliusApiConfig matches the constructor of HeliusApiClient
-        return new HeliusApiClient({ apiKey }, coreDbService);
+        return new HeliusApiClient({ apiKey, network: 'mainnet' }, coreDbService);
       },
       inject: [ConfigService, CoreDatabaseService], // Inject dependencies for the factory
     },

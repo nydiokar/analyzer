@@ -47,6 +47,7 @@ export class TokenPerformanceService {
         sortOrder = SortOrder.DESC,
         startDate, // ISO Date String
         endDate,   // ISO Date String
+        searchTerm, // Added searchTerm
     } = queryDto;
 
     const skip = (page - 1) * pageSize;
@@ -58,6 +59,13 @@ export class TokenPerformanceService {
 
     if (queryDto.showOnlyHoldings) {
       where.currentUiBalance = { gt: 0 };
+    }
+
+    // Add search term filtering
+    if (searchTerm) {
+      where.tokenAddress = {
+        contains: searchTerm,
+      };
     }
 
     // Apply time range filtering if startDate or endDate is provided

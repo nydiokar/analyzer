@@ -103,6 +103,9 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     if (showHoldingsOnly) {
       params.append('showOnlyHoldings', 'true');
     }
+    if (searchTerm) {
+      params.append('searchTerm', searchTerm);
+    }
     swrKey = `${apiUrlBase}?${params.toString()}`;
   }
 
@@ -157,11 +160,11 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
 
   const tableData = useMemo(() => {
     let filtered = data?.data || [];
-    if (searchTerm) {
-      filtered = filtered.filter(token => 
-        token.tokenAddress.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
+    // if (searchTerm) { // Backend now handles primary search filtering
+    //   filtered = filtered.filter(token => 
+    //     token.tokenAddress.toLowerCase().includes(searchTerm.toLowerCase())
+    //   );
+    // }
     if (minTradesToggle) {
       filtered = filtered.filter(token => 
         ((token.transferCountIn ?? 0) + (token.transferCountOut ?? 0)) >= 2
@@ -183,7 +186,7 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
       }
     }
     return filtered;
-  }, [data, searchTerm, minTradesToggle, minPnl]);
+  }, [data, minTradesToggle, minPnl]);
 
   // Correctly scoped helper functions
   const handleSort = (columnId: string) => {
@@ -201,6 +204,11 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     setPage(1); 
   };
   
+  const handleSearchTermChange = (newSearchTerm: string) => {
+    setSearchTerm(newSearchTerm);
+    setPage(1); // Reset to page 1 when search term changes
+  };
+
   const handlePageChange = (newPage: number) => {
     if (data && newPage > 0 && newPage <= data.totalPages) {
       setPage(newPage);
@@ -255,20 +263,30 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
       else if (minTradesToggle) noDataMessage = "No tokens meet the minimum trade count.";
       
       return (
-        <TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length} className="text-center p-6">
+        <TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length} className="text-center p-10">
           <Flex flexDirection="col" alignItems="center" justifyContent="center" className="space-y-3">
-            <Flex alignItems="center" justifyContent="center" className="space-x-2">
-              <InfoIcon className="h-5 w-5 text-tremor-content-subtle" />
-              <Text>{noDataMessage}</Text>
-            </Flex>
-            <Button 
-              icon={RefreshCw} 
-              onClick={handleTriggerAnalysis} 
-              variant="secondary"
-              disabled={isAnalyzing}
-            >
-              {isAnalyzing ? 'Analysis in Progress...' : 'Analyze This Wallet'}
-            </Button>
+            <Text className="text-lg font-medium text-tremor-content">No tokens match your search term.</Text>
+            <Text className="text-tremor-content-subtle">
+              Try adjusting your filters or analyze the wallet if data seems outdated.
+            </Text>
+            <div className="flex gap-2 items-center">
+              <input 
+                type="text" 
+                placeholder="Search by Token Address or Symbol..." 
+                className="w-full md:w-72 p-2 border rounded-md bg-tremor-background-muted dark:bg-dark-tremor-background-muted text-tremor-content dark:text-dark-tremor-content placeholder-tremor-content-subtle dark:placeholder-dark-tremor-content-subtle"
+                value={searchTerm}
+                onChange={(e) => handleSearchTermChange(e.target.value)}
+              />
+              <Button 
+                icon={RefreshCw} 
+                onClick={handleTriggerAnalysis} 
+                variant="secondary"
+                disabled={isAnalyzing || !walletAddress}
+                className="whitespace-nowrap"
+              >
+                {isAnalyzing ? 'Analyzing...' : 'Analyze This Wallet'}
+              </Button>
+            </div>
           </Flex>
         </TableCell></TableRow>
       );

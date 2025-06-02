@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min, IsDateString, IsBoolean } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Max, Min, IsDateString, IsBoolean, IsString } from 'class-validator';
 
 export enum SortOrder {
   ASC = 'ASC',
@@ -86,4 +86,12 @@ export class TokenPerformanceQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   showOnlyHoldings?: boolean = false;
+
+  @ApiPropertyOptional({
+    description: 'Search term to filter tokens by address or symbol (if available).',
+    type: String,
+  })
+  @IsOptional()
+  @IsString()
+  searchTerm?: string;
 } 
