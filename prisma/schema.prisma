@@ -35,6 +35,9 @@ model Wallet {
   pnlSummary                WalletPnlSummary?
   behaviorProfile           WalletBehaviorProfile?
   // analysisRuns              AnalysisRun[] // If you want to navigate from Wallet to its runs
+  activityLogs ActivityLog[] @relation("WalletActivityLogs") // Named relation
+  // Optional: Link to user-specific settings or saved wallet lists
+  walletNotes               WalletNote[]
 }
 
 // Stores raw Helius transaction details.
@@ -238,6 +241,7 @@ model User {
   isActive     Boolean   @default(true)
   activityLogs ActivityLog[]
   // Optional: Link to user-specific settings or saved wallet lists
+  walletNotes  WalletNote[]
 }
 
 model ActivityLog {
@@ -251,6 +255,9 @@ model ActivityLog {
   durationMs         Int?      // Duration of the action
   errorMessage       String?
   sourceIp           String?   // Optional: for additional context
+
+  walletAddress      String?   // Optional: Link to a specific wallet
+  wallet             Wallet?   @relation("WalletActivityLogs", fields: [walletAddress], references: [address]) // Named relation
 
   @@index([userId])
   @@index([actionType])
@@ -297,4 +304,19 @@ model MappingActivityLog {
 
   @@index([walletAddress])
   @@index([timestamp])
+}
+
+model WalletNote {
+  id            String   @id @default(cuid())
+  content       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  walletAddress String
+  wallet        Wallet   @relation(fields: [walletAddress], references: [address])
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@index([walletAddress])
+  @@index([userId])
+  @@index([createdAt])
 }

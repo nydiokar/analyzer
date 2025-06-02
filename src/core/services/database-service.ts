@@ -9,7 +9,8 @@ import {
     MappingActivityLog,
     Prisma, // Import Prisma namespace for input types
     User,         // Added User
-    ActivityLog   // Added ActivityLog
+    ActivityLog,   // Added ActivityLog
+    WalletNote    // Added WalletNote
 } from '@prisma/client';
 import { HeliusTransaction } from '@/types/helius-api'; // Assuming HeliusTransaction type is defined here
 import { TransactionData } from '@/types/correlation'; // Needed for getTransactionsForAnalysis
@@ -18,6 +19,7 @@ import { createLogger } from 'core/utils/logger'; // Assuming createLogger funct
 import zlib from 'zlib'; // Added zlib
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
+import { NotFoundException, InternalServerErrorException } from '@nestjs/common';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 export const prisma = new PrismaClient(); 
@@ -394,9 +396,6 @@ export class DatabaseService {
         if (!isNaN(tsDate.getTime())) {
             payloadData.lastSuccessfulFetchTimestamp = tsDate;
         }
-      }
-      if (data.lastSignatureAnalyzed !== undefined && data.lastSignatureAnalyzed !== null) {
-        payloadData.lastSignatureAnalyzed = String(data.lastSignatureAnalyzed);
       }
 
       const upsertOptions = {
@@ -1207,4 +1206,135 @@ export class DatabaseService {
         }
     }
 
+    // --- Wallet Note Management ---
+    async createWalletNote(
+      walletAddress: string,
+      userId: string,
+      content: string
+    ): Promise<WalletNote> {
+      this.logger.debug(`CoreService: Creating note for wallet ${walletAddress} by user ${userId}`);
+      try {
+        const note = await this.prismaClient.walletNote.create({
+          data: {
+            walletAddress,
+            userId,
+            content,
+          },
+        });
+        this.logger.verbose(`CoreService: Note created with ID: ${note.id} for wallet ${walletAddress}`);
+        return note;
+      } catch (error: any) {
+        this.logger.error(`CoreService: Error creating wallet note for ${walletAddress}: ${error.message}`, error.stack);
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+          // Example: Foreign key constraint failed (e.g., walletAddress or userId doesn't exist)
+          if (error.code === 'P2003' || error.code === 'P2025') { 
+            throw new NotFoundException(`Failed to create note. Ensure wallet and user exist.`);
+          }
+        }
+        throw new InternalServerErrorException('Could not create wallet note due to a database error.');
+      }
+    }
+
+    async getWalletNotes(walletAddress: string, userId: string): Promise<WalletNote[]> {
+      this.logger.debug(`CoreService: Fetching notes for wallet ${walletAddress} by user ${userId}`);
+      try {
+        const notes = await this.prismaClient.walletNote.findMany({
+          where: {
+            walletAddress,
+            userId, // Filter by the user who created the note
+          },
+          orderBy: { createdAt: 'desc' },
+          include: { user: { select: { id: true, description: true } } },
+        });
+        this.logger.verbose(`CoreService: Found ${notes.length} notes for wallet ${walletAddress} authored by user ${userId}`);
+        return notes;
+      } catch (error: any) {
+        this.logger.error(`CoreService: Error fetching wallet notes for ${walletAddress} by user ${userId}: ${error.message}`, error.stack);
+        throw new InternalServerErrorException('Could not retrieve wallet notes due to a database error.');
+      }
+    }
+
+    async deleteWalletNote(noteId: string, userId: string): Promise<WalletNote | null> {
+      this.logger.debug(`CoreService: Attempting to delete note ${noteId} by user ${userId}`);
+      try {
+        // First, verify the note exists and belongs to the user to prevent unauthorized deletion
+        const note = await this.prismaClient.walletNote.findUnique({
+          where: { id: noteId },
+        });
+
+        if (!note) {
+          throw new NotFoundException(`Note with ID ${noteId} not found.`);
+        }
+
+        if (note.userId !== userId) {
+          // Though the API controller should also enforce this, good to have a safeguard
+          this.logger.warn(`CoreService: User ${userId} attempted to delete note ${noteId} owned by ${note.userId}. Denied.`);
+          throw new NotFoundException('Note not found or permission denied.'); // Generic message to client
+        }
+
+        const deletedNote = await this.prismaClient.walletNote.delete({
+          where: {
+            id: noteId,
+            // Redundant userId check here given the above, but doesn't hurt for an explicit delete call targetting user's own note
+            // userId: userId 
+          },
+        });
+        this.logger.verbose(`CoreService: Note ${noteId} deleted successfully by user ${userId}`);
+        return deletedNote;
+      } catch (error: any) {
+        if (error instanceof NotFoundException) throw error;
+        
+        this.logger.error(`CoreService: Error deleting note ${noteId} by user ${userId}: ${error.message}`, error.stack);
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+          // Record to delete does not exist - already handled by the explicit findUnique check above, but good fallback.
+          throw new NotFoundException(`Note with ID ${noteId} not found for deletion.`);
+        }
+        throw new InternalServerErrorException('Could not delete note due to a database error.');
+      }
+    }
+
+    async updateWalletNote(
+      noteId: string,
+      userId: string,
+      newContent: string
+    ): Promise<WalletNote> {
+      this.logger.debug(`CoreService: Attempting to update note ${noteId} by user ${userId}`);
+      try {
+        // First, verify the note exists and belongs to the user
+        const note = await this.prismaClient.walletNote.findUnique({
+          where: { id: noteId },
+        });
+
+        if (!note) {
+          throw new NotFoundException(`Note with ID ${noteId} not found.`);
+        }
+
+        if (note.userId !== userId) {
+          this.logger.warn(`CoreService: User ${userId} attempted to update note ${noteId} owned by ${note.userId}. Denied.`);
+          throw new NotFoundException('Note not found or permission denied.');
+        }
+
+        // Update the note
+        const updatedNote = await this.prismaClient.walletNote.update({
+          where: {
+            id: noteId,
+            // userId: userId, // Implicitly checked above
+          },
+          data: {
+            content: newContent,
+            updatedAt: new Date(), // Explicitly set updatedAt
+          },
+        });
+        this.logger.verbose(`CoreService: Note ${noteId} updated successfully by user ${userId}`);
+        return updatedNote;
+      } catch (error: any) {
+        if (error instanceof NotFoundException) throw error;
+        
+        this.logger.error(`CoreService: Error updating note ${noteId} by user ${userId}: ${error.message}`, error.stack);
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+          throw new NotFoundException(`Note with ID ${noteId} not found for update.`);
+        }
+        throw new InternalServerErrorException('Could not update note due to a database error.');
+      }
+    }
 }

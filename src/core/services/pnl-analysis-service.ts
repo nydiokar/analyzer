@@ -45,10 +45,9 @@ export class PnlAnalysisService {
     async analyzeWalletPnl(
         walletAddress: string,
         timeRange?: { startTs?: number, endTs?: number },
-        newestProcessedSignatureFromWallet?: string | null,
         options?: { isViewOnly?: boolean }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
-        logger.info(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, newSignatureToAnalyze: newestProcessedSignatureFromWallet, options });
+        logger.info(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, options });
 
         let runId: number | undefined = undefined;
         let analysisRunStatus: 'COMPLETED' | 'FAILED' | 'IN_PROGRESS' = 'IN_PROGRESS';
@@ -320,12 +319,18 @@ export class PnlAnalysisService {
                     logger.info(`[PnlAnalysis] Upserted WalletPnlSummary (no advanced stats) for ${walletAddress}.`);
                 }
                 
-                if (newestProcessedSignatureFromWallet) {
+                // Update the analyzed timestamp range for the wallet
+                if (summary.overallFirstTimestamp !== undefined && summary.overallLastTimestamp !== undefined) {
                     await prisma.wallet.update({
                         where: { address: walletAddress },
-                        data: { lastSignatureAnalyzed: newestProcessedSignatureFromWallet },
+                        data: { 
+                            analyzedTimestampStart: summary.overallFirstTimestamp,
+                            analyzedTimestampEnd: summary.overallLastTimestamp
+                        },
                     });
-                    logger.info(`[PnlAnalysis] Updated Wallet.lastSignatureAnalyzed for ${walletAddress} to ${newestProcessedSignatureFromWallet}.`);
+                    logger.info(`[PnlAnalysis] Updated Wallet analyzed range for ${walletAddress} to: ${summary.overallFirstTimestamp} - ${summary.overallLastTimestamp}.`);
+                } else {
+                    logger.warn(`[PnlAnalysis] Wallet analyzed range for ${walletAddress} not updated because overall timestamps were undefined in the summary.`);
                 }
             }
 

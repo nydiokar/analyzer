@@ -103,7 +103,6 @@ export class PnlOverviewService {
     const allTimeAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
       walletAddress,
       undefined, // No time range for all-time
-      undefined, 
       { isViewOnly: true },
     );
 
@@ -117,7 +116,6 @@ export class PnlOverviewService {
       const periodAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
         walletAddress,
         timeRange,
-        undefined,
         { isViewOnly: true },
       );
       periodData = this.formatPnlData(periodAnalysisSummary);
@@ -144,7 +142,6 @@ export class PnlOverviewService {
     const analysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
       walletAddress,
       timeRange,
-      undefined, 
       { isViewOnly: true },
     );
     return analysisSummary as (SwapAnalysisSummary & { runId?: undefined }) | null;

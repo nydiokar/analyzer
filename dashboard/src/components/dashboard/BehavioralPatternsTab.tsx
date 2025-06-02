@@ -1,17 +1,19 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { BehaviorAnalysisResponseDto } from '@/types/api'; // Assuming this type exists
 import { Card, Text, Title, Flex } from '@tremor/react';
-import { AlertTriangle, Hourglass, LineChart, Users, Clock, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Hourglass, LineChart, Users, Clock, ShieldCheck, HelpCircle } from 'lucide-react';
 import EChartComponent, { ECOption } from '../charts/EChartComponent'; // Import the new chart component
 import { VisualMapComponent, CalendarComponent } from 'echarts/components'; // Import VisualMap and Calendar
 import * as echarts from 'echarts/core';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // Import Tabs from shadcn
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"; // Import Accordion
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"; // Import Tooltip
+import { Switch } from "@/components/ui/switch"; // Added Switch
+import { Label } from "@/components/ui/label";   // Added Label
 
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
@@ -46,6 +48,7 @@ interface BehavioralPatternsTabProps {
 
 export default function BehavioralPatternsTab({ walletAddress }: BehavioralPatternsTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
+  const [useLogScaleDuration, setUseLogScaleDuration] = useState<boolean>(false); // State for log scale
 
   const behaviorApiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/behavior-analysis` : null;
   let swrKeyBehavior: string | null = null;
@@ -119,213 +122,236 @@ export default function BehavioralPatternsTab({ walletAddress }: BehavioralPatte
     );
   }
 
-  // Render the actual behavioral data
-  // This is a simple placeholder - you'll want to make this much richer
+  const rawDataForDebugging = behaviorData.rawMetrics; // Assuming this is where it is
+
   return (
-    <Card className="p-4 md:p-6">
-      <div className="mt-1 grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-        <div>
-          <Text className="font-medium">Trading Style</Text>
-          <Text>{behaviorData.tradingStyle || 'N/A'}</Text>
-        </div>
-        <div>
-          <Text className="font-medium">Confidence</Text>
-          <Text>
-            {typeof behaviorData.confidenceScore === 'number' 
-              ? `${(behaviorData.confidenceScore * 100).toFixed(1)}%` 
-              : 'N/A'}
-          </Text>
-        </div>
-      </div>
-      
-      {/* Visualizations Section */}
-      <div className="rounded-lg bg-muted/10 dark:bg-muted/5 px-4 py-2 mb-6">
-        <Tabs defaultValue="heatmap" className="w-full mt-2">
-          <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3 mb-4 border-b border-border">
-            <TabsTrigger 
-              value="heatmap" 
-              className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2"
-            >
-              Activity Heatmap
-            </TabsTrigger>
-            <TabsTrigger 
-              value="duration"
-              className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2"
-            >
-              Hold Duration Distribution
-            </TabsTrigger>
-            <TabsTrigger 
-              value="windows"
-              className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2"
-            >
-              Trading Windows
-            </TabsTrigger>
-          </TabsList>
+    <Card className="p-4 md:p-6 space-y-6">
+      <Tabs defaultValue="summary" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
+          <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>
+          <TabsTrigger value="visualizations">Visualizations</TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="heatmap">
-            <Title className="mb-2 text-base font-medium">Activity Heatmap (Trades by Hour of Day - UTC)</Title>
-            {behaviorData.activeTradingPeriods?.hourlyTradeCounts && Object.keys(behaviorData.activeTradingPeriods.hourlyTradeCounts).length > 0 ? (
-              <EChartComponent option={getHeatmapOption(behaviorData.activeTradingPeriods.hourlyTradeCounts)} style={{ height: '200px', width: '100%' }} />
-            ) : (
-              <Flex flexDirection="col" alignItems="center" justifyContent="center" className="h-[200px] text-tremor-content dark:text-dark-tremor-content">
-                <AlertTriangle className="w-8 h-8 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
-                <Text>No hourly trade data available for heatmap.</Text>
-              </Flex>
+        <TabsContent value="summary">
+          <Title className="mb-4 text-lg font-semibold">Behavioral Summary & Metrics</Title>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            <div>
+              <Text className="font-medium">Trading Style</Text>
+              <Text>{behaviorData.tradingStyle || 'N/A'}</Text>
+            </div>
+            <div>
+              <Text className="font-medium">Confidence</Text>
+              <Text>
+                {typeof behaviorData.confidenceScore === 'number'
+                  ? `${(behaviorData.confidenceScore * 100).toFixed(1)}%`
+                  : 'N/A'}
+              </Text>
+            </div>
+            {behaviorData.primaryBehavior && (
+              <div>
+                <Text className="font-medium">Primary Tag</Text>
+                <Text>{behaviorData.primaryBehavior}</Text>
+              </div>
             )}
-          </TabsContent>
+          </div>
+          
+          <hr className="my-6 border-muted" />
+          <Title className="text-lg font-semibold mt-6 mb-4">Detailed Behavioral Metrics</Title>
+          
+          <Accordion type="multiple" className="w-full space-y-3" defaultValue={["item-performance", "item-session", "item-risk"]}>
+            {/* Accordion Item 1: Performance & Holding Patterns */}
+            <AccordionItem value="item-performance" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
+              <AccordionTrigger className="py-3 hover:no-underline">
+                <Flex alignItems="center">
+                  <LineChart className="w-5 h-5 mr-2 text-blue-500" />
+                  <Text className="text-base font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">Performance & Holding Patterns</Text>
+                </Flex>
+              </AccordionTrigger>
+              <AccordionContent className="pt-2 pb-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Buy/Sell Ratio:</Text><Text className="font-mono">{behaviorData.buySellRatio?.toFixed(2) ?? 'N/A'}</Text></div>
+                  <div>
+                    <TooltipProvider><Tooltip><TooltipTrigger asChild><Flex alignItems="center" className="inline-flex"><Text className="text-xs uppercase tracking-wide text-muted-foreground mr-1">Flipper Score:</Text></Flex></TooltipTrigger><TooltipContent className="max-w-xs"><p>Indicates how quickly a user buys and sells tokens. Higher scores suggest more flipping activity.</p></TooltipContent></Tooltip></TooltipProvider>
+                    <Text className="font-mono">{behaviorData.flipperScore?.toFixed(3) ?? 'N/A'}</Text>
+                  </div>
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg. Flip Duration (Hrs):</Text><Text className="font-mono">{behaviorData.averageFlipDurationHours?.toFixed(1) ?? 'N/A'} Hrs</Text></div>
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Median Hold Time (Hrs):</Text><Text className="font-mono">{behaviorData.medianHoldTime?.toFixed(2) ?? 'N/A'} Hrs</Text></div>
+                  <div>
+                    <Text className="text-xs uppercase tracking-wide text-muted-foreground">% Trades &lt; 1 Hr:</Text>
+                    <Text className="font-mono">
+                      {typeof behaviorData.percentTradesUnder1Hour === 'number'
+                        ? `${(behaviorData.percentTradesUnder1Hour * 100).toFixed(1)}%`
+                        : 'N/A'}
+                    </Text>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
 
-          <TabsContent value="duration">
-            <Title className="mb-2 text-base font-medium">Hold Duration Distribution</Title>
-            {behaviorData.tradingTimeDistribution && Object.keys(behaviorData.tradingTimeDistribution).length > 0 ? (
-              <EChartComponent option={getTradingDurationOption(behaviorData.tradingTimeDistribution)} style={{ height: '300px', width: '100%' }} />
-            ) : (
-              <Flex flexDirection="col" alignItems="center" justifyContent="center" className="h-[300px] text-tremor-content dark:text-dark-tremor-content">
-                <AlertTriangle className="w-10 h-10 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
-                <Text>No trading duration distribution data available.</Text>
-              </Flex>
-            )}
-          </TabsContent>
+            {/* Accordion Item 2: Session & Frequency */}
+            <AccordionItem value="item-session" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
+              <AccordionTrigger className="py-3 hover:no-underline">
+                <Flex alignItems="center">
+                  <Users className="w-5 h-5 mr-2 text-purple-500" />
+                  <Text className="text-base font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">Session & Trading Frequency</Text>
+                </Flex>
+              </AccordionTrigger>
+              <AccordionContent className="pt-2 pb-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg Session Duration (Mins):</Text><Text className="font-mono">{behaviorData.averageSessionDurationMinutes?.toFixed(1) ?? 'N/A'} Mins</Text></div>
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg Trades Per Session:</Text><Text className="font-mono">{behaviorData.avgTradesPerSession?.toFixed(1) ?? 'N/A'}</Text></div>
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Unique Tokens Traded:</Text><Text className="font-mono">{behaviorData.uniqueTokensTraded ?? 'N/A'}</Text></div>
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Total Trades:</Text><Text className="font-mono">{behaviorData.totalTradeCount ?? 'N/A'}</Text></div>
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Trades/Day (Avg):</Text><Text className="font-mono">{behaviorData.tradingFrequency?.tradesPerDay?.toFixed(1) ?? 'N/A'}</Text></div>
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Trades/Week (Avg):</Text><Text className="font-mono">{behaviorData.tradingFrequency?.tradesPerWeek?.toFixed(1) ?? 'N/A'}</Text></div>
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Trades/Month (Avg):</Text><Text className="font-mono">{behaviorData.tradingFrequency?.tradesPerMonth?.toFixed(1) ?? 'N/A'}</Text></div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
 
-          <TabsContent value="windows">
-            <Title className="mb-2 text-base font-medium">Identified Trading Windows (UTC)</Title>
-            {behaviorData.activeTradingPeriods?.identifiedWindows && behaviorData.activeTradingPeriods.identifiedWindows.length > 0 ? (
-              <EChartComponent option={getTradingWindowsOption(behaviorData.activeTradingPeriods.identifiedWindows)} style={{ height: '300px', width: '100%' }} />
-            ) : (
-              <Flex flexDirection="col" alignItems="center" justifyContent="center" className="h-[300px] text-tremor-content dark:text-dark-tremor-content">
-                <AlertTriangle className="w-10 h-10 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
-                <Text>No identified trading windows available.</Text>
-              </Flex>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
-      
-      <hr className="my-6 border-muted" />
+            {/* Accordion Item 3: Risk & Value Profile */}
+            <AccordionItem value="item-risk" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
+              <AccordionTrigger className="py-3 hover:no-underline">
+                <Flex alignItems="center">
+                  <ShieldCheck className="w-5 h-5 mr-2 text-red-500" />
+                  <Text className="text-base font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">Risk & Value Profile</Text>
+                </Flex>
+              </AccordionTrigger>
+              <AccordionContent className="pt-2 pb-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg. Tx Value (SOL):</Text><Text className="font-mono">{behaviorData.riskMetrics?.averageTransactionValueSol?.toFixed(2) ?? 'N/A'} SOL</Text></div>
+                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Largest Tx Value (SOL):</Text><Text className="font-mono">{behaviorData.riskMetrics?.largestTransactionValueSol?.toFixed(2) ?? 'N/A'} SOL</Text></div>
+                  <div>
+                    <Text className="text-xs uppercase tracking-wide text-muted-foreground">Re-entry Rate:</Text>
+                    <Text className="font-mono">
+                      {typeof behaviorData.reentryRate === 'number' 
+                        ? `${(behaviorData.reentryRate).toFixed(1)}%` 
+                        : 'N/A'}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text className="text-xs uppercase tracking-wide text-muted-foreground">% Unpaired Tokens:</Text>
+                     <Text className="font-mono">
+                      {typeof behaviorData.percentageOfUnpairedTokens === 'number'
+                        ? `${(behaviorData.percentageOfUnpairedTokens).toFixed(1)}%`
+                        : 'N/A'}
+                    </Text>
+                  </div>
+                   {/* Add more relevant risk metrics here if available in behaviorData */}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </TabsContent>
 
-      {/* Aggregated Metrics Section */}
-      <Title>Detailed Metrics</Title>
-      <div className="mt-4 space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-6">
-           <div className="p-4 border border-border rounded-md">
-            <Flex alignItems="center" className="mb-3">
-              <LineChart className="w-5 h-5 mr-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
-              <Text className="text-lg font-semibold tracking-tight text-tremor-content-strong dark:text-dark-tremor-content-strong">Key Performance Indicators</Text>
-            </Flex>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-2">
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Buy/Sell Ratio:</Text><Text className="font-mono">{behaviorData.buySellRatio?.toFixed(2) ?? 'N/A'}</Text></div>
-              
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Flipper Score:</Text><Text className="font-mono">{behaviorData.flipperScore?.toFixed(3) ?? 'N/A'}</Text></div>
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-background/95 dark:bg-background/90 backdrop-blur-sm">
-                    <p>Indicates how quickly a user buys and sells tokens. Higher scores suggest more flipping activity.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg. Flip Duration (Hrs):</Text><Text className="font-mono">{behaviorData.averageFlipDurationHours?.toFixed(1) ?? 'N/A'} Hrs</Text></div>
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Median Hold Time (Hrs):</Text><Text className="font-mono">{behaviorData.medianHoldTime?.toFixed(2) ?? 'N/A'} Hrs</Text></div>
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Unique Tokens Traded:</Text><Text className="font-mono">{behaviorData.uniqueTokensTraded ?? 'N/A'}</Text></div>
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Total Trades:</Text><Text className="font-mono">{behaviorData.totalTradeCount ?? 'N/A'}</Text></div>
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">% Trades &lt; 1 Hr:</Text>
-                <Text className="font-mono">
-                  {typeof behaviorData.percentTradesUnder1Hour === 'number' 
-                    ? `${(behaviorData.percentTradesUnder1Hour * 100).toFixed(1)}%` 
-                    : 'N/A'}
-                </Text>
+        <TabsContent value="visualizations">
+          {/* Visualizations Section (Heatmap, Duration, Windows) */}
+          <div className="rounded-lg bg-muted/10 dark:bg-muted/5 px-4 py-2 mb-6">
+            <Tabs defaultValue="heatmap" className="w-full mt-2">
+              <div className="sticky top-0 z-10 bg-card dark:bg-card p-2 -mx-4 md:-mx-6 border-b border-border mb-4"> {/* Sticky Wrapper */}
+                <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3">
+                  <TabsTrigger
+                    value="heatmap"
+                    className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2"
+                  >
+                    Activity Heatmap
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="duration"
+                    className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2"
+                  >
+                    Hold Duration Distribution
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="windows"
+                    className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2"
+                  >
+                    Trading Windows
+                  </TabsTrigger>
+                </TabsList>
               </div>
 
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1">
-                      <Text className="text-xs uppercase tracking-wide text-muted-foreground">% Trades &lt; 4 Hrs:</Text>
-                      <Text className="font-mono">
-                        {typeof behaviorData.percentTradesUnder4Hours === 'number' 
-                          ? `${(behaviorData.percentTradesUnder4Hours * 100).toFixed(1)}%` 
-                          : 'N/A'}
-                      </Text>
+              <TabsContent value="heatmap">
+                <Title className="mb-2 text-base font-medium">Activity Heatmap (Trades by Hour of Day - UTC)</Title>
+                {behaviorData.activeTradingPeriods?.hourlyTradeCounts && Object.keys(behaviorData.activeTradingPeriods.hourlyTradeCounts).length > 0 ? (
+                  <EChartComponent option={getHeatmapOption(behaviorData.activeTradingPeriods.hourlyTradeCounts)} style={{ height: '200px', width: '100%' }} />
+                ) : (
+                  <Flex flexDirection="col" alignItems="center" justifyContent="center" className="h-[200px] text-tremor-content dark:text-dark-tremor-content">
+                    <AlertTriangle className="w-8 h-8 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
+                    <Text>No hourly trade data available for heatmap.</Text>
+                  </Flex>
+                )}
+              </TabsContent>
+
+              <TabsContent value="duration">
+                <Flex alignItems="center" justifyContent="between" className="mb-2">
+                  <Title className="text-base font-medium">Hold Duration Distribution</Title>
+                  <TooltipProvider>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="log-scale-duration"
+                        checked={useLogScaleDuration}
+                        onCheckedChange={setUseLogScaleDuration}
+                      />
+                      <Label htmlFor="log-scale-duration" className="text-xs">Log Scale</Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs">
+                          <p>Displays the Y-axis on a logarithmic scale (base 10). This can be useful for visualizing data with a very wide range of values or to better see relative changes for smaller values.</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-background/95 dark:bg-background/90 backdrop-blur-sm">
-                    <p>Percentage of trades held for less than 4 hours.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+                  </TooltipProvider>
+                </Flex>
+                {behaviorData.tradingTimeDistribution && Object.keys(behaviorData.tradingTimeDistribution).length > 0 ? (
+                  <EChartComponent option={getTradingDurationOption(behaviorData.tradingTimeDistribution, useLogScaleDuration)} style={{ height: '300px', width: '100%' }} />
+                ) : (
+                  <Flex flexDirection="col" alignItems="center" justifyContent="center" className="h-[300px] text-tremor-content dark:text-dark-tremor-content">
+                    <AlertTriangle className="w-10 h-10 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
+                    <Text>No trading duration distribution data available.</Text>
+                  </Flex>
+                )}
+              </TabsContent>
 
-            </div>
+              <TabsContent value="windows">
+                <Title className="mb-2 text-base font-medium">Identified Trading Windows (UTC)</Title>
+                {behaviorData.activeTradingPeriods?.identifiedWindows && behaviorData.activeTradingPeriods.identifiedWindows.length > 0 ? (
+                  <EChartComponent option={getTradingWindowsOption(behaviorData.activeTradingPeriods.identifiedWindows)} style={{ height: '300px', width: '100%' }} />
+                ) : (
+                  <Flex flexDirection="col" alignItems="center" justifyContent="center" className="h-[300px] text-tremor-content dark:text-dark-tremor-content">
+                    <AlertTriangle className="w-10 h-10 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
+                    <Text>No identified trading windows available.</Text>
+                  </Flex>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
+        </TabsContent>
 
-          <div className="p-4 border border-border rounded-md">
-            <Flex alignItems="center" className="mb-3">
-              <Users className="w-5 h-5 mr-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
-              <Text className="text-lg font-semibold tracking-tight text-tremor-content-strong dark:text-dark-tremor-content-strong">Session Analysis</Text>
-            </Flex>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-2">
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Total Sessions</Text>
-                <Text className="font-mono">{behaviorData.sessionCount ?? 'N/A'}</Text>
-              </div>
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Average Session Duration (Minutes)</Text>
-                <Text className="font-mono">{behaviorData.averageSessionDurationMinutes?.toFixed(1) ?? 'N/A'} Minutes</Text>
-              </div>
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Average Trades Per Session</Text>
-                <Text className="font-mono">{behaviorData.avgTradesPerSession?.toFixed(1) ?? 'N/A'}</Text>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-6 mt-6">
-           <div className="p-4 border border-border rounded-md">
-            <Flex alignItems="center" className="mb-3">
-              <Clock className="w-5 h-5 mr-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
-              <Text className="text-lg font-semibold tracking-tight text-tremor-content-strong dark:text-dark-tremor-content-strong">Trading Frequency</Text>
-            </Flex>
-            <div className="space-y-1">
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Trades Per Day:</Text><Text className="font-mono">{behaviorData.tradingFrequency?.tradesPerDay?.toFixed(1) ?? 'N/A'}</Text></div>
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Trades Per Week:</Text><Text className="font-mono">{behaviorData.tradingFrequency?.tradesPerWeek?.toFixed(1) ?? 'N/A'}</Text></div>
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Trades Per Month:</Text><Text className="font-mono">{behaviorData.tradingFrequency?.tradesPerMonth?.toFixed(1) ?? 'N/A'}</Text></div>
-            </div>
-          </div>
+      </Tabs>
 
-          <div className="p-4 border border-border rounded-md">
-            <Flex alignItems="center" className="mb-3">
-              <ShieldCheck className="w-5 h-5 mr-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
-              <Text className="text-lg font-semibold tracking-tight text-tremor-content-strong dark:text-dark-tremor-content-strong">Risk Metrics</Text>
-            </Flex>
-            <div className="space-y-1">
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg. Tx Value (SOL):</Text><Text className="font-mono">{behaviorData.riskMetrics?.averageTransactionValueSol?.toFixed(2) ?? 'N/A'} SOL</Text></div>
-              <div className="hover:bg-muted/10 dark:hover:bg-muted/5 rounded p-1"><Text className="text-xs uppercase tracking-wide text-muted-foreground">Largest Tx Value (SOL):</Text><Text className="font-mono">{behaviorData.riskMetrics?.largestTransactionValueSol?.toFixed(2) ?? 'N/A'} SOL</Text></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <hr className="my-6 border-muted" />
-      
-      <Accordion type="single" collapsible className="w-full mt-6">
-        <AccordionItem value="rawData">
-          <AccordionTrigger className="text-tremor-content hover:text-tremor-content-strong dark:text-dark-tremor-content dark:hover:text-dark-tremor-content-strong">Show Raw JSON Data</AccordionTrigger>
-          <AccordionContent>
-            <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-96">
-              {JSON.stringify(behaviorData, null, 2)}
-            </pre>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-      {/* Fallback for raw data display until Accordion is fixed */}
-      {/* <div className="mt-4">
-        <Title>Raw Data (for debugging):</Title>
-        <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-96">
-          {JSON.stringify(behaviorData, null, 2)}
-        </pre>
-      </div> */}
+      {/* Raw Data (for debugging) Section - Moved to the end */}
+      {rawDataForDebugging && Object.keys(rawDataForDebugging).length > 0 && (
+        <Accordion type="single" collapsible className="w-full mt-8">
+          <AccordionItem value="item-1">
+            <AccordionTrigger className="text-sm font-medium hover:no-underline">
+                <Flex alignItems="center">
+                    <ShieldCheck className="w-4 h-4 mr-2 text-muted-foreground" /> Raw Data (for debugging)
+                </Flex>
+            </AccordionTrigger>
+            <AccordionContent className="pt-2">
+              <Text className="mb-2 text-xs text-muted-foreground">
+                This data is for debugging and development purposes.
+              </Text>
+              <pre className="p-3 bg-muted/50 dark:bg-muted/20 rounded-md text-xs overflow-x-auto">
+                {JSON.stringify(rawDataForDebugging, null, 2)}
+              </pre>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
     </Card>
   );
 }
@@ -335,22 +361,25 @@ const getHeatmapOption = (hourlyTradeCounts: Record<number, number>): ECOption =
   const data = [];
   let minTrades = Infinity;
   let maxTrades = 0;
+  let totalTradesInHeatmap = 0; // Calculate total for percentage
   for (let hour = 0; hour < 24; hour++) {
     const tradeCount = hourlyTradeCounts[hour] || 0;
     data.push([hour, 0, tradeCount]); // [hour, y-axis (single category), value]
     if (tradeCount < minTrades) minTrades = tradeCount;
     if (tradeCount > maxTrades) maxTrades = tradeCount;
+    totalTradesInHeatmap += tradeCount;
   }
 
-  // Adjust visualMap range for better contrast if maxTrades is low
   const visualMapMax = maxTrades < 10 ? 10 : maxTrades * 1.1;
-  const visualMapMin = 0; // Keep min at 0 for trade counts
+  const visualMapMin = 0;
 
   return {
     tooltip: {
       position: 'top',
       formatter: (params: any) => {
-        return `Hour: ${params.value[0]}:00<br/>Trades: ${params.value[2]}`;
+        const tradeCount = params.value[2];
+        const percentage = totalTradesInHeatmap > 0 ? ((tradeCount / totalTradesInHeatmap) * 100).toFixed(1) : 0;
+        return `Hour: ${params.value[0]}:00 - ${params.value[0] + 1}:00<br/>Trades: ${tradeCount}<br/>Activity: ${percentage}%`;
       }
     },
     grid: {
@@ -415,7 +444,10 @@ const getHeatmapOption = (hourlyTradeCounts: Record<number, number>): ECOption =
 };
 
 // Helper function to generate trading duration distribution bar chart option
-const getTradingDurationOption = (distribution: BehaviorAnalysisResponseDto['tradingTimeDistribution']): ECOption => {
+const getTradingDurationOption = (
+  distribution: BehaviorAnalysisResponseDto['tradingTimeDistribution'], 
+  useLogScale: boolean = false
+): ECOption => {
   const categoryMap: Record<string, string> = {
     ultrafast: 'Ultra Fast',
     veryfast: 'Very Fast',
@@ -492,12 +524,12 @@ const getTradingDurationOption = (distribution: BehaviorAnalysisResponseDto['tra
       }
     },
     yAxis: {
-      type: 'value',
       name: 'Proportion / Count',
       axisLabel: {
         formatter: (value: number) => {
             if (value === 0) return '0';
-            if (value < 1 && value > 0) return (value * 100).toFixed(0) + '%';
+            if (value < 1 && value > 0 && !useLogScale) return (value * 100).toFixed(0) + '%';
+            if (value < 1 && value > 0 && useLogScale) return (value * 100).toFixed(1) + '%';
             return value.toString(); 
         },
         color: '#B0B0B0'
@@ -505,7 +537,10 @@ const getTradingDurationOption = (distribution: BehaviorAnalysisResponseDto['tra
       nameTextStyle: {
         fontSize: 13,
         color: '#B0B0B0'
-      }
+      },
+      type: useLogScale ? 'log' : 'value',
+      logBase: 10,
+      min: useLogScale ? 0.001 : undefined, 
     },
     series: [
       {
@@ -519,11 +554,13 @@ const getTradingDurationOption = (distribution: BehaviorAnalysisResponseDto['tra
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             {
               offset: 0,
-              color: '#7022b9' // Muted greyish-blue top
+              color: '#5470C6' // Changed to blue spectrum - top
             },
             {
               offset: 1,
-              color: '#6e5d7e' // Muted greyish-blue bottom
+              color: '#91CC75' // Changed to blue spectrum - bottom (example, might need adjustment for good gradient)
+              // A better blue gradient might be e.g., '#3a5fcd' (darker) and '#73C0DE' (lighter)
+              // Let's try: color: '#6ea8fe' (lighter blue) and color: '#255ab5' (darker blue)
             }
           ])
         },
@@ -547,8 +584,15 @@ const getTradingDurationOption = (distribution: BehaviorAnalysisResponseDto['tra
 // Helper function to generate trading windows timeline option
 const getTradingWindowsOption = (windows: NonNullable<BehaviorAnalysisResponseDto['activeTradingPeriods']>['identifiedWindows']): ECOption => {
   const windowColors = [
-    '#5470C6', '#91CC75', '#FAC858', '#EE6666', '#73C0DE', 
-    '#3BA272', '#FC8452', '#9A60B4', '#EA7CCC'
+    '#5470C6', '#73C0DE', '#91CC75', // Blue, Light Blue, Greenish-Blue (example)
+    // Adjusted to a more blue/teal/green focused palette for consistency
+    // E.g., shades of blue and teal:
+    '#255ab5', // Dark Blue
+    '#3a7cde', // Medium Blue
+    '#6ea8fe', // Light Blue
+    '#3ab8d7', // Tealish Blue
+    '#29a0b1', // Darker Teal
+    // Add more shades if needed, or use a generator for a sequential blue palette
   ];
   
   let totalWeightedMidpoint = 0;

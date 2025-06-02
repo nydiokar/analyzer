@@ -30,6 +30,7 @@ import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab'
 import TokenPerformanceTab from '@/components/dashboard/TokenPerformanceTab';
 import AccountStatsPnlTab from '@/components/dashboard/AccountStatsPnlTab';
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
+import ReviewerLogTab from '@/components/dashboard/ReviewerLogTab';
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
@@ -117,7 +118,9 @@ export default function WalletProfileLayout({
           <TooltipProvider delayDuration={100}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <TabsTrigger value="overview" className="px-2 py-1.5 text-xs md:text-sm flex items-center gap-1.5">
+                <TabsTrigger 
+                  value="overview" 
+                  className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
                   <LayoutDashboard className="h-3.5 w-3.5" />
                   <span>Overview</span>
                 </TabsTrigger>
@@ -126,7 +129,9 @@ export default function WalletProfileLayout({
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <TabsTrigger value="token-performance" className="px-2 py-1.5 text-xs md:text-sm flex items-center gap-1.5">
+                <TabsTrigger 
+                  value="token-performance" 
+                  className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
                   <ListChecks className="h-3.5 w-3.5" />
                   <span>Token Performance</span>
                 </TabsTrigger>
@@ -135,7 +140,9 @@ export default function WalletProfileLayout({
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <TabsTrigger value="account-stats" className="px-2 py-1.5 text-xs md:text-sm flex items-center gap-1.5">
+                <TabsTrigger 
+                  value="account-stats" 
+                  className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
                   <Calculator className="h-3.5 w-3.5" />
                   <span>Account Stats & PNL</span>
                 </TabsTrigger>
@@ -144,7 +151,9 @@ export default function WalletProfileLayout({
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <TabsTrigger value="behavioral-patterns" className="px-2 py-1.5 text-xs md:text-sm flex items-center gap-1.5">
+                <TabsTrigger 
+                  value="behavioral-patterns" 
+                  className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
                   <Users className="h-3.5 w-3.5" />
                   <span>Behavioral Patterns</span>
                 </TabsTrigger>
@@ -153,7 +162,9 @@ export default function WalletProfileLayout({
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <TabsTrigger value="notes" className="px-2 py-1.5 text-xs md:text-sm flex items-center gap-1.5">
+                <TabsTrigger 
+                  value="notes" 
+                  className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
                   <FileText className="h-3.5 w-3.5" />
                   <span>Notes</span>
                 </TabsTrigger>
@@ -188,11 +199,7 @@ export default function WalletProfileLayout({
           </TabsContent>
 
           <TabsContent value="notes">
-            <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
-              <h3 className="text-lg font-semibold mb-2">Reviewer Log / Notes</h3>
-              <p className="text-sm text-muted-foreground">Placeholder for an editable area...</p>
-              <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center"> (Scrollable Content Area for Notes) </div>
-            </div>
+            <ReviewerLogTab walletAddress={walletAddress} />
           </TabsContent>
         </div>
       </main>

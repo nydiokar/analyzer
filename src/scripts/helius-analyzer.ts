@@ -207,19 +207,60 @@ async function analyzeWalletWithHelius() {
     const wallet = await dbService.getWallet(walletAddress);
     let pnlAnalysisSkipped = false;
 
-    if (!isHistoricalView && wallet && wallet.newestProcessedSignature && (wallet as any).lastSignatureAnalyzed === wallet.newestProcessedSignature) {
-        logger.info(`--- Skipping P/L Analysis for ${walletAddress}: No new transactions since last analysis (Last Analyzed Signature: ${(wallet as any).lastSignatureAnalyzed}). ---`);
-        pnlAnalysisSkipped = true;
-        // Optionally, create a "skipped" AnalysisRun record here if desired for complete audit trails
-        // For now, we just log. The reporting step might need to know this.
+    // Determine if P/L analysis should be skipped
+    if (!isHistoricalView && wallet) {
+      const neverAnalyzed = !wallet.analyzedTimestampStart || !wallet.analyzedTimestampEnd;
+      // Ensure we have valid timestamps from the wallet record (after sync) to compare against.
+      // These represent the full known range of fetched transactions.
+      const fetchedEarliestTxTs = wallet.firstProcessedTimestamp;
+      const fetchedLatestTxTs = wallet.newestProcessedTimestamp;
+
+      if (neverAnalyzed) {
+        logger.info(`--- Performing P/L Analysis for ${walletAddress}: Wallet has not been fully analyzed before. ---`);
+        // pnlAnalysisSkipped remains false
+      } else if (fetchedEarliestTxTs !== null && fetchedLatestTxTs !== null && wallet.analyzedTimestampStart !== null && wallet.analyzedTimestampEnd !== null) {
+        // Only proceed with this check if all necessary timestamps are available
+        const noNewOlderData = fetchedEarliestTxTs >= wallet.analyzedTimestampStart;
+        const noNewNewerData = fetchedLatestTxTs <= wallet.analyzedTimestampEnd;
+
+        if (noNewOlderData && noNewNewerData) {
+          logger.info(`--- Skipping P/L Analysis for ${walletAddress}: No new transactions outside the previously analyzed range (${wallet.analyzedTimestampStart} - ${wallet.analyzedTimestampEnd}). Fetched range: ${fetchedEarliestTxTs} - ${fetchedLatestTxTs}. ---`);
+          pnlAnalysisSkipped = true;
+        } else {
+          let reason = [];
+          if (!noNewOlderData) reason.push(`older data (fetched: ${fetchedEarliestTxTs} < analyzed: ${wallet.analyzedTimestampStart})`);
+          if (!noNewNewerData) reason.push(`newer data (fetched: ${fetchedLatestTxTs} > analyzed: ${wallet.analyzedTimestampEnd})`);
+          logger.info(`--- Performing P/L Analysis for ${walletAddress}: New transactions detected (${reason.join(' and ')}). Analyzed range: ${wallet.analyzedTimestampStart}-${wallet.analyzedTimestampEnd}. Fetched range: ${fetchedEarliestTxTs}-${fetchedLatestTxTs}. ---`);
+          // pnlAnalysisSkipped remains false
+        }
+      } else {
+        // Fallback or if some timestamps are unexpectedly null after sync and it's not the first analysis
+        logger.warn(`--- Performing P/L Analysis for ${walletAddress}: Could not definitively determine skip logic due to missing timestamp data. Proceeding with analysis. Wallet data: ${JSON.stringify(wallet)} ---`);
+        // pnlAnalysisSkipped remains false (safer to analyze)
+      }
+    } else if (isHistoricalView) {
+      logger.info(`--- Performing P/L Analysis for ${walletAddress}: Historical view requested, skipping pre-analysis check. ---`);
+      // pnlAnalysisSkipped remains false
+    } else if (!wallet) {
+      logger.warn(`--- Performing P/L Analysis for ${walletAddress}: Wallet record not found. Proceeding with analysis. ---`);
+      // pnlAnalysisSkipped remains false
+    }
+
+    if (pnlAnalysisSkipped) {
+        logger.info(`--- P/L Analysis for ${walletAddress} was skipped due to pre-analysis check. ---`);
+        // Optionally, create a "skipped" AnalysisRun record here
     } else {
         logger.info('--- Step 2: Performing P/L Analysis ---');
-        // Pass wallet.newestProcessedSignature for PnlAnalysisService to use when updating wallet.lastSignatureAnalyzed
-        // If isHistoricalView, pnlAnalysisService should not update lastSignatureAnalyzed or upsert canonical AnalysisResult.
+        // The call to pnlAnalysisService.analyzeWalletPnl remains largely the same,
+        // but we no longer pass newestProcessedSignature for it to update lastSignatureAnalyzed.
+        // PnlAnalysisService will now be responsible for determining the analyzed range and
+        // the main script (or sync service) for updating wallet's overall fetched range.
         analysisSummary = await pnlAnalysisService.analyzeWalletPnl(
             walletAddress, 
             isHistoricalView ? timeRange : undefined, // Pass timeRange only if it's a historical view
-            wallet?.newestProcessedSignature // Pass the latest signature from DB for the service to use if it updates wallet state
+            // We remove the third argument `wallet?.newestProcessedSignature` as PnlAnalysisService
+            // will no longer update the wallet's signature fields directly based on this.
+            // It will, however, update analyzedTimestampStart and analyzedTimestampEnd.
         );
         
         if (analysisSummary && analysisSummary.runId) {

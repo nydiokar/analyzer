@@ -7,6 +7,13 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const port = process.env.PORT || 3001;
 
+  app.enableCors({
+    origin: true, // Allows all origins, good for development. For production, specify your frontend URL.
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    allowedHeaders: 'Content-Type, Accept, X-API-Key',
+    credentials: true,
+  });
+
   // Global prefix for all API routes, as per plan (e.g., /api/v1)
   app.setGlobalPrefix('api/v1'); 
 

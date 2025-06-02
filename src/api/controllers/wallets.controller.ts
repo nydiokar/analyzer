@@ -10,6 +10,11 @@ import {
   Logger,
   Req,
   UseGuards,
+  Post,
+  Body,
+  Delete,
+  HttpCode,
+  Patch,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -30,6 +35,8 @@ import { BehaviorAnalysisResponseDto } from '../wallets/behavior/behavior-analys
 import { BehaviorAnalysisQueryDto } from '../wallets/behavior/behavior-analysis-query.dto';
 import { PnlOverviewQueryDto } from '../wallets/pnl_overview/pnl-overview-query.dto';
 import { BehaviorAnalysisConfig } from '../../types/analysis';
+import { CreateNoteDto } from '../wallets/notes/create-note.dto';
+import { UpdateNoteDto } from '../wallets/notes/update-note.dto';
 
 
 @ApiTags('Wallets')
@@ -422,6 +429,292 @@ export class WalletsController {
       }
       this.logger.error(`Error fetching behavior analysis for wallet ${walletAddress}:`, error);
       throw new InternalServerErrorException('Failed to retrieve behavior analysis.');
+    }
+  }
+
+  @Post(':walletAddress/notes')
+  @ApiOperation({
+    summary: 'Create a new note for a specific wallet.',
+    description: 'Allows an authenticated user to add a textual note to a given wallet address.'
+  })
+  @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address for which to add the note', type: String })
+  @ApiResponse({ status: 201, description: 'Note created successfully.' })
+  @ApiResponse({ status: 400, description: 'Invalid input data for the note.' })
+  @ApiResponse({ status: 401, description: 'Unauthorized, API key missing or invalid.' })
+  @ApiResponse({ status: 404, description: 'Wallet not found.' })
+  @ApiResponse({ status: 500, description: 'Internal server error while creating the note.' })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async createWalletNote(
+    @Param('walletAddress') walletAddress: string,
+    @Body() createNoteDto: CreateNoteDto,
+    @Req() req: Request & { user?: any }
+  ) {
+    const actionType = 'create_wallet_note';
+    const userId = req.user?.id;
+    const sourceIp = req.ip;
+    const requestParameters = { walletAddress, noteContent: createNoteDto.content };
+    const startTime = Date.now();
+
+    if (!userId) {
+      this.logger.error('User ID not found in request. This should not happen if AuthGuard is effective.');
+      throw new InternalServerErrorException('User identification failed.');
+    }
+
+    this.logger.debug(`Attempting to create note for wallet ${walletAddress} by user ${userId}`);
+
+    await this.databaseService.logActivity(
+      userId,
+      actionType,
+      requestParameters,
+      'INITIATED',
+      undefined,
+      undefined,
+      sourceIp
+    ).catch(err => this.logger.error('Failed to log INITIATED activity for createWalletNote:', err));
+
+    try {
+      // First, check if the wallet exists to provide a clear 404 if not.
+      const walletExists = await this.databaseService.getWallet(walletAddress);
+      if (!walletExists) {
+        throw new NotFoundException(`Wallet with address ${walletAddress} not found.`);
+      }
+
+      const note = await this.databaseService.createWalletNote(
+        walletAddress,
+        userId,
+        createNoteDto.content
+      );
+
+      const durationMs = Date.now() - startTime;
+      await this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp);
+      
+      this.logger.log(`Note created successfully for wallet ${walletAddress} by user ${userId}, Note ID: ${note.id}`);
+      return note; // Or a more structured response, like { message: 'Note created', noteId: note.id }
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown server error';
+      await this.databaseService.logActivity(userId, actionType, {...requestParameters, errorDetails: errorMessage}, 'FAILURE', durationMs, errorMessage, sourceIp);
+
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Error creating note for wallet ${walletAddress} by user ${userId}:`, error);
+      throw new InternalServerErrorException('Failed to create note.');
+    }
+  }
+
+  @Get(':walletAddress/notes')
+  @ApiOperation({
+    summary: 'Get all notes for a specific wallet.',
+    description: 'Retrieves all notes associated with a given wallet address, ordered by creation date (newest first).'
+  })
+  @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address for which to retrieve notes', type: String })
+  @ApiResponse({ status: 200, description: 'Notes retrieved successfully.', type: [Object] }) // Update type if a specific DTO is made for notes list
+  @ApiResponse({ status: 401, description: 'Unauthorized, API key missing or invalid.' })
+  @ApiResponse({ status: 404, description: 'Wallet not found or no notes available.' })
+  @ApiResponse({ status: 500, description: 'Internal server error while retrieving notes.' })
+  async getWalletNotes(
+    @Param('walletAddress') walletAddress: string,
+    @Req() req: Request & { user?: any }
+  ) {
+    const actionType = 'get_wallet_notes';
+    const userId = req.user?.id;
+    const sourceIp = req.ip;
+    const requestParameters = { walletAddress };
+    const startTime = Date.now();
+
+    if (!userId) {
+      // This case should ideally be prevented by the ApiKeyAuthGuard
+      this.logger.error('User ID not found in request for getWalletNotes.');
+      throw new InternalServerErrorException('User identification failed.');
+    }
+
+    this.logger.debug(`Attempting to retrieve notes for wallet ${walletAddress} by user ${userId}`);
+
+    await this.databaseService.logActivity(
+      userId,
+      actionType,
+      requestParameters,
+      'INITIATED',
+      undefined,
+      undefined,
+      sourceIp
+    ).catch(err => this.logger.error('Failed to log INITIATED activity for getWalletNotes:', err));
+
+    try {
+      // Check if wallet exists first for a cleaner 404 if it doesn't, though getWalletNotes might also handle this implicitly
+      const walletExists = await this.databaseService.getWallet(walletAddress);
+      if (!walletExists) {
+          throw new NotFoundException(`Wallet with address ${walletAddress} not found.`);
+      }
+
+      const notes = await this.databaseService.getWalletNotes(walletAddress, userId);
+      // if (!notes || notes.length === 0) {
+      //   // Decide if an empty array is a 404 or a 200 with empty array. Typically 200.
+      //   // throw new NotFoundException(`No notes found for wallet ${walletAddress}`);
+      // }
+
+      const durationMs = Date.now() - startTime;
+      await this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp);
+      
+      this.logger.log(`${notes.length} notes retrieved for wallet ${walletAddress} by user ${userId}`);
+      return notes;
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown server error';
+      await this.databaseService.logActivity(userId, actionType, {...requestParameters, errorDetails: errorMessage}, 'FAILURE', durationMs, errorMessage, sourceIp);
+      
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Error retrieving notes for wallet ${walletAddress} by user ${userId}:`, error);
+      throw new InternalServerErrorException('Failed to retrieve notes.');
+    }
+  }
+
+  @Delete(':walletAddress/notes/:noteId')
+  @HttpCode(204) // Indicate successful deletion with no content to return
+  @ApiOperation({
+    summary: 'Delete a specific note for a wallet.',
+    description: 'Allows an authenticated user to delete their own note associated with a given wallet address and note ID.'
+  })
+  @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address (used for context, not for lookup here)', type: String })
+  @ApiParam({ name: 'noteId', description: 'The ID of the note to delete', type: String })
+  @ApiResponse({ status: 204, description: 'Note deleted successfully.' })
+  @ApiResponse({ status: 401, description: 'Unauthorized, API key missing or invalid.' })
+  @ApiResponse({ status: 403, description: 'Forbidden. User does not own this note or note not found under user.' })
+  @ApiResponse({ status: 404, description: 'Note not found.' })
+  @ApiResponse({ status: 500, description: 'Internal server error while deleting the note.' })
+  async deleteWalletNote(
+    @Param('walletAddress') walletAddress: string, // Kept for URL structure consistency, but noteId is primary for lookup
+    @Param('noteId') noteId: string,
+    @Req() req: Request & { user?: any }
+  ) {
+    const actionType = 'delete_wallet_note';
+    const userId = req.user?.id;
+    const sourceIp = req.ip;
+    const requestParameters = { walletAddress, noteId }; // Log both for context
+    const startTime = Date.now();
+
+    if (!userId) {
+      this.logger.error('User ID not found in request (deleteWalletNote). This should be caught by AuthGuard.');
+      throw new InternalServerErrorException('User identification failed.');
+    }
+
+    this.logger.debug(`Attempting to delete note ${noteId} for wallet ${walletAddress} by user ${userId}`);
+
+    await this.databaseService.logActivity(
+      userId,
+      actionType,
+      requestParameters,
+      'INITIATED',
+      undefined,
+      undefined,
+      sourceIp
+    ).catch(err => this.logger.error('Failed to log INITIATED activity for deleteWalletNote:', err));
+
+    try {
+      const deletedNote = await this.databaseService.deleteWalletNote(noteId, userId);
+
+      if (!deletedNote) {
+        // This case should ideally be handled by NotFoundException thrown from the service if note doesn't exist or doesn't belong to user
+        // For safety, if service returns null without throwing specific NotFoundException for permission issues.
+        this.logger.warn(`Note ${noteId} not found for deletion by user ${userId}, or permission denied at service level without specific exception.`);
+        throw new NotFoundException('Note not found or you do not have permission to delete it.');
+      }
+
+      const durationMs = Date.now() - startTime;
+      await this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp);
+      
+      this.logger.log(`Note ${noteId} deleted successfully by user ${userId}`);
+      // No content to return for a 204 response
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown server error';
+      await this.databaseService.logActivity(userId, actionType, {...requestParameters, errorDetails: errorMessage}, 'FAILURE', durationMs, errorMessage, sourceIp);
+
+      if (error instanceof NotFoundException) {
+        // If the service specifically threw NotFoundException (e.g. user does not own note, or note truly not found)
+        throw error; // Re-throw to send 404 or appropriate status defined by service error
+      }
+      // For other errors from service or unexpected errors here
+      this.logger.error(`Error deleting note ${noteId} for wallet ${walletAddress} by user ${userId}:`, error);
+      throw new InternalServerErrorException('Failed to delete note.');
+    }
+  }
+
+  @Patch(':walletAddress/notes/:noteId')
+  @ApiOperation({
+    summary: 'Update an existing note for a wallet.',
+    description: 'Allows an authenticated user to update the content of their own note.'
+  })
+  @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address associated with the note', type: String })
+  @ApiParam({ name: 'noteId', description: 'The ID of the note to update', type: String })
+  @ApiResponse({ status: 200, description: 'Note updated successfully.' }) // Can return the updated note object
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Invalid input data for the note (e.g., empty content if made required). Or if content is missing and it\'s the only updatable field.' 
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized, API key missing or invalid.' })
+  @ApiResponse({ status: 403, description: 'Forbidden. User does not own this note.' })
+  @ApiResponse({ status: 404, description: 'Note not found.' })
+  @ApiResponse({ status: 500, description: 'Internal server error while updating the note.' })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async updateWalletNote(
+    @Param('walletAddress') walletAddress: string, 
+    @Param('noteId') noteId: string,
+    @Body() updateNoteDto: UpdateNoteDto,
+    @Req() req: Request & { user?: any }
+  ) {
+    const actionType = 'update_wallet_note';
+    const userId = req.user?.id;
+    const sourceIp = req.ip;
+    const requestParameters = { walletAddress, noteId, newContent: updateNoteDto.content };
+    const startTime = Date.now();
+
+    if (!userId) {
+      this.logger.error('User ID not found in request (updateWalletNote).');
+      throw new InternalServerErrorException('User identification failed.');
+    }
+
+    if (!updateNoteDto.content || updateNoteDto.content.trim() === '') {
+        throw new InternalServerErrorException('Note content cannot be empty.');
+    }
+
+    this.logger.debug(`Attempting to update note ${noteId} for wallet ${walletAddress} by user ${userId}`);
+
+    await this.databaseService.logActivity(
+      userId,
+      actionType,
+      requestParameters,
+      'INITIATED',
+      undefined,
+      undefined,
+      sourceIp
+    ).catch(err => this.logger.error('Failed to log INITIATED activity for updateWalletNote:', err));
+
+    try {
+      const updatedNote = await this.databaseService.updateWalletNote(
+        noteId,
+        userId,
+        updateNoteDto.content
+      );
+
+      const durationMs = Date.now() - startTime;
+      await this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp);
+      
+      this.logger.log(`Note ${noteId} updated successfully for wallet ${walletAddress} by user ${userId}`);
+      return updatedNote; 
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown server error';
+      await this.databaseService.logActivity(userId, actionType, {...requestParameters, errorDetails: errorMessage}, 'FAILURE', durationMs, errorMessage, sourceIp);
+
+      if (error instanceof NotFoundException || error instanceof InternalServerErrorException) {
+        throw error; 
+      }
+      this.logger.error(`Error updating note ${noteId} for wallet ${walletAddress} by user ${userId}:`, error);
+      throw new InternalServerErrorException('Failed to update note.');
     }
   }
 } 
