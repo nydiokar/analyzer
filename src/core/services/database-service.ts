@@ -10,7 +10,8 @@ import {
     Prisma, // Import Prisma namespace for input types
     User,         // Added User
     ActivityLog,   // Added ActivityLog
-    WalletNote    // Added WalletNote
+    WalletNote,    // Added WalletNote
+    UserFavoriteWallet // Added UserFavoriteWallet model import
 } from '@prisma/client';
 import { HeliusTransaction } from '@/types/helius-api'; // Assuming HeliusTransaction type is defined here
 import { TransactionData } from '@/types/correlation'; // Needed for getTransactionsForAnalysis
@@ -19,7 +20,7 @@ import { createLogger } from 'core/utils/logger'; // Assuming createLogger funct
 import zlib from 'zlib'; // Added zlib
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
-import { NotFoundException, InternalServerErrorException, Injectable } from '@nestjs/common';
+import { NotFoundException, InternalServerErrorException, Injectable, ConflictException } from '@nestjs/common';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -464,6 +465,128 @@ export class DatabaseService {
             return null;
         }
     }
+
+    // --- Wallet Favorite Methods ---
+    /**
+     * Adds a wallet to a user\'s favorites.
+     * Ensures both user and wallet exist before creating the favorite entry.
+     *
+     * @param userId The ID of the user.
+     * @param walletAddress The address of the wallet to favorite.
+     * @returns A promise that resolves to the created UserFavoriteWallet record.
+     * @throws NotFoundException if the user or wallet does not exist.
+     * @throws ConflictException if the wallet is already in the user\'s favorites.
+     * @throws InternalServerErrorException for other database errors.
+     */
+    async addFavoriteWallet(userId: string, walletAddress: string): Promise<UserFavoriteWallet> {
+        this.logger.debug(`Attempting to add wallet ${walletAddress} to favorites for user ${userId}`);
+        
+        const userExists = await this.prismaClient.user.findUnique({ where: { id: userId } });
+        if (!userExists) {
+            this.logger.warn(`Add favorite failed: User ${userId} not found.`);
+            throw new NotFoundException(`User with ID "${userId}" not found.`);
+        }
+
+        const walletExists = await this.prismaClient.wallet.findUnique({ where: { address: walletAddress } });
+        if (!walletExists) {
+            this.logger.warn(`Add favorite failed: Wallet ${walletAddress} not found.`);
+            throw new NotFoundException(`Wallet with address "${walletAddress}" not found. It may need to be analyzed first.`);
+        }
+
+        try {
+            const favorite = await this.prismaClient.userFavoriteWallet.create({
+                data: {
+                    userId: userId,
+                    walletAddress: walletAddress,
+                },
+            });
+            this.logger.info(`Wallet ${walletAddress} added to favorites for user ${userId}`);
+            return favorite;
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError) {
+                if (error.code === 'P2002') { // Unique constraint violation
+                    this.logger.warn(`Add favorite conflict: Wallet ${walletAddress} already in favorites for user ${userId}.`);
+                    throw new ConflictException('This wallet is already in your favorites.');
+                }
+            }
+            this.logger.error(`Error adding favorite wallet ${walletAddress} for user ${userId}:`, { error });
+            throw new InternalServerErrorException('Could not add wallet to favorites due to an unexpected error.');
+        }
+    }
+
+    /**
+     * Removes a wallet from a user\'s favorites.
+     *
+     * @param userId The ID of the user.
+     * @param walletAddress The address of the wallet to remove from favorites.
+     * @returns A promise that resolves to the removed UserFavoriteWallet record, or null if not found (Prisma delete throws if not found).
+     * @throws NotFoundException if the favorite entry does not exist.
+     * @throws InternalServerErrorException for other database errors.
+     */
+    async removeFavoriteWallet(userId: string, walletAddress: string): Promise<UserFavoriteWallet> {
+        this.logger.debug(`Attempting to remove wallet ${walletAddress} from favorites for user ${userId}`);
+        try {
+            const favorite = await this.prismaClient.userFavoriteWallet.delete({
+                where: {
+                    userId_walletAddress: {
+                        userId: userId,
+                        walletAddress: walletAddress,
+                    },
+                },
+            });
+            this.logger.info(`Wallet ${walletAddress} removed from favorites for user ${userId}`);
+            return favorite;
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+                this.logger.warn(`Remove favorite failed: Wallet ${walletAddress} not found in favorites for user ${userId}.`);
+                throw new NotFoundException('This wallet is not in your favorites.');
+            }
+            this.logger.error(`Error removing favorite wallet ${walletAddress} for user ${userId}:`, { error });
+            throw new InternalServerErrorException('Could not remove wallet from favorites due to an unexpected error.');
+        }
+    }
+
+    /**
+     * Retrieves all favorite wallets for a given user.
+     * Includes the related Wallet object for each favorite.
+     *
+     * @param userId The ID of the user.
+     * @returns A promise that resolves to an array of UserFavoriteWallet records, including their related Wallet data.
+     * @throws NotFoundException if the user does not exist.
+     * @throws InternalServerErrorException for other database errors.
+     */
+    async getFavoriteWalletsByUserId(userId: string): Promise<Array<Prisma.UserFavoriteWalletGetPayload<{ include: { wallet: { include: { pnlSummary: true, behaviorProfile: true } } } }>>> {
+        this.logger.debug(`Fetching favorite wallets for user ${userId}`);
+        
+        const userExists = await this.prismaClient.user.findUnique({ where: { id: userId } });
+        if (!userExists) {
+            this.logger.warn(`Get favorites failed: User ${userId} not found.`);
+            throw new NotFoundException(`User with ID "${userId}" not found.`);
+        }
+        
+        try {
+            const favorites = await this.prismaClient.userFavoriteWallet.findMany({
+                where: { userId: userId },
+                include: {
+                    wallet: {             // Include the Wallet model
+                        include: {          // And then include ITS relations
+                            pnlSummary: true, // Include the related WalletPnlSummary
+                            behaviorProfile: true // Include the related WalletBehaviorProfile
+                        }
+                    }
+                },
+                orderBy: {
+                    createdAt: 'desc',
+                },
+            });
+            this.logger.info(`Found ${favorites.length} favorite wallets for user ${userId}`);
+            return favorites;
+        } catch (error) {
+            this.logger.error(`Error fetching favorite wallets for user ${userId}:`, { error });
+            throw new InternalServerErrorException('Could not retrieve favorite wallets due to an unexpected error.');
+        }
+    }
+    // --- End Wallet Favorite Methods ---
 
     // --- Wallet Methods ---
 

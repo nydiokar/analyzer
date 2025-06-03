@@ -3,6 +3,7 @@ import { ApiModule } from './api.module';
 import { ConfigModule } from '@nestjs/config'; // For .env variable support
 import { HeliusModule } from './api/helius/helius.module'; // Import the global HeliusModule
 import { DatabaseModule } from './api/database/database.module'; // Import the global DatabaseModule
+import { UsersModule } from 'api/users/users.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { DatabaseModule } from './api/database/database.module'; // Import the g
     DatabaseModule, // Import DatabaseModule (it's @Global, so its providers are available everywhere)
     HeliusModule, // Import HeliusModule (it's @Global, so its providers are available everywhere)
     ApiModule,
+    UsersModule,
   ],
 })
 export class AppModule {} 

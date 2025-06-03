@@ -18,25 +18,26 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { ApiKeyAuthGuard } from '../auth/api-key-auth.guard';
+import { ApiKeyAuthGuard } from '../../auth/api-key-auth.guard';
 
 // Services from their respective feature folders
-import { DatabaseService } from '../database/database.service';
-import { BehaviorService } from '../wallets/behavior/behavior.service';
-import { TokenPerformanceService, PaginatedTokenPerformanceResponse } from '../wallets/token_performance/token-performance.service';
-import { PnlOverviewService, PnlOverviewResponse } from '../wallets/pnl_overview/pnl-overview.service';
-import { WalletTimeRangeInfo } from '../../core/services/database-service';
+import { DatabaseService } from '../../database/database.service';
+import { BehaviorService } from '../../wallets/behavior/behavior.service'; 
+import { TokenPerformanceService, PaginatedTokenPerformanceResponse } from '../../wallets/token_performance/token-performance.service';
+import { PnlOverviewService, PnlOverviewResponse } from '../../wallets/pnl_overview/pnl-overview.service';
+import { WalletTimeRangeInfo } from '../../../core/services/database-service';
+
 
 // DTOs
-import { TokenPerformanceQueryDto } from '../wallets/token_performance/token-performance-query.dto';
-import { WalletSummaryResponse } from '../wallets/summary/wallet-summary-response.dto';
-import { WalletSummaryQueryDto } from '../wallets/summary/wallet-summary-query.dto';
-import { BehaviorAnalysisResponseDto } from '../wallets/behavior/behavior-analysis-response.dto';
-import { BehaviorAnalysisQueryDto } from '../wallets/behavior/behavior-analysis-query.dto';
-import { PnlOverviewQueryDto } from '../wallets/pnl_overview/pnl-overview-query.dto';
-import { BehaviorAnalysisConfig } from '../../types/analysis';
-import { CreateNoteDto } from '../wallets/notes/create-note.dto';
-import { UpdateNoteDto } from '../wallets/notes/update-note.dto';
+import { TokenPerformanceQueryDto } from '../../wallets/token_performance/token-performance-query.dto';
+import { WalletSummaryResponse } from '../../wallets/summary/wallet-summary-response.dto';
+import { WalletSummaryQueryDto } from '../../wallets/summary/wallet-summary-query.dto';
+import { BehaviorAnalysisResponseDto } from '../../wallets/behavior/behavior-analysis-response.dto';
+import { BehaviorAnalysisQueryDto } from '../../wallets/behavior/behavior-analysis-query.dto';
+import { PnlOverviewQueryDto } from '../../wallets/pnl_overview/pnl-overview-query.dto';
+import { BehaviorAnalysisConfig } from '../../../types/analysis';
+import { CreateNoteDto } from '../../wallets/notes/create-note.dto';
+import { UpdateNoteDto } from '../../wallets/notes/update-note.dto';
 
 
 @ApiTags('Wallets')

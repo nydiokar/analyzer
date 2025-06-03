@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { WalletsController } from '../controllers/wallets.controller';
+import { WalletsController } from '../controllers/wallets/wallets.controller';
 import { TokenPerformanceModule } from './token_performance/token-performance.module';
 import { BehaviorModule } from './behavior/behavior.module';
 // Removed: import { AggregatedMetricsModule } from './aggregated_metrics/aggregated-metrics.module';

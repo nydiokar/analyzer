@@ -5,12 +5,14 @@ import { TestController } from './api/test/test.controller';
 // Import the main WalletsModule which groups wallet-related features and controllers
 import { WalletsModule } from './api/wallets/wallets.module'; 
 import { AnalysesModule } from './api/analyses/analyses.module'; // Import AnalysesModule
+import { UsersModule } from './api/users/users.module'; // Import the new UsersModule
 
 @Module({
   imports: [
     DatabaseModule, // Shared database access for any direct needs in ApiModule (e.g. Auth)
     WalletsModule,  // Imports all wallet-related features and controllers
     AnalysesModule, // Imports analysis triggering endpoints
+    UsersModule,    // Add UsersModule here
     // BehaviorModule is now imported by WalletsModule, so remove from here if not directly used by ApiModule itself
   ],
   controllers: [
@@ -28,6 +30,6 @@ export class ApiModule implements NestModule {
       // Apply middleware. If WalletsController is correctly routed via WalletsModule,
       // this might need adjustment or ensure the controller path is caught.
       // For now, assuming WalletsController paths will be matched.
-      .forRoutes(TestController, 'wallets', 'analyses'); // Target controller by path prefix if controller class isn't directly in this module's scope
+      .forRoutes(TestController, 'wallets', 'analyses', 'users'); // Added 'users' to apply AuthMiddleware
   }
 } 

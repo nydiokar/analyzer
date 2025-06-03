@@ -38,6 +38,7 @@ model Wallet {
   activityLogs ActivityLog[] @relation("WalletActivityLogs") // Named relation
   // Optional: Link to user-specific settings or saved wallet lists
   walletNotes               WalletNote[]
+  favoritedBy               UserFavoriteWallet[] // Added for Wallet-FavoriteWallets relationship
 }
 
 // Stores raw Helius transaction details.
@@ -240,6 +241,7 @@ model User {
   lastSeenAt   DateTime?
   isActive     Boolean   @default(true)
   activityLogs ActivityLog[]
+  favoriteWallets UserFavoriteWallet[] // Added for User-FavoriteWallets relationship
   // Optional: Link to user-specific settings or saved wallet lists
   walletNotes  WalletNote[]
 }
@@ -319,4 +321,17 @@ model WalletNote {
   @@index([walletAddress])
   @@index([userId])
   @@index([createdAt])
+}
+
+// New model for User Favorite Wallets
+model UserFavoriteWallet {
+  userId        String
+  walletAddress String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet        Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@id([userId, walletAddress])
+  @@index([userId])
+  @@index([walletAddress])
 }
