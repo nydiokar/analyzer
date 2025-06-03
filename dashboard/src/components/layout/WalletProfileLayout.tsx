@@ -17,7 +17,8 @@ import {
   Calculator,      // Account Stats & PNL
   Users,           // Behavioral Patterns (could also be Zap or ActivitySquare)
   FileText,        // Notes
-  RefreshCw      // Added for the refresh button
+  RefreshCw,     // Added for the refresh button
+  Star           // Added Star icon for favorites
 } from 'lucide-react' 
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -77,6 +78,19 @@ export default function WalletProfileLayout({
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false);
+
+  const apiKey = process.env.NEXT_PUBLIC_API_KEY; // To check if favorites can be used
+  const favoritesSWRKey = apiKey ? `/api/v1/users/me/favorites` : null;
+  const { data: favoritesData, error: favoritesError, mutate: mutateFavorites } = useSWR<Array<{walletAddress: string}>>(
+    favoritesSWRKey,
+    fetcher,
+    { revalidateOnFocus: false } // No need to revalidate on focus for this usually
+  );
+
+  const isCurrentWalletFavorite = React.useMemo(() => {
+    return !!favoritesData?.find(fav => fav.walletAddress === walletAddress);
+  }, [favoritesData, walletAddress]);
 
   // SWR hook to fetch wallet summary data
   const walletSummaryKey = walletAddress ? `/api/v1/wallets/${walletAddress}/summary` : null;
@@ -191,6 +205,69 @@ export default function WalletProfileLayout({
     }
   };
 
+  const handleToggleFavorite = async () => {
+    if (!walletAddress || !apiKey || !favoritesSWRKey) {
+      toast({
+        title: "Cannot update favorites",
+        description: "API Key not available, no wallet selected, or favorites not loaded.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsTogglingFavorite(true);
+    const currentIsFavorite = isCurrentWalletFavorite;
+    const method = currentIsFavorite ? 'DELETE' : 'POST';
+    const url = currentIsFavorite
+      ? `/api/v1/users/me/favorites/${walletAddress}`
+      : `/api/v1/users/me/favorites`;
+
+    const body = currentIsFavorite ? undefined : JSON.stringify({ walletAddress });
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+
+    // Optimistic UI update
+    const previousFavorites = favoritesData ? [...favoritesData] : [];
+    let newOptimisticFavorites: Array<{ walletAddress: string }>;
+
+    if (currentIsFavorite) {
+      // Optimistically remove
+      newOptimisticFavorites = previousFavorites.filter(fav => fav.walletAddress !== walletAddress);
+    } else {
+      // Optimistically add
+      newOptimisticFavorites = [...previousFavorites, { walletAddress }];
+    }
+
+    // Update local SWR cache immediately with optimistic data
+    // and prevent revalidation for this immediate mutation
+    mutateFavorites(newOptimisticFavorites, false);
+
+    try {
+      await fetcher(url, {
+        method,
+        body,
+        headers,
+      });
+      toast({
+        title: currentIsFavorite ? "Removed from Favorites" : "Added to Favorites",
+        description: `${truncateWalletAddress(walletAddress, 10, 8)} ${currentIsFavorite ? 'removed from' : 'added to'} your favorites.`,
+      });
+      // Trigger a revalidation from the server to ensure consistency.
+      // Pass undefined as data and true for revalidation option.
+      mutateFavorites(undefined, true);
+
+    } catch (err: any) {
+      toast({
+        title: "Favorite Update Failed",
+        description: err.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+      // Rollback optimistic update on error
+      mutateFavorites(previousFavorites, false);
+    } finally {
+      setIsTogglingFavorite(false);
+    }
+  };
+
   return (
     <Tabs defaultValue="overview" className="flex flex-col w-full h-full bg-muted/40">
       <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
@@ -207,6 +284,30 @@ export default function WalletProfileLayout({
                     <CopyIcon className="h-3.5 w-3.5 md:h-4 md:w-4" />
                     <span className="sr-only">Copy wallet address</span>
                   </Button>
+                  {/* Add to Favorite Button */}
+                  {apiKey && walletAddress && (
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={handleToggleFavorite} 
+                            disabled={isTogglingFavorite || !favoritesData} // Disable if list hasn't loaded
+                            className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
+                          >
+                            <Star 
+                              className={`h-3.5 w-3.5 md:h-4 md:w-4 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} 
+                            />
+                            <span className="sr-only">{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                 </div>
                 <Button 
                   onClick={handleTriggerAnalysis} 

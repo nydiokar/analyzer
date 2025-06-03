@@ -1,11 +1,18 @@
 import Link from 'next/link';
-import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SettingsIcon, HelpCircleIcon, BriefcaseIcon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SettingsIcon, HelpCircleIcon, BriefcaseIcon, SearchIcon } from 'lucide-react';
 import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
   } from "@/components/ui/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { FavoriteWalletsList } from '../sidebar/FavoriteWalletsList';
+import { WalletSearch } from '../sidebar/WalletSearch';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -14,11 +21,10 @@ interface SidebarProps {
 
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
   const commonLinkClasses = "flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors";
-  const activeLinkClasses = "bg-gray-200 dark:bg-gray-700";
 
   return (
     <aside 
-      className={`h-screen p-4 border-r bg-gray-50 dark:bg-gray-800 flex flex-col transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-48'}`}
+      className={`h-screen p-4 border-r bg-gray-50 dark:bg-gray-800 flex flex-col transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-64'}`}
     >
       <TooltipProvider delayDuration={100}>
         <div className="flex items-center justify-between mb-6">
@@ -38,49 +44,67 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             </TooltipContent>
           </Tooltip>
         </div>
-        <nav className="flex-grow">
-          <ul>
-            <li className="mb-2">
+
+        {isCollapsed ? (
+          <div className="mb-4 px-0 flex justify-center">
+            <Popover>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/" className={`${commonLinkClasses}`}>
-                    <HomeIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                    {!isCollapsed && <span className="flex-1">Dashboard Home</span>}
-                  </Link>
+                  <PopoverTrigger asChild>
+                    <button 
+                      className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+                      aria-label="Open search"
+                    >
+                      <SearchIcon size={20} />
+                    </button>
+                  </PopoverTrigger>
                 </TooltipTrigger>
-                {isCollapsed && <TooltipContent side="right" align="center"><p>Dashboard Home</p></TooltipContent>}
+                <TooltipContent side="right" align="center">
+                  <p>Search Wallets</p>
+                </TooltipContent>
               </Tooltip>
-            </li>
-            <li className="mb-2">
-              {!isCollapsed && <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-4 mb-1 px-3">Wallets</p>}
-              {isCollapsed && <hr className="my-3 border-gray-300 dark:border-gray-600" />}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link href="/wallets/DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm" className={`${commonLinkClasses} group`}>
-                    <BriefcaseIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                    {!isCollapsed && <span className="flex-1 truncate group-hover:text-clip">Gake</span>}
-                  </Link>
-                </TooltipTrigger>
-                {isCollapsed && <TooltipContent side="right" align="center"><p>Wallet: Gake</p></TooltipContent>}
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link href="/wallets/EaVboaPxFCYanjoNWdkxTbPvt57nhXGu5i6m9m6ZS2kK" className={`${commonLinkClasses} group`}>
-                    <BriefcaseIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                    {!isCollapsed && <span className="flex-1 truncate group-hover:text-clip">EaVb...S2kK (real-loaded)</span>}
-                  </Link>
-                </TooltipTrigger>
-                {isCollapsed && <TooltipContent side="right" align="center"><p>Wallet: EaVb...S2kK</p></TooltipContent>}
-              </Tooltip>
-            </li>
-          </ul>
+              <PopoverContent side="right" align="start" className="w-64 p-3">
+                <WalletSearch />
+              </PopoverContent>
+            </Popover>
+          </div>
+        ) : (
+          <div className="mb-4 px-0">
+            <WalletSearch />
+          </div>
+        )}
+
+        <nav className="flex-grow space-y-4 overflow-y-auto pt-2">
+          <div>
+            <ul>
+              <li className="mb-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link href="/" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
+                      <HomeIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
+                      {!isCollapsed && <span className="flex-1">Dashboard Home</span>}
+                    </Link>
+                  </TooltipTrigger>
+                  {isCollapsed && <TooltipContent side="right" align="center"><p>Dashboard Home</p></TooltipContent>}
+                </Tooltip>
+              </li>
+            </ul>
+          </div>
+          
+          {/* Separator before favorites if sidebar is collapsed and search is not shown */} 
+          {isCollapsed && <hr className="my-2 border-gray-300 dark:border-gray-600" />}
+
+          <div className={isCollapsed ? 'px-0' : 'px-0'}> 
+            <FavoriteWalletsList isCollapsed={isCollapsed} />
+          </div>
         </nav>
-        <div className="mt-auto pt-2 border-t border-gray-300 dark:border-gray-600">
+
+        <div className="mt-auto pt-4 border-t border-gray-300 dark:border-gray-600">
           <ul className="space-y-2">
             <li>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/settings" className={`${commonLinkClasses}`}>
+                  <Link href="/settings" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
                     <SettingsIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
                     {!isCollapsed && <span className="flex-1">Settings</span>}
                   </Link>
@@ -91,9 +115,9 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             <li>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/help" className={`${commonLinkClasses}`}>
+                  <Link href="/help" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
                     <HelpCircleIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                    {!isCollapsed && <span className="flex-1">Help/Documentation</span>}
+                    {!isCollapsed && <span className="flex-1">Help/Doc</span>}
                   </Link>
                 </TooltipTrigger>
                 {isCollapsed && <TooltipContent side="right" align="center"><p>Help/Documentation</p></TooltipContent>}

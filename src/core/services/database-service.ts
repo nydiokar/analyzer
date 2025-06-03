@@ -1636,4 +1636,39 @@ export class DatabaseService {
         throw new InternalServerErrorException('Could not update note due to a database error.');
       }
     }
+
+    // --- Wallet Search Method ---
+    /**
+     * Searches for wallets by a fragment of their address.
+     * Returns a list of wallet addresses matching the fragment.
+     *
+     * @param fragment The partial wallet address to search for.
+     * @param limit The maximum number of results to return (default: 10).
+     * @returns A promise that resolves to an array of objects containing wallet addresses.
+     */
+    async searchWalletsByAddressFragment(
+      fragment: string,
+      limit: number = 10,
+    ): Promise<{ address: string }[]> {
+      this.logger.debug(`Searching wallets by fragment: ${fragment}, limit: ${limit}`);
+      try {
+        const wallets = await this.prismaClient.wallet.findMany({
+          where: {
+            address: {
+              contains: fragment,
+              // mode: 'insensitive', // Removed: Not supported/correct for case-sensitive Solana addresses
+            },
+          },
+          select: {
+            address: true,
+          },
+          take: limit,
+        });
+        return wallets;
+      } catch (error) {
+        this.logger.error('Error searching wallets by fragment', { error, fragment });
+        throw new InternalServerErrorException('Could not perform wallet search.');
+      }
+    }
+    // --- End Wallet Search Method ---
 }

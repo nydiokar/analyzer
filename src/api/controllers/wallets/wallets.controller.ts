@@ -38,6 +38,8 @@ import { PnlOverviewQueryDto } from '../../wallets/pnl_overview/pnl-overview-que
 import { BehaviorAnalysisConfig } from '../../../types/analysis';
 import { CreateNoteDto } from '../../wallets/notes/create-note.dto';
 import { UpdateNoteDto } from '../../wallets/notes/update-note.dto';
+import { WalletSearchQueryDto } from '../../wallets/search/wallet-search-query.dto';
+import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../../wallets/search/wallet-search-result.dto';
 
 
 @ApiTags('Wallets')
@@ -52,6 +54,59 @@ export class WalletsController {
     private readonly tokenPerformanceService: TokenPerformanceService,
     private readonly pnlOverviewService: PnlOverviewService,
   ) {}
+
+  @Get('search')
+  @ApiOperation({
+    summary: 'Search for wallets by address fragment.',
+    description: 'Returns a list of wallet addresses that partially match the given query string.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Successfully retrieved matching wallet addresses.',
+    type: WalletSearchResultsDto,
+  })
+  @ApiResponse({ status: 400, description: 'Invalid search query.' })
+  @ApiResponse({ status: 500, description: 'Internal server error during search.' })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async searchWallets(
+    @Query() queryDto: WalletSearchQueryDto,
+    @Req() req: Request & { user?: any }
+  ): Promise<WalletSearchResultsDto> {
+    const actionType = 'search_wallets';
+    const userId = req.user?.id;
+    const sourceIp = req.ip;
+    const requestParameters = { query: queryDto.query };
+    const startTime = Date.now();
+
+    if (userId) {
+      this.databaseService.logActivity(userId, actionType, requestParameters, 'INITIATED', undefined, undefined, sourceIp)
+        .catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}:`, err));
+    }
+
+    try {
+      const results = await this.databaseService.searchWalletsByAddressFragment(queryDto.query);
+      const mappedResults: WalletSearchResultItemDto[] = results.map(wallet => ({ address: wallet.address }));
+      
+      if (userId) {
+        const durationMs = Date.now() - startTime;
+        this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp)
+          .catch(err => this.logger.error(`Failed to log SUCCESS activity for ${actionType}:`, err));
+      }
+      return { wallets: mappedResults };
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown internal server error';
+      if (userId) {
+        this.databaseService.logActivity(userId, actionType, { ...requestParameters, errorDetails: errorMessage }, 'FAILURE', durationMs, errorMessage, sourceIp)
+          .catch(err => this.logger.error(`Failed to log FAILURE activity for ${actionType}:`, err));
+      }
+      this.logger.error(`Error searching wallets with query "${queryDto.query}":`, error);
+      if (error instanceof InternalServerErrorException) { // From DatabaseService
+          throw error;
+      }
+      throw new InternalServerErrorException('Failed to search wallets.');
+    }
+  }
 
   @Get(':walletAddress/summary')
   @ApiOperation({
@@ -81,7 +136,7 @@ export class WalletsController {
     const requestParameters = { walletAddress: walletAddress, query: req.query, startDate: queryDto.startDate, endDate: queryDto.endDate }; 
     const startTime = Date.now();
 
-    this.logger.debug(`[Refactored] getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
+    this.logger.debug(`getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
 
     // Prepare timeRange for specific period data if dates are provided
     let serviceTimeRange: { startTs?: number; endTs?: number } | undefined = undefined;
@@ -92,7 +147,7 @@ export class WalletsController {
             serviceTimeRange = { startTs, endTs };
         }
     }
-    this.logger.debug(`[Refactored] ServiceTimeRange for period-specific data (if any): ${JSON.stringify(serviceTimeRange)}`);
+    this.logger.debug(`ServiceTimeRange for period-specific data (if any): ${JSON.stringify(serviceTimeRange)}`);
 
     if (userId) {
       await this.databaseService.logActivity(userId, actionType, requestParameters, 'INITIATED', undefined, undefined, sourceIp)

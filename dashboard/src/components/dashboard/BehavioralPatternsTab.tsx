@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState } from 'react';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { BehaviorAnalysisResponseDto } from '@/types/api'; // Assuming this type exists
 import { Card, Text, Title, Flex } from '@tremor/react';
-import { AlertTriangle, Hourglass, LineChart, Users, Clock, ShieldCheck, HelpCircle } from 'lucide-react';
+import { AlertTriangle, Hourglass, LineChart, Users, Clock, ShieldCheck, HelpCircle, PlayCircle, RefreshCw } from 'lucide-react';
 import EChartComponent, { ECOption } from '../charts/EChartComponent'; // Import the new chart component
 import { VisualMapComponent, CalendarComponent } from 'echarts/components'; // Import VisualMap and Calendar
 import * as echarts from 'echarts/core';
@@ -14,41 +14,23 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"; // Import Tooltip
 import { Switch } from "@/components/ui/switch"; // Added Switch
 import { Label } from "@/components/ui/label";   // Added Label
+import { Button } from '@/components/ui/button'; // Added Button
+import { toast } from 'sonner'; // Added toast
+import { fetcher } from '@/lib/fetcher'; // Ensure global fetcher is used
 
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
-
-// Basic fetcher for SWR - consider moving to a shared utils file if not already there
-const fetcher = async (url: string) => {
-  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-  if (!apiKey) {
-    console.warn('API key is not set for fetcher.');
-    // Or throw new Error("API Key not configured"); if you want to enforce it
-  }
-  const res = await fetch(url, {
-    headers: {
-      ...(apiKey && { 'X-API-Key': apiKey }),
-    },
-  });
-  if (!res.ok) {
-    const errorData: { message?: string, statusCode?: number } = await res.json().catch(() => ({
-      message: 'Failed to parse error response from API.',
-      statusCode: res.status
-    }));
-    const error = new Error(errorData.message || 'An error occurred while fetching the data.');
-    (error as any).statusCode = errorData.statusCode || res.status;
-    throw error;
-  }
-  return res.json();
-};
 
 interface BehavioralPatternsTabProps {
   walletAddress: string;
 }
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1';
+
 export default function BehavioralPatternsTab({ walletAddress }: BehavioralPatternsTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const [useLogScaleDuration, setUseLogScaleDuration] = useState<boolean>(false); // State for log scale
+  const [isTriggeringAnalysis, setIsTriggeringAnalysis] = useState(false);
 
   const behaviorApiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/behavior-analysis` : null;
   let swrKeyBehavior: string | null = null;
@@ -66,7 +48,7 @@ export default function BehavioralPatternsTab({ walletAddress }: BehavioralPatte
     }
   }
   
-  const { data: behaviorData, error: behaviorError, isLoading: behaviorIsLoading } = useSWR<BehaviorAnalysisResponseDto, Error>(
+  const { data: behaviorData, error: behaviorError, isLoading: behaviorIsLoading, mutate: mutateBehaviorData } = useSWR<BehaviorAnalysisResponseDto, Error>(
     swrKeyBehavior,
     fetcher,
     {
@@ -74,6 +56,44 @@ export default function BehavioralPatternsTab({ walletAddress }: BehavioralPatte
       // Add other SWR options like onErrorRetry if desired, similar to AccountSummaryCard
     }
   );
+
+  const handleTriggerAnalysis = async () => {
+    const apiKey = process.env.NEXT_PUBLIC_API_KEY;
+    if (!apiKey) {
+      toast.error('API Key not configured. Cannot trigger analysis.');
+      return;
+    }
+    if (!walletAddress) {
+      toast.error('Wallet address is missing.');
+      return;
+    }
+
+    setIsTriggeringAnalysis(true);
+    try {
+      const result = await fetch(`${API_BASE_URL}/analyses/wallets/${walletAddress}/trigger-analysis`, {
+        method: 'POST',
+        headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+        // Optionally, send a body if the endpoint accepts specific analysis types
+        // body: JSON.stringify({ analysisTypes: ['behavior'] }) 
+      });
+      const responseData = await result.json();
+
+      if (!result.ok) {
+        throw new Error(responseData.message || 'Failed to trigger analysis.');
+      }
+      
+      toast.success(responseData.message || `Analysis started for ${walletAddress.substring(0,6)}... It may take a few moments for data to update.`);
+      // Revalidate the behavior data after a short delay to allow analysis to potentially complete
+      setTimeout(() => {
+        mutateBehaviorData();
+      }, 5000); // Adjust delay as needed, or implement polling for job status if API supports it
+
+    } catch (err: any) {
+      toast.error(`Analysis trigger error: ${err.message}`);
+    } finally {
+      setIsTriggeringAnalysis(false);
+    }
+  };
 
   if (!walletAddress) {
     // This case should ideally be handled by the parent component, 
@@ -98,25 +118,39 @@ export default function BehavioralPatternsTab({ walletAddress }: BehavioralPatte
     );
   }
 
-  if (behaviorError) {
-    return (
-      <Card>
-        <Flex alignItems="center" justifyContent="start" className="space-x-2 p-6">
-          <AlertTriangle className="h-5 w-5 text-red-500" />
-          <Text color="red">
-            Error loading behavioral patterns: {behaviorError.message}
-            {(behaviorError as any).statusCode && ` (Status: ${(behaviorError as any).statusCode})`}
-          </Text>
-        </Flex>
-      </Card>
-    );
-  }
+  if (behaviorError || !behaviorData) {
+    const statusCode = (behaviorError as any)?.statusCode;
+    let message = "Could not load behavioral patterns at this time.";
+    let showAnalyzeButton = true;
 
-  if (!behaviorData) {
+    if (statusCode === 404) {
+      message = "Behavioral analysis data is not available for this wallet or the selected period. It might need to be analyzed or re-analyzed.";
+    } else if (behaviorError) {
+      message = `Error: ${behaviorError.message}. Please try refreshing the analysis.`;
+    } else if (!behaviorData) { // No error, but no data
+      message = "No behavioral data found for this wallet or period. Try running an analysis.";
+    }
+
     return (
       <Card>
-        <Flex alignItems="center" justifyContent="center" className="h-full p-6">
-          <Text>No behavioral data available for this wallet or period.</Text>
+        <Flex flexDirection="col" alignItems="center" justifyContent="center" className="space-y-3 p-6 text-center">
+          <AlertTriangle className="h-8 w-8 text-muted-foreground" />
+          <Text className="text-muted-foreground">{message}</Text>
+          {showAnalyzeButton && (
+            <Button 
+              onClick={handleTriggerAnalysis} 
+              disabled={isTriggeringAnalysis}
+              variant="default"
+              size="sm"
+              className="mt-2"
+            >
+              {isTriggeringAnalysis ? (
+                <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Analyzing...</>
+              ) : (
+                <><PlayCircle className="h-4 w-4 mr-2" /> Analyze Wallet</>
+              )}
+            </Button>
+          )}
         </Flex>
       </Card>
     );

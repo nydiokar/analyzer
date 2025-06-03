@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import { Card, Metric, Text, Flex, Badge } from '@tremor/react';
 import { WalletSummaryData, WalletSummaryError } from '@/types/api';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Hourglass, Info, CalendarDays, Landmark } from 'lucide-react';
+import { AlertTriangle, Hourglass, Info, CalendarDays, Landmark, PlayCircle, RefreshCw } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import {
@@ -14,6 +14,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import EmptyState, { ErrorState, InfoState, PlayfulErrorState } from '@/components/shared/EmptyState';
 
 interface AccountSummaryCardProps {
   walletAddress: string;
@@ -111,8 +112,8 @@ export default function AccountSummaryCard({ walletAddress, className }: Account
 
   if (isLoading) {
     return (
-      <Card className={cn("w-full md:w-auto md:min-w-[300px]", className)}>
-        <Flex alignItems="center" justifyContent="start" className="space-x-2">
+      <Card className={cn("w-full md:w-auto md:min-w-[300px] flex items-center justify-center min-h-[150px]", className)}>
+        <Flex alignItems="center" justifyContent="center" className="space-x-2">
             <Hourglass className="h-5 w-5 animate-spin text-tremor-content-subtle" />
             <Text>Loading summary...</Text>
         </Flex>
@@ -122,33 +123,21 @@ export default function AccountSummaryCard({ walletAddress, className }: Account
 
   if (error) {
     return (
-      <Card className={cn("w-full md:w-auto md:min-w-[300px]", className)}>
-         <Flex flexDirection='col' alignItems="center" justifyContent="center" className="space-y-3 h-full">
-            <Flex alignItems="center" justifyContent="start" className="space-x-2">
-                <AlertTriangle className="h-5 w-5 text-red-500" />
-                <Text color="red">
-                  Error: {error.message}
-                  {error.statusCode && ` (Status: ${error.statusCode})`}
-                </Text>
-            </Flex>
-            {!data && (
-                 <Flex alignItems="center" justifyContent="center" className="h-full">
-                    <Info className="h-5 w-5 mr-2 text-tremor-content-subtle"/>
-                    <Text>No summary data available. Wallet might need analysis or an error occurred.</Text>
-                </Flex>
-            )}
-        </Flex>
-      </Card>
+      <PlayfulErrorState
+        className={cn("w-full md:w-auto md:min-w-[300px]", className)}
+        title="Oops! Summary Error"
+        description={`We couldn't load the summary for this wallet. ${error.message || ''} (Status: ${error.statusCode || 'Unknown'})`}
+      />
     );
   }
 
   if (!data) {
     return (
-      <Card className={cn("w-full md:w-auto md:min-w-[300px]", className)}>
-         <Flex alignItems="center" justifyContent="center" className="h-full">
-            <Text>No summary data available.</Text>
-        </Flex>
-      </Card>
+      <InfoState
+        className={cn("w-full md:w-auto md:min-w-[300px]", className)}
+        title="No Summary Data Yet"
+        description="It looks like this wallet hasn't been summarized, or there's no data for the selected period. Try refreshing the analysis using the button in the header."
+      />
     );
   }
 

@@ -79,6 +79,7 @@
     "@types/bcrypt": "^5.0.2",
     "@types/chai": "^5.2.2",
     "@types/crypto-js": "^4.2.2",
+    "@types/lodash": "^4.17.17",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.12.12",
     "@types/papaparse": "^5.3.15",
