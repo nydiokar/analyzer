@@ -212,7 +212,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
   // Loading State
   if (isLoadingNotes) {
     return (
-      <Card className="mt-2 flex flex-col items-center justify-center min-h-[300px]">
+      <Card className="mt-8 flex flex-col items-center justify-center min-h-[300px]">
         <EmptyState
           variant="default"
           icon={Loader2}
@@ -229,7 +229,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
     if (notesError.status === 404) {
       // Wallet not found or no notes endpoint for this wallet (interpreted as wallet not found for notes)
       return (
-        <Card className="mt-2 flex flex-col items-center justify-center min-h-[300px]">
+        <Card className="mt-8 flex flex-col items-center justify-center min-h-[300px]">
           <EmptyState
             variant="error"
             icon={AlertTriangle}
@@ -242,7 +242,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
     }
     // Generic error for other issues
     return (
-      <Card className="mt-2 flex flex-col items-center justify-center min-h-[300px]">
+      <Card className="mt-8 flex flex-col items-center justify-center min-h-[300px]">
         <EmptyState
           variant="error"
           icon={AlertTriangle}

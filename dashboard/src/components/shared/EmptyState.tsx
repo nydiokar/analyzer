@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button'; // Assuming shadcn/ui Button
-import { LucideIcon, AlertTriangle, Info, SearchX, FileQuestion, ServerCrash, PlayCircle, RefreshCw } from 'lucide-react';
+import { LucideIcon, AlertTriangle, Info, SearchX, FileQuestion, ServerCrash, PlayCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils'; // Import cn for merging classNames
 
 interface EmptyStateProps {
@@ -39,6 +39,8 @@ const EmptyState: React.FC<EmptyStateProps> = ({
     FinalIconComponent = playfulIcons[Math.floor(Math.random() * playfulIcons.length)];
   }
 
+  // Determine if the main icon should spin
+  const shouldSpin = FinalIconComponent === Loader2;
 
   return (
     <div 
@@ -47,7 +49,14 @@ const EmptyState: React.FC<EmptyStateProps> = ({
         className // Apply the passed className
       )}
     >
-      <FinalIconComponent className={`h-12 w-12 mb-4 ${iconColorClass}`} strokeWidth={1.5} />
+      <FinalIconComponent 
+        className={cn(
+          "h-12 w-12 mb-4",
+          iconColorClass,
+          shouldSpin && "animate-spin" // Conditionally add animate-spin
+        )} 
+        strokeWidth={1.5} 
+      />
       <h3 className="text-lg font-semibold text-foreground mb-1">{title}</h3>
       {description && (
         <p className="text-sm text-muted-foreground mb-4 max-w-md">{description}</p>

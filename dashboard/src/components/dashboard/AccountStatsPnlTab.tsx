@@ -11,6 +11,7 @@ import { HelpCircle, DollarSign, TrendingUp, ShieldAlert, Zap, Hourglass, AlertT
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 import { format, isValid } from 'date-fns'; // Import isValid
+import useSWR from 'swr'; // Added SWR import
 // Removed useSWRConfig as it's not directly used in this file for mutation like in AccountSummaryCard
 // If global SWR mutation is needed, it would be invoked differently or via a shared service/context.
 
@@ -183,35 +184,57 @@ const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, t
 
 export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, lastAnalysisTimestamp }: AccountStatsPnlTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
-  const [pnlData, setPnlData] = useState<PnlOverviewResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error & { payload?: any; statusCode?: number } | null>(null);
   const [displayMode, setDisplayMode] = useState<number>(2);
-  const { toast } = useToast();
+  const { toast } = useToast(); // Keep toast if other errors might use it, or for future SWR onError.
 
-  const fetchData = async () => {
-    if (!walletAddress) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      let url = `/api/v1/wallets/${walletAddress}/pnl-overview`;
-      const queryParams = new URLSearchParams();
-      if (startDate) queryParams.append('startDate', startDate.toISOString());
-      if (endDate) queryParams.append('endDate', endDate.toISOString());
-      if (queryParams.toString()) url += `?${queryParams.toString()}`;
-      const data: PnlOverviewResponse = await fetcher(url);
-      setPnlData(data);
-    } catch (err: any) {
-      console.error("Error fetching PNL overview:", err);
-      setError(err);
-    } finally {
-      setIsLoading(false);
+  const pnlOverviewApiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/pnl-overview` : null;
+  let swrKeyPnl: string | null = null;
+
+  if (pnlOverviewApiUrlBase && !isAnalyzingGlobal) { // Only build key if not in global analysis mode
+    const queryParams = new URLSearchParams();
+    if (startDate) queryParams.append('startDate', startDate.toISOString());
+    if (endDate) queryParams.append('endDate', endDate.toISOString());
+    // The key will change if startDate/endDate change, triggering SWR refetch.
+    swrKeyPnl = queryParams.toString() ? `${pnlOverviewApiUrlBase}?${queryParams.toString()}` : pnlOverviewApiUrlBase;
+  }
+  
+  const { 
+    data: pnlData, 
+    error, 
+    isLoading, // SWR's isLoading state
+    mutate: mutatePnlData 
+  } = useSWR<PnlOverviewResponse, Error & { payload?: any; status?: number }>(
+    swrKeyPnl, // If null, SWR won't fetch, which is desired if !walletAddress or isAnalyzingGlobal
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
+        if (error.status === 404) return; // Don't retry on 404
+        if (retryCount >= 2) return;
+        // Potentially use toast here for retry attempts or persistent errors
+        // toast({ title: "Data Fetch Error", description: `Retrying PNL data... (${retryCount + 1})`, variant: "destructive" });
+        setTimeout(() => revalidate({ retryCount }), 5000);
+      },
+      // onSuccess: () => {
+      //   toast({ title: "PNL Data Loaded", description: "Successfully fetched PNL overview." });
+      // }
     }
-  };
+  );
 
+  // useEffect to handle isAnalyzingGlobal changes.
+  // If analysis finishes (isAnalyzingGlobal becomes false), we might want to ensure SWR revalidates.
+  // SWR will automatically re-fetch if swrKeyPnl changes from null to a valid string.
+  // If isAnalyzingGlobal was true, swrKeyPnl was null. When it becomes false, swrKeyPnl becomes valid, triggering fetch.
+  // If an analysis completes and we want to force a refresh for an *existing* swrKeyPnl that didn't change:
   useEffect(() => {
-    fetchData();
-  }, [walletAddress, startDate, endDate, isAnalyzingGlobal]);
+    if (!isAnalyzingGlobal && swrKeyPnl) {
+      // If analysis just finished, and we have a key, consider revalidating.
+      // This could be useful if the analysis might have updated data for the current view.
+      // mutatePnlData(); // Uncomment if explicit revalidation is needed after global analysis.
+    }
+  }, [isAnalyzingGlobal, swrKeyPnl, mutatePnlData]);
+
 
   if (isAnalyzingGlobal) {
     return (
@@ -225,7 +248,7 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
     );
   }
   
-  if (isLoading) {
+  if (isLoading && !isAnalyzingGlobal) { // Use SWR's isLoading, ensure not in global analysis state
     return (
       <EmptyState
         variant="default"
@@ -237,8 +260,8 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
     );
   }
 
-  if (error) {
-    if (error.statusCode === 404) {
+  if (error && !isAnalyzingGlobal) { // Ensure not in global analysis state
+    if (error.status === 404) { // Adjusted to error.status
       return (
         <EmptyState
           variant="info"
@@ -281,7 +304,7 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
     );
   }
   
-  if (!pnlData) {
+  if (!pnlData && !isAnalyzingGlobal) { 
     return (
       <EmptyState
         variant="info"
@@ -297,7 +320,7 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   }
 
   let periodCardContent;
-  if (pnlData.periodData && Object.keys(pnlData.periodData).length > 0) {
+  if (pnlData && pnlData.periodData && Object.keys(pnlData.periodData).length > 0) { // Check pnlData exists
     periodCardContent = <AccountStatsPnlDisplay data={pnlData.periodData} title="Period Specific PNL & Stats" />;
   } else {
     let description = "No PNL data available for the selected period.";
@@ -344,7 +367,7 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   }
 
   let allTimeCardContent;
-  if (pnlData.allTimeData && Object.keys(pnlData.allTimeData).length > 0) {
+  if (pnlData && pnlData.allTimeData && Object.keys(pnlData.allTimeData).length > 0) { // Check pnlData exists
     allTimeCardContent = <AccountStatsPnlDisplay data={pnlData.allTimeData} title="All-Time PNL & Stats" />;
   } else {
     allTimeCardContent = (
