@@ -139,39 +139,34 @@ export class HeliusSyncService {
         logger.info(`[Sync] Executing SmartFetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures in DB.`);
         
         if (!options.maxSignatures || options.maxSignatures <= 0) {
-            logger.warn(`[Sync] SmartFetch called for ${walletAddress} without a valid positive options.maxSignatures. Aborting SmartFetch for this wallet.`);
-            return;
+            logger.warn(`[Sync] SmartFetch called for ${walletAddress} without a valid positive options.maxSignatures. Proceeding with only fetching newer transactions.`);
+            // Allow fetching newer even if maxSignatures is invalid, but log a warning.
+            // Older transactions won't be fetched in this case.
         }
-
-        const initialDbCount = await this.getDbTransactionCount(walletAddress);
-        if (initialDbCount >= options.maxSignatures) {
-            logger.debug(`[Sync] SmartFetch: Database count (${initialDbCount}) already meets or exceeds target ${options.maxSignatures}. SmartFetch complete for ${walletAddress}.`);
-            return;
-        }
-        
-        const neededTotalInDb = options.maxSignatures;
-        logger.info(`[Sync] SmartFetch: Current DB count for ${walletAddress}: ${initialDbCount}. Target DB count: ${neededTotalInDb}.`);
 
         const walletState = await this.databaseService.getWallet(walletAddress);
         
-        // --- 1. Fetch Newer Transactions ---
-        // Fetch transactions newer than what's in the DB, up to the overall maxSignatures limit.
+        // --- 1. Fetch Newer Transactions (Always attempt this for SmartFetch) ---
         const stopAtSignatureForNewer = walletState?.newestProcessedSignature ?? undefined;
         const newestProcessedTimestampForNewer = walletState?.newestProcessedTimestamp ?? undefined;
         
         let newerTransactionsFetchedCount = 0;
-        logger.info(`[Sync] SmartFetch Phase 1 (Newer): Fetching for ${walletAddress} since sig: ${stopAtSignatureForNewer}, ts: ${newestProcessedTimestampForNewer}. API client call will be capped by ${neededTotalInDb} total signatures.`);
+        // Determine a reasonable cap for fetching newer transactions. 
+        // If maxSignatures is set, use it. Otherwise, fetch without a hard cap for "newer" phase,
+        // relying on Helius default limits or a sensible internal cap in heliusClient if any.
+        // For this phase, we primarily want to get anything NEW.
+        const capForNewerFetch = options.maxSignatures && options.maxSignatures > 0 ? options.maxSignatures : undefined;
+
+        logger.info(`[Sync] SmartFetch Phase 1 (Newer): Fetching for ${walletAddress} since sig: ${stopAtSignatureForNewer}, ts: ${newestProcessedTimestampForNewer}. API client call will be capped by ${capForNewerFetch ?? 'Helius default/internal cap'}.`);
         try {
-            // HeliusApiClient's getAllTransactionsForAddress will respect 'neededTotalInDb' as a cap on signatures it processes from RPC.
-            // It fetches newest first if stopAtSignatureForNewer/newestProcessedTimestampForNewer are provided.
             const newerTransactions = await this.heliusClient.getAllTransactionsForAddress(
                walletAddress, 
                options.limit, 
-               neededTotalInDb, // Pass the overall target as the cap for this API client call
+               capForNewerFetch, 
                stopAtSignatureForNewer, 
                newestProcessedTimestampForNewer, 
-               true, // <--- MODIFIED: includeCached should be true here
-               undefined // untilTimestamp is not for newer
+               true, 
+               undefined 
            ); 
            newerTransactionsFetchedCount = newerTransactions.length;
            logger.info(`[Sync] SmartFetch Phase 1 (Newer): Fetched ${newerTransactionsFetchedCount} potentially newer transactions from API for ${walletAddress}.`);
@@ -180,19 +175,18 @@ export class HeliusSyncService {
            }
         } catch (fetchError) {
            logger.error(`[Sync] SmartFetch Phase 1 (Newer): Failed to fetch/process newer transactions for ${walletAddress}:`, { fetchError });
-           // Continue to fetch older if needed.
+           // Decide if we should still attempt to fetch older ones or re-throw. For now, log and continue.
         }
 
-        // --- 2. Fetch Older Transactions if still needed ---
-        const countAfterNewerFetch = await this.getDbTransactionCount(walletAddress);
-        logger.info(`[Sync] SmartFetch: DB count for ${walletAddress} after fetching newer is ${countAfterNewerFetch}. Target is ${neededTotalInDb}.`);
+        // --- 2. Fetch Older Transactions if still needed (and if maxSignatures is valid) ---
+        if (options.maxSignatures && options.maxSignatures > 0) {
+            const countAfterNewerFetch = await this.getDbTransactionCount(walletAddress);
+            logger.info(`[Sync] SmartFetch: DB count for ${walletAddress} after fetching newer is ${countAfterNewerFetch}. Target is ${options.maxSignatures}.`);
 
-        const phaseTwoThresholdFactor = 0.75; // Trigger Phase 2 if below 75% of target
-        if (countAfterNewerFetch < (neededTotalInDb * phaseTwoThresholdFactor)) {
-            const remainingSignaturesToFetchForOlder = neededTotalInDb - countAfterNewerFetch;
-            logger.info(`[Sync] SmartFetch Phase 2 (Older): Current count ${countAfterNewerFetch} is less than ${phaseTwoThresholdFactor * 100}% of target ${neededTotalInDb}. Still need ${remainingSignaturesToFetchForOlder} older transactions to reach target.`);
-            
-            if (remainingSignaturesToFetchForOlder > 0) {
+            if (countAfterNewerFetch < options.maxSignatures) {
+                const remainingSignaturesToFetchForOlder = options.maxSignatures - countAfterNewerFetch;
+                logger.info(`[Sync] SmartFetch Phase 2 (Older): Current count ${countAfterNewerFetch} is less than target ${options.maxSignatures}. Still need ${remainingSignaturesToFetchForOlder} older transactions.`);
+                
                 // Re-fetch wallet state to get the most up-to-date oldestProcessedTimestamp after Phase 1
                 const updatedWalletStateAfterPhase1 = await this.databaseService.getWallet(walletAddress);
                 const oldestProcessedTimestamp = updatedWalletStateAfterPhase1?.firstProcessedTimestamp ?? undefined;
@@ -202,11 +196,11 @@ export class HeliusSyncService {
                     const olderTransactions = await this.heliusClient.getAllTransactionsForAddress(
                         walletAddress, 
                         options.limit, 
-                        remainingSignaturesToFetchForOlder, // Cap for this specific fetch pass
-                        undefined,                        // stopAtSignature (not relevant for fetching older)
-                        undefined,                        // newestProcessedTimestamp (not relevant for fetching older)
-                        true,                             // includeCached for older ones.
-                        oldestProcessedTimestamp          // Fetch transactions older than this timestamp.
+                        remainingSignaturesToFetchForOlder,
+                        undefined,
+                        undefined,
+                        true, 
+                        oldestProcessedTimestamp
                     );
                     logger.info(`[Sync] SmartFetch Phase 2 (Older): Fetched ${olderTransactions.length} potentially older transactions from API for ${walletAddress}.`);
                     if (olderTransactions.length > 0) {
@@ -216,10 +210,10 @@ export class HeliusSyncService {
                     logger.error(`[Sync] SmartFetch Phase 2 (Older): Failed to fetch/process older transactions for ${walletAddress}:`, { fetchError });
                 }
             } else {
-               logger.info(`[Sync] SmartFetch Phase 2 (Older): No more signatures targeted for older fetch for ${walletAddress} (remainingSignaturesToFetchForOlder <= 0).`);
+               logger.info(`[Sync] SmartFetch Phase 2 (Older): DB count (${countAfterNewerFetch}) already meets or exceeds target ${options.maxSignatures}. Skipping older fetch for ${walletAddress}.`);
             }
         } else {
-           logger.info(`[Sync] SmartFetch: DB count for ${walletAddress} (${countAfterNewerFetch}) meets or exceeds ${phaseTwoThresholdFactor * 100}% of target ${neededTotalInDb}. Skipping Phase 2.`);
+            logger.info(`[Sync] SmartFetch: Skipping Phase 2 (Older) because options.maxSignatures is not valid or not set. Only newer transactions were fetched if available.`);
         }
         logger.info(`[Sync] SmartFetch process completed for ${walletAddress}.`);
     }

@@ -7,13 +7,18 @@ import { Card, Metric, Text, Flex, Grid, Title, Subtitle, TabGroup, TabList, Tab
 import { useToast } from "@/hooks/use-toast";
 import { fetcher } from '@/lib/fetcher';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { HelpCircle, DollarSign, TrendingUp, ShieldAlert, Zap, Hourglass, AlertTriangle, Info, RefreshCw } from "lucide-react"; // Added icons
+import { HelpCircle, DollarSign, TrendingUp, ShieldAlert, Zap, Hourglass, AlertTriangle, Info, RefreshCw, Loader2, SearchX } from "lucide-react"; // Added Loader2 and SearchX
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
+import { format, isValid } from 'date-fns'; // Import isValid
 // Removed useSWRConfig as it's not directly used in this file for mutation like in AccountSummaryCard
 // If global SWR mutation is needed, it would be invoked differently or via a shared service/context.
 
 interface AccountStatsPnlTabProps {
   walletAddress: string;
+  isAnalyzingGlobal?: boolean;
+  triggerAnalysisGlobal?: () => void;
+  lastAnalysisTimestamp?: Date | null;
 }
 
 const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, title: string }> = ({ data, title }) => {
@@ -176,164 +181,188 @@ const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, t
   );
 };
 
-export default function AccountStatsPnlTab({ walletAddress }: AccountStatsPnlTabProps) {
+export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, lastAnalysisTimestamp }: AccountStatsPnlTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const [pnlData, setPnlData] = useState<PnlOverviewResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // This will now be primary data loading
-  const [error, setError] = useState<string | null>(null);
-  const [displayMode, setDisplayMode] = useState<number>(2); 
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error & { payload?: any; statusCode?: number } | null>(null);
+  const [displayMode, setDisplayMode] = useState<number>(2);
   const { toast } = useToast();
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false); // New state for analysis process
 
-  // Original fetchData function - will be reused
   const fetchData = async () => {
     if (!walletAddress) return;
-    setIsLoading(true); // Indicate data loading, distinct from analysis loading
+    setIsLoading(true);
     setError(null);
     try {
       let url = `/api/v1/wallets/${walletAddress}/pnl-overview`;
       const queryParams = new URLSearchParams();
-      if (startDate) {
-        queryParams.append('startDate', startDate.toISOString());
-      }
-      if (endDate) {
-        queryParams.append('endDate', endDate.toISOString());
-      }
-      if (queryParams.toString()) {
-        url += `?${queryParams.toString()}`;
-      }
-
+      if (startDate) queryParams.append('startDate', startDate.toISOString());
+      if (endDate) queryParams.append('endDate', endDate.toISOString());
+      if (queryParams.toString()) url += `?${queryParams.toString()}`;
       const data: PnlOverviewResponse = await fetcher(url);
       setPnlData(data);
     } catch (err: any) {
       console.error("Error fetching PNL overview:", err);
-      setError(err.message || 'An unexpected error occurred.');
-      toast({
-        title: "Error fetching PNL Data",
-        description: err.message || "Could not load PNL overview data.",
-        variant: "destructive",
-      });
+      setError(err);
     } finally {
-      setIsLoading(false); // Data loading finished
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
-  }, [walletAddress, startDate, endDate]); // Removed toast from dependencies of this useEffect
+  }, [walletAddress, startDate, endDate, isAnalyzingGlobal]);
 
-  const handleTriggerAnalysis = async () => {
-    if (!walletAddress) {
-      toast({
-        title: "Wallet Address Missing",
-        description: "Cannot trigger analysis without a wallet address.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsAnalyzing(true); // Indicate analysis process has started
-    setError(null); // Clear previous errors before starting analysis
-    setPnlData(null); // Clear previous data before starting analysis
-    setIsLoading(true); // Use main loader for analysis process as well
-
-    toast({
-      title: "Analysis Started",
-      description: `Fetching and analyzing data for ${walletAddress}. This may take a moment.`,
-    });
-
-    try {
-      await fetcher(`/api/v1/analyses/wallets/${walletAddress}/trigger-analysis`, {
-        method: 'POST',
-      });
-      toast({
-        title: "Analysis Complete",
-        description: `Data for ${walletAddress} has been refreshed.`,
-      });
-      // After analysis, re-fetch the PNL data for this tab
-      await fetchData(); 
-    } catch (err: any) {
-      console.error("Error triggering analysis:", err);
-      setError(err.message || "An unexpected error occurred during analysis."); // Set error state for this tab
-      toast({
-        title: "Analysis Failed",
-        description: err.message || "An unexpected error occurred during analysis.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsAnalyzing(false); // Analysis process finished
-      // setIsLoading(false); // setIsLoading is handled by fetchData
-    }
-  };
-  
-  // Combined loading state check
-  const effectiveIsLoading = isLoading || isAnalyzing;
-
-  if (effectiveIsLoading) {
+  if (isAnalyzingGlobal) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center">
-        <Hourglass className="h-8 w-8 animate-spin text-tremor-content-subtle mb-2" />
-        <Text>{isAnalyzing ? 'Analyzing wallet data, please wait...' : 'Loading PNL data...'}</Text>
-      </div>
+      <EmptyState
+        variant="default"
+        icon={Loader2}
+        title="Analyzing Wallet..."
+        description="Please wait while the wallet analysis is in progress. PNL data will update shortly."
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
+    );
+  }
+  
+  if (isLoading) {
+    return (
+      <EmptyState
+        variant="default"
+        icon={Loader2}
+        title="Loading PNL Data..."
+        description="Please wait while we fetch the PNL overview data."
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
     );
   }
 
   if (error) {
+    if (error.statusCode === 404) {
+      return (
+        <EmptyState
+          variant="info"
+          icon={SearchX}
+          title="PNL Data Not Yet Available"
+          description="Comprehensive PNL data is not available for this wallet yet. It may need to be analyzed to generate these insights."
+          actionText={isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet"}
+          onActionClick={triggerAnalysisGlobal}
+          isActionLoading={!!isAnalyzingGlobal}
+          className="mt-4 md:mt-6 lg:mt-8"
+        />
+      );
+    }
     return (
-      <div className="p-6 text-center">
-        <AlertTriangle className="h-8 w-8 text-red-500 mx-auto mb-2" />
-        <Text color="red">Error: {error}</Text>
-        <Button 
-          icon={RefreshCw} 
-          onClick={handleTriggerAnalysis} 
-          variant="secondary"
-          className="mt-4"
-          disabled={isAnalyzing} // Keep disabled during analysis itself
-        >
-          {isAnalyzing ? 'Analyzing...' : 'Retry Analysis'}
-        </Button>
-      </div>
+      <EmptyState
+        variant="error"
+        icon={AlertTriangle}
+        title="Error Fetching PNL Data"
+        description={error.message || "An unexpected error occurred. The analysis might have failed or encountered an issue. Please try analyzing the wallet again."}
+        actionText={isAnalyzingGlobal ? "Analyzing..." : "Retry Analysis"}
+        onActionClick={triggerAnalysisGlobal}
+        isActionLoading={!!isAnalyzingGlobal}
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
     );
   }
-
+  
+  if (!pnlData && !isLoading && !isAnalyzingGlobal && !error) {
+    return (
+      <EmptyState
+        variant="info"
+        icon={SearchX}
+        title="PNL Data Not Generated"
+        description="PNL data has not been generated for this wallet, or no activity falls within the selected period. Please analyze the wallet."
+        actionText={isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet"}
+        onActionClick={triggerAnalysisGlobal}
+        isActionLoading={!!isAnalyzingGlobal}
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
+    );
+  }
+  
   if (!pnlData) {
     return (
-      <div className="p-6 text-center">
-        <Info className="h-8 w-8 text-tremor-content-subtle mx-auto mb-2" />
-        <Text>No PNL data available for this wallet or period.</Text>
-        <Button 
-          icon={RefreshCw} 
-          onClick={handleTriggerAnalysis} 
-          variant="secondary"
-          className="mt-4"
-          disabled={isAnalyzing}
-        >
-          {isAnalyzing ? 'Analyzing...' : 'Analyze Wallet Now'}
-        </Button>
-      </div>
+      <EmptyState
+        variant="info"
+        icon={Info}
+        title="PNL Data Unavailable"
+        description="PNL data could not be displayed at this time. This might be a temporary issue. Try analyzing the wallet."
+        actionText={isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet"}
+        onActionClick={triggerAnalysisGlobal}
+        isActionLoading={!!isAnalyzingGlobal}
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
     );
   }
 
-  const periodCard = pnlData.periodData ? (
-    <AccountStatsPnlDisplay data={pnlData.periodData} title="Period Specific PNL & Stats" />
-  ) : (
-    <Card className="flex items-center justify-center h-full">
-      <Title>Period Specific PNL & Stats</Title>
-      <Text className="mt-2">No period data available.</Text>
-    </Card>
-  );
+  let periodCardContent;
+  if (pnlData.periodData && Object.keys(pnlData.periodData).length > 0) {
+    periodCardContent = <AccountStatsPnlDisplay data={pnlData.periodData} title="Period Specific PNL & Stats" />;
+  } else {
+    let description = "No PNL data available for the selected period.";
+    let actionButtonText: string | undefined = isAnalyzingGlobal ? "Analyzing..." : undefined;
+    let showActionButton = false;
 
-  const allTimeCard = pnlData.allTimeData ? (
-    <AccountStatsPnlDisplay data={pnlData.allTimeData} title="All-Time PNL & Stats" />
-  ) : (
-    <Card className="flex items-center justify-center h-full">
-      <Title>All-Time PNL & Stats</Title>
-      <Text className="mt-2">No all-time data available.</Text>
-    </Card>
-  );
+    if (lastAnalysisTimestamp && startDate && isValid(lastAnalysisTimestamp) && isValid(startDate) && startDate > lastAnalysisTimestamp) {
+      description = `Data for the selected period might be unavailable because the last analysis was on ${format(lastAnalysisTimestamp, 'MMM d, yyyy, p')}. Please refresh the wallet data for the latest insights.`;
+      actionButtonText = isAnalyzingGlobal ? "Analyzing..." : "Refresh Wallet Data";
+      showActionButton = true;
+    } else if (!lastAnalysisTimestamp) {
+      description = "This wallet has not been analyzed yet. Analyze it to see period-specific PNL data.";
+      actionButtonText = isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet";
+      showActionButton = true;
+    } else if (lastAnalysisTimestamp) {
+      const threeHoursAgo = new Date(new Date().getTime() - 3 * 60 * 60 * 1000);
+      if (lastAnalysisTimestamp < threeHoursAgo) {
+        description = `No PNL data for the selected period. The last analysis was on ${format(lastAnalysisTimestamp, 'MMM d, yyyy, p')}. You can try refreshing.`;
+        actionButtonText = isAnalyzingGlobal ? "Analyzing..." : "Refresh Wallet Data";
+        showActionButton = true;
+      } else {
+        description = `No PNL data was found for the selected period. The wallet was last analyzed on ${format(lastAnalysisTimestamp, 'MMM d, yyyy, p')}.`;
+        showActionButton = false;
+      }
+    }
+
+    if (triggerAnalysisGlobal && actionButtonText === undefined && showActionButton === undefined) {
+        actionButtonText = isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet";
+        showActionButton = true;
+    }
+
+    periodCardContent = (
+      <EmptyState
+        variant="info"
+        icon={SearchX}
+        title="Period Data Unavailable"
+        description={description}
+        actionText={showActionButton && triggerAnalysisGlobal ? actionButtonText : undefined}
+        onActionClick={showActionButton && triggerAnalysisGlobal ? triggerAnalysisGlobal : undefined}
+        isActionLoading={!!isAnalyzingGlobal && showActionButton}
+        className="h-full"
+      />
+    );
+  }
+
+  let allTimeCardContent;
+  if (pnlData.allTimeData && Object.keys(pnlData.allTimeData).length > 0) {
+    allTimeCardContent = <AccountStatsPnlDisplay data={pnlData.allTimeData} title="All-Time PNL & Stats" />;
+  } else {
+    allTimeCardContent = (
+      <EmptyState
+        variant="info"
+        icon={SearchX}
+        title="All-Time Data Unavailable"
+        description={!lastAnalysisTimestamp ? "This wallet has not been analyzed yet. Analyze it to see all-time PNL data." : "No all-time PNL data could be calculated. This might be due to no relevant trading activity or an issue during analysis."}
+        actionText={triggerAnalysisGlobal && !lastAnalysisTimestamp ? (isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet") : (triggerAnalysisGlobal ? (isAnalyzingGlobal ? "Analyzing..." : "Refresh Wallet Data") : undefined)}
+        onActionClick={triggerAnalysisGlobal}
+        isActionLoading={!!isAnalyzingGlobal}
+        className="h-full"
+      />
+    );
+  }
 
   return (
-    <div className="p-1">
+    <div className="space-y-6 p-1 md:p-0">
       <Card className="space-y-2 p-3 w-full">
         <Flex justifyContent="center">
           <TabGroup index={displayMode} onIndexChange={setDisplayMode} className="max-w-xs">
@@ -348,18 +377,18 @@ export default function AccountStatsPnlTab({ walletAddress }: AccountStatsPnlTab
 
         {displayMode === 0 && (
           <Grid numItems={1} className="gap-6">
-            {periodCard}
+            {periodCardContent}
           </Grid>
         )}
         {displayMode === 1 && (
           <Grid numItems={1} className="gap-6">
-            {allTimeCard}
+            {allTimeCardContent}
           </Grid>
         )}
         {displayMode === 2 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start w-full">
-            {periodCard}
-            <div className="border-l border-slate-700 pl-3">{allTimeCard}</div>
+            {periodCardContent}
+            <div className="border-l border-slate-700 pl-3">{allTimeCardContent}</div>
           </div>
         )}
       </Card>

@@ -37,9 +37,10 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { AlertTriangle, InfoIcon, Send, Hourglass, PlusCircle, Edit2, Trash2, ArrowUpDown, Eye } from 'lucide-react';
+import { AlertTriangle, InfoIcon, Send, Hourglass, PlusCircle, Edit2, Trash2, ArrowUpDown, Eye, Loader2, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import EmptyState from '@/components/shared/EmptyState';
 
 interface WalletNote {
   id: string;
@@ -71,7 +72,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
 
   const notesApiUrl = walletAddress ? `/api/v1/wallets/${walletAddress}/notes` : null;
 
-  const { data: notes, error: notesError, isLoading: isLoadingNotes } = useSWR<WalletNote[]>(notesApiUrl, fetcher, {
+  const { data: notes, error: notesError, isLoading: isLoadingNotes } = useSWR<WalletNote[], Error & { status?: number; payload?: any }>(notesApiUrl, fetcher, {
     refreshInterval: 30000,
   });
 
@@ -208,6 +209,53 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
     return text.substring(0, maxLength) + "...";
   };
   
+  // Loading State
+  if (isLoadingNotes) {
+    return (
+      <Card className="mt-2 flex flex-col items-center justify-center min-h-[300px]">
+        <EmptyState
+          variant="default"
+          icon={Loader2}
+          title="Loading..."
+          description="Please wait while we fetch your notes."
+          className="border-none shadow-none"
+        />
+      </Card>
+    );
+  }
+
+  // Error State
+  if (notesError) {
+    if (notesError.status === 404) {
+      // Wallet not found or no notes endpoint for this wallet (interpreted as wallet not found for notes)
+      return (
+        <Card className="mt-2 flex flex-col items-center justify-center min-h-[300px]">
+          <EmptyState
+            variant="error"
+            icon={AlertTriangle}
+            title="Wallet Not Found for Notes"
+            description="This wallet address may be invalid or notes cannot be accessed for it."
+            className="border-none shadow-none"
+          />
+        </Card>
+      );
+    }
+    // Generic error for other issues
+    return (
+      <Card className="mt-2 flex flex-col items-center justify-center min-h-[300px]">
+        <EmptyState
+          variant="error"
+          icon={AlertTriangle}
+          title="Error Loading Notes"
+          description={notesError.message || "An unexpected error occurred while fetching notes."}
+          actionText="Retry"
+          onActionClick={() => mutate(notesApiUrl)}
+          className="border-none shadow-none"
+        />
+      </Card>
+    );
+  }
+
   return (
     <Card className="mt-2">
       <CardHeader>
@@ -242,26 +290,21 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
         )}
 
         <h3 className="text-lg font-semibold my-3 pt-3 border-t">Existing Notes</h3>
-        {isLoadingNotes && (
-          <div className="flex items-center text-muted-foreground py-10 justify-center">
-            <Hourglass className="mr-2 h-5 w-5 animate-spin" />
-            Loading notes...
-          </div>
+        
+        {sortedNotes.length === 0 && !showInputArea && (
+           <EmptyState
+            variant="info"
+            icon={FileText}
+            title="No Notes Available"
+            description="You haven't added any notes for this wallet yet."
+            actionText="Add Note"
+            onActionClick={() => setShowInputArea(true)}
+            className="my-6"
+          />
         )}
-        {notesError && (
-          <div className="flex flex-col items-center text-red-600 py-10 justify-center">
-            <AlertTriangle className="mr-2 h-5 w-5 mb-2" />
-            <span>Error loading notes: {(notesError as Error).message}</span>
-          </div>
-        )}
-        {!isLoadingNotes && !notesError && notes && notes.length === 0 && (
-          <div className="flex flex-col items-center text-muted-foreground py-10 justify-center">
-            <InfoIcon className="mr-2 h-5 w-5 mb-2" />
-            <span>No notes found for this wallet yet. Click "Add New Note" to create one.</span>
-          </div>
-        )}
-        {!isLoadingNotes && !notesError && sortedNotes && sortedNotes.length > 0 && (
-          <ScrollArea className="h-auto max-h-[500px] pr-1">
+
+        {sortedNotes.length > 0 && (
+          <ScrollArea className="h-[400px] pr-4">
             <Table>
               <TableHeader className="sticky top-0 bg-muted/80 z-10">
                 <TableRow>

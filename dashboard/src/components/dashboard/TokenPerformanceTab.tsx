@@ -38,13 +38,18 @@ import {
   ChevronsLeft,
   ChevronsRight,
   RefreshCw, // Added RefreshCw icon for the button
+  Loader2, // Added Loader2 for loading state
+  BarChartIcon, // Added BarChartIcon for empty token data state
 } from 'lucide-react';
 import { PaginatedTokenPerformanceResponse, TokenPerformanceDataDto } from '@/types/api'; 
 import { useToast } from "@/hooks/use-toast"; // Added useToast
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState import
 
 interface TokenPerformanceTabProps {
   walletAddress: string;
+  isAnalyzingGlobal?: boolean;
+  triggerAnalysisGlobal?: () => void;
 }
 
 // Define PNL filter options
@@ -81,7 +86,7 @@ const COLUMN_DEFINITIONS: Array<{id: string; name: string; isSortable: boolean; 
   { id: 'lastTransferTimestamp', name: 'Last Trade', isSortable: true, className: 'text-center', icon: CalendarDaysIcon }, 
 ];
 
-export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceTabProps) {
+export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const { mutate } = useSWRConfig(); // For revalidating SWR cache
   const { toast } = useToast(); // For displaying notifications
@@ -96,9 +101,6 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
   const [pnlFilter, setPnlFilter] = useState<string>('any');
   const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
-
-  // New state for analysis triggering
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
 
   const apiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
@@ -180,56 +182,75 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     }
   );
 
-  const handleTriggerAnalysis = async () => {
-    if (!walletAddress) {
-      toast({
-        title: "Wallet Address Missing",
-        description: "Cannot trigger analysis without a wallet address.",
-        variant: "destructive",
-      });
-      return;
-    }
+  const tableData = useMemo(() => {
+    return data?.data || [];
+  }, [data]); 
 
-    setIsAnalyzing(true);
-    toast({
-      title: "Analysis Started",
-      description: `Fetching and analyzing data for ${walletAddress}. This may take a moment.`,
-    });
+  const areFiltersActive = useMemo(() => {
+    return (
+      pnlFilter !== 'any' ||
+      minTradesToggle ||
+      searchTerm !== '' ||
+      showHoldingsOnly
+    );
+  }, [pnlFilter, minTradesToggle, searchTerm, showHoldingsOnly]);
 
-    try {
-      await fetcher(`/api/v1/analyses/wallets/${walletAddress}/trigger-analysis`, {
-        method: 'POST',
-      });
-      toast({
-        title: "Analysis Complete",
-        description: `Data for ${walletAddress} has been refreshed.`,
-      });
-      // Revalidate the SWR cache for the current data
-      if (swrKey) {
-        mutate(swrKey);
-      }
-    } catch (err: any) {
-      console.error("Error triggering analysis:", err);
-      toast({
-        title: "Analysis Failed",
-        description: err.message || "An unexpected error occurred during analysis.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
+  if (!walletAddress) {
+    return (
+      <Card className="p-4 md:p-6 mt-4">
+         <EmptyState
+          variant="info"
+          icon={InfoIcon} 
+          title="No Wallet Selected"
+          description="Please select a wallet to view its token performance."
+        />
+      </Card>
+    );
+  }
+
+  if (isLoadingData && !isAnalyzingGlobal) {
+    return (
+      <EmptyState 
+        variant="default" 
+        icon={Loader2} 
+        title="Loading..."
+        description="Please wait while we fetch the token performance data."
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
+    );
+  }
+  
+  if (isAnalyzingGlobal) {
+    return (
+      <EmptyState 
+        variant="default" 
+        icon={Loader2} 
+        title="Analyzing Wallet..."
+        description="Please wait while the wallet analysis is in progress. Token performance data will update shortly."
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <EmptyState
+        variant="error"
+        icon={AlertTriangle}
+        title="Error Loading Token Performance"
+        description={error.message || "An unexpected error occurred while fetching token data."}
+        actionText={isAnalyzingGlobal ? "Analyzing..." : "Retry Analysis"}
+        onActionClick={triggerAnalysisGlobal}
+        isActionLoading={!!isAnalyzingGlobal}
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
+    );
+  }
 
   const handlePnlFilterChange = (newValue: string) => {
     setPnlFilter(newValue);
     setPage(1); // Reset to page 1
   };
-
-  const tableData = useMemo(() => {
-    // All filtering is now ideally done server-side.
-    // The data received should be the final filtered and paginated set.
-    return data?.data || [];
-  }, [data]); // Only re-memoize if the backend data object changes
 
   // Correctly scoped helper functions
   const handleSort = (columnId: string) => {
@@ -261,76 +282,35 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
   // --- Render Logic Starts Here ---
 
   const renderTableContent = () => {
-    const effectiveIsLoading = isLoadingData || isAnalyzing;
-
-    if (effectiveIsLoading) {
+    if (!data && !isLoadingData) {
       return (
-        <TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length} className="text-center p-6">
-          <Flex alignItems="center" justifyContent="center" className="space-x-2">
-            <Hourglass className="h-5 w-5 animate-spin text-tremor-content-subtle" />
-            <Text>{isAnalyzing ? 'Analyzing wallet data...' : 'Loading token performance data...'}</Text>
-          </Flex>
-        </TableCell></TableRow>
+        <TableRow>
+          <TableCell colSpan={COLUMN_DEFINITIONS.length} className="h-24 text-center">
+            No data available.
+          </TableCell>
+        </TableRow>
       );
     }
-
-    if (error) {
-      return (
-        <TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length} className="text-center p-6 text-red-500">
-          <Flex flexDirection="col" alignItems="center" justifyContent="center" className="space-y-3">
-            <Flex alignItems="center" justifyContent="center" className="space-x-2">
-              <AlertTriangle className="h-5 w-5" />
-              <Text color="red">
-                Error: {error.message}
-                {(error as any).statusCode && ` (Status: ${(error as any).statusCode})`}
-              </Text>
-            </Flex>
-            <Button 
-              icon={RefreshCw} 
-              onClick={handleTriggerAnalysis} 
-              variant="secondary"
-              disabled={isAnalyzing}
-            >
-              {isAnalyzing ? 'Analysis in Progress...' : 'Refresh Analysis'}
-            </Button>
-          </Flex>
-        </TableCell></TableRow>
-      );
-    }
-
+    
     if (tableData.length === 0) {
-      let noDataMessage = "No token performance data available for this wallet or period.";
-      if (showHoldingsOnly) noDataMessage = "No current holdings match your filter.";
-      else if (searchTerm) noDataMessage = "No tokens match your search term.";
-      else if (pnlFilter !== 'any') noDataMessage = "No tokens match your PNL filter.";
-      else if (minTradesToggle) noDataMessage = "No tokens meet the minimum trade count.";
-      
+      const emptyStateDescription = areFiltersActive
+        ? "Try adjusting your filters or expand the time range."
+        : "No token activity detected for the selected period or filters.";
       return (
-        <TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length} className="text-center p-10">
-          <Flex flexDirection="col" alignItems="center" justifyContent="center" className="space-y-3">
-            <Text className="text-lg font-medium text-tremor-content">No tokens match your search term.</Text>
-            <Text className="text-tremor-content-subtle">
-              Try adjusting your filters or analyze the wallet if data seems outdated.
-            </Text>
-            <div className="flex gap-2 items-center">
-              <Input 
-                placeholder="Search by Token Address or Symbol..." 
-                value={searchTerm}
-                onChange={(e) => handleSearchTermChange(e.target.value)}
-                className="w-full md:w-72 p-2 border rounded-md bg-tremor-background-muted dark:bg-dark-tremor-background-muted text-tremor-content dark:text-dark-tremor-content placeholder-tremor-content-subtle dark:placeholder-dark-tremor-content-subtle"
-              />
-              <Button 
-                icon={RefreshCw} 
-                onClick={handleTriggerAnalysis} 
-                variant="secondary"
-                disabled={isAnalyzing || !walletAddress}
-                className="whitespace-nowrap"
-              >
-                {isAnalyzing ? 'Analyzing...' : 'Analyze This Wallet'}
-              </Button>
-            </div>
-          </Flex>
-        </TableCell></TableRow>
+        <TableRow>
+          <TableCell colSpan={COLUMN_DEFINITIONS.length}>
+            <EmptyState
+              variant="info"
+              icon={BarChartIcon}
+              title="No Token Data Found"
+              description={emptyStateDescription}
+              actionText={isAnalyzingGlobal ? "Analyzing..." : "Analyze This Wallet"}
+              onActionClick={triggerAnalysisGlobal}
+              isActionLoading={!!isAnalyzingGlobal}
+              className="my-8"
+            />
+          </TableCell>
+        </TableRow>
       );
     }
 
@@ -462,17 +442,6 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     return items;
   };
 
-  if (!walletAddress) {
-    return (
-      <Card className="p-4 md:p-6">
-        <Flex alignItems="center" justifyContent="center" className="h-full">
-          <InfoIcon className="h-5 w-5 mr-2 text-tremor-content-subtle" />
-          <Text>No wallet address provided. Please select a wallet.</Text>
-        </Flex>
-      </Card>
-    );
-  }
-  
   const startItem = data ? (data.page - 1) * data.pageSize + 1 : 0;
   const endItem = data ? Math.min(data.page * data.pageSize, data.total) : 0;
 

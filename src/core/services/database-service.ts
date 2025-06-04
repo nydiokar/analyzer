@@ -1426,7 +1426,6 @@ export class DatabaseService {
                 },
                 update: profileData
             });
-            this.logger.info(`Successfully upserted WalletBehaviorProfile for wallet: ${walletAddress}`);
             return profile;
         } catch (error) {
             this.logger.error(`Error upserting WalletBehaviorProfile for wallet ${walletAddress}:`, { error });

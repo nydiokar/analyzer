@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import { Card, Metric, Text, Flex, Badge } from '@tremor/react';
 import { WalletSummaryData, WalletSummaryError } from '@/types/api';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Hourglass, Info, CalendarDays, Landmark, PlayCircle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Hourglass, Info, CalendarDays, Landmark, PlayCircle, RefreshCw, SearchX, Loader2 } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import {
@@ -14,11 +14,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import EmptyState, { ErrorState, InfoState, PlayfulErrorState } from '@/components/shared/EmptyState';
+import EmptyState from '@/components/shared/EmptyState';
 
 interface AccountSummaryCardProps {
   walletAddress: string;
   className?: string;
+  triggerAnalysis?: () => void;
+  isAnalyzingGlobal?: boolean;
 }
 
 // Basic fetcher function for SWR - in a real app, this would be more robust
@@ -49,7 +51,7 @@ const fetcher = async (url: string, options?: RequestInit) => {
     // Try to parse the error response from the API
     const errorPayload = await res.json().catch(() => ({ message: res.statusText }));
     const error = new Error(errorPayload.message || 'An error occurred while fetching the data.') as any;
-    error.status = res.status;
+    error.statusCode = res.status;
     error.payload = errorPayload;
     throw error;
   }
@@ -59,7 +61,7 @@ const fetcher = async (url: string, options?: RequestInit) => {
   return res.json();
 };
 
-export default function AccountSummaryCard({ walletAddress, className }: AccountSummaryCardProps) {
+export default function AccountSummaryCard({ walletAddress, className, triggerAnalysis, isAnalyzingGlobal }: AccountSummaryCardProps) {
   const { startDate, endDate } = useTimeRangeStore();
 
   const queryParams = new URLSearchParams();
@@ -112,31 +114,73 @@ export default function AccountSummaryCard({ walletAddress, className }: Account
 
   if (isLoading) {
     return (
-      <Card className={cn("w-full md:w-auto md:min-w-[300px] flex items-center justify-center min-h-[150px]", className)}>
-        <Flex alignItems="center" justifyContent="center" className="space-x-2">
-            <Hourglass className="h-5 w-5 animate-spin text-tremor-content-subtle" />
-            <Text>Loading summary...</Text>
-        </Flex>
-      </Card>
+      <EmptyState 
+        className={cn(
+          "w-full md:w-auto md:min-w-[300px]",
+          "md:flex-row md:items-center md:justify-start md:text-left md:gap-4 md:p-4 md:min-h-0",
+          className
+        )} 
+        variant="default"
+        icon={Loader2} 
+        title="Loading..."
+        description="Please wait while we fetch the wallet summary."
+      />
     );
   }
 
   if (error) {
     return (
-      <PlayfulErrorState
-        className={cn("w-full md:w-auto md:min-w-[300px]", className)}
-        title="Oops! Summary Error"
-        description={`We couldn't load the summary for this wallet. ${error.message || ''} (Status: ${error.statusCode || 'Unknown'})`}
+      <EmptyState
+        className={cn(
+          "w-full md:w-auto md:min-w-[300px] p-3",
+          "md:flex-row md:items-center md:justify-start md:text-left md:gap-4 md:p-4 md:min-h-0",
+          className
+        )}
+        variant="info"
+        icon={SearchX}
+        title="Wallet Not Yet Analyzed"
+        description={ error.statusCode === 404 ? "No comprehensive data is available for this wallet yet. It may need to be analyzed." : `We couldn't load the summary for this wallet. ${error.message || ''} (Status: ${error.statusCode || 'Unknown'})`}
+        actionText={triggerAnalysis ? (isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet") : undefined}
+        onActionClick={triggerAnalysis}
+        isActionLoading={!!isAnalyzingGlobal}
       />
     );
   }
 
+  if (!data && !isLoading) {
+    return (
+      <EmptyState
+        className={cn(
+          "w-full md:w-auto md:min-w-[300px]",
+          "md:flex-row md:items-center md:justify-start md:text-left md:gap-4 md:p-4 md:min-h-0",
+          className
+        )}
+        variant="info"
+        icon={Info}
+        title="No Summary Data Available"
+        description="It looks like this wallet hasn't been summarized, or there's no data for the selected period. Try analyzing the wallet or adjusting the time range."
+        actionText={triggerAnalysis ? (isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet") : undefined}
+        onActionClick={triggerAnalysis}
+        isActionLoading={!!isAnalyzingGlobal}
+      />
+    );
+  }
+  
   if (!data) {
     return (
-      <InfoState
-        className={cn("w-full md:w-auto md:min-w-[300px]", className)}
-        title="No Summary Data Yet"
-        description="It looks like this wallet hasn't been summarized, or there's no data for the selected period. Try refreshing the analysis using the button in the header."
+      <EmptyState
+        className={cn(
+          "w-full md:w-auto md:min-w-[300px]",
+          "md:flex-row md:items-center md:justify-start md:text-left md:gap-4 md:p-4 md:min-h-0",
+          className
+        )}
+        variant="info"
+        icon={Info}
+        title="Summary Unavailable"
+        description="Summary data could not be displayed at this time."
+        actionText={triggerAnalysis ? (isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet") : undefined}
+        onActionClick={triggerAnalysis}
+        isActionLoading={!!isAnalyzingGlobal}
       />
     );
   }

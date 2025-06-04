@@ -94,7 +94,7 @@ export default function WalletProfileLayout({
 
   // SWR hook to fetch wallet summary data
   const walletSummaryKey = walletAddress ? `/api/v1/wallets/${walletAddress}/summary` : null;
-  const { data: walletSummary, error: summaryError } = useSWR<{ lastAnalyzedAt?: string | null, [key: string]: any }>(
+  const { data: walletSummary, error: summaryError, isLoading: isLoadingWalletSummary } = useSWR<{ lastAnalyzedAt?: string | null, [key: string]: any }>(
     walletSummaryKey,
     fetcher,
     {
@@ -160,8 +160,8 @@ export default function WalletProfileLayout({
 
     setIsAnalyzing(true);
     toast({
-      title: "Analysis Started",
-      description: `Fetching and analyzing data for ${walletAddress}. This may take a moment.`,
+      title: "Analysis Queued",
+      description: `Fetching and analyzing data for ${truncateWalletAddress(walletAddress)}. This may take a few moments.`,
     });
 
     try {
@@ -169,32 +169,24 @@ export default function WalletProfileLayout({
         method: 'POST',
       });
       
-      // Revalidate all SWR keys related to this wallet
-      let revalidatedCount = 0;
-      if (cache instanceof Map) { // Ensure cache is iterable, typically a Map
+      toast({
+        title: "Analysis In Progress",
+        description: `Data for ${truncateWalletAddress(walletAddress)} is being refreshed. UI will update shortly.`,
+      });
+
+      if (cache instanceof Map) {
         for (const key of cache.keys()) {
           if (typeof key === 'string' && key.startsWith(`/api/v1/wallets/${walletAddress}`)) {
-            mutate(key); // This will trigger the useEffect to update status and timestamp based on new server data
-            revalidatedCount++;
+            mutate(key);
           }
         }
       } else {
-        const baseApiUrl = `/api/v1/wallets/${walletAddress}/summary`;
-        const queryParams = new URLSearchParams();
-        if (startDate && isValid(startDate)) queryParams.append('startDate', startDate.toISOString());
-        if (endDate && isValid(endDate)) queryParams.append('endDate', endDate.toISOString());
-        const queryString = queryParams.toString();
-        const apiUrlWithTime = queryString ? `${baseApiUrl}?${queryString}` : baseApiUrl;
-        mutate(apiUrlWithTime); // Trigger re-fetch of summary data
-        revalidatedCount = 1; 
+        if (walletSummaryKey) mutate(walletSummaryKey);
       }
 
-      toast({
-        title: "Analysis Triggered & Refresh Queued",
-        description: `Data for ${walletAddress} will be updated shortly. ${revalidatedCount} data source(s) are being refreshed.`,
-      });
     } catch (err: any) {
       console.error("Error triggering analysis:", err);
+      setLastAnalysisStatus('error');
       toast({
         title: "Analysis Failed to Trigger",
         description: err.message || "An unexpected error occurred. Please check console for details.",
@@ -317,9 +309,12 @@ export default function WalletProfileLayout({
                   disabled={isAnalyzing || !walletAddress}
                 >
                   <RefreshCw className={`mr-2 h-4 w-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                  {isAnalyzing ? 'Analyzing...' : 'Refresh Wallet Analysis'}
+                  {isAnalyzing 
+                    ? 'Analyzing...' 
+                    : (lastAnalysisTimestamp ? 'Refresh Wallet Data' : 'Analyze Wallet')}
+                  
                   {/* Analysis Status Display */}
-                  {lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
+                  {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
                     <div className="flex items-center space-x-1.5 text-xs text-muted-foreground mt-1 md:mt-0 md:ml-2">
                       <span
                         className={cn(
@@ -349,7 +344,12 @@ export default function WalletProfileLayout({
           <div className="flex items-center gap-2 flex-wrap justify-end flex-grow md:flex-grow-0 flex-shrink min-w-0 mt-2 md:mt-0">
             {isHeaderExpanded && (
               <>
-                <AccountSummaryCard walletAddress={walletAddress || ""} /> 
+                <AccountSummaryCard 
+                  walletAddress={walletAddress} 
+                  className="hidden md:block"
+                  triggerAnalysis={handleTriggerAnalysis}
+                  isAnalyzingGlobal={isAnalyzing}
+                />
                 <TimeRangeSelector />
               </>
             )}
@@ -442,15 +442,20 @@ export default function WalletProfileLayout({
           </TabsContent>
 
           <TabsContent value="token-performance">
-            <TokenPerformanceTab walletAddress={walletAddress} />
+            <TokenPerformanceTab walletAddress={walletAddress} triggerAnalysisGlobal={handleTriggerAnalysis} isAnalyzingGlobal={isAnalyzing} />
           </TabsContent>
 
           <TabsContent value="account-stats">
-            <AccountStatsPnlTab walletAddress={walletAddress} />
+            <AccountStatsPnlTab 
+              walletAddress={walletAddress} 
+              triggerAnalysisGlobal={handleTriggerAnalysis} 
+              isAnalyzingGlobal={isAnalyzing} 
+              lastAnalysisTimestamp={lastAnalysisTimestamp}
+            />
           </TabsContent>
 
           <TabsContent value="behavioral-patterns">
-            <BehavioralPatternsTab walletAddress={walletAddress} />
+            <BehavioralPatternsTab walletAddress={walletAddress} triggerAnalysisGlobal={handleTriggerAnalysis} isAnalyzingGlobal={isAnalyzing} />
           </TabsContent>
 
           <TabsContent value="notes">

@@ -138,7 +138,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                 </p>
                 <div className="text-xs text-muted-foreground flex space-x-5 mt-0.5">
                   <span>PNL: {typeof fav.pnl === 'number' ? fav.pnl.toFixed(2) : 'N/A'}</span>
-                  <span>WinRate: {typeof fav.winRate === 'number' ? fav.winRate.toFixed(2) : 'N/A'}</span> 
+                  <span>FlipperScore: {typeof fav.winRate === 'number' ? fav.winRate.toFixed(2) : 'N/A'}</span> 
                 </div>
               </Link>
               <TooltipProvider delayDuration={100}>

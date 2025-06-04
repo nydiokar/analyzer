@@ -5,7 +5,7 @@ import useSWR, { mutate } from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { BehaviorAnalysisResponseDto } from '@/types/api'; // Assuming this type exists
 import { Card, Text, Title, Flex } from '@tremor/react';
-import { AlertTriangle, Hourglass, LineChart, Users, Clock, ShieldCheck, HelpCircle, PlayCircle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Hourglass, LineChart, Users, Clock, ShieldCheck, HelpCircle, PlayCircle, RefreshCw, Loader2 } from 'lucide-react';
 import EChartComponent, { ECOption } from '../charts/EChartComponent'; // Import the new chart component
 import { VisualMapComponent, CalendarComponent } from 'echarts/components'; // Import VisualMap and Calendar
 import * as echarts from 'echarts/core';
@@ -17,20 +17,22 @@ import { Label } from "@/components/ui/label";   // Added Label
 import { Button } from '@/components/ui/button'; // Added Button
 import { toast } from 'sonner'; // Added toast
 import { fetcher } from '@/lib/fetcher'; // Ensure global fetcher is used
+import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
 
 interface BehavioralPatternsTabProps {
   walletAddress: string;
+  isAnalyzingGlobal?: boolean;
+  triggerAnalysisGlobal?: () => void;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1';
 
-export default function BehavioralPatternsTab({ walletAddress }: BehavioralPatternsTabProps) {
+export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: BehavioralPatternsTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
-  const [useLogScaleDuration, setUseLogScaleDuration] = useState<boolean>(false); // State for log scale
-  const [isTriggeringAnalysis, setIsTriggeringAnalysis] = useState(false);
+  const [useLogScaleDuration, setUseLogScaleDuration] = useState<boolean>(false);
 
   const behaviorApiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/behavior-analysis` : null;
   let swrKeyBehavior: string | null = null;
@@ -48,111 +50,113 @@ export default function BehavioralPatternsTab({ walletAddress }: BehavioralPatte
     }
   }
   
-  const { data: behaviorData, error: behaviorError, isLoading: behaviorIsLoading, mutate: mutateBehaviorData } = useSWR<BehaviorAnalysisResponseDto, Error>(
+  const { data: behaviorData, error: behaviorError, isLoading: behaviorIsLoading, mutate: mutateBehaviorData } = useSWR<BehaviorAnalysisResponseDto, Error & { status?: number; payload?: any }>(
     swrKeyBehavior,
     fetcher,
     {
       revalidateOnFocus: false,
-      // Add other SWR options like onErrorRetry if desired, similar to AccountSummaryCard
+      revalidateOnReconnect: false,
+      onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
+        if (error.status === 404 || error.payload?.message?.includes("No behavior analysis data found")) {
+          return;
+        }
+        if (retryCount >= 2) {
+          return;
+        }
+        setTimeout(() => revalidate({ retryCount }), 5000);
+      }
     }
   );
 
-  const handleTriggerAnalysis = async () => {
-    const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-    if (!apiKey) {
-      toast.error('API Key not configured. Cannot trigger analysis.');
-      return;
-    }
-    if (!walletAddress) {
-      toast.error('Wallet address is missing.');
-      return;
-    }
-
-    setIsTriggeringAnalysis(true);
-    try {
-      const result = await fetch(`${API_BASE_URL}/analyses/wallets/${walletAddress}/trigger-analysis`, {
-        method: 'POST',
-        headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
-        // Optionally, send a body if the endpoint accepts specific analysis types
-        // body: JSON.stringify({ analysisTypes: ['behavior'] }) 
-      });
-      const responseData = await result.json();
-
-      if (!result.ok) {
-        throw new Error(responseData.message || 'Failed to trigger analysis.');
-      }
-      
-      toast.success(responseData.message || `Analysis started for ${walletAddress.substring(0,6)}... It may take a few moments for data to update.`);
-      // Revalidate the behavior data after a short delay to allow analysis to potentially complete
-      setTimeout(() => {
-        mutateBehaviorData();
-      }, 5000); // Adjust delay as needed, or implement polling for job status if API supports it
-
-    } catch (err: any) {
-      toast.error(`Analysis trigger error: ${err.message}`);
-    } finally {
-      setIsTriggeringAnalysis(false);
-    }
-  };
-
-  if (!walletAddress) {
-    // This case should ideally be handled by the parent component, 
-    // but good for robustness if this component were used elsewhere.
+  // Show global analyzing state first
+  if (isAnalyzingGlobal) {
     return (
-      <Card>
-        <Flex alignItems="center" justifyContent="center" className="h-full">
-          <Text>No wallet address provided.</Text>
-        </Flex>
-      </Card>
+      <EmptyState
+        variant="default"
+        icon={Loader2}
+        title="Analyzing Wallet..."
+        description="Please wait while the wallet analysis is in progress. Behavioral patterns will update shortly."
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
     );
   }
 
-  if (behaviorIsLoading) {
+  if (behaviorIsLoading && !isAnalyzingGlobal) {
     return (
-      <Card>
-        <Flex alignItems="center" justifyContent="start" className="space-x-2 p-6">
-          <Hourglass className="h-5 w-5 animate-spin text-tremor-content-subtle" />
-          <Text>Loading behavioral patterns...</Text>
-        </Flex>
-      </Card>
+      <EmptyState
+        variant="default"
+        icon={Loader2}
+        title="Loading Behavioral Data..." // Changed title for clarity
+        description="Please wait while we fetch behavioral insights for this wallet."
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
     );
   }
 
-  if (behaviorError || !behaviorData) {
-    const statusCode = (behaviorError as any)?.statusCode;
-    let message = "Could not load behavioral patterns at this time.";
-    let showAnalyzeButton = true;
+  if (behaviorError) {
+    const isNotFoundError = behaviorError.status === 404 || 
+                            behaviorError.payload?.message?.toLowerCase().includes("no behavior analysis data found") || 
+                            behaviorError.message?.toLowerCase().includes("no behavior analysis data found");
 
-    if (statusCode === 404) {
-      message = "Behavioral analysis data is not available for this wallet or the selected period. It might need to be analyzed or re-analyzed.";
-    } else if (behaviorError) {
-      message = `Error: ${behaviorError.message}. Please try refreshing the analysis.`;
-    } else if (!behaviorData) { // No error, but no data
-      message = "No behavioral data found for this wallet or period. Try running an analysis.";
+    if (isNotFoundError) {
+      return (
+        <EmptyState
+          variant="info"
+          icon={Users} 
+          title="Behavioral Profile Not Generated"
+          description="We couldn't generate a behavioral profile for this wallet with the current data or time range. Try analyzing the wallet or adjusting filters."
+          actionText={isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet"}
+          onActionClick={triggerAnalysisGlobal}
+          isActionLoading={!!isAnalyzingGlobal}
+          className="mt-4 md:mt-6 lg:mt-8"
+        />
+      );
     }
 
     return (
-      <Card>
-        <Flex flexDirection="col" alignItems="center" justifyContent="center" className="space-y-3 p-6 text-center">
-          <AlertTriangle className="h-8 w-8 text-muted-foreground" />
-          <Text className="text-muted-foreground">{message}</Text>
-          {showAnalyzeButton && (
-            <Button 
-              onClick={handleTriggerAnalysis} 
-              disabled={isTriggeringAnalysis}
-              variant="default"
-              size="sm"
-              className="mt-2"
-            >
-              {isTriggeringAnalysis ? (
-                <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Analyzing...</>
-              ) : (
-                <><PlayCircle className="h-4 w-4 mr-2" /> Analyze Wallet</>
-              )}
-            </Button>
-          )}
-        </Flex>
-      </Card>
+      <EmptyState
+        variant="error"
+        icon={AlertTriangle}
+        title="Error Loading Behavioral Data"
+        description={behaviorError.message || "Failed to load behavioral patterns. Please try analyzing again."}
+        actionText={isAnalyzingGlobal ? "Analyzing..." : "Retry Analysis"} 
+        onActionClick={triggerAnalysisGlobal} 
+        isActionLoading={!!isAnalyzingGlobal}
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
+    );
+  }
+
+  if (!behaviorData && !behaviorIsLoading && !isAnalyzingGlobal && !behaviorError) {
+    return (
+      <EmptyState
+        variant="info"
+        icon={Users}
+        title="No Behavioral Data Found"
+        description="We couldn't generate behavioral insights for this wallet yet. Try analyzing again or adjust the time range."
+        actionText={isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet"}
+        onActionClick={triggerAnalysisGlobal}
+        isActionLoading={!!isAnalyzingGlobal}
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
+    );
+  }
+
+  // Final check to ensure behaviorData is defined before rendering the main content.
+  // This satisfies TypeScript's strict null checks, as the preceding conditions
+  // should have already handled loading, error, and initial empty states.
+  if (!behaviorData) {
+    return (
+      <EmptyState
+        variant="info"
+        icon={Users} // Or another appropriate icon like HelpCircle or AlertTriangle if it's truly an error
+        title="Data Preparation Error"
+        description="Could not prepare behavioral data for display. If the issue persists, please contact support or try re-analyzing."
+        actionText={isAnalyzingGlobal ? "Analyzing..." : (triggerAnalysisGlobal ? "Re-analyze Wallet" : undefined)}
+        onActionClick={triggerAnalysisGlobal}
+        isActionLoading={!!isAnalyzingGlobal}
+        className="mt-4 md:mt-6 lg:mt-8"
+      />
     );
   }
 
