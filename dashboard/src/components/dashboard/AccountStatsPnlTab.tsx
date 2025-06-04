@@ -19,7 +19,7 @@ interface AccountStatsPnlTabProps {
 const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, title: string }> = ({ data, title }) => {
   if (!data) {
     return (
-      <Card>
+      <Card className="w-full h-full">
         <Title>{title}</Title>
         <Text>No data available for this period.</Text>
       </Card>
@@ -43,7 +43,7 @@ const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, t
   };
   
   return (
-    <Card>
+    <Card className="w-full h-full">
       <Title>{title}</Title>
       {data?.dataFrom ? (
         <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-2">
@@ -53,45 +53,49 @@ const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, t
         <div className="mt-1 mb-2 h-[1.25rem]" />
       )}
       
-      {/* Section 1: Core Trading Metrics */}
+      {/* Section 1: Core Trading Metrics with bottom border */}
       <div className="mt-4 pt-3 mb-4">
         <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Core Trading Metrics</Text>
-        <Card className="p-3 shadow-sm">
-          <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
-            <Flex flexDirection="col" alignItems="start" justifyContent="start">
-              <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Realized PNL</Text>
-              <Metric className="text-base">{formatMetric(data.realizedPnl, 'SOL')}</Metric>
-            </Flex>
-            <Flex flexDirection="col" alignItems="start" justifyContent="start">
-              <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Avg. P/L per Trade</Text>
-              <Metric className="text-base">{formatMetric(data.avgPLTrade, 'SOL')}</Metric>
-            </Flex>
-            <Flex flexDirection="col" alignItems="start" justifyContent="start">
-              <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Token Win Rate</Text>
-              <Metric className="text-base">{formatPercentage(data.tokenWinRate)}</Metric>
-            </Flex>
-          </Grid>
+        <Card className="p-0">
+          <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
+            <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
+              <Flex flexDirection="col" alignItems="start" justifyContent="start">
+                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Realized PNL</Text>
+                <Metric className="text-base">{formatMetric(data.realizedPnl, 'SOL')}</Metric>
+              </Flex>
+              <Flex flexDirection="col" alignItems="start" justifyContent="start">
+                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Avg. P/L per Trade</Text>
+                <Metric className="text-base">{formatMetric(data.avgPLTrade, 'SOL')}</Metric>
+              </Flex>
+              <Flex flexDirection="col" alignItems="start" justifyContent="start">
+                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Token Win Rate</Text>
+                <Metric className="text-base">{formatPercentage(data.tokenWinRate)}</Metric>
+              </Flex>
+            </Grid>
+          </div>
         </Card>
       </div>
 
-      {/* Section 2: Volume & Capital Flow */}
+      {/* Section 2: Volume & Capital Flow with bottom border */}
       <div className="mt-4 pt-3 mb-4">
         <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Volume & Capital Flow</Text>
-        <Card className="p-3 shadow-sm">
-          <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
-            <Flex flexDirection="col" alignItems="start" justifyContent="start">
-              <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total Volume Traded</Text>
-              <Metric className="text-base text-blue-500">{data.totalVolume?.toFixed(2) ?? 'N/A'} SOL</Metric>
-            </Flex>
-            <Flex flexDirection="col" alignItems="start" justifyContent="start">
-              <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total SOL Spent</Text>
-              <Metric className="text-base text-blue-500">{data.totalSolSpent?.toFixed(2) ?? 'N/A'} SOL</Metric>
-            </Flex>
-            <Flex flexDirection="col" alignItems="start" justifyContent="start">
-              <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total SOL Received</Text>
-              <Metric className="text-base text-blue-500">{data.totalSolReceived?.toFixed(2) ?? 'N/A'} SOL</Metric>
-            </Flex>
-          </Grid>
+        <Card className="p-0">
+          <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
+            <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
+              <Flex flexDirection="col" alignItems="start" justifyContent="start">
+                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total Volume Traded</Text>
+                <Metric className="text-base text-blue-500">{data.totalVolume?.toFixed(2) ?? 'N/A'} SOL</Metric>
+              </Flex>
+              <Flex flexDirection="col" alignItems="start" justifyContent="start">
+                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total SOL Spent</Text>
+                <Metric className="text-base text-blue-500">{data.totalSolSpent?.toFixed(2) ?? 'N/A'} SOL</Metric>
+              </Flex>
+              <Flex flexDirection="col" alignItems="start" justifyContent="start">
+                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total SOL Received</Text>
+                <Metric className="text-base text-blue-500">{data.totalSolReceived?.toFixed(2) ?? 'N/A'} SOL</Metric>
+              </Flex>
+            </Grid>
+          </div>
         </Card>
       </div>
 
@@ -330,16 +334,17 @@ export default function AccountStatsPnlTab({ walletAddress }: AccountStatsPnlTab
 
   return (
     <div className="p-1">
-      <Card className="space-y-6 p-3">
+      <Card className="space-y-2 p-3 w-full">
         <Flex justifyContent="center">
           <TabGroup index={displayMode} onIndexChange={setDisplayMode} className="max-w-xs">
-            <TabList variant="line">
+            <TabList variant="solid">
               <Tab>Period</Tab>
               <Tab>All-Time</Tab>
               <Tab>Both</Tab>
             </TabList>
           </TabGroup>
         </Flex>
+        <hr className="my-4 border-tremor-border dark:border-dark-tremor-border" />
 
         {displayMode === 0 && (
           <Grid numItems={1} className="gap-6">
@@ -352,10 +357,10 @@ export default function AccountStatsPnlTab({ walletAddress }: AccountStatsPnlTab
           </Grid>
         )}
         {displayMode === 2 && (
-          <Grid numItems={2} className="gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start w-full">
             {periodCard}
-            {allTimeCard}
-          </Grid>
+            <div className="border-l border-slate-700 pl-3">{allTimeCard}</div>
+          </div>
         )}
       </Card>
     </div>

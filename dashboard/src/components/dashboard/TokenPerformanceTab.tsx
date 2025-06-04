@@ -7,6 +7,17 @@ import { fetcher } from '../../lib/fetcher';
 import { Card, Title, Text, Flex, Button } from '@tremor/react'; // Added Button
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
 import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationLink, PaginationNext } from "../../components/ui/pagination"; 
+import { Input } from "@/components/ui/input"; // Added Input
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"; // Added Select components here
+import { Switch } from "@/components/ui/switch"; // Restored Switch import
+import { Label } from "@/components/ui/label";   // Restored Label import
+import { Badge } from "@/components/ui/badge";   // Restored Badge import
 import { 
   AlertTriangle, 
   Hourglass, 
@@ -26,18 +37,26 @@ import {
   Repeat as RepeatIcon,
   ChevronsLeft,
   ChevronsRight,
-  RefreshCw // Added RefreshCw icon for the button
+  RefreshCw, // Added RefreshCw icon for the button
 } from 'lucide-react';
 import { PaginatedTokenPerformanceResponse, TokenPerformanceDataDto } from '@/types/api'; 
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast"; // Added useToast
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TokenPerformanceTabProps {
   walletAddress: string;
 }
+
+// Define PNL filter options
+const PNL_FILTER_OPTIONS = [
+  { value: 'any', label: 'Any PNL' },
+  { value: '>0', label: 'PNL > 0 SOL' },
+  { value: '<0', label: 'PNL < 0 SOL' },
+  { value: '>10', label: 'PNL > 10 SOL' },
+  { value: '<-10', label: 'PNL < -10 SOL' },
+  { value: '>100', label: 'PNL > 100 SOL' },
+  { value: '<-100', label: 'PNL < -100 SOL' },
+];
 
 // Valid sortable IDs based on the backend TokenPerformanceSortBy enum
 const BACKEND_SORTABLE_IDS = [
@@ -74,7 +93,7 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
   const [showPnlAsPercentage, setShowPnlAsPercentage] = useState<boolean>(false);
 
   // State for new quick filters
-  const [minPnl, setMinPnl] = useState<string>('any');
+  const [pnlFilter, setPnlFilter] = useState<string>('any');
   const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
@@ -107,27 +126,39 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
       params.append('searchTerm', searchTerm);
     }
 
-    // Convert minPnl state to pnlConditionOperator and pnlConditionValue
-    if (minPnl !== 'any') {
-      const operatorMatch = minPnl.match(/^([><]=?|=)/); 
-      const valueMatch = minPnl.match(/[0-9.-]+$/); // Allow negative numbers for PNL value
-      if (operatorMatch && valueMatch) {
-        let feOperator = operatorMatch[0]; // Frontend operator e.g. '>', '<'
-        const value = parseFloat(valueMatch[0]);
-        let beOperator: string | undefined = undefined; // Backend operator e.g. 'gt', 'lt'
+    // Convert pnlFilter state to pnlConditionOperator and pnlConditionValue
+    if (pnlFilter !== 'any') {
+      const selectedOption = PNL_FILTER_OPTIONS.find(option => option.value === pnlFilter);
+      if (selectedOption) {
+        const operatorMatch = selectedOption.value.match(/^([><]=?|=)/);
+        const valueMatch = selectedOption.value.match(/-?[0-9.]+$/); // Allow negative numbers
 
-        if (feOperator === '>') beOperator = 'gt';
-        else if (feOperator === '<') beOperator = 'lt';
-        // Explicitly map other potential frontend operators if your dropdown supports them
-        // else if (feOperator === '>=') beOperator = 'gte'; 
-        // else if (feOperator === '<=') beOperator = 'lte';
-        // else if (feOperator === '=') beOperator = 'eq'; // DTO uses 'eq'
+        if (operatorMatch && valueMatch) {
+          let feOperator = operatorMatch[0];
+          const value = parseFloat(valueMatch[0]);
+          let beOperator: string | undefined = undefined;
 
-        if (beOperator) {
-          params.append('pnlConditionOperator', beOperator);
-          params.append('pnlConditionValue', value.toString());
-        } else {
-          console.warn("Unsupported PNL filter operator from frontend state:", feOperator);
+          if (feOperator === '>') beOperator = 'gt';
+          else if (feOperator === '<') beOperator = 'lt';
+          // Add other mappings if needed, e.g., for >=, <=, =
+
+          if (beOperator) {
+            params.append('pnlConditionOperator', beOperator);
+            params.append('pnlConditionValue', value.toString());
+          } else {
+            console.warn("Unsupported PNL filter operator from frontend state:", feOperator);
+          }
+        } else if (selectedOption.value !== 'any') { // Handle cases like '>0' where value is 0
+          let feOperator = selectedOption.value.charAt(0);
+          const value = parseFloat(selectedOption.value.substring(1));
+           let beOperator: string | undefined = undefined;
+          if (feOperator === '>') beOperator = 'gt';
+          else if (feOperator === '<') beOperator = 'lt';
+
+          if (beOperator) {
+            params.append('pnlConditionOperator', beOperator);
+            params.append('pnlConditionValue', value.toString());
+          }
         }
       }
     }
@@ -187,6 +218,11 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const handlePnlFilterChange = (newValue: string) => {
+    setPnlFilter(newValue);
+    setPage(1); // Reset to page 1
   };
 
   const tableData = useMemo(() => {
@@ -266,7 +302,7 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
       let noDataMessage = "No token performance data available for this wallet or period.";
       if (showHoldingsOnly) noDataMessage = "No current holdings match your filter.";
       else if (searchTerm) noDataMessage = "No tokens match your search term.";
-      else if (minPnl !== 'any') noDataMessage = "No tokens match your PNL filter.";
+      else if (pnlFilter !== 'any') noDataMessage = "No tokens match your PNL filter.";
       else if (minTradesToggle) noDataMessage = "No tokens meet the minimum trade count.";
       
       return (
@@ -277,12 +313,11 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
               Try adjusting your filters or analyze the wallet if data seems outdated.
             </Text>
             <div className="flex gap-2 items-center">
-              <input 
-                type="text" 
+              <Input 
                 placeholder="Search by Token Address or Symbol..." 
-                className="w-full md:w-72 p-2 border rounded-md bg-tremor-background-muted dark:bg-dark-tremor-background-muted text-tremor-content dark:text-dark-tremor-content placeholder-tremor-content-subtle dark:placeholder-dark-tremor-content-subtle"
                 value={searchTerm}
                 onChange={(e) => handleSearchTermChange(e.target.value)}
+                className="w-full md:w-72 p-2 border rounded-md bg-tremor-background-muted dark:bg-dark-tremor-background-muted text-tremor-content dark:text-dark-tremor-content placeholder-tremor-content-subtle dark:placeholder-dark-tremor-content-subtle"
               />
               <Button 
                 icon={RefreshCw} 
@@ -442,55 +477,86 @@ export default function TokenPerformanceTab({ walletAddress }: TokenPerformanceT
   const endItem = data ? Math.min(data.page * data.pageSize, data.total) : 0;
 
   return (
-    <Card className="p-0 md:p-0 flex flex-col h-full overflow-hidden">
-      {/* Sticky Filters - Reordered */}
-      <div className="sticky top-0 z-30 bg-card dark:bg-background border-b p-4 md:px-6 md:py-3 flex-shrink-0 h-[60px]">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          {/* PNL Filter Select - Updated Border */}
-          <div className="flex flex-col items-start sm:flex-row sm:items-center sm:space-x-2">
-            <Label htmlFor="pnl-filter" className="text-xs whitespace-nowrap font-medium sm:mb-0 mb-1">PNL (SOL):</Label>
-            <select id="pnl-filter" value={minPnl} onChange={(e) => { setMinPnl(e.target.value); setPage(1); }}
-              className="w-full sm:w-[150px] h-9 pl-3 pr-8 py-1 text-xs border-tremor-ring dark:border-dark-tremor-ring focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 rounded-md bg-card dark:bg-background text-tremor-content dark:text-dark-tremor-content">
-              <option value="any">Any PNL</option>
-              <option value=">0">{`> 0 (Win)`}</option>
-              <option value=">1">{`> 1`}</option>
-              <option value=">10">{`> 10`}</option>
-              <option value=">50">{`> 50`}</option>
-              <option value="<0">{`< 0 (Loss)`}</option>
-              <option value="<-1">{`< -1`}</option>
-              <option value="<-10">{`< -10`}</option>
-            </select>
-          </div>
+    <Card className="h-full flex flex-col relative overflow-hidden">
+      {/* Filter controls & Info Tooltip */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 p-3 border-b bg-card dark:bg-dark-tremor-background-muted sticky top-0 z-20">
+        <TooltipProvider delayDuration={100}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center text-xs text-tremor-content dark:text-dark-tremor-content cursor-help">
+                <InfoIcon className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
+                <span>Data Interpretation Note</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="start" className="max-w-sm">
+              <p className="text-sm">
+                The global time filter (e.g., 24h, 7d, All-Time) selects tokens that had any trading activity within that period. 
+                However, the metrics displayed in this table (like PNL, SOL Spent/Received, trade counts) are lifetime totals for each of those included tokens.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
-          {/* Search Input */}
-          <div className="flex-grow min-w-[150px] sm:min-w-[200px]">
-            <input type="text" id="search-token" placeholder="Search Name or Address..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
-              className="h-9 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-xs bg-card dark:bg-background text-tremor-content dark:text-dark-tremor-content" />
-          </div>
+        {/* Spacer to push other filters to the right if needed, or let them flow naturally */}
+        {/* <div className="flex-grow"></div> */}
 
-          {/* Min. 2 Trades Switch */}
-          <div className="flex items-center space-x-2">
-            <Switch id="min-trades-filter" checked={minTradesToggle} onCheckedChange={(checked) => { setMinTradesToggle(checked); setPage(1); }} />
-            <Label htmlFor="min-trades-filter" className="text-xs whitespace-nowrap">Min. 2 Trades</Label>
-          </div>
+        {/* Search Input - Reduced Width */}
+        <div className="flex-grow sm:flex-grow-0 sm:w-64 md:w-72">
+          <Input 
+            placeholder="Search token address or symbol..."
+            value={searchTerm}
+            onChange={(e) => handleSearchTermChange(e.target.value)}
+            className="h-10" // Ensure consistent height
+          />
+        </div>
 
-          {/* Show PNL as % Switch */}
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="pnl-display-mode"
-              checked={showPnlAsPercentage}
-              onCheckedChange={setShowPnlAsPercentage}
-            />
-            <Label htmlFor="pnl-display-mode" className="text-xs flex items-center">
-              <RepeatIcon className="w-3.5 h-3.5 mr-1.5 text-tremor-content-subtle" /> Show PNL as %
-            </Label>
-          </div>
+        {/* PNL Filter Select */}
+        <div className="flex items-center space-x-2">
+          <Label htmlFor="pnl-filter" className="text-sm font-medium">PNL (SOL)</Label>
+          <Select value={pnlFilter} onValueChange={handlePnlFilterChange}>
+            <SelectTrigger id="pnl-filter" className="h-10 w-[180px]">
+              <SelectValue placeholder="Filter by PNL" />
+            </SelectTrigger>
+            <SelectContent>
+              {PNL_FILTER_OPTIONS.map(option => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-          {/* Holdings Only Switch - Moved to the far right */}
-          <div className="flex items-center space-x-2 ml-auto">
-            <Switch id="holdings-filter" checked={showHoldingsOnly} onCheckedChange={(checked) => { setShowHoldingsOnly(checked); setPage(1); }} />
-            <Label htmlFor="holdings-filter" className="text-xs whitespace-nowrap">Holdings Only</Label>
-          </div>
+        {/* Toggle for Show Holdings Only */}
+        <div className="flex items-center space-x-2">
+          <Switch 
+            id="holdings-filter" 
+            checked={showHoldingsOnly} 
+            onCheckedChange={(checked: boolean) => { setShowHoldingsOnly(checked); setPage(1); }}
+          />
+          <Label htmlFor="holdings-filter" className="text-sm font-medium whitespace-nowrap">Holdings Only</Label>
+        </div>
+
+        {/* Toggle for Show PNL as Percentage */}
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="pnl-display-mode"
+            checked={showPnlAsPercentage}
+            onCheckedChange={(checked: boolean) => setShowPnlAsPercentage(checked)}
+          />
+          <Label htmlFor="pnl-display-mode" className="text-sm font-medium flex items-center">
+            <RepeatIcon className="w-4 h-4 mr-1.5 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" /> Show PNL as %
+          </Label>
+        </div>
+        
+        {/* Toggle for Min. 2 Trades */}
+        <div className="flex items-center space-x-2">
+          <Switch 
+            id="min-trades-filter" 
+            checked={minTradesToggle} 
+            onCheckedChange={(checked: boolean) => { setMinTradesToggle(checked); setPage(1); }}
+          />
+          <Label htmlFor="min-trades-filter" className="text-sm font-medium whitespace-nowrap">Min. 2 Trades</Label>
         </div>
       </div>
 

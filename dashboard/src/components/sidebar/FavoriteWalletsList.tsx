@@ -2,7 +2,7 @@ import useSWR, { mutate } from 'swr';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle, Trash2, Star, Loader2, Info, StarIcon } from 'lucide-react';
+import { AlertTriangle, Trash2, Star, Loader2, Info, StarIcon, CopyIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import {
@@ -14,6 +14,9 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  TooltipProvider,
 } from "@/components/ui/tooltip";
 
 // Frontend type matching the expected structure from GET /api/v1/users/me/favorites
@@ -75,6 +78,16 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     }
   };
 
+  const handleCopyAddress = async (walletAddress: string) => {
+    try {
+      await navigator.clipboard.writeText(walletAddress);
+      toast.success("Address copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy address.");
+      console.error('Failed to copy: ', err);
+    }
+  };
+
   // Shared logic for rendering the list content (used by both expanded and popover views)
   const renderFavoritesContent = () => {
     if (!apiKey) {
@@ -115,28 +128,49 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     }
 
     return (
-      <ul className="space-y-1">
+      <ul className="space-y-0.5">
         {favoriteWallets.map((fav) => (
           <li key={fav.walletAddress} className="px-1 group">
-            <div className="flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-muted/60 transition-colors">
+            <div className="flex items-center justify-between py-1.5 px-1 rounded-md hover:bg-muted/60 transition-colors">
               <Link href={`/wallets/${fav.walletAddress}`} className="group flex-grow min-w-0">
-                <p className="text-sm font-medium group-hover:text-primary truncate" title={fav.walletAddress}>
+                <p className="text-sm font-semibold group-hover:text-primary truncate" title={fav.walletAddress}>
                   {fav.walletAddress.substring(0, 6)}...{fav.walletAddress.substring(fav.walletAddress.length - 6)}
                 </p>
-                <div className="text-xs text-muted-foreground flex space-x-2 mt-0.5">
+                <div className="text-xs text-muted-foreground flex space-x-5 mt-0.5">
                   <span>PNL: {typeof fav.pnl === 'number' ? fav.pnl.toFixed(2) : 'N/A'}</span>
-                  <span>Score: {typeof fav.winRate === 'number' ? fav.winRate.toFixed(2) : 'N/A'}</span> 
+                  <span>WinRate: {typeof fav.winRate === 'number' ? fav.winRate.toFixed(2) : 'N/A'}</span> 
                 </div>
               </Link>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-7 w-7 ml-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
-                onClick={(e) => { e.stopPropagation(); handleRemoveFavorite(fav.walletAddress); }}
-                title="Remove from favorites"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 ml-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-blue-500 transition-opacity"
+                      onClick={(e) => { e.stopPropagation(); handleCopyAddress(fav.walletAddress); }}
+                    >
+                      <CopyIcon className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side={isCollapsed ? "right" : "top"}><p>Copy address</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 ml-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
+                      onClick={(e) => { e.stopPropagation(); handleRemoveFavorite(fav.walletAddress); }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side={isCollapsed ? "right" : "top"}><p>Remove from favorites</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </li>
         ))}
@@ -201,15 +235,12 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
 
   // Default expanded view
   return (
-    <Card className="shadow-none border-none bg-transparent">
-      <CardHeader className="px-1 py-3">
-        <CardTitle className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
-          Favorites
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        {renderFavoritesContent()}
-      </CardContent>
-    </Card>
+    <div className="pt-2">
+      <h3 className="text-xs font-semibold tracking-wider uppercase text-gray-500 dark:text-gray-400 mb-2 px-3 flex items-center">
+        <StarIcon className="h-4 w-4 mr-2 flex-shrink-0" />
+        Favorites
+      </h3>
+      {renderFavoritesContent()}
+    </div>
   );
 } 

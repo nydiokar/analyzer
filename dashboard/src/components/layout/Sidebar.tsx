@@ -82,7 +82,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
                   <TooltipTrigger asChild>
                     <Link href="/" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
                       <HomeIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                      {!isCollapsed && <span className="flex-1">Dashboard Home</span>}
+                      {!isCollapsed && <span className="flex-1 font-semibold">Dashboard Home</span>}
                     </Link>
                   </TooltipTrigger>
                   {isCollapsed && <TooltipContent side="right" align="center"><p>Dashboard Home</p></TooltipContent>}
@@ -99,14 +99,16 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
           </div>
         </nav>
 
-        <div className="mt-auto pt-4 border-t border-gray-300 dark:border-gray-600">
+        {!isCollapsed && <hr className="my-4 border-gray-200 dark:border-gray-700" />}
+
+        <div className="mt-auto pt-4">
           <ul className="space-y-2">
             <li>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link href="/settings" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
                     <SettingsIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                    {!isCollapsed && <span className="flex-1">Settings</span>}
+                    {!isCollapsed && <span className="flex-1 font-semibold">Settings</span>}
                   </Link>
                 </TooltipTrigger>
                 {isCollapsed && <TooltipContent side="right" align="center"><p>Settings</p></TooltipContent>}
@@ -117,7 +119,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
                 <TooltipTrigger asChild>
                   <Link href="/help" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
                     <HelpCircleIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                    {!isCollapsed && <span className="flex-1">Help/Doc</span>}
+                    {!isCollapsed && <span className="flex-1 font-semibold">Help/Doc</span>}
                   </Link>
                 </TooltipTrigger>
                 {isCollapsed && <TooltipContent side="right" align="center"><p>Help/Documentation</p></TooltipContent>}
