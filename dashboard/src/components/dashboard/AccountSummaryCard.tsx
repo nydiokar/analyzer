@@ -15,6 +15,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import EmptyState from '@/components/shared/EmptyState';
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface AccountSummaryCardProps {
   walletAddress: string;
@@ -114,21 +115,87 @@ export default function AccountSummaryCard({ walletAddress, className, triggerAn
 
   if (isLoading) {
     return (
-      <EmptyState 
-        className={cn(
-          "w-full md:w-auto md:min-w-[300px]",
-          "md:flex-row md:items-center md:justify-start md:text-left md:gap-4 md:p-4 md:min-h-0",
-          className
-        )} 
-        variant="default"
-        icon={Loader2} 
-        title="Loading..."
-        description="Please wait while we fetch the wallet summary."
-      />
+      <Card className={cn("p-3 shadow-sm w-full md:w-auto md:min-w-[280px] lg:min-w-[300px]", className)}>
+        <div className="space-y-2">
+          <Flex justifyContent="between" alignItems="center" className="gap-2">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-5 w-1/2" />
+          </Flex>
+          <Flex justifyContent="between" alignItems="center" className="gap-2">
+            <Skeleton className="h-4 w-1/4" />
+            <Skeleton className="h-5 w-1/3" />
+          </Flex>
+          <Flex justifyContent="between" alignItems="center" className="gap-2">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-5 w-1/2" />
+          </Flex>
+          
+          <div className="mt-2 pt-2 border-t border-muted/50">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-2 gap-x-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+                <Skeleton className="h-3 w-12" />
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+                <Skeleton className="h-3 w-10" />
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+                <Skeleton className="h-3 w-12" />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-2 pt-2 border-t border-muted/50">
+             <Skeleton className="h-4 w-full" />
+          </div>
+        </div>
+      </Card>
     );
   }
 
   if (error) {
+    const err = error as any; // Cast error to any to access dynamic properties
+    let title = "Wallet Data Error";
+    let description = err.message || "An unexpected error occurred.";
+    let icon = AlertTriangle;
+    let emptyStateVariant: 'info' | 'error' = 'info'; // Default to info
+
+    if (err.isNetworkError) {
+      title = "API Unreachable";
+      description = "Cannot connect to the backend server. Please ensure it's running and check your network connection.";
+      emptyStateVariant = 'error'; 
+      // icon could be ServerCrash or WifiOff from lucide-react if desired
+    } else if (err.statusCode === 404) {
+      title = "Wallet Not Yet Analyzed";
+      description = "No comprehensive data is available for this wallet yet. It may need to be analyzed.";
+      icon = SearchX; 
+      emptyStateVariant = 'info'; // 404 is more of an informational "not found/analyzed"
+    } else {
+      // General API error (e.g., 500, other 4xx)
+      title = `API Error (Status: ${err.statusCode || 'Unknown'})`;
+      if (err.statusCode === 500) {
+        description = "The server encountered an unexpected issue while trying to load the summary. Please try again shortly. If the problem persists, please check the server logs.";
+      } else {
+        description = `We couldn't load the summary: ${err.message || 'Please try again later.'}`;
+      }
+      emptyStateVariant = 'error';
+    }
+
+    // Determine if the action button should be shown and what its state is
+    const showAction = triggerAnalysis && !err.isNetworkError && err.statusCode !== 503; // Example: Don't show for 503 Service Unavailable either
+    const currentActionText = isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet";
+
     return (
       <EmptyState
         className={cn(
@@ -136,13 +203,13 @@ export default function AccountSummaryCard({ walletAddress, className, triggerAn
           "md:flex-row md:items-center md:justify-start md:text-left md:gap-4 md:p-4 md:min-h-0",
           className
         )}
-        variant="info"
-        icon={SearchX}
-        title="Wallet Not Yet Analyzed"
-        description={ error.statusCode === 404 ? "No comprehensive data is available for this wallet yet. It may need to be analyzed." : `We couldn't load the summary for this wallet. ${error.message || ''} (Status: ${error.statusCode || 'Unknown'})`}
-        actionText={triggerAnalysis ? (isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet") : undefined}
-        onActionClick={triggerAnalysis}
-        isActionLoading={!!isAnalyzingGlobal}
+        variant={emptyStateVariant}
+        icon={icon}
+        title={title}
+        description={description}
+        actionText={showAction ? currentActionText : undefined}
+        onActionClick={showAction ? triggerAnalysis : undefined}
+        isActionLoading={showAction && !!isAnalyzingGlobal}
       />
     );
   }

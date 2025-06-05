@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'; // Added Button
 import { toast } from 'sonner'; // Added toast
 import { fetcher } from '@/lib/fetcher'; // Ensure global fetcher is used
 import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
@@ -83,13 +84,112 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
   if (behaviorIsLoading && !isAnalyzingGlobal) {
     return (
-      <EmptyState
-        variant="default"
-        icon={Loader2}
-        title="Loading Behavioral Data..." // Changed title for clarity
-        description="Please wait while we fetch behavioral insights for this wallet."
-        className="mt-4 md:mt-6 lg:mt-8"
-      />
+      <Card className="p-4 md:p-6 space-y-6">
+        <Tabs defaultValue="summary" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
+            <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>
+            <TabsTrigger value="visualizations">Visualizations</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="summary">
+            <Title className="mb-4 text-lg font-semibold">Behavioral Summary & Metrics</Title>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+              {[...Array(3)].map((_, i) => (
+                <div key={`summary-metric-skel-${i}`}>
+                  <Skeleton className="h-4 w-1/3 mb-1" />
+                  <Skeleton className="h-5 w-2/3" />
+                </div>
+              ))}
+            </div>
+            
+            <hr className="my-6 border-muted" />
+            <Title className="text-lg font-semibold mt-6 mb-4">Detailed Behavioral Metrics</Title>
+            
+            <Accordion type="multiple" className="w-full space-y-3" defaultValue={["skel-item-performance", "skel-item-session", "skel-item-risk"]}>
+              {/* Accordion Item 1: Performance & Holding Patterns Skeleton */}
+              <AccordionItem value="skel-item-performance" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
+                <AccordionTrigger className="py-3 hover:no-underline">
+                  <Flex alignItems="center">
+                    <Skeleton className="h-5 w-5 mr-2 rounded-full" />
+                    <Skeleton className="h-5 w-1/2" />
+                  </Flex>
+                </AccordionTrigger>
+                <AccordionContent className="pt-2 pb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={`perf-metric-skel-${i}`}>
+                        <Skeleton className="h-3 w-3/4 mb-1" />
+                        <Skeleton className="h-4 w-1/2" />
+                      </div>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              {/* Accordion Item 2: Session & Frequency Skeleton */}
+              <AccordionItem value="skel-item-session" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
+                <AccordionTrigger className="py-3 hover:no-underline">
+                  <Flex alignItems="center">
+                    <Skeleton className="h-5 w-5 mr-2 rounded-full" />
+                    <Skeleton className="h-5 w-1/2" />
+                  </Flex>
+                </AccordionTrigger>
+                <AccordionContent className="pt-2 pb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
+                    {[...Array(7)].map((_, i) => (
+                      <div key={`session-metric-skel-${i}`}>
+                        <Skeleton className="h-3 w-3/4 mb-1" />
+                        <Skeleton className="h-4 w-1/2" />
+                      </div>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              {/* Accordion Item 3: Risk & Value Profile Skeleton */}
+              <AccordionItem value="skel-item-risk" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
+                <AccordionTrigger className="py-3 hover:no-underline">
+                  <Flex alignItems="center">
+                    <Skeleton className="h-5 w-5 mr-2 rounded-full" />
+                    <Skeleton className="h-5 w-1/2" />
+                  </Flex>
+                </AccordionTrigger>
+                <AccordionContent className="pt-2 pb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
+                    {[...Array(4)].map((_, i) => ( // Updated to 4 based on current file structure
+                      <div key={`risk-metric-skel-${i}`}>
+                        <Skeleton className="h-3 w-3/4 mb-1" />
+                        <Skeleton className="h-4 w-1/2" />
+                      </div>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </TabsContent>
+
+          <TabsContent value="visualizations">
+            <div className="rounded-lg bg-muted/10 dark:bg-muted/5 px-4 py-2 mb-6">
+              <Tabs defaultValue="heatmap" className="w-full mt-2">
+                <div className="sticky top-0 z-10 bg-card dark:bg-card p-2 -mx-4 md:-mx-6 border-b border-border mb-4">
+                  <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3">
+                    <TabsTrigger value="heatmap" className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2">Activity Heatmap</TabsTrigger>
+                    <TabsTrigger value="duration" className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2">Hold Duration Distribution</TabsTrigger>
+                    <TabsTrigger value="windows" className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2">Trading Windows</TabsTrigger>
+                  </TabsList>
+                </div>
+
+                {['heatmap', 'duration', 'windows'].map((tabValue) => (
+                  <TabsContent key={`skel-viz-${tabValue}`} value={tabValue}>
+                    <Title className="mb-2 text-base font-medium"><Skeleton className="h-5 w-1/3" /></Title>
+                    <Skeleton className="h-[200px] w-full" />
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </Card>
     );
   }
 

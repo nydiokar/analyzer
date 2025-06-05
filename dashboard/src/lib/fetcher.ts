@@ -20,10 +20,24 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         ...(options?.headers || {}),
     };
 
-    const res = await fetch(url, {
-        ...options, // Spread other options like method, body
-        headers: mergedHeaders, // Use the merged headers
-    });
+    let res;
+    try {
+        res = await fetch(url, {
+            ...options, // Spread other options like method, body
+            headers: mergedHeaders, // Use the merged headers
+        });
+    } catch (e: any) {
+        // Network errors (like ECONNREFUSED) often manifest as TypeErrors in the browser's fetch API
+        // or might have specific properties depending on the environment.
+        // A common message for a true network failure is "Failed to fetch".
+        const networkError = new Error(
+            e.message || 'Network error: Failed to fetch data. Please check your connection and ensure the server is running.'
+        ) as any;
+        networkError.isNetworkError = true;
+        networkError.status = e.status || 0; // No HTTP status for true network errors, use 0 or a specific code
+        networkError.originalError = e; // Store original error for debugging
+        throw networkError;
+    }
 
     if (!res.ok) {
         const errorPayload = await res.json().catch(() => ({ message: res.statusText }));

@@ -260,13 +260,57 @@ export default function WalletProfileLayout({
     }
   };
 
+  // Helper component for the Analysis Button and its Status (for expanded view)
+  const ExpandedAnalysisControl = () => (
+    <div className="flex flex-col items-start gap-1 mt-2 w-full md:w-auto">
+      <Button 
+        onClick={handleTriggerAnalysis} 
+        variant="outline"
+        size="sm"
+        className="w-full md:w-auto"
+        disabled={isAnalyzing || !walletAddress}
+      >
+        <RefreshCw className={`mr-2 h-4 w-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
+        {isAnalyzing 
+          ? 'Analyzing...' 
+          : (lastAnalysisTimestamp ? 'Refresh Wallet Data' : 'Analyze Wallet')}
+      </Button>
+      {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
+        <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full",
+              lastAnalysisStatus === 'success' && "bg-green-500",
+              lastAnalysisStatus === 'error' && "bg-red-500",
+              lastAnalysisStatus === 'idle' && "bg-yellow-500",
+            )}
+            title={
+              lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
+              lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
+              lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''
+            }
+          />
+          <span>{formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}</span>
+        </div>
+      ) : lastAnalysisStatus === 'idle' && !isAnalyzing ? (
+        <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
+              <span className="h-2 w-2 rounded-full bg-gray-400" title="Not analyzed" />
+              <span>Not yet analyzed</span>
+        </div>
+      ) : null }
+    </div>
+  );
+
   return (
     <Tabs defaultValue="overview" className="flex flex-col w-full h-full bg-muted/40">
       <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
-        <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-2 py-2 px-1 md:py-3">
-          <div className='flex flex-col items-start gap-1 flex-shrink min-w-0'> 
-            {walletAddress && (
+        <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
+          
+          {/* === LEFT COLUMN (Wallet ID & Refresh for Expanded, or full Collapsed View) === */}
+          <div className='flex flex-col items-start gap-1 flex-shrink-0'> 
+            {walletAddress && isHeaderExpanded && (
               <>
+                {/* Wallet Identity (Icon, Address, Copy, Favorite) */}
                 <div className="flex items-center gap-1">
                   <WalletIcon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                   <Badge variant="outline" className="px-2 py-1 text-xs md:text-sm font-mono truncate">
@@ -276,8 +320,7 @@ export default function WalletProfileLayout({
                     <CopyIcon className="h-3.5 w-3.5 md:h-4 md:w-4" />
                     <span className="sr-only">Copy wallet address</span>
                   </Button>
-                  {/* Add to Favorite Button */}
-                  {apiKey && walletAddress && (
+                  {apiKey && (
                     <TooltipProvider delayDuration={100}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -285,7 +328,7 @@ export default function WalletProfileLayout({
                             variant="ghost" 
                             size="icon" 
                             onClick={handleToggleFavorite} 
-                            disabled={isTogglingFavorite || !favoritesData} // Disable if list hasn't loaded
+                            disabled={isTogglingFavorite || !favoritesData}
                             className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
                           >
                             <Star 
@@ -301,72 +344,120 @@ export default function WalletProfileLayout({
                     </TooltipProvider>
                   )}
                 </div>
-                <Button 
-                  onClick={handleTriggerAnalysis} 
-                  variant="outline"
-                  size="sm"
-                  className="mt-1 w-full md:w-auto"
-                  disabled={isAnalyzing || !walletAddress}
-                >
-                  <RefreshCw className={`mr-2 h-4 w-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                  {isAnalyzing 
-                    ? 'Analyzing...' 
-                    : (lastAnalysisTimestamp ? 'Refresh Wallet Data' : 'Analyze Wallet')}
-                  
-                  {/* Analysis Status Display */}
-                  {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
-                    <div className="flex items-center space-x-1.5 text-xs text-muted-foreground mt-1 md:mt-0 md:ml-2">
-                      <span
-                        className={cn(
-                          "h-2 w-2 rounded-full",
-                          lastAnalysisStatus === 'success' && "bg-green-500", // Fresh
-                          lastAnalysisStatus === 'error' && "bg-red-500",   // Error during last attempt
-                          lastAnalysisStatus === 'idle' && "bg-yellow-500",// Stale (successfully analyzed but old)
-                        )}
-                        title={
-                          lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
-                          lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
-                          lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''
-                        }
-                      />
-                      <span>Refreshed {formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}</span>
-                    </div>
-                  ) : lastAnalysisStatus === 'idle' && !isAnalyzing ? ( // lastAnalysisTimestamp is null, status is idle, not currently analyzing -> never analyzed or unknown
-                    <div className="flex items-center space-x-1.5 text-xs text-muted-foreground mt-1 md:mt-0 md:ml-2">
-                         <span className="h-2 w-2 rounded-full bg-gray-400" title="Wallet has not been analyzed yet or status is unknown" />
-                         <span>Not yet analyzed</span>
-                    </div>
-                  ) : null }
-                </Button>
+                {/* Refresh Control - Placed directly under wallet identity in expanded view */}
+                <ExpandedAnalysisControl />
               </>
             )}
+
+            {walletAddress && !isHeaderExpanded && (
+              // COLLAPSED VIEW: Single line, flex layout (as previously implemented and approved)
+              <div className="w-full flex items-center justify-between gap-2 py-1">
+                {/* Left side: Wallet address, copy, favorite */}
+                <div className="flex items-center gap-1 flex-shrink min-w-0">
+                  <WalletIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <Badge variant="outline" className="px-1.5 py-0.5 text-xs font-mono truncate">
+                    {truncateWalletAddress(walletAddress, 6, 4)}
+                  </Badge>
+                  <Button variant="ghost" size="icon" onClick={copyToClipboard} className="h-6 w-6 flex-shrink-0">
+                    <CopyIcon className="h-3 w-3" />
+                  </Button>
+                  {apiKey && (
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={handleToggleFavorite} 
+                            disabled={isTogglingFavorite || !favoritesData}
+                            className="h-6 w-6 flex-shrink-0"
+                          >
+                            <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom"><p>{isCurrentWalletFavorite ? 'Remove' : 'Add'} Favorite</p></TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </div>
+                {/* Right side: Analyze/Refresh button and status (compact) */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className={cn(
+                              "h-2.5 w-2.5 rounded-full", 
+                              lastAnalysisStatus === 'success' && "bg-green-500",
+                              lastAnalysisStatus === 'error' && "bg-red-500",
+                              lastAnalysisStatus === 'idle' && "bg-yellow-500",
+                              "cursor-help hidden sm:block"
+                            )}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>Last scan: {formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })} ({lastAnalysisStatus})</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : lastAnalysisStatus === 'idle' && !isAnalyzing ? (
+                     <TooltipProvider delayDuration={100}>
+                       <Tooltip>
+                         <TooltipTrigger asChild>
+                            <div className="h-2.5 w-2.5 rounded-full bg-gray-400 cursor-help hidden sm:block" title="Not yet analyzed" />
+                         </TooltipTrigger>
+                         <TooltipContent side="bottom"><p>Not yet analyzed</p></TooltipContent>
+                       </Tooltip>
+                     </TooltipProvider>
+                  ) : null}
+                  <Button 
+                    onClick={handleTriggerAnalysis} 
+                    variant="outline"
+                    size="sm"
+                    className="px-2 py-1 h-auto text-xs"
+                    disabled={isAnalyzing || !walletAddress}
+                  >
+                    <RefreshCw className={`mr-1 h-3.5 w-3.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                    {isAnalyzing ? '...' : (lastAnalysisTimestamp ? 'Refresh' : 'Analyze')}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-2 flex-wrap justify-end flex-grow md:flex-grow-0 flex-shrink min-w-0 mt-2 md:mt-0">
+
+          {/* === RIGHT COLUMN (Account Summary, Time Range, and Toggles) === */}
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-end gap-x-2 gap-y-2 mt-2 md:mt-0 flex-grow">
             {isHeaderExpanded && (
-              <>
+              <> {/* Fragment to group AccountSummaryCard and TimeRangeSelector for layout purposes */}
                 <AccountSummaryCard 
                   walletAddress={walletAddress} 
-                  className="hidden md:block"
-                  triggerAnalysis={handleTriggerAnalysis}
+                  className="w-full sm:w-auto md:max-w-sm"
+                  triggerAnalysis={handleTriggerAnalysis} 
                   isAnalyzingGlobal={isAnalyzing}
                 />
                 <TimeRangeSelector />
               </>
             )}
-            <TooltipProvider delayDuration={100}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={() => setIsHeaderExpanded(!isHeaderExpanded)} className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0">
-                    {isHeaderExpanded ? <ChevronUp className="h-4 w-4 md:h-5 md:w-5" /> : <ChevronDown className="h-4 w-4 md:h-5 md:w-5" />}
-                    <span className="sr-only">{isHeaderExpanded ? 'Collapse Summary' : 'Expand Summary'}</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" align="center">
-                  <p>{isHeaderExpanded ? 'Collapse summary' : 'Expand summary'}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <ThemeToggleButton />
+            {/* Toggles (Collapse/Expand, Theme) - positioned after conditional elements in this column */}
+            <div className={cn(
+              "flex items-center gap-1 self-stretch justify-end", // self-stretch for vertical alignment, justify-end for horizontal
+              isHeaderExpanded ? "md:ml-2" : "w-full mt-2 md:mt-0" // Margin if expanded, full-width if collapsed (to push to end)
+            )}>
+              <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={() => setIsHeaderExpanded(!isHeaderExpanded)} className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0">
+                      {isHeaderExpanded ? <ChevronUp className="h-4 w-4 md:h-5 md:w-5" /> : <ChevronDown className="h-4 w-4 md:h-5 md:w-5" />}
+                      <span className="sr-only">{isHeaderExpanded ? 'Collapse Summary' : 'Expand Summary'}</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="center">
+                    <p>{isHeaderExpanded ? 'Collapse summary' : 'Expand summary'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <ThemeToggleButton />
+            </div>
           </div>
         </div>
         <TabsList className="flex items-center justify-start gap-0.5 p-0.5 px-1 border-t w-full bg-muted/20">

@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { HelpCircle, DollarSign, TrendingUp, ShieldAlert, Zap, Hourglass, AlertTriangle, Info, RefreshCw, Loader2, SearchX } from "lucide-react"; // Added Loader2 and SearchX
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
+import { Skeleton } from "@/components/ui/skeleton"; // Ensure Skeleton is imported
 import { format, isValid } from 'date-fns'; // Import isValid
 import useSWR from 'swr'; // Added SWR import
 // Removed useSWRConfig as it's not directly used in this file for mutation like in AccountSummaryCard
@@ -22,7 +23,12 @@ interface AccountStatsPnlTabProps {
   lastAnalysisTimestamp?: Date | null;
 }
 
-const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, title: string }> = ({ data, title }) => {
+interface AccountStatsPnlDisplayProps {
+  data: PnlOverviewResponseData | null;
+  title: string;
+}
+
+const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, title }) => {
   if (!data) {
     return (
       <Card className="w-full h-full">
@@ -56,7 +62,7 @@ const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, t
           Data from: {data.dataFrom.replace(" UTC", "")}
         </Subtitle>
       ) : (
-        <div className="mt-1 mb-2 h-[1.25rem]" />
+        <span className="inline-block mt-1 mb-2 h-[1.25rem] w-px" />
       )}
       
       {/* Section 1: Core Trading Metrics with bottom border */}
@@ -182,6 +188,76 @@ const AccountStatsPnlDisplay: React.FC<{ data: PnlOverviewResponseData | null, t
   );
 };
 
+const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
+  <Card className="w-full h-full">
+    <Title>{title}</Title>
+    <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-2">
+      <span className="inline-block animate-pulse rounded-md bg-primary/10 h-4 w-1/3">&nbsp;</span>
+    </Subtitle>
+    
+    {/* Section 1: Core Trading Metrics Skeleton */}
+    <div className="mt-4 pt-3 mb-4">
+      <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Core Trading Metrics</Text>
+      <Card className="p-0">
+        <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
+          <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
+            {[...Array(3)].map((_, i) => (
+              <Flex key={`core-metric-skel-${i}`} flexDirection="col" alignItems="start" justifyContent="start">
+                <Skeleton className="h-3 w-1/2 mb-1" />
+                <Skeleton className="h-6 w-3/4" />
+              </Flex>
+            ))}
+          </Grid>
+        </div>
+      </Card>
+    </div>
+
+    {/* Section 2: Volume & Capital Flow Skeleton */}
+    <div className="mt-4 pt-3 mb-4">
+      <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Volume & Capital Flow</Text>
+      <Card className="p-0">
+        <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
+          <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
+            {[...Array(3)].map((_, i) => (
+              <Flex key={`volume-metric-skel-${i}`} flexDirection="col" alignItems="start" justifyContent="start">
+                <Skeleton className="h-3 w-1/2 mb-1" />
+                <Skeleton className="h-6 w-3/4" />
+              </Flex>
+            ))}
+          </Grid>
+        </div>
+      </Card>
+    </div>
+
+    {/* Section 3: Advanced Token Analytics Skeleton */}
+    <div className="mt-4 pt-3 mb-4 p-3 rounded-md bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
+      <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong flex items-center mb-3">
+        Advanced Token Analytics
+      </Text>
+      <Accordion type="single" collapsible className="w-full" defaultValue="item-advanced-metrics-skeleton">
+        <AccordionItem value="item-advanced-metrics-skeleton" className="border-none rounded-md data-[state=open]:bg-tremor-background-muted dark:data-[state=open]:bg-dark-tremor-background-muted px-2">
+          <AccordionTrigger className="py-2 hover:no-underline">
+            <Flex alignItems="center">
+              <Skeleton className="h-4 w-4 mr-2 rounded-full" />
+              <Skeleton className="h-4 w-1/3" />
+            </Flex>
+          </AccordionTrigger>
+          <AccordionContent className="pt-1 pb-2">
+            <Grid numItemsSm={2} numItemsMd={2} numItemsLg={2} className="gap-3 mt-1">
+              {[...Array(6)].map((_, i) => (
+                <Card key={`adv-metric-card-skel-${i}`} className="p-2.5 text-left">
+                  <Skeleton className="h-3 w-3/4 mb-1" />
+                  <Skeleton className="h-6 w-1/2" />
+                </Card>
+              ))}
+            </Grid>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
+  </Card>
+);
+
 export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, lastAnalysisTimestamp }: AccountStatsPnlTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const [displayMode, setDisplayMode] = useState<number>(2);
@@ -248,19 +324,44 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
     );
   }
   
-  if (isLoading && !isAnalyzingGlobal) { // Use SWR's isLoading, ensure not in global analysis state
+  if (isLoading && !isAnalyzingGlobal) {
+    // Preserve the existing displayMode state for skeleton rendering
+    // const skeletonTitle = displayMode === 1 ? "Period Specific PNL" : "All-Time PNL"; // No longer needed directly here
     return (
-      <EmptyState
-        variant="default"
-        icon={Loader2}
-        title="Loading PNL Data..."
-        description="Please wait while we fetch the PNL overview data."
-        className="mt-4 md:mt-6 lg:mt-8"
-      />
+      <div className="space-y-6 p-1 md:p-0">
+        <Card className="space-y-1 p-1 w-full">
+          <Flex justifyContent="center">
+            {/* Skeleton for the TabGroup */}
+            <div className="max-w-xs flex space-x-1 p-1 bg-tremor-background-muted dark:bg-dark-tremor-background-muted rounded-lg">
+              <Skeleton className="h-8 w-20" />
+              <Skeleton className="h-8 w-20" />
+              <Skeleton className="h-8 w-20" />
+            </div>
+          </Flex>
+          <hr className="my-4 border-tremor-border dark:border-dark-tremor-border" />
+
+          {displayMode === 2 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start w-full">
+              <PnlDisplaySkeleton title="Period Specific PNL & Stats" />
+              <div className="border-l border-slate-700 pl-3 md:mt-0 mt-6">
+                <PnlDisplaySkeleton title="All-Time PNL & Stats" />
+              </div>
+            </div>
+          ) : displayMode === 0 ? (
+            <Grid numItems={1} className="gap-6">
+              <PnlDisplaySkeleton title="Period Specific PNL & Stats" />
+            </Grid>
+          ) : (
+            <Grid numItems={1} className="gap-6">
+              <PnlDisplaySkeleton title="All-Time PNL & Stats" />
+            </Grid>
+          )}
+        </Card>
+      </div>
     );
   }
 
-  if (error && !isAnalyzingGlobal) { // Ensure not in global analysis state
+  if (error && !isAnalyzingGlobal) {
     if (error.status === 404) { // Adjusted to error.status
       return (
         <EmptyState
@@ -386,7 +487,7 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
 
   return (
     <div className="space-y-6 p-1 md:p-0">
-      <Card className="space-y-2 p-3 w-full">
+      <Card className="space-y-1 p-1 w-full">
         <Flex justifyContent="center">
           <TabGroup index={displayMode} onIndexChange={setDisplayMode} className="max-w-xs">
             <TabList variant="solid">

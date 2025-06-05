@@ -47,7 +47,7 @@ export class AnalysesController {
         fetchAll: true,
         skipApi: false,
         fetchOlder: true,
-        maxSignatures: 300,
+        maxSignatures: 2000,
         smartFetch: true,
       };
 

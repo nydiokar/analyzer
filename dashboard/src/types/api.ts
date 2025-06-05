@@ -29,6 +29,7 @@ export interface WalletSummaryData {
 export interface WalletSummaryError {
   message: string;
   statusCode?: number;
+  isNetworkError?: boolean;
 }
 
 // Based on the data structure observed for behavior analysis

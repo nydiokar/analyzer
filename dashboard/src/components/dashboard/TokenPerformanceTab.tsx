@@ -45,6 +45,9 @@ import { PaginatedTokenPerformanceResponse, TokenPerformanceDataDto } from '@/ty
 import { useToast } from "@/hooks/use-toast"; // Added useToast
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState import
+import { Skeleton } from "@/components/ui/skeleton"; // Added Skeleton import
+import { cn } from "@/lib/utils"; // Added cn for classname utility
+import { Button as UiButton } from "@/components/ui/button"; // Ensure correct Button import and type
 
 interface TokenPerformanceTabProps {
   walletAddress: string;
@@ -96,6 +99,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   const [sortOrder, setSortOrder] = useState('DESC');
   const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
   const [showPnlAsPercentage, setShowPnlAsPercentage] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false); // Local state for refresh button
 
   // State for new quick filters
   const [pnlFilter, setPnlFilter] = useState<string>('any');
@@ -195,417 +199,325 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
     );
   }, [pnlFilter, minTradesToggle, searchTerm, showHoldingsOnly]);
 
-  if (!walletAddress) {
-    return (
-      <Card className="p-4 md:p-6 mt-4">
-         <EmptyState
-          variant="info"
-          icon={InfoIcon} 
-          title="No Wallet Selected"
-          description="Please select a wallet to view its token performance."
-        />
-      </Card>
-    );
-  }
-
-  if (isLoadingData && !isAnalyzingGlobal) {
-    return (
-      <EmptyState 
-        variant="default" 
-        icon={Loader2} 
-        title="Loading..."
-        description="Please wait while we fetch the token performance data."
-        className="mt-4 md:mt-6 lg:mt-8"
-      />
-    );
-  }
-  
-  if (isAnalyzingGlobal) {
-    return (
-      <EmptyState 
-        variant="default" 
-        icon={Loader2} 
-        title="Analyzing Wallet..."
-        description="Please wait while the wallet analysis is in progress. Token performance data will update shortly."
-        className="mt-4 md:mt-6 lg:mt-8"
-      />
-    );
-  }
-
-  if (error && !data) {
-    return (
-      <EmptyState
-        variant="error"
-        icon={AlertTriangle}
-        title="Error Loading Token Performance"
-        description={error.message || "An unexpected error occurred while fetching token data."}
-        actionText={isAnalyzingGlobal ? "Analyzing..." : "Retry Analysis"}
-        onActionClick={triggerAnalysisGlobal}
-        isActionLoading={!!isAnalyzingGlobal}
-        className="mt-4 md:mt-6 lg:mt-8"
-      />
-    );
-  }
-
-  const handlePnlFilterChange = (newValue: string) => {
-    setPnlFilter(newValue);
-    setPage(1); // Reset to page 1
+  // Helper function to render skeleton rows
+  const renderSkeletonTableRows = () => {
+    const skeletonRowCount = 5;
+    return Array.from({ length: skeletonRowCount }).map((_, rowIndex) => (
+      <TableRow key={`skeleton-row-${rowIndex}`}>
+        {COLUMN_DEFINITIONS.map((col, colIndex) => (
+          <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn(col.className, col.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
+            <Skeleton className={cn(
+              "h-5",
+              col.id === 'tokenAddress' ? "w-3/4" : "w-full",
+              (col.className?.includes('text-right') || col.className?.includes('text-center')) && "mx-auto"
+            )} />
+          </TableCell>
+        ))}
+      </TableRow>
+    ));
   };
 
-  // Correctly scoped helper functions
+  // Handler functions must be defined before the main return if they are used by elements in it
+  const handlePnlFilterChange = (newValue: string) => {
+    setPnlFilter(newValue);
+    setPage(1); // Reset to first page on filter change
+  };
+
+  const handleMinTradesToggleChange = (checked: boolean) => {
+    setMinTradesToggle(checked);
+    setPage(1);
+  };
+
+  const handleShowHoldingsToggleChange = (checked: boolean) => {
+    setShowHoldingsOnly(checked);
+    setPage(1);
+  };
+
   const handleSort = (columnId: string) => {
-    const columnDef = COLUMN_DEFINITIONS.find(c => c.id === columnId);
-    if (!columnDef || !columnDef.isSortable || !BACKEND_SORTABLE_IDS.includes(columnId)) {
-      console.log(`Column ${columnId} is not sortable by the backend.`);
+    if (!BACKEND_SORTABLE_IDS.includes(columnId)) {
+      console.warn(`Column ${columnId} is not sortable on the backend.`);
+      // Optionally, if you want to allow sorting non-backend-sortable columns locally,
+      // you might need to adjust or skip backend sort params here.
+      // For now, we only sort if it's backend sortable.
       return;
     }
     if (sortBy === columnId) {
       setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
     } else {
       setSortBy(columnId);
-      setSortOrder('DESC'); 
+      setSortOrder('DESC'); // Default to DESC for new column
     }
-    setPage(1); 
+    setPage(1);
   };
   
   const handleSearchTermChange = (newSearchTerm: string) => {
     setSearchTerm(newSearchTerm);
-    setPage(1); // Reset to page 1 when search term changes
+    setPage(1);
   };
 
   const handlePageChange = (newPage: number) => {
-    if (data && newPage > 0 && newPage <= data.totalPages) {
+    if (data && newPage >= 1 && newPage <= data.totalPages) {
       setPage(newPage);
+    } else if (newPage >= 1) {
+        setPage(newPage);
     }
   };
 
-  // --- Render Logic Starts Here ---
+  const handleRefresh = async () => {
+    if (!swrKey) return;
+    setIsRefreshing(true);
+    try {
+      await mutate(swrKey);
+      // Optional: Add a success toast if desired
+      // toast({
+      //   title: "Data Refreshed",
+      //   description: "Token performance data has been updated.",
+      // });
+    } catch (error) {
+      console.error("Refresh error:", error); // Log the error for debugging
+      toast({
+        title: "Refresh Failed",
+        description: (error instanceof Error && error.message) || "Could not refresh token performance data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
+  // This function will now correctly handle skeleton or actual data for the table body
   const renderTableContent = () => {
-    if (!data && !isLoadingData) {
+    if (isLoadingData && !isAnalyzingGlobal) { // Primary loading state for table data
       return (
-        <TableRow>
-          <TableCell colSpan={COLUMN_DEFINITIONS.length} className="h-24 text-center">
-            No data available.
-          </TableCell>
-        </TableRow>
+        <TableBody>
+          {renderSkeletonTableRows()}
+        </TableBody>
       );
     }
+
+    if (isAnalyzingGlobal && !data?.data?.length) { // Global analysis is happening, and we don't have any stale data to show
+        return (
+            <TableBody>
+                <TableRow>
+                    <TableCell colSpan={COLUMN_DEFINITIONS.length}>
+                        <EmptyState 
+                            variant="default" 
+                            icon={Loader2} 
+                            title="Analyzing Wallet..."
+                            description="Please wait while the wallet analysis is in progress. Token performance data will update shortly."
+                            className="my-8" // Add some margin for better spacing inside table
+                        />
+                    </TableCell>
+                </TableRow>
+            </TableBody>
+        );
+    }
     
-    if (tableData.length === 0) {
+    if (error && !data?.data?.length) { // Error and no stale data to show
+        return (
+            <TableBody>
+                <TableRow>
+                    <TableCell colSpan={COLUMN_DEFINITIONS.length}>
+                        <EmptyState
+                            variant="error"
+                            icon={AlertTriangle}
+                            title="Error Loading Token Performance"
+                            description={error.message || "An unexpected error occurred."}
+                            actionText={triggerAnalysisGlobal && !isAnalyzingGlobal ? "Retry Analysis" : undefined}
+                            onActionClick={triggerAnalysisGlobal}
+                            isActionLoading={!!isAnalyzingGlobal}
+                            className="my-8"
+                        />
+                    </TableCell>
+                </TableRow>
+            </TableBody>
+        );
+    }
+
+    if (!tableData || tableData.length === 0) { // No data after loading, or filters result in empty
       const emptyStateDescription = areFiltersActive
         ? "Try adjusting your filters or expand the time range."
         : "No token activity detected for the selected period or filters.";
       return (
-        <TableRow>
-          <TableCell colSpan={COLUMN_DEFINITIONS.length}>
-            <EmptyState
-              variant="info"
-              icon={BarChartIcon}
-              title="No Token Data Found"
-              description={emptyStateDescription}
-              actionText={isAnalyzingGlobal ? "Analyzing..." : "Analyze This Wallet"}
-              onActionClick={triggerAnalysisGlobal}
-              isActionLoading={!!isAnalyzingGlobal}
-              className="my-8"
-            />
-          </TableCell>
-        </TableRow>
+        <TableBody>
+            <TableRow>
+            <TableCell colSpan={COLUMN_DEFINITIONS.length}>
+                <EmptyState
+                    variant="info"
+                    icon={BarChartIcon} 
+                    title="No Token Data"
+                    description={emptyStateDescription}
+                    className="my-8"
+                />
+            </TableCell>
+            </TableRow>
+        </TableBody>
       );
     }
 
-    return tableData.map((token: TokenPerformanceDataDto, index: number) => {
-      const isHeld = (token.currentUiBalance ?? 0) > 0;
-      const totalTrades = (token.transferCountIn ?? 0) + (token.transferCountOut ?? 0);
-      const isExited = !isHeld && totalTrades > 0;
-      const isHighTradeCount = totalTrades >= 10;
+    // Actual data rendering
+    return (
+      <TableBody>
+        {tableData.map((item: TokenPerformanceDataDto, index: number) => {
+          console.log('Token Performance Item:', JSON.stringify(item));
+          const pnl = item.netSolProfitLoss ?? 0;
+          const pnlColor = pnl > 0 ? 'text-emerald-500' : pnl < 0 ? 'text-red-500' : 'text-muted-foreground';
+          const roi = item.totalSolSpent && item.totalSolSpent !== 0 
+                      ? (pnl / item.totalSolSpent) * 100 
+                      : (pnl > 0 ? Infinity : pnl < 0 ? -Infinity : 0); // Handle division by zero for ROI
 
-      let rowClassName = 'transition-colors group hover:bg-muted/20';
-      
-      const pnl = token.netSolProfitLoss ?? 0;
-      if (pnl > 10) {
-        rowClassName += ' bg-green-500/5 dark:bg-green-500/10';
-      } else if (pnl < -5) {
-        rowClassName += ' bg-red-500/5 dark:bg-red-500/10';
-      }
-
-      // Conditional border every 5 rows
-      if ((index + 1) % 5 === 0 && index !== tableData.length - 1) {
-        rowClassName += ' border-b-2 border-blue-500/30 dark:border-blue-400/40';
-      } else {
-        rowClassName += ' border-b border-tremor-border dark:border-dark-tremor-border'; // Standard border
-      }
-
-      return (
-        <TableRow key={token.tokenAddress + index} className={rowClassName}>
-          <TableCell className={`py-2.5 px-4 font-medium truncate sticky left-0 bg-card dark:bg-dark-tremor-background-default z-10 ${COLUMN_DEFINITIONS[0].className} border-r dark:border-slate-700`}>
-            <Flex alignItems="center" className="space-x-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="cursor-default truncate">{token.tokenAddress}</span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" align="start">
-                    <p className="font-mono text-xs mb-2">{token.tokenAddress}</p>
-                    <Flex justifyContent="start" className="space-x-2">
-                      <CopyIcon aria-label="Copy address" className="h-3.5 w-3.5 cursor-pointer hover:text-tremor-brand" onClick={() => navigator.clipboard.writeText(token.tokenAddress)} />
-                      <a href={`https://solscan.io/token/${token.tokenAddress}`} target="_blank" rel="noopener noreferrer" title="View on Solscan">
-                        <ExternalLinkIcon className="h-3.5 w-3.5 hover:text-tremor-brand" />
-                      </a>
-                    </Flex>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <div className="flex items-center space-x-1 flex-shrink-0">
-                {isHeld && <Badge variant="outline" className="font-medium bg-green-500/20 text-green-700 dark:text-green-400 border-green-500/40 text-xs px-1.5 py-0.5">Held</Badge>}
-                {isExited && <Badge variant="outline" className="font-medium bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border-yellow-500/40 text-xs px-1.5 py-0.5">Exited</Badge>}
-                {isHighTradeCount && <Badge variant="outline" className="font-medium bg-blue-500/20 text-blue-700 dark:text-blue-400 border-blue-500/40 text-xs px-1.5 py-0.5">Active</Badge>}
-              </div>
-            </Flex>
-          </TableCell>
-          <TableCell className={`py-2.5 px-4 ${COLUMN_DEFINITIONS[1].className}`}>
-            {showPnlAsPercentage ? (
-              (token.totalSolSpent ?? 0) > 0 ? (
-                formatPercentagePnl(((token.netSolProfitLoss ?? 0) / (token.totalSolSpent ?? 1)) * 100) 
-              ) : (
-                <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">N/A (No Spend)</Text>
-              )
-            ) : (
-              formatPnl(token.netSolProfitLoss)
-            )}
-          </TableCell>
-          <TableCell className={`py-2.5 px-4 ${COLUMN_DEFINITIONS[2].className}`}>
-            {(() => {
-              const spent = token.totalSolSpent ?? 0;
-              const received = token.totalSolReceived ?? 0;
-              if (spent === 0) {
-                return received > 0 ? 
-                  <Text className="text-xs text-green-500">+∞</Text> : 
-                  <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">N/A</Text>;
-              }
-              const roiValue = ((received - spent) / spent) * 100;
-              return formatPercentagePnl(roiValue);
-            })()}
-          </TableCell>
-          <TableCell className={`py-2.5 px-4 ${COLUMN_DEFINITIONS[3].className}`}>
-            <Text className="font-mono text-xs">{formatSolAmount(token.totalSolSpent)}</Text>
-          </TableCell>
-          <TableCell className={`py-2.5 px-4 ${COLUMN_DEFINITIONS[4].className}`}>
-            <Text className="font-mono text-xs">{formatSolAmount(token.totalSolReceived)}</Text>
-          </TableCell>
-          <TableCell className={`py-2.5 px-4 ${COLUMN_DEFINITIONS[5].className}`}>
-            <Text className="font-mono text-xs">{formatTokenDisplayValue(token.currentUiBalance, token.currentUiBalanceString)}</Text>
-          </TableCell>
-          <TableCell className={`py-2.5 px-4 ${COLUMN_DEFINITIONS[6].className} text-center`}>
-            <Text className="font-mono text-xs">{token.transferCountIn ?? 0}</Text>
-          </TableCell>
-          <TableCell className={`py-2.5 px-4 ${COLUMN_DEFINITIONS[7].className} text-center`}>
-            <Text className="font-mono text-xs">{token.transferCountOut ?? 0}</Text>
-          </TableCell>
-          <TableCell className={`py-2.5 px-4 ${COLUMN_DEFINITIONS[8].className} text-center`}>
-            <Text className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle text-xs">{formatDate(token.firstTransferTimestamp)}</Text>
-          </TableCell>
-          <TableCell className={`py-2.5 px-4 ${COLUMN_DEFINITIONS[9].className} text-center`}>
-            <Text className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle text-xs">{formatDate(token.lastTransferTimestamp)}</Text>
-          </TableCell>
-        </TableRow>
-      );
-    });
+          return (
+            <TableRow key={item.tokenAddress + index}>
+              {COLUMN_DEFINITIONS.map(col => (
+                <TableCell 
+                    key={col.id} 
+                    className={cn(
+                        "px-3 py-2.5 text-xs", // Adjusted padding & text size
+                        col.className, 
+                        col.id === 'tokenAddress' && 'sticky left-0 z-10 whitespace-nowrap bg-card dark:bg-dark-tremor-background-default',
+                        (col.id === 'netSolProfitLoss' || col.id === 'roi') && pnlColor
+                    )}
+                >
+                  {/* ... (keep existing cell rendering logic from the original component) ... */}
+                  {col.id === 'tokenAddress' && (
+                     <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center gap-2">
+                            <div className="flex flex-col">
+                              {(() => {
+                                let rawTokenName = item.tokenAddress;
+                                if (item.currentUiBalance === 0 && rawTokenName.endsWith(' 0')) {
+                                  rawTokenName = rawTokenName.slice(0, -2);
+                                } else if (item.currentUiBalance === 0 && rawTokenName.endsWith('0')) {
+                                  rawTokenName = rawTokenName.slice(0, -1);
+                                }
+                                const displayTokenName = rawTokenName.substring(0, 6) + '...' + rawTokenName.substring(rawTokenName.length - 4);
+                                return <Text className="font-medium truncate max-w-[120px] sm:max-w-[150px]">{displayTokenName}</Text>;
+                              })()}
+                            </div>
+                            {item.currentUiBalance && item.currentUiBalance > 0 ? <Badge variant="outline" className="ml-auto text-sky-600 border-sky-600/50">Held</Badge> : null}
+                            {item.currentUiBalance === 0 && <Badge variant="destructive" className="ml-auto">Exited</Badge>}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="start">
+                          <p className="font-semibold">{item.tokenAddress}</p>
+                          <div className="flex gap-2 mt-1">
+                            <UiButton variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(item.tokenAddress)}><CopyIcon className="h-3 w-3 mr-1"/> Copy</UiButton>
+                            <UiButton variant="ghost" size="sm" onClick={() => window.open(`https://solscan.io/token/${item.tokenAddress}`, '_blank')}><ExternalLinkIcon className="h-3 w-3 mr-1"/> Solscan</UiButton>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                  {col.id === 'netSolProfitLoss' && formatPnl(item.netSolProfitLoss)}
+                  {col.id === 'roi' && (roi === Infinity ? <span className="text-emerald-500">∞</span> : roi === -Infinity ? <span className="text-red-500">-∞</span> : formatPercentagePnl(roi))}
+                  {col.id === 'totalSolSpent' && (
+                    <Text className={cn("text-xs", (item.totalSolSpent ?? 0) > 0 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>
+                      {formatSolAmount(item.totalSolSpent)}
+                    </Text>
+                  )}
+                  {col.id === 'totalSolReceived' && (
+                    <Text className={cn("text-xs", (item.totalSolReceived ?? 0) > 0 ? 'text-emerald-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>
+                      {formatSolAmount(item.totalSolReceived)}
+                    </Text>
+                  )}
+                  {col.id === 'currentBalanceDisplay' && (item.currentUiBalance === 0 ? <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">-</Text> : formatTokenDisplayValue(item.currentUiBalance, item.currentUiBalanceString))}
+                  {col.id === 'transferCountIn' && (
+                    <Text className={cn("text-xs", (item.transferCountIn ?? 0) > 0 ? 'text-emerald-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>
+                      {item.transferCountIn}
+                    </Text>
+                  )}
+                  {col.id === 'transferCountOut' && (
+                    <Text className={cn("text-xs", (item.transferCountOut ?? 0) > 0 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>
+                      {item.transferCountOut}
+                    </Text>
+                  )}
+                  {col.id === 'firstTransferTimestamp' && formatDate(item.firstTransferTimestamp)}
+                  {col.id === 'lastTransferTimestamp' && formatDate(item.lastTransferTimestamp)}
+                </TableCell>
+              ))}
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    );
   };
-
+  
   const renderPaginationItems = () => {
-    if (!data || data.totalPages <= 1) return null;
+    if (!data || !data.totalPages) return null; 
+    const { page: currentPage, totalPages } = data; 
     const items = [];
-    const totalPages = data.totalPages;
-    const currentPage = page;
-    const pageRangeDisplayed = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(pageRangeDisplayed / 2));
-    let endPage = Math.min(totalPages, startPage + pageRangeDisplayed - 1);
-    if (endPage - startPage + 1 < pageRangeDisplayed && totalPages >= pageRangeDisplayed) {
-        if (startPage === 1) endPage = Math.min(totalPages, pageRangeDisplayed);
-        else startPage = Math.max(1, totalPages - pageRangeDisplayed + 1);
-    }
-    for (let i = startPage; i <= endPage; i++) {
-      items.push(
-        <PaginationItem key={i}>
-          <PaginationLink 
-            href="#"
-            onClick={(e) => { e.preventDefault(); handlePageChange(i); }}
-            isActive={currentPage === i}
-            className="text-xs h-8 w-8 p-0"
-          >
-            {i}
-          </PaginationLink>
-        </PaginationItem>
-      );
-    }
+    const maxPagesToShow = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+    let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+    if (endPage - startPage + 1 < maxPagesToShow) { startPage = Math.max(1, endPage - maxPagesToShow + 1);}
+    if (startPage > 1) { items.push(<PaginationItem key="start-ellipsis"><PaginationLink onClick={() => handlePageChange(startPage - 1)} size="sm">...</PaginationLink></PaginationItem>);}
+    for (let i = startPage; i <= endPage; i++) { items.push(<PaginationItem key={i}><PaginationLink onClick={() => handlePageChange(i)} isActive={currentPage === i} size="sm">{i}</PaginationLink></PaginationItem>);}
+    if (endPage < totalPages) { items.push(<PaginationItem key="end-ellipsis"><PaginationLink onClick={() => handlePageChange(endPage + 1)} size="sm">...</PaginationLink></PaginationItem>);}
     return items;
   };
 
-  const startItem = data ? (data.page - 1) * data.pageSize + 1 : 0;
-  const endItem = data ? Math.min(data.page * data.pageSize, data.total) : 0;
+  // Fallback for initial load or missing wallet address
+  if (!walletAddress) {
+    return <Card className="p-4 md:p-6 mt-4"><EmptyState variant="info" icon={InfoIcon} title="No Wallet Selected" description="Please select a wallet to view token performance." /></Card>;
+  }
 
+  // Main component return
   return (
-    <Card className="h-full flex flex-col relative overflow-hidden">
-      {/* Filter controls & Info Tooltip */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 p-3 border-b bg-card dark:bg-dark-tremor-background-muted sticky top-0 z-20">
-        <TooltipProvider delayDuration={100}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center text-xs text-tremor-content dark:text-dark-tremor-content cursor-help">
-                <InfoIcon className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-                <span>Data Interpretation Note</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" align="start" className="max-w-sm">
-              <p className="text-sm">
-                The global time filter (e.g., 24h, 7d, All-Time) selects tokens that had any trading activity within that period. 
-                However, the metrics displayed in this table (like PNL, SOL Spent/Received, trade counts) are lifetime totals for each of those included tokens.
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        {/* Spacer to push other filters to the right if needed, or let them flow naturally */}
-        {/* <div className="flex-grow"></div> */}
-
-        {/* Search Input - Reduced Width */}
-        <div className="flex-grow sm:flex-grow-0 sm:w-64 md:w-72">
-          <Input 
-            placeholder="Search token address or symbol..."
-            value={searchTerm}
-            onChange={(e) => handleSearchTermChange(e.target.value)}
-            className="h-10" // Ensure consistent height
-          />
-        </div>
-
-        {/* PNL Filter Select */}
-        <div className="flex items-center space-x-2">
-          <Label htmlFor="pnl-filter" className="text-sm font-medium">PNL (SOL)</Label>
-          <Select value={pnlFilter} onValueChange={handlePnlFilterChange}>
-            <SelectTrigger id="pnl-filter" className="h-10 w-[180px]">
-              <SelectValue placeholder="Filter by PNL" />
-            </SelectTrigger>
-            <SelectContent>
-              {PNL_FILTER_OPTIONS.map(option => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Toggle for Show Holdings Only */}
-        <div className="flex items-center space-x-2">
-          <Switch 
-            id="holdings-filter" 
-            checked={showHoldingsOnly} 
-            onCheckedChange={(checked: boolean) => { setShowHoldingsOnly(checked); setPage(1); }}
-          />
-          <Label htmlFor="holdings-filter" className="text-sm font-medium whitespace-nowrap">Holdings Only</Label>
-        </div>
-
-        {/* Toggle for Show PNL as Percentage */}
-        <div className="flex items-center space-x-2">
-          <Switch
-            id="pnl-display-mode"
-            checked={showPnlAsPercentage}
-            onCheckedChange={(checked: boolean) => setShowPnlAsPercentage(checked)}
-          />
-          <Label htmlFor="pnl-display-mode" className="text-sm font-medium flex items-center">
-            <RepeatIcon className="w-4 h-4 mr-1.5 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" /> Show PNL as %
-          </Label>
-        </div>
-        
-        {/* Toggle for Min. 2 Trades */}
-        <div className="flex items-center space-x-2">
-          <Switch 
-            id="min-trades-filter" 
-            checked={minTradesToggle} 
-            onCheckedChange={(checked: boolean) => { setMinTradesToggle(checked); setPage(1); }}
-          />
-          <Label htmlFor="min-trades-filter" className="text-sm font-medium whitespace-nowrap">Min. 2 Trades</Label>
-        </div>
-      </div>
-
-      {/* SCROLLABLE TABLE AREA - New structure for isolated scroll */}
-      <div className="flex-grow overflow-hidden"> 
-        <div className="h-full overflow-y-auto"> 
-          <Table className="min-w-full">
-            {/* TableHeader sticky top-[60px] z-20 (below filters) */}
-            <TableHeader className="sticky top-0 z-20 bg-card dark:bg-background shadow">
-              <TableRow>
-                {COLUMN_DEFINITIONS.map((col) => (
-                  <TableHead 
-                    key={col.id} 
-                    onClick={() => col.isSortable && handleSort(col.id)}
-                    className={`py-3 px-4 whitespace-nowrap ${col.className || ''} ${col.isSortable ? 'cursor-pointer hover:bg-muted/50' : ''} ${col.id === 'tokenAddress' ? 'sticky left-0 top-0 z-20 bg-card dark:bg-dark-tremor-background-default border-r dark:border-slate-700' : 'top-0 z-10 bg-card dark:bg-dark-tremor-background-default'}`}>
-                    <Flex alignItems="center" className={col.id.includes('Count') || col.id.includes('Timestamp') ? 'justify-center' : 'justify-start'}> 
-                      {col.icon && <col.icon className={`h-3.5 w-3.5 mr-1.5 ${col.id.includes('Timestamp') ? 'text-tremor-content-subtle' : 'text-blue-500/70'}`} />}
-                      <span>{col.name}</span>
-                      {col.isSortable && (
-                        <span className={`transition-transform duration-150 ${sortBy === col.id ? 'opacity-100' : 'opacity-30 hover:opacity-70'} ${sortBy === col.id && sortOrder === 'ASC' ? 'transform rotate-180' : ''}`}>▼</span>
-                      )}
-                    </Flex>
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {renderTableContent()} 
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
-      {/* Sticky Pagination - Corrected variables */}
-      {data && data.data && data.data.length > 0 && data.totalPages > 1 && (
-        <div className="sticky bottom-0 z-30 bg-card dark:bg-background border-t p-3 flex-shrink-0">
-          <Flex alignItems="center" justifyContent="between" className="w-full">
-            <Text className="text-xs text-tremor-content dark:text-dark-tremor-content">
-              Showing {startItem}-{endItem} of {data.total} tokens
-            </Text>
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationLink 
-                    href="#" 
-                    onClick={(e) => { e.preventDefault(); handlePageChange(1); }}
-                    className={`${data.page <= 1 ? 'pointer-events-none opacity-50' : ''} text-xs h-8 px-2`} 
-                    aria-label="Go to first page"
-                  >
-                    <ChevronsLeft className="h-3.5 w-3.5" />
-                  </PaginationLink>
-                </PaginationItem>
-                <PaginationItem>
-                  <PaginationPrevious 
-                    href="#" 
-                    onClick={(e) => { e.preventDefault(); handlePageChange(data.page - 1); }}
-                    className={`${data.page <= 1 ? 'pointer-events-none opacity-50' : ''} text-xs h-8 px-2`} 
-                  />
-                </PaginationItem>
-                {renderPaginationItems()}
-                <PaginationItem>
-                  <PaginationNext 
-                    href="#" 
-                    onClick={(e) => { e.preventDefault(); handlePageChange(data.page + 1); }} 
-                    className={`${data.page >= data.totalPages ? 'pointer-events-none opacity-50' : ''} text-xs h-8 px-2`} 
-                  />
-                </PaginationItem>
-                <PaginationItem>
-                  <PaginationLink 
-                    href="#" 
-                    onClick={(e) => { e.preventDefault(); handlePageChange(data.totalPages); }}
-                    className={`${data.page >= data.totalPages ? 'pointer-events-none opacity-50' : ''} text-xs h-8 px-2`} 
-                    aria-label="Go to last page"
-                  >
-                    <ChevronsRight className="h-3.5 w-3.5" />
-                  </PaginationLink>
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
+    <Card className="p-0 md:p-0 mt-4">
+      {/* Filters Section */}
+      <div className="px-4 py-3 border-b">
+        <Flex flexDirection="row" alignItems="center" justifyContent="between" className="gap-2 flex-wrap">
+          <Flex flexDirection="row" alignItems="center" className="gap-2 flex-wrap">
+            <Input placeholder="Search token/address..." value={searchTerm} onChange={(e) => handleSearchTermChange(e.target.value)} className="max-w-xs h-9" />
+            <Select value={pnlFilter} onValueChange={handlePnlFilterChange}>
+              <SelectTrigger className="w-[180px] h-9"><SelectValue placeholder="Filter PNL" /></SelectTrigger>
+              <SelectContent>{PNL_FILTER_OPTIONS.map(option => (<SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>))}</SelectContent>
+            </Select>
+            <div className="flex items-center space-x-2"><Switch id="min-trades-toggle" checked={minTradesToggle} onCheckedChange={handleMinTradesToggleChange} /><Label htmlFor="min-trades-toggle">Min. 2 Trades</Label></div>
+            <div className="flex items-center space-x-2"><Switch id="holdings-only-toggle" checked={showHoldingsOnly} onCheckedChange={handleShowHoldingsToggleChange} /><Label htmlFor="holdings-only-toggle">Holding Only</Label></div>
+            <UiButton variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing || isLoadingData || isAnalyzingGlobal} className="h-9 ml-2">
+              <RefreshCw className={cn("mr-2 h-4 w-4", (isRefreshing || isLoadingData || isAnalyzingGlobal) && "animate-spin")} />Refresh
+            </UiButton>
           </Flex>
+        </Flex>
+      </div>
+      
+      <div className="overflow-x-auto">
+        {/* Ensure no whitespace is introduced here by comments or formatting */}
+        <Table className="min-w-full">
+          <TableHeader>
+            <TableRow>
+              {COLUMN_DEFINITIONS.map((col) => (
+                <TableHead key={col.id} className={cn("py-2.5 px-3", col.className, col.isSortable ? 'cursor-pointer hover:bg-muted/50 transition-colors' : '', col.id === 'tokenAddress' && 'sticky left-0 z-20 bg-card dark:bg-dark-tremor-background-default')} onClick={() => col.isSortable && handleSort(col.id)}>
+                  <Flex alignItems="center" justifyContent={col.className?.includes('text-right') ? 'end' : col.className?.includes('text-center') ? 'center' : 'start'} className="gap-1 h-full">
+                    {col.icon && <col.icon className="h-3.5 w-3.5 text-muted-foreground" />}
+                    <span className="text-xs font-semibold whitespace-nowrap">{col.name}</span>
+                    {col.isSortable && sortBy === col.id && (sortOrder === 'ASC' ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />)}
+                  </Flex>
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          {/* No whitespace or comments directly between TableHeader and renderTableContent output */}
+          {renderTableContent()}
+          {/* No whitespace or comments directly after renderTableContent output and before </Table> */}
+        </Table>
+      </div>
+
+      {/* Pagination Section */}
+      {data && data.totalPages > 0 && data.data && data.data.length > 0 && (
+        <div className="px-4 py-3 border-t">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem><UiButton variant="outline" size="sm" onClick={() => handlePageChange(1)} disabled={data.page === 1} aria-label="Go to first page" className={cn(data.page === 1 && "opacity-50 cursor-not-allowed")}><ChevronsLeft className="h-4 w-4" /></UiButton></PaginationItem>
+              <PaginationItem><PaginationPrevious onClick={() => handlePageChange(data.page - 1)} className={cn(data.page === 1 && "pointer-events-none opacity-50")} /></PaginationItem>
+              {renderPaginationItems()}
+              <PaginationItem><PaginationNext onClick={() => handlePageChange(data.page + 1)} className={cn(!data.totalPages || data.page === data.totalPages && "pointer-events-none opacity-50")} /></PaginationItem>
+              <PaginationItem><UiButton variant="outline" size="sm" onClick={() => handlePageChange(data.totalPages)} disabled={!data.totalPages || data.page === data.totalPages} aria-label="Go to last page" className={cn((!data.totalPages || data.page === data.totalPages) && "opacity-50 cursor-not-allowed")}><ChevronsRight className="h-4 w-4" /></UiButton></PaginationItem>
+            </PaginationContent>
+          </Pagination>
         </div>
       )}
     </Card>
