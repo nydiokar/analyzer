@@ -30,7 +30,12 @@
     "pm2:delete:wallet-analysis": "pm2 delete wallet-analysis-bot2",
     "pm2:restart:wallet-analysis": "pm2 restart wallet-analysis-bot2",
     "pm2:list:wallet-analysis": "pm2 list",
-    "pm2:logs:wallet-analysis": "pm2 logs wallet-analysis-bot"
+    "pm2:logs:wallet-analysis": "pm2 logs wallet-analysis-bot",
+    "pm2:start:backend": "npm run build && pm2 start ecosystem.backend.config.js --env production",
+    "pm2:stop:backend": "pm2 stop analyzer-backend-api",
+    "pm2:delete:backend": "pm2 delete analyzer-backend-api",
+    "pm2:restart:backend": "pm2 restart analyzer-backend-api",
+    "pm2:logs:backend": "pm2 logs analyzer-backend-api"
   },
   "keywords": [
     "crypto",

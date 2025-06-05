@@ -5,7 +5,7 @@ import useSWR, { mutate } from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { BehaviorAnalysisResponseDto } from '@/types/api'; // Assuming this type exists
 import { Card, Text, Title, Flex } from '@tremor/react';
-import { AlertTriangle, Hourglass, LineChart, Users, Clock, ShieldCheck, HelpCircle, PlayCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { AlertTriangle, Hourglass, LineChart, Users, Clock, ShieldCheck, HelpCircle, PlayCircle, RefreshCw, Loader2, Info } from 'lucide-react';
 import EChartComponent, { ECOption } from '../charts/EChartComponent'; // Import the new chart component
 import { VisualMapComponent, CalendarComponent } from 'echarts/components'; // Import VisualMap and Calendar
 import * as echarts from 'echarts/core';
@@ -30,6 +30,73 @@ interface BehavioralPatternsTabProps {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1';
+
+// Helper component for displaying a metric with an optional tooltip
+const MetricDisplay: React.FC<{
+  label: string;
+  value: string | number | undefined | null;
+  unit?: string;
+  tooltipText?: string;
+  valueClassName?: string;
+  labelClassName?: string; // Added for more control over label style if needed
+}> = ({ label, value, unit, tooltipText, valueClassName, labelClassName }) => {
+  const labelContent = (
+    <Text className={`text-xs uppercase tracking-wide text-muted-foreground ${labelClassName || ''}`}>
+      {label}:
+    </Text>
+  );
+
+  return (
+    <div>
+      {tooltipText ? (
+        <TooltipProvider delayDuration={100}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* Wrap label in a span to ensure it can be a trigger */} 
+              <span className="inline-flex items-center cursor-help">{labelContent}</span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p>{tooltipText}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        labelContent
+      )}
+      <Text className={`font-mono ${valueClassName || ''}`}>
+        {value ?? 'N/A'}{value && unit ? ` ${unit}` : ''}
+      </Text>
+    </div>
+  );
+};
+
+// Values from API are ratios (0-1), so multiply by 100 for display.
+const formatRatioAsPercentage = (value: number | undefined | null): string => {
+  if (value === undefined || value === null) return 'N/A';
+  return `${(value * 100).toFixed(1)}%`;
+};
+
+// Values from API are already percentages (0-100), so just format them.
+const formatValueAsPercentage = (value: number | undefined | null): string => {
+  if (value === undefined || value === null) return 'N/A';
+  return `${value.toFixed(1)}%`;
+};
+
+// Helper to format a number to a fixed decimal place or return N/A
+const formatNumber = (value: number | undefined | null, decimalPlaces: number = 2): string => {
+  if (value === undefined || value === null) return 'N/A';
+  return value.toFixed(decimalPlaces);
+};
+
+// Helper to format a fractional hour into HH:MM UTC format
+const formatHour = (hour: number | undefined | null): string => {
+  if (hour === undefined || hour === null) return 'N/A';
+  const h = Math.floor(hour);
+  const m = Math.round((hour - h) * 60);
+  const formattedH = String(h).padStart(2, '0');
+  const formattedM = String(m).padStart(2, '0');
+  return `${formattedH}:${formattedM} UTC`;
+};
 
 export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: BehavioralPatternsTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
@@ -94,7 +161,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
           <TabsContent value="summary">
             <Title className="mb-4 text-lg font-semibold">Behavioral Summary & Metrics</Title>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-              {[...Array(3)].map((_, i) => (
+              {[...Array(5)].map((_, i) => ( // Increased skeleton items for more potential summary metrics
                 <div key={`summary-metric-skel-${i}`}>
                   <Skeleton className="h-4 w-1/3 mb-1" />
                   <Skeleton className="h-5 w-2/3" />
@@ -116,7 +183,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                 </AccordionTrigger>
                 <AccordionContent className="pt-2 pb-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
-                    {[...Array(5)].map((_, i) => (
+                    {[...Array(7)].map((_, i) => ( // Increased skeleton items
                       <div key={`perf-metric-skel-${i}`}>
                         <Skeleton className="h-3 w-3/4 mb-1" />
                         <Skeleton className="h-4 w-1/2" />
@@ -136,7 +203,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                 </AccordionTrigger>
                 <AccordionContent className="pt-2 pb-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
-                    {[...Array(7)].map((_, i) => (
+                    {[...Array(9)].map((_, i) => ( // Increased skeleton items
                       <div key={`session-metric-skel-${i}`}>
                         <Skeleton className="h-3 w-3/4 mb-1" />
                         <Skeleton className="h-4 w-1/2" />
@@ -156,7 +223,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                 </AccordionTrigger>
                 <AccordionContent className="pt-2 pb-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
-                    {[...Array(4)].map((_, i) => ( // Updated to 4 based on current file structure
+                    {[...Array(4)].map((_, i) => (
                       <div key={`risk-metric-skel-${i}`}>
                         <Skeleton className="h-3 w-3/4 mb-1" />
                         <Skeleton className="h-4 w-1/2" />
@@ -249,9 +316,9 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
     return (
       <EmptyState
         variant="info"
-        icon={Users} // Or another appropriate icon like HelpCircle or AlertTriangle if it's truly an error
+        icon={Users} 
         title="Data Preparation Error"
-        description="Could not prepare behavioral data for display. If the issue persists, please contact support or try re-analyzing."
+        description="Could not prepare behavioral data for display. If issue persists, contact support or re-analyze."
         actionText={isAnalyzingGlobal ? "Analyzing..." : (triggerAnalysisGlobal ? "Re-analyze Wallet" : undefined)}
         onActionClick={triggerAnalysisGlobal}
         isActionLoading={!!isAnalyzingGlobal}
@@ -260,7 +327,10 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
     );
   }
 
-  const rawDataForDebugging = behaviorData.rawMetrics; // Assuming this is where it is
+  const rawDataForDebugging = behaviorData.rawMetrics;
+
+  const tradingTimeDistributionData = behaviorData?.tradingTimeDistribution;
+  const activeTradingPeriodsData = behaviorData?.activeTradingPeriods;
 
   return (
     <Card className="p-4 md:p-6 space-y-6">
@@ -272,77 +342,76 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
         <TabsContent value="summary">
           <Title className="mb-4 text-lg font-semibold">Behavioral Summary & Metrics</Title>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-            <div>
-              <Text className="font-medium">Trading Style</Text>
-              <Text>{behaviorData.tradingStyle || 'N/A'}</Text>
-            </div>
-            <div>
-              <Text className="font-medium">Confidence</Text>
-              <Text>
-                {typeof behaviorData.confidenceScore === 'number'
-                  ? `${(behaviorData.confidenceScore * 100).toFixed(1)}%`
-                  : 'N/A'}
-              </Text>
-            </div>
-            {behaviorData.primaryBehavior && (
-              <div>
-                <Text className="font-medium">Primary Tag</Text>
-                <Text>{behaviorData.primaryBehavior}</Text>
-              </div>
-            )}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4 mb-6 text-sm">
+            <MetricDisplay 
+              label="Trading Style" 
+              value={behaviorData.tradingStyle}
+              tooltipText="Overall trading approach identified (e.g., Scalper, Day Trader). Based on typical holding durations and activity frequency."
+            />
+            <MetricDisplay 
+              label="Confidence" 
+              value={typeof behaviorData.confidenceScore === 'number' ? `${(behaviorData.confidenceScore * 100).toFixed(1)}` : undefined}
+              unit="%"
+              tooltipText="Likelihood (0-100%) that the assigned Trading Style accurately reflects the wallet's dominant behavior."
+            />
           </div>
           
           <hr className="my-6 border-muted" />
           <Title className="text-lg font-semibold mt-6 mb-4">Detailed Behavioral Metrics</Title>
           
-          <Accordion type="multiple" className="w-full space-y-3" defaultValue={["item-performance", "item-session", "item-risk"]}>
-            {/* Accordion Item 1: Performance & Holding Patterns */}
+          <Accordion type="multiple" className="w-full space-y-3" defaultValue={["item-overall", "item-performance", "item-session", "item-risk"]}>
+            {/* Accordion Item 1: Behavioral Profile & Consistency */}
             <AccordionItem value="item-performance" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
               <AccordionTrigger className="py-3 hover:no-underline">
                 <Flex alignItems="center">
-                  <LineChart className="w-5 h-5 mr-2 text-blue-500" />
-                  <Text className="text-base font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">Performance & Holding Patterns</Text>
+                  <Users className="h-5 w-5 mr-2 text-emerald-500" />
+                  Behavioral Profile & Consistency
                 </Flex>
               </AccordionTrigger>
-              <AccordionContent className="pt-2 pb-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Buy/Sell Ratio:</Text><Text className="font-mono">{behaviorData.buySellRatio?.toFixed(2) ?? 'N/A'}</Text></div>
-                  <div>
-                    <TooltipProvider><Tooltip><TooltipTrigger asChild><Flex alignItems="center" className="inline-flex"><Text className="text-xs uppercase tracking-wide text-muted-foreground mr-1">Flipper Score:</Text></Flex></TooltipTrigger><TooltipContent className="max-w-xs"><p>Indicates how quickly a user buys and sells tokens. Higher scores suggest more flipping activity.</p></TooltipContent></Tooltip></TooltipProvider>
-                    <Text className="font-mono">{behaviorData.flipperScore?.toFixed(3) ?? 'N/A'}</Text>
-                  </div>
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg. Flip Duration (Hrs):</Text><Text className="font-mono">{behaviorData.averageFlipDurationHours?.toFixed(1) ?? 'N/A'} Hrs</Text></div>
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Median Hold Time (Hrs):</Text><Text className="font-mono">{behaviorData.medianHoldTime?.toFixed(2) ?? 'N/A'} Hrs</Text></div>
-                  <div>
-                    <Text className="text-xs uppercase tracking-wide text-muted-foreground">% Trades &lt; 1 Hr:</Text>
-                    <Text className="font-mono">
-                      {typeof behaviorData.percentTradesUnder1Hour === 'number'
-                        ? `${(behaviorData.percentTradesUnder1Hour * 100).toFixed(1)}%`
-                        : 'N/A'}
-                    </Text>
-                  </div>
+              <AccordionContent className="pt-2 pb-3 space-y-3 pl-1">
+                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Trader Profile</Text>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+                  <MetricDisplay label="Flipper Score" value={formatNumber(behaviorData.flipperScore, 3)} tooltipText="Indicates how quickly tokens are bought and sold. Higher scores suggest more frequent flipping activity." />
+                </div>
+                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Trading Consistency</Text>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+                  <MetricDisplay label="Buy/Sell Ratio" value={formatNumber(behaviorData.buySellRatio, 2)} tooltipText="Ratio of buy transactions to sell transactions by count. >1 means more buys, <1 means more sells." />
+                  <MetricDisplay label="Buy/Sell Symmetry" value={formatNumber(behaviorData.buySellSymmetry, 2)} tooltipText="Compares total value/volume of buys to sells. ~1 indicates balanced capital flow." />
+                  <MetricDisplay label="Sequence Consistency" value={formatNumber(behaviorData.sequenceConsistency, 3)} tooltipText="Measures consistency of buy-then-sell patterns. Higher scores indicate more orderly trading." />
                 </div>
               </AccordionContent>
             </AccordionItem>
-
-            {/* Accordion Item 2: Session & Frequency */}
+            
+            {/* Accordion Item 2: Session & Holding Patterns */}
             <AccordionItem value="item-session" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
               <AccordionTrigger className="py-3 hover:no-underline">
                 <Flex alignItems="center">
-                  <Users className="w-5 h-5 mr-2 text-purple-500" />
-                  <Text className="text-base font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">Session & Trading Frequency</Text>
+                  <Hourglass className="h-5 w-5 mr-2 text-amber-500" />
+                  Session & Holding Patterns
                 </Flex>
               </AccordionTrigger>
-              <AccordionContent className="pt-2 pb-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg Session Duration (Mins):</Text><Text className="font-mono">{behaviorData.averageSessionDurationMinutes?.toFixed(1) ?? 'N/A'} Mins</Text></div>
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg Trades Per Session:</Text><Text className="font-mono">{behaviorData.avgTradesPerSession?.toFixed(1) ?? 'N/A'}</Text></div>
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Unique Tokens Traded:</Text><Text className="font-mono">{behaviorData.uniqueTokensTraded ?? 'N/A'}</Text></div>
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Total Trades:</Text><Text className="font-mono">{behaviorData.totalTradeCount ?? 'N/A'}</Text></div>
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Trades/Day (Avg):</Text><Text className="font-mono">{behaviorData.tradingFrequency?.tradesPerDay?.toFixed(1) ?? 'N/A'}</Text></div>
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Trades/Week (Avg):</Text><Text className="font-mono">{behaviorData.tradingFrequency?.tradesPerWeek?.toFixed(1) ?? 'N/A'}</Text></div>
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Trades/Month (Avg):</Text><Text className="font-mono">{behaviorData.tradingFrequency?.tradesPerMonth?.toFixed(1) ?? 'N/A'}</Text></div>
+              <AccordionContent className="pt-2 pb-3 space-y-3 pl-1">
+                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Holding Durations</Text>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                  <MetricDisplay label="Average Trade Duration" value={formatNumber(behaviorData.averageFlipDurationHours)} unit="hours" tooltipText="Average time a token position is held from buy to sell. Calculated only for tokens both bought and sold ('flipped') during the analyzed period." />
+                  <MetricDisplay label="Median Hold Time" value={formatNumber(behaviorData.medianHoldTime)} unit="hours" tooltipText="Median time a token position is held across all sold assets. Less affected by outliers than average duration." />
+                  <MetricDisplay label="% Trades < 1 Hour" value={formatRatioAsPercentage(behaviorData.percentTradesUnder1Hour)} tooltipText="Percentage of completed trades held for less than 1 hour, indicating very short-term activity." />
+                  <MetricDisplay label="% Trades < 4 Hours" value={formatRatioAsPercentage(behaviorData.percentTradesUnder4Hours)} tooltipText="Percentage of completed trades held for less than 4 hours." />
+                </div>
+                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Session Characteristics</Text>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                  <MetricDisplay label="Session Count" value={behaviorData.sessionCount} tooltipText="Total number of distinct active trading sessions identified." />
+                  <MetricDisplay label="Avg Session Duration" value={formatNumber(behaviorData.averageSessionDurationMinutes, 1)} unit="Mins" tooltipText="Typical length of a concentrated trading activity period before a break." />
+                  <MetricDisplay label="Avg Trades/Session" value={formatNumber(behaviorData.avgTradesPerSession, 1)} tooltipText="Average number of trades (buys or sells) executed within a single active trading session." />
+                  <MetricDisplay 
+                    label="Avg Session Start Hour" 
+                    value={
+                      behaviorData.averageSessionStartHour !== null && behaviorData.averageSessionStartHour !== undefined 
+                        ? formatHour(behaviorData.averageSessionStartHour) 
+                        : 'N/A'
+                    } 
+                    tooltipText="Average UTC hour when active trading sessions typically begin. Calculated using a circular mean to correctly average time-of-day data." 
+                  />
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -351,31 +420,39 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             <AccordionItem value="item-risk" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
               <AccordionTrigger className="py-3 hover:no-underline">
                 <Flex alignItems="center">
-                  <ShieldCheck className="w-5 h-5 mr-2 text-red-500" />
-                  <Text className="text-base font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">Risk & Value Profile</Text>
+                  <ShieldCheck className="h-5 w-5 mr-2 text-red-500" />
+                  Risk & Value Profile
                 </Flex>
               </AccordionTrigger>
-              <AccordionContent className="pt-2 pb-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm pl-1">
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Avg. Tx Value (SOL):</Text><Text className="font-mono">{behaviorData.riskMetrics?.averageTransactionValueSol?.toFixed(2) ?? 'N/A'} SOL</Text></div>
-                  <div><Text className="text-xs uppercase tracking-wide text-muted-foreground">Largest Tx Value (SOL):</Text><Text className="font-mono">{behaviorData.riskMetrics?.largestTransactionValueSol?.toFixed(2) ?? 'N/A'} SOL</Text></div>
-                  <div>
-                    <Text className="text-xs uppercase tracking-wide text-muted-foreground">Re-entry Rate:</Text>
-                    <Text className="font-mono">
-                      {typeof behaviorData.reentryRate === 'number' 
-                        ? `${(behaviorData.reentryRate).toFixed(1)}%` 
-                        : 'N/A'}
-                    </Text>
-                  </div>
-                  <div>
-                    <Text className="text-xs uppercase tracking-wide text-muted-foreground">% Unpaired Tokens:</Text>
-                     <Text className="font-mono">
-                      {typeof behaviorData.percentageOfUnpairedTokens === 'number'
-                        ? `${(behaviorData.percentageOfUnpairedTokens).toFixed(1)}%`
-                        : 'N/A'}
-                    </Text>
-                  </div>
-                   {/* Add more relevant risk metrics here if available in behaviorData */}
+              <AccordionContent className="pt-2 pb-3 space-y-3 pl-1">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                  <MetricDisplay label="Avg. Tx Value" value={formatNumber(behaviorData.riskMetrics?.averageTransactionValueSol, 2)} unit="SOL" tooltipText="Average SOL value of individual transactions. Reflects typical capital allocation per trade." />
+                  <MetricDisplay label="Largest Tx Value" value={formatNumber(behaviorData.riskMetrics?.largestTransactionValueSol, 2)} unit="SOL" tooltipText="SOL value of the largest single transaction. Highlights maximum capital deployed in one trade." />
+                  <MetricDisplay label="Re-entry Rate" value={formatValueAsPercentage(behaviorData.reentryRate)} tooltipText="Of all unique tokens that were fully traded (bought and sold), this is the percentage that were re-entered for another trade cycle. A low rate suggests the wallet rarely revisits the same investment after selling." />
+                  <MetricDisplay label="Unpaired Tokens (%)" value={formatValueAsPercentage(behaviorData.percentageOfUnpairedTokens)} tooltipText="Percentage of unique tokens that have either no buy or sell counterparty. Indicates high spam activity or holding dust." />                </div>
+              </AccordionContent>
+            </AccordionItem>
+            
+            {/* Accordion Item 4: Overall Trading Activity */}
+            <AccordionItem value="item-overall" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
+              <AccordionTrigger className="py-3 hover:no-underline">
+                <Flex alignItems="center">
+                  <LineChart className="h-5 w-5 mr-2 text-blue-500" />
+                  Overall Trading Activity
+                </Flex>
+              </AccordionTrigger>
+              <AccordionContent className="pt-2 pb-3 space-y-3 pl-1">
+                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Key Volume Metrics</Text>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+                  <MetricDisplay label="Total Trades" value={behaviorData.totalTradeCount} tooltipText="Total number of buy or sell transactions." />
+                  <MetricDisplay label="Unique Tokens Traded" value={behaviorData.uniqueTokensTraded} tooltipText="Number of distinct tokens involved in trades." />
+                  <MetricDisplay label="Average Trades Per Token" value={formatNumber(behaviorData.averageTradesPerToken)} tooltipText="Average number of trades made for each unique token." />
+                </div>
+                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Trading Frequency</Text>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+                  <MetricDisplay label="Trades per Day" value={formatNumber(behaviorData.tradingFrequency?.tradesPerDay)} tooltipText="Average number of trades executed per day (based on active days)." />
+                  <MetricDisplay label="Trades per Week" value={formatNumber(behaviorData.tradingFrequency?.tradesPerWeek)} tooltipText="Average number of trades executed per week (based on active weeks)." />
+                  <MetricDisplay label="Trades per Month" value={formatNumber(behaviorData.tradingFrequency?.tradesPerMonth)} tooltipText="Average number of trades executed per month (based on active months)." />
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -383,29 +460,13 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
         </TabsContent>
 
         <TabsContent value="visualizations">
-          {/* Visualizations Section (Heatmap, Duration, Windows) */}
           <div className="rounded-lg bg-muted/10 dark:bg-muted/5 px-4 py-2 mb-6">
             <Tabs defaultValue="heatmap" className="w-full mt-2">
-              <div className="sticky top-0 z-10 bg-card dark:bg-card p-2 -mx-4 md:-mx-6 border-b border-border mb-4"> {/* Sticky Wrapper */}
+              <div className="sticky top-0 z-10 bg-card dark:bg-card p-2 -mx-4 md:-mx-6 border-b border-border mb-4">
                 <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3">
-                  <TabsTrigger
-                    value="heatmap"
-                    className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2"
-                  >
-                    Activity Heatmap
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="duration"
-                    className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2"
-                  >
-                    Hold Duration Distribution
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="windows"
-                    className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2"
-                  >
-                    Trading Windows
-                  </TabsTrigger>
+                  <TabsTrigger value="heatmap" className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2">Activity Heatmap</TabsTrigger>
+                  <TabsTrigger value="duration" className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2">Hold Duration Distribution</TabsTrigger>
+                  <TabsTrigger value="windows" className="data-[state=active]:bg-tremor-background-muted data-[state=active]:text-tremor-content-strong dark:data-[state=active]:bg-dark-tremor-background-muted dark:data-[state=active]:text-dark-tremor-content-strong data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 text-sm font-semibold pb-2">Trading Windows</TabsTrigger>
                 </TabsList>
               </div>
 
@@ -415,7 +476,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                   <EChartComponent option={getHeatmapOption(behaviorData.activeTradingPeriods.hourlyTradeCounts)} style={{ height: '200px', width: '100%' }} />
                 ) : (
                   <Flex flexDirection="col" alignItems="center" justifyContent="center" className="h-[200px] text-tremor-content dark:text-dark-tremor-content">
-                    <AlertTriangle className="w-8 h-8 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
+                    <Info className="w-8 h-8 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
                     <Text>No hourly trade data available for heatmap.</Text>
                   </Flex>
                 )}
@@ -437,7 +498,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                           <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs">
-                          <p>Displays the Y-axis on a logarithmic scale (base 10). This can be useful for visualizing data with a very wide range of values or to better see relative changes for smaller values.</p>
+                          <p>Displays the Y-axis on a logarithmic scale (base 10). Useful for wide data ranges or seeing relative changes for smaller values.</p>
                         </TooltipContent>
                       </Tooltip>
                     </div>
@@ -447,7 +508,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                   <EChartComponent option={getTradingDurationOption(behaviorData.tradingTimeDistribution, useLogScaleDuration)} style={{ height: '300px', width: '100%' }} />
                 ) : (
                   <Flex flexDirection="col" alignItems="center" justifyContent="center" className="h-[300px] text-tremor-content dark:text-dark-tremor-content">
-                    <AlertTriangle className="w-10 h-10 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
+                    <Info className="w-10 h-10 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
                     <Text>No trading duration distribution data available.</Text>
                   </Flex>
                 )}
@@ -459,7 +520,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                   <EChartComponent option={getTradingWindowsOption(behaviorData.activeTradingPeriods.identifiedWindows)} style={{ height: '300px', width: '100%' }} />
                 ) : (
                   <Flex flexDirection="col" alignItems="center" justifyContent="center" className="h-[300px] text-tremor-content dark:text-dark-tremor-content">
-                    <AlertTriangle className="w-10 h-10 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
+                    <Info className="w-10 h-10 mb-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle" />
                     <Text>No identified trading windows available.</Text>
                   </Flex>
                 )}
@@ -467,10 +528,9 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             </Tabs>
           </div>
         </TabsContent>
-
       </Tabs>
 
-      {/* Raw Data (for debugging) Section - Moved to the end */}
+      {/* Raw Data (for debugging) Section */}
       {rawDataForDebugging && Object.keys(rawDataForDebugging).length > 0 && (
         <Accordion type="single" collapsible className="w-full mt-8">
           <AccordionItem value="item-1">
@@ -556,7 +616,7 @@ const getHeatmapOption = (hourlyTradeCounts: Record<number, number>): ECOption =
       left: 'center',
       bottom: '6%', // Positioned at the bottom of the chart area
       inRange: {
-        color: ['#d6e4ff', '#3a5fcd']
+        color: ['#e0f3ff', '#3a5fcd'] // Lighter start for blue heatmap
       }
     },
     series: [{
@@ -617,41 +677,34 @@ const getTradingDurationOption = (
         type: 'shadow'
       },
       formatter: (params: any) => {
-        // params is an array, take the first element for this single-series chart
         const param = Array.isArray(params) ? params[0] : params;
-        const categoryName = param.name; // e.g., "Ultra Fast"
-        const proportion = param.value; // e.g., 0.46153
-        
+        const categoryName = param.name;
+        const proportion = param.value;
         const timeRange = timeRanges[categoryName];
-        
         let tooltipString = `${categoryName}`;
-        if (timeRange) {
-          tooltipString += ` (${timeRange})`;
-        }
+        if (timeRange) tooltipString += ` (${timeRange})`;
         if (typeof proportion === 'number'){
             tooltipString += `<br/>${param.marker}${param.seriesName}: ${(proportion * 100).toFixed(1)}%`;
         } else {
             tooltipString += `<br/>${param.marker}${param.seriesName}: ${proportion}`;
         }
-        
         return tooltipString;
       }
-      // valueFormatter removed as formatter takes precedence
     },
     grid: {
       left: '3%',
       right: '4%',
-      bottom: '20%', // Increased bottom margin for horizontal labels
+      bottom: '20%', 
       containLabel: true
     },
     xAxis: {
       type: 'category',
       data: categories,
       axisLabel: {
-        rotate: 0, // Horizontal labels
+        rotate: 0, 
         interval: 0,
-        fontSize: 12, // Increased font size
-        color: '#E0E0E0' // Lighter color for labels
+        fontSize: 11, // Slightly smaller to fit more labels if needed
+        color: '#E0E0E0'
       },
       name: 'Trading Style Duration',
       nameLocation: 'middle',
@@ -692,13 +745,11 @@ const getTradingDurationOption = (
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             {
               offset: 0,
-              color: '#5470C6' // Changed to blue spectrum - top
+              color: '#6ea8fe' // Lighter blue
             },
             {
               offset: 1,
-              color: '#91CC75' // Changed to blue spectrum - bottom (example, might need adjustment for good gradient)
-              // A better blue gradient might be e.g., '#3a5fcd' (darker) and '#73C0DE' (lighter)
-              // Let's try: color: '#6ea8fe' (lighter blue) and color: '#255ab5' (darker blue)
+              color: '#255ab5' // Darker blue
             }
           ])
         },
@@ -711,7 +762,7 @@ const getTradingDurationOption = (
             }
             return '';
           },
-          color: '#FFFFFF', // White color for bar labels
+          color: '#FFFFFF',
           fontSize: 12
         }
       }
@@ -722,15 +773,7 @@ const getTradingDurationOption = (
 // Helper function to generate trading windows timeline option
 const getTradingWindowsOption = (windows: NonNullable<BehaviorAnalysisResponseDto['activeTradingPeriods']>['identifiedWindows']): ECOption => {
   const windowColors = [
-    '#5470C6', '#73C0DE', '#91CC75', // Blue, Light Blue, Greenish-Blue (example)
-    // Adjusted to a more blue/teal/green focused palette for consistency
-    // E.g., shades of blue and teal:
-    '#255ab5', // Dark Blue
-    '#3a7cde', // Medium Blue
-    '#6ea8fe', // Light Blue
-    '#3ab8d7', // Tealish Blue
-    '#29a0b1', // Darker Teal
-    // Add more shades if needed, or use a generator for a sequential blue palette
+    '#255ab5', '#3a7cde', '#6ea8fe', '#3ab8d7', '#29a0b1', '#4FB9AF', '#66C3B9'
   ];
   
   let totalWeightedMidpoint = 0;
@@ -746,7 +789,7 @@ const getTradingWindowsOption = (windows: NonNullable<BehaviorAnalysisResponseDt
       value: [
         index,
         win.startTimeUTC,
-        win.endTimeUTC + 1, // endTime is exclusive in ECharts custom series, add 1 if it represents the end of the hour
+        win.endTimeUTC + 1, 
         win.tradeCountInWindow,
         `Trades: ${win.tradeCountInWindow}\nDuration: ${win.durationHours}h\nAvg Trades/hr: ${win.avgTradesPerHourInWindow.toFixed(1)}`
       ],
@@ -767,31 +810,39 @@ const getTradingWindowsOption = (windows: NonNullable<BehaviorAnalysisResponseDt
     if (win.endTimeUTC > maxHour) maxHour = win.endTimeUTC;
   });
 
+  minHour = Math.max(0, minHour -1); // Ensure minHour is not less than 0
+  maxHour = Math.min(23, maxHour + 1); // Ensure maxHour is not more than 23 (or 24 if end is exclusive)
+
   return {
     tooltip: {
         formatter: function (params: any) {
-            return params.marker + params.name + ': ' + params.value[4];
+            return params.marker + params.name + ': ' + params.value[4].replace(/\n/g, '<br/>');
         }
     },
     grid: {
         height: gridHeight,
         left: '15%',
-        right: '10%'
+        right: '10%',
+        top: '10%', // Added top margin for better spacing
+        bottom: '25%' // Adjusted bottom for xAxis name
     },
     xAxis: {
         type: 'value',
-        min: minHour -1,
-        max: maxHour + 2,
+        min: minHour,
+        max: maxHour,
         name: 'Hour of Day (UTC)',
         nameLocation: 'middle',
-        nameGap: 25,
-        interval: 1
+        nameGap: 30, // Increased gap for better readability
+        interval: Math.ceil((maxHour - minHour) / 12) || 1, // Dynamic interval, at least 1
+        axisLabel: { color: '#B0B0B0' },
+        nameTextStyle: { color: '#B0B0B0' }
     },
     yAxis: {
         type: 'category',
         data: data.map((item: {name: string}) => item.name),
         axisLabel: {
-            show: true
+            show: true,
+            color: '#B0B0B0'
         }
     },
     series: [
@@ -831,8 +882,8 @@ const getTradingWindowsOption = (windows: NonNullable<BehaviorAnalysisResponseDt
             },
             data: data,
             markLine: meanActiveTime !== null ? {
-              silent: true, // Non-interactive
-              symbol: ['none', 'none'], // No start/end symbols
+              silent: true, 
+              symbol: ['none', 'none'], 
               lineStyle: {
                 type: 'dashed',
                 color: '#A0A0A0',
