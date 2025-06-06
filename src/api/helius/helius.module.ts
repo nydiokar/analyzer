@@ -17,6 +17,11 @@ import { HeliusSyncService } from '../../core/services/helius-sync-service';
         const logger = new Logger('HeliusApiClientFactory');
         logger.log('--- HeliusApiClientFactory EXECUTING ---'); // Crucial log
         const apiKey = configService.get<string>('HELIUS_API_KEY');
+        
+        // --- DEBUGGING LINE ---
+        logger.log(`[DEBUG] Attempting to read HELIUS_API_KEY. Value: ${apiKey ? '********' + apiKey.slice(-4) : '<<<< UNDEFINED >>>>'}`);
+        // --- END DEBUGGING ---
+
         if (!apiKey) {
           logger.error('HELIUS_API_KEY is not configured.');
           throw new Error('HELIUS_API_KEY is not configured.');

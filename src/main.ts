@@ -6,9 +6,17 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const port = process.env.PORT || 3001;
+  const corsOrigin = process.env.CORS_ORIGIN;
+
+  // For production, the CORS_ORIGIN should be set to your Vercel frontend's URL.
+  // For local development, you might set it to 'http://localhost:3000'.
+  // The 'true' fallback is for simple local testing but will log a warning.
+  if (!corsOrigin) {
+    Logger.warn('CORS_ORIGIN is not set. Allowing all origins for development purposes.', 'Bootstrap');
+  }
 
   app.enableCors({
-    origin: true, // Allows all origins, good for development. For production, specify your frontend URL.
+    origin: corsOrigin || true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     allowedHeaders: 'Content-Type, Accept, X-API-Key',
     credentials: true,

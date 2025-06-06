@@ -1,20 +1,26 @@
 export const fetcher = async (url: string, options?: RequestInit) => {
-    // In a real scenario, you might have a base URL configured
-    // For now, we assume the Next.js dev server might proxy /api calls if set up,
-    // or this would fail gracefully until the API is live.
-    const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-    let baseHeaders: HeadersInit = {};
+    let apiKey: string | null = null;
+    
+    // 1. Prioritize key from localStorage (user-provided)
+    if (typeof window !== 'undefined') {
+        apiKey = localStorage.getItem('apiKey');
+    }
+
+    // 2. Fallback to environment variable (default/demo key)
+    if (!apiKey) {
+        apiKey = process.env.NEXT_PUBLIC_DEMO_API_KEY || null;
+    }
+
+    const baseHeaders: HeadersInit = {
+        'Content-Type': 'application/json',
+    };
 
     if (apiKey) {
         baseHeaders['X-API-Key'] = apiKey;
-    } else {
-        console.warn(
-            'API key (NEXT_PUBLIC_API_KEY) is not set. API requests might fail if authentication is required.'
-        );
-        // Depending on API setup, you might want to throw an error here or allow requests without the key
     }
+    // No warning if key is missing, as the backend will handle unauthorized requests.
 
-    // Merge base headers with any headers provided in options
+    // Merge base headers with any headers provided in the specific fetch call
     const mergedHeaders = {
         ...baseHeaders,
         ...(options?.headers || {}),
@@ -23,34 +29,30 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     let res;
     try {
         res = await fetch(url, {
-            ...options, // Spread other options like method, body
-            headers: mergedHeaders, // Use the merged headers
+            ...options,
+            headers: mergedHeaders,
         });
     } catch (e: any) {
-        // Network errors (like ECONNREFUSED) often manifest as TypeErrors in the browser's fetch API
-        // or might have specific properties depending on the environment.
-        // A common message for a true network failure is "Failed to fetch".
+        // Network errors
         const networkError = new Error(
-            e.message || 'Network error: Failed to fetch data. Please check your connection and ensure the server is running.'
+            e.message || 'Network error: Failed to fetch data. Please check your connection and the server status.'
         ) as any;
         networkError.isNetworkError = true;
-        networkError.status = e.status || 0; // No HTTP status for true network errors, use 0 or a specific code
-        networkError.originalError = e; // Store original error for debugging
+        networkError.status = e.status || 0;
+        networkError.originalError = e;
         throw networkError;
     }
 
     if (!res.ok) {
         const errorPayload = await res.json().catch(() => ({ message: res.statusText }));
         const error = new Error(errorPayload.message || 'An error occurred while fetching the data.') as any;
-        // Attach extra info to the error object
         error.status = res.status;
         error.payload = errorPayload;
         throw error;
     }
 
-    // Handle 204 No Content responses specifically
     if (res.status === 204) {
-        return null; // Or undefined, or { success: true }, depending on how you want to signal success
+        return null;
     }
 
     return res.json();

@@ -1,5 +1,6 @@
 module.exports = {
   apps: [
+    // === App 1: The Original Wallet Analysis Bot ===
     {
       name: 'wallet-analyzer_0.0.14',
       script: 'dist/core/index.js',
@@ -13,7 +14,7 @@ module.exports = {
         "logs",
         "analysis_reports",
         "prisma/dev.db",
-        "prisma/dev.db-journal", // Also ignore the journal file
+        "prisma/dev.db-journal",
         ".git"
       ],
       min_uptime: '60s',
@@ -28,5 +29,16 @@ module.exports = {
       merge_logs: true,
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     },
+    
+    // === App 2: The NestJS Backend API ===
+    {
+      name: "analyzer-backend-api",
+      script: "dist/main.js",     // Correct entry point for the NestJS application
+      watch: false,              // Watching is not recommended for production
+      max_memory_restart : '1G',  // Optional: restart if it exceeds memory
+      env_production: {
+         NODE_ENV: "production",
+      }
+    }
   ],
 }; 
