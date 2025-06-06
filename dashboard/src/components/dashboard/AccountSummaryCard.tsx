@@ -5,7 +5,7 @@ import { Card, Metric, Text, Flex, Badge } from '@tremor/react';
 import { WalletSummaryData } from '@/types/api';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Info, CalendarDays, Landmark, SearchX, ShieldAlert } from 'lucide-react';
-import { format, isValid } from 'date-fns';
+import { format } from 'date-fns';
 import {
   Tooltip,
   TooltipContent,
@@ -14,10 +14,7 @@ import {
 } from "@/components/ui/tooltip"
 import EmptyState from '@/components/shared/EmptyState';
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
-import { useFavorites } from '@/hooks/useFavorites';
-import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
 
 interface AccountSummaryCardProps {
@@ -77,35 +74,34 @@ export default function AccountSummaryCard({
   if (error) {
     let title = `API Error (Status: ${error.statusCode || 'Unknown'})`;
     let description = error.message || "An unexpected error occurred.";
-    let icon = AlertTriangle;
+    let Icon = AlertTriangle;
     let emptyStateVariant: 'default' | 'error' | 'info' = 'error';
     
     if (error.statusCode === 404) {
       title = "Not Yet Analyzed";
       description = "No analysis data is available for this wallet yet. You can trigger a new analysis to get started.";
-      icon = SearchX;
+      Icon = SearchX;
       emptyStateVariant = 'info';
     } else if (error.statusCode === 403) {
       title = "Access Denied";
       description = "This wallet is not part of the demo, or you do not have permission to view it.";
-      icon = ShieldAlert;
+      Icon = ShieldAlert;
       emptyStateVariant = 'error';
     }
     
     return (
-      <div className={cn("p-4", className)}>
-        <EmptyState
-          icon={icon}
-          title={title}
-          description={description}
-          variant={emptyStateVariant}
-        />
-        {error.statusCode === 404 && (
-          <div className="mt-4 text-center">
-            <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo}>
-              {isAnalyzingGlobal ? 'Analysis in Progress...' : 'Analyze Wallet'}
-            </Button>
+      <div className={cn("flex items-center justify-between p-4 border bg-card rounded-lg shadow-sm w-full", className)}>
+        <div className="flex items-center gap-4">
+          <Icon className="h-8 w-8 text-blue-500" strokeWidth={1.5} />
+          <div>
+            <h3 className="font-semibold text-foreground">{title}</h3>
+            <p className="text-sm text-muted-foreground">{description}</p>
           </div>
+        </div>
+        {error.statusCode === 404 && (
+          <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
+            {isAnalyzingGlobal ? 'Analysis in Progress...' : 'Analyze Wallet'}
+          </Button>
         )}
       </div>
     );
@@ -126,18 +122,17 @@ export default function AccountSummaryCard({
 
   if (data?.status === 'unanalyzed' || !data) {
     return (
-       <div className={cn("p-4", className)}>
-        <EmptyState
-          icon={SearchX}
-          title="Not Yet Analyzed"
-          description="No analysis data is available for this wallet yet. You can trigger a new analysis to get started."
-          variant="info"
-        />
-        <div className="mt-4 text-center">
-            <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo}>
-              {isAnalyzingGlobal ? 'Analysis in Progress...' : 'Analyze Wallet'}
-            </Button>
+      <div className={cn("flex items-center justify-between p-4 border bg-card rounded-lg shadow-sm w-full", className)}>
+        <div className="flex items-center gap-4">
+          <SearchX className="h-8 w-8 text-blue-500" strokeWidth={1.5} />
+          <div>
+            <h3 className="font-semibold text-foreground">Not Yet Analyzed</h3>
+            <p className="text-sm text-muted-foreground">Trigger an analysis to get started.</p>
+          </div>
         </div>
+        <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
+          {isAnalyzingGlobal ? 'Analysis in Progress...' : 'Analyze Wallet'}
+        </Button>
       </div>
     );
   }

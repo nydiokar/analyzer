@@ -311,39 +311,14 @@ export class DatabaseService {
     async ensureWalletExists(walletAddress: string): Promise<Wallet> {
         this.logger.debug(`Ensuring wallet exists for address: ${walletAddress}`);
         try {
-            const existingWallet = await this.prismaClient.wallet.findUnique({
+            const wallet = await this.prismaClient.wallet.upsert({
                 where: { address: walletAddress },
+                update: {}, // No fields to update if it exists
+                create: { address: walletAddress },
             });
-
-            if (existingWallet) {
-                this.logger.debug(`Wallet ${walletAddress} found in database.`);
-                return existingWallet;
-            }
-
-            this.logger.info(`Wallet ${walletAddress} not found. Creating new entry.`);
-            const newWallet = await this.prismaClient.wallet.create({
-                data: {
-                    address: walletAddress,
-                    // Initialize other fields with sensible defaults or null
-                    // Timestamps can be null initially or set by sync service later
-                    firstProcessedTimestamp: null,
-                    newestProcessedTimestamp: null,
-                    newestProcessedSignature: null,
-                    analyzedTimestampStart: null,
-                    analyzedTimestampEnd: null,
-                    // Optional fields from your schema, ensure they are nullable or have defaults
-                    // e.g., totalSwaps: 0, totalSolSpent: 0, totalSolReceived: 0, etc.
-                    // These will be updated by actual analysis/sync later.
-                },
-            });
-            this.logger.info(`Wallet ${walletAddress} created successfully.`);
-            return newWallet;
+            return wallet;
         } catch (error) {
             this.logger.error(`Error ensuring wallet ${walletAddress} exists in database`, { error });
-            // Depending on the error, you might want to throw a more specific exception
-            if (error instanceof Prisma.PrismaClientKnownRequestError) {
-                // Handle known Prisma errors if necessary, e.g., unique constraints if address wasn't primary key
-            }            
             throw new InternalServerErrorException(`Could not ensure wallet ${walletAddress} due to a database error.`);
         }
     }
@@ -582,21 +557,14 @@ export class DatabaseService {
      */
     async getFavoriteWalletsByUserId(userId: string): Promise<Array<Prisma.UserFavoriteWalletGetPayload<{ include: { wallet: { include: { pnlSummary: true, behaviorProfile: true } } } }>>> {
         this.logger.debug(`Fetching favorite wallets for user ${userId}`);
-        
-        const userExists = await this.prismaClient.user.findUnique({ where: { id: userId } });
-        if (!userExists) {
-            this.logger.warn(`Get favorites failed: User ${userId} not found.`);
-            throw new NotFoundException(`User with ID "${userId}" not found.`);
-        }
-        
         try {
-            const favorites = await this.prismaClient.userFavoriteWallet.findMany({
+            return await this.prismaClient.userFavoriteWallet.findMany({
                 where: { userId: userId },
                 include: {
-                    wallet: {             // Include the Wallet model
-                        include: {          // And then include ITS relations
-                            pnlSummary: true, // Include the related WalletPnlSummary
-                            behaviorProfile: true // Include the related WalletBehaviorProfile
+                    wallet: {
+                        include: {
+                            pnlSummary: true,
+                            behaviorProfile: true,
                         }
                     }
                 },
@@ -604,11 +572,9 @@ export class DatabaseService {
                     createdAt: 'desc',
                 },
             });
-            this.logger.info(`Found ${favorites.length} favorite wallets for user ${userId}`);
-            return favorites;
         } catch (error) {
             this.logger.error(`Error fetching favorite wallets for user ${userId}:`, { error });
-            throw new InternalServerErrorException('Could not retrieve favorite wallets due to an unexpected error.');
+            throw new InternalServerErrorException('Could not fetch favorite wallets.');
         }
     }
     // --- End Wallet Favorite Methods ---
@@ -1672,53 +1638,25 @@ export class DatabaseService {
      */
     async searchWalletsByAddressFragment(
       fragment: string,
-      userIsDemo: boolean = false
     ): Promise<{ address: string }[]> {
-      this.logger.debug(`Searching for wallets with fragment: ${fragment}`);
-      
-      const whereClause: any = {
-        OR: [
-          { address: { contains: fragment, mode: 'insensitive' } },
-          { name: { contains: fragment, mode: 'insensitive' } },
-        ],
-      };
-
-      if (userIsDemo) {
-        whereClause.isDemo = true;
-      }
-
-      try {
-        const wallets = await this.prismaClient.wallet.findMany({
-          where: whereClause,
-          select: {
-            address: true,
-          },
-          take: 20,
-        });
-        return wallets;
-      } catch (error) {
-        this.logger.error('Error searching wallets by fragment', { error, fragment });
-        throw new InternalServerErrorException('Could not perform wallet search.');
-      }
+        this.logger.debug(`Searching for wallets with fragment: ${fragment}`);
+        try {
+            const wallets = await this.prismaClient.wallet.findMany({
+                where: {
+                    address: {
+                        contains: fragment,
+                    },
+                },
+                select: {
+                    address: true,
+                },
+                take: 15, // Limit results for performance
+            });
+            return wallets;
+        } catch (error) {
+            this.logger.error(`Database error while searching wallets for fragment "${fragment}":`, { error });
+            throw new InternalServerErrorException('Wallet search failed due to a database error.');
+        }
     }
     // --- End Wallet Search Method ---
-
-    async searchWallets(query: string, userIsDemo: boolean = false): Promise<Wallet[]> {
-        const whereClause: any = {};
-
-        if (userIsDemo) {
-            whereClause.isDemo = true;
-        }
-
-        return this.prismaClient.wallet.findMany({
-            where: {
-                ...whereClause,
-                OR: [
-                    { address: { contains: query, mode: 'insensitive' } },
-                    { name: { contains: query, mode: 'insensitive' } },
-                ],
-            },
-            take: 20,
-        });
-    }
 }

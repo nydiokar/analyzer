@@ -86,7 +86,7 @@ export class WalletsController {
     }
 
     try {
-      const results = await this.databaseService.searchWalletsByAddressFragment(queryDto.query, req.user?.isDemo);
+      const results = await this.databaseService.searchWalletsByAddressFragment(queryDto.query);
       const mappedResults: WalletSearchResultItemDto[] = results.map(wallet => ({ address: wallet.address }));
       
       if (userId) {
@@ -160,15 +160,15 @@ export class WalletsController {
       // 1. Find or create the wallet entity to ensure it's tracked.
       const wallet = await this.databaseService.ensureWalletExists(walletAddress);
 
-      // DEMO USER CHECK
-      const user = req.user;
-      if (user && user.isDemo && !(wallet as any).isDemo) {
-        this.logger.warn(`Restricted access for demo user ${user.id} on non-demo wallet ${walletAddress}.`);
-        return {
-          status: 'restricted',
-          walletAddress: walletAddress,
-        };
-      }
+      // DEMO USER CHECK - This is now handled by the ApiKeyAuthGuard
+      // const user = req.user;
+      // if (user && user.isDemo && !(wallet as any).isDemo) {
+      //   this.logger.warn(`Restricted access for demo user ${user.id} on non-demo wallet ${walletAddress}.`);
+      //   return {
+      //     status: 'restricted',
+      //     walletAddress: walletAddress,
+      //   };
+      // }
       
       // 2. Fetch the main persisted PNL Summary for overall KPIs.
       const overallPnlSummary = await this.databaseService.getWalletPnlSummaryWithRelations(walletAddress);

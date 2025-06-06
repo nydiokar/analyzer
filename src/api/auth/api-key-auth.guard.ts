@@ -3,15 +3,24 @@ import { Request } from 'express';
 import { DatabaseService } from '../database/database.service';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class ApiKeyAuthGuard implements CanActivate {
   private readonly logger = new Logger(ApiKeyAuthGuard.name);
+  private readonly demoWallets: string[];
 
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly reflector: Reflector,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    const demoWalletsFromEnv = this.configService.get<string>('DEMO_WALLETS');
+    this.demoWallets = demoWalletsFromEnv ? demoWalletsFromEnv.split(',').map(w => w.trim()) : [];
+    if (this.demoWallets.length > 0) {
+      this.logger.log(`Initialized with ${this.demoWallets.length} demo wallets.`);
+    }
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
@@ -44,14 +53,22 @@ export class ApiKeyAuthGuard implements CanActivate {
       // --- Permission Check based on isDemo flag ---
       if (user.isDemo) {
         this.logger.debug(`User ${user.id} is a demo user. Applying restrictions.`);
+        
+        const walletAddress = request.params.walletAddress;
+
+        // RULE 1: If accessing a specific wallet, it must be in the demo list.
+        if (walletAddress && !this.demoWallets.includes(walletAddress)) {
+          this.logger.warn(`Demo user ${user.id} attempting to access non-demo wallet ${walletAddress}.`);
+          throw new ForbiddenException('This wallet is not available in the demo account.');
+        }
 
         const isFavoritesRoute = request.path.includes('/users/me/favorites');
 
-        // RULE 1: Demo users can manage favorites.
+        // RULE 2: Demo users can manage favorites.
         if (isFavoritesRoute && (request.method === 'POST' || request.method === 'DELETE')) {
             this.logger.verbose(`Demo user ${user.id} allowed favorite management action: ${request.method}`);
         } 
-        // RULE 2: For all other routes, block write actions.
+        // RULE 3: For all other routes, block write actions.
         else if (request.method !== 'GET') {
           this.logger.warn(`Demo user ${user.id} blocked from performing a ${request.method} action on path: ${request.path}`);
           throw new ForbiddenException('The demo account is read-only and cannot perform this action.');
