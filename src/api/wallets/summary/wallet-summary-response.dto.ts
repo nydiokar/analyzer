@@ -1,49 +1,64 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { TokenBalanceDetails } from '../../../types/wallet';
-
-// Forward declare or import necessary types if they are complex
-// For now, using basic types or 'object' for simplicity
 
 export class WalletSummaryResponse {
-  @ApiProperty({ example: '2HTdFe4CLQtwKcYPdea1qPeU59hxrBpCwKLCFdQz5thQ', description: 'The Solana wallet address.' })
+  @ApiProperty({
+    description: "The status of the wallet summary, indicating the type of data returned.",
+    example: 'ok',
+    enum: ['ok', 'unanalyzed', 'restricted'],
+  })
+  status: 'ok' | 'unanalyzed' | 'restricted';
+
+  @ApiProperty({ 
+    description: 'The Solana wallet address.',
+    example: 'Dez...yc1' 
+  })
   walletAddress: string;
 
-  @ApiProperty({ example: 1747613680, description: 'Timestamp of the last known activity for the wallet (Unix seconds).', nullable: true })
-  lastActiveTimestamp: number | null;
-
-  @ApiProperty({ example: 90, description: 'Number of days the wallet has been active, calculated from first to last known transaction. Can be a placeholder if data is insufficient.' })
-  daysActive: number | string;
-
-  @ApiPropertyOptional({ example: 0.12, description: 'The latest PNL from the advanced statistics. Specific to the queried time range if provided, otherwise overall.', nullable: true })
-  latestPnl?: number;
-
-  @ApiPropertyOptional({ example: 51.47, description: 'The token win rate percentage from the advanced statistics. Specific to the queried time range if provided, otherwise overall.', nullable: true })
-  tokenWinRate?: number;
-
-  @ApiProperty({ example: 'True Flipper', description: 'Behavioral classification of the wallet based on trading patterns. May be influenced by time range if applicable to behavior service.', nullable: true })
-  behaviorClassification: string | null;
-
-  @ApiPropertyOptional({
-    description: 'The start date that was used for filtering the summary, if provided in the request (ISO 8601 format).',
-    example: '2024-01-01T00:00:00.000Z',
+  @ApiPropertyOptional({ 
+    description: 'ISO 8601 timestamp of when the wallet was last analyzed.',
+    example: '2023-05-21T10:00:00.000Z' 
   })
-  receivedStartDate?: string | null;
-
-  @ApiPropertyOptional({
-    description: 'The end date that was used for filtering the summary, if provided in the request (ISO 8601 format).',
-    example: '2024-01-31T23:59:59.999Z',
-  })
-  receivedEndDate?: string | null;
-
-  @ApiPropertyOptional({ type: Number, description: 'Current SOL balance of the wallet.', nullable: true })
-  currentSolBalance?: number;
-
-  @ApiPropertyOptional({ type: String, description: 'ISO timestamp of when the balances were last fetched.', nullable: true })
-  balancesFetchedAt?: string;
-
-  @ApiPropertyOptional({ type: () => [Object], description: 'Array of current token balances held by the wallet. Each object represents a token.', nullable: true })
-  tokenBalances?: TokenBalanceDetails[];
-
-  @ApiProperty({ description: 'The date and time the wallet was last analyzed successfully.', example: '2023-03-15T12:00:00.000Z', required: false, nullable: true })
   lastAnalyzedAt?: string | null;
+
+  @ApiPropertyOptional({ 
+    description: "Timestamp of the wallet's last known transaction (Unix seconds).",
+    example: 1684663200 
+  })
+  lastActiveTimestamp?: number | null;
+
+  @ApiPropertyOptional({ 
+    description: 'Number of days the wallet has been active.',
+    example: 42 
+  })
+  daysActive?: number | string;
+
+  @ApiPropertyOptional({ 
+    description: 'The latest realized PNL for the wallet.',
+    example: 1250.75 
+  })
+  latestPnl?: number | null;
+
+  @ApiPropertyOptional({ 
+    description: 'The win rate of profitable tokens as a percentage.',
+    example: 66.67 
+  })
+  tokenWinRate?: number | null;
+
+  @ApiPropertyOptional({ 
+    description: 'The classified trading behavior of the wallet.',
+    example: 'True Flipper' 
+  })
+  behaviorClassification?: string | null;
+
+  @ApiPropertyOptional({ 
+    description: 'The current SOL balance of the wallet.',
+    example: 10.5 
+  })
+  currentSolBalance?: number | null;
+
+  @ApiPropertyOptional({ 
+    description: 'ISO 8601 timestamp of when the SOL balance was last fetched.',
+    example: '2023-05-21T09:55:00.000Z' 
+  })
+  balancesFetchedAt?: string | null;
 } 

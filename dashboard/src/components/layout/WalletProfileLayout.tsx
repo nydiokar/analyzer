@@ -20,7 +20,7 @@ import {
   RefreshCw,     // Added for the refresh button
   Star           // Added Star icon for favorites
 } from 'lucide-react' 
-import { useToast } from "@/hooks/use-toast"
+import { toast } from 'sonner';
 import {
   Tooltip,
   TooltipContent,
@@ -30,6 +30,10 @@ import {
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { isValid, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { fetcher } from '@/lib/fetcher';
+import { useApiKeyStore } from '@/store/api-key-store';
+import { WalletSummaryData } from '@/types/api';
+import { useFavorites } from '@/hooks/useFavorites';
 
 // Import the new tab component
 import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
@@ -38,110 +42,81 @@ import AccountStatsPnlTab from '@/components/dashboard/AccountStatsPnlTab';
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
 import ReviewerLogTab from '@/components/dashboard/ReviewerLogTab';
 
-// Basic fetcher function - can be co-located or imported if it's shared
-const fetcher = async (url: string, options?: RequestInit) => {
-  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-  let baseHeaders: HeadersInit = {};
-  if (apiKey) baseHeaders['X-API-Key'] = apiKey;
-  const mergedHeaders = { ...baseHeaders, ...(options?.headers || {}) };
-  const res = await fetch(url, { ...options, headers: mergedHeaders });
-  if (!res.ok) {
-    const errorPayload = await res.json().catch(() => ({ message: res.statusText }));
-    const error = new Error(errorPayload.message || 'An error occurred') as any;
-    error.status = res.status;
-    error.payload = errorPayload;
-    throw error;
-  }
-  if (res.status === 204) return null;
-  return res.json();
-};
+const API_BASE_URL = '/api/v1';
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
   walletAddress: string;
 }
 
-const truncateWalletAddress = (address: string, startChars = 6, endChars = 4): string => {
+function truncateWalletAddress(address: string, startChars = 6, endChars = 4): string {
   if (!address) return '';
   if (address.length <= startChars + endChars) return address;
   return `${address.substring(0, startChars)}...${address.substring(address.length - endChars)}`;
-};
+}
 
 export default function WalletProfileLayout({
   children,
   walletAddress,
 }: WalletProfileLayoutProps) {
-  const { toast } = useToast();
-  const { mutate, cache } = useSWRConfig();
+  const { mutate: globalMutate, cache } = useSWRConfig();
   const { startDate, endDate } = useTimeRangeStore();
+  const { apiKey, isInitialized, isDemo } = useApiKeyStore();
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false);
 
-  const apiKey = process.env.NEXT_PUBLIC_API_KEY; // To check if favorites can be used
-  const favoritesSWRKey = apiKey ? `/api/v1/users/me/favorites` : null;
-  const { data: favoritesData, error: favoritesError, mutate: mutateFavorites } = useSWR<Array<{walletAddress: string}>>(
-    favoritesSWRKey,
-    fetcher,
-    { revalidateOnFocus: false } // No need to revalidate on focus for this usually
-  );
+  // Use the centralized hook
+  const { favorites: favoritesData, mutate: mutateFavorites, isLoading: isLoadingFavorites } = useFavorites();
 
   const isCurrentWalletFavorite = React.useMemo(() => {
     return !!favoritesData?.find(fav => fav.walletAddress === walletAddress);
   }, [favoritesData, walletAddress]);
 
-  // SWR hook to fetch wallet summary data
-  const walletSummaryKey = walletAddress ? `/api/v1/wallets/${walletAddress}/summary` : null;
-  const { data: walletSummary, error: summaryError, isLoading: isLoadingWalletSummary } = useSWR<{ lastAnalyzedAt?: string | null, [key: string]: any }>(
+  const walletSummaryKey = isInitialized && apiKey && walletAddress ? `${API_BASE_URL}/wallets/${walletAddress}/summary` : null;
+  const { data: walletSummary, error: summaryError, isLoading: isLoadingWalletSummary } = useSWR<WalletSummaryData>(
     walletSummaryKey,
-    fetcher,
+    (url: string) => fetcher(url),
     {
-      revalidateOnFocus: false, // Optional: prevent re-fetch on window focus for this piece of data
+      revalidateOnFocus: false,
     }
   );
 
-  // Effect to initialize analysis status from fetched summary
   useEffect(() => {
     if (walletSummary && typeof walletSummary.lastAnalyzedAt === 'string') {
       const analysisDate = new Date(walletSummary.lastAnalyzedAt);
       if (isValid(analysisDate)) {
         setLastAnalysisTimestamp(analysisDate);
         const now = new Date();
-        // Consider analysis fresh if within the last 24 hours
         const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         if (analysisDate > twentyFourHoursAgo) {
-          setLastAnalysisStatus('success'); // Fresh
+          setLastAnalysisStatus('success');
         } else {
-          setLastAnalysisStatus('idle');    // Stale (was successful, but old)
+          setLastAnalysisStatus('idle');
         }
-      } else { // Invalid date string from backend
+      } else {
         setLastAnalysisTimestamp(null);
-        setLastAnalysisStatus('idle'); // Treat as never analyzed or unknown
+        setLastAnalysisStatus('idle');
       }
-    } else if (walletSummary && !walletSummary.lastAnalyzedAt) { // Explicitly null or undefined means never analyzed
+    } else if (walletSummary && !walletSummary.lastAnalyzedAt) {
       setLastAnalysisTimestamp(null);
-      setLastAnalysisStatus('idle'); // Means "never analyzed"
+      setLastAnalysisStatus('idle');
     }
-    // If summaryError, we don't automatically set analysis status to 'error'
-    // as this effect is for initial load. `handleTriggerAnalysis` handles specific analysis errors.
   }, [walletSummary]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(walletAddress)
       .then(() => {
-        toast({
-          title: "Copied!",
+        toast.success("Copied!", {
           description: "Wallet address copied to clipboard.",
           duration: 2000,
         });
       })
       .catch(err => {
-        toast({
-          title: "Failed to copy",
+        toast.error("Failed to copy", {
           description: "Could not copy address to clipboard.",
-          variant: "destructive",
           duration: 2000,
         });
         console.error('Failed to copy: ', err);
@@ -149,48 +124,54 @@ export default function WalletProfileLayout({
   };
 
   const handleTriggerAnalysis = async () => {
+    const { isDemo } = useApiKeyStore.getState();
+    if (isDemo) {
+      toast.info("This is a demo account", {
+        description: "Triggering a new analysis is disabled for demo accounts.",
+        action: {
+          label: "Dismiss",
+          onClick: () => {},
+        },
+      });
+      return;
+    }
+
     if (!walletAddress) {
-      toast({
-        title: "Wallet Address Missing",
+      toast.error("Wallet Address Missing", {
         description: "Cannot trigger analysis without a wallet address.",
-        variant: "destructive",
       });
       return;
     }
 
     setIsAnalyzing(true);
-    toast({
-      title: "Analysis Queued",
+    toast.info("Analysis Queued", {
       description: `Fetching and analyzing data for ${truncateWalletAddress(walletAddress)}. This may take a few moments.`,
     });
 
     try {
-      await fetcher(`/api/v1/analyses/wallets/${walletAddress}/trigger-analysis`, {
+      await fetcher(`${API_BASE_URL}/analyses/wallets/${walletAddress}/trigger-analysis`, {
         method: 'POST',
       });
       
-      toast({
-        title: "Analysis In Progress",
+      toast.success("Analysis In Progress", {
         description: `Data for ${truncateWalletAddress(walletAddress)} is being refreshed. UI will update shortly.`,
       });
 
       if (cache instanceof Map) {
         for (const key of cache.keys()) {
-          if (typeof key === 'string' && key.startsWith(`/api/v1/wallets/${walletAddress}`)) {
-            mutate(key);
+          if (typeof key === 'string' && key.startsWith(`${API_BASE_URL}/wallets/${walletAddress}`)) {
+            globalMutate(key);
           }
         }
       } else {
-        if (walletSummaryKey) mutate(walletSummaryKey);
+        if (walletSummaryKey) globalMutate(walletSummaryKey);
       }
 
     } catch (err: any) {
       console.error("Error triggering analysis:", err);
       setLastAnalysisStatus('error');
-      toast({
-        title: "Analysis Failed to Trigger",
+      toast.error("Analysis Failed to Trigger", {
         description: err.message || "An unexpected error occurred. Please check console for details.",
-        variant: "destructive",
       });
     } finally {
       setIsAnalyzing(false);
@@ -198,69 +179,42 @@ export default function WalletProfileLayout({
   };
 
   const handleToggleFavorite = async () => {
-    if (!walletAddress || !apiKey || !favoritesSWRKey) {
-      toast({
-        title: "Cannot update favorites",
-        description: "API Key not available, no wallet selected, or favorites not loaded.",
-        variant: "destructive",
-      });
+    if (!walletAddress || !apiKey || isTogglingFavorite) {
       return;
     }
-
+  
     setIsTogglingFavorite(true);
+    
     const currentIsFavorite = isCurrentWalletFavorite;
     const method = currentIsFavorite ? 'DELETE' : 'POST';
     const url = currentIsFavorite
-      ? `/api/v1/users/me/favorites/${walletAddress}`
-      : `/api/v1/users/me/favorites`;
-
+      ? `${API_BASE_URL}/users/me/favorites/${walletAddress}`
+      : `${API_BASE_URL}/users/me/favorites`;
+  
     const body = currentIsFavorite ? undefined : JSON.stringify({ walletAddress });
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-
-    // Optimistic UI update
-    const previousFavorites = favoritesData ? [...favoritesData] : [];
-    let newOptimisticFavorites: Array<{ walletAddress: string }>;
-
-    if (currentIsFavorite) {
-      // Optimistically remove
-      newOptimisticFavorites = previousFavorites.filter(fav => fav.walletAddress !== walletAddress);
-    } else {
-      // Optimistically add
-      newOptimisticFavorites = [...previousFavorites, { walletAddress }];
-    }
-
-    // Update local SWR cache immediately with optimistic data
-    // and prevent revalidation for this immediate mutation
-    mutateFavorites(newOptimisticFavorites, false);
-
+    
     try {
       await fetcher(url, {
         method,
         body,
-        headers,
       });
-      toast({
-        title: currentIsFavorite ? "Removed from Favorites" : "Added to Favorites",
-        description: `${truncateWalletAddress(walletAddress, 10, 8)} ${currentIsFavorite ? 'removed from' : 'added to'} your favorites.`,
+  
+      await mutateFavorites();
+  
+      toast.success(currentIsFavorite ? "Removed from Favorites" : "Added to Favorites", {
+        description: `${truncateWalletAddress(walletAddress, 10, 8)} has been updated.`,
       });
-      // Trigger a revalidation from the server to ensure consistency.
-      // Pass undefined as data and true for revalidation option.
-      mutateFavorites(undefined, true);
-
+  
     } catch (err: any) {
-      toast({
-        title: "Favorite Update Failed",
+      toast.error("Favorite Update Failed", {
         description: err.message || "An unexpected error occurred.",
-        variant: "destructive",
       });
-      // Rollback optimistic update on error
-      mutateFavorites(previousFavorites, false);
+      mutateFavorites();
     } finally {
       setIsTogglingFavorite(false);
     }
   };
 
-  // Helper component for the Analysis Button and its Status (for expanded view)
   const ExpandedAnalysisControl = () => (
     <div className="flex flex-col items-start gap-1 mt-2 w-full md:w-auto">
       <Button 
@@ -306,11 +260,9 @@ export default function WalletProfileLayout({
       <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
         <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
           
-          {/* === LEFT COLUMN (Wallet ID & Refresh for Expanded, or full Collapsed View) === */}
           <div className='flex flex-col items-start gap-1 flex-shrink-0'> 
             {walletAddress && isHeaderExpanded && (
               <>
-                {/* Wallet Identity (Icon, Address, Copy, Favorite) */}
                 <div className="flex items-center gap-1">
                   <WalletIcon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                   <Badge variant="outline" className="px-2 py-1 text-xs md:text-sm font-mono truncate">
@@ -328,7 +280,7 @@ export default function WalletProfileLayout({
                             variant="ghost" 
                             size="icon" 
                             onClick={handleToggleFavorite} 
-                            disabled={isTogglingFavorite || !favoritesData}
+                            disabled={isTogglingFavorite || isLoadingFavorites}
                             className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
                           >
                             <Star 
@@ -344,15 +296,12 @@ export default function WalletProfileLayout({
                     </TooltipProvider>
                   )}
                 </div>
-                {/* Refresh Control - Placed directly under wallet identity in expanded view */}
                 <ExpandedAnalysisControl />
               </>
             )}
 
             {walletAddress && !isHeaderExpanded && (
-              // COLLAPSED VIEW: Single line, flex layout (as previously implemented and approved)
               <div className="w-full flex items-center justify-between gap-2 py-1">
-                {/* Left side: Wallet address, copy, favorite */}
                 <div className="flex items-center gap-1 flex-shrink min-w-0">
                   <WalletIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   <Badge variant="outline" className="px-1.5 py-0.5 text-xs font-mono truncate">
@@ -369,7 +318,7 @@ export default function WalletProfileLayout({
                             variant="ghost" 
                             size="icon" 
                             onClick={handleToggleFavorite} 
-                            disabled={isTogglingFavorite || !favoritesData}
+                            disabled={isTogglingFavorite || isLoadingFavorites}
                             className="h-6 w-6 flex-shrink-0"
                           >
                             <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
@@ -380,7 +329,6 @@ export default function WalletProfileLayout({
                     </TooltipProvider>
                   )}
                 </div>
-                {/* Right side: Analyze/Refresh button and status (compact) */}
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
                     <TooltipProvider delayDuration={100}>
@@ -425,12 +373,14 @@ export default function WalletProfileLayout({
             )}
           </div>
 
-          {/* === RIGHT COLUMN (Account Summary, Time Range, and Toggles) === */}
           <div className="flex flex-col md:flex-row items-start md:items-center justify-end gap-x-2 gap-y-2 mt-2 md:mt-0 flex-grow">
             {isHeaderExpanded && (
-              <> {/* Fragment to group AccountSummaryCard and TimeRangeSelector for layout purposes */}
+              <>
                 <AccountSummaryCard 
-                  walletAddress={walletAddress} 
+                  walletAddress={walletAddress}
+                  summaryData={walletSummary || null}
+                  isLoading={isLoadingWalletSummary}
+                  error={summaryError}
                   className="w-full sm:w-auto md:max-w-sm"
                   triggerAnalysis={handleTriggerAnalysis} 
                   isAnalyzingGlobal={isAnalyzing}
@@ -438,10 +388,9 @@ export default function WalletProfileLayout({
                 <TimeRangeSelector />
               </>
             )}
-            {/* Toggles (Collapse/Expand, Theme) - positioned after conditional elements in this column */}
             <div className={cn(
-              "flex items-center gap-1 self-stretch justify-end", // self-stretch for vertical alignment, justify-end for horizontal
-              isHeaderExpanded ? "md:ml-2" : "w-full mt-2 md:mt-0" // Margin if expanded, full-width if collapsed (to push to end)
+              "flex items-center gap-1 self-stretch justify-end",
+              isHeaderExpanded ? "md:ml-2" : "w-full mt-2 md:mt-0"
             )}>
               <TooltipProvider delayDuration={100}>
                 <Tooltip>

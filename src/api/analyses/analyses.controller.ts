@@ -1,13 +1,15 @@
-import { Controller, Post, Param, Logger, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Param, Logger, InternalServerErrorException, NotFoundException, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { DatabaseService } from '../database/database.service';
 import { PnlAnalysisService } from '../pnl_analysis/pnl-analysis.service';
 import { BehaviorService } from '../wallets/behavior/behavior.service';
 import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
 import { Wallet } from '@prisma/client';
+import { ApiKeyAuthGuard } from '../auth/api-key-auth.guard';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
+@UseGuards(ApiKeyAuthGuard)
 export class AnalysesController {
   private readonly logger = new Logger(AnalysesController.name);
 

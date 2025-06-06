@@ -7,9 +7,10 @@ import { Loader2, AlertTriangle, Search, PlusCircle, Info, DownloadCloud } from 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from 'sonner';
 import { debounce } from 'lodash';
-import { fetcher } from '@/lib/fetcher'; // Import global fetcher
+import { fetcher } from '@/lib/fetcher'; // Use the global fetcher
+import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1';
+const API_BASE_URL = '/api/v1';
 const DEBOUNCE_DELAY = 300;
 
 // --- Types ---
@@ -26,23 +27,22 @@ interface TriggerAnalysisResponse {
 // const fetcher = async (url: string, apiKey?: string) => { ... };
 
 // --- SWR Hooks ---
-function useWalletSearch(query: string) { // apiKey no longer needed as arg, global fetcher handles it
+function useWalletSearch(query: string) {
+  const { apiKey, isInitialized } = useApiKeyStore();
   const searchQuery = query.trim();
-  const apiKey = process.env.NEXT_PUBLIC_API_KEY; // Check apiKey for shouldFetch logic
-  // Only fetch if query is non-empty and apiKey is present
-  const shouldFetch = searchQuery && apiKey;
+  const shouldFetch = isInitialized && apiKey && searchQuery;
 
-  const swrKey = shouldFetch ? `${API_BASE_URL}/wallets/search?query=${encodeURIComponent(searchQuery)}` : null;
+  const swrKey = shouldFetch ? [`${API_BASE_URL}/wallets/search?query=${encodeURIComponent(searchQuery)}`, apiKey] : null;
 
-  // Use the global fetcher, but then process its result
   return useSWR<WalletSearchResultItem[]>(
     swrKey,
-    async (url: string) => {
-      const responseData = await fetcher(url) as { wallets: WalletSearchResultItem[] }; // Global fetcher doesn't take apiKey as direct arg here
+    async (key: string[] | string) => {
+      const url = Array.isArray(key) ? key[0] : key;
+      const responseData = await fetcher(url) as { wallets: WalletSearchResultItem[] };
       if (responseData && Array.isArray(responseData.wallets)) {
-        return responseData.wallets; 
+        return responseData.wallets;
       }
-      return []; 
+      return [];
     },
     { revalidateOnFocus: false, errorRetryCount: 2 }
   );
@@ -55,15 +55,14 @@ export function WalletSearch() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisTarget, setAnalysisTarget] = useState<string | null>(null);
 
-  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-  const userId = process.env.NEXT_PUBLIC_USER_ID;
+  const { apiKey, isInitialized } = useApiKeyStore();
 
-  const { 
-    data: searchResults, 
+  const {
+    data: searchResults,
     error: searchError,
     isLoading: isSearchLoading,
-    mutate: mutateSearch 
-  } = useWalletSearch(query); // Pass only query
+    mutate: mutateSearch
+  } = useWalletSearch(query);
 
   const debouncedSetQuery = useCallback(debounce((newQuery: string) => {
     setQuery(newQuery);
@@ -87,32 +86,18 @@ export function WalletSearch() {
   };
 
   const handleTriggerAnalysis = async (walletAddress: string) => {
-    if (!apiKey) {
-      toast.error('API Key not configured. Cannot trigger analysis.');
-      return;
-    }
     setIsAnalyzing(true);
     setAnalysisTarget(walletAddress);
     try {
-      const result = await fetch(`${API_BASE_URL}/analyses/wallets/${walletAddress}/trigger-analysis`, {
+      const result = await fetcher(`${API_BASE_URL}/analyses/wallets/${walletAddress}/trigger-analysis`, {
         method: 'POST',
-        headers: { 'X-API-Key': apiKey },
       });
-      const responseData: TriggerAnalysisResponse = await result.json(); 
-
-      if (!result.ok) {
-        throw new Error(responseData.message || 'Failed to trigger analysis.');
-      }
       
-      toast.success(responseData.message || `Analysis started for ${walletAddress.substring(0,6)}...`);
-      // Optionally, after triggering, clear search or re-fetch to see if it appears
-      // For now, we just show a toast. User can manually search again later.
-      // Or, if the favorites list is visible, revalidate it.
-      if (userId) {
-        globalMutate(`${API_BASE_URL}/users/${userId}/favorites`);
-      }
-      // Re-run the current search to see if the wallet now appears (if it was instantly added to DB)
-      mutateSearch(); 
+      toast.success(result.message || `Analysis started for ${walletAddress.substring(0,6)}...`);
+      
+      globalMutate((key: any) => Array.isArray(key) && key[0].includes('/users/me/favorites'));
+      mutateSearch();
+
     } catch (err: any) {
       toast.error(`Analysis error: ${err.message}`);
     } finally {
@@ -131,10 +116,11 @@ export function WalletSearch() {
     !isSearchLoading && 
     (!searchResults || searchResults.length === 0);
 
-  if (!apiKey) {
+  if (!isInitialized || !apiKey) {
     return (
       <div className="p-2 text-xs text-muted-foreground text-center border rounded-md bg-muted/30">
-         <Info size={14} className="inline mr-1" /> Search requires API key.
+         <Info size={14} className="inline mr-1" />
+         {isInitialized ? 'Search requires an API key.' : <Loader2 size={14} className="inline animate-spin"/>}
       </div>
     )
   }

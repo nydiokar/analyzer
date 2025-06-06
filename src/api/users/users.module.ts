@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { UserFavoritesController } from '../controllers/users/user-favorites.controller';
 import { UserFavoritesService } from './user-favorites.service';
-import { DatabaseModule } from '../database/database.module'; // Assuming DatabaseService is provided here
+import { UsersController } from '../controllers/users/users.controller';
 
 @Module({
-  imports: [DatabaseModule], // Import if DatabaseService is exported from DatabaseModule
-  controllers: [UserFavoritesController],
+  imports: [],
+  controllers: [UserFavoritesController, UsersController],
   providers: [UserFavoritesService],
   exports: [UserFavoritesService], // Export if other modules might need this service directly
 })

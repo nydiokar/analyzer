@@ -1,56 +1,38 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module'; 
+import { NestFactory, Reflector } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ForbiddenExceptionFilter } from './api/common/filters/forbidden-exception.filter';
 import { Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import * as dotenv from 'dotenv';
+import { ApiKeyAuthGuard } from './api/auth/api-key-auth.guard';
+import { DatabaseService } from './api/database/database.service';
+
+dotenv.config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const port = process.env.PORT || 3001;
-  const corsOrigin = process.env.CORS_ORIGIN;
 
-  // For production, the CORS_ORIGIN should be set to your Vercel frontend's URL.
-  // For local development, you might set it to 'http://localhost:3000'.
-  // The 'true' fallback is for simple local testing but will log a warning.
-  if (!corsOrigin) {
-    Logger.warn('CORS_ORIGIN is not set. Allowing all origins for development purposes.', 'Bootstrap');
-  }
+  app.setGlobalPrefix('api/v1');
+  app.enableCors();
 
-  app.enableCors({
-    origin: corsOrigin || true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    allowedHeaders: 'Content-Type, Accept, X-API-Key',
-    credentials: true,
-  });
-
-  // Global prefix for all API routes, as per plan (e.g., /api/v1)
-  app.setGlobalPrefix('api/v1'); 
-
-  // --- Swagger (OpenAPI) Setup --- 
+  // --- Swagger OpenAPI Documentation Setup ---
   const config = new DocumentBuilder()
-    .setTitle('Wallet Analysis API')
-    .setDescription('API for wallet analysis services')
-    .setVersion('v1')
-    .addTag('Wallets') // Optional: Add tags used in controllers
-    .addApiKey({ type: 'apiKey', name: 'X-API-Key', in: 'header' }, 'ApiKeyAuth') // Document X-API-Key
+    .setTitle('Wallet Analyzer API')
+    .setDescription('API for tracking and analyzing Solana wallets.')
+    .setVersion('1.0')
+    .addTag('wallets', 'Wallet-related operations')
+    .addTag('users', 'User-related operations')
+    .addApiKey({ type: 'apiKey', name: 'x-api-key', in: 'header' }, 'x-api-key')
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api-docs', app, document); // API docs will be available at /api-docs
+  SwaggerModule.setup('api-docs', app, document);
   // --- End Swagger Setup ---
 
-  await app.listen(port);
+  app.useGlobalFilters(new ForbiddenExceptionFilter());
+
+  await app.listen(port, '::');
   Logger.log(`🚀 Application is running on: http://localhost:${port}/api/v1`, 'Bootstrap');
   Logger.log(`📚 API Documentation available at: http://localhost:${port}/api-docs`, 'Bootstrap');
 }
 bootstrap();
-
-// Create a simple AppModule (e.g., in src/app.module.ts) that imports ApiModule:
-/*
-// src/app.module.ts
-import { Module } from '@nestjs/common';
-import { ApiModule } from './api/api.module';
-
-@Module({
-  imports: [ApiModule],
-})
-export class AppModule {}
-*/ 

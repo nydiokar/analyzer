@@ -51,20 +51,21 @@ async function main() {
         try {
           const users = await dbService.getAllUsers();
           if (users && users.length > 0) {
-            console.log('----------------------------------------------------------------------------------------------------');
+            console.log('-----------------------------------------------------------------------------------------------------------------');
             console.log('🔑 All Users:');
-            console.log('----------------------------------------------------------------------------------------------------');
-            console.log('ID                                    | Active | Description                               | Created At                | Updated At');
-            console.log('---------------------------------------|--------|-------------------------------------------|---------------------------|---------------------------');
+            console.log('-----------------------------------------------------------------------------------------------------------------');
+            console.log('ID                                    | Active | Is Demo | Description                               | Created At                | Last Seen');
+            console.log('---------------------------------------|--------|---------|-------------------------------------------|---------------------------|---------------------------');
             users.forEach(user => {
               const id = user.id.padEnd(36);
               const active = user.isActive ? '✅ Yes' : '❌ No ';
-              const description = (user.description || 'N/A').padEnd(40);
+              const isDemo = user.isDemo ? '✅ Yes' : 'No    ';
+              const description = (user.description || 'N/A').padEnd(41);
               const createdAt = new Date(user.createdAt).toISOString().padEnd(25);
-              const updatedAt = user.lastSeenAt ? new Date(user.lastSeenAt).toISOString().padEnd(25) : 'Never'.padEnd(25);
-              console.log(`${id} | ${active} | ${description} | ${createdAt} | ${updatedAt}`);
+              const lastSeen = user.lastSeenAt ? new Date(user.lastSeenAt).toISOString().padEnd(25) : 'Never'.padEnd(25);
+              console.log(`${id} | ${active} | ${isDemo} | ${description} | ${createdAt} | ${lastSeen}`);
             });
-            console.log('----------------------------------------------------------------------------------------------------');
+            console.log('-----------------------------------------------------------------------------------------------------------------');
           } else {
             console.log('ℹ️ No users found in the database.');
           }
@@ -165,6 +166,36 @@ async function main() {
           }
         } catch (error) {
           console.error('❌ Error deleting user:', error);
+        }
+      }
+    )
+    .command(
+      'set-demo <id> <status>',
+      'Set the demo status for a user (e.g., set-demo <user-id> true)',
+      (yargs) => {
+        return yargs
+          .positional('id', {
+            describe: 'The ID of the user to modify',
+            type: 'string',
+            demandOption: true,
+          })
+          .positional('status', {
+            describe: 'The demo status to set (true or false)',
+            type: 'boolean',
+            demandOption: true,
+          });
+      },
+      async (argv) => {
+        console.log(`\nAttempting to set demo status for user ${argv.id} to ${argv.status}...`);
+        try {
+          const user = await dbService.setUserDemoStatus(argv.id as string, argv.status as boolean);
+          if (user) {
+            console.log(`✅ User ${user.id} (${user.description}) demo status successfully set to: ${user.isDemo}`);
+          } else {
+            console.warn(`⚠️ User with ID ${argv.id} not found.`);
+          }
+        } catch (error) {
+          console.error('❌ Error setting demo status:', error);
         }
       }
     )

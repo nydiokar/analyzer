@@ -14,11 +14,10 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"; // Import Tooltip
 import { Switch } from "@/components/ui/switch"; // Added Switch
 import { Label } from "@/components/ui/label";   // Added Label
-import { Button } from '@/components/ui/button'; // Added Button
-import { toast } from 'sonner'; // Added toast
 import { fetcher } from '@/lib/fetcher'; // Ensure global fetcher is used
 import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 import { Skeleton } from "@/components/ui/skeleton";
+import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
@@ -28,8 +27,6 @@ interface BehavioralPatternsTabProps {
   isAnalyzingGlobal?: boolean;
   triggerAnalysisGlobal?: () => void;
 }
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1';
 
 // Helper component for displaying a metric with an optional tooltip
 const MetricDisplay: React.FC<{
@@ -100,27 +97,28 @@ const formatHour = (hour: number | undefined | null): string => {
 
 export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: BehavioralPatternsTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
+  const { apiKey, isInitialized } = useApiKeyStore(); // Get key and init status
   const [useLogScaleDuration, setUseLogScaleDuration] = useState<boolean>(false);
 
   const behaviorApiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/behavior-analysis` : null;
-  let swrKeyBehavior: string | null = null;
+  let swrKeyBehavior: (string | null)[] | null = null;
 
-  if (behaviorApiUrlBase) {
+  if (behaviorApiUrlBase && isInitialized && apiKey) { // Check for key and init status
     const behaviorParams = new URLSearchParams();
     if (startDate && endDate) {
       behaviorParams.append('startDate', startDate.toISOString());
       behaviorParams.append('endDate', endDate.toISOString());
-      swrKeyBehavior = `${behaviorApiUrlBase}?${behaviorParams.toString()}`;
+      const url = `${behaviorApiUrlBase}?${behaviorParams.toString()}`;
+      swrKeyBehavior = [url, apiKey];
     } else {
-      // Fetch all-time data if no specific range is selected in the UI
-      // The backend /behavior-analysis endpoint should handle no date params as all-time
-      swrKeyBehavior = behaviorApiUrlBase; 
+      const url = behaviorApiUrlBase; 
+      swrKeyBehavior = [url, apiKey];
     }
   }
   
   const { data: behaviorData, error: behaviorError, isLoading: behaviorIsLoading, mutate: mutateBehaviorData } = useSWR<BehaviorAnalysisResponseDto, Error & { status?: number; payload?: any }>(
     swrKeyBehavior,
-    fetcher,
+    ([url]) => fetcher(url), // Pass only URL to fetcher
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,

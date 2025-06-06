@@ -4,16 +4,18 @@ import { AddFavoriteWalletDto } from '../../users/user-favorites.dto';
 import { UserFavoritesService } from '../../users/user-favorites.service';
 import { FavoriteWalletDetailDto } from '../../users/favorite-wallet-detail.dto';
 import { User } from '@prisma/client';
+import { ApiKeyAuthGuard } from '../../auth/api-key-auth.guard';
 
 // The AuthMiddleware in api.module.ts already protects routes starting with 'users'
 // and populates req.user.
 
 interface AuthenticatedRequest extends Request {
-  user: User; // Expect user to be populated by AuthMiddleware
+  user?: User; // user is optional as it's populated by the guard
 }
 
 @ApiTags('Users - Favorites')
 @Controller('users/me/favorites')
+@UseGuards(ApiKeyAuthGuard)
 @ApiBearerAuth()
 export class UserFavoritesController {
   constructor(private readonly userFavoritesService: UserFavoritesService) {}
@@ -31,7 +33,8 @@ export class UserFavoritesController {
     @Body() addFavoriteWalletDto: AddFavoriteWalletDto,
     @Req() req: AuthenticatedRequest, 
   ): Promise<void> {
-    return this.userFavoritesService.addFavorite(req.user.id, addFavoriteWalletDto.walletAddress);
+    const userId = req.user!.id;
+    return this.userFavoritesService.addFavorite(userId, addFavoriteWalletDto.walletAddress);
   }
 
   @Delete(':walletAddress')
@@ -45,7 +48,8 @@ export class UserFavoritesController {
     @Param('walletAddress') walletAddress: string,
     @Req() req: AuthenticatedRequest,
   ): Promise<void> {
-    return this.userFavoritesService.removeFavorite(req.user.id, walletAddress);
+    const userId = req.user!.id;
+    return this.userFavoritesService.removeFavorite(userId, walletAddress);
   }
 
   @Get()
@@ -56,6 +60,7 @@ export class UserFavoritesController {
   async getFavorites(
     @Req() req: AuthenticatedRequest,
   ): Promise<FavoriteWalletDetailDto[]> {
-    return this.userFavoritesService.getFavorites(req.user.id);
+    const userId = req.user!.id;
+    return this.userFavoritesService.getFavorites(userId);
   }
 } 

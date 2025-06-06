@@ -234,16 +234,16 @@ model AnalysisRun {
 }
 
 model User {
-  id           String    @id @default(cuid()) // Or use autoincrement Int
-  apiKey       String    @unique // For API authentication
-  description  String?   // e.g., "Dashboard Primary Access", "Analyst X"
-  createdAt    DateTime  @default(now())
-  lastSeenAt   DateTime?
-  isActive     Boolean   @default(true)
-  activityLogs ActivityLog[]
+  id              String    @id @default(cuid())
+  apiKey          String    @unique // For API authentication
+  description     String?   // e.g., "Dashboard Primary Access", "Analyst X"
+  isDemo          Boolean   @default(false) // New field for demo users
+  createdAt       DateTime  @default(now())
+  lastSeenAt      DateTime?
+  isActive        Boolean   @default(true)
+  activityLogs    ActivityLog[]
   favoriteWallets UserFavoriteWallet[] // Added for User-FavoriteWallets relationship
-  // Optional: Link to user-specific settings or saved wallet lists
-  walletNotes  WalletNote[]
+  walletNotes     WalletNote[]
 }
 
 model ActivityLog {

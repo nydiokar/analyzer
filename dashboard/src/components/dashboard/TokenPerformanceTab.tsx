@@ -48,6 +48,7 @@ import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState imp
 import { Skeleton } from "@/components/ui/skeleton"; // Added Skeleton import
 import { cn } from "@/lib/utils"; // Added cn for classname utility
 import { Button as UiButton } from "@/components/ui/button"; // Ensure correct Button import and type
+import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 
 interface TokenPerformanceTabProps {
   walletAddress: string;
@@ -91,8 +92,9 @@ const COLUMN_DEFINITIONS: Array<{id: string; name: string; isSortable: boolean; 
 
 export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
-  const { mutate } = useSWRConfig(); // For revalidating SWR cache
-  const { toast } = useToast(); // For displaying notifications
+  const { apiKey, isInitialized } = useApiKeyStore(); // Get key and init status
+  const { mutate } = useSWRConfig();
+  const { toast } = useToast();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
@@ -107,9 +109,9 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   const apiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/token-performance` : null;
-  let swrKey: string | null = null;
+  let swrKey: (string | null)[] | null = null;
 
-  if (apiUrlBase) {
+  if (apiUrlBase && isInitialized && apiKey) { // Check for key and init status
     const params = new URLSearchParams();
     params.append('page', page.toString());
     params.append('pageSize', pageSize.toString());
@@ -171,15 +173,16 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
 
     // Convert minTradesToggle to minTrades parameter
     if (minTradesToggle) {
-      params.append('minTrades', '2'); // Backend logic is specific to 2 for now
+      params.append('minTrades', '2');
     }
 
-    swrKey = `${apiUrlBase}?${params.toString()}`;
+    const url = `${apiUrlBase}?${params.toString()}`;
+    swrKey = [url, apiKey];
   }
 
   const { data, error, isLoading: isLoadingData } = useSWR<PaginatedTokenPerformanceResponse, Error>(
     swrKey,
-    fetcher,
+    ([url]) => fetcher(url), // Pass only URL to fetcher
     {
       revalidateOnFocus: false,
       keepPreviousData: true, 

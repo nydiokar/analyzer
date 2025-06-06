@@ -33,14 +33,14 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { AlertTriangle, InfoIcon, Send, Hourglass, PlusCircle, Edit2, Trash2, ArrowUpDown, Eye, Loader2, FileText } from 'lucide-react';
+import { AlertTriangle, Send, Hourglass, PlusCircle, Edit2, Trash2, ArrowUpDown, Eye, Loader2, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import EmptyState from '@/components/shared/EmptyState';
+import { useApiKeyStore } from '@/store/api-key-store';
 
 interface WalletNote {
   id: string;
@@ -61,6 +61,7 @@ interface ReviewerLogTabProps {
 
 export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
   const { toast } = useToast();
+  const { apiKey, isInitialized } = useApiKeyStore();
   const [newNoteContent, setNewNoteContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showInputArea, setShowInputArea] = useState(false);
@@ -72,7 +73,9 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
 
   const notesApiUrl = walletAddress ? `/api/v1/wallets/${walletAddress}/notes` : null;
 
-  const { data: notes, error: notesError, isLoading: isLoadingNotes } = useSWR<WalletNote[], Error & { status?: number; payload?: any }>(notesApiUrl, fetcher, {
+  const swrKey = (notesApiUrl && isInitialized && apiKey) ? [notesApiUrl, apiKey] : null;
+
+  const { data: notes, error: notesError, isLoading: isLoadingNotes, mutate: mutateNotes } = useSWR<WalletNote[], Error & { status?: number; payload?: any }>(swrKey, ([url]) => fetcher(url), {
     refreshInterval: 30000,
   });
 
@@ -114,7 +117,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
         title: 'Note Added',
         description: 'Your note has been successfully added.',
       });
-      mutate(notesApiUrl); 
+      mutateNotes(); 
     } catch (err) {
       const error = err as Error & { status?: number; payload?: any };
       toast({
@@ -139,7 +142,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
         title: 'Note Deleted',
         description: `Note has been deleted.`,
       });
-      mutate(notesApiUrl);
+      mutateNotes();
       setNoteToDelete(null);
     } catch (err) {
       const error = err as Error & { status?: number; payload?: any };
@@ -189,7 +192,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
         title: "Note Updated",
         description: "Your note has been successfully updated.",
       });
-      mutate(notesApiUrl);
+      mutateNotes();
       setEditingNote(null);
     } catch (err) {
       const error = err as Error & { status?: number; payload?: any };
@@ -249,7 +252,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
           title="Error Loading Notes"
           description={notesError.message || "An unexpected error occurred while fetching notes."}
           actionText="Retry"
-          onActionClick={() => mutate(notesApiUrl)}
+          onActionClick={() => mutateNotes()}
           className="border-none shadow-none"
         />
       </Card>

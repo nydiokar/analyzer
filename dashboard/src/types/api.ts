@@ -15,7 +15,13 @@ export interface BehaviorMetrics {
 }
 
 export interface WalletSummaryData {
+  status?: 'ok' | 'unanalyzed' | 'restricted';
   walletAddress: string;
+  isFavorite: boolean;
+  totalPnl: number;
+  winRate: number;
+  totalVolume: number;
+  lastAnalyzedAt?: string | null;
   lastActiveTimestamp: number | null; // Unix timestamp in seconds or null
   daysActive: number | string | null; // Backend seems to send string or number
   latestPnl?: number | null; // Moved from keyPerformanceIndicators
@@ -174,4 +180,10 @@ export interface PnlOverviewResponseData {
 export interface PnlOverviewResponse {
   periodData: PnlOverviewResponseData | null;
   allTimeData: PnlOverviewResponseData;
+}
+
+export interface FavoriteWallet {
+  walletAddress: string;
+  tag: string | null;
+  createdAt: string;
 } 

@@ -1,16 +1,9 @@
+import { useApiKeyStore } from '@/store/api-key-store';
+
 export const fetcher = async (url: string, options?: RequestInit) => {
-    let apiKey: string | null = null;
+    // Get the key directly from the Zustand store's state
+    const apiKey = useApiKeyStore.getState().apiKey;
     
-    // 1. Prioritize key from localStorage (user-provided)
-    if (typeof window !== 'undefined') {
-        apiKey = localStorage.getItem('apiKey');
-    }
-
-    // 2. Fallback to environment variable (default/demo key)
-    if (!apiKey) {
-        apiKey = process.env.NEXT_PUBLIC_DEMO_API_KEY || null;
-    }
-
     const baseHeaders: HeadersInit = {
         'Content-Type': 'application/json',
     };

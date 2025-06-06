@@ -15,10 +15,12 @@ import {
   Delete,
   HttpCode,
   Patch,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ApiKeyAuthGuard } from '../../auth/api-key-auth.guard';
+import { Wallet } from '@prisma/client';
 
 // Services from their respective feature folders
 import { DatabaseService } from '../../database/database.service';
@@ -84,7 +86,7 @@ export class WalletsController {
     }
 
     try {
-      const results = await this.databaseService.searchWalletsByAddressFragment(queryDto.query);
+      const results = await this.databaseService.searchWalletsByAddressFragment(queryDto.query, req.user?.isDemo);
       const mappedResults: WalletSearchResultItemDto[] = results.map(wallet => ({ address: wallet.address }));
       
       if (userId) {
@@ -155,16 +157,28 @@ export class WalletsController {
     }
 
     try {
-      // 1. Fetch the main persisted PNL Summary for overall KPIs and lastAnalyzedAt
+      // 1. Find or create the wallet entity to ensure it's tracked.
+      const wallet = await this.databaseService.ensureWalletExists(walletAddress);
+
+      // DEMO USER CHECK
+      const user = req.user;
+      if (user && user.isDemo && !(wallet as any).isDemo) {
+        this.logger.warn(`Restricted access for demo user ${user.id} on non-demo wallet ${walletAddress}.`);
+        return {
+          status: 'restricted',
+          walletAddress: walletAddress,
+        };
+      }
+      
+      // 2. Fetch the main persisted PNL Summary for overall KPIs.
       const overallPnlSummary = await this.databaseService.getWalletPnlSummaryWithRelations(walletAddress);
 
       if (!overallPnlSummary) {
-        this.logger.warn(`No WalletPnlSummary found for wallet: ${walletAddress}. Wallet might not be fully analyzed.`);
-        if (userId) {
-          const durationMs = Date.now() - startTime;
-          await this.databaseService.logActivity(userId, actionType, requestParameters, 'FAILURE', durationMs, 'Not Found', sourceIp);
-        }
-        throw new NotFoundException(`No comprehensive analysis data available for wallet ${walletAddress}. Please trigger analysis if it's new.`);
+        this.logger.warn(`No WalletPnlSummary found for wallet: ${walletAddress}. Returning 'unanalyzed' state.`);
+        return {
+          status: 'unanalyzed',
+          walletAddress: walletAddress,
+        };
       }
 
       // 2. Fetch the main persisted Behavior Profile
@@ -211,18 +225,16 @@ export class WalletsController {
       // The frontend time range selector influences other tabs more directly (Token Performance, PNL Overview tab).
 
       const summary: WalletSummaryResponse = {
+        status: 'ok',
         walletAddress,
-        lastAnalyzedAt: lastAnalyzedAt.toISOString(), // Key field for frontend
+        lastAnalyzedAt: lastAnalyzedAt.toISOString(),
         lastActiveTimestamp: finalLastActiveTimestamp,
         daysActive: finalDaysActive,
         latestPnl: latestPnl,
         tokenWinRate: tokenWinRate,
         behaviorClassification: behaviorClassification,
-        receivedStartDate: queryDto.startDate || null,
-        receivedEndDate: queryDto.endDate || null,
         currentSolBalance: currentSolBalance,
-        balancesFetchedAt: balancesFetchedAt?.toISOString() || null,
-        // tokenBalances: pnlSummaryForPeriod?.tokenBalances, // This would require more thought on how to source efficiently
+        balancesFetchedAt: balancesFetchedAt ? balancesFetchedAt.toISOString() : null,
       };
 
       if (userId) {

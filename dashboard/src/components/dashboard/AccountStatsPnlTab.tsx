@@ -13,8 +13,7 @@ import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 import { Skeleton } from "@/components/ui/skeleton"; // Ensure Skeleton is imported
 import { format, isValid } from 'date-fns'; // Import isValid
 import useSWR from 'swr'; // Added SWR import
-// Removed useSWRConfig as it's not directly used in this file for mutation like in AccountSummaryCard
-// If global SWR mutation is needed, it would be invoked differently or via a shared service/context.
+import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 
 interface AccountStatsPnlTabProps {
   walletAddress: string;
@@ -260,28 +259,30 @@ const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
 
 export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, lastAnalysisTimestamp }: AccountStatsPnlTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
+  const { apiKey, isInitialized } = useApiKeyStore(); // Get key and init status
   const [displayMode, setDisplayMode] = useState<number>(2);
-  const { toast } = useToast(); // Keep toast if other errors might use it, or for future SWR onError.
+  const { toast } = useToast();
 
   const pnlOverviewApiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/pnl-overview` : null;
-  let swrKeyPnl: string | null = null;
+  let swrKeyPnl: (string | null)[] | null = null;
 
-  if (pnlOverviewApiUrlBase && !isAnalyzingGlobal) { // Only build key if not in global analysis mode
+  if (pnlOverviewApiUrlBase && !isAnalyzingGlobal && isInitialized && apiKey) { // Only build key if not analyzing and store is ready
     const queryParams = new URLSearchParams();
     if (startDate) queryParams.append('startDate', startDate.toISOString());
     if (endDate) queryParams.append('endDate', endDate.toISOString());
-    // The key will change if startDate/endDate change, triggering SWR refetch.
-    swrKeyPnl = queryParams.toString() ? `${pnlOverviewApiUrlBase}?${queryParams.toString()}` : pnlOverviewApiUrlBase;
+    const url = queryParams.toString() ? `${pnlOverviewApiUrlBase}?${queryParams.toString()}` : pnlOverviewApiUrlBase;
+    // The key now includes the URL and the API key for reactivity
+    swrKeyPnl = [url, apiKey];
   }
   
   const { 
     data: pnlData, 
     error, 
-    isLoading, // SWR's isLoading state
+    isLoading,
     mutate: mutatePnlData 
   } = useSWR<PnlOverviewResponse, Error & { payload?: any; status?: number }>(
-    swrKeyPnl, // If null, SWR won't fetch, which is desired if !walletAddress or isAnalyzingGlobal
-    fetcher,
+    swrKeyPnl,
+    ([url]) => fetcher(url), // Pass only the URL to the fetcher
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,

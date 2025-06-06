@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { SearchIcon, KeyRoundIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, CopyIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useApiKeyStore } from '@/store/api-key-store';
 // It's better to import WalletSearch if it can be made context-agnostic
 // For now, we'll create a simple search input placeholder
 // import { WalletSearch } from \'@/components/sidebar/WalletSearch\';
@@ -19,32 +19,10 @@ const DEMO_WALLETS = [
   { address: 'Hnnw2hAgPgGiFKouRWvM3fSk3HnYgRv4Xq1PjUEBEuWM', name: 'SmartMoney' },
 ];
 
-const DEMO_API_KEY = process.env.NEXT_PUBLIC_DEMO_API_KEY || 'demo-key-not-set';
 
 export default function Home() {
   const router = useRouter();
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [savedApiKey, setSavedApiKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Load the saved API key from localStorage when the component mounts
-    const key = localStorage.getItem('apiKey');
-    setSavedApiKey(key);
-  }, []);
-
-  const handleSaveKey = () => {
-    localStorage.setItem('apiKey', apiKeyInput);
-    setSavedApiKey(apiKeyInput);
-    setApiKeyInput(''); // Clear input field after saving
-    // Using a more subtle notification might be better UX, e.g., a toast
-    alert('API Key saved!');
-  };
-
-  const handleClearKey = () => {
-    localStorage.removeItem('apiKey');
-    setSavedApiKey(null);
-    alert('API Key cleared!');
-  };
+  const { apiKey, isInitialized } = useApiKeyStore();
 
   const handleSearch = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -85,57 +63,36 @@ export default function Home() {
           </form>
 
           {/* API Key Management Section */}
-          <section className="max-w-xl mx-auto mb-12 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-            <h2 className="text-lg font-semibold text-slate-100 mb-3 flex items-center justify-center">
-              <KeyRoundIcon className="h-5 w-5 mr-2 text-slate-400"/>
-              Get Full Access
-            </h2>
-            {savedApiKey ? (
-              <div className="text-center">
-                <p className="text-green-400">API Key is currently set.</p>
-                <p className="text-xs text-slate-400 font-mono my-2">{`********${savedApiKey.slice(-4)}`}</p>
-                <Button onClick={handleClearKey} variant="destructive" size="sm">Clear Key</Button>
-              </div>
-            ) : (
-              <div>
-                <p className="text-sm text-slate-400 mb-3">Enter a private key to analyze any wallet, or use the public demo key below.</p>
-                <div className="flex gap-2">
-                  <Input
-                    type="password"
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    placeholder="Enter your key..."
-                    className="w-full bg-slate-700 border-slate-600 placeholder-slate-400 focus:ring-2 focus:ring-blue-500"
-                  />
-                  <Button onClick={handleSaveKey} disabled={!apiKeyInput}>Save Key</Button>
+          {isInitialized && (
+            <section className="max-w-xl mx-auto mb-12 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+              <h2 className="text-lg font-semibold text-slate-100 mb-3 flex items-center justify-center">
+                <KeyRoundIcon className="h-5 w-5 mr-2 text-slate-400"/>
+                API Key Status
+              </h2>
+              {apiKey ? (
+                <div className="text-center">
+                  <p className="text-green-400">API Key is set and active.</p>
+                  <p className="text-xs text-slate-400 mt-1">You can manage your key in the settings.</p>
+                  <Button asChild variant="secondary" size="sm" className="mt-3">
+                    <Link href="/settings">Go to Settings</Link>
+                  </Button>
                 </div>
-                
-                <div className="mt-4 text-center p-2 rounded-md bg-slate-900/50">
-                    <p className="text-xs text-slate-400">Public Demo Key:</p>
-                    <div className="flex items-center justify-center gap-2 mt-1">
-                        <code className="text-sm text-slate-300 font-mono">{DEMO_API_KEY}</code>
-                        <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => {
-                                navigator.clipboard.writeText(DEMO_API_KEY);
-                                alert('Demo key copied to clipboard!');
-                            }}
-                            className="h-6 w-6"
-                        >
-                            <CopyIcon className="h-4 w-4 text-slate-400"/>
-                        </Button>
-                    </div>
+              ) : (
+                <div>
+                  <p className="text-sm text-slate-400 mb-3">Enter an API Key in settings for full access to analyze any wallet.</p>
+                  <Button asChild variant="default" size="sm">
+                    <Link href="/settings">Go to Settings</Link>
+                  </Button>
                 </div>
-              </div>
-            )}
-          </section>
+              )}
+            </section>
+          )}
           
           {/* Explore Demo Wallets Section */}
           <section className="mt-12 text-left">
             <h2 className="text-xl font-semibold text-slate-100 mb-4 flex items-center">
               <ListIcon className="h-5 w-5 mr-2 text-slate-400"/>
-              Explore a Demo Wallet
+              Explore a Wallet
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {DEMO_WALLETS.map(wallet => (

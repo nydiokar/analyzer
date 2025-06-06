@@ -1,4 +1,4 @@
-import useSWR, { mutate } from 'swr';
+import { useFavorites } from '@/hooks/useFavorites';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,63 +18,30 @@ import {
 import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import { useApiKeyStore } from '@/store/api-key-store';
+import FavoriteWalletItem from './FavoriteWalletItem';
 
-// Frontend type matching the expected structure from GET /api/v1/users/me/favorites
-interface FavoriteWalletDisplayItem {
-  walletAddress: string;
-  pnl?: number;
-  winRate?: number; // Placeholder, actual metric might differ (e.g., flipperScore)
-  favoritedAt: string; // ISO date string
-}
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1';
-
-// Removed userId from props
-interface UseFavoriteWalletsProps {
-  apiKey?: string;
-}
-
-// Removed userId from props and SWR key construction
-function useFavoriteWallets({ apiKey }: UseFavoriteWalletsProps) {
-  const { data, error, isLoading } = useSWR<FavoriteWalletDisplayItem[]>(
-    apiKey ? `${API_BASE_URL}/users/me/favorites` : null, // Path changed to /users/me/favorites
-    fetcher,
-    { revalidateOnFocus: false }
-  );
-  return { data, error, isLoading };
-}
+const API_BASE_URL = '/api/v1';
 
 interface FavoriteWalletsListProps {
   isCollapsed: boolean;
 }
 
 export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
-  // Removed userId from environment variables
-  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-
-  // Removed userId from hook call
-  const { data: favoriteWallets, error, isLoading } = useFavoriteWallets({ apiKey });
+  const { favorites: favoriteWallets, error, isLoading, mutate: mutateFavorites } = useFavorites();
+  const { isInitialized, apiKey: hasApiKey } = useApiKeyStore();
 
   const handleRemoveFavorite = async (walletAddress: string) => {
-    // Removed userId from check
-    if (!apiKey) {
-      toast.error('API Key is not configured for this action.');
-      return;
-    }
     try {
-      // Path changed to /users/me/favorites
       const deleteUrl = `${API_BASE_URL}/users/me/favorites/${walletAddress}`;
-      await fetch(deleteUrl, {
+      await fetcher(deleteUrl, {
         method: 'DELETE',
-        headers: {
-          'X-API-Key': apiKey,
-        },
       });
       toast.success(`Wallet ${walletAddress.substring(0, 6)}... removed from favorites.`);
-      // Path changed for SWR mutate
-      mutate(`${API_BASE_URL}/users/me/favorites`); 
+      mutateFavorites(); 
     } catch (err: any) {
       toast.error(`Failed to remove favorite: ${err.message}`);
+      mutateFavorites();
     }
   };
 
@@ -88,14 +55,21 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     }
   };
 
-  // Shared logic for rendering the list content (used by both expanded and popover views)
   const renderFavoritesContent = () => {
-    if (!apiKey) {
+    if (!isInitialized) {
+      return (
+        <div className="p-4 text-center">
+          <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+        </div>
+      );
+    }
+
+    if (!hasApiKey) {
       return (
         <div className="p-4 text-center">
           <Info className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Favorites list requires API Key configuration.</p>
-          <p className="text-xs text-muted-foreground mt-1">Please set NEXT_PUBLIC_API_KEY.</p>
+          <p className="text-sm text-muted-foreground">Enter an API Key in</p>
+          <Link href="/settings" className="text-sm text-blue-500 hover:underline">Settings</Link>
         </div>
       );
     }
@@ -113,7 +87,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
       return (
         <div className="p-4 text-center text-red-500">
           <AlertTriangle className="h-6 w-6 mx-auto mb-2" />
-          <p className="text-sm">Error: {error.message}</p>
+          <p className="text-sm">Error: {(error as Error).message}</p>
         </div>
       );
     }
@@ -136,10 +110,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                 <p className="text-sm font-semibold group-hover:text-primary truncate" title={fav.walletAddress}>
                   {fav.walletAddress.substring(0, 6)}...{fav.walletAddress.substring(fav.walletAddress.length - 6)}
                 </p>
-                <div className="text-xs text-muted-foreground flex space-x-5 mt-0.5">
-                  <span>PNL: {typeof fav.pnl === 'number' ? fav.pnl.toFixed(2) : 'N/A'}</span>
-                  <span>FlipperScore: {typeof fav.winRate === 'number' ? fav.winRate.toFixed(2) : 'N/A'}</span> 
-                </div>
+                <FavoriteWalletItem walletAddress={fav.walletAddress} />
               </Link>
               <TooltipProvider delayDuration={100}>
                 <Tooltip>
@@ -179,10 +150,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
   };
 
   if (isCollapsed) {
-    // Render Popover for collapsed state
-    if (!apiKey || isLoading || error || !favoriteWallets || favoriteWallets.length === 0) {
-      // For loading/error/empty states when collapsed, show a simple icon.
-      // The full message will be inside the popover if they click.
+    if (!hasApiKey || isLoading || error || !favoriteWallets || favoriteWallets.length === 0) {
       return (
         <Popover>
           <Tooltip>
@@ -204,7 +172,6 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
       );
     }
     
-    // Collapsed view with favorites
     return (
       <Popover>
         <Tooltip>
@@ -233,7 +200,6 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     );
   }
 
-  // Default expanded view
   return (
     <div className="pt-2">
       <h3 className="text-xs font-semibold tracking-wider uppercase text-gray-500 dark:text-gray-400 mb-2 px-3 flex items-center">

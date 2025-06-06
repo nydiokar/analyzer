@@ -1,13 +1,11 @@
 "use client";
 
 import React from 'react';
-import useSWR from 'swr';
 import { Card, Metric, Text, Flex, Badge } from '@tremor/react';
-import { WalletSummaryData, WalletSummaryError } from '@/types/api';
+import { WalletSummaryData } from '@/types/api';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Hourglass, Info, CalendarDays, Landmark, PlayCircle, RefreshCw, SearchX, Loader2 } from 'lucide-react';
+import { AlertTriangle, Info, CalendarDays, Landmark, SearchX, ShieldAlert } from 'lucide-react';
 import { format, isValid } from 'date-fns';
-import { useTimeRangeStore } from '@/store/time-range-store';
 import {
   Tooltip,
   TooltipContent,
@@ -16,90 +14,36 @@ import {
 } from "@/components/ui/tooltip"
 import EmptyState from '@/components/shared/EmptyState';
 import { Skeleton } from "@/components/ui/skeleton";
+import { fetcher } from '@/lib/fetcher';
+import { useApiKeyStore } from '@/store/api-key-store';
+import { useFavorites } from '@/hooks/useFavorites';
+import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from '@/components/ui/button';
 
 interface AccountSummaryCardProps {
   walletAddress: string;
+  summaryData: WalletSummaryData | null;
+  isLoading: boolean;
+  error: any;
   className?: string;
   triggerAnalysis?: () => void;
   isAnalyzingGlobal?: boolean;
 }
 
-// Basic fetcher function for SWR - in a real app, this would be more robust
-// and likely live in a dedicated API utility file.
-const fetcher = async (url: string, options?: RequestInit) => {
-  // In a real scenario, you might have a base URL configured
-  // For now, we assume the Next.js dev server might proxy /api calls if set up,
-  // or this would fail gracefully until the API is live.
-  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-  let baseHeaders: HeadersInit = {};
-
-  if (apiKey) {
-    baseHeaders['X-API-Key'] = apiKey;
-  } else {
-    console.warn(
-      'API key (NEXT_PUBLIC_API_KEY) is not set. API requests might fail if authentication is required.'
-    );
-  }
-  const mergedHeaders = {
-    ...baseHeaders,
-    ...(options?.headers || {}),
-  };
-  const res = await fetch(url, {
-    ...options, 
-    headers: mergedHeaders,
-  });
-  if (!res.ok) {
-    // Try to parse the error response from the API
-    const errorPayload = await res.json().catch(() => ({ message: res.statusText }));
-    const error = new Error(errorPayload.message || 'An error occurred while fetching the data.') as any;
-    error.statusCode = res.status;
-    error.payload = errorPayload;
-    throw error;
-  }
-  if (res.status === 204) {
-    return null; 
-  }
-  return res.json();
-};
-
-export default function AccountSummaryCard({ walletAddress, className, triggerAnalysis, isAnalyzingGlobal }: AccountSummaryCardProps) {
-  const { startDate, endDate } = useTimeRangeStore();
-
-  const queryParams = new URLSearchParams();
-  if (startDate && isValid(startDate)) {
-    queryParams.append('startDate', startDate.toISOString());
-  }
-  if (endDate && isValid(endDate)) {
-    queryParams.append('endDate', endDate.toISOString());
-  }
-
-  const queryString = queryParams.toString();
-  const baseApiUrl = `/api/v1/wallets/${walletAddress}/summary`;
-  const apiUrlWithTime = queryString ? `${baseApiUrl}?${queryString}` : baseApiUrl;
-
-  const { data, error, isLoading } = useSWR<WalletSummaryData, WalletSummaryError>(
-    (walletAddress && startDate && endDate) 
-      ? apiUrlWithTime 
-      : null,
-    (url: string) => fetcher(url, { method: 'GET' }),
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: true,
-      onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
-        if (error.statusCode && (error.statusCode >= 400 && error.statusCode < 500)) {
-          return;
-        }
-        if (retryCount >= 2) {
-          return;
-        }
-        setTimeout(() => revalidate({ retryCount }), 5000);
-      }
-    }
-  );
-
+export default function AccountSummaryCard({ 
+  walletAddress, 
+  summaryData: data, 
+  isLoading, 
+  error,
+  className, 
+  triggerAnalysis, 
+  isAnalyzingGlobal 
+}: AccountSummaryCardProps) {
+  const { isDemo } = useApiKeyStore();
+  
   React.useEffect(() => {
     if (data) {
-      console.log('AccountSummaryCard data from API:', data);
+      console.log('AccountSummaryCard data from parent:', data);
     }
   }, [data]);
 
@@ -115,49 +59,15 @@ export default function AccountSummaryCard({ walletAddress, className, triggerAn
 
   if (isLoading) {
     return (
-      <Card className={cn("p-3 shadow-sm w-full md:w-auto md:min-w-[280px] lg:min-w-[300px]", className)}>
-        <div className="space-y-2">
-          <Flex justifyContent="between" alignItems="center" className="gap-2">
-            <Skeleton className="h-4 w-1/3" />
-            <Skeleton className="h-5 w-1/2" />
-          </Flex>
-          <Flex justifyContent="between" alignItems="center" className="gap-2">
-            <Skeleton className="h-4 w-1/4" />
-            <Skeleton className="h-5 w-1/3" />
-          </Flex>
-          <Flex justifyContent="between" alignItems="center" className="gap-2">
-            <Skeleton className="h-4 w-1/3" />
-            <Skeleton className="h-5 w-1/2" />
-          </Flex>
-          
-          <div className="mt-2 pt-2 border-t border-muted/50">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-2 gap-x-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Skeleton className="h-4 w-4 rounded-full" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-                <Skeleton className="h-3 w-12" />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Skeleton className="h-4 w-4 rounded-full" />
-                  <Skeleton className="h-3 w-20" />
-                </div>
-                <Skeleton className="h-3 w-10" />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Skeleton className="h-4 w-4 rounded-full" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-                <Skeleton className="h-3 w-12" />
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-2 pt-2 border-t border-muted/50">
-             <Skeleton className="h-4 w-full" />
+      <Card className={cn("p-4", className)}>
+        <div className="space-y-4">
+          <Skeleton className="h-8 w-3/4" />
+          <Skeleton className="h-4 w-1/2" />
+          <div className="grid grid-cols-2 gap-4 pt-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
           </div>
         </div>
       </Card>
@@ -165,91 +75,85 @@ export default function AccountSummaryCard({ walletAddress, className, triggerAn
   }
 
   if (error) {
-    const err = error as any; // Cast error to any to access dynamic properties
-    let title = "Wallet Data Error";
-    let description = err.message || "An unexpected error occurred.";
+    let title = `API Error (Status: ${error.statusCode || 'Unknown'})`;
+    let description = error.message || "An unexpected error occurred.";
     let icon = AlertTriangle;
-    let emptyStateVariant: 'info' | 'error' = 'info'; // Default to info
-
-    if (err.isNetworkError) {
-      title = "API Unreachable";
-      description = "Cannot connect to the backend server. Please ensure it's running and check your network connection.";
-      emptyStateVariant = 'error'; 
-      // icon could be ServerCrash or WifiOff from lucide-react if desired
-    } else if (err.statusCode === 404) {
-      title = "Wallet Not Yet Analyzed";
-      description = "No comprehensive data is available for this wallet yet. It may need to be analyzed.";
-      icon = SearchX; 
-      emptyStateVariant = 'info'; // 404 is more of an informational "not found/analyzed"
-    } else {
-      // General API error (e.g., 500, other 4xx)
-      title = `API Error (Status: ${err.statusCode || 'Unknown'})`;
-      if (err.statusCode === 500) {
-        description = "The server encountered an unexpected issue while trying to load the summary. Please try again shortly. If the problem persists, please check the server logs.";
-      } else {
-        description = `We couldn't load the summary: ${err.message || 'Please try again later.'}`;
-      }
+    let emptyStateVariant: 'default' | 'error' | 'info' = 'error';
+    
+    if (error.statusCode === 404) {
+      title = "Not Yet Analyzed";
+      description = "No analysis data is available for this wallet yet. You can trigger a new analysis to get started.";
+      icon = SearchX;
+      emptyStateVariant = 'info';
+    } else if (error.statusCode === 403) {
+      title = "Access Denied";
+      description = "This wallet is not part of the demo, or you do not have permission to view it.";
+      icon = ShieldAlert;
       emptyStateVariant = 'error';
     }
-
-    // Determine if the action button should be shown and what its state is
-    const showAction = triggerAnalysis && !err.isNetworkError && err.statusCode !== 503; // Example: Don't show for 503 Service Unavailable either
-    const currentActionText = isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet";
-
+    
     return (
-      <EmptyState
-        className={cn(
-          "w-full md:w-auto md:min-w-[300px] p-3",
-          "md:flex-row md:items-center md:justify-start md:text-left md:gap-4 md:p-4 md:min-h-0",
-          className
+      <div className={cn("p-4", className)}>
+        <EmptyState
+          icon={icon}
+          title={title}
+          description={description}
+          variant={emptyStateVariant}
+        />
+        {error.statusCode === 404 && (
+          <div className="mt-4 text-center">
+            <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo}>
+              {isAnalyzingGlobal ? 'Analysis in Progress...' : 'Analyze Wallet'}
+            </Button>
+          </div>
         )}
-        variant={emptyStateVariant}
-        icon={icon}
-        title={title}
-        description={description}
-        actionText={showAction ? currentActionText : undefined}
-        onActionClick={showAction ? triggerAnalysis : undefined}
-        isActionLoading={showAction && !!isAnalyzingGlobal}
-      />
-    );
-  }
-
-  if (!data && !isLoading) {
-    return (
-      <EmptyState
-        className={cn(
-          "w-full md:w-auto md:min-w-[300px]",
-          "md:flex-row md:items-center md:justify-start md:text-left md:gap-4 md:p-4 md:min-h-0",
-          className
-        )}
-        variant="info"
-        icon={Info}
-        title="No Summary Data Available"
-        description="It looks like this wallet hasn't been summarized, or there's no data for the selected period. Try analyzing the wallet or adjusting the time range."
-        actionText={triggerAnalysis ? (isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet") : undefined}
-        onActionClick={triggerAnalysis}
-        isActionLoading={!!isAnalyzingGlobal}
-      />
+      </div>
     );
   }
   
-  if (!data) {
+  if (data?.status === 'restricted') {
     return (
-      <EmptyState
-        className={cn(
-          "w-full md:w-auto md:min-w-[300px]",
-          "md:flex-row md:items-center md:justify-start md:text-left md:gap-4 md:p-4 md:min-h-0",
-          className
-        )}
-        variant="info"
-        icon={Info}
-        title="Summary Unavailable"
-        description="Summary data could not be displayed at this time."
-        actionText={triggerAnalysis ? (isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet") : undefined}
-        onActionClick={triggerAnalysis}
-        isActionLoading={!!isAnalyzingGlobal}
-      />
+      <div className={cn("p-4", className)}>
+        <EmptyState
+          icon={ShieldAlert}
+          title="Access Restricted"
+          description="This wallet is not available in the demo account's accessible list."
+          variant="info"
+        />
+      </div>
     );
+  }
+
+  if (data?.status === 'unanalyzed' || !data) {
+    return (
+       <div className={cn("p-4", className)}>
+        <EmptyState
+          icon={SearchX}
+          title="Not Yet Analyzed"
+          description="No analysis data is available for this wallet yet. You can trigger a new analysis to get started."
+          variant="info"
+        />
+        <div className="mt-4 text-center">
+            <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo}>
+              {isAnalyzingGlobal ? 'Analysis in Progress...' : 'Analyze Wallet'}
+            </Button>
+        </div>
+      </div>
+    );
+  }
+  
+  // This is a fallback, but with the checks above, data should be valid here.
+  if (!data.latestPnl) {
+    return (
+       <div className={cn("p-4", className)}>
+        <EmptyState
+          icon={AlertTriangle}
+          title="No Summary Data"
+          description="Could not display wallet summary details."
+          variant="error"
+        />
+      </div>
+    )
   }
 
   const formatPnl = (pnl: number | null) => {

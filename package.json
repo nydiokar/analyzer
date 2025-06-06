@@ -1,7 +1,7 @@
 {
   "name": "wallet-analyzer",
   "version": "0.1.0",
-  "description": "Array of analizers. Major assets live crypto exchange from CoinGecko with verifiable storage, wallet address analysis, staking calculator, price change reporter, and more.",
+  "description": "Solana wallet analysis,.",
   "main": "dist/index.js",
   "scripts": {
     "start": "ts-node -r tsconfig-paths/register src/main.ts",

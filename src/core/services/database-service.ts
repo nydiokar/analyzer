@@ -423,6 +423,31 @@ export class DatabaseService {
         }
     }
 
+    /**
+     * Sets the demo status for a user.
+     * @param userId The ID of the user to modify.
+     * @param isDemo The demo status to set.
+     * @returns The updated User object or null if not found.
+     */
+    async setUserDemoStatus(userId: string, isDemo: boolean): Promise<User | null> {
+        this.logger.debug(`Attempting to set demo status for user ${userId} to ${isDemo}`);
+        try {
+            const user = await this.prismaClient.user.update({
+                where: { id: userId },
+                data: { isDemo: isDemo },
+            });
+            this.logger.info(`User ${userId} demo status updated to ${user.isDemo}.`);
+            return user;
+        } catch (error: any) {
+            if (error.code === 'P2025') {
+                this.logger.warn(`User with ID ${userId} not found for updating demo status.`);
+                return null;
+            }
+            this.logger.error(`Error setting demo status for user ${userId}:`, error);
+            throw new Error('Could not set demo status due to a server error.');
+        }
+    }
+
     // --- Activity Log Methods ---
 
     /**
@@ -1647,21 +1672,28 @@ export class DatabaseService {
      */
     async searchWalletsByAddressFragment(
       fragment: string,
-      limit: number = 10,
+      userIsDemo: boolean = false
     ): Promise<{ address: string }[]> {
-      this.logger.debug(`Searching wallets by fragment: ${fragment}, limit: ${limit}`);
+      this.logger.debug(`Searching for wallets with fragment: ${fragment}`);
+      
+      const whereClause: any = {
+        OR: [
+          { address: { contains: fragment, mode: 'insensitive' } },
+          { name: { contains: fragment, mode: 'insensitive' } },
+        ],
+      };
+
+      if (userIsDemo) {
+        whereClause.isDemo = true;
+      }
+
       try {
         const wallets = await this.prismaClient.wallet.findMany({
-          where: {
-            address: {
-              contains: fragment,
-              // mode: 'insensitive', // Removed: Not supported/correct for case-sensitive Solana addresses
-            },
-          },
+          where: whereClause,
           select: {
             address: true,
           },
-          take: limit,
+          take: 20,
         });
         return wallets;
       } catch (error) {
@@ -1670,4 +1702,23 @@ export class DatabaseService {
       }
     }
     // --- End Wallet Search Method ---
+
+    async searchWallets(query: string, userIsDemo: boolean = false): Promise<Wallet[]> {
+        const whereClause: any = {};
+
+        if (userIsDemo) {
+            whereClause.isDemo = true;
+        }
+
+        return this.prismaClient.wallet.findMany({
+            where: {
+                ...whereClause,
+                OR: [
+                    { address: { contains: query, mode: 'insensitive' } },
+                    { name: { contains: query, mode: 'insensitive' } },
+                ],
+            },
+            take: 20,
+        });
+    }
 }

@@ -7,7 +7,7 @@ import {
   GetTokenAccountsByOwnerResult,
   // RpcAccountInfo, // Not directly used as a parameter/return type of public methods here yet
 } from '@/types/helius-api';
-import { DatabaseService } from 'core/services/database-service';
+import { DatabaseService } from '../../api/database/database.service';
 import { Injectable } from '@nestjs/common';
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
