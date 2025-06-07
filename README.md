@@ -182,9 +182,3 @@ npx ts-node ./src/scripts/test-spl-to-spl-mapper.ts
 
 ### Reliance on Helius Transaction Parsing
 This tool relies on the Helius API for fetching and parsing transaction data, including the identification of swap events and their constituent transfers. The accuracy of the P/L analysis is therefore dependent on the stability and correctness of Helius's parsing logic. Changes or inconsistencies in how Helius parses transactions from various DEXs or DeFi protocols could impact the P/L calculations. While Helius provides a convenient way to access structured transaction data, this dependency is a trade-off for broader protocol support without needing to implement custom parsers for each.
-
-### Running Tests
-```bash
-npm test
-```
-*(Note: The main test suite might need updates to align with the latest Helius/DB integration details.)* 

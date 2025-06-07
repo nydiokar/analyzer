@@ -4,11 +4,13 @@ import { DatabaseService } from '../database/database.service';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { ConfigService } from '@nestjs/config';
+import { User } from '@prisma/client';
 
 @Injectable()
 export class ApiKeyAuthGuard implements CanActivate {
   private readonly logger = new Logger(ApiKeyAuthGuard.name);
   private readonly demoWallets: string[];
+  private readonly apiKeyCache = new Map<string, User>();
 
   constructor(
     private readonly databaseService: DatabaseService,
@@ -38,7 +40,16 @@ export class ApiKeyAuthGuard implements CanActivate {
       throw new UnauthorizedException('API key is missing.');
     }
 
-    // --- Unified Key Logic ---
+    // --- Check Cache First ---
+    if (this.apiKeyCache.has(apiKey)) {
+      const cachedUser = this.apiKeyCache.get(apiKey)!;
+      request.user = cachedUser;
+      // Re-run permission checks on the cached user
+      this.checkDemoPermissions(request, cachedUser);
+      return true;
+    }
+
+    // --- If not in cache, validate against DB ---
     try {
       const user = await this.databaseService.validateApiKey(apiKey);
       if (!user) {
@@ -46,35 +57,14 @@ export class ApiKeyAuthGuard implements CanActivate {
         throw new UnauthorizedException('Invalid or inactive API key.');
       }
       
-      // Attach user to request for downstream use
+      // Attach user to request for downstream use and add to cache
       request.user = user;
-      this.logger.verbose(`API key validated for user ${user.id}. Checking permissions...`);
+      this.apiKeyCache.set(apiKey, user);
+      this.logger.verbose(`User ${user.id} validated and added to cache.`);
 
       // --- Permission Check based on isDemo flag ---
-      if (user.isDemo) {
-        this.logger.debug(`User ${user.id} is a demo user. Applying restrictions.`);
-        
-        const walletAddress = request.params.walletAddress;
-
-        // RULE 1: If accessing a specific wallet, it must be in the demo list.
-        if (walletAddress && !this.demoWallets.includes(walletAddress)) {
-          this.logger.warn(`Demo user ${user.id} attempting to access non-demo wallet ${walletAddress}.`);
-          throw new ForbiddenException('This wallet is not available in the demo account.');
-        }
-
-        const isFavoritesRoute = request.path.includes('/users/me/favorites');
-
-        // RULE 2: Demo users can manage favorites.
-        if (isFavoritesRoute && (request.method === 'POST' || request.method === 'DELETE')) {
-            this.logger.verbose(`Demo user ${user.id} allowed favorite management action: ${request.method}`);
-        } 
-        // RULE 3: For all other routes, block write actions.
-        else if (request.method !== 'GET') {
-          this.logger.warn(`Demo user ${user.id} blocked from performing a ${request.method} action on path: ${request.path}`);
-          throw new ForbiddenException('The demo account is read-only and cannot perform this action.');
-        }
-      }
-
+      this.checkDemoPermissions(request, user);
+      
       this.logger.verbose(`User ${user.id} (isDemo: ${user.isDemo}) granted access to ${request.method} ${request.path}`);
       return true;
 
@@ -86,6 +76,32 @@ export class ApiKeyAuthGuard implements CanActivate {
       // Log unexpected errors and throw a generic server error
       this.logger.error('An unexpected error occurred during API key validation:', error);
       throw new UnauthorizedException('An error occurred during authentication.');
+    }
+  }
+
+  private checkDemoPermissions(request: Request, user: User) {
+    if (user.isDemo) {
+      this.logger.debug(`User ${user.id} is a demo user. Applying restrictions.`);
+      
+      const walletAddress = request.params.walletAddress;
+
+      // RULE 1: If accessing a specific wallet, it must be in the demo list.
+      if (walletAddress && !this.demoWallets.includes(walletAddress)) {
+        this.logger.warn(`Demo user ${user.id} attempting to access non-demo wallet ${walletAddress}.`);
+        throw new ForbiddenException('This wallet is not available in the demo account.');
+      }
+
+      const isFavoritesRoute = request.path.includes('/users/me/favorites');
+
+      // RULE 2: Demo users can manage favorites.
+      if (isFavoritesRoute && (request.method === 'POST' || request.method === 'DELETE')) {
+          this.logger.verbose(`Demo user ${user.id} allowed favorite management action: ${request.method}`);
+      } 
+      // RULE 3: For all other routes, block write actions.
+      else if (request.method !== 'GET') {
+        this.logger.warn(`Demo user ${user.id} blocked from performing a ${request.method} action on path: ${request.path}`);
+        throw new ForbiddenException('The demo account is read-only and cannot perform this action.');
+      }
     }
   }
 } 
