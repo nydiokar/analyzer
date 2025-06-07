@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { ThemeProvider } from "@/components/theme-provider";
 import Sidebar from "@/components/layout/Sidebar";
+import { Toaster } from 'sonner';
 
 interface LayoutClientShellProps {
   children: React.ReactNode;
@@ -33,6 +34,7 @@ export default function LayoutClientShell({ children }: LayoutClientShellProps) 
           {children}
         </main>
       </div>
+      <Toaster position="top-center" richColors />
     </ThemeProvider>
   );
 } 

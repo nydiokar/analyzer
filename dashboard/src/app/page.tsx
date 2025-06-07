@@ -67,11 +67,11 @@ export default function Home() {
             <section className="max-w-xl mx-auto mb-12 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
               <h2 className="text-lg font-semibold text-slate-100 mb-3 flex items-center justify-center">
                 <KeyRoundIcon className="h-5 w-5 mr-2 text-slate-400"/>
-                API Key Status
+                Key Status
               </h2>
               {apiKey ? (
                 <div className="text-center">
-                  <p className="text-green-400">API Key is set and active.</p>
+                  <p className="text-green-400">Key is set and active.</p>
                   <p className="text-xs text-slate-400 mt-1">You can manage your key in the settings.</p>
                   <Button asChild variant="secondary" size="sm" className="mt-3">
                     <Link href="/settings">Go to Settings</Link>

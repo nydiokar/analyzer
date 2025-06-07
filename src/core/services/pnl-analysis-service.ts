@@ -8,6 +8,7 @@ import { HeliusApiClient } from './helius-api-client';
 import { WalletBalanceService } from './wallet-balance-service';
 import { WalletBalance } from '@/types/wallet';
 import { Injectable } from '@nestjs/common';
+import { USDC_MINT_ADDRESS } from '@config/constants';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -273,7 +274,7 @@ export class PnlAnalysisService {
             };
 
             if (!isHistoricalView && !isViewOnlyMode) {
-                const pnlSummaryDataForDb = {
+                const pnlSummaryDataForDb: any = {
                     walletAddress: walletAddress,
                     totalVolume: summary.totalVolume,
                     totalFees: summary.totalFees,
@@ -290,9 +291,17 @@ export class PnlAnalysisService {
                     totalSignaturesProcessed: summary.totalSignaturesProcessed,
                     overallFirstTimestamp: summary.overallFirstTimestamp,
                     overallLastTimestamp: summary.overallLastTimestamp,
-                    currentSolBalance: currentWalletBalance?.solBalance,
-                    solBalanceFetchedAt: balancesFetchedAt,
+                    updatedAt: new Date(),
                 };
+
+                if (currentWalletBalance) {
+                    pnlSummaryDataForDb.currentSolBalance = currentWalletBalance.solBalance;
+                    pnlSummaryDataForDb.solBalanceFetchedAt = balancesFetchedAt;
+                    const usdcBalance = currentWalletBalance.tokenBalances.find(tb => tb.mint === USDC_MINT_ADDRESS)?.uiBalance;
+                    if (usdcBalance !== undefined) {
+                        pnlSummaryDataForDb.currentUsdcBalance = usdcBalance;
+                    }
+                }
 
                 if (advancedStatsData) {
                     const sanitizedStats = {

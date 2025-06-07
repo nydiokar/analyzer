@@ -56,6 +56,12 @@ export class WalletSummaryResponse {
   })
   currentSolBalance?: number | null;
 
+  @ApiPropertyOptional({
+    description: 'The current USDC balance of the wallet.',
+    example: 5000.25
+  })
+  currentUsdcBalance?: number | null;
+
   @ApiPropertyOptional({ 
     description: 'ISO 8601 timestamp of when the SOL balance was last fetched.',
     example: '2023-05-21T09:55:00.000Z' 

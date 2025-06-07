@@ -34,6 +34,7 @@ import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
 import { WalletSummaryData } from '@/types/api';
 import { useFavorites } from '@/hooks/useFavorites';
+import { isValidSolanaAddress } from '@/lib/solana-utils';
 
 // Import the new tab component
 import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
@@ -67,6 +68,8 @@ export default function WalletProfileLayout({
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false);
+  const [analysisRequestTime, setAnalysisRequestTime] = useState<Date | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
 
   // Use the centralized hook
   const { favorites: favoritesData, mutate: mutateFavorites, isLoading: isLoadingFavorites } = useFavorites();
@@ -81,8 +84,56 @@ export default function WalletProfileLayout({
     (url: string) => fetcher(url),
     {
       revalidateOnFocus: false,
+      refreshInterval: isPolling ? 5000 : 0, // Poll every 5s when isPolling is true
     }
   );
+
+  useEffect(() => {
+    // This effect handles the completion of polling
+    if (isPolling && walletSummary && analysisRequestTime) {
+      const lastAnalyzedDate = walletSummary.lastAnalyzedAt ? new Date(walletSummary.lastAnalyzedAt) : null;
+      if (lastAnalyzedDate && lastAnalyzedDate > analysisRequestTime) {
+        setIsPolling(false);
+        setIsAnalyzing(false);
+        setAnalysisRequestTime(null);
+        setLastAnalysisStatus('success');
+        setLastAnalysisTimestamp(lastAnalyzedDate);
+        toast.success("Analysis Complete", {
+          description: "Wallet data has been successfully updated.",
+        });
+        // Manually revalidate other wallet-related data, since polling will now stop.
+        // We explicitly skip revalidating the summary key itself, as we already have the latest from the poll.
+        if (cache instanceof Map) {
+          for (const key of cache.keys()) {
+            if (
+              typeof key === 'string' &&
+              key.startsWith(`${API_BASE_URL}/wallets/${walletAddress}`) &&
+              key !== walletSummaryKey
+            ) {
+              globalMutate(key);
+            }
+          }
+        }
+      }
+    }
+  }, [walletSummary, isPolling, analysisRequestTime, cache, globalMutate, walletAddress, walletSummaryKey]);
+
+  useEffect(() => {
+    // This effect handles polling timeout
+    let timeoutId: NodeJS.Timeout;
+    if (isPolling) {
+      timeoutId = setTimeout(() => {
+        setIsPolling(false);
+        setIsAnalyzing(false);
+        setAnalysisRequestTime(null);
+        setLastAnalysisStatus('error');
+        toast.warning("Analysis Taking Longer Than Expected", {
+          description: "The button has been re-enabled. The dashboard will update automatically if the analysis completes.",
+        });
+      }, 180000); // 3 minute timeout
+    }
+    return () => clearTimeout(timeoutId);
+  }, [isPolling]);
 
   useEffect(() => {
     if (walletSummary && typeof walletSummary.lastAnalyzedAt === 'string') {
@@ -124,12 +175,26 @@ export default function WalletProfileLayout({
   };
 
   const handleTriggerAnalysis = async () => {
+    if (!isValidSolanaAddress(walletAddress)) {
+      toast.error("Invalid Wallet Address", {
+        description: "The address in the URL is not a valid Solana wallet address.",
+      });
+      return;
+    }
+
+    if (isAnalyzing) {
+      toast.warning("Analysis Already Running", {
+        description: "An analysis is already in progress. Please wait for it to complete.",
+      });
+      return;
+    }
+
     const { isDemo } = useApiKeyStore.getState();
     if (isDemo) {
       toast.info("This is a demo account", {
-        description: "Triggering a new analysis is disabled for demo accounts.",
+        description: "Triggering a new analysis is not available for demo accounts.",
         action: {
-          label: "Dismiss",
+          label: "OK",
           onClick: () => {},
         },
       });
@@ -144,6 +209,7 @@ export default function WalletProfileLayout({
     }
 
     setIsAnalyzing(true);
+    setAnalysisRequestTime(new Date());
     toast.info("Analysis Queued", {
       description: `Fetching and analyzing data for ${truncateWalletAddress(walletAddress)}. This may take a few moments.`,
     });
@@ -153,28 +219,22 @@ export default function WalletProfileLayout({
         method: 'POST',
       });
       
-      toast.success("Analysis In Progress", {
-        description: `Data for ${truncateWalletAddress(walletAddress)} is being refreshed. UI will update shortly.`,
-      });
-
-      if (cache instanceof Map) {
-        for (const key of cache.keys()) {
-          if (typeof key === 'string' && key.startsWith(`${API_BASE_URL}/wallets/${walletAddress}`)) {
-            globalMutate(key);
-          }
-        }
-      } else {
-        if (walletSummaryKey) globalMutate(walletSummaryKey);
-      }
+      setIsPolling(true); // Start polling for summary updates
 
     } catch (err: any) {
       console.error("Error triggering analysis:", err);
       setLastAnalysisStatus('error');
-      toast.error("Analysis Failed to Trigger", {
-        description: err.message || "An unexpected error occurred. Please check console for details.",
-      });
-    } finally {
-      setIsAnalyzing(false);
+      setIsAnalyzing(false); // Re-enable button on trigger failure
+      
+      if (err.status === 503) {
+        toast.warning("Analysis Already Running", {
+          description: "An analysis is already in progress. Please wait for it to complete before starting a new one.",
+        });
+      } else {
+        toast.error("Analysis Failed to Trigger", {
+          description: err.message || "An unexpected error occurred. Please check the console for details.",
+        });
+      }
     }
   };
 
@@ -216,7 +276,7 @@ export default function WalletProfileLayout({
   };
 
   const ExpandedAnalysisControl = () => (
-    <div className="flex flex-col items-start gap-1 mt-2 w-full md:w-auto">
+    <div className="flex flex-col items-start gap-1 w-full md:w-auto">
       <Button 
         onClick={handleTriggerAnalysis} 
         variant="outline"
@@ -256,11 +316,11 @@ export default function WalletProfileLayout({
   );
 
   return (
-    <Tabs defaultValue="overview" className="flex flex-col w-full h-full bg-muted/40">
+    <Tabs defaultValue="token-performance" className="flex flex-col w-full h-full bg-muted/40">
       <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
         <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
           
-          <div className='flex flex-col items-start gap-1 flex-shrink-0'> 
+          <div className='flex flex-col items-start gap-3 md:gap-2 md:pl-11'> 
             {walletAddress && isHeaderExpanded && (
               <>
                 <div className="flex items-center gap-1">
@@ -414,17 +474,6 @@ export default function WalletProfileLayout({
             <Tooltip>
               <TooltipTrigger asChild>
                 <TabsTrigger 
-                  value="overview" 
-                  className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-                  <LayoutDashboard className="h-3.5 w-3.5" />
-                  <span>Overview</span>
-                </TabsTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" align="center"><p>Overview</p></TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <TabsTrigger 
                   value="token-performance" 
                   className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
                   <ListChecks className="h-3.5 w-3.5" />
@@ -433,6 +482,8 @@ export default function WalletProfileLayout({
               </TooltipTrigger>
               <TooltipContent side="bottom" align="center"><p>Token Performance</p></TooltipContent>
             </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider delayDuration={100}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <TabsTrigger 
@@ -444,6 +495,8 @@ export default function WalletProfileLayout({
               </TooltipTrigger>
               <TooltipContent side="bottom" align="center"><p>Account Stats & PNL</p></TooltipContent>
             </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider delayDuration={100}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <TabsTrigger 
@@ -455,6 +508,8 @@ export default function WalletProfileLayout({
               </TooltipTrigger>
               <TooltipContent side="bottom" align="center"><p>Behavioral Patterns</p></TooltipContent>
             </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider delayDuration={100}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <TabsTrigger 
@@ -467,22 +522,37 @@ export default function WalletProfileLayout({
               <TooltipContent side="bottom" align="center"><p>Reviewer Log / Notes</p></TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          <TooltipProvider delayDuration={100}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger 
+                  value="overview" 
+                  className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+                  <LayoutDashboard className="h-3.5 w-3.5" />
+                  <span>Overview</span>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="center"><p>Overview</p></TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </TabsList>
       </header>
 
       <main className="flex-1 overflow-y-auto p-0">
         <div className="w-full h-full">
-          <TabsContent value="overview">
-            {children}
-            <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
-              <h3 className="text-lg font-semibold mb-2">Overview Section Placeholder</h3>
-              <p className="text-sm text-muted-foreground">This is where the main page content (passed as children) is displayed.</p>
-              <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center"> (Overview Content Area) </div>
+          <TabsContent value="overview" className="mt-4">
+            <div>
+              {children}
+              <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
+                <h3 className="text-lg font-semibold mb-2">AI overview is comming soon ...</h3>
+                <p className="text-sm text-muted-foreground"></p>
+                <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center"> (This is being worked on, comming soon ...) </div>
+              </div>
             </div>
           </TabsContent>
 
           <TabsContent value="token-performance">
-            <TokenPerformanceTab walletAddress={walletAddress} triggerAnalysisGlobal={handleTriggerAnalysis} isAnalyzingGlobal={isAnalyzing} />
+            <TokenPerformanceTab walletAddress={walletAddress} />
           </TabsContent>
 
           <TabsContent value="account-stats">
@@ -495,7 +565,7 @@ export default function WalletProfileLayout({
           </TabsContent>
 
           <TabsContent value="behavioral-patterns">
-            <BehavioralPatternsTab walletAddress={walletAddress} triggerAnalysisGlobal={handleTriggerAnalysis} isAnalyzingGlobal={isAnalyzing} />
+            <BehavioralPatternsTab walletAddress={walletAddress} />
           </TabsContent>
 
           <TabsContent value="notes">

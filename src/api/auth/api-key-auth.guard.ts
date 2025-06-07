@@ -88,7 +88,7 @@ export class ApiKeyAuthGuard implements CanActivate {
       // RULE 1: If accessing a specific wallet, it must be in the demo list.
       if (walletAddress && !this.demoWallets.includes(walletAddress)) {
         this.logger.warn(`Demo user ${user.id} attempting to access non-demo wallet ${walletAddress}.`);
-        throw new ForbiddenException('This wallet is not available in the demo account.');
+        throw new ForbiddenException('This wallet is not available in the Demo account.');
       }
 
       const isFavoritesRoute = request.path.includes('/users/me/favorites');

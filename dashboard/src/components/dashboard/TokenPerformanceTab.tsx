@@ -324,7 +324,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
                         <EmptyState
                             variant="error"
                             icon={AlertTriangle}
-                            title="Error Loading Token Performance"
+                            title="Could not load Token Performance"
                             description={error.message || "An unexpected error occurred."}
                             actionText={triggerAnalysisGlobal && !isAnalyzingGlobal ? "Retry Analysis" : undefined}
                             onActionClick={triggerAnalysisGlobal}

@@ -42,6 +42,7 @@ import { CreateNoteDto } from '../../wallets/notes/create-note.dto';
 import { UpdateNoteDto } from '../../wallets/notes/update-note.dto';
 import { WalletSearchQueryDto } from '../../wallets/search/wallet-search-query.dto';
 import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../../wallets/search/wallet-search-result.dto';
+import { USDC_MINT_ADDRESS } from '@config/constants';
 
 
 @ApiTags('Wallets')
@@ -192,6 +193,7 @@ export class WalletsController {
       let tokenWinRate = overallPnlSummary.advancedStats?.tokenWinRatePercent;
       let behaviorClassification = overallBehaviorProfile?.tradingStyle || 'N/A';
       let currentSolBalance = overallPnlSummary.currentSolBalance;
+      let currentUsdcBalance = overallPnlSummary.currentUsdcBalance;
       let balancesFetchedAt = overallPnlSummary.solBalanceFetchedAt;
       
       // For lastActiveTimestamp and daysActive, use overall wallet info if available
@@ -234,6 +236,7 @@ export class WalletsController {
         tokenWinRate: tokenWinRate,
         behaviorClassification: behaviorClassification,
         currentSolBalance: currentSolBalance,
+        currentUsdcBalance: currentUsdcBalance,
         balancesFetchedAt: balancesFetchedAt ? balancesFetchedAt.toISOString() : null,
       };
 

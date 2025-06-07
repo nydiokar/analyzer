@@ -445,7 +445,7 @@ export class DatabaseService {
         errorMessage?: string,
         sourceIp?: string
     ): Promise<ActivityLog | null> {
-        this.logger.debug('Logging activity for user ID: ' + userId + ', action: ' + actionType);
+        this.logger.info('Logging activity for user ID: ' + userId + ', action: ' + actionType);
         try {
             const activity = await this.prismaClient.activityLog.create({
                 data: {

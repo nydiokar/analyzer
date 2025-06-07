@@ -176,16 +176,23 @@ export default function AccountSummaryCard({
           <Text className="text-base font-semibold">{formatWinRate(data.tokenWinRate ?? null)}</Text>
         </Flex>
 
-        {data.currentSolBalance !== undefined && (
-          <Flex justifyContent="between" alignItems="center" className="gap-2">
-            <Text className="text-sm font-medium">Balance</Text>
-            <Text className="text-base font-semibold">{data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL</Text>
-          </Flex>
-        )}
-
-        <div className="mt-2 pt-2 border-t border-muted/50">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-2 gap-x-4">
-            
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+          <Card>
+            <Text>Balance</Text>
+            <Flex justifyContent="start" alignItems="baseline" className="space-x-1.5">
+              <Metric className="text-lg">{data.currentSolBalance?.toFixed(2) ?? '--'}</Metric>
+              <Text className="text-sm">SOL</Text>
+              {(typeof data.currentUsdcBalance === 'number' && data.currentUsdcBalance > 0) && (
+                <>
+                  <Text className="text-lg font-semibold text-tremor-content-subtle mx-1">/</Text>
+                  <Metric className="text-lg text-tremor-content-subtle">{data.currentUsdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</Metric>
+                  <Text className="text-sm text-tremor-content-subtle">USDC</Text>
+                </>
+              )}
+            </Flex>
+          </Card>
+          <Card>
+            <Text>Last Active</Text>
             <TooltipProvider delayDuration={100}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -209,29 +216,15 @@ export default function AccountSummaryCard({
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-
-            {data.behaviorClassification && (
-              <TooltipProvider delayDuration={100}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center justify-between cursor-default">
-                      <div className="flex items-center gap-1.5">
-                        <Landmark className="h-4 w-4 text-muted-foreground" />
-                        <Text className="text-xs text-muted-foreground">Behavior</Text>
-                      </div>
-                      <Badge color="sky" size="xs" className="ml-1">
-                        {data.behaviorClassification}
-                      </Badge>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" align="center" sideOffset={6}>
-                    <p>{data.behaviorClassification}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-
-          </div>
+          </Card>
+          {data.behaviorClassification && (
+            <Card>
+              <Text>Behavior</Text>
+              <Badge color="sky" size="xs" className="ml-1">
+                {data.behaviorClassification}
+              </Badge>
+            </Card>
+          )}
         </div>
       </div>
     </Card>

@@ -37,7 +37,12 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     }
 
     if (!res.ok) {
-        const errorPayload = await res.json().catch(() => ({ message: res.statusText }));
+        let errorPayload;
+        try {
+            errorPayload = await res.json();
+        } catch (e) {
+            errorPayload = { message: res.statusText || 'An error occurred' };
+        }
         const error = new Error(errorPayload.message || 'An error occurred while fetching the data.') as any;
         error.status = res.status;
         error.payload = errorPayload;
@@ -47,6 +52,11 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     if (res.status === 204) {
         return null;
     }
+    
+    const responseText = await res.text();
+    if (!responseText) {
+        return null;
+    }
 
-    return res.json();
+    return JSON.parse(responseText);
 }; 
