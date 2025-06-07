@@ -297,10 +297,6 @@ export class PnlAnalysisService {
                 if (currentWalletBalance) {
                     pnlSummaryDataForDb.currentSolBalance = currentWalletBalance.solBalance;
                     pnlSummaryDataForDb.solBalanceFetchedAt = balancesFetchedAt;
-                    const usdcBalance = currentWalletBalance.tokenBalances.find(tb => tb.mint === USDC_MINT_ADDRESS)?.uiBalance;
-                    if (usdcBalance !== undefined) {
-                        pnlSummaryDataForDb.currentUsdcBalance = usdcBalance;
-                    }
                 }
 
                 if (advancedStatsData) {

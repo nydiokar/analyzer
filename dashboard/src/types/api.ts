@@ -30,7 +30,6 @@ export interface WalletSummaryData {
   rawAdvancedStats?: AdvancedStatsResult; // Full raw object for more detail if needed by client
   rawBehaviorMetrics?: BehaviorMetrics; // Full raw object for more detail if needed by client
   currentSolBalance?: number | null;
-  currentUsdcBalance?: number | null;
 }
 
 export interface WalletSummaryError {

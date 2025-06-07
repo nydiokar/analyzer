@@ -137,7 +137,6 @@ model WalletPnlSummary {
 
   // New fields for SOL balance snapshot
   currentSolBalance             Float?    // Current SOL balance at the time of analysis
-  currentUsdcBalance            Float?    // Current USDC balance at the time of analysis
   solBalanceFetchedAt           DateTime? // Timestamp when SOL balance was fetched (should be same as token balances)
 
   updatedAt                     DateTime @updatedAt

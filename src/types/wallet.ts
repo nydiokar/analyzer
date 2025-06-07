@@ -37,6 +37,9 @@ export interface WalletBalance {
   fetchedAt: Date; // Timestamp of when the data was fetched
 }
 
+// Additional types for more detailed wallet information, if needed in the future
+// ... existing code ...
+
 // Potentially, we might need a type for the raw response from getTokenAccountsByOwner if jsonParsed
 // For example:
 // export interface ParsedTokenAccountInfo {

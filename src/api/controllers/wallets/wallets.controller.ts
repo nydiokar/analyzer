@@ -193,7 +193,6 @@ export class WalletsController {
       let tokenWinRate = overallPnlSummary.advancedStats?.tokenWinRatePercent;
       let behaviorClassification = overallBehaviorProfile?.tradingStyle || 'N/A';
       let currentSolBalance = overallPnlSummary.currentSolBalance;
-      let currentUsdcBalance = overallPnlSummary.currentUsdcBalance;
       let balancesFetchedAt = overallPnlSummary.solBalanceFetchedAt;
       
       // For lastActiveTimestamp and daysActive, use overall wallet info if available
@@ -236,7 +235,6 @@ export class WalletsController {
         tokenWinRate: tokenWinRate,
         behaviorClassification: behaviorClassification,
         currentSolBalance: currentSolBalance,
-        currentUsdcBalance: currentUsdcBalance,
         balancesFetchedAt: balancesFetchedAt ? balancesFetchedAt.toISOString() : null,
       };
 

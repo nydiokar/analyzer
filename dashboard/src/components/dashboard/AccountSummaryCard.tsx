@@ -176,39 +176,34 @@ export default function AccountSummaryCard({
           <Text className="text-base font-semibold">{formatWinRate(data.tokenWinRate ?? null)}</Text>
         </Flex>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-          <Card>
-            <Text>Balance</Text>
-            <Flex justifyContent="start" alignItems="baseline" className="space-x-1.5">
-              <Metric className="text-lg">{data.currentSolBalance?.toFixed(2) ?? '--'}</Metric>
-              <Text className="text-sm">SOL</Text>
-              {(typeof data.currentUsdcBalance === 'number' && data.currentUsdcBalance > 0) && (
-                <>
-                  <Text className="text-lg font-semibold text-tremor-content-subtle mx-1">/</Text>
-                  <Metric className="text-lg text-tremor-content-subtle">{data.currentUsdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</Metric>
-                  <Text className="text-sm text-tremor-content-subtle">USDC</Text>
-                </>
-              )}
-            </Flex>
-          </Card>
-          <Card>
-            <Text>Last Active</Text>
-            <TooltipProvider delayDuration={100}>
+        <div className="border-t border-tremor-border dark:border-dark-tremor-border -mx-3 mt-3 mb-2" />
+
+        <div className="flex justify-between items-center text-sm">
+          <div className="flex items-center gap-2 text-tremor-content dark:text-dark-tremor-content">
+              <Landmark className="h-4 w-4" />
+              <span className="font-medium">Balance</span>
+          </div>
+          <div className="flex items-baseline gap-1 font-mono text-tremor-content-strong dark:text-dark-tremor-content-strong">
+              <span>{data.currentSolBalance?.toFixed(2) ?? '--'}</span>
+              <span className="text-xs">SOL</span>
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center text-sm mt-2">
+            <div className="flex items-center gap-2 text-tremor-content dark:text-dark-tremor-content">
+                <CalendarDays className="h-4 w-4" />
+                <span className="font-medium">Last Active</span>
+            </div>
+             <TooltipProvider delayDuration={100}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="flex items-center justify-between cursor-default">
-                    <div className="flex items-center gap-1.5">
-                      <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                      <Text className="text-xs text-muted-foreground">Last Active</Text>
-                    </div>
-                    <Text className="text-xs text-muted-foreground">
+                    <span className="font-mono text-tremor-content-strong dark:text-dark-tremor-content-strong cursor-default">
                       {data.lastActiveTimestamp 
                         ? format(new Date(data.lastActiveTimestamp * 1000), 'MMM d, yyyy') 
                         : 'N/A'}
-                    </Text>
-                  </div>
+                    </span>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" align="center" sideOffset={6}>
+                <TooltipContent side="bottom" align="end" sideOffset={6}>
                   <p>{data.lastActiveTimestamp 
                       ? format(new Date(data.lastActiveTimestamp * 1000), 'PPP p') 
                       : 'No data available'}
@@ -216,16 +211,19 @@ export default function AccountSummaryCard({
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-          </Card>
-          {data.behaviorClassification && (
-            <Card>
-              <Text>Behavior</Text>
-              <Badge color="sky" size="xs" className="ml-1">
-                {data.behaviorClassification}
-              </Badge>
-            </Card>
-          )}
         </div>
+
+        {data.behaviorClassification && (
+            <div className="flex justify-between items-center text-sm mt-2">
+                <div className="flex items-center gap-2 text-tremor-content dark:text-dark-tremor-content">
+                    <Info className="h-4 w-4" />
+                    <span className="font-medium">Behavior</span>
+                </div>
+                 <Badge color="sky" size="xs">
+                    {data.behaviorClassification}
+                </Badge>
+            </div>
+        )}
       </div>
     </Card>
   );
