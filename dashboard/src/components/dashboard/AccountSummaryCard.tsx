@@ -176,34 +176,32 @@ export default function AccountSummaryCard({
           <Text className="text-base font-semibold">{formatWinRate(data.tokenWinRate ?? null)}</Text>
         </Flex>
 
-        <div className="border-t border-tremor-border dark:border-dark-tremor-border -mx-3 mt-3 mb-2" />
+        {data.currentSolBalance !== undefined && (
+          <Flex justifyContent="between" alignItems="center" className="gap-2">
+            <Text className="text-sm font-medium">Balance</Text>
+            <Text className="text-base font-semibold">{data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL</Text>
+          </Flex>
+        )}
 
-        <div className="flex justify-between items-center text-sm">
-          <div className="flex items-center gap-2 text-tremor-content dark:text-dark-tremor-content">
-              <Landmark className="h-4 w-4" />
-              <span className="font-medium">Balance</span>
-          </div>
-          <div className="flex items-baseline gap-1 font-mono text-tremor-content-strong dark:text-dark-tremor-content-strong">
-              <span>{data.currentSolBalance?.toFixed(2) ?? '--'}</span>
-              <span className="text-xs">SOL</span>
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center text-sm mt-2">
-            <div className="flex items-center gap-2 text-tremor-content dark:text-dark-tremor-content">
-                <CalendarDays className="h-4 w-4" />
-                <span className="font-medium">Last Active</span>
-            </div>
-             <TooltipProvider delayDuration={100}>
+        <div className="mt-2 pt-2 border-t border-muted/50">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-2 gap-x-4">
+            
+            <TooltipProvider delayDuration={100}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                    <span className="font-mono text-tremor-content-strong dark:text-dark-tremor-content-strong cursor-default">
+                  <div className="flex items-center justify-between cursor-default">
+                    <div className="flex items-center gap-1.5">
+                      <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                      <Text className="text-xs text-muted-foreground">Last Active</Text>
+                    </div>
+                    <Text className="text-xs text-muted-foreground">
                       {data.lastActiveTimestamp 
                         ? format(new Date(data.lastActiveTimestamp * 1000), 'MMM d, yyyy') 
                         : 'N/A'}
-                    </span>
+                    </Text>
+                  </div>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" align="end" sideOffset={6}>
+                <TooltipContent side="bottom" align="center" sideOffset={6}>
                   <p>{data.lastActiveTimestamp 
                       ? format(new Date(data.lastActiveTimestamp * 1000), 'PPP p') 
                       : 'No data available'}
@@ -211,19 +209,30 @@ export default function AccountSummaryCard({
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-        </div>
 
-        {data.behaviorClassification && (
-            <div className="flex justify-between items-center text-sm mt-2">
-                <div className="flex items-center gap-2 text-tremor-content dark:text-dark-tremor-content">
-                    <Info className="h-4 w-4" />
-                    <span className="font-medium">Behavior</span>
-                </div>
-                 <Badge color="sky" size="xs">
-                    {data.behaviorClassification}
-                </Badge>
-            </div>
-        )}
+            {data.behaviorClassification && (
+              <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center justify-between cursor-default">
+                      <div className="flex items-center gap-1.5">
+                        <Landmark className="h-4 w-4 text-muted-foreground" />
+                        <Text className="text-xs text-muted-foreground">Behavior</Text>
+                      </div>
+                      <Badge color="sky" size="xs" className="ml-1">
+                        {data.behaviorClassification}
+                      </Badge>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="center" sideOffset={6}>
+                    <p>{data.behaviorClassification}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
+          </div>
+        </div>
       </div>
     </Card>
   );

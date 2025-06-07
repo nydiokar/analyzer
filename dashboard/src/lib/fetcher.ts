@@ -52,6 +52,10 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     if (res.status === 204) {
         return null;
     }
+
+    if (res.status === 201) {
+        return res.json();
+    }
     
     const responseText = await res.text();
     if (!responseText) {

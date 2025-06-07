@@ -61,7 +61,7 @@ interface ReviewerLogTabProps {
 
 export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
   const { toast } = useToast();
-  const { apiKey, isInitialized } = useApiKeyStore();
+  const { apiKey, isInitialized, isDemo } = useApiKeyStore();
   const [newNoteContent, setNewNoteContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showInputArea, setShowInputArea] = useState(false);
@@ -92,8 +92,42 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
     setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
   };
 
+  const showDemoRestrictionToast = (action: string) => {
+    toast({
+      title: 'This is a demo account',
+      description: `${action} is not available for demo accounts.`,
+      variant: 'default', 
+    });
+  };
+
+  const handleAddNoteClick = () => {
+    if (!showInputArea && isDemo) {
+      showDemoRestrictionToast('Adding notes');
+      return;
+    }
+    setShowInputArea(!showInputArea);
+  };
+
+  const handleError = (err: any, title: string) => {
+    const error = err as Error & { status?: number; payload?: any };
+    toast({
+      title: title,
+      description: error.payload?.message || error.message || 'An unexpected error occurred.',
+      variant: 'destructive',
+    });
+    console.error(`${title}:`, error);
+  };
+
   const handleNoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isDemo) {
+      showDemoRestrictionToast('Submitting notes');
+      setShowInputArea(false);
+      setNewNoteContent('');
+      return;
+    }
+
     if (!newNoteContent.trim() || !walletAddress) {
       toast({
         title: 'Error',
@@ -119,19 +153,17 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
       });
       mutateNotes(); 
     } catch (err) {
-      const error = err as Error & { status?: number; payload?: any };
-      toast({
-        title: 'Submission Failed',
-        description: error.payload?.message || error.message || 'An unexpected error occurred.',
-        variant: 'destructive',
-      });
-      console.error("Failed to submit note:", error);
+      handleError(err, 'Submission Failed');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleDeleteNote = async (noteId: string) => {
+    if (isDemo) {
+      showDemoRestrictionToast('Deleting notes');
+      return;
+    }
     if (!noteId || !walletAddress) return;
 
     const deleteUrl = `/api/v1/wallets/${walletAddress}/notes/${noteId}`;
@@ -145,17 +177,16 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
       mutateNotes();
       setNoteToDelete(null);
     } catch (err) {
-      const error = err as Error & { status?: number; payload?: any };
-      toast({
-        title: 'Deletion Failed',
-        description: error.payload?.message || error.message || 'An unexpected error occurred.',
-        variant: 'destructive',
-      });
-      console.error("Failed to delete note:", error);
+      handleError(err, 'Deletion Failed');
+      setNoteToDelete(null);
     }
   };
 
   const handleEditNote = (note: WalletNote) => {
+    if (isDemo) {
+      showDemoRestrictionToast('Editing notes');
+      return;
+    }
     setEditingNote({ id: note.id, content: note.content });
   };
 
@@ -170,6 +201,10 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
   };
 
   const handleSaveUpdatedNote = async () => {
+    if (isDemo) {
+      showDemoRestrictionToast('Updating notes');
+      return;
+    }
     if (!editingNote || !walletAddress) return;
     if (!editingNote.content.trim()) {
       toast({
@@ -195,13 +230,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
       mutateNotes();
       setEditingNote(null);
     } catch (err) {
-      const error = err as Error & { status?: number; payload?: any };
-      toast({
-        title: "Update Failed",
-        description: error.payload?.message || error.message || "An unexpected error occurred.",
-        variant: "destructive",
-      });
-      console.error("Failed to update note:", error);
+      handleError(err, 'Update Failed');
     } finally {
       setIsUpdatingNote(false);
     }
@@ -265,9 +294,9 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
         <CardTitle> Notes</CardTitle>
         <CardDescription>Add and view notes for this wallet.</CardDescription>
         <div className="mt-4">
-            <Button onClick={() => setShowInputArea(!showInputArea)} variant={showInputArea ? "outline" : "default"} size="sm">
+            <Button onClick={handleAddNoteClick} variant={showInputArea ? "outline" : "default"} size="sm">
                 <PlusCircle className="mr-2 h-4 w-4" />
-                {showInputArea ? 'Cancel Adding Note' : 'Add New Note'}
+                {showInputArea ? 'Cancel' : 'Add New Note'}
             </Button>
         </div>
       </CardHeader>
@@ -390,7 +419,13 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction 
-                                onClick={() => handleDeleteNote(note.id)}
+                                onClick={() => {
+                                  if (isDemo) {
+                                    showDemoRestrictionToast('Deleting notes');
+                                    return;
+                                  }
+                                  handleDeleteNote(note.id)
+                                }}
                                 className="bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-800 text-white dark:text-white"
                             >
                                 Yes, delete note

@@ -92,12 +92,18 @@ export class ApiKeyAuthGuard implements CanActivate {
       }
 
       const isFavoritesRoute = request.path.includes('/users/me/favorites');
+      const isNotesRoute = request.path.includes('/notes');
 
       // RULE 2: Demo users can manage favorites.
       if (isFavoritesRoute && (request.method === 'POST' || request.method === 'DELETE')) {
           this.logger.verbose(`Demo user ${user.id} allowed favorite management action: ${request.method}`);
       } 
-      // RULE 3: For all other routes, block write actions.
+      // RULE 3: Demo users cannot perform write actions on notes.
+      else if (isNotesRoute && request.method !== 'GET') {
+        this.logger.warn(`Demo user ${user.id} blocked from performing a ${request.method} action on notes route: ${request.path}`);
+        throw new ForbiddenException('Adding, editing, or deleting notes is not available for demo accounts.');
+      }
+      // RULE 4: For all other routes, block general write actions.
       else if (request.method !== 'GET') {
         this.logger.warn(`Demo user ${user.id} blocked from performing a ${request.method} action on path: ${request.path}`);
         throw new ForbiddenException('The demo account is read-only and cannot perform this action.');
