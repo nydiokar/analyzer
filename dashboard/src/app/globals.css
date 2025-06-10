@@ -119,3 +119,21 @@
     @apply bg-background text-foreground;
   }
 }
+
+.animated-gradient {
+  background: linear-gradient(45deg, hsl(222, 47%, 11%), hsl(222, 39%, 16%), hsl(222, 47%, 11%));
+  background-size: 200% 200%;
+  animation: gradient 10s ease infinite;
+}
+
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}

@@ -1,31 +1,46 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { fetcher } from '@/lib/fetcher'; // Assuming fetcher can be used here
+import { fetcher } from '@/lib/fetcher';
+
+// This is the actual API key that is marked as `isDemo` in your backend.
+// When a user selects "Try Demo Mode", this key will be used.
+export const DEMO_API_KEY = '156b2bc7-2ab3-4bdb-8b4f-13a7d3d42f0c'; 
 
 interface ApiKeyStore {
   apiKey: string | null;
   isDemo: boolean;
   setApiKey: (key: string | null) => Promise<void>;
-  isInitialized: boolean; // To track if the store has been hydrated from localStorage
+  setDemoMode: () => Promise<void>;
+  clearApiKey: () => void;
+  isInitialized: boolean;
 }
 
 export const useApiKeyStore = create<ApiKeyStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       apiKey: null,
-      isDemo: false, // Default to false
+      isDemo: false,
       isInitialized: false,
+      setDemoMode: async () => {
+        // We now use the standard setApiKey flow with the hardcoded demo key.
+        // This will trigger the backend validation as intended.
+        await get().setApiKey(DEMO_API_KEY);
+      },
+      clearApiKey: () => {
+        set({ apiKey: null, isDemo: false });
+      },
       setApiKey: async (key) => {
         if (!key) {
           set({ apiKey: null, isDemo: false });
           return;
         }
-        
-        // Temporarily set the key to allow the fetcher to use it
+
+        // Temporarily set the key to allow the fetcher to use it.
+        // The special logic for a demo key is no longer needed here.
         set({ apiKey: key, isDemo: false });
 
         try {
-          // Fetch user profile to check demo status
+          // Fetch user profile to check demo status from the backend
           const profile = await fetcher('/api/v1/users/me');
           if (profile && typeof profile.isDemo === 'boolean') {
             set({ apiKey: key, isDemo: profile.isDemo });

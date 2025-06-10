@@ -49,18 +49,22 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         throw error;
     }
 
-    if (res.status === 204) {
+    // Handle responses that are successful but have no content body.
+    // This is common for DELETE (204) or sometimes POST (201) requests.
+    const contentLength = res.headers.get('content-length');
+    if (res.status === 204 || (contentLength && parseInt(contentLength, 10) === 0)) {
         return null;
     }
 
-    if (res.status === 201) {
-        return res.json();
+    // For any other successful response, try to parse JSON.
+    try {
+        return await res.json();
+    } catch (e) {
+        // This handles cases where the server returns a successful status
+        // but the body is not valid JSON.
+        const jsonError = new Error('Failed to parse JSON response from server.') as any;
+        jsonError.status = res.status;
+        jsonError.originalError = e;
+        throw jsonError;
     }
-    
-    const responseText = await res.text();
-    if (!responseText) {
-        return null;
-    }
-
-    return JSON.parse(responseText);
 }; 
