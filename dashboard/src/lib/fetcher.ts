@@ -20,7 +20,9 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     };
 
     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-    const absoluteUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+    // The baseUrl from env variables is now the single source of truth.
+    // All calls from components should start with a '/', e.g. /wallets/summary
+    const absoluteUrl = `${baseUrl}${url}`;
 
     let res;
     try {

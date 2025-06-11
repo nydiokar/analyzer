@@ -41,7 +41,7 @@ export const useApiKeyStore = create<ApiKeyStore>()(
 
         try {
           // Fetch user profile to check demo status from the backend
-          const profile = await fetcher('/api/v1/users/me');
+          const profile = await fetcher('/users/me');
           if (profile && typeof profile.isDemo === 'boolean') {
             set({ apiKey: key, isDemo: profile.isDemo });
           } else {

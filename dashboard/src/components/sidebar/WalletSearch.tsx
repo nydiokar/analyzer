@@ -10,8 +10,8 @@ import { debounce } from 'lodash';
 import { fetcher } from '@/lib/fetcher'; // Use the global fetcher
 import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 
-const API_BASE_URL = '/api/v1';
-const DEBOUNCE_DELAY = 300;
+const DEBOUNCE_DELAY = 500;
+const MIN_QUERY_LENGTH = 3;
 
 // --- Types ---
 interface WalletSearchResultItem {
@@ -30,14 +30,13 @@ interface TriggerAnalysisResponse {
 function useWalletSearch(query: string) {
   const { apiKey, isInitialized } = useApiKeyStore();
   const searchQuery = query.trim();
-  const shouldFetch = isInitialized && apiKey && searchQuery;
+  const shouldFetch = isInitialized && apiKey && searchQuery.length >= MIN_QUERY_LENGTH;
 
-  const swrKey = shouldFetch ? [`${API_BASE_URL}/wallets/search?query=${encodeURIComponent(searchQuery)}`, apiKey] : null;
+  const swrKey = shouldFetch ? `/wallets/search?query=${encodeURIComponent(searchQuery)}` : null;
 
   return useSWR<WalletSearchResultItem[]>(
     swrKey,
-    async (key: string[] | string) => {
-      const url = Array.isArray(key) ? key[0] : key;
+    async (url: string) => {
       const responseData = await fetcher(url) as { wallets: WalletSearchResultItem[] };
       if (responseData && Array.isArray(responseData.wallets)) {
         return responseData.wallets;
@@ -50,6 +49,7 @@ function useWalletSearch(query: string) {
 
 // --- Component ---
 export function WalletSearch() {
+  const [inputValue, setInputValue] = useState('');
   const [query, setQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -76,11 +76,13 @@ export function WalletSearch() {
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newQuery = event.target.value;
+    setInputValue(newQuery);
+
     if (newQuery.trim() === '') {
       setQuery('');
       setShowResults(false);
     } else {
-      debouncedSetQuery(newQuery);
+      debouncedSetQuery(newQuery.trim());
       setShowResults(true);
     }
   };
@@ -89,7 +91,7 @@ export function WalletSearch() {
     setIsAnalyzing(true);
     setAnalysisTarget(walletAddress);
     try {
-      const result = await fetcher(`${API_BASE_URL}/analyses/wallets/${walletAddress}/trigger-analysis`, {
+      const result = await fetcher(`/analyses/wallets/${walletAddress}/trigger-analysis`, {
         method: 'POST',
       });
       
@@ -111,8 +113,8 @@ export function WalletSearch() {
   };
 
   const canTriggerAnalysisForQuery = 
-    query.trim() && 
-    isValidSolanaAddress(query.trim()) && 
+    inputValue.trim() && 
+    isValidSolanaAddress(inputValue.trim()) && 
     !isSearchLoading && 
     (!searchResults || searchResults.length === 0);
 
@@ -133,26 +135,34 @@ export function WalletSearch() {
           type="search" 
           placeholder="Search or paste address..." 
           className="h-9 pl-8 w-full text-sm"
-          value={query} // Controlled input directly without local temp state
+          value={inputValue}
           onChange={handleInputChange}
           onFocus={() => setShowResults(true)}
-          // onBlur={() => setTimeout(() => setShowResults(false), 150)} // Delayed blur to allow click on results
+          onBlur={() => setTimeout(() => setShowResults(false), 150)}
         />
         {isSearchLoading && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
       </div>
 
-      {showResults && query.trim() !== '' && (
+      {showResults && inputValue.trim() !== '' && (
         <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover p-1 shadow-lg text-popover-foreground max-h-60 overflow-y-auto">
           {searchError && (
             <div className="p-2 text-center text-xs text-red-500">
               <AlertTriangle className="h-4 w-4 inline mr-1" /> Error: {searchError.message}
             </div>
           )}
-          {!searchError && !isSearchLoading && searchResults && searchResults.length === 0 && (
+          
+          {inputValue.trim().length > 0 && inputValue.trim().length < MIN_QUERY_LENGTH && (
+             <p className="p-2 text-center text-xs text-muted-foreground">
+              Type at least {MIN_QUERY_LENGTH} characters to search.
+            </p>
+          )}
+
+          {!searchError && !isSearchLoading && query.length >= MIN_QUERY_LENGTH && searchResults && searchResults.length === 0 && (
             <p className="p-2 text-center text-xs text-muted-foreground">
               No wallets found matching "{query.length > 15 ? query.substring(0,15)+"..." : query}".
             </p>
           )}
+          
           {!searchError && !isSearchLoading && searchResults && searchResults.length > 0 && (
             <ul className="space-y-0.5">
               {searchResults.map((wallet) => (
@@ -160,7 +170,7 @@ export function WalletSearch() {
                   <Link 
                     href={`/wallets/${wallet.address}`} 
                     className="block px-2 py-1.5 text-xs rounded-sm hover:bg-muted transition-colors truncate"
-                    onClick={() => { setQuery(''); setShowResults(false); }}
+                    onClick={() => { setInputValue(''); setQuery(''); setShowResults(false); }}
                     title={wallet.address}
                   >
                     {wallet.address}
@@ -170,7 +180,6 @@ export function WalletSearch() {
             </ul>
           )}
           
-          {/* Analysis Trigger Button */} 
           {canTriggerAnalysisForQuery && (
             <div className="p-1 mt-1 border-t">
               <TooltipProvider delayDuration={100}>
@@ -180,13 +189,13 @@ export function WalletSearch() {
                       variant="outline" 
                       size="sm"
                       className="w-full text-xs justify-start h-auto py-1.5 px-2"
-                      onClick={() => handleTriggerAnalysis(query.trim())}
-                      disabled={isAnalyzing && analysisTarget === query.trim()}
+                      onClick={() => handleTriggerAnalysis(inputValue.trim())}
+                      disabled={isAnalyzing && analysisTarget === inputValue.trim()}
                     >
-                      {isAnalyzing && analysisTarget === query.trim() ? (
+                      {isAnalyzing && analysisTarget === inputValue.trim() ? (
                         <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Analyzing...</>
                       ) : (
-                        <><DownloadCloud className="h-3.5 w-3.5 mr-1.5" /> Import & Analyze: {query.substring(0,6)}...{query.substring(query.length-4)}</>
+                        <><DownloadCloud className="h-3.5 w-3.5 mr-1.5" /> Import & Analyze: {inputValue.substring(0,6)}...{inputValue.substring(inputValue.length-4)}</>
                       )}
                     </Button>
                   </TooltipTrigger>

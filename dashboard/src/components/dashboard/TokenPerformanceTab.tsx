@@ -108,7 +108,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  const apiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/token-performance` : null;
+  const apiUrlBase = walletAddress ? `/wallets/${walletAddress}/token-performance` : null;
   let swrKey: (string | null)[] | null = null;
 
   if (apiUrlBase && isInitialized && apiKey) { // Check for key and init status

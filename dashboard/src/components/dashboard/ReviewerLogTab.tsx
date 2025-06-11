@@ -71,7 +71,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
   const [editingNote, setEditingNote] = useState<{ id: string; content: string } | null>(null);
   const [isUpdatingNote, setIsUpdatingNote] = useState(false);
 
-  const notesApiUrl = walletAddress ? `/api/v1/wallets/${walletAddress}/notes` : null;
+  const notesApiUrl = walletAddress ? `/wallets/${walletAddress}/notes` : null;
 
   const swrKey = (notesApiUrl && isInitialized && apiKey) ? [notesApiUrl, apiKey] : null;
 
@@ -139,7 +139,10 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
 
     setIsSubmitting(true);
     try {
-      await fetcher(notesApiUrl!, {
+      if (!notesApiUrl) {
+        throw new Error("API URL is not available.");
+      }
+      await fetcher(notesApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: newNoteContent }),
@@ -166,7 +169,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
     }
     if (!noteId || !walletAddress) return;
 
-    const deleteUrl = `/api/v1/wallets/${walletAddress}/notes/${noteId}`;
+    const deleteUrl = `/wallets/${walletAddress}/notes/${noteId}`;
     
     try {
       await fetcher(deleteUrl, { method: 'DELETE' });
@@ -216,7 +219,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
     }
 
     setIsUpdatingNote(true);
-    const updateUrl = `/api/v1/wallets/${walletAddress}/notes/${editingNote.id}`;
+    const updateUrl = `/wallets/${walletAddress}/notes/${editingNote.id}`;
     try {
       await fetcher(updateUrl, {
         method: 'PATCH',
@@ -504,7 +507,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
 async function handleDeleteNote(noteId: string, walletAddress: string, toast: any, notesApiUrl: string | null, mutateSWR: any) {
   if (!noteId || !walletAddress) return;
 
-  const deleteUrl = `/api/v1/wallets/${walletAddress}/notes/${noteId}`;
+  const deleteUrl = `/wallets/${walletAddress}/notes/${noteId}`;
   
   try {
     await fetcher(deleteUrl, { method: 'DELETE' });
