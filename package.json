@@ -1,6 +1,6 @@
 {
   "name": "wallet-analyzer",
-  "version": "0.1.1",
+  "version": "0.9.1",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "scripts": {

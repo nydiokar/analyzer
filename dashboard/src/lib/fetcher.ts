@@ -19,9 +19,12 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         ...(options?.headers || {}),
     };
 
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+    const absoluteUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+
     let res;
     try {
-        res = await fetch(url, {
+        res = await fetch(absoluteUrl, {
             ...options,
             headers: mergedHeaders,
         });

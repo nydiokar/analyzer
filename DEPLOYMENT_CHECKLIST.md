@@ -5,11 +5,11 @@ This document provides a step-by-step checklist for deploying the backend and fr
 ## Phase 1: Pre-flight & Configuration
 
 - [ ] **1.1: Backend `.env` File:**
-  - [ ] Create or update the `.env` file in the project's root directory on your Raspberry Pi.
+  - [x] Create or update the `.env` file in the project's root directory on your Raspberry Pi.
   - [ ] Verify `DATABASE_URL` is correct for your environment (e.g., `file:./data/prod.db`).
   - [ ] Verify `PORT` is set (e.g., `3001`).
-  - [ ] Generate a secure, random string and set it as `DEMO_API_KEY`.
-  - [ ] Define the list of public wallet addresses for `DEMO_WALLETS`, separated by commas with no spaces (e.g., `wallet1,wallet2,wallet3`).
+  - [x] Generate a secure, random string and set it as `DEMO_API_KEY`.
+  - [x] Define the list of public wallet addresses for `DEMO_WALLETS`, separated by commas with no spaces (e.g., `wallet1,wallet2,wallet3`).
   - [ ] Ensure `NODE_ENV` is set to `production`.
 
 - [ ] **1.2: Frontend Vercel Environment Variables:**
