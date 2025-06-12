@@ -35,8 +35,7 @@
     "pm2:stop:backend": "pm2 stop analyzer-backend-api",
     "pm2:delete:backend": "pm2 delete analyzer-backend-api",
     "pm2:restart:backend": "pm2 restart analyzer-backend-api",
-    "pm2:logs:backend": "pm2 logs analyzer-backend-api",
-    "docs:generate": "autodoc ."
+    "pm2:logs:backend": "pm2 logs analyzer-backend-api"
   },
   "keywords": [
     "crypto",

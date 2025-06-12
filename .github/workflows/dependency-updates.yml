@@ -30,7 +30,7 @@ jobs:
         id: ncu
         run: |
           npm install -g npm-check-updates
-          ncu --error-level 1 --json-upgraded > ncu-output.json || echo "NO_UPDATES=true" >> $GITHUB_ENV
+          ncu --errorLevel 1 --json-upgraded > ncu-output.json || echo "NO_UPDATES=true" >> $GITHUB_ENV
         continue-on-error: true
 
       - name: Create Pull Request

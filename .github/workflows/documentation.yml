@@ -62,14 +62,11 @@ jobs:
         with:
           node-version: '22'
       
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build project
-        run: npm run build
+      - name: Install Autodoc
+        run: npm install -g @nydiokar/autodoc
 
       - name: Run documentation generator
-        run: npm run autodoc
+        run: autodoc
         env:
           INPUT_PULL_NUMBER: ${{ github.event.inputs.pull_number }}
           INPUT_ROOT_DIRECTORY: ${{ github.event.inputs.root_directory }}
