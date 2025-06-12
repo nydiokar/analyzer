@@ -62,11 +62,13 @@ jobs:
         with:
           node-version: '22'
       
-      - name: Install Autodoc CLI
-        run: npm install 
+      - name: Install Autodoc
+        run: |
+          pwd
+          npm install -g @nydiokar/autodoc
 
       - name: Run documentation generator
-        run: npx autodoc .
+        run: autodoc .
         env:
           INPUT_PULL_NUMBER: ${{ github.event.inputs.pull_number }}
           INPUT_ROOT_DIRECTORY: ${{ github.event.inputs.root_directory }}
@@ -74,4 +76,4 @@ jobs:
           INPUT_REVIEWERS: ${{ github.event.inputs.reviewers }}
           INPUT_BRANCH: ${{ github.event.inputs.branch }}
           INPUT_JSDOC: ${{ github.event.inputs.jsdoc }}
-          INPUT_README: ${{ github.event.inputs.readme }}
+          INPUT_README: ${{ github.event.inputs.readme }} 
