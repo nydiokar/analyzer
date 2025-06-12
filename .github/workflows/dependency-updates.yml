@@ -1,0 +1,67 @@
+name: Weekly Dependency Update
+
+on:
+  schedule:
+    - cron: '0 0 * * 1' # Runs at midnight every Monday
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  update-dependencies:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }} # Use PAT to allow pushing new branches
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Check for outdated packages
+        id: ncu
+        run: |
+          npm install -g npm-check-updates
+          ncu --error-level 1 --json-upgraded > ncu-output.json || echo "NO_UPDATES=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: Create Pull Request
+        if: env.NO_UPDATES != 'true'
+        run: |
+          BRANCH_NAME="deps/weekly-update-$(date +'%Y-%m-%d')"
+          git checkout -b $BRANCH_NAME
+          
+          # Update package.json with new versions
+          ncu -u
+          
+          # Install the updated packages
+          npm install
+          
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git commit -am "build(deps): weekly dependency update"
+          git push --set-upstream origin $BRANCH_NAME
+          
+          PR_BODY=$(cat ncu-output.json | jq -r 'to_entries | .[] | "- \(.key): \(.value)"')
+          
+          gh pr create \
+            --title "Build(deps): Weekly Dependency Update" \
+            --body "This PR updates the following dependencies:
+            $PR_BODY" \
+            --base main \
+            --head $BRANCH_NAME \
+            --label "dependencies"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: No updates found
+        if: env.NO_UPDATES == 'true'
+        run: echo "No dependency updates found." 

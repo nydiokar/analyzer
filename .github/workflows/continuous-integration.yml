@@ -1,0 +1,33 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Backend Dependencies
+        run: npm install
+
+      - name: Build Backend
+        run: npm run build
+
+      - name: Install Frontend Dependencies
+        working-directory: ./dashboard
+        run: npm install
+
+      - name: Build Frontend
+        working-directory: ./dashboard
+        run: npm run build 
