@@ -48,7 +48,7 @@ jobs:
       pull-requests: write
 
     env:
-      GH_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_ACCESS_TOKEN: ${{ secrets.GH_PAT }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
     steps:
@@ -62,7 +62,7 @@ jobs:
         with:
           node-version: '22'
       
-      - name: Install Autodoc
+      - name: Install Autodoc CLI
         run: npm install -g @nydiokar/autodoc
 
       - name: Run documentation generator
@@ -74,4 +74,4 @@ jobs:
           INPUT_REVIEWERS: ${{ github.event.inputs.reviewers }}
           INPUT_BRANCH: ${{ github.event.inputs.branch }}
           INPUT_JSDOC: ${{ github.event.inputs.jsdoc }}
-          INPUT_README: ${{ github.event.inputs.readme }} 
+          INPUT_README: ${{ github.event.inputs.readme }}
