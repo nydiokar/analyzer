@@ -43,8 +43,6 @@ import AccountStatsPnlTab from '@/components/dashboard/AccountStatsPnlTab';
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
 import ReviewerLogTab from '@/components/dashboard/ReviewerLogTab';
 
-const API_BASE_URL = '/api/v1';
-
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
   walletAddress: string;
@@ -78,10 +76,10 @@ export default function WalletProfileLayout({
     return !!favoritesData?.find(fav => fav.walletAddress === walletAddress);
   }, [favoritesData, walletAddress]);
 
-  const walletSummaryKey = isInitialized && apiKey && walletAddress ? `${API_BASE_URL}/wallets/${walletAddress}/summary` : null;
+  const walletSummaryKey = isInitialized && apiKey && walletAddress ? `/wallets/${walletAddress}/summary` : null;
   const { data: walletSummary, error: summaryError, isLoading: isLoadingWalletSummary } = useSWR<WalletSummaryData>(
     walletSummaryKey,
-    (url: string) => fetcher(url),
+    fetcher,
     {
       revalidateOnFocus: false,
       refreshInterval: isPolling ? 5000 : 0, // Poll every 5s when isPolling is true
@@ -107,7 +105,7 @@ export default function WalletProfileLayout({
           for (const key of cache.keys()) {
             if (
               typeof key === 'string' &&
-              key.startsWith(`${API_BASE_URL}/wallets/${walletAddress}`) &&
+              key.startsWith(`/wallets/${walletAddress}`) &&
               key !== walletSummaryKey
             ) {
               globalMutate(key);
@@ -215,7 +213,7 @@ export default function WalletProfileLayout({
     });
 
     try {
-      await fetcher(`${API_BASE_URL}/analyses/wallets/${walletAddress}/trigger-analysis`, {
+      await fetcher(`/analyses/wallets/${walletAddress}/trigger-analysis`, {
         method: 'POST',
       });
       
@@ -248,17 +246,25 @@ export default function WalletProfileLayout({
     const currentIsFavorite = isCurrentWalletFavorite;
     const method = currentIsFavorite ? 'DELETE' : 'POST';
     const url = currentIsFavorite
-      ? `${API_BASE_URL}/users/me/favorites/${walletAddress}`
-      : `${API_BASE_URL}/users/me/favorites`;
+      ? `/users/me/favorites/${walletAddress}`
+      : `/users/me/favorites`;
   
     const body = currentIsFavorite ? undefined : JSON.stringify({ walletAddress });
     
+    // Optimistic update
+    const previousFavorites = favoritesData;
+    
     try {
-      await fetcher(url, {
-        method,
-        body,
-      });
-  
+      if (method === 'POST') {
+        await fetcher(url, {
+          method: 'POST',
+          body: JSON.stringify({ walletAddress, name: 'Unnamed' }), // Name can be editable later
+        });
+      } else {
+        await fetcher(url, { method: 'DELETE' });
+      }
+
+      // Revalidate the data from the server
       await mutateFavorites();
   
       toast.success(currentIsFavorite ? "Removed from Favorites" : "Added to Favorites", {

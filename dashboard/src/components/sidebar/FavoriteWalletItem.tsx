@@ -9,13 +9,11 @@ interface FavoriteWalletItemProps {
   walletAddress: string;
 }
 
-const API_BASE_URL = '/api/v1';
-
 export default function FavoriteWalletItem({ walletAddress }: FavoriteWalletItemProps) {
-  const walletSummaryKey = walletAddress ? `${API_BASE_URL}/wallets/${walletAddress}/summary` : null;
+  const walletSummaryKey = walletAddress ? `/wallets/${walletAddress}/summary` : null;
   const { data: summary, error } = useSWR<WalletSummaryData>(
     walletSummaryKey,
-    (url: string) => fetcher(url),
+    fetcher,
     {
       revalidateOnFocus: false,
       shouldRetryOnError: false,

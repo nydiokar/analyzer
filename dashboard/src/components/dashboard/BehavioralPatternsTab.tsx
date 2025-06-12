@@ -100,7 +100,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
   const { apiKey, isInitialized } = useApiKeyStore(); // Get key and init status
   const [useLogScaleDuration, setUseLogScaleDuration] = useState<boolean>(false);
 
-  const behaviorApiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/behavior-analysis` : null;
+  const behaviorApiUrlBase = walletAddress ? `/wallets/${walletAddress}/behavior-analysis` : null;
   let swrKeyBehavior: (string | null)[] | null = null;
 
   if (behaviorApiUrlBase && isInitialized && apiKey) { // Check for key and init status
@@ -344,7 +344,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             <MetricDisplay 
               label="Trading Style" 
               value={behaviorData.tradingStyle}
-              tooltipText="Overall trading approach identified (e.g., Scalper, Day Trader). Based on typical holding durations and activity frequency."
+              tooltipText="Overall trading approach identified (e.g., Flipper, HODLer). Based on typical holding durations and activity frequency."
             />
             <MetricDisplay 
               label="Confidence" 

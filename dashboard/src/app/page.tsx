@@ -206,7 +206,7 @@ export default function Home() {
               <div className="max-w-5xl mx-auto relative group">
                 <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg blur-lg opacity-40 group-hover:opacity-75 transition duration-500"></div>
                 <Image 
-                  src="/preview/gake-dashboard.png" 
+                  src="/preview/dashboard-preview.png" 
                   alt="Dashboard Preview" 
                   width={1024}
                   height={576}

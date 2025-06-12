@@ -14,7 +14,21 @@ async function bootstrap() {
   const port = process.env.PORT || 3001;
 
   app.setGlobalPrefix('api/v1');
-  app.enableCors();
+
+  // Secure CORS setup for production
+  const frontendUrl = process.env.FRONTEND_URL;
+  if (frontendUrl) {
+    app.enableCors({
+      origin: frontendUrl,
+      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+      credentials: true,
+    });
+    Logger.log(`CORS enabled for origin: ${frontendUrl}`, 'Bootstrap');
+  } else {
+    // Fallback for local development
+    app.enableCors();
+    Logger.warn(`CORS enabled for all origins (FRONTEND_URL not set)`, 'Bootstrap');
+  }
 
   // --- Swagger OpenAPI Documentation Setup ---
   const config = new DocumentBuilder()

@@ -19,9 +19,14 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         ...(options?.headers || {}),
     };
 
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+    // The baseUrl from env variables is now the single source of truth.
+    // All calls from components should start with a '/', e.g. /wallets/summary
+    const absoluteUrl = `${baseUrl}${url}`;
+
     let res;
     try {
-        res = await fetch(url, {
+        res = await fetch(absoluteUrl, {
             ...options,
             headers: mergedHeaders,
         });

@@ -263,7 +263,7 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   const [displayMode, setDisplayMode] = useState<number>(2);
   const { toast } = useToast();
 
-  const pnlOverviewApiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/pnl-overview` : null;
+  const pnlOverviewApiUrlBase = walletAddress ? `/wallets/${walletAddress}/pnl-overview` : null;
   let swrKeyPnl: (string | null)[] | null = null;
 
   if (pnlOverviewApiUrlBase && !isAnalyzingGlobal && isInitialized && apiKey) { // Only build key if not analyzing and store is ready
@@ -300,10 +300,6 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   );
 
   // useEffect to handle isAnalyzingGlobal changes.
-  // If analysis finishes (isAnalyzingGlobal becomes false), we might want to ensure SWR revalidates.
-  // SWR will automatically re-fetch if swrKeyPnl changes from null to a valid string.
-  // If isAnalyzingGlobal was true, swrKeyPnl was null. When it becomes false, swrKeyPnl becomes valid, triggering fetch.
-  // If an analysis completes and we want to force a refresh for an *existing* swrKeyPnl that didn't change:
   useEffect(() => {
     if (!isAnalyzingGlobal && swrKeyPnl) {
       // If analysis just finished, and we have a key, consider revalidating.
