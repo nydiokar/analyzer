@@ -4,7 +4,6 @@ import { fetcher } from '@/lib/fetcher';
 
 // This is the actual API key that is marked as `isDemo` in your backend.
 // When a user selects "Try Demo Mode", this key will be used.
-export const DEMO_API_KEY = '156b2bc7-2ab3-4bdb-8b4f-13a7d3d42f0c'; 
 
 interface ApiKeyStore {
   apiKey: string | null;
@@ -22,9 +21,14 @@ export const useApiKeyStore = create<ApiKeyStore>()(
       isDemo: false,
       isInitialized: false,
       setDemoMode: async () => {
-        // We now use the standard setApiKey flow with the hardcoded demo key.
-        // This will trigger the backend validation as intended.
-        await get().setApiKey(DEMO_API_KEY);
+        const demoKey = process.env.DEMO_API_KEY;
+        if (!demoKey) {
+          console.error("Demo API Key is not configured. Please set DEMO_API_KEY.");
+          // Optionally, show a toast or error message to the user
+          return;
+        }
+        // Use the standard setApiKey flow with the key from the environment variable.
+        await get().setApiKey(demoKey);
       },
       clearApiKey: () => {
         set({ apiKey: null, isDemo: false });
