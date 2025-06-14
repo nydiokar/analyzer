@@ -21,9 +21,9 @@ export const useApiKeyStore = create<ApiKeyStore>()(
       isDemo: false,
       isInitialized: false,
       setDemoMode: async () => {
-        const demoKey = process.env.DEMO_API_KEY;
+        const demoKey = process.env.NEXT_PUBLIC_DEMO_API_KEY;
         if (!demoKey) {
-          console.error("Demo API Key is not configured. Please set DEMO_API_KEY.");
+          console.error("Demo API Key is not configured. Please set Demo key.");
           // Optionally, show a toast or error message to the user
           return;
         }
