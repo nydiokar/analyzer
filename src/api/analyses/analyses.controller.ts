@@ -1,4 +1,5 @@
 import { Controller, Post, Param, Logger, InternalServerErrorException, NotFoundException, UseGuards, ServiceUnavailableException } from '@nestjs/common';
+import { Throttle } from 'nestjs-throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { DatabaseService } from '../database/database.service';
 import { PnlAnalysisService } from '../pnl_analysis/pnl-analysis.service';
@@ -13,7 +14,7 @@ import { SolanaAddressPipe } from '../pipes/solana-address.pipe';
 @UseGuards(ApiKeyAuthGuard)
 export class AnalysesController {
   private readonly logger = new Logger(AnalysesController.name);
-  private isAnalysisRunning = false;
+  private runningAnalyses = new Set<string>();
 
   constructor(
     private readonly databaseService: DatabaseService,
@@ -23,6 +24,7 @@ export class AnalysesController {
   ) {}
 
   @Post('/wallets/:walletAddress/trigger-analysis')
+  @Throttle(3, 60000)
   @ApiOperation({ summary: 'Triggers a full analysis for a specific wallet' })
   @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address', type: String })
   @ApiResponse({
@@ -37,15 +39,15 @@ export class AnalysesController {
   ): Promise<{ message: string; walletAddress: string }> {
     this.logger.log(`Received request to trigger analysis for wallet: ${walletAddress}`);
 
-    if (this.isAnalysisRunning) {
-      this.logger.warn('An analysis is already in progress. Request rejected.');
-      throw new ServiceUnavailableException('An analysis is already in progress. Please try again later.');
+    if (this.runningAnalyses.has(walletAddress)) {
+      this.logger.warn(`An analysis for ${walletAddress} is already in progress. Request rejected.`);
+      throw new ServiceUnavailableException(`An analysis for wallet ${walletAddress} is already in progress. Please try again later.`);
     }
 
     // Run analysis in the background
     (async () => {
       try {
-        this.isAnalysisRunning = true;
+        this.runningAnalyses.add(walletAddress);
         this.logger.log(`Lock acquired for analysis of wallet: ${walletAddress}.`);
         const initialWalletState: Wallet | null = await this.databaseService.getWallet(walletAddress);
         const isNewWalletFlow = !initialWalletState;
@@ -89,7 +91,7 @@ export class AnalysesController {
         const errorStack = error instanceof Error ? error.stack : undefined;
         this.logger.error(`Unexpected error during async analysis for ${walletAddress}: ${errorMessage}`, errorStack, String(error));
       } finally {
-        this.isAnalysisRunning = false;
+        this.runningAnalyses.delete(walletAddress);
         this.logger.log(`Lock released after analysis of wallet: ${walletAddress}.`);
       }
     })();

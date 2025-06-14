@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ThrottlerGuard, ThrottlerModule } from 'nestjs-throttler';
 import { ApiModule } from './api.module';
 import { ConfigModule } from '@nestjs/config'; // For .env variable support
 import { HeliusModule } from './api/helius/helius.module'; // Import the global HeliusModule
@@ -9,6 +10,10 @@ import { ApiKeyAuthGuard } from './api/auth/api-key-auth.guard';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot({
+      ttl: 60000, // 1 minute
+      limit: 100, // 100 requests per minute
+    }),
     ConfigModule.forRoot({ // Initialize ConfigModule to load .env variables
       isGlobal: true, // Make ConfigModule global
     }),
@@ -21,6 +26,10 @@ import { ApiKeyAuthGuard } from './api/auth/api-key-auth.guard';
     {
       provide: APP_GUARD,
       useClass: ApiKeyAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ],
 })
