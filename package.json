@@ -1,6 +1,6 @@
 {
-  "name": "sova-analyzer",
-  "version": "0.9.1",
+  "name": "Sova Intel",
+  "version": "0.10.0",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "scripts": {
@@ -69,7 +69,7 @@
     "csv-stringify": "^6.5.2",
     "dotenv": "^16.3.1",
     "express": "^5.1.0",
-    "nestjs-throttler": "^0.3.0",
+    "@nestjs/throttler": "^6.4.0",
     "p-limit": "^6.2.0",
     "papaparse": "^5.5.3",
     "react-wrap-balancer": "^1.1.1",

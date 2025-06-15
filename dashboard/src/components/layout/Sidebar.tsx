@@ -28,7 +28,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
     >
       <TooltipProvider delayDuration={100}>
         <div className="flex items-center justify-between mb-6">
-          {!isCollapsed && <span className="text-xl font-semibold">Analyzer</span>}
+          {!isCollapsed && <span className="text-xl font-semibold">Sova Intel</span>}
           <Tooltip>
             <TooltipTrigger asChild>
               <button 

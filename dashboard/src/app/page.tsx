@@ -218,7 +218,7 @@ export default function Home() {
         </div>
         
         <footer className="w-full mt-auto pt-16 pb-8 text-sm text-slate-500">
-          <p>&copy; {new Date().getFullYear()} Wallet Analyzer. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Sova Intel. All rights reserved.</p>
           <p className="mt-1">
             <Link href="/help" className="hover:text-slate-300 underline">Help & Documentation</Link>
             {' | '}
