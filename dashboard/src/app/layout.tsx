@@ -10,7 +10,7 @@ const geistMono = GeistMono;
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Wallet Analyzer Dashboard",
+  title: "Sova Intel - Solana Wallet Analyzer",
   description: "Gain deep insights into Solana wallet performance, behavior, and profitability.",
 };
 
