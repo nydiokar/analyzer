@@ -1,5 +1,5 @@
 import { Controller, Post, Param, Logger, InternalServerErrorException, NotFoundException, UseGuards, ServiceUnavailableException } from '@nestjs/common';
-import { Throttle } from 'nestjs-throttler';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { DatabaseService } from '../database/database.service';
 import { PnlAnalysisService } from '../pnl_analysis/pnl-analysis.service';
@@ -24,7 +24,7 @@ export class AnalysesController {
   ) {}
 
   @Post('/wallets/:walletAddress/trigger-analysis')
-  @Throttle(3, 60000)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @ApiOperation({ summary: 'Triggers a full analysis for a specific wallet' })
   @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address', type: String })
   @ApiResponse({
