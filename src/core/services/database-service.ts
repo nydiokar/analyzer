@@ -921,43 +921,45 @@ export class DatabaseService {
             // The extensive block comparing incoming records with DB records for float issues has been removed
             // as the primary debugging for that is complete. The iterative save handles the skips.
             // --- End of REMOVED Detailed Logging ---
-
-            // --- ITERATIVE CREATE (WORKAROUND FOR SQLITE) ---
-            // TODO: Revert to using prisma.swapAnalysisInput.createMany({ data: uniqueNewRecordsToInsert, skipDuplicates: true (if supported/needed) })
-            // if the database is switched from SQLite to a system like PostgreSQL that offers more robust 
-            // 'ON CONFLICT DO NOTHING' or equivalent behavior with `createMany` that reliably handles these float-precision-induced duplicates.
-            // SQLite's `createMany` with `skipDuplicates: true` (or its default behavior) was found to still throw P2002 errors
-            // in these float precision scenarios, necessitating this iterative approach for robust skipping.
-            let successfulInserts = 0;
-            let skippedDuplicatesCount = 0; 
-            this.logger.info(`[DB] Using iterative create for SwapAnalysisInput. Attempting to insert ${uniqueNewRecordsToInsert.length} records one by one...`);
-
-            for (const record of uniqueNewRecordsToInsert) {
-                try {
-                    await this.prismaClient.swapAnalysisInput.create({ data: record });
-                    successfulInserts++;
-                } catch (error) {
-                    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-                        skippedDuplicatesCount++;
-                        // Downgraded to debug to reduce noise, as the final summary is an info log.
-                        this.logger.debug(
-                            `[DB] Iterative Save: Skipped inserting duplicate SwapAnalysisInput (P2002). Sig: ${record.signature}, Mint: ${record.mint}, Amount: ${record.amount}. Total skipped so far: ${skippedDuplicatesCount}.`
-                        );
-                    } else {
-                        // For non-P2002 errors, log more verbosely as it's unexpected.
-                        this.logger.error('[DB] Iterative Save: Error inserting single SwapAnalysisInput record', {
-                            signature: record.signature, 
-                            mint: record.mint, 
-                            amount: record.amount,
-                            error 
-                        });
-                        // Depending on policy, you might want to re-throw or break for unexpected errors.
+            
+            this.logger.info(`[DB] Attempting to bulk insert ${uniqueNewRecordsToInsert.length} records with createMany...`);
+            try {
+                // The fast path: try to insert everything in one go.
+                const result = await this.prismaClient.swapAnalysisInput.createMany({
+                    data: uniqueNewRecordsToInsert,
+                });
+                this.logger.info(`[DB] createMany successful. Inserted ${result.count} records.`);
+                return result;
+            } catch (error) {
+                // The fallback path: if the batch fails due to a unique constraint violation...
+                if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                    this.logger.warn(`[DB] createMany failed due to a duplicate record (P2002). Falling back to iterative insertion for this batch.`);
+                    
+                    // Now, we perform the original, slower, but safer iterative insertion.
+                    let successfulInserts = 0;
+                    let skippedDuplicatesCount = 0; 
+                    
+                    for (const record of uniqueNewRecordsToInsert) {
+                        try {
+                            await this.prismaClient.swapAnalysisInput.create({ data: record });
+                            successfulInserts++;
+                        } catch (iterativeError) {
+                            if (iterativeError instanceof Prisma.PrismaClientKnownRequestError && iterativeError.code === 'P2002') {
+                                skippedDuplicatesCount++;
+                            } else {
+                                this.logger.error('[DB] Iterative Fallback: Error inserting single record', { error: iterativeError });
+                            }
+                        }
                     }
+                    this.logger.info(`[DB] Iterative fallback complete. Successfully inserted: ${successfulInserts}, Skipped duplicates: ${skippedDuplicatesCount}`);
+                    return { count: successfulInserts };
+
+                } else {
+                    // If it's a different kind of error, we should log it and re-throw it.
+                    this.logger.error('[DB] createMany failed with a non-duplicate error', { error });
+                    throw error; // Re-throwing the error for other unexpected issues.
                 }
             }
-            this.logger.info(`[DB] Iterative insert process complete. Attempted: ${uniqueNewRecordsToInsert.length}, Successfully inserted: ${successfulInserts}, Skipped due to P2002 (duplicates/float precision): ${skippedDuplicatesCount}`);
-            return { count: successfulInserts };
-            // --- END OF ITERATIVE LOGIC ---
 
         } else {
             this.logger.info('[DB] No unique new SwapAnalysisInput records to add after filtering.');
