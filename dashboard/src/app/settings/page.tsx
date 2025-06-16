@@ -82,9 +82,10 @@ export default function SettingsPage() {
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">You are currently using the Demo API Key. You can explore curated wallets with limited access.</p>
               <div className="space-y-2">
-                <label htmlFor="api-key-input" className="text-sm font-medium">Demo Key</label>
+                <label htmlFor="demo-api-key-input" className="text-sm font-medium">Demo Key</label>
                 <Input
-                  id="api-key-input"
+                  id="demo-api-key-input"
+                  name="demo-api-key-input"
                   type="password"
                   value={keyInput}
                   disabled
@@ -98,9 +99,10 @@ export default function SettingsPage() {
            ) : (
             <div className="space-y-4">
                <div className="space-y-2">
-                  <label htmlFor="api-key-input" className="text-sm font-medium">Your API Key</label>
+                  <label htmlFor="user-api-key-input" className="text-sm font-medium">Your API Key</label>
                   <Input
-                    id="api-key-input"
+                    id="user-api-key-input"
+                    name="user-api-key-input"
                     type="password"
                     value={keyInput}
                     onChange={(e) => setKeyInput(e.target.value)}

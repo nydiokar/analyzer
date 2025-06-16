@@ -421,7 +421,19 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
       <div className="px-4 py-3 border-b">
         <Flex flexDirection="row" alignItems="center" justifyContent="between" className="gap-2 flex-wrap">
           <Flex flexDirection="row" alignItems="center" className="gap-2 flex-wrap">
-            <Input placeholder="Search token/address..." value={searchTerm} onChange={handleSearchTermChange} className="max-w-xs h-9" />
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-medium">Token Performance</h3>
+                <Input id="token-search" name="token-search" placeholder="Search token/address..." value={searchTerm} onChange={handleSearchTermChange} className="max-w-xs h-9" />
+              </div>
+              {error && <p className="text-red-500">{error.message}</p>}
+              {isLoadingData && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>{enrichmentMessage}</span>
+                </div>
+              )}
+            </div>
             <Select value={pnlFilter} onValueChange={handlePnlFilterChange}>
               <SelectTrigger className="w-[180px] h-9"><SelectValue placeholder="Filter PNL" /></SelectTrigger>
               <SelectContent>{PNL_FILTER_OPTIONS.map(option => (<SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>))}</SelectContent>
@@ -432,12 +444,6 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
               <RefreshCwIcon className={cn("mr-2 h-4 w-4", isRefreshing && "animate-spin")} />Refresh
             </UiButton>
           </Flex>
-          {isEnriching && (
-            <Flex alignItems="center" className="gap-2 text-xs text-muted-foreground pt-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>{enrichmentMessage}</span>
-            </Flex>
-          )}
         </Flex>
       </div>
       

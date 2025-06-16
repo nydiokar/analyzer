@@ -132,6 +132,8 @@ export function WalletSearch() {
       <div className="relative">
         <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input 
+          id="wallet-search"
+          name="wallet-search"
           type="search" 
           placeholder="Search or paste address..." 
           className="h-9 pl-8 w-full text-sm"

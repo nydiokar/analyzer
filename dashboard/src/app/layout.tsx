@@ -12,6 +12,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Sova Intel - Solana Wallet Analyzer",
   description: "Gain deep insights into Solana wallet performance, behavior, and profitability.",
+  other: {
+    "Content-Security-Policy": "script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline';",
+  },
 };
 
 export default function RootLayout({

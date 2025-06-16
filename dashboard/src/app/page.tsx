@@ -103,6 +103,7 @@ export default function Home() {
               <div className="relative">
                 <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
                 <Input
+                  id="walletAddress"
                   type="text"
                   name="walletAddress"
                   placeholder="Enter Solana Wallet Address to Analyze..."
