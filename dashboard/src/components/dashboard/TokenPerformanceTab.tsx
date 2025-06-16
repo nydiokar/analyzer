@@ -48,6 +48,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { Button as UiButton } from "@/components/ui/button";
 import { useApiKeyStore } from '@/store/api-key-store';
+import { fetcher } from '@/lib/fetcher';
 import {
   Popover,
   PopoverContent,
@@ -209,14 +210,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   const { data, error, isLoading: isLoadingData, mutate: localMutate } = useSWR<PaginatedTokenPerformanceResponse, Error>(
     // Do not fetch data while enrichment is happening.
     !isEnriching && swrKey ? [swrKey, apiKey] : null,
-    ([url, apiKeyVal]: [string, string]) => fetch(url, {
-      headers: { 'X-API-Key': apiKeyVal }
-    }).then(res => {
-      if (!res.ok) {
-        throw new Error('An error occurred while fetching token performance data.');
-      }
-      return res.json();
-    }),
+    ([url]: [string]) => fetcher(url),
     {
       revalidateOnFocus: false,
       keepPreviousData: true,
@@ -235,11 +229,9 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
       setEnrichmentMessage(null);
     }, 7000); // Hide loader and message after 7s
 
-    fetch(`/api/v1/wallets/${walletAddress}/enrich-all-tokens`, {
+    fetcher(`/api/v1/wallets/${walletAddress}/enrich-all-tokens`, {
       method: 'POST',
-      headers: { 'X-API-Key': apiKey },
     })
-    .then(res => res.json())
     .then(data => console.log(`Enrichment triggered: ${data.message}`))
     .catch(error => console.error('Could not trigger enrichment:', error.message));
   }, [walletAddress, apiKey]);
