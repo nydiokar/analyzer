@@ -417,15 +417,12 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   }
 
   return (
-    <Card className="p-0 md:p-0 mt-4">
+    <Card className="p-0 md:p-0 mt-0">
       <div className="px-4 py-3 border-b">
         <Flex flexDirection="row" alignItems="center" justifyContent="between" className="gap-2 flex-wrap">
           <Flex flexDirection="row" alignItems="center" className="gap-2 flex-wrap">
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium">Token Performance</h3>
-                <Input id="token-search" name="token-search" placeholder="Search token/address..." value={searchTerm} onChange={handleSearchTermChange} className="max-w-xs h-9" />
-              </div>
+              <Input id="token-search" name="token-search" placeholder="Search address..." value={searchTerm} onChange={handleSearchTermChange} className="max-w-xs h-9" />
               {error && <p className="text-red-500">{error.message}</p>}
               {isLoadingData && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2">
