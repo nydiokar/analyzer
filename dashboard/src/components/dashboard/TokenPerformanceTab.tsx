@@ -174,7 +174,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   const [isEnriching, setIsEnriching] = useState<boolean>(false);
   const [enrichmentMessage, setEnrichmentMessage] = useState<string | null>(null);
 
-  const apiUrlBase = walletAddress ? `/api/v1/wallets/${walletAddress}/token-performance` : null;
+  const apiUrlBase = walletAddress ? `/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
 
   if (apiUrlBase && isInitialized && apiKey) {
@@ -229,7 +229,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
       setEnrichmentMessage(null);
     }, 7000); // Hide loader and message after 7s
 
-    fetcher(`/api/v1/wallets/${walletAddress}/enrich-all-tokens`, {
+    fetcher(`/wallets/${walletAddress}/enrich-all-tokens`, {
       method: 'POST',
     })
     .then(data => console.log(`Enrichment triggered: ${data.message}`))

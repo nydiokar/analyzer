@@ -4,7 +4,7 @@ const nextConfig = {
     return [
       {
         source: '/api/v1/:path*',
-        destination: 'https://sova-intel.duckdns.org/api/v1*',
+        destination: 'http://localhost:3001/api/v1/:path*', // Assuming backend runs on port 3001
       },
     ];
   },
