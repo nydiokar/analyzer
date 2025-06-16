@@ -1,6 +1,6 @@
-import { Controller, Post, Param, Logger, InternalServerErrorException, NotFoundException, UseGuards, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Post, Param, Logger, InternalServerErrorException, NotFoundException, UseGuards, ServiceUnavailableException, Body, HttpCode } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiProperty } from '@nestjs/swagger';
 import { DatabaseService } from '../database/database.service';
 import { PnlAnalysisService } from '../pnl_analysis/pnl-analysis.service';
 import { BehaviorService } from '../wallets/behavior/behavior.service';
@@ -8,6 +8,14 @@ import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-
 import { Wallet } from '@prisma/client';
 import { ApiKeyAuthGuard } from '../auth/api-key-auth.guard';
 import { SolanaAddressPipe } from '../pipes/solana-address.pipe';
+import { SimilarityApiService } from './similarity/similarity.service';
+import { SimilarityAnalysisRequestDto } from './similarity/similarity-analysis.dto';
+import { WalletStatusRequestDto } from './dto/wallet-status.dto';
+
+interface WalletStatus {
+  walletAddress: string;
+  exists: boolean;
+}
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -21,7 +29,34 @@ export class AnalysesController {
     private readonly heliusSyncService: HeliusSyncService,
     private readonly pnlAnalysisService: PnlAnalysisService,
     private readonly behaviorService: BehaviorService,
+    private readonly similarityApiService: SimilarityApiService,
   ) {}
+
+  @Post('/similarity')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Runs a similarity analysis on a given set of wallets.' })
+  @ApiBody({ type: SimilarityAnalysisRequestDto })
+  @ApiResponse({ status: 200, description: 'Similarity analysis completed successfully.'})
+  @ApiResponse({ status: 400, description: 'Invalid input, e.g., fewer than 2 wallets provided.' })
+  @ApiResponse({ status: 500, description: 'An internal error occurred during analysis.' })
+  async runSimilarityAnalysis(
+    @Body() dto: SimilarityAnalysisRequestDto,
+  ): Promise<any> {
+    this.logger.log(`Received request to run similarity analysis for ${dto.walletAddresses.length} wallets.`);
+    return this.similarityApiService.runAnalysis(dto);
+  }
+
+  @Post('/wallets/status')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Checks the database for the existence of multiple wallets.' })
+  @ApiBody({ type: WalletStatusRequestDto })
+  @ApiResponse({ status: 200, description: 'Returns a list of wallet statuses.'})
+  async getWalletsStatus(
+    @Body() walletStatusRequestDto: WalletStatusRequestDto
+  ): Promise<{ statuses: WalletStatus[] }> {
+    this.logger.log(`Received request to check status for ${walletStatusRequestDto.walletAddresses.length} wallets.`);
+    return this.databaseService.getWalletsStatus(walletStatusRequestDto.walletAddresses);
+  }
 
   @Post('/wallets/:walletAddress/trigger-analysis')
   @Throttle({ default: { limit: 3, ttl: 60000 } })

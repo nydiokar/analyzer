@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SettingsIcon, HelpCircleIcon, BriefcaseIcon, SearchIcon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SettingsIcon, HelpCircleIcon, BriefcaseIcon, SearchIcon, FlaskConical } from 'lucide-react';
 import {
     Tooltip,
     TooltipContent,
@@ -86,6 +86,17 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
                     </Link>
                   </TooltipTrigger>
                   {isCollapsed && <TooltipContent side="right" align="center"><p>Dashboard Home</p></TooltipContent>}
+                </Tooltip>
+              </li>
+              <li className="mb-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link href="/analysis-lab" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
+                      <FlaskConical size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
+                      {!isCollapsed && <span className="flex-1 font-semibold">Analysis Lab</span>}
+                    </Link>
+                  </TooltipTrigger>
+                  {isCollapsed && <TooltipContent side="right" align="center"><p>Analysis Lab</p></TooltipContent>}
                 </Tooltip>
               </li>
             </ul>

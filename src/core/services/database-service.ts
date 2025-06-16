@@ -83,6 +83,11 @@ export type AdvancedTradeStatsInput = Omit<Prisma.AdvancedTradeStatsCreateInput,
  */
 export type WalletBehaviorProfileUpsertData = Omit<Prisma.WalletBehaviorProfileCreateInput, 'wallet'> & { walletAddress: string };
 
+interface WalletStatus {
+  walletAddress: string;
+  exists: boolean;
+}
+
 // --- DatabaseService Class ---
 
 /**
@@ -178,6 +183,52 @@ export class DatabaseService {
         }
     }
     // --- End WalletPnlSummary and WalletBehaviorProfile Accessors ---
+
+    // --- Wallet Status and Search Methods ---
+
+    /**
+     * Checks a list of wallet addresses against the database to see which ones have been analyzed.
+     * A wallet is considered to exist or be "ready" if its analysis has been completed,
+     * indicated by the presence of an `analyzedTimestampEnd`.
+     * @param walletAddresses An array of wallet addresses to check.
+     * @returns An object containing an array of wallet statuses.
+     */
+    async getWalletsStatus(walletAddresses: string[]): Promise<{ statuses: WalletStatus[] }> {
+        if (!walletAddresses || walletAddresses.length === 0) {
+            return { statuses: [] };
+        }
+
+        this.logger.debug(`Checking analysis status for ${walletAddresses.length} wallets.`);
+        try {
+            const foundWallets = await this.prismaClient.wallet.findMany({
+                where: {
+                    address: {
+                        in: walletAddresses,
+                    },
+                },
+                select: {
+                    address: true,
+                    analyzedTimestampEnd: true,
+                },
+            });
+
+            const foundWalletsMap = new Map(foundWallets.map(w => [w.address, w]));
+
+            const statuses: WalletStatus[] = walletAddresses.map(addr => {
+                const foundWallet = foundWalletsMap.get(addr);
+                return {
+                    walletAddress: addr,
+                    exists: !!foundWallet && foundWallet.analyzedTimestampEnd !== null,
+                };
+            });
+            
+            this.logger.debug(`Finished checking status for ${walletAddresses.length} wallets.`);
+            return { statuses };
+        } catch (error) {
+            this.logger.error('Error checking wallet status', { error, walletAddresses });
+            throw new InternalServerErrorException('Could not check wallet status in database.');
+        }
+    }
 
     // --- AnalysisResult Methods ---
 
@@ -674,7 +725,6 @@ export class DatabaseService {
     }
 
     // --- HeliusTransactionCache Methods ---
-
     /**
      * Retrieves cached Helius transaction data.
      * @param signature A single transaction signature string or an array of signature strings.
@@ -1695,3 +1745,4 @@ export class DatabaseService {
         return results.map(r => r.tokenAddress);
     }
 }
+
