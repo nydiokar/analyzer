@@ -43,20 +43,15 @@ export class DexscreenerService {
         if (tokenAddresses.length === 0) {
             return;
         }
-        logger.info(`Fetching info for ${tokenAddresses.length} tokens from DexScreener.`);
-
         const chunks = this.chunkArray(tokenAddresses, 30);
-        logger.info(`Processing in ${chunks.length} chunks of up to 30 tokens each.`);
 
         let processedCount = 0;
         for (const [index, chunk] of chunks.entries()) {
             try {
-                logger.info(`Processing chunk ${index + 1} of ${chunks.length}...`);
                 const url = `${this.baseUrl}/dex/tokens/${chunk.join(',')}`;
                 const response = await firstValueFrom(this.httpService.get(url));
                 const pairs: DexScreenerPair[] = response.data?.pairs || [];
 
-                logger.debug(`Chunk ${index + 1}: Received ${pairs.length} pairs from DexScreener API.`);
 
                 const tokenInfoFromPairs = this.transformPairsToTokenInfo(pairs, chunk);
                 const foundAddresses = new Set(tokenInfoFromPairs.map(t => t.tokenAddress));
