@@ -56,5 +56,24 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Timestamp when this specific token balance was part of a WalletState fetch', type: String, format: 'date-time', nullable: true, required: false })
   balanceFetchedAt?: string | null; // Store as ISO string in DTO
 
+  // Enriched data from TokenInfo
+  @ApiProperty({ description: 'Token name', type: String, nullable: true, required: false })
+  name?: string | null;
+
+  @ApiProperty({ description: 'Token symbol', type: String, nullable: true, required: false })
+  symbol?: string | null;
+
+  @ApiProperty({ description: 'Token image URL', type: String, nullable: true, required: false })
+  imageUrl?: string | null;
+
+  @ApiProperty({ description: 'Token website URL', type: String, nullable: true, required: false })
+  websiteUrl?: string | null;
+
+  @ApiProperty({ description: 'Token Twitter URL', type: String, nullable: true, required: false })
+  twitterUrl?: string | null;
+
+  @ApiProperty({ description: 'Token Telegram URL', type: String, nullable: true, required: false })
+  telegramUrl?: string | null;
+
   // Note: The 'id' field from AnalysisResult is typically not exposed in API responses unless specifically needed.
 } 

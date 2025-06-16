@@ -1,14 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
-import { Prisma, AnalysisResult as PrismaAnalysisResult } from '@prisma/client';
+import { Prisma, AnalysisResult as PrismaAnalysisResult, TokenInfo } from '@prisma/client';
 import { TokenPerformanceQueryDto, SortOrder, TokenPerformanceSortBy } from './token-performance-query.dto';
 import { ApiProperty } from '@nestjs/swagger';
 import { TokenPerformanceDataDto } from './token-performance-data.dto';
-
-interface SwapInputTimeRange {
-    startTs?: number;
-    endTs?: number;
-}
+import { TokenInfoService } from '../../token-info/token-info.service';
 
 export class PaginatedTokenPerformanceResponse {
   @ApiProperty({ type: () => [TokenPerformanceDataDto], description: 'Array of token performance records' })
@@ -32,7 +28,8 @@ export class TokenPerformanceService {
   private readonly logger = new Logger(TokenPerformanceService.name);
 
   constructor(
-    private databaseService: DatabaseService,
+    private readonly databaseService: DatabaseService,
+    private readonly tokenInfoService: TokenInfoService,
   ) {}
 
   async getPaginatedTokenPerformance(
@@ -157,15 +154,16 @@ export class TokenPerformanceService {
     orderBy[sortBy] = sortOrder.toLowerCase() as Prisma.SortOrder;
 
 
-    const analysisResults: PrismaAnalysisResult[] = await this.databaseService.getAnalysisResults({
+    const [analysisResults, totalResults] = await Promise.all([
+      this.databaseService.getAnalysisResults({
         where,
         orderBy,
         skip,
         take,
-    });
+      }),
+      this.databaseService.countAnalysisResults({ where }),
+    ]);
     
-    const totalResults = await this.databaseService.countAnalysisResults({ where });
-
     if (analysisResults.length === 0) {
       this.logger.debug('No AnalysisResult records found for the given criteria.');
       return {
@@ -177,27 +175,38 @@ export class TokenPerformanceService {
       };
     }
 
-    const tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => ({
-      walletAddress: ar.walletAddress,
-      tokenAddress: ar.tokenAddress,
-      totalAmountIn: ar.totalAmountIn,
-      totalAmountOut: ar.totalAmountOut,
-      netAmountChange: ar.netAmountChange,
-      totalSolSpent: ar.totalSolSpent,
-      totalSolReceived: ar.totalSolReceived,
-      totalFeesPaidInSol: ar.totalFeesPaidInSol,
-      netSolProfitLoss: ar.netSolProfitLoss,
-      transferCountIn: ar.transferCountIn,
-      transferCountOut: ar.transferCountOut,
-      firstTransferTimestamp: ar.firstTransferTimestamp,
-      lastTransferTimestamp: ar.lastTransferTimestamp,
-      // Map new balance fields
-      currentRawBalance: ar.currentRawBalance,
-      currentUiBalance: ar.currentUiBalance,
-      currentUiBalanceString: ar.currentUiBalanceString,
-      balanceDecimals: ar.balanceDecimals,
-      balanceFetchedAt: ar.balanceFetchedAt ? ar.balanceFetchedAt.toISOString() : null,
-    }));
+    const tokenAddresses = analysisResults.map(ar => ar.tokenAddress);
+    const tokenInfoMap = await this.getTokenInfoMap(tokenAddresses);
+
+    const tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => {
+      const tokenInfo = tokenInfoMap.get(ar.tokenAddress);
+      return {
+        walletAddress: ar.walletAddress,
+        tokenAddress: ar.tokenAddress,
+        totalAmountIn: ar.totalAmountIn,
+        totalAmountOut: ar.totalAmountOut,
+        netAmountChange: ar.netAmountChange,
+        totalSolSpent: ar.totalSolSpent,
+        totalSolReceived: ar.totalSolReceived,
+        totalFeesPaidInSol: ar.totalFeesPaidInSol,
+        netSolProfitLoss: ar.netSolProfitLoss,
+        transferCountIn: ar.transferCountIn,
+        transferCountOut: ar.transferCountOut,
+        firstTransferTimestamp: ar.firstTransferTimestamp,
+        lastTransferTimestamp: ar.lastTransferTimestamp,
+        currentRawBalance: ar.currentRawBalance,
+        currentUiBalance: ar.currentUiBalance,
+        currentUiBalanceString: ar.currentUiBalanceString,
+        balanceDecimals: ar.balanceDecimals,
+        balanceFetchedAt: ar.balanceFetchedAt ? ar.balanceFetchedAt.toISOString() : null,
+        name: tokenInfo?.name,
+        symbol: tokenInfo?.symbol,
+        imageUrl: tokenInfo?.imageUrl,
+        websiteUrl: tokenInfo?.websiteUrl,
+        twitterUrl: tokenInfo?.twitterUrl,
+        telegramUrl: tokenInfo?.telegramUrl,
+      };
+    });
     
     this.logger.debug(`Pagination: page=${page}, pageSize=${pageSize}, total=${totalResults}, returning ${tokenPerformanceDataList.length} items.`);
 
@@ -208,5 +217,28 @@ export class TokenPerformanceService {
       pageSize: pageSize,
       totalPages: Math.ceil(totalResults / pageSize),
     };
+  }
+
+  private async getTokenInfoMap(tokenAddresses: string[]): Promise<Map<string, TokenInfo>> {
+    const tokenInfoList = await this.tokenInfoService.findMany(tokenAddresses);
+    const tokenInfoMap = new Map<string, TokenInfo>();
+    for (const info of tokenInfoList) {
+      tokenInfoMap.set(info.tokenAddress, info);
+    }
+    return tokenInfoMap;
+  }
+
+  async getAllTokenAddressesForWallet(walletAddress: string): Promise<string[]> {
+    this.logger.debug(
+      `Fetching all unique token addresses for wallet ${walletAddress} from AnalysisResult.`,
+    );
+    const addresses =
+      await this.databaseService.getUniqueTokenAddressesFromAnalysisResults(
+        walletAddress,
+      );
+    this.logger.debug(
+      `Found ${addresses.length} unique addresses for ${walletAddress}.`,
+    );
+    return addresses;
   }
 } 

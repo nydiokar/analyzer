@@ -1,12 +1,12 @@
 import { HeliusApiClient } from 'core/services/helius-api-client';
 import { TokenBalanceDetails, WalletBalance } from '@/types/wallet';
-import { GetMultipleAccountsResult, GetTokenAccountsByOwnerResult, RpcAccountInfo, TokenAccount } from '@/types/helius-api';
+import { GetMultipleAccountsResult, GetTokenAccountsByOwnerResult, TokenAccount } from '@/types/helius-api';
 import { createLogger } from 'core/utils/logger';
-import { SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '../../config/constants';
+import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
+import { formatLargeNumber } from 'core/utils/number-formatting';
 
 const logger = createLogger('WalletBalanceService');
 const SOL_DECIMALS = 9;
-const SOL_MINT_ADDRESS = 'So11111111111111111111111111111111111111112'; // For reference, not used in SOL balance fetch
 
 /**
  * Service responsible for fetching SOL and SPL token balances for wallet addresses.
@@ -129,7 +129,7 @@ export class WalletBalanceService {
                     balance: parsedInfo.tokenAmount.amount,
                     decimals: parsedInfo.tokenAmount.decimals,
                     uiBalance: parsedInfo.tokenAmount.uiAmount,
-                    uiBalanceString: parsedInfo.tokenAmount.uiAmountString,
+                    uiBalanceString: formatLargeNumber(parsedInfo.tokenAmount.uiAmount),
                     });
                 } else {
                     logger.warn(`Token account ${tokenAccount.pubkey} for owner ${address} has parsed data but missing tokenAmount or info.`);

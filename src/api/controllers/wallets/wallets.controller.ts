@@ -20,14 +20,13 @@ import {
 import { Request } from 'express';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ApiKeyAuthGuard } from '../../auth/api-key-auth.guard';
-import { Wallet } from '@prisma/client';
 
 // Services from their respective feature folders
 import { DatabaseService } from '../../database/database.service';
 import { BehaviorService } from '../../wallets/behavior/behavior.service'; 
 import { TokenPerformanceService, PaginatedTokenPerformanceResponse } from '../../wallets/token_performance/token-performance.service';
 import { PnlOverviewService, PnlOverviewResponse } from '../../wallets/pnl_overview/pnl-overview.service';
-import { WalletTimeRangeInfo } from '../../../core/services/database-service';
+import { TokenInfoService } from '../../token-info/token-info.service';
 
 
 // DTOs
@@ -42,7 +41,6 @@ import { CreateNoteDto } from '../../wallets/notes/create-note.dto';
 import { UpdateNoteDto } from '../../wallets/notes/update-note.dto';
 import { WalletSearchQueryDto } from '../../wallets/search/wallet-search-query.dto';
 import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../../wallets/search/wallet-search-result.dto';
-import { USDC_MINT_ADDRESS } from '@config/constants';
 
 
 @ApiTags('Wallets')
@@ -56,6 +54,7 @@ export class WalletsController {
     private readonly behaviorService: BehaviorService,
     private readonly tokenPerformanceService: TokenPerformanceService,
     private readonly pnlOverviewService: PnlOverviewService,
+    private readonly tokenInfoService: TokenInfoService,
   ) {}
 
   @Get('search')
@@ -766,6 +765,46 @@ export class WalletsController {
       }
       this.logger.error(`Error updating note ${noteId} for wallet ${walletAddress} by user ${userId}:`, error);
       throw new InternalServerErrorException('Failed to update note.');
+    }
+  }
+
+  @Post(':walletAddress/enrich-all-tokens')
+  @HttpCode(202)
+  @ApiOperation({
+    summary: 'Trigger enrichment for all tokens of a wallet',
+    description:
+      'Finds all unique token addresses from the analysis results for a given wallet and triggers a background job to fetch their metadata. This is a fire-and-forget operation.',
+  })
+  @ApiResponse({
+    status: 202,
+    description: 'Enrichment process successfully started.',
+  })
+  @ApiResponse({ status: 404, description: 'Wallet not found.' })
+  @ApiResponse({ status: 500, description: 'Internal server error.' })
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async enrichAllTokensForWallet(
+    @Param('walletAddress') walletAddress: string,
+    @Req() req: Request & { user?: any },
+  ): Promise<{ message: string }> {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User could not be identified.');
+    }
+
+
+    // Don't await this. Let it run in the background.
+    this.enrichTokensInBackground(walletAddress, userId);
+
+    return { message: `Enrichment of tokens has been started in the background.` };
+  }
+
+  private async enrichTokensInBackground(walletAddress: string, userId: string): Promise<void> {
+    try {
+      const tokenAddresses = await this.tokenPerformanceService.getAllTokenAddressesForWallet(walletAddress);
+            
+      this.tokenInfoService.triggerTokenInfoEnrichment(tokenAddresses, userId);
+    } catch (error) {
+      this.logger.error(`Background enrichment process for wallet ${walletAddress} failed:`, error);
     }
   }
 } 

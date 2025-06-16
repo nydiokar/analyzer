@@ -145,6 +145,14 @@ export interface TokenPerformanceDataDto {
   currentUiBalanceString?: string | null;
   balanceDecimals?: number | null;
   balanceFetchedAt?: string | null; // ISO String
+
+  // Enriched data from TokenInfo
+  name?: string | null;
+  symbol?: string | null;
+  imageUrl?: string | null;
+  websiteUrl?: string | null;
+  twitterUrl?: string | null;
+  telegramUrl?: string | null;
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts

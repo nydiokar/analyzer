@@ -11,13 +11,14 @@ import { HeliusSyncService, SyncOptions } from '../services/helius-sync-service'
 import pLimit from 'p-limit';
 import { BehaviorService } from 'core/analysis/behavior/behavior-service';
 import { BehaviorAnalysisConfig } from '@/types/analysis';
-import { BehavioralMetrics } from '@/types/behavior';
 import { AdvancedStatsAnalyzer } from 'core/analysis/stats/analyzer';
-import { AdvancedTradeStats, OnChainAnalysisResult, SwapAnalysisSummary } from '@/types/helius-api';
+import { OnChainAnalysisResult, SwapAnalysisSummary } from '@/types/helius-api';
 import { PnlAnalysisService } from 'core/services/pnl-analysis-service';
-import { ReportingService } from '../reporting/reportGenerator';
 import { generatePnlOverviewHtmlTelegram, generateBehaviorSummaryHtmlTelegram, generateDetailedBehaviorHtmlTelegram, generateDetailedAdvancedStatsHtmlTelegram, generateCorrelationReportTelegram } from '../reporting/report_utils';
 import { HeliusApiClient } from '../services/helius-api-client';
+import { DexscreenerService } from '../../api/dexscreener/dexscreener.service';
+import { TokenInfoService } from '../../api/token-info/token-info.service';
+import { HttpService } from '@nestjs/axios';
 
 const logger = createLogger('WalletAnalysisCommands');
 const BOT_SYSTEM_USER_DESCRIPTION = "SystemUser_TelegramBot"; // Define it here as it was originally
@@ -49,6 +50,7 @@ export class WalletAnalysisCommands {
   private readonly behaviorService: BehaviorService;
   private readonly advancedStatsAnalyzer: AdvancedStatsAnalyzer;
   private readonly pnlAnalysisService: PnlAnalysisService;
+  private readonly httpService: HttpService;
 
   /**
    * @constructor
@@ -90,7 +92,12 @@ export class WalletAnalysisCommands {
     };
     this.behaviorService = new BehaviorService(this.databaseService, behaviorConfig);
     this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
-    this.pnlAnalysisService = new PnlAnalysisService(this.databaseService, this.heliusApiClient);
+
+    // Instantiate TokenInfo service dependencies
+    const dexscreenerService = new DexscreenerService(this.databaseService, this.httpService);
+    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService);
+
+    this.pnlAnalysisService = new PnlAnalysisService(this.databaseService, this.heliusApiClient, tokenInfoService); 
     
     // Initialize bot system user asynchronously
     this.initializeBotSystemUser().catch(err => {

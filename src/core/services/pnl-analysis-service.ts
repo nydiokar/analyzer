@@ -8,7 +8,7 @@ import { HeliusApiClient } from './helius-api-client';
 import { WalletBalanceService } from './wallet-balance-service';
 import { WalletBalance } from '@/types/wallet';
 import { Injectable } from '@nestjs/common';
-import { USDC_MINT_ADDRESS } from '@config/constants';
+import { ITokenInfoService } from '../../types/token-info-service.interface';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -23,20 +23,24 @@ export class PnlAnalysisService {
     private advancedStatsAnalyzer: AdvancedStatsAnalyzer;
     private walletBalanceService: WalletBalanceService | null;
     private heliusApiClient: HeliusApiClient | null;
+    private tokenInfoService: ITokenInfoService | null;
 
     /**
      * Constructs an instance of the PnlAnalysisService.
      *
      * @param databaseService Instance of DatabaseService for database interactions.
      * @param heliusApiClient Optional instance of HeliusApiClient. If provided, WalletBalanceService will be activated for fetching live wallet balances.
+     * @param tokenInfoService Optional instance of TokenInfoService. If provided, token info enrichment will be activated.
      */
     constructor(
         private databaseService: DatabaseService,
-        heliusApiClient: HeliusApiClient | null
+        heliusApiClient: HeliusApiClient | null,
+        tokenInfoService: ITokenInfoService | null,
     ) {
         this.swapAnalyzer = new SwapAnalyzer();
         this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
         this.heliusApiClient = heliusApiClient;
+        this.tokenInfoService = tokenInfoService;
 
         if (this.heliusApiClient) {
             this.walletBalanceService = new WalletBalanceService(this.heliusApiClient);
@@ -44,6 +48,11 @@ export class PnlAnalysisService {
         } else {
             this.walletBalanceService = null;
             logger.info('PnlAnalysisService instantiated without HeliusApiClient. WalletBalanceService inactive.');
+        }
+        if (this.tokenInfoService) {
+            logger.info('PnlAnalysisService instantiated with TokenInfoService. Token info enrichment active.');
+        } else {
+            logger.info('PnlAnalysisService instantiated without TokenInfoService. Token info enrichment inactive.');
         }
     }
 
@@ -155,19 +164,20 @@ export class PnlAnalysisService {
                 if (overallLastTimestamp === undefined || tsNumber > overallLastTimestamp) overallLastTimestamp = tsNumber;
             }
 
-            const swapAnalysisCore = this.swapAnalyzer.analyze(swapInputs, walletAddress);
-            const { results: swapAnalysisResultsFromAnalyzer, processedSignaturesCount, stablecoinNetFlow } = swapAnalysisCore;
-
-            // Enrich with token balances
-            const enrichedSwapAnalysisResults = swapAnalysisResultsFromAnalyzer.map(res => {
-                const tokenBalanceDetail = currentWalletBalance?.tokenBalances.find(tb => tb.mint === res.tokenAddress);
+            // This is the primary analysis call
+            const { results: swapAnalysisResultsFromAnalyzer, processedSignaturesCount, stablecoinNetFlow } = this.swapAnalyzer.analyze(swapInputs, walletAddress);
+            logger.info(`[PnlAnalysis] SwapAnalyzer finished for ${walletAddress}. Got ${swapAnalysisResultsFromAnalyzer.length} token results.`);
+            
+            // Attach wallet balances to the results if available.
+            const enrichedSwapAnalysisResults = swapAnalysisResultsFromAnalyzer.map(result => {
+                const tokenBalance = currentWalletBalance?.tokenBalances.find(b => b.mint === result.tokenAddress);
                 return {
-                    ...res,
-                    currentRawBalance: tokenBalanceDetail?.balance,
-                    currentUiBalance: tokenBalanceDetail?.uiBalance,
-                    currentUiBalanceString: tokenBalanceDetail?.uiBalanceString,
-                    balanceDecimals: tokenBalanceDetail?.decimals,
-                    balanceFetchedAt: tokenBalanceDetail ? balancesFetchedAt : undefined,
+                    ...result,
+                    currentRawBalance: tokenBalance?.balance,
+                    currentUiBalance: tokenBalance?.uiBalance,
+                    currentUiBalanceString: tokenBalance?.uiBalanceString,
+                    balanceDecimals: tokenBalance?.decimals,
+                    balanceFetchedAt: tokenBalance ? balancesFetchedAt : undefined,
                 };
             });
 
@@ -181,41 +191,6 @@ export class PnlAnalysisService {
             if (!swapAnalysisResultsFromAnalyzer || swapAnalysisResultsFromAnalyzer.length === 0) {
                 logger.warn(`[PnlAnalysis] No results from SwapAnalyzer for wallet ${walletAddress}. Returning empty summary.`);
                 return { results: [], totalSignaturesProcessed: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, overallFirstTimestamp: overallFirstTimestamp ||0, overallLastTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId, currentSolBalance: currentWalletBalance?.solBalance, balancesFetchedAt: balancesFetchedAt };
-            }
-
-            if (!isHistoricalView && !isViewOnlyMode) {
-                // Upsert AnalysisResult records with token balances
-                const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
-                    walletAddress: walletAddress,
-                    tokenAddress: r.tokenAddress,
-                    totalAmountIn: r.totalAmountIn,
-                    totalAmountOut: r.totalAmountOut,
-                    netAmountChange: r.netAmountChange,
-                    totalSolSpent: r.totalSolSpent,
-                    totalSolReceived: r.totalSolReceived,
-                    totalFeesPaidInSol: r.totalFeesPaidInSol,
-                    netSolProfitLoss: r.netSolProfitLoss,
-                    firstTransferTimestamp: r.firstTransferTimestamp,
-                    lastTransferTimestamp: r.lastTransferTimestamp,
-                    transferCountIn: r.transferCountIn,
-                    transferCountOut: r.transferCountOut,
-                    isValuePreservation: r.isValuePreservation,
-                    estimatedPreservedValue: r.estimatedPreservedValue,
-                    preservationType: r.preservationType,
-                    currentRawBalance: r.currentRawBalance,
-                    currentUiBalance: r.currentUiBalance,
-                    currentUiBalanceString: r.currentUiBalanceString,
-                    balanceDecimals: r.balanceDecimals,
-                    balanceFetchedAt: r.balanceFetchedAt,
-                }));
-                for (const record of resultsToUpsert) {
-                    await prisma.analysisResult.upsert({
-                        where: { walletAddress_tokenAddress: { walletAddress: record.walletAddress, tokenAddress: record.tokenAddress }},
-                        create: record,
-                        update: record,
-                    });
-                }
-                logger.info(`[PnlAnalysis] Upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
             }
 
             let totalVolume = 0, totalFees = 0, realizedPnl = 0, unrealizedPnl = 0, profitableTokensCount = 0, unprofitableTokensCount = 0;
@@ -353,6 +328,46 @@ export class PnlAnalysisService {
                 } else {
                     logger.warn(`[PnlAnalysis] Wallet analyzed range for ${walletAddress} not updated because overall timestamps were undefined in the summary.`);
                 }
+
+                // Upsert AnalysisResult records with token balances
+                const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
+                    walletAddress: walletAddress,
+                    tokenAddress: r.tokenAddress,
+                    totalAmountIn: r.totalAmountIn,
+                    totalAmountOut: r.totalAmountOut,
+                    netAmountChange: r.netAmountChange,
+                    totalSolSpent: r.totalSolSpent,
+                    totalSolReceived: r.totalSolReceived,
+                    totalFeesPaidInSol: r.totalFeesPaidInSol,
+                    netSolProfitLoss: r.netSolProfitLoss,
+                    firstTransferTimestamp: r.firstTransferTimestamp,
+                    lastTransferTimestamp: r.lastTransferTimestamp,
+                    transferCountIn: r.transferCountIn,
+                    transferCountOut: r.transferCountOut,
+                    isValuePreservation: r.isValuePreservation,
+                    estimatedPreservedValue: r.estimatedPreservedValue,
+                    preservationType: r.preservationType,
+                    currentRawBalance: r.currentRawBalance,
+                    currentUiBalance: r.currentUiBalance,
+                    currentUiBalanceString: r.currentUiBalanceString,
+                    balanceDecimals: r.balanceDecimals,
+                    balanceFetchedAt: r.balanceFetchedAt,
+                }));
+                for (const record of resultsToUpsert) {
+                    await prisma.analysisResult.upsert({
+                        where: { walletAddress_tokenAddress: { walletAddress: record.walletAddress, tokenAddress: record.tokenAddress }},
+                        create: record,
+                        update: record,
+                    });
+                }
+                logger.info(`[PnlAnalysis] Upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
+
+                // DEACTIVATED: The enrichment process is now triggered from the frontend to decouple it from the main analysis pipeline.
+                // if (this.tokenInfoService) {
+                //     const tokenAddresses = resultsToUpsert.map(r => r.tokenAddress);
+                //     logger.info(`[PnlAnalysis] Triggering background token info enrichment for ${tokenAddresses.length} tokens.`);
+                //     this.tokenInfoService.triggerTokenInfoEnrichment(tokenAddresses);
+                // }
             }
 
             analysisRunStatus = 'COMPLETED';

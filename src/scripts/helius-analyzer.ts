@@ -22,6 +22,9 @@ import { ReportingService } from 'core/reporting/reportGenerator';
 import { BehaviorService } from 'core/analysis/behavior/behavior-service';
 import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { HeliusApiClient } from 'core/services/helius-api-client';
+import { DexscreenerService } from '../api/dexscreener/dexscreener.service';
+import { TokenInfoService } from '../api/token-info/token-info.service';
+import { HttpService } from '@nestjs/axios';
 
 // Initialize environment variables
 dotenv.config();
@@ -139,7 +142,7 @@ async function analyzeWalletWithHelius() {
 
   // --- Instantiate Services ---
   const dbService = new DatabaseService();
-  
+
   // Instantiate HeliusApiClient once
   let heliusApiClient: HeliusApiClient | null = null;
   if (heliusApiKey) {
@@ -159,7 +162,9 @@ async function analyzeWalletWithHelius() {
   
   // Pass HeliusApiClient to PnlAnalysisService
   // Ensure PnlAnalysisService also uses dbService as its first argument if needed
-  const pnlAnalysisService = new PnlAnalysisService(dbService, heliusApiClient);
+  const dexscreenerService = new DexscreenerService(dbService, new HttpService());
+  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService);
+  const pnlAnalysisService = new PnlAnalysisService(dbService, heliusApiClient, tokenInfoService);
   
   // Use undefined instead of null for optional service dependencies
   const reportingService = new ReportingService(undefined, undefined, undefined, undefined, pnlAnalysisService);

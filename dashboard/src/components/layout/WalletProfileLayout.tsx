@@ -97,7 +97,7 @@ export default function WalletProfileLayout({
         setLastAnalysisStatus('success');
         setLastAnalysisTimestamp(lastAnalyzedDate);
         toast.success("Analysis Complete", {
-          description: "Wallet data has been successfully updated.",
+          description: "Wallet data has been successfully updated. Hit Refresh button.",
         });
         // Manually revalidate other wallet-related data, since polling will now stop.
         // We explicitly skip revalidating the summary key itself, as we already have the latest from the poll.
@@ -558,7 +558,7 @@ export default function WalletProfileLayout({
           </TabsContent>
 
           <TabsContent value="token-performance">
-            <TokenPerformanceTab walletAddress={walletAddress} />
+            <TokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} />
           </TabsContent>
 
           <TabsContent value="account-stats">

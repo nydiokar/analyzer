@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "scripts": {
@@ -47,12 +47,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@nestjs/axios": "^4.0.0",
     "@nestjs/cli": "^11.0.7",
     "@nestjs/common": "^11.1.2",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.2",
     "@nestjs/platform-express": "^11.1.2",
     "@nestjs/swagger": "^11.2.0",
+    "@nestjs/throttler": "^6.4.0",
     "@nydiokar/autodoc": "^0.1.7",
     "@prisma/client": "^6.8.2",
     "@types/better-sqlite3": "^7.6.13",
@@ -69,7 +71,6 @@
     "csv-stringify": "^6.5.2",
     "dotenv": "^16.3.1",
     "express": "^5.1.0",
-    "@nestjs/throttler": "^6.4.0",
     "p-limit": "^6.2.0",
     "papaparse": "^5.5.3",
     "react-wrap-balancer": "^1.1.1",

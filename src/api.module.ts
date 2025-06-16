@@ -6,6 +6,8 @@ import { TestController } from './api/test/test.controller';
 import { WalletsModule } from './api/wallets/wallets.module'; 
 import { AnalysesModule } from './api/analyses/analyses.module'; // Import AnalysesModule
 import { UsersModule } from './api/users/users.module'; // Import the new UsersModule
+import { DexscreenerModule } from './api/dexscreener/dexscreener.module';
+import { TokenInfoModule } from './api/token-info/token-info.module';
 
 @Module({
   imports: [
@@ -13,6 +15,8 @@ import { UsersModule } from './api/users/users.module'; // Import the new UsersM
     WalletsModule,  // Imports all wallet-related features and controllers
     AnalysesModule, // Imports analysis triggering endpoints
     UsersModule,    // Add UsersModule here
+    DexscreenerModule,
+    TokenInfoModule,
     // BehaviorModule is now imported by WalletsModule, so remove from here if not directly used by ApiModule itself
   ],
   controllers: [
@@ -30,6 +34,6 @@ export class ApiModule implements NestModule {
       // Apply middleware. If WalletsController is correctly routed via WalletsModule,
       // this might need adjustment or ensure the controller path is caught.
       // For now, assuming WalletsController paths will be matched.
-      .forRoutes(TestController, 'wallets', 'analyses', 'users'); // Added 'users' to apply AuthMiddleware
+      .forRoutes(TestController, 'wallets', 'analyses', 'users', 'token-info'); // Added 'users' to apply AuthMiddleware
   }
 } 

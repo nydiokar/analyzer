@@ -5,10 +5,13 @@ import { PnlAnalysisService as CorePnlAnalysisService } from '../../../core/serv
 import { DatabaseService as NestDatabaseService } from '../../database/database.service';
 import { HeliusApiClient } from '@/core/services/helius-api-client';
 import { HeliusApiConfig } from '@/types/helius-api';
+import { TokenInfoModule } from '../../token-info/token-info.module';
+import { TokenInfoService } from '../../token-info/token-info.service';
 
 @Module({
   imports: [
     DatabaseModule,
+    TokenInfoModule,
   ],
   providers: [
     PnlOverviewService,
@@ -25,10 +28,10 @@ import { HeliusApiConfig } from '@/types/helius-api';
     },
     {
       provide: CorePnlAnalysisService,
-      useFactory: (nestDbService: NestDatabaseService, heliusApiClient: HeliusApiClient) => {
-        return new CorePnlAnalysisService(nestDbService, heliusApiClient);
+      useFactory: (nestDbService: NestDatabaseService, heliusApiClient: HeliusApiClient, tokenInfoService: TokenInfoService) => {
+        return new CorePnlAnalysisService(nestDbService, heliusApiClient, tokenInfoService);
       },
-      inject: [NestDatabaseService, HeliusApiClient],
+      inject: [NestDatabaseService, HeliusApiClient, TokenInfoService],
     },
   ],
   exports: [PnlOverviewService],

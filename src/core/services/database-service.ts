@@ -11,7 +11,8 @@ import {
     User,         // Added User
     ActivityLog,   // Added ActivityLog
     WalletNote,    // Added WalletNote
-    UserFavoriteWallet // Added UserFavoriteWallet model import
+    UserFavoriteWallet, // Added UserFavoriteWallet model import
+    TokenInfo
 } from '@prisma/client';
 import { HeliusTransaction } from '@/types/helius-api'; // Assuming HeliusTransaction type is defined here
 import { TransactionData } from '@/types/correlation'; // Needed for getTransactionsForAnalysis
@@ -145,7 +146,6 @@ export class DatabaseService {
     async getWalletPnlSummaryWithRelations(
         walletAddress: string
     ): Promise<(Prisma.WalletPnlSummaryGetPayload<{ include: { advancedStats: true, wallet: true } }>) | null> {
-        this.logger.debug(`Fetching WalletPnlSummary with relations for wallet: ${walletAddress}`);
         try {
             return await this.prismaClient.walletPnlSummary.findUnique({
                 where: { walletAddress },
@@ -271,7 +271,7 @@ export class DatabaseService {
             for (const user of users) {
                 const isMatch = await bcrypt.compare(apiKeyToValidate, user.apiKey);
                 if (isMatch) {
-                    this.logger.info(`API key validated successfully for user ID: ${user.id}`);
+                    this.logger.debug(`API key validated successfully for user ID: ${user.id}`);
                     return user;
                 }
             }
@@ -309,7 +309,6 @@ export class DatabaseService {
      * @throws Throws an error if the database operation fails unexpectedly.
      */
     async ensureWalletExists(walletAddress: string): Promise<Wallet> {
-        this.logger.debug(`Ensuring wallet exists for address: ${walletAddress}`);
         try {
             const wallet = await this.prismaClient.wallet.upsert({
                 where: { address: walletAddress },
@@ -458,7 +457,7 @@ export class DatabaseService {
                     sourceIp,
                 },
             });
-            this.logger.info('Activity logged with ID: ' + activity.id);
+            this.logger.debug('Activity logged with ID: ' + activity.id);
             return activity;
         } catch (error) {
             this.logger.error('Error logging activity', { error });
@@ -1641,24 +1640,58 @@ export class DatabaseService {
     async searchWalletsByAddressFragment(
       fragment: string,
     ): Promise<{ address: string }[]> {
-        this.logger.debug(`Searching for wallets with fragment: ${fragment}`);
-        try {
-            const wallets = await this.prismaClient.wallet.findMany({
-                where: {
-                    address: {
-                        contains: fragment,
-                    },
-                },
-                select: {
-                    address: true,
-                },
-                take: 15, // Limit results for performance
-            });
-            return wallets;
-        } catch (error) {
-            this.logger.error(`Database error while searching wallets for fragment "${fragment}":`, { error });
-            throw new InternalServerErrorException('Wallet search failed due to a database error.');
-        }
+      this.logger.debug(`Searching for wallets with fragment: ${fragment}`);
+      try {
+        return await this.prismaClient.wallet.findMany({
+          where: { address: { contains: fragment } },
+          take: 10,
+          select: { address: true },
+        });
+      } catch (error) {
+        this.logger.error('Error searching wallets by address fragment', { error, fragment });
+        throw new InternalServerErrorException('Database search failed.');
+      }
     }
     // --- End Wallet Search Method ---
+
+    // --- TokenInfo Methods ---
+    async findManyTokenInfo(tokenAddresses: string[]): Promise<TokenInfo[]> {
+        if (tokenAddresses.length === 0) return [];
+        return this.prismaClient.tokenInfo.findMany({
+            where: {
+                tokenAddress: { in: tokenAddresses },
+            },
+        });
+    }
+
+    async upsertManyTokenInfo(data: Prisma.TokenInfoCreateInput[]): Promise<void> {
+        if (data.length === 0) return;
+
+        const operations = data.map(tokenData => {
+            return this.prismaClient.tokenInfo.upsert({
+                where: { tokenAddress: tokenData.tokenAddress },
+                update: { ...tokenData, updatedAt: new Date() },
+                create: tokenData,
+            });
+        });
+
+        try {
+            // Execute all upsert operations in a transaction
+            await this.prismaClient.$transaction(operations);
+            this.logger.info(`Successfully upserted ${data.length} token info records.`);
+        } catch (error) {
+            this.logger.error('Error in upsertManyTokenInfo transaction', { error });
+            // Depending on requirements, you might want to re-throw or handle differently
+            throw new InternalServerErrorException('Failed to save token information.');
+        }
+    }
+
+    async getUniqueTokenAddressesFromAnalysisResults(walletAddress: string): Promise<string[]> {
+        const results = await prisma.analysisResult.findMany({
+            where: { walletAddress },
+            select: { tokenAddress: true },
+            distinct: ['tokenAddress'],
+        });
+        return results.map(r => r.tokenAddress);
+    }
 }
