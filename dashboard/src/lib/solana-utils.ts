@@ -20,4 +20,16 @@ export const isValidSolanaAddress = (address: string): boolean => {
   const isLengthValid = address.length >= 32 && address.length <= 44;
 
   return isBase58 && isLengthValid;
+};
+
+/**
+ * Shortens a Solana address for display purposes.
+ * e.g., "So11111111111111111111111111111111111111112" -> "So11...1112"
+ * @param address The full Solana address.
+ * @param chars The number of characters to show at the beginning and end.
+ * @returns The shortened address string.
+ */
+export const shortenAddress = (address: string, chars = 4): string => {
+  if (!address) return '';
+  return address.length < chars * 2 ? address : `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }; 

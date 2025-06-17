@@ -93,10 +93,10 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
                   <TooltipTrigger asChild>
                     <Link href="/analysis-lab" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
                       <FlaskConical size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                      {!isCollapsed && <span className="flex-1 font-semibold">Analysis Lab</span>}
+                      {!isCollapsed && <span className="flex-1 font-semibold">Similarity LAB</span>}
                     </Link>
                   </TooltipTrigger>
-                  {isCollapsed && <TooltipContent side="right" align="center"><p>Analysis Lab</p></TooltipContent>}
+                  {isCollapsed && <TooltipContent side="right" align="center"><p>Similarity LAB</p></TooltipContent>}
                 </Tooltip>
               </li>
             </ul>

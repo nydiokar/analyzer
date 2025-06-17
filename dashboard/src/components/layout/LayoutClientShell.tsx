@@ -16,8 +16,6 @@ export default function LayoutClientShell({ children }: LayoutClientShellProps) 
     setIsSidebarCollapsed(!isSidebarCollapsed);
   };
 
-  // const sidebarWidth = isSidebarCollapsed ? '5rem' : '16rem'; // This is no longer needed for marginLeft
-
   return (
     <ThemeProvider
       attribute="class"
@@ -25,16 +23,13 @@ export default function LayoutClientShell({ children }: LayoutClientShellProps) 
       enableSystem
       disableTransitionOnChange
     >
-      <div className="flex h-screen">
+      <div className="flex h-screen bg-background text-foreground">
         <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
-        <main 
-          className={`flex-1 overflow-auto transition-all duration-300 ease-in-out`}
-          // style={{ marginLeft: sidebarWidth }} // REMOVED: Flexbox handles positioning
-        >
+        <main className="flex-1 overflow-auto transition-all duration-300 ease-in-out">
           {children}
         </main>
       </div>
-      <Toaster position="top-center" richColors />
+      <Toaster />
     </ThemeProvider>
   );
 } 
