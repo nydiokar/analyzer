@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { 
   InfoIcon,
   ArrowUpRight,
@@ -39,6 +38,13 @@ import {
   Send as TelegramIcon,
   RefreshCwIcon,
   BarChartBig,
+  AlertTriangle,
+  Shield,
+  Circle,
+  ArrowRightLeft,
+  Lock,
+  LogOut,
+  TrendingUpIcon,
 } from 'lucide-react';
 import { PaginatedTokenPerformanceResponse, TokenPerformanceDataDto } from '@/types/api'; 
 import { toast } from 'sonner';
@@ -79,10 +85,19 @@ const PNL_FILTER_OPTIONS = [
   { value: '<-100', label: 'PNL < -100 SOL' },
 ];
 
+// Define spam filter options
+const SPAM_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Tokens' },
+  { value: 'safe', label: 'Safe Tokens' },
+  { value: 'high-risk', label: 'High Risk Tokens' },
+  { value: 'unknown', label: 'Unknown Tokens' },
+];
+
 // Valid sortable IDs based on the backend TokenPerformanceSortBy enum
 const BACKEND_SORTABLE_IDS = [
   'tokenAddress',
   'netSolProfitLoss',
+  'roi',
   'totalSolSpent',
   'totalSolReceived',
   'netAmountChange',
@@ -146,16 +161,155 @@ const COLUMN_DEFINITIONS = [
     }
   },
   { id: 'netSolProfitLoss', name: 'Net PNL (SOL)', isSortable: true, className: 'text-right', icon: DollarSignIcon },
-  { id: 'roi', name: 'ROI (%)', isSortable: false, className: 'text-right', icon: PercentIcon }, 
+  { id: 'roi', name: 'ROI (%)', isSortable: true, className: 'text-right', icon: PercentIcon }, 
   { id: 'totalSolSpent', name: 'SOL Spent', isSortable: true, className: 'text-right', icon: ArrowLeftCircleIcon },
   { id: 'totalSolReceived', name: 'SOL Received', isSortable: true, className: 'text-right', icon: ArrowRightCircleIcon },
   { id: 'currentBalanceDisplay', name: 'Current Balance', isSortable: false, className: 'text-right', icon: PackageIcon },
+  { id: 'marketCapDisplay', name: 'Market Cap', isSortable: false, className: 'text-right', icon: TrendingUpIcon },
   { id: 'transferCountIn', name: 'In', isSortable: false, className: 'text-center text-right', icon: ArrowRightLeftIcon },
   { id: 'transferCountOut', name: 'Out', isSortable: false, className: 'text-center text-right'},
   { id: 'firstTransferTimestamp', name: 'First Trade', isSortable: false, className: 'text-center', icon: CalendarDaysIcon }, 
   { id: 'lastTransferTimestamp', name: 'Last Trade', isSortable: true, className: 'text-center', icon: CalendarDaysIcon }, 
 ];
 
+// Enhanced spam detection using DexScreener data and transaction patterns
+const analyzeTokenSpamRisk = (token: TokenPerformanceDataDto): {
+  riskLevel: 'safe' | 'high-risk';
+  riskScore: number;
+  reasons: string[];
+  primaryReason: string;
+} => {
+  let riskScore = 0;
+  const reasons: string[] = [];
+  
+  // Whitelist of well-known legitimate tokens (by symbol or name)
+  const LEGITIMATE_TOKENS = [
+    'SOL', 'USDC', 'USDT', 'BTC', 'ETH', 'WBTC', 'WETH', 'RAY', 'SRM', 'FTT',
+    'MNGO', 'STEP', 'ROPE', 'COPE', 'FIDA', 'KIN', 'MAPS', 'OXY', 'MEDIA',
+    'Wrapped SOL', 'USD Coin', 'Tether USD', 'Bitcoin', 'Ethereum', 'Wrapped Bitcoin',
+    'Raydium', 'Serum', 'FTX Token', 'Mango', 'Step Finance', 'Rope Token'
+  ];
+  
+  // If it's a legitimate token, mark as safe regardless of other factors
+  if (token.symbol && LEGITIMATE_TOKENS.includes(token.symbol)) {
+    return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'], primaryReason: 'Whitelisted legitimate token' };
+  }
+  if (token.name && LEGITIMATE_TOKENS.includes(token.name)) {
+    return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'], primaryReason: 'Whitelisted legitimate token' };
+  }
+  
+  const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
+  const totalSpent = token.totalSolSpent ?? 0;
+  const totalReceived = token.totalSolReceived ?? 0;
+  const netPnl = token.netSolProfitLoss ?? 0;
+  const transfersIn = token.transferCountIn ?? 0;
+  const transfersOut = token.transferCountOut ?? 0;
+  const totalTransfers = transfersIn + transfersOut;
+
+  // ULTIMATE SCAM PATTERN: Single transaction with zero SOL movement
+  // This is the most obvious scam pattern based on user observation
+  if (totalTransfers === 1 && totalSpent === 0 && totalReceived === 0) {
+    riskScore += 85; // Very high score for this obvious pattern
+    reasons.push('Airdrop scam (1 tx, no SOL movement)');
+  }
+
+  // Honeypot detection: Only spent SOL, never received SOL from selling
+  // This indicates potential honeypot where you can buy but not sell
+  if (transfersIn > 0 && transfersOut === 0 && totalSpent > 0.01 && totalReceived === 0) {
+    riskScore += 45; // Increased importance
+    reasons.push('Potential honeypot (can buy, cannot sell)');
+  }
+
+  // Failed exit patterns: Multiple attempts to sell with minimal success
+  if (transfersOut >= 3 && totalReceived < (totalSpent * 0.1) && totalSpent > 0.05) {
+    riskScore += 35;
+    reasons.push('Failed exit attempts (multiple sells, minimal returns)');
+  }
+
+  // High-frequency micro transactions (potential bot/scam activity)
+  if (totalTransfers >= 10 && totalSpent < 0.1 && totalReceived < 0.1) {
+    riskScore += 60;
+    reasons.push('Bot activity (high frequency micro-transactions)');
+  }
+
+  // Dust attack pattern: Very small amounts with no real trading activity
+  if (totalSpent < 0.001 && totalReceived < 0.001 && totalTransfers > 0) {
+    riskScore += 30;
+    reasons.push('Dust attack pattern');
+  }
+
+  // Pump and dump pattern: Quick buy followed by immediate sell attempt
+  if (transfersIn === 1 && transfersOut >= 1 && token.firstTransferTimestamp && token.lastTransferTimestamp) {
+    const tradingDuration = token.lastTransferTimestamp - token.firstTransferTimestamp;
+    if (tradingDuration < 3600 && totalReceived < (totalSpent * 0.5)) { // Less than 1 hour, big loss
+      riskScore += 25;
+      reasons.push('Pump & dump pattern (rapid trading, big loss)');
+    }
+  }
+
+  // Very recent token activity (less than 24 hours) with unknown metadata
+  const now = Date.now() / 1000;
+  if (isUnknown && token.firstTransferTimestamp && (now - token.firstTransferTimestamp) < (24 * 60 * 60)) {
+    riskScore += 15;
+    reasons.push('Very recent token (<24h old)');
+  }
+
+  // No social links or web presence for unknown tokens
+  if (isUnknown && !token.websiteUrl && !token.twitterUrl && !token.telegramUrl) {
+    riskScore += 20; // Increased importance
+    reasons.push('No web presence or social links');
+  }
+
+  // Unknown token metadata (base risk) - only add if no other significant reasons
+  if (isUnknown && reasons.length === 0) {
+    riskScore += 25;
+    reasons.push('Unknown token metadata');
+  }
+
+  // DexScreener data integration for enhanced risk assessment
+  if ((token as any).marketCapUsd && (token as any).marketCapUsd < 10000) {
+    riskScore += 30;
+    const marketCapK = ((token as any).marketCapUsd / 1000).toFixed(1);
+    reasons.push(`Very low market cap ($${marketCapK}K)`);
+  }
+  
+  if ((token as any).liquidityUsd && (token as any).liquidityUsd < 1000) {
+    riskScore += 25;
+    const liquidityK = ((token as any).liquidityUsd / 1000).toFixed(1);
+    reasons.push(`Very low liquidity ($${liquidityK}K)`);
+  }
+
+  // Very new trading pair (less than 7 days old)
+  if ((token as any).pairCreatedAt) {
+    const pairAge = (Date.now() - (token as any).pairCreatedAt) / (1000 * 60 * 60 * 24); // days
+    if (pairAge < 7) {
+      riskScore += 20;
+      reasons.push(`Very new trading pair (${pairAge.toFixed(1)} days old)`);
+    }
+  }
+
+  // No trading volume (dead token)
+  if ((token as any).volume24h !== undefined && (token as any).volume24h < 100) {
+    riskScore += 15;
+    reasons.push('Very low trading volume (<$100/24h)');
+  }
+
+  // Cap risk score at 100 to avoid confusion
+  riskScore = Math.min(riskScore, 100);
+
+  // Determine risk level - lowered threshold to catch more scams
+  let riskLevel: 'safe' | 'high-risk';
+  if (riskScore >= 35) {
+    riskLevel = 'high-risk';
+  } else {
+    riskLevel = 'safe';
+  }
+
+  // Get the most important reason (first one is usually most critical)
+  const primaryReason = reasons.length > 0 ? reasons[0] : 'Low risk score';
+
+  return { riskLevel, riskScore, reasons, primaryReason };
+};
 
 export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
@@ -170,6 +324,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   const [pnlFilter, setPnlFilter] = useState<string>('any');
   const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [spamFilter, setSpamFilter] = useState<string>('all');
 
   const [isEnriching, setIsEnriching] = useState<boolean>(false);
   const [enrichmentMessage, setEnrichmentMessage] = useState<string | null>(null);
@@ -189,6 +344,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
     if (endDate) params.append('endDate', endDate.toISOString());
     if (showHoldingsOnly) params.append('showOnlyHoldings', 'true');
     if (searchTerm) params.append('searchTerm', searchTerm);
+    if (spamFilter !== 'all') params.append('spamFilter', spamFilter);
     
     if (pnlFilter !== 'any') {
       const operatorMatch = pnlFilter.match(/^([><])/);
@@ -277,6 +433,11 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
     setPage(1);
   };
 
+  const handleSpamFilterChange = (newValue: string) => {
+    setSpamFilter(newValue);
+    setPage(1);
+  };
+
   const handlePageChange = (newPage: number) => {
     if (newPage > 0 && newPage <= Math.ceil((data?.total || 0) / pageSize)) {
       setPage(newPage);
@@ -360,14 +521,84 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
                             </Text>
                             <Text className="text-muted-foreground text-sm">{item.symbol || 'Unknown'}</Text>
                           </div>
-                          {(() => {
+                          <div className="ml-auto flex items-center gap-1">
+                            {(() => {
+                              const spamAnalysis = analyzeTokenSpamRisk(item);
+                              if (spamAnalysis.riskLevel === 'high-risk') {
+                                return (
+                                  <TooltipProvider delayDuration={300}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
+                                          <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                                        <div className="space-y-1">
+                                          <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({spamAnalysis.riskScore}%)</p>
+                                          <p>{spamAnalysis.primaryReason}</p>
+                                        </div>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                );
+                              } else if ((!item.name || !item.symbol || item.name === 'Unknown Token') && spamAnalysis.riskLevel === 'safe') {
+                                return (
+                                  <TooltipProvider delayDuration={300}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
+                                          <HelpCircleIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                                        <p>Unknown token</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                );
+                              }
+                              return null;
+                            })()}
+                            {(() => {
                                 const isHeld = (item.currentUiBalance ?? 0) > 0;
                                 const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
                                 const isExited = !isHeld && hadTrades;
-                                if (isHeld) return <Badge variant="outline" className="ml-auto text-sky-600 border-sky-600/50">Held</Badge>;
-                                if (isExited) return <Badge variant="destructive" className="ml-auto">Exited</Badge>;
-                                return null; // No tag when no trades and no balance
-                          })()}
+                                if (isHeld) {
+                                  return (
+                                    <TooltipProvider delayDuration={300}>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <div className="flex items-center justify-center w-5 h-5 rounded bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800">
+                                            <Lock className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                                          </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                                          <p>Currently held</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  );
+                                }
+                                if (isExited) {
+                                  return (
+                                    <TooltipProvider delayDuration={300}>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <div className="flex items-center justify-center w-5 h-5 rounded bg-orange-100 dark:bg-orange-900/40 border border-orange-200 dark:border-orange-800">
+                                            <LogOut className="h-3 w-3 text-orange-600 dark:text-orange-400" />
+                                          </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                                          <p>Position exited</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  );
+                                }
+                                return null; // No icon when no trades and no balance
+                            })()}
+                          </div>
                         </div>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-2" align="start">
@@ -390,6 +621,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
                   {col.id === 'totalSolSpent' && (<Text className={cn("text-sm", (item.totalSolSpent ?? 0) > 0 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolSpent)}</Text>)}
                   {col.id === 'totalSolReceived' && (<Text className={cn("text-sm", (item.totalSolReceived ?? 0) > 0 ? 'text-emerald-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolReceived)}</Text>)}
                   {col.id === 'currentBalanceDisplay' && <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">{item.currentUiBalance === 0 ? '-' : formatTokenDisplayValue(item.currentUiBalance, item.currentUiBalanceString)}</Text>}
+                  {col.id === 'marketCapDisplay' && <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">{formatMarketCap((item as any).marketCapUsd)}</Text>}
                   {col.id === 'transferCountIn' && (<Text className={cn("text-sm", (item.transferCountIn ?? 0) > 0 ? 'text-emerald-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountIn}</Text>)}
                   {col.id === 'transferCountOut' && (<Text className={cn("text-sm", (item.transferCountOut ?? 0) > 0 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountOut}</Text>)}
                   {col.id === 'firstTransferTimestamp' && <Text className="text-sm">{formatDate(item.firstTransferTimestamp)}</Text>}
@@ -439,6 +671,10 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
             <Select value={pnlFilter} onValueChange={handlePnlFilterChange}>
               <SelectTrigger className="w-[180px] h-9"><SelectValue placeholder="Filter PNL" /></SelectTrigger>
               <SelectContent>{PNL_FILTER_OPTIONS.map(option => (<SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>))}</SelectContent>
+            </Select>
+            <Select value={spamFilter} onValueChange={handleSpamFilterChange}>
+              <SelectTrigger className="w-[160px] h-9"><SelectValue placeholder="Risk Level" /></SelectTrigger>
+              <SelectContent>{SPAM_FILTER_OPTIONS.map(option => (<SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>))}</SelectContent>
             </Select>
             <div className="flex items-center space-x-2"><Switch id="min-trades-toggle" checked={minTradesToggle} onCheckedChange={handleMinTradesToggleChange} /><Label htmlFor="min-trades-toggle">Min. 2 Trades</Label></div>
             <div className="flex items-center space-x-2"><Switch id="holdings-only-toggle" checked={showHoldingsOnly} onCheckedChange={handleShowHoldingsToggleChange} /><Label htmlFor="holdings-only-toggle">Holding Only</Label></div>
@@ -538,4 +774,22 @@ const formatSolAmount = (value: number | null | undefined) => {
     maximumFractionDigits: precision,
   }) + (suffixes[magnitude] || '');
 };
+
+const formatMarketCap = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || isNaN(value) || value === null || value === undefined) return 'N/A';
+  if (value === 0) return "$0";
+  
+  const absValue = Math.abs(value);
+  const suffixes = ["", "K", "M", "B", "T"];
+  const magnitude = Math.min(Math.floor(Math.log10(absValue) / 3), suffixes.length - 1);
+  const scaledValue = absValue / Math.pow(1000, magnitude);
+  const precision = scaledValue < 10 ? 1 : 0;
+  const numPart = parseFloat(scaledValue.toFixed(precision));
+  
+  return "$" + numPart.toLocaleString(undefined, {
+    minimumFractionDigits: precision,
+    maximumFractionDigits: precision,
+  }) + suffixes[magnitude];
+};
+
 

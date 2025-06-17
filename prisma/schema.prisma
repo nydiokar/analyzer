@@ -348,9 +348,22 @@ model TokenInfo {
   websiteUrl   String?
   twitterUrl   String?
   telegramUrl  String?
+  
+  // DexScreener market data for enhanced spam detection
+  marketCapUsd       Float?   // Market capitalization in USD
+  liquidityUsd       Float?   // Liquidity in USD
+  pairCreatedAt      BigInt?  // Unix timestamp when the pair was created
+  fdv                Float?   // Fully diluted value
+  volume24h          Float?   // 24h trading volume
+  priceUsd           String?  // Current price in USD (string to preserve precision)
+  dexscreenerUpdatedAt DateTime? // When DexScreener data was last fetched
+  
   fetchedAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([name])
   @@index([symbol])
+  @@index([marketCapUsd])
+  @@index([liquidityUsd])
+  @@index([pairCreatedAt])
 }

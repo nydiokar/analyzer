@@ -138,6 +138,52 @@ The bot is built with:
 - Axios for HTTP requests.
 - Winston for logging.
 
+## Core Utilities
+
+### Token Metadata (`src/core/utils/token-metadata.ts`)
+
+Centralized utility for managing well-known Solana token metadata. This utility consolidates token information that was previously scattered across multiple files, providing a single source of truth for token metadata throughout the application.
+
+**Key Features:**
+- Comprehensive mapping of well-known tokens (USDT, USDC, SOL, JUP, RAY, BONK, etc.)
+- Rich metadata including name, symbol, decimals, and stablecoin classification
+- Type-safe interfaces and helper functions
+
+**Available Functions:**
+```typescript
+// Get full metadata for a token
+const metadata = getWellKnownTokenMetadata('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+// Returns: { name: 'USD Coin', symbol: 'USDC', decimals: 6, isStablecoin: true }
+
+// Check if a token is well-known
+const isKnown = isWellKnownToken(tokenAddress);
+
+// Get display name (symbol or shortened address)
+const displayName = getTokenDisplayName(tokenAddress);
+
+// Check if token is a stablecoin
+const isStable = isStablecoin(tokenAddress);
+
+// Get all stablecoin addresses
+const stablecoins = getStablecoinAddresses();
+```
+
+**Usage:**
+Import the utility functions wherever token metadata is needed:
+```typescript
+import { 
+  getWellKnownTokenMetadata, 
+  isWellKnownToken, 
+  getTokenDisplayName 
+} from '../core/utils/token-metadata';
+```
+
+**Benefits:**
+- Eliminates "Unknown Token" display for major tokens even when database metadata is missing
+- Prevents legitimate tokens (USDT, USDC, etc.) from being flagged as spam/high-risk
+- Single place to add new well-known tokens - immediately recognized across the entire application
+- Reduces code duplication and improves maintainability
+
 ## Development
 
 To run in development mode with hot reloading (using `ts-node-dev`):

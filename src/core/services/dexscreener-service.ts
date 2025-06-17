@@ -26,6 +26,22 @@ interface DexScreenerPair {
     websites?: { label?: string, url: string }[];
     socials?: { type: string; url: string }[];
   };
+  // Market data fields
+  marketCap?: number;
+  fdv?: number;
+  liquidity?: {
+    usd?: number;
+    base?: number;
+    quote?: number;
+  };
+  pairCreatedAt?: number;
+  volume?: {
+    h24?: number;
+    h6?: number;
+    h1?: number;
+    m5?: number;
+  };
+  priceUsd?: string;
 }
 
 export class DexscreenerService {
@@ -115,6 +131,14 @@ export class DexscreenerService {
                         websiteUrl: website,
                         twitterUrl: twitter,
                         telegramUrl: telegram,
+                        // Market data from DexScreener
+                        marketCapUsd: pair.marketCap,
+                        liquidityUsd: pair.liquidity?.usd,
+                        pairCreatedAt: pair.pairCreatedAt ? BigInt(pair.pairCreatedAt) : null,
+                        fdv: pair.fdv,
+                        volume24h: pair.volume?.h24,
+                        priceUsd: pair.priceUsd ? pair.priceUsd.toString() : null,
+                        dexscreenerUpdatedAt: new Date(),
                     });
                 }
             }

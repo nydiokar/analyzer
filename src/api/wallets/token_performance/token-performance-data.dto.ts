@@ -75,5 +75,27 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Token Telegram URL', type: String, nullable: true, required: false })
   telegramUrl?: string | null;
 
+  // DexScreener market data for enhanced spam detection
+  @ApiProperty({ description: 'Market capitalization in USD', type: Number, nullable: true, required: false })
+  marketCapUsd?: number | null;
+
+  @ApiProperty({ description: 'Liquidity in USD', type: Number, nullable: true, required: false })
+  liquidityUsd?: number | null;
+
+  @ApiProperty({ description: 'Unix timestamp when the trading pair was created', type: Number, nullable: true, required: false })
+  pairCreatedAt?: number | null;
+
+  @ApiProperty({ description: 'Fully diluted value', type: Number, nullable: true, required: false })
+  fdv?: number | null;
+
+  @ApiProperty({ description: '24h trading volume', type: Number, nullable: true, required: false })
+  volume24h?: number | null;
+
+  @ApiProperty({ description: 'Current price in USD (string to preserve precision)', type: String, nullable: true, required: false })
+  priceUsd?: string | null;
+
+  @ApiProperty({ description: 'When DexScreener data was last updated', type: String, format: 'date-time', nullable: true, required: false })
+  dexscreenerUpdatedAt?: string | null;
+
   // Note: The 'id' field from AnalysisResult is typically not exposed in API responses unless specifically needed.
 } 

@@ -11,10 +11,19 @@ export enum SortOrder {
 export enum TokenPerformanceSortBy {
   TOKEN_ADDRESS = 'tokenAddress',
   NET_SOL_PROFIT_LOSS = 'netSolProfitLoss',
+  ROI = 'roi',
   TOTAL_SOL_SPENT = 'totalSolSpent',
   TOTAL_SOL_RECEIVED = 'totalSolReceived',
   NET_AMOUNT_CHANGE = 'netAmountChange',
   LAST_TRANSFER_TIMESTAMP = 'lastTransferTimestamp',
+}
+
+export enum SpamFilterType {
+  ALL = 'all',
+  SAFE = 'safe',
+  WARNING = 'warning',
+  HIGH_RISK = 'high-risk',
+  UNKNOWN = 'unknown',
 }
 
 export class TokenPerformanceQueryDto {
@@ -126,4 +135,13 @@ export class TokenPerformanceQueryDto {
   @IsInt()
   @Min(0)
   minTrades?: number;
+
+  @ApiPropertyOptional({
+    description: 'Filter tokens by spam risk level.',
+    enum: SpamFilterType,
+    default: SpamFilterType.ALL,
+  })
+  @IsOptional()
+  @IsEnum(SpamFilterType)
+  spamFilter?: SpamFilterType = SpamFilterType.ALL;
 } 

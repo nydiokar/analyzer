@@ -551,8 +551,7 @@ export default function WalletProfileLayout({
               {children}
               <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
                 <h3 className="text-lg font-semibold mb-2">AI overview is comming soon ...</h3>
-                <p className="text-sm text-muted-foreground"></p>
-                <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center"> (This is being worked on, comming soon ...) </div>
+                <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center text-sm text-muted-foreground"> (This is being worked on, comming soon ...) </div>
               </div>
             </div>
           </TabsContent>
