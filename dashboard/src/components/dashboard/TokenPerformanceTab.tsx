@@ -360,9 +360,14 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
                             </Text>
                             <Text className="text-muted-foreground text-sm">{item.symbol || 'Unknown'}</Text>
                           </div>
-                          {(item.currentUiBalance ?? 0) > 0 
-                            ? <Badge variant="outline" className="ml-auto text-sky-600 border-sky-600/50">Held</Badge> 
-                            : item.netAmountChange !== 0 && <Badge variant="destructive" className="ml-auto">Exited</Badge>}
+                          {(() => {
+                                const isHeld = (item.currentUiBalance ?? 0) > 0;
+                                const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
+                                const isExited = !isHeld && hadTrades;
+                                if (isHeld) return <Badge variant="outline" className="ml-auto text-sky-600 border-sky-600/50">Held</Badge>;
+                                if (isExited) return <Badge variant="destructive" className="ml-auto">Exited</Badge>;
+                                return null; // No tag when no trades and no balance
+                          })()}
                         </div>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-2" align="start">
@@ -521,13 +526,16 @@ const formatPercentagePnl = (percentage: number | null | undefined) => {
 const formatSolAmount = (value: number | null | undefined) => {
   if (typeof value !== 'number' || isNaN(value)) return 'N/A';
   if (value === 0) return "0";
+  if (Math.abs(value) < 0.001) return '< 0.001';
   const absValue = Math.abs(value);
   const suffixes = ["", "K", "M", "B", "T"];
-  let magnitude = Math.floor(Math.log10(absValue) / 3);
-  magnitude = Math.min(magnitude, suffixes.length - 1);
+  const magnitude = absValue >= 1 ? Math.min(Math.floor(Math.log10(absValue) / 3), suffixes.length - 1) : 0;
   const scaledValue = absValue / Math.pow(1000, magnitude);
-  let precision = scaledValue < 10 ? 2 : scaledValue < 100 ? 1 : 0;
+  const precision = scaledValue < 10 ? 2 : scaledValue < 100 ? 1 : 0;
   const numPart = parseFloat(scaledValue.toFixed(precision));
-  return (value < 0 ? "-" : "") + numPart.toLocaleString(undefined, { minimumFractionDigits: precision, maximumFractionDigits: precision }) + (suffixes[magnitude] || '');
+  return (value < 0 ? "-" : "") + numPart.toLocaleString(undefined, {
+    minimumFractionDigits: precision,
+    maximumFractionDigits: precision,
+  }) + (suffixes[magnitude] || '');
 };
 
