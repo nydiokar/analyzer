@@ -396,6 +396,32 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                   <MetricDisplay label="% Trades < 1 Hour" value={formatRatioAsPercentage(behaviorData.percentTradesUnder1Hour)} tooltipText="Percentage of completed trades held for less than 1 hour, indicating very short-term activity." />
                   <MetricDisplay label="% Trades < 4 Hours" value={formatRatioAsPercentage(behaviorData.percentTradesUnder4Hours)} tooltipText="Percentage of completed trades held for less than 4 hours." />
                 </div>
+                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Current Holdings Analysis</Text>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                  <MetricDisplay 
+                    label="Avg Current Hold Duration" 
+                    value={formatNumber(behaviorData.averageCurrentHoldingDurationHours)} 
+                    unit="hours" 
+                    tooltipText="Average duration of currently held positions (tokens bought but not sold). Shows how long current investments have been held." 
+                  />
+                  <MetricDisplay 
+                    label="Median Current Hold Time" 
+                    value={formatNumber(behaviorData.medianCurrentHoldingDurationHours)} 
+                    unit="hours" 
+                    tooltipText="Median duration of currently held positions. Less affected by outliers than average." 
+                  />
+                  <MetricDisplay 
+                    label="Weighted Avg Hold Time" 
+                    value={formatNumber(behaviorData.weightedAverageHoldingDurationHours)} 
+                    unit="hours" 
+                    tooltipText="Combined average hold time weighted by value between completed trades and current holdings." 
+                  />
+                  <MetricDisplay 
+                    label="% Value Still Held" 
+                    value={formatValueAsPercentage(behaviorData.percentOfValueInCurrentHoldings)} 
+                    tooltipText="Percentage of total traded value that remains in current positions (not yet sold)." 
+                  />
+                </div>
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Session Characteristics</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
                   <MetricDisplay label="Session Count" value={behaviorData.sessionCount} tooltipText="Total number of distinct active trading sessions identified." />
@@ -445,6 +471,13 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                   <MetricDisplay label="Total Trades" value={behaviorData.totalTradeCount} tooltipText="Total number of buy or sell transactions." />
                   <MetricDisplay label="Unique Tokens Traded" value={behaviorData.uniqueTokensTraded} tooltipText="Number of distinct tokens involved in trades." />
                   <MetricDisplay label="Average Trades Per Token" value={formatNumber(behaviorData.averageTradesPerToken)} tooltipText="Average number of trades made for each unique token." />
+                </div>
+                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Token Trading Breakdown</Text>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                  <MetricDisplay label="Tokens w/ Both Buys & Sells" value={behaviorData.tokensWithBothBuyAndSell} tooltipText="Number of tokens that were both bought and sold (complete trading cycles)." />
+                  <MetricDisplay label="Buy-Only Tokens" value={behaviorData.tokensWithOnlyBuys} tooltipText="Number of tokens that were only bought (no sells), indicating accumulation or holding positions." />
+                  <MetricDisplay label="Sell-Only Tokens" value={behaviorData.tokensWithOnlySells} tooltipText="Number of tokens that were only sold (no buys), often from airdrops or external transfers." />
+                  <MetricDisplay label="Complete Pairs" value={behaviorData.completePairsCount} tooltipText="Total number of completed buy-then-sell trading pairs across all tokens." />
                 </div>
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Trading Frequency</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">

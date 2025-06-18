@@ -154,6 +154,10 @@ export class BehaviorAnalyzer {
       medianCurrentHoldingDurationHours: 0,
       weightedAverageHoldingDurationHours: 0,
       percentOfValueInCurrentHoldings: 0,
+      // Unrealized P&L metrics (requires current prices from TokenInfo/DexScreener)
+      currentHoldingsValueUsd: 0, // Initialize with default value
+      unrealizedPnlUsd: 0, // Initialize with default value  
+      percentOfCurrentPortfolioValue: 0, // Initialize with default value
       sequenceConsistency: 0,
       flipperScore: 0,
       // Supporting metrics

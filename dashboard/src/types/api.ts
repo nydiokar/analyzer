@@ -118,6 +118,10 @@ export interface BehaviorAnalysisResponseDto {
   averageSessionDurationMinutes?: number | null;
   firstTransactionTimestamp?: number | null;
   lastTransactionTimestamp?: number | null;
+  averageCurrentHoldingDurationHours?: number | null;
+  medianCurrentHoldingDurationHours?: number | null;
+  weightedAverageHoldingDurationHours?: number | null;
+  percentOfValueInCurrentHoldings?: number | null;
   additionalMetrics?: Record<string, any>;
   rawMetrics?: Record<string, any>;
 }

@@ -1,4 +1,14 @@
 export const changelog = [
+  
+  {
+    version: "v0.11",
+    date: "June 2025",
+    changes: [
+      "Added Current Holdings Analysis to Behavioral Patterns tab.",
+      "Improved calculation of holding durations.",
+      "Added Token Trading Breakdown to Behavioral Patterns tab.",
+      ]
+  },
   {
     version: "v0.10",
     date: "June 2025",
