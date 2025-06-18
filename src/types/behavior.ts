@@ -20,6 +20,14 @@ export interface BehavioralMetrics {
   buySellSymmetry: number;
   averageFlipDurationHours: number;
   medianHoldTime: number;
+  averageCurrentHoldingDurationHours: number;
+  medianCurrentHoldingDurationHours: number;
+  weightedAverageHoldingDurationHours: number;
+  percentOfValueInCurrentHoldings: number; // Based on historical cost basis
+  // Unrealized P&L metrics (requires current prices from TokenInfo/DexScreener)
+  currentHoldingsValueUsd?: number; // Current USD value of all holdings  
+  unrealizedPnlUsd?: number; // Current value - historical cost basis
+  percentOfCurrentPortfolioValue?: number; // % of current portfolio vs historical trades
   sequenceConsistency: number;
   flipperScore: number;
   uniqueTokensTraded: number;

@@ -150,6 +150,10 @@ export class BehaviorAnalyzer {
       buySellSymmetry: 0,
       averageFlipDurationHours: 0,
       medianHoldTime: 0,
+      averageCurrentHoldingDurationHours: 0,
+      medianCurrentHoldingDurationHours: 0,
+      weightedAverageHoldingDurationHours: 0,
+      percentOfValueInCurrentHoldings: 0,
       sequenceConsistency: 0,
       flipperScore: 0,
       // Supporting metrics
@@ -238,39 +242,195 @@ export class BehaviorAnalyzer {
     return sequences;
   }
 
+  /**
+   * Counts completed buy-sell pairs using FIFO logic to match the flip duration calculation.
+   * This ensures consistency between pair counting and duration calculation.
+   */
   private countBuySellPairs(trades: TokenTradeSequence['trades']): number {
-    let pairCount = 0;
-    let expectingDirection: 'in' | 'out' = 'in';
-    for (const trade of trades) {
-      if (trade.direction === expectingDirection) {
-        expectingDirection = expectingDirection === 'in' ? 'out' : 'in';
-        if (expectingDirection === 'in') pairCount++; // Completed a sell after a buy
-      } else if (trade.direction === 'in' && expectingDirection === 'out') {
-        // Reset: Saw a buy when expecting a sell
-        expectingDirection = 'out'; // Still need a sell for the new buy
+    const buyQueue: Array<{ timestamp: number; amount: number }> = [];
+    let completePairs = 0;
+
+    // Sort trades by timestamp to ensure chronological processing
+    const sortedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+
+    for (const trade of sortedTrades) {
+      if (trade.direction === 'in') {
+        // Add buy to the queue
+        buyQueue.push({
+          timestamp: trade.timestamp,
+          amount: trade.amount
+        });
+      } else if (trade.direction === 'out' && buyQueue.length > 0) {
+        // Process sell against FIFO buy queue
+        let remainingSellAmount = trade.amount;
+
+        while (remainingSellAmount > 0 && buyQueue.length > 0) {
+          const oldestBuy = buyQueue[0];
+          
+          if (oldestBuy.amount <= remainingSellAmount) {
+            // Fully consume this buy position - this counts as one complete pair
+            completePairs++;
+            remainingSellAmount -= oldestBuy.amount;
+            buyQueue.shift(); // Remove the fully consumed buy
+          } else {
+            // Partially consume this buy position - this also counts as one complete pair
+            // since we're selling against a buy position
+            completePairs++;
+            oldestBuy.amount -= remainingSellAmount;
+            remainingSellAmount = 0;
+            // Keep the partially consumed buy in the queue
+          }
+        }
       }
     }
-    return pairCount;
+
+    return completePairs;
   }
 
   /**
-   * Calculates flip durations (time between buy and subsequent sell) in hours.
+   * Calculates flip durations using proper FIFO (First-In, First-Out) logic.
+   * Maintains a queue of buy positions and matches them with sells chronologically.
    */
   private calculateFlipDurations(trades: TokenTradeSequence['trades']): number[] {
     const durations: number[] = [];
-    let lastBuyTimestamp = -1;
+    const buyQueue: Array<{ timestamp: number; amount: number }> = [];
     const secondsToHours = (seconds: number) => seconds / 3600;
 
-    for (const trade of trades) {
+    // Sort trades by timestamp to ensure chronological processing
+    const sortedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+
+    for (const trade of sortedTrades) {
       if (trade.direction === 'in') {
-        lastBuyTimestamp = trade.timestamp;
-      } else if (trade.direction === 'out' && lastBuyTimestamp !== -1) {
-        const durationSeconds = trade.timestamp - lastBuyTimestamp;
-        durations.push(secondsToHours(durationSeconds));
-        lastBuyTimestamp = -1; // Reset after a sell completes the pair
+        // Add buy to the queue
+        buyQueue.push({
+          timestamp: trade.timestamp,
+          amount: trade.amount
+        });
+      } else if (trade.direction === 'out' && buyQueue.length > 0) {
+        // Process sell against FIFO buy queue
+        let remainingSellAmount = trade.amount;
+        const sellTimestamp = trade.timestamp;
+
+        while (remainingSellAmount > 0 && buyQueue.length > 0) {
+          const oldestBuy = buyQueue[0];
+          const durationSeconds = sellTimestamp - oldestBuy.timestamp;
+          
+          if (oldestBuy.amount <= remainingSellAmount) {
+            // Fully consume this buy position
+            durations.push(secondsToHours(durationSeconds));
+            remainingSellAmount -= oldestBuy.amount;
+            buyQueue.shift(); // Remove the fully consumed buy
+          } else {
+            // Partially consume this buy position
+            durations.push(secondsToHours(durationSeconds));
+            oldestBuy.amount -= remainingSellAmount;
+            remainingSellAmount = 0;
+            // Keep the partially consumed buy in the queue
+          }
+        }
+        
+        // If there's still remaining sell amount, it means we're selling more than we bought
+        // This could happen due to data inconsistencies, but we'll just ignore the excess
+        if (remainingSellAmount > 0) {
+          this.logger.debug(`Excess sell amount ${remainingSellAmount} for token, possibly due to missing buy data or pre-analysis holdings`);
+        }
       }
     }
+
     return durations;
+  }
+
+  /**
+   * Calculates current holdings durations and value metrics for "trapped" positions.
+   * Returns positions that were bought but never fully sold.
+   * Applies smart thresholds to filter out dust positions.
+   */
+  private calculateCurrentHoldingsMetrics(trades: TokenTradeSequence['trades'], currentTimestamp: number): {
+    durations: number[];
+    totalValueStillHeld: number;
+    totalValueTraded: number;
+  } {
+    const durations: number[] = [];
+    const buyQueue: Array<{ timestamp: number; amount: number; solValue: number }> = [];
+    const secondsToHours = (seconds: number) => seconds / 3600;
+    let totalValueTraded = 0;
+
+    // Sort trades by timestamp to ensure chronological processing
+    const sortedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+
+    for (const trade of sortedTrades) {
+      totalValueTraded += trade.associatedSolValue;
+      
+      if (trade.direction === 'in') {
+        // Add buy to the queue
+        buyQueue.push({
+          timestamp: trade.timestamp,
+          amount: trade.amount,
+          solValue: trade.associatedSolValue
+        });
+      } else if (trade.direction === 'out' && buyQueue.length > 0) {
+        // Process sell against FIFO buy queue (same logic as flip calculation)
+        let remainingSellAmount = trade.amount;
+
+        while (remainingSellAmount > 0 && buyQueue.length > 0) {
+          const oldestBuy = buyQueue[0];
+          
+          if (oldestBuy.amount <= remainingSellAmount) {
+            // Fully consume this buy position
+            remainingSellAmount -= oldestBuy.amount;
+            buyQueue.shift(); // Remove the fully consumed buy
+          } else {
+            // Partially consume this buy position
+            oldestBuy.amount -= remainingSellAmount;
+            // Adjust the SOL value proportionally
+            const consumedRatio = remainingSellAmount / (oldestBuy.amount + remainingSellAmount);
+            oldestBuy.solValue *= (1 - consumedRatio);
+            remainingSellAmount = 0;
+            // Keep the partially consumed buy in the queue
+          }
+        }
+      }
+    }
+
+    // Calculate durations and total value for remaining positions
+    // Apply smart thresholds to filter out dust/negligible positions
+    let totalValueStillHeld = 0;
+    const originalPositionValues = new Map<number, number>(); // timestamp -> original SOL value
+    
+    // First pass: collect original position values for percentage calculation
+    const tradesForOriginalValues = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+    tradesForOriginalValues.forEach(trade => {
+      if (trade.direction === 'in') {
+        originalPositionValues.set(trade.timestamp, trade.associatedSolValue);
+      }
+    });
+
+    buyQueue.forEach(position => {
+      const originalValue = originalPositionValues.get(position.timestamp) || position.solValue;
+      const remainingPercentage = position.solValue / originalValue;
+      
+      // Smart thresholds for what constitutes a "real" holding vs dust:
+      const thresholds = this.config.holdingThresholds || {};
+      const isSignificantHolding = 
+        position.solValue >= (thresholds.minimumSolValue ?? 0.001) &&                           // Configurable minimum SOL value
+        remainingPercentage >= (thresholds.minimumPercentageRemaining ?? 0.05) &&               // Configurable minimum % of original
+        (currentTimestamp - position.timestamp) >= (thresholds.minimumHoldingTimeSeconds ?? 300); // Configurable minimum hold time
+      
+      if (isSignificantHolding) {
+        const holdingDurationSeconds = currentTimestamp - position.timestamp;
+        durations.push(secondsToHours(holdingDurationSeconds));
+        totalValueStillHeld += position.solValue;
+      } else {
+        // Log dust positions for debugging
+       // this.logger.debug(`Filtering out dust position: ${position.solValue.toFixed(6)} SOL (${(remainingPercentage * 100).toFixed(1)}% of original)`);
+      }
+    });
+
+    return {
+      durations,
+      totalValueStillHeld,
+      totalValueTraded
+    };
   }
 
   /**
@@ -331,6 +491,38 @@ export class BehaviorAnalyzer {
     const medianDuration = this.calculateMedian(allDurations);
 
     return { durations: allDurations, distribution, percentUnder1Hour, percentUnder4Hours, avgDuration, medianDuration };
+  }
+
+  /**
+   * Calculates current holdings distributions across all token sequences.
+   */
+  private calculateCurrentHoldingsDistributions(sequences: TokenTradeSequence[], currentTimestamp: number): {
+    avgDuration: number;
+    medianDuration: number;
+    percentOfValueInCurrentHoldings: number;
+  } {
+    let allCurrentDurations: number[] = [];
+    let totalValueStillHeld = 0;
+    let totalValueTraded = 0;
+
+    sequences.forEach(seq => {
+      const holdingsMetrics = this.calculateCurrentHoldingsMetrics(seq.trades, currentTimestamp);
+      allCurrentDurations = allCurrentDurations.concat(holdingsMetrics.durations);
+      totalValueStillHeld += holdingsMetrics.totalValueStillHeld;
+      totalValueTraded += holdingsMetrics.totalValueTraded;
+    });
+
+    const avgDuration = allCurrentDurations.length > 0 
+      ? allCurrentDurations.reduce((sum, d) => sum + d, 0) / allCurrentDurations.length 
+      : 0;
+    
+    const medianDuration = this.calculateMedian(allCurrentDurations);
+    
+    const percentOfValueInCurrentHoldings = totalValueTraded > 0 
+      ? (totalValueStillHeld / totalValueTraded) * 100 
+      : 0;
+
+    return { avgDuration, medianDuration, percentOfValueInCurrentHoldings };
   }
 
   /**
@@ -398,6 +590,23 @@ export class BehaviorAnalyzer {
     metrics.medianHoldTime = timeCalcs.medianDuration;
     metrics.percentTradesUnder1Hour = timeCalcs.percentUnder1Hour;
     metrics.percentTradesUnder4Hours = timeCalcs.percentUnder4Hours;
+
+    // Calculate current holdings metrics (for "trapped" positions)
+    const currentTimestamp = Math.floor(Date.now() / 1000); // Current time in seconds
+    const currentHoldingsCalcs = this.calculateCurrentHoldingsDistributions(sequences, currentTimestamp);
+    metrics.averageCurrentHoldingDurationHours = currentHoldingsCalcs.avgDuration;
+    metrics.medianCurrentHoldingDurationHours = currentHoldingsCalcs.medianDuration;
+    metrics.percentOfValueInCurrentHoldings = currentHoldingsCalcs.percentOfValueInCurrentHoldings;
+    
+    // Calculate weighted average combining flips and current holdings
+    const flipValueWeight = 1 - (currentHoldingsCalcs.percentOfValueInCurrentHoldings / 100);
+    const currentValueWeight = currentHoldingsCalcs.percentOfValueInCurrentHoldings / 100;
+    
+    if (flipValueWeight > 0 || currentValueWeight > 0) {
+      metrics.weightedAverageHoldingDurationHours = 
+        (metrics.averageFlipDurationHours * flipValueWeight) + 
+        (metrics.averageCurrentHoldingDurationHours * currentValueWeight);
+    }
 
     metrics.flipperScore = this.calculateFlipperScore(metrics);
 

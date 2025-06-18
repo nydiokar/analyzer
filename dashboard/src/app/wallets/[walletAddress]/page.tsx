@@ -17,12 +17,8 @@ export default async function WalletProfilePage({ params }: WalletProfilePagePro
 
   return (
     // Pass the resolved walletAddress, not the whole params promise or awaited object if not needed by layout directly
-    <WalletProfileLayout walletAddress={walletAddress}>
-      <div>
-        <h1></h1>
-        <p></p>
-        {/* Actual tab content will go here */}
-      </div>
+        <WalletProfileLayout walletAddress={walletAddress}>
+      {null}
     </WalletProfileLayout>
   );
 } 

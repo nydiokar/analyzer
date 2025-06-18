@@ -16,6 +16,12 @@ export interface BehaviorAnalysisConfig extends BaseAnalysisConfig {
   // Add behavior-specific config options here in the future if needed
   sessionGapThresholdHours?: number; // Added for session calculation
   activityWindowThresholdMultiplier?: number; // For identifying active trading windows
+  // Thresholds for determining "significant holdings" vs dust
+  holdingThresholds?: {
+    minimumSolValue?: number;      // Minimum SOL value to consider (default: 0.001)
+    minimumPercentageRemaining?: number; // Minimum % of original position (default: 0.05 = 5%)
+    minimumHoldingTimeSeconds?: number;  // Minimum time held to count (default: 300 = 5 minutes)
+  };
 }
 
 // Configuration specific to Correlation Analysis

@@ -158,4 +158,12 @@ export class BehaviorAnalysisResponseDto implements BehavioralMetrics {
   firstTransactionTimestamp?: number;
   @ApiProperty({ required: false })
   lastTransactionTimestamp?: number;
+  @ApiProperty()
+  averageCurrentHoldingDurationHours: number;
+  @ApiProperty()
+  medianCurrentHoldingDurationHours: number;
+  @ApiProperty()
+  weightedAverageHoldingDurationHours: number;
+  @ApiProperty()
+  percentOfValueInCurrentHoldings: number;
 } 

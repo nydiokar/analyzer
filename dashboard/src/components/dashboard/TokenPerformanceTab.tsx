@@ -733,11 +733,11 @@ const formatTokenDisplayValue = (value: number | null | undefined, uiString?: st
     if (absValue < 0.001) return `< 0.001`;
     if (absValue > 1e12) return `> 1T`;
     const suffixes = ["", "K", "M", "B", "T"];
-    const magnitude = Math.floor(Math.log10(absValue) / 3);
+    const magnitude = Math.min(Math.floor(Math.log10(absValue) / 3), suffixes.length - 1);
     const scaledValue = absValue / Math.pow(1000, magnitude);
     const precision = scaledValue < 10 ? 2 : scaledValue < 100 ? 1 : 0;
     const numPart = parseFloat(scaledValue.toFixed(precision));
-    return (value < 0 ? "-" : "") + numPart.toLocaleString() + suffixes[magnitude];
+    return (value < 0 ? "-" : "") + numPart.toLocaleString() + (suffixes[magnitude] || '');
   }
   if (uiString) return uiString;
   return 'N/A';
