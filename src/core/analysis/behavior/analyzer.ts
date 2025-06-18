@@ -402,6 +402,7 @@ export class BehaviorAnalyzer {
     const originalPositionValues = new Map<number, number>(); // timestamp -> original SOL value
     
     // First pass: collect original position values for percentage calculation
+    // Note: If multiple buys at same timestamp, this will use the last one (limitation to address later)
     const tradesForOriginalValues = [...trades].sort((a, b) => a.timestamp - b.timestamp);
     tradesForOriginalValues.forEach(trade => {
       if (trade.direction === 'in') {
@@ -418,7 +419,7 @@ export class BehaviorAnalyzer {
       const isSignificantHolding = 
         position.solValue >= (thresholds.minimumSolValue ?? 0.001) &&                           // Configurable minimum SOL value
         remainingPercentage >= (thresholds.minimumPercentageRemaining ?? 0.05) &&               // Configurable minimum % of original
-        (currentTimestamp - position.timestamp) >= (thresholds.minimumHoldingTimeSeconds ?? 300); // Configurable minimum hold time
+        (currentTimestamp - position.timestamp) >= (thresholds.minimumHoldingTimeSeconds ?? 60); // Reduced from 300 to 60 seconds (1 minute)
       
       if (isSignificantHolding) {
         const holdingDurationSeconds = currentTimestamp - position.timestamp;
@@ -596,8 +597,18 @@ export class BehaviorAnalyzer {
     metrics.percentTradesUnder4Hours = timeCalcs.percentUnder4Hours;
 
     // Calculate current holdings metrics (for "trapped" positions)
-    const currentTimestamp = Math.floor(Date.now() / 1000); // Current time in seconds
-    const currentHoldingsCalcs = this.calculateCurrentHoldingsDistributions(sequences, currentTimestamp);
+    // Use a reasonable analysis timestamp: latest transaction + 1 hour for deterministic results
+    let latestTimestamp = 0;
+    sequences.forEach(seq => {
+      seq.trades.forEach(trade => {
+        if (trade.timestamp > latestTimestamp) {
+          latestTimestamp = trade.timestamp;
+        }
+      });
+    });
+    // Add 1 hour (3600 seconds) to latest transaction to ensure current holdings have reasonable duration
+    const analysisTimestamp = latestTimestamp > 0 ? latestTimestamp + 3600 : Math.floor(Date.now() / 1000);
+    const currentHoldingsCalcs = this.calculateCurrentHoldingsDistributions(sequences, analysisTimestamp);
     metrics.averageCurrentHoldingDurationHours = currentHoldingsCalcs.avgDuration;
     metrics.medianCurrentHoldingDurationHours = currentHoldingsCalcs.medianDuration;
     metrics.percentOfValueInCurrentHoldings = currentHoldingsCalcs.percentOfValueInCurrentHoldings;
