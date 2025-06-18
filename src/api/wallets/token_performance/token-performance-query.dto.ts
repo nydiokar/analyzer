@@ -11,9 +11,13 @@ export enum SortOrder {
 export enum TokenPerformanceSortBy {
   TOKEN_ADDRESS = 'tokenAddress',
   NET_SOL_PROFIT_LOSS = 'netSolProfitLoss',
+  TOTAL_PNL_SOL = 'totalPnlSol',
+  UNREALIZED_PNL_SOL = 'unrealizedPnlSol',
   ROI = 'roi',
   TOTAL_SOL_SPENT = 'totalSolSpent',
   TOTAL_SOL_RECEIVED = 'totalSolReceived',
+  CURRENT_UI_BALANCE = 'currentUiBalance',
+  CURRENT_SOL_VALUE = 'currentSolValue',
   NET_AMOUNT_CHANGE = 'netAmountChange',
   LAST_TRANSFER_TIMESTAMP = 'lastTransferTimestamp',
 }

@@ -23,14 +23,15 @@ export class TokenInfoService implements ITokenInfoService {
     });
 
     const existingTokens = await this.findMany(tokenAddresses);
-    const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+    // Update token prices every 5 minutes for active trading
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
     const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
     
     const newTokensToFetch = tokenAddresses.filter(address => {
       const existingToken = existingTokenMap.get(address);
-      // Fetch if the token doesn't exist OR if it exists but hasn't been updated in the last 15 days.
-      return !existingToken || existingToken.updatedAt < fifteenDaysAgo;
+      // Fetch if the token doesn't exist OR if it exists but hasn't been updated in the last 5 minutes.
+      return !existingToken || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
     });
 
 

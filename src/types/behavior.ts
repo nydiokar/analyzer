@@ -26,7 +26,8 @@ export interface BehavioralMetrics {
   percentOfValueInCurrentHoldings: number; // Based on historical cost basis
   // Unrealized P&L metrics (requires current prices from TokenInfo/DexScreener)
   currentHoldingsValueUsd?: number; // Current USD value of all holdings  
-  unrealizedPnlUsd?: number; // Current value - historical cost basis
+  unrealizedPnlUsd?: number; // Current value - historical cost basis in USD
+  unrealizedPnlSol?: number; // Current value - historical cost basis in SOL
   percentOfCurrentPortfolioValue?: number; // % of current portfolio vs historical trades
   sequenceConsistency: number;
   flipperScore: number;

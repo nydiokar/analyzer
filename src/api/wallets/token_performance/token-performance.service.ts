@@ -61,6 +61,8 @@ export class TokenPerformanceService {
     };
 
     if (showOnlyHoldings) { // Use the destructured variable
+      // Only show meaningful holdings (not dust)
+      // This will be further filtered post-processing to ensure positions are worth > $1 USD or have meaningful token amounts
       where.currentUiBalance = { gt: 0 };
     }
 
@@ -149,22 +151,28 @@ export class TokenPerformanceService {
     // If only startDate is provided, it means "from startDate onwards"
     // If only endDate is provided, it means "up to endDate"
 
-    // Handle ROI sorting specially since it's a calculated field
+    // Handle calculated fields that need post-processing
     let orderBy: Prisma.AnalysisResultOrderByWithRelationInput = {};
     let needsPostSorting = false;
     let needsPostFiltering = false;
     
-    if (sortBy === 'roi') {
-      // For ROI sorting, we need to sort after calculation since it's derived from netSolProfitLoss / totalSolSpent
-      // We'll sort by netSolProfitLoss for now and apply post-processing
-      orderBy.netSolProfitLoss = sortOrder.toLowerCase() as Prisma.SortOrder;
+    // These fields are calculated after data fetch, so they need post-processing
+    const calculatedFields = ['roi', 'totalPnlSol', 'unrealizedPnlSol', 'currentSolValue'];
+    
+    if (calculatedFields.includes(sortBy)) {
+      // For calculated fields, we'll sort by a related field for now and apply post-processing
+      if (sortBy === 'roi' || sortBy === 'totalPnlSol') {
+        orderBy.netSolProfitLoss = sortOrder.toLowerCase() as Prisma.SortOrder;
+      } else if (sortBy === 'unrealizedPnlSol' || sortBy === 'currentSolValue') {
+        orderBy.currentUiBalance = sortOrder.toLowerCase() as Prisma.SortOrder;
+      }
       needsPostSorting = true;
     } else {
       orderBy[sortBy] = sortOrder.toLowerCase() as Prisma.SortOrder;
     }
 
-    // If we need to apply spam filtering, we need to fetch all results first
-    if (spamFilter && spamFilter !== SpamFilterType.ALL) {
+    // If we need to apply spam filtering or holdings filtering, we need to fetch all results first
+    if ((spamFilter && spamFilter !== SpamFilterType.ALL) || showOnlyHoldings) {
       needsPostFiltering = true;
     }
 
@@ -192,12 +200,68 @@ export class TokenPerformanceService {
     const tokenAddresses = analysisResults.map(ar => ar.tokenAddress);
     const tokenInfoMap = await this.getTokenInfoMap(tokenAddresses);
 
-    // Create the token performance data with calculated ROI
+    // Create the token performance data with calculated ROI and unrealized P&L
     let tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => {
       const tokenInfo = tokenInfoMap.get(ar.tokenAddress);
       
       // Fallback to well-known token metadata if database doesn't have it
       const fallbackMetadata = getWellKnownTokenMetadata(ar.tokenAddress);
+      
+      // Calculate unrealized P&L for current holdings
+      const currentUiBalance = ar.currentUiBalance || 0;
+      const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
+      const totalSolSpent = ar.totalSolSpent || 0;
+      const totalAmountIn = ar.totalAmountIn || 0;
+      const netSolProfitLoss = ar.netSolProfitLoss || 0;
+      
+      let currentHoldingsValueUsd: number | null = null;
+      let unrealizedPnlUsd: number | null = null;
+      let unrealizedPnlSol: number | null = null;
+      let totalPnlSol: number | null = null;
+      
+      // Get basic data for calculations
+      const totalAmountOut = ar.totalAmountOut || 0;
+      const solReceivedFromSales = ar.totalSolReceived || 0;
+      const feesPaid = ar.totalFeesPaidInSol || 0;
+      const estimatedSolPriceUsd = 144; // TODO: Fetch real SOL price from DexScreener
+      const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
+      
+      if (currentUiBalance > 0 && priceUsd && priceUsd > 0) {
+        // We have current holdings AND price data - can calculate full P&L
+        currentHoldingsValueUsd = currentUiBalance * priceUsd;
+        const currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
+        
+        // Realized P&L: Only from tokens that were actually sold
+        const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
+        const realizedPnlFromSales = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
+        
+        // Unrealized P&L: Current value vs cost basis of remaining holdings
+        const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
+        unrealizedPnlUsd = currentHoldingsValueUsd - (costBasisForCurrentHoldings * estimatedSolPriceUsd);
+        unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
+        
+        // Total P&L: Simple and clean calculation
+        totalPnlSol = realizedPnlFromSales + (unrealizedPnlSol || 0);
+        
+             } else if (currentUiBalance > 0) {
+         // We have holdings but no price data - can't calculate unrealized P&L
+         // Show realized P&L only and mark total as incomplete
+         const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
+         const realizedPnlFromSales = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
+        
+        // Can't calculate unrealized without price data
+        unrealizedPnlUsd = null;
+        unrealizedPnlSol = null;
+        
+        // Total P&L is incomplete without unrealized component
+        totalPnlSol = realizedPnlFromSales; // This will be incomplete but better than using netSolProfitLoss
+        
+      } else {
+        // No current holdings - everything is realized
+        totalPnlSol = netSolProfitLoss;
+        unrealizedPnlUsd = null;
+        unrealizedPnlSol = null;
+      }
       
       return {
         walletAddress: ar.walletAddress,
@@ -232,8 +296,37 @@ export class TokenPerformanceService {
         volume24h: tokenInfo?.volume24h,
         priceUsd: tokenInfo?.priceUsd,
         dexscreenerUpdatedAt: tokenInfo?.dexscreenerUpdatedAt?.toISOString(),
+        // Unrealized P&L calculations
+        currentHoldingsValueUsd,
+        unrealizedPnlUsd,
+        unrealizedPnlSol,
+        totalPnlSol,
       };
     });
+
+      // Apply meaningful holdings filter (remove dust positions)
+    if (showOnlyHoldings) {
+      const originalCount = tokenPerformanceDataList.length;
+      tokenPerformanceDataList = tokenPerformanceDataList.filter(token => {
+        const currentBalance = token.currentUiBalance || 0;
+        const currentValueUsd = token.currentHoldingsValueUsd || 0;
+        const estimatedSolPriceUsd = 144;
+        
+        // Must have a token balance
+        if (currentBalance <= 0) return false;
+        
+        // Must have price data (filter out "? SOL" positions)
+        if (!currentValueUsd || currentValueUsd <= 0) return false;
+        
+        // Only show positions worth > 0.01 SOL (approximately $1.44 at $144 SOL price)
+        const currentValueSol = currentValueUsd / estimatedSolPriceUsd;
+        const hasMinimumSolValue = currentValueSol >= 0.01;
+        
+        return hasMinimumSolValue;
+      });
+      
+      this.logger.debug(`Holdings filter: Filtered ${originalCount} down to ${tokenPerformanceDataList.length} positions with >0.01 SOL value and price data`);
+    }
 
     // Apply spam filtering if specified
     let isFiltered = false;
@@ -263,17 +356,42 @@ export class TokenPerformanceService {
       this.logger.debug(`Spam filtering: ${spamFilter} - Filtered ${originalCount} down to ${tokenPerformanceDataList.length} tokens`);
     }
 
-    // Apply ROI sorting if needed
-    if (needsPostSorting && sortBy === 'roi') {
+    // Apply calculated field sorting if needed
+    if (needsPostSorting) {
       tokenPerformanceDataList.sort((a, b) => {
-        const roiA = a.totalSolSpent && a.totalSolSpent !== 0 
-          ? (a.netSolProfitLoss || 0) / a.totalSolSpent * 100 
-          : (a.netSolProfitLoss || 0) > 0 ? Infinity : (a.netSolProfitLoss || 0) < 0 ? -Infinity : 0;
-        const roiB = b.totalSolSpent && b.totalSolSpent !== 0 
-          ? (b.netSolProfitLoss || 0) / b.totalSolSpent * 100 
-          : (b.netSolProfitLoss || 0) > 0 ? Infinity : (b.netSolProfitLoss || 0) < 0 ? -Infinity : 0;
+        let valueA: number;
+        let valueB: number;
         
-        return sortOrder === SortOrder.DESC ? roiB - roiA : roiA - roiB;
+        switch (sortBy) {
+          case 'roi':
+            // Fixed ROI calculation: Use totalPnlSol instead of netSolProfitLoss for more accurate ROI
+            valueA = a.totalSolSpent && a.totalSolSpent !== 0 
+              ? (a.totalPnlSol || 0) / a.totalSolSpent * 100 
+              : (a.totalPnlSol || 0) > 0 ? Infinity : (a.totalPnlSol || 0) < 0 ? -Infinity : 0;
+            valueB = b.totalSolSpent && b.totalSolSpent !== 0 
+              ? (b.totalPnlSol || 0) / b.totalSolSpent * 100 
+              : (b.totalPnlSol || 0) > 0 ? Infinity : (b.totalPnlSol || 0) < 0 ? -Infinity : 0;
+            break;
+          case 'totalPnlSol':
+            valueA = a.totalPnlSol || 0;
+            valueB = b.totalPnlSol || 0;
+            break;
+          case 'unrealizedPnlSol':
+            valueA = a.unrealizedPnlSol || 0;
+            valueB = b.unrealizedPnlSol || 0;
+            break;
+          case 'currentSolValue':
+            // Sort by SOL value of current holdings
+            const estimatedSolPriceUsd = 144;
+            valueA = a.currentHoldingsValueUsd ? a.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
+            valueB = b.currentHoldingsValueUsd ? b.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
+            break;
+          default:
+            valueA = 0;
+            valueB = 0;
+        }
+        
+        return sortOrder === SortOrder.DESC ? valueB - valueA : valueA - valueB;
       });
     }
 

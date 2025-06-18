@@ -97,9 +97,13 @@ const SPAM_FILTER_OPTIONS = [
 const BACKEND_SORTABLE_IDS = [
   'tokenAddress',
   'netSolProfitLoss',
+  'totalPnlSol',
+  'unrealizedPnlSol',
   'roi',
   'totalSolSpent',
   'totalSolReceived',
+  'currentUiBalance',
+  'currentSolValue',
   'netAmountChange',
   'lastTransferTimestamp',
 ];
@@ -160,11 +164,14 @@ const COLUMN_DEFINITIONS = [
       );
     }
   },
-  { id: 'netSolProfitLoss', name: 'Net PNL (SOL)', isSortable: true, className: 'text-right', icon: DollarSignIcon },
+  // Prioritized order: Most important metrics first
+  { id: 'totalPnlSol', name: 'Total PNL (SOL)', isSortable: true, className: 'text-right', icon: DollarSignIcon },
   { id: 'roi', name: 'ROI (%)', isSortable: true, className: 'text-right', icon: PercentIcon }, 
   { id: 'totalSolSpent', name: 'SOL Spent', isSortable: true, className: 'text-right', icon: ArrowLeftCircleIcon },
   { id: 'totalSolReceived', name: 'SOL Received', isSortable: true, className: 'text-right', icon: ArrowRightCircleIcon },
-  { id: 'currentBalanceDisplay', name: 'Current Balance', isSortable: false, className: 'text-right', icon: PackageIcon },
+  { id: 'currentBalanceDisplay', name: 'Current Balance', isSortable: true, className: 'text-right', icon: PackageIcon },
+  { id: 'netSolProfitLoss', name: 'Realized PNL (SOL)', isSortable: true, className: 'text-right', icon: DollarSignIcon },
+  { id: 'unrealizedPnlSol', name: 'Unrealized PNL (SOL)', isSortable: true, className: 'text-right', icon: TrendingUpIcon },
   { id: 'marketCapDisplay', name: 'Market Cap', isSortable: false, className: 'text-right', icon: TrendingUpIcon },
   { id: 'transferCountIn', name: 'In', isSortable: false, className: 'text-center text-right', icon: ArrowRightLeftIcon },
   { id: 'transferCountOut', name: 'Out', isSortable: false, className: 'text-center text-right'},
@@ -415,14 +422,23 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   const handleShowHoldingsToggleChange = (checked: boolean) => {
     setShowHoldingsOnly(checked);
     setPage(1);
+    // Force refresh when toggling holdings filter to ensure fresh data
+    localMutate();
   };
 
   const handleSort = (columnId: string) => {
-    if (!BACKEND_SORTABLE_IDS.includes(columnId)) return;
-    if (sortBy === columnId) {
+    // Map frontend column IDs to backend field names
+    const fieldMapping: Record<string, string> = {
+      'currentBalanceDisplay': 'currentSolValue'  // Sort by SOL value, not token amount
+    };
+    
+    const backendField = fieldMapping[columnId] || columnId;
+    
+    if (!BACKEND_SORTABLE_IDS.includes(backendField)) return;
+    if (sortBy === backendField) {
       setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
     } else {
-      setSortBy(columnId);
+      setSortBy(backendField);
       setSortOrder('DESC');
     }
     setPage(1);
@@ -500,8 +516,9 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
       <TableBody>
         {tableData.map((item: TokenPerformanceDataDto, index: number) => {
           const pnl = item.netSolProfitLoss ?? 0;
+          const totalPnl = item.totalPnlSol ?? 0;
           const pnlColor = pnl > 0 ? 'text-emerald-500' : pnl < 0 ? 'text-red-500' : 'text-muted-foreground';
-          const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (pnl / item.totalSolSpent) * 100 : (pnl > 0 ? Infinity : pnl < 0 ? -Infinity : 0);
+          const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (totalPnl / item.totalSolSpent) * 100 : (totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0);
 
           return (
             <TableRow key={item.tokenAddress + index}>
@@ -561,7 +578,14 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
                               return null;
                             })()}
                             {(() => {
-                                const isHeld = (item.currentUiBalance ?? 0) > 0;
+                                // Only show "Currently held" for meaningful positions with SOL value
+                                const currentBalance = item.currentUiBalance ?? 0;
+                                const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
+                                const estimatedSolPriceUsd = 144;
+                                const currentValueSol = currentValueUsd ? currentValueUsd / estimatedSolPriceUsd : 0;
+                                
+                                // Must have token balance AND SOL value >= 0.01 SOL
+                                const isHeld = currentBalance > 0 && currentValueSol >= 0.01;
                                 const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
                                 const isExited = !isHeld && hadTrades;
                                 if (isHeld) {
@@ -569,8 +593,8 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
                                     <TooltipProvider delayDuration={300}>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
-                                          <div className="flex items-center justify-center w-5 h-5 rounded bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800">
-                                            <Lock className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                                          <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
+                                            <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" />
                                           </div>
                                         </TooltipTrigger>
                                         <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
@@ -585,8 +609,8 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
                                     <TooltipProvider delayDuration={300}>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
-                                          <div className="flex items-center justify-center w-5 h-5 rounded bg-orange-100 dark:bg-orange-900/40 border border-orange-200 dark:border-orange-800">
-                                            <LogOut className="h-3 w-3 text-orange-600 dark:text-orange-400" />
+                                          <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+                                            <LogOut className="h-3 w-3 text-slate-500 dark:text-slate-400" />
                                           </div>
                                         </TooltipTrigger>
                                         <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
@@ -617,13 +641,43 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
                     </Popover>
                   )}
                   {col.id === 'netSolProfitLoss' && formatPnl(item.netSolProfitLoss)}
+                  {col.id === 'unrealizedPnlSol' && formatPnl(item.unrealizedPnlSol)}
+                  {col.id === 'totalPnlSol' && formatPnl(item.totalPnlSol)}
                   {col.id === 'roi' && (roi === Infinity ? <span className="text-emerald-500">∞</span> : roi === -Infinity ? <span className="text-red-500">-∞</span> : formatPercentagePnl(roi))}
-                  {col.id === 'totalSolSpent' && (<Text className={cn("text-sm", (item.totalSolSpent ?? 0) > 0 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolSpent)}</Text>)}
-                  {col.id === 'totalSolReceived' && (<Text className={cn("text-sm", (item.totalSolReceived ?? 0) > 0 ? 'text-emerald-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolReceived)}</Text>)}
-                  {col.id === 'currentBalanceDisplay' && <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">{item.currentUiBalance === 0 ? '-' : formatTokenDisplayValue(item.currentUiBalance, item.currentUiBalanceString)}</Text>}
+                  {col.id === 'totalSolSpent' && (<Text className={cn("text-sm", (item.totalSolSpent ?? 0) > 0 ? 'text-red-400 dark:text-red-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolSpent)}</Text>)}
+                  {col.id === 'totalSolReceived' && (<Text className={cn("text-sm", (item.totalSolReceived ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolReceived)}</Text>)}
+                  {col.id === 'currentBalanceDisplay' && (
+                    <div className="text-right">
+                      {item.currentUiBalance === 0 ? (
+                        <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">-</Text>
+                      ) : (
+                        <div className="flex flex-col items-end">
+                          {/* SOL Value First - Most Important */}
+                          {item.currentHoldingsValueUsd ? (
+                            <Text className={cn(
+                              "text-sm font-mono",
+                              (item.currentHoldingsValueUsd / 144) >= 1 ? "text-orange-600 dark:text-orange-400 font-semibold" : // Significant position
+                              (item.currentHoldingsValueUsd / 144) >= 0.1 ? "text-slate-700 dark:text-slate-300" : // Medium position  
+                              "text-slate-500 dark:text-slate-400" // Small position
+                            )}>
+                              {formatSolAmount((item.currentHoldingsValueUsd / 144))} SOL
+                            </Text>
+                          ) : (
+                            <Text className="text-sm text-slate-500 dark:text-slate-400 font-mono">
+                              ? SOL
+                            </Text>
+                          )}
+                          {/* Token Amount Second - Less Important */}
+                          <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                            {formatTokenDisplayValue(item.currentUiBalance, item.currentUiBalanceString)} tokens
+                          </Text>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {col.id === 'marketCapDisplay' && <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">{formatMarketCap((item as any).marketCapUsd)}</Text>}
-                  {col.id === 'transferCountIn' && (<Text className={cn("text-sm", (item.transferCountIn ?? 0) > 0 ? 'text-emerald-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountIn}</Text>)}
-                  {col.id === 'transferCountOut' && (<Text className={cn("text-sm", (item.transferCountOut ?? 0) > 0 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountOut}</Text>)}
+                  {col.id === 'transferCountIn' && (<Text className={cn("text-sm", (item.transferCountIn ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountIn}</Text>)}
+                  {col.id === 'transferCountOut' && (<Text className={cn("text-sm", (item.transferCountOut ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountOut}</Text>)}
                   {col.id === 'firstTransferTimestamp' && <Text className="text-sm">{formatDate(item.firstTransferTimestamp)}</Text>}
                   {col.id === 'lastTransferTimestamp' && <Text className="text-sm">{formatDate(item.lastTransferTimestamp)}</Text>}
                 </TableCell>
@@ -762,8 +816,12 @@ const formatPercentagePnl = (percentage: number | null | undefined) => {
 const formatSolAmount = (value: number | null | undefined) => {
   if (typeof value !== 'number' || isNaN(value)) return 'N/A';
   if (value === 0) return "0";
-  if (Math.abs(value) < 0.001) return '< 0.001';
+  
   const absValue = Math.abs(value);
+  
+  // Hide dust amounts (less than 0.01 SOL) - they're not meaningful
+  if (absValue < 0.01) return '-';
+  
   const suffixes = ["", "K", "M", "B", "T"];
   const magnitude = absValue >= 1 ? Math.min(Math.floor(Math.log10(absValue) / 3), suffixes.length - 1) : 0;
   const scaledValue = absValue / Math.pow(1000, magnitude);

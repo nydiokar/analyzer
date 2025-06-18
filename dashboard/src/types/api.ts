@@ -157,6 +157,21 @@ export interface TokenPerformanceDataDto {
   websiteUrl?: string | null;
   twitterUrl?: string | null;
   telegramUrl?: string | null;
+
+  // DexScreener market data
+  marketCapUsd?: number | null;
+  liquidityUsd?: number | null;
+  pairCreatedAt?: number | null;
+  fdv?: number | null;
+  volume24h?: number | null;
+  priceUsd?: string | null;
+  dexscreenerUpdatedAt?: string | null;
+
+  // Unrealized P&L calculations for current holdings
+  currentHoldingsValueUsd?: number | null;
+  unrealizedPnlUsd?: number | null;
+  unrealizedPnlSol?: number | null;
+  totalPnlSol?: number | null;
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts

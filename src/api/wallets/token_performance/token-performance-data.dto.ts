@@ -97,5 +97,18 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'When DexScreener data was last updated', type: String, format: 'date-time', nullable: true, required: false })
   dexscreenerUpdatedAt?: string | null;
 
+  // Unrealized P&L calculations for current holdings
+  @ApiProperty({ description: 'Current value of holdings in USD (currentUiBalance * priceUsd)', type: Number, nullable: true, required: false })
+  currentHoldingsValueUsd?: number | null;
+
+  @ApiProperty({ description: 'Unrealized profit/loss in USD for current holdings', type: Number, nullable: true, required: false })
+  unrealizedPnlUsd?: number | null;
+
+  @ApiProperty({ description: 'Unrealized profit/loss in SOL for current holdings', type: Number, nullable: true, required: false })
+  unrealizedPnlSol?: number | null;
+
+  @ApiProperty({ description: 'Total P&L including both realized and unrealized (netSolProfitLoss + unrealizedPnlSol)', type: Number, nullable: true, required: false })
+  totalPnlSol?: number | null;
+
   // Note: The 'id' field from AnalysisResult is typically not exposed in API responses unless specifically needed.
 } 
