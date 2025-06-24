@@ -33,5 +33,5 @@
     "downlevelIteration": true
   },
   "include": ["src/**/*", "src/core/scripts/activityCorrelator.ts", "src/core/scripts/helius-analyzer.ts", "src/core/scripts/kpi-comparison-report.ts", "src/core/scripts/wallet-behavior-analyzer.ts", "src/core/scripts/walletSimilarity.ts"],
-  "exclude": ["node_modules", "dist", "test", "dashboard"]
+  "exclude": ["node_modules", "dist", "test", "tests", "dashboard"]
 }

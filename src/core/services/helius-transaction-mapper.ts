@@ -1,4 +1,4 @@
-import { createLogger } from 'core/utils/logger';
+import { createLogger } from '@/core/utils/logger';
 import { Prisma } from '@prisma/client';
 import { HeliusTransaction, TokenTransfer } from '@/types/helius-api';
 
@@ -265,13 +265,33 @@ function findIntermediaryValueFromEvent(
 }
 
 /**
- * Processes Helius transactions to extract transfer data relevant for swap analysis.
- * Calculates associated SOL/USDC values using a tiered fallback logic.
- * Calculates fees based on network fee and small native SOL transfers out.
+ * Main entry-point for the mapper.
  *
- * @param walletAddress The target wallet address.
- * @param transactions Array of full HeliusTransaction objects.
- * @returns Array of `SwapAnalysisInputCreateData` objects.
+ * Steps per transaction
+ * 1. Skip errored transactions, initialise per-tx stats.
+ * 2. Build a quick lookup Set (`userAccounts`) that contains the wallet address and
+ *    every token account that belongs to the wallet inside this transaction.
+ * 3. Compute net user changes (native SOL, WSOL, USDC) & heuristics values that
+ *    will later be used to price SPL legs that are not SOL/USDC themselves.
+ * 4. Process Native SOL transfers – always push rows, value = amount.
+ * 5. Apply the "fee-payer" heuristics that attribute swap legs to the wallet
+ *    when it acted as fee payer for a routing contract.
+ * 6. Process every SPL `tokenTransfer` and use a *tiered* strategy to derive
+ *    `associatedSolValue` / `associatedUsdcValue` (event matcher, WSOL
+ *    intermediary, total movement, net change etc.).
+ * 7. NEW (2025-06-24): After all rows for this transaction are created we run a
+ *    proportional redistribution that guarantees the **aggregate** SOL/USDC
+ *    value is correct while avoiding double counting when the same
+ *    `mint+direction` appears in multiple chunks.
+ * 8. Update mapping statistics and return `{ analysisInputs, stats }` for bulk
+ *    insertion into the DB.
+ *
+ * Performance: everything is O(N) over `tokenTransfers`; the final redistribution
+ * is another O(M) where `M ≤ N` and therefore negligible.
+ *
+ * @param walletAddress – lowercase wallet address we are mapping for.
+ * @param transactions  – full HeliusTransaction objects for this wallet.
+ * @returns MappingResult with rows ready for Prisma createMany.
  */
 export function mapHeliusTransactionsToIntermediateRecords(
   walletAddress: string,
@@ -454,6 +474,9 @@ export function mapHeliusTransactionsToIntermediateRecords(
           eventResult = findIntermediaryValueFromEvent(tx, userAccounts, mappingStats);
       }
 
+      // --- Pre-check for fee bundling ---
+      const hasNonSolTokenMovement = tx.tokenTransfers?.some(t => t.mint !== SOL_MINT && t.mint !== USDC_MINT) ?? false;
+
       // Process Native SOL Transfers (excluding dust amounts)
       for (const transfer of tx.nativeTransfers || []) {
            const rawLamports = transfer.amount;
@@ -468,6 +491,14 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
            const amount = lamportsToSol(rawLamports);
            const direction = isToUser ? 'in' : 'out';
+
+           // If this is a small outgoing transfer during a swap with other tokens,
+           // it's considered a fee and will be bundled later. Do not create a separate row.
+           if (direction === 'out' && amount < FEE_TRANSFER_THRESHOLD_SOL && hasNonSolTokenMovement) {
+              // logger.debug(`Skipping native transfer row creation for likely fee: ${amount} SOL in tx ${tx.signature}`); // Removed debug
+              continue;
+           }
+
            const mint = SOL_MINT;
            const associatedSolValue = amount; // Native SOL's value is itself
            const associatedUsdcValue = 0;
@@ -614,114 +645,12 @@ export function mapHeliusTransactionsToIntermediateRecords(
       }
       // --- End of Fee Payer Heuristic Block ---
 
-      // --- Fallback Fee Payer Heuristic (if tx.events.swap was missing) ---
-      /**
-       * Fallback Fee-Payer Heuristic for Swap Attribution.
-       *
-       * This heuristic attempts to attribute a swap to the transaction's fee payer
-       * when the primary `tx.events.swap` object is missing from the Helius transaction data.
-       * This can occur for certain swap protocols or complex transactions where Helius
-       * might not fully parse the swap event structure into the `events.swap` path.
-       *
-       * The core logic is as follows:
-       * 1. Activates if the currently analyzed `walletAddress` is the `tx.feePayer` AND
-       *    `tx.events.swap` is undefined or null.
-       * 2. It inspects `tx.tokenTransfers` to find a potential swap:
-       *    a. Identifies the largest outgoing SPL (non-WSOL, non-USDC) token transfer
-       *       FROM an account that is NOT the fee payer. This is considered the token sold.
-       *    b. Identifies a corresponding incoming WSOL token transfer
-       *       TO an account that is NOT the fee payer (ideally the same account that sent the SPL token).
-       *       This is considered the SOL received for the sold token.
-       * 3. If a significant SPL-out and WSOL-in pair is found (WSOL amount meets
-       *    `FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL`), both legs of this inferred swap
-       *    (the SPL token out and the WSOL token in) are attributed to the `walletAddress`
-       *    (the fee payer).
-       * 4. The `associatedSolValue` for both generated records is set to the amount of WSOL involved.
-       * 5. The `interactionType` for these records is set to 'SWAP_FEE_PAYER_FB' (FB for Fallback).
-       *
-       * This allows capturing economic activity that would otherwise be missed if relying solely
-       * on `tx.events.swap`.
-       */
-      /*
-      if (isFeePayerWalletA && !tx.events?.swap && tx.tokenTransfers && tx.tokenTransfers.length > 0) {
-        logger.debug(`Tx ${tx.signature}: Entering fallback fee-payer heuristic because tx.events.swap is missing.`);
-
-        let splOutAmount = 0;
-        let splOutMint: string | undefined = undefined;
-        let splOutOwner: string | undefined = undefined;
-
-        let wsolInAmount = 0;
-        let wsolInOwner: string | undefined = undefined;
-
-        // Find the main SPL token going out from a non-fee-payer wallet
-        for (const transfer of tx.tokenTransfers) {
-            if (transfer.mint !== SOL_MINT && transfer.mint !== USDC_MINT && // It's an SPL token
-                transfer.fromUserAccount && transfer.fromUserAccount.toLowerCase() !== lowerWalletAddress // Not from fee payer
-            ) {
-                const currentAmount = Math.abs(safeParseAmount(transfer));
-                if (currentAmount > splOutAmount) { // Take the largest outgoing SPL as the primary candidate
-                    splOutAmount = currentAmount;
-                    splOutMint = transfer.mint;
-                    splOutOwner = transfer.fromUserAccount;
-                }
-            }
-        }
-
-        // Find the main WSOL coming in to a non-fee-payer wallet (ideally the same one as splOutOwner)
-        for (const transfer of tx.tokenTransfers) {
-            if (transfer.mint === SOL_MINT && // It's WSOL
-                transfer.toUserAccount && transfer.toUserAccount.toLowerCase() !== lowerWalletAddress // Not to fee payer
-            ) {
-                const currentAmount = Math.abs(safeParseAmount(transfer));
-                if (splOutOwner && transfer.toUserAccount.toLowerCase() === splOutOwner.toLowerCase()) {
-                     wsolInAmount = currentAmount; // Prefer this direct match
-                     wsolInOwner = transfer.toUserAccount;
-                     break; // Found the matching WSOL leg
-                } else if (!splOutOwner && currentAmount > wsolInAmount) { // Generic largest WSOL if no splOutOwner match
-                    wsolInAmount = currentAmount;
-                    wsolInOwner = transfer.toUserAccount;
-                }
-            }
-        }
-        
-        if (splOutMint && splOutAmount > 0 && wsolInAmount >= FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL) {
-            logger.debug(`Tx ${tx.signature}: Fallback heuristic identified SPL out: ${splOutAmount} ${splOutMint} (from ${splOutOwner}) and WSOL in: ${wsolInAmount} (to ${wsolInOwner}). Attributing to fee payer ${walletAddress}.`);
-
-            const outRecordKey = `${tx.signature}:${splOutMint}:out:FEE_PAYER_FALLBACK:${walletAddress}:${splOutAmount.toFixed(9)}`;
-            if (!processedRecordKeys.has(outRecordKey)) {
-                analysisInputs.push({
-                    walletAddress: walletAddress, signature: tx.signature, timestamp: tx.timestamp,
-                    mint: splOutMint, amount: splOutAmount, direction: 'out',
-                    associatedSolValue: wsolInAmount, // Value is the WSOL received
-                    associatedUsdcValue: 0,
-                    interactionType: 'SWAP_FEE_PAYER_FB',
-                    feeAmount: null, feePercentage: null,
-                });
-                processedRecordKeys.add(outRecordKey);
-            }
-
-            const inRecordKey = `${tx.signature}:${SOL_MINT}:in:FEE_PAYER_FALLBACK:${walletAddress}:${wsolInAmount.toFixed(9)}`;
-             if (!processedRecordKeys.has(inRecordKey)) {
-                analysisInputs.push({
-                    walletAddress: walletAddress, signature: tx.signature, timestamp: tx.timestamp,
-                    mint: SOL_MINT, amount: wsolInAmount, direction: 'in',
-                    associatedSolValue: wsolInAmount, // Value is itself
-                    associatedUsdcValue: 0,
-                    interactionType: 'SWAP_FEE_PAYER_FB',
-                    feeAmount: null, feePercentage: null,
-                });
-                processedRecordKeys.add(inRecordKey);
-            }
-        } else {
-            if (isFeePayerWalletA && tx.tokenTransfers && tx.tokenTransfers.length > 0) { // only log if we expected something
-                logger.debug(`Tx ${tx.signature}: Fallback fee-payer heuristic did not find a clear SPL-WSOL pair to attribute to fee payer ${walletAddress}. splOutMint: ${splOutMint}, wsolInAmount: ${wsolInAmount}`);
-            }
-        }
-    }
-    */
-    // --- End of Fallback Fee Payer Heuristic ---
+      // --- Track value assignment per mint+direction to avoid double counting ---
+      const valueAssignedForMintDirection = new Set<string>();
+      // --- End tracking set ---
 
       // Process SPL Token Transfers
+      const txStartIndex = analysisInputs.length; // Capture start index for this transaction
       for (const transfer of tx.tokenTransfers || []) {
             let currentTransferAmount = 0, mint: string | undefined, isWsol = false, isUsdc = false;
             let direction: 'in' | 'out' | null = null;
@@ -741,6 +670,14 @@ export function mapHeliusTransactionsToIntermediateRecords(
              else if (fromUserTA && !toUserTA) direction = 'out';
              else if (fromUserTA && toUserTA) direction = 'out'; // Treat self-transfers as 'out'
              if (!direction) continue;
+
+             // --- Duplicate value-assignment guard ---
+             const mintDirectionKey = `${mint}:${direction}`;
+             // We will compute associatedSolValue/associatedUsdcValue as usual, but if a non-zero value
+             // has already been assigned for this mint+direction in the current transaction we will zero
+             // it out to avoid double-counting across transfer chunks.
+             // The actual assignment logic is done *after* we determine the candidate values.
+             // --- End duplicate guard placeholder ---
 
              // --- Apply Heuristic for Small Outgoing Transfers --- 
              let applyFeeHeuristic = false;
@@ -849,8 +786,17 @@ export function mapHeliusTransactionsToIntermediateRecords(
                    }
               }
           }
-            // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): AssocSOL=${associatedSolValue.toFixed(9)}, AssocUSDC=${associatedUsdcValue.toFixed(9)}`); // Removed debug
 
+            // Duplicate value-assignment guard (actual enforcement)
+            if (!isWsol && !isUsdc && (Math.abs(associatedSolValue) > FEE_PRECISION_THRESHOLD || Math.abs(associatedUsdcValue) > FEE_PRECISION_THRESHOLD)) {
+               if (valueAssignedForMintDirection.has(mintDirectionKey)) {
+                   // A value has already been assigned for this mint+direction; zero out to avoid double counting
+                   associatedSolValue = 0;
+                   associatedUsdcValue = 0;
+               } else {
+                   valueAssignedForMintDirection.add(mintDirectionKey);
+               }
+            }
 
             // --- Fee Calculation & Assignment (Only for non-WSOL/USDC transfers with associated SOL value) ---
             let feeAmount: number | null = null;
@@ -920,6 +866,81 @@ export function mapHeliusTransactionsToIntermediateRecords(
             }
       }
 
+      // --- Proportional redistribution of value across multiple chunks of same mint+direction ---
+      try {
+        const redistributionBuckets = new Map<string, { totalAmount: number; totalSol: number; totalUsdc: number; rowIndexes: number[] }>();
+
+        for (let idx = txStartIndex; idx < analysisInputs.length; idx++) {
+          const row = analysisInputs[idx];
+          // Skip WSOL / USDC rows (their value equals their amount) and also skip native SOL rows
+          if (!row || row.mint === SOL_MINT || row.mint === USDC_MINT) continue;
+
+          const key = `${row.mint}:${row.direction}`;
+          if (!redistributionBuckets.has(key)) {
+            redistributionBuckets.set(key, { totalAmount: 0, totalSol: 0, totalUsdc: 0, rowIndexes: [] });
+          }
+          const bucket = redistributionBuckets.get(key)!;
+          bucket.rowIndexes.push(idx);
+          bucket.totalAmount += Math.abs(row.amount);
+          bucket.totalSol += row.associatedSolValue || 0;
+          bucket.totalUsdc += row.associatedUsdcValue || 0;
+        }
+
+        for (const bucket of redistributionBuckets.values()) {
+          if (bucket.rowIndexes.length <= 1) continue; // Nothing to redistribute
+
+          const rowsInBucket = bucket.rowIndexes.map(idx => analysisInputs[idx]);
+          const largestAmountInBucket = Math.max(...rowsInBucket.map(r => Math.abs(r.amount)));
+          let valueDistributionAmount = 0;
+
+          // Recalculate the amount over which to distribute the value, excluding fee-like transfers.
+          for (const row of rowsInBucket) {
+              const isLikelyFee = Math.abs(row.amount) < largestAmountInBucket &&
+                                Math.abs(row.amount) < (TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD * largestAmountInBucket);
+              if (!isLikelyFee) {
+                  valueDistributionAmount += Math.abs(row.amount);
+              }
+          }
+
+          if (valueDistributionAmount === 0) continue; // Avoid division by zero if all are fees
+
+          if (bucket.totalSol > FEE_PRECISION_THRESHOLD) {
+            const valuePerToken = bucket.totalSol / valueDistributionAmount;
+            bucket.rowIndexes.forEach(idx => {
+              const row = analysisInputs[idx];
+              const isLikelyFee = Math.abs(row.amount) < largestAmountInBucket &&
+                                Math.abs(row.amount) < (TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD * largestAmountInBucket);
+
+              if (isLikelyFee) {
+                row.associatedSolValue = 0;
+                row.associatedUsdcValue = 0;
+              } else {
+                row.associatedUsdcValue = 0; // Ensure only one value type present
+                row.associatedSolValue = Math.abs(row.amount) * valuePerToken;
+              }
+            });
+          } else if (bucket.totalUsdc > FEE_PRECISION_THRESHOLD) {
+            const valuePerToken = bucket.totalUsdc / valueDistributionAmount;
+            bucket.rowIndexes.forEach(idx => {
+              const row = analysisInputs[idx];
+              const isLikelyFee = Math.abs(row.amount) < largestAmountInBucket &&
+                                Math.abs(row.amount) < (TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD * largestAmountInBucket);
+
+              if (isLikelyFee) {
+                row.associatedSolValue = 0;
+                row.associatedUsdcValue = 0;
+              } else {
+                row.associatedSolValue = 0;
+                row.associatedUsdcValue = Math.abs(row.amount) * valuePerToken;
+              }
+            });
+          }
+        }
+      } catch (redistErr) {
+        logger.error(`Error during proportional value redistribution for tx ${tx.signature}`, { error: redistErr });
+      }
+      // --- End redistribution block ---
+
       if (inputsGeneratedThisTransaction > 0) {
         mappingStats.transactionsSuccessfullyProcessed++;
       }
@@ -940,5 +961,21 @@ export function mapHeliusTransactionsToIntermediateRecords(
   // --- Log Final Stats ---
   logger.info(`Finished mapping ${transactions.length} transactions for ${walletAddress}. Mapping statistics:`, mappingStats);
   // --- End Log Final Stats ---
-  return { analysisInputs, stats: mappingStats };
+
+  // Filter out intermediary WSOL transfers from swaps, as their value is already captured.
+  const filteredAnalysisInputs = analysisInputs.filter(input => {
+    if (input.mint === SOL_MINT) {
+      // Only keep SOL records that are NOT part of a swap. This preserves direct transfers.
+      // This mainly targets WSOL transfers now, as native fees are skipped earlier.
+      return input.interactionType !== 'SWAP' && input.interactionType !== 'SWAP_FEE_PAYER';
+    }
+    return true; // Keep all non-SOL records
+  });
+
+  // Update stats to reflect the filtered count.
+  const finalStats = { ...mappingStats };
+  finalStats.analysisInputsGenerated = filteredAnalysisInputs.length;
+  // Note: Detailed counters like `wsolTransfersProcessed` still reflect pre-filter numbers.
+
+  return { analysisInputs: filteredAnalysisInputs, stats: finalStats };
 }
