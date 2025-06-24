@@ -1,4 +1,4 @@
-import expect from 'node:test';
+import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { mapHeliusTransactionsToIntermediateRecords } from './helius-transaction-mapper';
 import { HeliusTransaction } from '../../types/helius-api';
@@ -10,7 +10,7 @@ import { HeliusTransaction } from '../../types/helius-api';
  *           with associatedSolValue 1 and 3 respectively.
  */
 
-expect('HeliusTransactionMapper – proportional redistribution', () => {
+describe('HeliusTransactionMapper – proportional redistribution', () => {
   const WALLET = 'TestWallet1111111111111111111111111111111111';
   const TEST_MINT = 'TestTokenMint11111111111111111111111111111111';
   const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -27,7 +27,7 @@ expect('HeliusTransactionMapper – proportional redistribution', () => {
     };
   }
 
-  expect('splits associatedSolValue proportionally across transfer chunks', () => {
+  it('splits associatedSolValue proportionally across transfer chunks', () => {
     const txn: HeliusTransaction = {
       description: '',
       type: 'SWAP',
@@ -67,7 +67,7 @@ expect('HeliusTransactionMapper – proportional redistribution', () => {
   });
 });
 
-expect('HeliusTransactionMapper – Mapping Strategies', () => {
+describe('HeliusTransactionMapper – Mapping Strategies', () => {
   const WALLET = 'TestWallet2222222222222222222222222222222222';
   const TOKEN_A_MINT = 'TokenAMint111111111111111111111111111111111';
   const TOKEN_B_MINT = 'TokenBMint111111111111111111111111111111111';
@@ -85,8 +85,8 @@ expect('HeliusTransactionMapper – Mapping Strategies', () => {
     };
   }
 
-  expect('SPL-to-SPL swap heuristic', () => {
-    expect('correctly assigns SOL value when WSOL is an intermediary', () => {
+  describe('SPL-to-SPL swap heuristic', () => {
+    it('correctly assigns SOL value when WSOL is an intermediary', () => {
       const txn = {
         description: 'User swaps TOKEN_A for TOKEN_B via WSOL',
         type: 'SWAP',
@@ -134,8 +134,8 @@ expect('HeliusTransactionMapper – Mapping Strategies', () => {
     });
   });
 
-  expect('Fee-payer heuristic', () => {
-    expect('attributes swap to wallet when it is the feePayer but not in transfers', () => {
+  describe('Fee-payer heuristic', () => {
+    it('attributes swap to wallet when it is the feePayer but not in transfers', () => {
       const TRADER_WALLET = 'TraderWallet1111111111111111111111111111111';
       const txn = {
         description: 'Wallet is fee payer for another trader\'s swap',
@@ -179,8 +179,8 @@ expect('HeliusTransactionMapper – Mapping Strategies', () => {
     });
   });
 
-  expect('Event Matcher logic', () => {
-    expect('finds consistent SOL value from innerSwaps and assigns it', () => {
+  describe('Event Matcher logic', () => {
+    it('finds consistent SOL value from innerSwaps and assigns it', () => {
       const INTERMEDIARY_SOL_AMOUNT = 5;
       const txn = {
         description: 'User swaps TOKEN_A for TOKEN_B, with events data for intermediary SOL',
@@ -232,8 +232,8 @@ expect('HeliusTransactionMapper – Mapping Strategies', () => {
     });
   });
 
-  expect('Value Association Fallbacks', () => {
-    expect('uses total WSOL movement when event data is absent', () => {
+  describe('Value Association Fallbacks', () => {
+    it('uses total WSOL movement when event data is absent', () => {
       const TOTAL_WSOL_MOVEMENT = 0.5;
       const txn = {
         description: 'Swap without clear event data, relying on total WSOL movement',
@@ -273,7 +273,7 @@ expect('HeliusTransactionMapper – Mapping Strategies', () => {
       assert.ok(Math.abs(tokenA_row.associatedSolValue - TOTAL_WSOL_MOVEMENT) < 0.0001, `TOKEN_A should have ~${TOTAL_WSOL_MOVEMENT} SOL value, got ${tokenA_row.associatedSolValue}`);
     });
 
-    expect('uses net user SOL change as a final fallback', () => {
+    it('uses net user SOL change as a final fallback', () => {
       const NET_SOL_CHANGE = -0.8; // User's SOL balance decreased
       const txn = {
         description: 'Swap without any other clear signals, relying on net SOL change',
@@ -310,8 +310,8 @@ expect('HeliusTransactionMapper – Mapping Strategies', () => {
     });
   });
 
-  expect('Miscellaneous Scenarios', () => {
-    expect('correctly processes native SOL transfers', () => {
+  describe('Miscellaneous Scenarios', () => {
+    it('correctly processes native SOL transfers', () => {
       const txn = {
         description: 'Simple native SOL transfer',
         type: 'TRANSFER',
@@ -347,7 +347,7 @@ expect('HeliusTransactionMapper – Mapping Strategies', () => {
       assert.ok(Math.abs(incomingRow.associatedSolValue - 0.2) < 0.0001, 'Associated value should match amount');
     });
 
-    expect('identifies small outgoing transfers as fees and zeroes their value', () => {
+    it('identifies small outgoing transfers as fees and zeroes their value', () => {
       const txn = {
         description: 'Swap with a primary transfer and a small secondary "fee" transfer',
         type: 'SWAP',
@@ -383,4 +383,60 @@ expect('HeliusTransactionMapper – Mapping Strategies', () => {
       assert.strictEqual(feeRow.associatedSolValue, 0, `Fee transfer's associated value should be zeroed out, got ${feeRow.associatedSolValue}`);
     });
   });
+});
+
+describe('HeliusTransactionMapper – Final Filtering Logic', () => {
+    const WALLET = 'TestWallet3333333333333333333333333333333333';
+    const TOKEN_A_MINT = 'TokenAMint111111111111111111111111111111111';
+    const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+    function makeTokenTransfer(from: string, to: string, amount: number, mint: string) {
+        return {
+            fromTokenAccount: `${from}TA`, toTokenAccount: `${to}TA`, fromUserAccount: from, toUserAccount: to,
+            tokenAmount: amount, mint, tokenStandard: 'Fungible',
+        };
+    }
+
+    const mockTxHeader = (sig: string, type: string) => ({
+        description: '', type, source: 'TEST', fee: 0, feePayer: WALLET, signature: sig, slot: 1, timestamp: 1,
+        nativeTransfers: [], accountData: [], events: {}, instructions: [], transactionError: undefined,
+    });
+
+    it('removes SOL rows from DeFi transactions', () => {
+        const txn = {
+            ...mockTxHeader('DeFiTx', 'SWAP'),
+            tokenTransfers: [
+                makeTokenTransfer(WALLET, 'Other', 10, TOKEN_A_MINT),
+                makeTokenTransfer('Other', WALLET, 1, SOL_MINT),
+            ],
+        } as unknown as HeliusTransaction;
+
+        const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+        assert.strictEqual(analysisInputs.length, 1, 'Should only contain the TOKEN_A record');
+        assert.strictEqual(analysisInputs[0].mint, TOKEN_A_MINT);
+    });
+
+    it('keeps significant standalone SOL transfers', () => {
+        const txn = {
+            ...mockTxHeader('DirectTransfer', 'TRANSFER'),
+            tokenTransfers: [],
+            nativeTransfers: [{ fromUserAccount: WALLET, toUserAccount: 'Recipient', amount: 0.5 * 1e9 }],
+        } as unknown as HeliusTransaction;
+
+        const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+        assert.strictEqual(analysisInputs.length, 1, 'Should keep the significant SOL transfer record');
+        assert.strictEqual(analysisInputs[0].mint, SOL_MINT);
+        assert.ok(Math.abs(analysisInputs[0].amount - 0.5) < 0.0001);
+    });
+
+    it('removes dust standalone SOL transfers', () => {
+        const txn = {
+            ...mockTxHeader('DustTransfer', 'TRANSFER'),
+            tokenTransfers: [],
+            nativeTransfers: [{ fromUserAccount: 'Sender', toUserAccount: WALLET, amount: 0.0005 * 1e9 }],
+        } as unknown as HeliusTransaction;
+
+        const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+        assert.strictEqual(analysisInputs.length, 0, 'Should filter out the dust SOL transfer record');
+    });
 }); 

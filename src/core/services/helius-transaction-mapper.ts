@@ -13,6 +13,7 @@ const FEE_TRANSFER_THRESHOLD_SOL = 0.1; // Heuristic: Native transfers OUT below
 const TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD = 0.05; // 5% - Heuristic for mapper-level fee identification
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL = 0.1; // Min SOL value for fee-payer heuristic
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC = 1.0; // Min USDC value for fee-payer heuristic
+const SOL_DUST_TRANSFER_THRESHOLD = 0.001; // Standalone SOL transfers below this will be filtered from final output
 
 // --- Add MappingStats Interface ---
 /**
@@ -474,9 +475,6 @@ export function mapHeliusTransactionsToIntermediateRecords(
           eventResult = findIntermediaryValueFromEvent(tx, userAccounts, mappingStats);
       }
 
-      // --- Pre-check for fee bundling ---
-      const hasNonSolTokenMovement = tx.tokenTransfers?.some(t => t.mint !== SOL_MINT && t.mint !== USDC_MINT) ?? false;
-
       // Process Native SOL Transfers (excluding dust amounts)
       for (const transfer of tx.nativeTransfers || []) {
            const rawLamports = transfer.amount;
@@ -491,14 +489,6 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
            const amount = lamportsToSol(rawLamports);
            const direction = isToUser ? 'in' : 'out';
-
-           // If this is a small outgoing transfer during a swap with other tokens,
-           // it's considered a fee and will be bundled later. Do not create a separate row.
-           if (direction === 'out' && amount < FEE_TRANSFER_THRESHOLD_SOL && hasNonSolTokenMovement) {
-              // logger.debug(`Skipping native transfer row creation for likely fee: ${amount} SOL in tx ${tx.signature}`); // Removed debug
-              continue;
-           }
-
            const mint = SOL_MINT;
            const associatedSolValue = amount; // Native SOL's value is itself
            const associatedUsdcValue = 0;
@@ -962,20 +952,45 @@ export function mapHeliusTransactionsToIntermediateRecords(
   logger.info(`Finished mapping ${transactions.length} transactions for ${walletAddress}. Mapping statistics:`, mappingStats);
   // --- End Log Final Stats ---
 
-  // Filter out intermediary WSOL transfers from swaps, as their value is already captured.
-  const filteredAnalysisInputs = analysisInputs.filter(input => {
-    if (input.mint === SOL_MINT) {
-      // Only keep SOL records that are NOT part of a swap. This preserves direct transfers.
-      // This mainly targets WSOL transfers now, as native fees are skipped earlier.
-      return input.interactionType !== 'SWAP' && input.interactionType !== 'SWAP_FEE_PAYER';
+  // NEW: Definitive filtering. If a transaction involves any non-SOL/USDC token,
+  // we assume the SOL/USDC movements are part of the "price" and should not be stored as separate rows.
+  // This cleans up swaps, liquidity actions, and other DeFi interactions.
+
+  // First, find all transaction signatures that involve a "real" asset token.
+  const signaturesWithSplMovement = new Set<string>();
+  for (const input of analysisInputs) {
+    if (input.mint !== SOL_MINT && input.mint !== USDC_MINT) {
+      signaturesWithSplMovement.add(input.signature);
     }
-    return true; // Keep all non-SOL records
+  }
+
+  // Then, filter the results based on the definitive rule.
+  const filteredAnalysisInputs = analysisInputs.filter(input => {
+    const isValueToken = input.mint === SOL_MINT || input.mint === USDC_MINT;
+    
+    // If it's a value token (SOL/USDC), apply filtering rules.
+    if (isValueToken) {
+      // Rule 1: Remove if part of a larger DeFi transaction (swap, liquidity, etc.).
+      if (signaturesWithSplMovement.has(input.signature)) {
+        return false; 
+      }
+      
+      // Rule 2: Remove if it's a tiny "dust" transfer that's not part of a DeFi action.
+      if (input.interactionType === 'TRANSFER' && Math.abs(input.amount) < SOL_DUST_TRANSFER_THRESHOLD) {
+        return false;
+      }
+
+      // If neither rule applies, keep the significant SOL/USDC transfer.
+      return true;
+    }
+
+    // Otherwise, it's a "real" asset token, so always keep it.
+    return true;
   });
 
   // Update stats to reflect the filtered count.
   const finalStats = { ...mappingStats };
   finalStats.analysisInputsGenerated = filteredAnalysisInputs.length;
-  // Note: Detailed counters like `wsolTransfersProcessed` still reflect pre-filter numbers.
 
   return { analysisInputs: filteredAnalysisInputs, stats: finalStats };
 }
