@@ -439,4 +439,93 @@ describe('HeliusTransactionMapper – Final Filtering Logic', () => {
         const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
         assert.strictEqual(analysisInputs.length, 0, 'Should filter out the dust SOL transfer record');
     });
+});
+
+describe('HeliusTransactionMapper – Jito MEV Heuristic for UNKNOWN transactions', () => {
+    const WALLET = 'TestWallet4444444444444444444444444444444444';
+    const TOKEN_A_MINT = 'TokenAMint111111111111111111111111111111111';
+    const SOL_MINT = 'So11111111111111111111111111111111111111112';
+    const JITO_PROGRAM_ID = 'jitodontfront111111111111111118694981111111';
+
+    function makeTokenTransfer(from: string, to: string, amount: number, mint: string) {
+        return {
+            fromTokenAccount: `${from}TA`,
+            toTokenAccount: `${to}TA`,
+            fromUserAccount: from,
+            toUserAccount: to,
+            tokenAmount: amount,
+            mint,
+            tokenStandard: 'Fungible',
+        };
+    }
+
+    it('processes an UNKNOWN transaction that has a Jito MEV interaction', () => {
+        const txn = {
+            description: 'UNKNOWN swap but with Jito MEV protection, should be processed',
+            type: 'UNKNOWN',
+            source: 'UNKNOWN',
+            fee: 5000,
+            feePayer: WALLET,
+            signature: 'TestSignatureJitoPresent',
+            slot: 9,
+            timestamp: 9,
+            tokenTransfers: [
+                makeTokenTransfer(WALLET, 'Pool', 10, TOKEN_A_MINT),
+                makeTokenTransfer('Pool', WALLET, 1, SOL_MINT),
+            ],
+            nativeTransfers: [],
+            accountData: [],
+            events: {},
+            instructions: [
+                {
+                    accounts: [],
+                    data: 'some_data',
+                    programId: JITO_PROGRAM_ID,
+                    innerInstructions: [],
+                }
+            ],
+            transactionError: undefined,
+        } as unknown as HeliusTransaction;
+
+        const { analysisInputs, stats } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+
+        // This is a DeFi tx, so the SOL row will be filtered out. We expect one row.
+        assert.strictEqual(analysisInputs.length, 1, 'Should process the transaction and generate one input record');
+        assert.strictEqual(stats.unknownTxSkippedNoJito, 0, 'Should not skip any transaction');
+        assert.strictEqual(analysisInputs[0].mint, TOKEN_A_MINT);
+    });
+
+    it('skips an UNKNOWN transaction that lacks a Jito MEV interaction', () => {
+        const txn = {
+            description: 'UNKNOWN transaction, likely liquidity provisioning, no Jito, should be skipped',
+            type: 'UNKNOWN',
+            source: 'UNKNOWN',
+            fee: 5000,
+            feePayer: WALLET,
+            signature: 'TestSignatureJitoAbsent',
+            slot: 10,
+            timestamp: 10,
+            tokenTransfers: [
+                makeTokenTransfer(WALLET, 'LiquidityPool', 10, TOKEN_A_MINT),
+                makeTokenTransfer(WALLET, 'LiquidityPool', 1, SOL_MINT),
+            ],
+            nativeTransfers: [],
+            accountData: [],
+            events: {},
+            instructions: [ // No Jito program ID here
+                {
+                    accounts: [],
+                    data: 'some_data',
+                    programId: 'SomeOtherProgram111111111111111111111111111',
+                    innerInstructions: [],
+                }
+            ],
+            transactionError: undefined,
+        } as unknown as HeliusTransaction;
+
+        const { analysisInputs, stats } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+
+        assert.strictEqual(analysisInputs.length, 0, 'Should skip the transaction entirely');
+        assert.strictEqual(stats.unknownTxSkippedNoJito, 1, 'Should increment the skipped counter');
+    });
 }); 

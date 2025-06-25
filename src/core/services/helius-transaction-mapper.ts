@@ -72,6 +72,8 @@ interface MappingStats {
   skippedDuplicateRecordKey: number;
   /** A count of transactions categorized by their Helius `type` (e.g., SWAP, TRANSFER). */
   countByInteractionType: { [type: string]: number };
+  /** Number of UNKNOWN transactions skipped because they did not interact with a Jito MEV protection program. */
+  unknownTxSkippedNoJito: number;
   // --- End New Counters ---
 }
 // --- End MappingStats Interface ---
@@ -328,6 +330,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
     smallOutgoingHeuristicApplied: 0,
     skippedDuplicateRecordKey: 0,
     countByInteractionType: {},
+    unknownTxSkippedNoJito: 0,
     // --- End Initialize New Counters ---
   };
 
@@ -337,6 +340,27 @@ export function mapHeliusTransactionsToIntermediateRecords(
       mappingStats.transactionsSkippedError++; // Increment counter
       continue;
     }
+
+    // --- Jito MEV Protection Heuristic ---
+    // If a transaction is of type UNKNOWN, we apply a heuristic to check if it's a real swap.
+    // Legitimate swaps, especially those trying to avoid front-running, often use MEV protection
+    // like Jito. Liquidity add/remove operations typically do not.
+    const interactionTypeForCheck = tx.type?.toUpperCase() || 'UNKNOWN';
+    if (interactionTypeForCheck === 'UNKNOWN') {
+      const JITO_PROGRAM_PREFIX = 'jitodontfront';
+      const isJitoInteraction = (tx.instructions || []).some(
+        (instruction) =>
+          instruction.programId.startsWith(JITO_PROGRAM_PREFIX) ||
+          (instruction.accounts || []).some((acc) => acc.startsWith(JITO_PROGRAM_PREFIX)),
+      );
+
+      if (!isJitoInteraction) {
+        // logger.info(`Skipping UNKNOWN tx ${tx.signature} due to no Jito interaction, likely liquidity op.`);
+        mappingStats.unknownTxSkippedNoJito++;
+        continue; // Skip this transaction entirely.
+      }
+    }
+    // --- End Jito MEV Protection Heuristic ---
 
     let inputsGeneratedThisTransaction = 0; // Track inputs for current transaction
 
