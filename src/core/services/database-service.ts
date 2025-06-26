@@ -198,7 +198,7 @@ export class DatabaseService {
             return { statuses: [] };
         }
 
-        this.logger.debug(`Checking analysis status for ${walletAddresses.length} wallets.`);
+        // this.logger.debug(`Checking analysis status for ${walletAddresses.length} wallets.`);
         try {
             const foundWallets = await this.prismaClient.wallet.findMany({
                 where: {
@@ -222,7 +222,7 @@ export class DatabaseService {
                 };
             });
             
-            this.logger.debug(`Finished checking status for ${walletAddresses.length} wallets.`);
+            // this.logger.debug(`Finished checking status for ${walletAddresses.length} wallets.`);
             return { statuses };
         } catch (error) {
             this.logger.error('Error checking wallet status', { error, walletAddresses });

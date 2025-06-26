@@ -1,10 +1,10 @@
 import { SimilarityAnalyzer } from './analyzer';
 import { DatabaseService } from 'core/services/database-service'; 
 import { SimilarityAnalysisConfig } from '@/types/analysis'; 
-import { SimilarityMetrics, TokenVector, CommonToken } from '@/types/similarity';
+import { SingleSimilarityResult, TokenVector } from '@/types/similarity';
 import { TransactionData } from '@/types/correlation'; 
 import { createLogger } from 'core/utils/logger';
-import { WalletBalance } from '@/types/wallet'; // <-- Add this import
+import { WalletBalance } from '@/types/wallet';
 
 const logger = createLogger('SimilarityService');
 
@@ -15,21 +15,6 @@ interface SharedTokenInfoInternal {
   mint: string;
   sharedByWallets: Set<string>; // Use Set for efficiency
   count: number;
-}
-
-// Define a more comprehensive return type for the service method
-export interface ComprehensiveSimilarityResult extends SimilarityMetrics {
-  sharedTokenCountsMatrix: Record<string, Record<string, number>>;
-  jaccardSimilarityMatrix: Record<string, Record<string, number>>;
-  fullSharedTokenList: { mint: string; sharedByWallets: string[]; count: number }[]; // For reporting
-  walletVectorsUsed: Record<string, TokenVector>; // Include the vectors used for primary calc
-  vectorTypeUsed: 'capital' | 'binary';
-
-  // ---- NEW: Fields for Current Holdings Similarity ----
-  holdingsPresenceJaccardMatrix?: Record<string, Record<string, number>>;
-  holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
-  // We might add holdingsValueCosineMatrix later if value-based similarity is implemented
-  // ---- END NEW Fields ----
 }
 
 export class SimilarityService {
@@ -50,13 +35,13 @@ export class SimilarityService {
    * @param walletAddresses - An array of wallet addresses to analyze.
    * @param vectorType - Type of vector to use for the primary cosine similarity calculation.
    * @param walletBalances - Optional pre-fetched wallet balances.
-   * @returns A promise resolving to ComprehensiveSimilarityResult or null.
+   * @returns A promise resolving to SingleSimilarityResult or null.
    */
   async calculateWalletSimilarity(
     walletAddresses: string[],
     vectorType: 'capital' | 'binary' = 'capital',
     walletBalances?: Map<string, WalletBalance> 
-  ): Promise<ComprehensiveSimilarityResult | null> {
+  ): Promise<SingleSimilarityResult | null> {
     logger.info(`Calculating comprehensive similarity for ${walletAddresses.length} wallets using primary vectorType: ${vectorType}.`);
     if (walletBalances && walletBalances.size > 0) {
       logger.info(`Received pre-fetched wallet balances for ${walletBalances.size} wallets.`);
@@ -153,13 +138,13 @@ export class SimilarityService {
     }
 
     // 6. Combine all results
-    const finalResult: ComprehensiveSimilarityResult = {
-        ...coreMetrics, // Includes pairwiseSimilarities (Cosine), clusters (empty), globalMetrics (Cosine)
+    const finalResult: SingleSimilarityResult = {
+        ...coreMetrics, 
         sharedTokenCountsMatrix: sharedTokenCountsMatrix,
-        jaccardSimilarityMatrix: jaccardSimilarityMatrix, // Historical Jaccard
-        fullSharedTokenList: fullSharedTokenListForReport,
-        walletVectorsUsed: primaryVectors, // Vectors used for the main historical cosine calculation
-        vectorTypeUsed: vectorType, // For historical calculation
+        jaccardSimilarityMatrix: jaccardSimilarityMatrix, 
+        walletVectorsUsed: primaryVectors,
+        vectorTypeUsed: vectorType,
+        uniqueTokensPerWallet: this.similarityAnalyzer['calculateUniqueTokensPerWallet'](primaryVectors),
     };
 
     // ---- NEW: Calculate Similarity based on Current Holdings ----

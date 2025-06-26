@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ComprehensiveSimilarityResult } from "./types";
-import { generateKeyInsights, KeyInsight, InsightType } from '@/lib/similarity-report-parser';
+import { CombinedSimilarityResult, KeyInsight, InsightType } from "./types";
+import { generateKeyInsights } from '@/lib/similarity-report-parser';
 import { shortenAddress } from '@/lib/solana-utils';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -10,15 +10,15 @@ import { HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface KeyInsightsProps {
-  results: ComprehensiveSimilarityResult;
+  results: CombinedSimilarityResult;
 }
 
 const INSIGHT_COLORS: Record<InsightType, string> = {
     [InsightType.VeryHighSimilarity]: 'bg-red-500/20 text-red-700 border-red-500/30 hover:bg-red-500/30',
     [InsightType.SustainedAlignment]: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30 hover:bg-emerald-500/30',
-    [InsightType.RecentDivergence]: 'bg-amber-500/20 text-amber-700 border-amber-500/30 hover:bg-amber-500/30',
-    [InsightType.RecentConvergence]: 'bg-sky-500/20 text-sky-700 border-sky-500/30 hover:bg-sky-500/30',
     [InsightType.SignificantAsymmetry]: 'bg-purple-500/20 text-purple-700 border-purple-500/30 hover:bg-purple-500/30',
+    [InsightType.BehavioralMirror]: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30 hover:bg-indigo-500/30',
+    [InsightType.CapitalDivergence]: 'bg-orange-500/20 text-orange-700 border-orange-500/30 hover:bg-orange-500/30',
     [InsightType.SharedZeroHoldings]: 'bg-gray-500/20 text-gray-700 border-gray-500/30 hover:bg-gray-500/30',
 };
 
@@ -26,14 +26,14 @@ const getInsightIcon = (type: KeyInsight['type']) => {
   switch (type) {
     case 'Sustained Alignment':
       return '🤝';
-    case 'Recent Divergence':
-      return '📉';
-    case 'Recent Convergence':
-      return '📈';
     case 'Significant Asymmetry':
       return '⚖️';
     case 'Very High Similarity':
         return '🔗';
+    case 'Behavioral Mirror':
+        return '👯';
+    case 'Capital Divergence':
+        return '💰';
     case 'Shared Zero Holdings':
         return '🚫';
     default:

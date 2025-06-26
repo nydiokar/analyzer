@@ -13,32 +13,51 @@ export interface TokenVector {
     [mint: string]: number;
 }
 
-export interface WalletSimilarity {
+// =================================================================
+// === Structures for the Core Service (Single Analysis Run)
+// =================================================================
+
+export interface CorePairwiseResult {
     walletA: string;
     walletB: string;
     similarityScore: number;
     sharedTokens: { mint: string; weightA: number; weightB: number }[];
 }
 
-export interface SimilarityMetrics {
+export interface SingleSimilarityResult {
     walletVectorsUsed: Record<string, TokenVector>;
-    pairwiseSimilarities: WalletSimilarity[];
+    pairwiseSimilarities: CorePairwiseResult[];
     clusters: WalletCluster[];
     globalMetrics: {
         averageSimilarity: number;
-        mostSimilarPairs: WalletSimilarity[];
+        mostSimilarPairs: CorePairwiseResult[];
     };
-    // The following are calculated in the service, not the core analyzer
     jaccardSimilarityMatrix?: Record<string, Record<string, number>>;
     sharedTokenCountsMatrix?: Record<string, Record<string, number>>;
     uniqueTokensPerWallet: Record<string, number>;
     walletBalances?: Record<string, WalletBalance>;
     vectorTypeUsed: 'capital' | 'binary';
+    holdingsPresenceJaccardMatrix?: Record<string, Record<string, number>>;
+    holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
 }
 
-export interface ComprehensiveSimilarityResult {
-  holdingsPresenceJaccardMatrix?: Record<string, Record<string, number>>;
-  holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
-  uniqueTokensPerWallet: Record<string, number>;
-  walletBalances?: Record<string, WalletBalance>;
+
+// =================================================================
+// === Structures for the API Service (Combined Result)
+// =================================================================
+
+export interface CombinedPairwiseSimilarity {
+    walletA: string;
+    walletB: string;
+    binaryScore: number;
+    capitalScore: number;
+    sharedTokens: { mint: string; weightA: number; weightB: number }[];
+}
+
+export interface CombinedSimilarityResult {
+    pairwiseSimilarities: CombinedPairwiseSimilarity[];
+    walletVectorsUsed: Record<string, TokenVector>;
+    uniqueTokensPerWallet: Record<string, number>;
+    walletBalances?: Record<string, WalletBalance>;
+    vectorTypeUsed: 'combined';
 } 

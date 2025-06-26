@@ -14,12 +14,12 @@ export class SimilarityAnalysisRequestDto {
   walletAddresses: string[];
 
   @ApiProperty({
-    description: "The type of vector to use for similarity calculation. 'capital' focuses on the proportion of capital allocated to tokens, while 'binary' focuses on the presence or absence of tokens.",
+    description: 'The type of vector to use for the similarity analysis.',
     enum: ['capital', 'binary'],
-    default: 'capital',
     required: false,
+    example: 'capital',
   })
   @IsOptional()
   @IsIn(['capital', 'binary'])
-  vectorType?: 'capital' | 'binary' = 'capital';
+  vectorType?: 'capital' | 'binary';
 } 

@@ -5,12 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { SyncConfirmationDialog } from '@/components/analysis-lab/SyncConfirmationDialog';
 import { SimilarityResultDisplay } from '@/components/analysis-lab/results/SimilarityResultDisplay';
-import { ComprehensiveSimilarityResult, SimilarityVectorType } from '@/components/analysis-lab/results/types';
+import { CombinedSimilarityResult } from '@/components/analysis-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
 import { useToast } from '@/hooks/use-toast';
 import { shortenAddress, isValidSolanaAddress } from "@/lib/solana-utils";
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
 
 interface WalletStatus {
   walletAddress: string;
@@ -24,8 +22,7 @@ interface WalletStatusResponse {
 export default function AnalysisLabPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [wallets, setWallets] = useState('');
-  const [vectorType, setVectorType] = useState<SimilarityVectorType>('capital');
-  const [analysisResult, setAnalysisResult] = useState<ComprehensiveSimilarityResult | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
   const [missingWallets, setMissingWallets] = useState<string[]>([]);
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
@@ -55,7 +52,10 @@ export default function AnalysisLabPage() {
     setIsLoading(true);
     setAnalysisResult(null);
     setSyncMessage('');
-    const walletList = wallets.split(/[,\s\n]+/).filter(Boolean);
+    const walletList = wallets
+      .split(/[\s,]+/)
+      .map(line => line.replace(/^[^a-zA-Z0-9]+/, '').trim())
+      .filter(Boolean);
 
     if (walletList.length === 0) {
       setIsLoading(false);
@@ -133,7 +133,7 @@ export default function AnalysisLabPage() {
       setSyncMessage(`Sync triggered for all wallets. Now waiting for completion...`);
       const pollInterval = setInterval(async () => {
         try {
-          const walletList = wallets.split(/[,\s\n]+/).filter(Boolean);
+          const walletList = wallets.split(/[\s,]+/).filter(Boolean);
           const data: WalletStatusResponse = await fetcher('/analyses/wallets/status', {
              method: 'POST',
              body: JSON.stringify({ walletAddresses: walletList }),
@@ -180,7 +180,6 @@ export default function AnalysisLabPage() {
         method: 'POST',
         body: JSON.stringify({
           walletAddresses: walletList,
-          vectorType: vectorType,
         }),
       });
       setAnalysisResult(data);
@@ -207,7 +206,7 @@ export default function AnalysisLabPage() {
       <div className="bg-card p-6 rounded-lg shadow-sm border">
         <h2 className="text-xl font-semibold mb-2">Wallet Group Similarity</h2>
         <p className="text-muted-foreground mb-4">
-          Enter a list of wallet addresses to analyze their similarity based on trading behavior.
+          Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
         </p>
         <Textarea
           value={wallets}
@@ -215,17 +214,7 @@ export default function AnalysisLabPage() {
           placeholder="Enter wallet addresses, separated by commas, spaces, or new lines."
           className="min-h-[120px] font-mono"
         />
-        <div className="flex items-center justify-between mt-4">
-            <RadioGroup defaultValue="capital" value={vectorType} onValueChange={(value: SimilarityVectorType) => setVectorType(value)} className="flex items-center gap-4">
-                <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="capital" id="r-capital" />
-                    <Label htmlFor="r-capital">Capital Similarity</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="binary" id="r-binary" />
-                    <Label htmlFor="r-binary">Binary Similarity</Label>
-                </div>
-            </RadioGroup>
+        <div className="flex items-center justify-end mt-4">
             <Button onClick={handleAnalyze} disabled={isLoading}>
                 {isLoading ? 'Analyzing...' : 'Analyze'}
             </Button>
