@@ -25,6 +25,12 @@ export class PaginatedTokenPerformanceResponse {
 }
 
 @Injectable()
+/**
+ * Service for querying pre-calculated, historical token performance data.
+ * Retrieves data from the AnalysisResult table. Ideal for dashboard views
+ * and reports, not for live, on-demand balance checks.
+ * For live balances, use WalletBalanceService.
+ */
 export class TokenPerformanceService {
   private readonly logger = new Logger(TokenPerformanceService.name);
 
@@ -421,6 +427,53 @@ export class TokenPerformanceService {
       pageSize: pageSize,
       totalPages: Math.ceil(totalResults / pageSize),
     };
+  }
+
+  async getAllTokenPerformanceForWallet(walletAddress: string): Promise<TokenPerformanceDataDto[]> {
+    this.logger.debug(`Fetching all token performance for wallet ${walletAddress} from AnalysisResult.`);
+    const analysisResults = await this.databaseService.getAnalysisResults({
+      where: { walletAddress },
+    });
+
+    if (analysisResults.length === 0) {
+      this.logger.debug(`No AnalysisResult records found for wallet ${walletAddress}.`);
+      return [];
+    }
+
+    const tokenAddresses = analysisResults.map(ar => ar.tokenAddress);
+    const tokenInfoMap = await this.getTokenInfoMap(tokenAddresses);
+
+    const tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => {
+      const tokenInfo = tokenInfoMap.get(ar.tokenAddress);
+      return {
+        walletAddress: ar.walletAddress,
+        tokenAddress: ar.tokenAddress,
+        totalAmountIn: ar.totalAmountIn,
+        totalAmountOut: ar.totalAmountOut,
+        netAmountChange: ar.netAmountChange,
+        totalSolSpent: ar.totalSolSpent,
+        totalSolReceived: ar.totalSolReceived,
+        totalFeesPaidInSol: ar.totalFeesPaidInSol,
+        netSolProfitLoss: ar.netSolProfitLoss,
+        transferCountIn: ar.transferCountIn,
+        transferCountOut: ar.transferCountOut,
+        firstTransferTimestamp: ar.firstTransferTimestamp,
+        lastTransferTimestamp: ar.lastTransferTimestamp,
+        currentRawBalance: ar.currentRawBalance,
+        currentUiBalance: ar.currentUiBalance,
+        currentUiBalanceString: ar.currentUiBalanceString,
+        balanceDecimals: ar.balanceDecimals,
+        balanceFetchedAt: ar.balanceFetchedAt ? ar.balanceFetchedAt.toISOString() : null,
+        name: tokenInfo?.name,
+        symbol: tokenInfo?.symbol,
+        imageUrl: tokenInfo?.imageUrl,
+        websiteUrl: tokenInfo?.websiteUrl,
+        twitterUrl: tokenInfo?.twitterUrl,
+        telegramUrl: tokenInfo?.telegramUrl,
+      };
+    });
+
+    return tokenPerformanceDataList;
   }
 
   private async getTokenInfoMap(tokenAddresses: string[]): Promise<Map<string, TokenInfo>> {

@@ -317,6 +317,16 @@ export function generateSimilarityReport(
     const walletLabels: Record<string, string> = {};
     walletInfos.forEach(w => { walletLabels[w.address] = w.label || w.address.substring(0, 8); });
 
+    // Pre-calculate a map to quickly check if a wallet has any current token holdings.
+    const walletHoldingsPresence: Record<string, boolean> = {};
+    if (walletBalances) {
+        for (const addr of walletAddresses) {
+            const balanceInfo = walletBalances.get(addr);
+            // Consider holdings present only if there are token balances with a positive amount.
+            walletHoldingsPresence[addr] = !!(balanceInfo && balanceInfo.tokenBalances && balanceInfo.tokenBalances.some(tb => tb.uiBalance && tb.uiBalance > 1e-9));
+        }
+    }
+
     // Define INSIGHT_THRESHOLDS early as it's used by cluster detection and key insights
     const INSIGHT_THRESHOLDS = {
         VERY_HIGH_HISTORICAL_CAPITAL: 0.9,
@@ -390,8 +400,21 @@ export function generateSimilarityReport(
 
             let insightAddedForPair = false;
 
+            // Insight: Shared Zero Holdings (High Historical + No Current Holdings)
+            // This is a powerful signal and should be checked early.
+            if (primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM) {
+                const walletAHasHoldings = walletHoldingsPresence[addrA] || false;
+                const walletBHasHoldings = walletHoldingsPresence[addrB] || false;
+
+                if (!walletAHasHoldings && !walletBHasHoldings) {
+                    keyInsights.push(`- **Shared Zero Holdings:** ${labelA} & ${labelB}. Strong historical similarity (Primary ${historicalVectorType}: ${primaryHistoricalSim.toFixed(3)}) and BOTH wallets currently hold no significant tokens. This is a strong indicator of synchronized activity or a shared strategy of selling/clearing portfolios.`);
+                    insightAddedForPair = true;
+                }
+            }
+
             // Insight 1: Sustained Alignment (High Historical + High Current)
-            if (primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM && 
+            if (!insightAddedForPair && 
+                primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM && 
                 (holdingsJaccardSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HOLDINGS_SIM || holdingsCosineSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HOLDINGS_SIM)
             ) {
                 keyInsights.push(`- **Sustained Alignment:** ${labelA} & ${labelB}. Strong historical similarity (Primary ${historicalVectorType}: ${primaryHistoricalSim.toFixed(3)}) AND high current holdings similarity (Holdings Jaccard: ${holdingsJaccardSim.toFixed(3)}, Holdings Cosine: ${holdingsCosineSim.toFixed(3)}). Suggests consistent strategic alignment.`);
@@ -408,11 +431,13 @@ export function generateSimilarityReport(
             }
 
             // Insight 3: Recent Divergence (High Historical + Moderate/Low Current)
+            // This should only trigger if BOTH wallets actually have holdings to compare.
             if (!insightAddedForPair && 
+                (walletHoldingsPresence[addrA] && walletHoldingsPresence[addrB]) &&
                 primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM && 
                 (holdingsJaccardSim < INSIGHT_THRESHOLDS.MODERATE_SIM && holdingsCosineSim < INSIGHT_THRESHOLDS.MODERATE_SIM)
             ) {
-                keyInsights.push(`- **Recent Divergence:** ${labelA} & ${labelB}. Strong historical similarity (Primary ${historicalVectorType}: ${primaryHistoricalSim.toFixed(3)}) BUT lower current holdings similarity (Holdings Jaccard: ${holdingsJaccardSim.toFixed(3)}, Holdings Cosine: ${holdingsCosineSim.toFixed(3)}). Suggests strategies have diverged.`);
+                keyInsights.push(`- **Recent Divergence:** ${labelA} & ${labelB}. Strong historical similarity (Primary ${historicalVectorType}: ${primaryHistoricalSim.toFixed(3)}) BUT lower current holdings similarity (Holdings Jaccard: ${holdingsJaccardSim.toFixed(3)}, Holdings Cosine: ${holdingsCosineSim.toFixed(3)}). Suggests strategies have diverged among their current holdings.`);
                 insightAddedForPair = true;
             }
 
@@ -459,6 +484,17 @@ export function generateSimilarityReport(
                   const overPct = pctAHist > 100 ? pctAHist : pctBHist;
                   const uniqueInvestedCount = pctAHist > 100 ? uniqueAHist : uniqueBHist;
                   keyInsights.push(`- **Focused Investment Pattern (Historical):** For ${walletWithOver100} in pair with ${otherWallet} (Shared Hist. Tokens: ${countHistorical}, ${walletWithOver100}:${overPct.toFixed(1)}%), the ${countHistorical} shared tokens exceed its ${uniqueInvestedCount} unique capital-invested/traded tokens. This implies ${walletWithOver100} has a narrow focus, and its relevant tokens are shared with ${otherWallet}.`);
+            }
+
+            // ... existing code ...
+            if (!insightAddedForPair && primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM) {
+                const walletAHasHoldings = walletHoldingsPresence[addrA] || false;
+                const walletBHasHoldings = walletHoldingsPresence[addrB] || false;
+
+                if (!walletAHasHoldings && !walletBHasHoldings) {
+                    keyInsights.push(`- **Shared Zero Holdings:** ${labelA} & ${labelB}. Strong historical similarity (Primary ${historicalVectorType}: ${primaryHistoricalSim.toFixed(3)}) and BOTH wallets currently hold no significant tokens. This is a strong indicator of synchronized activity or a shared strategy of selling/clearing portfolios.`);
+                    insightAddedForPair = true;
+                }
             }
         }
     }

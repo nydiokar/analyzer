@@ -30,7 +30,7 @@ export class SimilarityAnalyzer {
 
     if (walletAddresses.length < 2) {
         logger.warn('Less than 2 wallets provided, skipping similarity calculation.');
-        return this.getEmptyMetrics();
+        return this.getEmptyMetrics(vectorType);
     }
 
     // Determine unique tokens based on the vector type
@@ -38,7 +38,7 @@ export class SimilarityAnalyzer {
 
     if (allRelevantMints.length === 0) {
         logger.warn(`No relevant tokens found for vector type ${vectorType}. Skipping similarity.`);
-        return this.getEmptyMetrics();
+        return this.getEmptyMetrics(vectorType);
     }
 
     // 1. Create Vectors
@@ -53,14 +53,15 @@ export class SimilarityAnalyzer {
     const walletsWithData = walletAddresses.filter(addr => walletVectors[addr]);
     if (walletsWithData.length < 2) {
         logger.warn('Less than 2 wallets have valid vector data after creation. Skipping similarity matrix calculation.');
-        return this.getEmptyMetrics(walletVectors); // Pass vectors for potential partial metrics
+        return this.getEmptyMetrics(vectorType, walletVectors);
     }
 
     // 2. Calculate Pairwise Similarity Matrix
     const similarityMatrix = this.calculateCosineSimilarityMatrix(walletVectors, walletsWithData);
 
     // 3. Aggregate Metrics
-    const metrics = this.aggregateSimilarityMetrics(similarityMatrix, walletVectors, walletsWithData);
+    const uniqueTokensPerWallet = this.calculateUniqueTokensPerWallet(walletVectors);
+    const metrics = this.aggregateSimilarityMetrics(similarityMatrix, walletVectors, walletsWithData, uniqueTokensPerWallet, vectorType);
 
     logger.info('Similarity analysis completed.');
     return metrics;
@@ -68,16 +69,17 @@ export class SimilarityAnalyzer {
 
   // --- Private Helper Methods (Extracted Logic) ---
 
-  private getEmptyMetrics(vectors?: Record<string, TokenVector>): SimilarityMetrics {
+  private getEmptyMetrics(vectorType: 'capital' | 'binary', vectors: Record<string, TokenVector> = {}): SimilarityMetrics {
       return {
           pairwiseSimilarities: [],
-          clusters: [], // Clustering logic not implemented here yet
+          clusters: [],
           globalMetrics: {
               averageSimilarity: 0,
               mostSimilarPairs: [],
-              // Add vector count if vectors are provided?
           },
-          // Could add metadata about skipped calculations
+          walletVectorsUsed: vectors,
+          uniqueTokensPerWallet: this.calculateUniqueTokensPerWallet(vectors),
+          vectorTypeUsed: vectorType,
       };
   }
 
@@ -247,12 +249,30 @@ export class SimilarityAnalyzer {
   }
 
   /**
+   * Calculates the number of unique tokens each wallet has based on its vector.
+   */
+  private calculateUniqueTokensPerWallet(walletVectors: Record<string, TokenVector>): Record<string, number> {
+    const uniqueTokens: Record<string, number> = {};
+    for (const walletAddress in walletVectors) {
+        const vector = walletVectors[walletAddress];
+        if (vector) {
+            uniqueTokens[walletAddress] = Object.values(vector).filter(v => v > 0).length;
+        } else {
+            uniqueTokens[walletAddress] = 0;
+        }
+    }
+    return uniqueTokens;
+  }
+
+  /**
    * Aggregates pairwise similarities into the final SimilarityMetrics structure.
    */
   private aggregateSimilarityMetrics(
       similarityMatrix: Record<string, Record<string, number>>,
       walletVectors: Record<string, TokenVector>,
-      walletOrder: string[] // Addresses of wallets included in the matrix
+      walletOrder: string[], // Addresses of wallets included in the matrix
+      uniqueTokensPerWallet: Record<string, number>,
+      vectorType: 'capital' | 'binary'
   ): SimilarityMetrics {
       const pairwiseSimilarities: WalletSimilarity[] = [];
       let totalSimilaritySum = 0;
@@ -303,7 +323,10 @@ export class SimilarityAnalyzer {
           globalMetrics: {
               averageSimilarity,
               mostSimilarPairs,
-          }
+          },
+          walletVectorsUsed: walletVectors,
+          uniqueTokensPerWallet: uniqueTokensPerWallet,
+          vectorTypeUsed: vectorType,
       };
   }
 

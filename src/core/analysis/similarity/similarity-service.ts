@@ -1,7 +1,7 @@
 import { SimilarityAnalyzer } from './analyzer';
 import { DatabaseService } from 'core/services/database-service'; 
 import { SimilarityAnalysisConfig } from '@/types/analysis'; 
-import { SimilarityMetrics, WalletSimilarity, TokenVector } from '@/types/similarity'; 
+import { SimilarityMetrics, TokenVector, CommonToken } from '@/types/similarity';
 import { TransactionData } from '@/types/correlation'; 
 import { createLogger } from 'core/utils/logger';
 import { WalletBalance } from '@/types/wallet'; // <-- Add this import
@@ -120,7 +120,13 @@ export class SimilarityService {
     }
     
     // Aggregate cosine results into SimilarityMetrics structure
-    const coreMetrics = this.similarityAnalyzer['aggregateSimilarityMetrics'](cosineSimilarityMatrix, primaryVectors, walletsWithFetchedData.filter(addr => primaryVectors[addr]));
+    const coreMetrics = this.similarityAnalyzer['aggregateSimilarityMetrics'](
+        cosineSimilarityMatrix,
+        primaryVectors,
+        walletsWithFetchedData.filter(addr => primaryVectors[addr]),
+        this.similarityAnalyzer['calculateUniqueTokensPerWallet'](primaryVectors),
+        vectorType
+    );
 
     // 5. Calculate Jaccard Similarity Matrix (always uses binary vectors)
     const binaryRelevantMints = this.similarityAnalyzer['getAllRelevantMints'](transactionData, 'binary');
@@ -313,4 +319,4 @@ export class SimilarityService {
       }
       return similarityMatrix;
   }
-} 
+}

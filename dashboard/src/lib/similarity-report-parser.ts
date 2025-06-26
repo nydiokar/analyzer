@@ -12,11 +12,9 @@ export enum InsightType {
   SustainedAlignment = 'Sustained Alignment',
   RecentDivergence = 'Recent Divergence',
   RecentConvergence = 'Recent Convergence',
+  SharedZeroHoldings = 'Shared Zero Holdings',
   SignificantAsymmetry = 'Significant Asymmetry',
-  FocusedInvestment = 'Focused Investment Pattern',
   VeryHighSimilarity = 'Very High Similarity',
-  HighHoldingsOverlap = 'High Current Holdings Overlap',
-  HighHoldingsSimilarity = 'High Current Holdings Similarity',
 }
 
 export interface KeyInsight {
@@ -31,33 +29,18 @@ export interface KeyInsight {
 
 const INSIGHT_THRESHOLDS = {
     VERY_HIGH_HISTORICAL_CAPITAL: 0.9,
-    VERY_HIGH_HISTORICAL_BINARY: 0.25,
+    VERY_HIGH_HISTORICAL_BINARY: 0.85,
+    STRONG_HISTORICAL_SIM: 0.6,
+    MODERATE_HISTORICAL_SIM: 0.4,
+    
     VERY_HIGH_HOLDINGS_JACCARD: 0.7,
     VERY_HIGH_HOLDINGS_COSINE: 0.8,
-    STRONG_CONCORDANCE_HISTORICAL_SIM: 0.5,
-    STRONG_CONCORDANCE_HOLDINGS_SIM: 0.5,
-    ASYMMETRY_SIM: 0.4,
+    STRONG_HOLDINGS_SIM: 0.5,
+    MODERATE_HOLDINGS_SIM: 0.3,
+
     ASYMMETRY_HIGH_PCT: 70,
     ASYMMETRY_LOW_PCT: 20,
-    MODERATE_SIM: 0.3,
 };
-
-// --- Helper Functions ---
-
-function getUniqueTokensPerWallet(metrics: ComprehensiveSimilarityResult): Record<string, number> {
-    const uniqueTokensPerWallet: Record<string, number> = {};
-    const walletAddresses = Object.keys(metrics.walletVectorsUsed);
-    for (const addr of walletAddresses) {
-        const vector = metrics.walletVectorsUsed[addr];
-        if (vector) {
-            uniqueTokensPerWallet[addr] = Object.values(vector).filter(v => v > 0).length;
-        } else {
-            uniqueTokensPerWallet[addr] = 0;
-        }
-    }
-    return uniqueTokensPerWallet;
-}
-
 
 // --- Core Parsing Functions ---
 
@@ -66,17 +49,22 @@ export function generateKeyInsights(
     walletLabels: Record<string, string>
 ): KeyInsight[] {
     const keyInsights: KeyInsight[] = [];
-    const insightProcessedPairs = new Set<string>();
     const walletAddresses = Object.keys(metrics.walletVectorsUsed).sort();
-    const uniqueTokensPerWallet = getUniqueTokensPerWallet(metrics);
+    const uniqueTokensPerWallet = metrics.uniqueTokensPerWallet;
+
+    // Pre-calculate a map to quickly check if a wallet has any current token holdings.
+    const walletHoldingsPresence: Record<string, boolean> = {};
+    if (metrics.walletBalances) {
+        for (const addr of walletAddresses) {
+            const balanceInfo = metrics.walletBalances[addr];
+            walletHoldingsPresence[addr] = !!(balanceInfo && balanceInfo.tokenBalances && balanceInfo.tokenBalances.some((tb: { uiBalance?: number | null }) => tb.uiBalance && tb.uiBalance > 1e-9));
+        }
+    }
 
     for (let i = 0; i < walletAddresses.length; i++) {
         for (let j = i + 1; j < walletAddresses.length; j++) {
             const addrA = walletAddresses[i];
             const addrB = walletAddresses[j];
-            const pairKey = [addrA, addrB].sort().join('|');
-            if (insightProcessedPairs.has(pairKey)) continue;
-            insightProcessedPairs.add(pairKey);
 
             const labelA = walletLabels[addrA] || addrA;
             const labelB = walletLabels[addrB] || addrB;
@@ -89,6 +77,7 @@ export function generateKeyInsights(
 
             const holdingsJaccardSim = metrics.holdingsPresenceJaccardMatrix?.[addrA]?.[addrB] ?? metrics.holdingsPresenceJaccardMatrix?.[addrB]?.[addrA] ?? 0;
             const holdingsCosineSim = metrics.holdingsPresenceCosineMatrix?.[addrA]?.[addrB] ?? metrics.holdingsPresenceCosineMatrix?.[addrB]?.[addrA] ?? 0;
+            const holdingsMaxSim = Math.max(holdingsJaccardSim, holdingsCosineSim);
 
             const countHistorical = metrics.sharedTokenCountsMatrix[addrA]?.[addrB] || 0;
             const uniqueAHist = uniqueTokensPerWallet[addrA] || 0;
@@ -96,77 +85,76 @@ export function generateKeyInsights(
             const pctAHist = uniqueAHist > 0 ? (countHistorical / uniqueAHist) * 100 : 0;
             const pctBHist = uniqueBHist > 0 ? (countHistorical / uniqueBHist) * 100 : 0;
 
-            let insightAddedForPair = false;
+            const walletAHasHoldings = walletHoldingsPresence[addrA] || false;
+            const walletBHasHoldings = walletHoldingsPresence[addrB] || false;
 
-            // Insight 1: Sustained Alignment
-            if (primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM &&
-                (holdingsJaccardSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HOLDINGS_SIM || holdingsCosineSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HOLDINGS_SIM)
-            ) {
-                keyInsights.push({
-                    type: InsightType.SustainedAlignment,
-                    wallets: [labelA, labelB],
-                    score: (primaryHistoricalSim + holdingsJaccardSim) / 2,
-                    text: `Strong historical similarity and high current holdings similarity suggests consistent strategic alignment.`,
-                    data: { primaryHistoricalSim, holdingsJaccardSim, holdingsCosineSim, historicalVectorType }
-                });
-                insightAddedForPair = true;
-            }
-
-            // Insight 2: Recent Convergence
-            if (!insightAddedForPair &&
-                primaryHistoricalSim < INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM &&
-                (holdingsJaccardSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_JACCARD || holdingsCosineSim >= INSIGHT_THRESHOLDS.VERY_HIGH_HOLDINGS_COSINE)
-            ) {
-                 keyInsights.push({
-                    type: InsightType.RecentConvergence,
-                    wallets: [labelA, labelB],
-                    score: (holdingsJaccardSim + holdingsCosineSim) / 2,
-                    text: `Moderate/low historical similarity BUT high current holdings similarity. Implies portfolios became similar more recently.`,
-                    data: { primaryHistoricalSim, holdingsJaccardSim, holdingsCosineSim, historicalVectorType }
-                });
-                insightAddedForPair = true;
-            }
-
-            // Insight 3: Recent Divergence
-            if (!insightAddedForPair &&
-                primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_CONCORDANCE_HISTORICAL_SIM &&
-                (holdingsJaccardSim < INSIGHT_THRESHOLDS.MODERATE_SIM && holdingsCosineSim < INSIGHT_THRESHOLDS.MODERATE_SIM)
-            ) {
-                 keyInsights.push({
-                    type: InsightType.RecentDivergence,
-                    wallets: [labelA, labelB],
-                    score: primaryHistoricalSim,
-                    text: `Strong historical similarity BUT lower current holdings similarity. Suggests strategies have diverged.`,
-                    data: { primaryHistoricalSim, holdingsJaccardSim, holdingsCosineSim, historicalVectorType }
-                });
-                insightAddedForPair = true;
-            }
-
-             // Insight 4: Very High Score
+            // Insight: Very High Similarity
             const veryHighPrimaryThresh = historicalVectorType === 'capital' ? INSIGHT_THRESHOLDS.VERY_HIGH_HISTORICAL_CAPITAL : INSIGHT_THRESHOLDS.VERY_HIGH_HISTORICAL_BINARY;
-            if (!insightAddedForPair && primaryHistoricalSim >= veryHighPrimaryThresh) {
+            if (primaryHistoricalSim >= veryHighPrimaryThresh) {
                 keyInsights.push({
                     type: InsightType.VeryHighSimilarity,
                     wallets: [labelA, labelB],
                     score: primaryHistoricalSim,
-                    text: `Exceptionally high historical similarity score (${historicalVectorType}). Shared ${countHistorical} tokens, representing ${pctAHist.toFixed(0)}% of ${labelA}'s activity and ${pctBHist.toFixed(0)}% of ${labelB}'s.`,
+                    text: `Exceptionally high historical similarity (${historicalVectorType}). Shared ${countHistorical} tokens, making up ${pctAHist.toFixed(0)}% and ${pctBHist.toFixed(0)}% of their respective trading activity.`,
                     data: { primaryHistoricalSim, countHistorical, pctAHist, pctBHist, historicalVectorType }
                 });
-                insightAddedForPair = true;
             }
 
-            // Asymmetry
-            const highestSimScoreForAsymmetry = Math.max(primaryHistoricalSim, holdingsJaccardSim, holdingsCosineSim);
-            if (highestSimScoreForAsymmetry >= INSIGHT_THRESHOLDS.ASYMMETRY_SIM) {
-                const isAsymmetricABHist = pctAHist >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctBHist <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
-                const isAsymmetricBAHist = pctBHist >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctAHist <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
-                if (isAsymmetricABHist || isAsymmetricBAHist) {
+            // Insight: Sustained Alignment
+            if (primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_HISTORICAL_SIM && holdingsMaxSim >= INSIGHT_THRESHOLDS.STRONG_HOLDINGS_SIM) {
+                keyInsights.push({
+                    type: InsightType.SustainedAlignment,
+                    wallets: [labelA, labelB],
+                    score: primaryHistoricalSim,
+                    text: `Strong alignment in both past trading activity and current portfolios, suggesting a consistent, shared strategy.`,
+                    data: { primaryHistoricalSim, holdingsMaxSim, historicalVectorType }
+                });
+            }
+
+            // Insight: Recent Convergence
+            if (primaryHistoricalSim < INSIGHT_THRESHOLDS.MODERATE_HISTORICAL_SIM && holdingsMaxSim >= INSIGHT_THRESHOLDS.STRONG_HOLDINGS_SIM) {
+                 keyInsights.push({
+                    type: InsightType.RecentConvergence,
+                    wallets: [labelA, labelB],
+                    score: primaryHistoricalSim,
+                    text: `Low historical alignment, but portfolios are very similar now. This suggests their strategies have recently converged.`,
+                    data: { primaryHistoricalSim, holdingsMaxSim, historicalVectorType }
+                });
+            }
+
+            // Insight: Recent Divergence
+            if (walletAHasHoldings && walletBHasHoldings && primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_HISTORICAL_SIM && holdingsMaxSim < INSIGHT_THRESHOLDS.MODERATE_HOLDINGS_SIM) {
+                 keyInsights.push({
+                    type: InsightType.RecentDivergence,
+                    wallets: [labelA, labelB],
+                    score: primaryHistoricalSim,
+                    text: `Strong alignment in past trading, but their current portfolios are different. This suggests their strategies have recently diverged.`,
+                    data: { primaryHistoricalSim, holdingsMaxSim, historicalVectorType }
+                });
+            }
+
+            // Insight: Shared Zero Holdings
+            if (primaryHistoricalSim >= INSIGHT_THRESHOLDS.STRONG_HISTORICAL_SIM && !walletAHasHoldings && !walletBHasHoldings) {
+                keyInsights.push({
+                    type: InsightType.SharedZeroHoldings,
+                    wallets: [labelA, labelB],
+                    score: primaryHistoricalSim,
+                    text: `These wallets traded very similarly in the past and both now hold no significant tokens, suggesting a synchronized exit or sell-off.`,
+                    data: { primaryHistoricalSim, historicalVectorType }
+                });
+            }
+            
+            // Insight: Asymmetry
+            if (primaryHistoricalSim >= INSIGHT_THRESHOLDS.MODERATE_HISTORICAL_SIM) {
+                const isAsymmetricAB = pctAHist >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctBHist <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
+                const isAsymmetricBA = pctBHist >= INSIGHT_THRESHOLDS.ASYMMETRY_HIGH_PCT && pctAHist <= INSIGHT_THRESHOLDS.ASYMMETRY_LOW_PCT;
+                if (isAsymmetricAB || isAsymmetricBA) {
                     keyInsights.push({
                         type: InsightType.SignificantAsymmetry,
                         wallets: [labelA, labelB],
-                        score: highestSimScoreForAsymmetry,
-                        text: `One wallet's shared tokens are a large part of its activity (${isAsymmetricABHist ? `${pctAHist.toFixed(0)}%` : `${pctBHist.toFixed(0)}%`}), while it's minor for the other (${isAsymmetricABHist ? `${pctBHist.toFixed(0)}%` : `${pctAHist.toFixed(0)}%`}).`,
-                        data: { highestSimScoreForAsymmetry, countHistorical, pctAHist, pctBHist }
+                        score: primaryHistoricalSim,
+                        text: `Asymmetric relationship detected. The shared tokens make up a large part of one wallet's activity (${isAsymmetricAB ? `${pctAHist.toFixed(0)}%` : `${pctBHist.toFixed(0)}%`}) but a small part for the other (${isAsymmetricAB ? `${pctBHist.toFixed(0)}%` : `${pctAHist.toFixed(0)}%`}).`,
+                        data: { primaryHistoricalSim, countHistorical, pctAHist, pctBHist }
                     });
                 }
             }
@@ -210,7 +198,7 @@ export function getConnectionStrength(
     const connections: Connection[] = [];
     const processedPairs = new Set<string>();
     const walletAddresses = Object.keys(metrics.walletVectorsUsed).sort();
-    const uniqueTokensPerWallet = getUniqueTokensPerWallet(metrics);
+    const uniqueTokensPerWallet = metrics.uniqueTokensPerWallet;
 
     for (let i = 0; i < walletAddresses.length; i++) {
         for (let j = i + 1; j < walletAddresses.length; j++) {

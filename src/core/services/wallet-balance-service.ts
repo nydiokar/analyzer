@@ -1,27 +1,36 @@
-import { HeliusApiClient } from 'core/services/helius-api-client';
+import { HeliusApiClient } from './helius-api-client';
 import { TokenBalanceDetails, WalletBalance } from '@/types/wallet';
 import { GetMultipleAccountsResult, GetTokenAccountsByOwnerResult, TokenAccount } from '@/types/helius-api';
 import { createLogger } from 'core/utils/logger';
 import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 import { formatLargeNumber } from 'core/utils/number-formatting';
+import { TokenInfoService } from '../../api/token-info/token-info.service';
+import { TokenInfo } from '@prisma/client';
 
 const logger = createLogger('WalletBalanceService');
 const SOL_DECIMALS = 9;
 
 /**
- * Service responsible for fetching SOL and SPL token balances for wallet addresses.
- * It uses the HeliusApiClient to interact with the Solana RPC.
+ * Service for fetching LIVE, on-chain SOL and SPL token balances.
+ * This is the primary tool for any feature needing an immediate, real-time
+ * snapshot of a wallet's current holdings.
  */
 export class WalletBalanceService {
   private heliusClient: HeliusApiClient;
+  private tokenInfoService?: TokenInfoService;
 
   /**
    * Constructs an instance of the WalletBalanceService.
    *
    * @param heliusClient An instance of HeliusApiClient to use for RPC calls.
+   * @param tokenInfoService An instance of TokenInfoService to fetch token metadata.
    */
-  constructor(heliusClient: HeliusApiClient) {
+  constructor(
+    heliusClient: HeliusApiClient,
+    tokenInfoService?: TokenInfoService
+  ) {
     this.heliusClient = heliusClient;
+    this.tokenInfoService = tokenInfoService;
   }
 
   /**
@@ -155,6 +164,33 @@ export class WalletBalanceService {
         logger.error(`Error fetching token balances for address ${address}: ${error.message || error}`);
         // Token balances for this address will remain empty or its default.
       }
+    }
+
+    // Fetch all token metadata in one batch
+    const allMints = Object.values(walletBalances).flatMap(data => data.tokenBalances.map(t => t.mint));
+    const uniqueMints = [...new Set(allMints)];
+    let tokenInfoMap: Map<string, TokenInfo> = new Map();
+    if (this.tokenInfoService && uniqueMints.length > 0) {
+      const tokenInfos = await this.tokenInfoService.findMany(uniqueMints);
+      tokenInfoMap = new Map(tokenInfos.map(info => [info.tokenAddress, info]));
+    }
+
+    for (const [address, data] of Object.entries(walletBalances)) {
+      const tokenBalancesWithMetadata = data.tokenBalances.map(token => {
+        const metadata = tokenInfoMap.get(token.mint);
+        return {
+          ...token,
+          name: metadata?.name,
+          symbol: metadata?.symbol,
+          imageUrl: metadata?.imageUrl,
+        };
+      });
+
+      walletBalances.set(address, {
+        solBalance: data.solBalance,
+        tokenBalances: tokenBalancesWithMetadata,
+        fetchedAt: new Date(),
+      });
     }
 
     logger.info(`Successfully processed wallet balance fetching for ${walletAddresses.length} addresses.`);

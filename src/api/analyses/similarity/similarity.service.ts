@@ -4,12 +4,27 @@ import { DatabaseService } from '../../database/database.service';
 import { SimilarityService } from '@/core/analysis/similarity/similarity-service';
 import { SimilarityAnalysisRequestDto } from './similarity-analysis.dto';
 import { SimilarityAnalysisConfig } from '@/types/analysis';
+import { DEFAULT_EXCLUDED_MINTS } from '../../../config/constants';
+import { HeliusApiClient } from '@/core/services/helius-api-client';
+import { TokenInfoService } from '../../token-info/token-info.service';
+import { WalletBalanceService } from '@/core/services/wallet-balance-service';
+
+// Re-using existing constant to avoid new dependencies
+const LAMPORTS_PER_SOL = 1e9;
 
 const logger = createLogger('SimilarityApiService');
 
 @Injectable()
 export class SimilarityApiService {
-    constructor(private readonly databaseService: DatabaseService) {}
+    private walletBalanceService: WalletBalanceService;
+
+    constructor(
+        private readonly databaseService: DatabaseService,
+        private readonly heliusApiClient: HeliusApiClient,
+        private readonly tokenInfoService: TokenInfoService,
+    ) {
+        this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
+    }
 
     async runAnalysis(dto: SimilarityAnalysisRequestDto) {
         logger.info(`Received request to run similarity analysis for ${dto.walletAddresses.length} wallets.`, {
@@ -23,19 +38,31 @@ export class SimilarityApiService {
 
         try {
             const config: SimilarityAnalysisConfig = {
-                timeRange: { startTs: 0, endTs: 0 }, // This can be parameterized in the DTO in the future
-                excludedMints: [], // This can be parameterized in the DTO in the future
+                excludedMints: DEFAULT_EXCLUDED_MINTS,
             };
 
-            // Manually instantiate the core service with the required dependencies
             const similarityAnalyzer = new SimilarityService(this.databaseService, config);
             
-            const results = await similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, dto.vectorType);
+            // Fetch live wallet balances using the restored service
+            const walletBalancesMap = await this.walletBalanceService.fetchWalletBalances(dto.walletAddresses);
+            
+            const results = await similarityAnalyzer.calculateWalletSimilarity(
+                dto.walletAddresses, 
+                dto.vectorType,
+                walletBalancesMap
+            );
 
             if (!results) {
                 logger.warn(`Similarity analysis for wallets returned no results.`, { wallets: dto.walletAddresses });
                 return {};
             }
+
+            // Convert Map to Record for JSON serialization
+            const balancesRecord: Record<string, any> = {};
+            walletBalancesMap.forEach((value, key) => {
+                balancesRecord[key] = value;
+            });
+            results.walletBalances = balancesRecord;
 
             return results;
         } catch (error) {

@@ -5,10 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { SyncConfirmationDialog } from '@/components/analysis-lab/SyncConfirmationDialog';
 import { SimilarityResultDisplay } from '@/components/analysis-lab/results/SimilarityResultDisplay';
-import { ComprehensiveSimilarityResult } from '@/components/analysis-lab/results/types';
+import { ComprehensiveSimilarityResult, SimilarityVectorType } from '@/components/analysis-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
 import { useToast } from '@/hooks/use-toast';
 import { shortenAddress, isValidSolanaAddress } from "@/lib/solana-utils";
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 
 interface WalletStatus {
   walletAddress: string;
@@ -22,6 +24,7 @@ interface WalletStatusResponse {
 export default function AnalysisLabPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [wallets, setWallets] = useState('');
+  const [vectorType, setVectorType] = useState<SimilarityVectorType>('capital');
   const [analysisResult, setAnalysisResult] = useState<ComprehensiveSimilarityResult | null>(null);
   const [missingWallets, setMissingWallets] = useState<string[]>([]);
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
@@ -177,7 +180,7 @@ export default function AnalysisLabPage() {
         method: 'POST',
         body: JSON.stringify({
           walletAddresses: walletList,
-          vectorType: 'capital',
+          vectorType: vectorType,
         }),
       });
       setAnalysisResult(data);
@@ -197,7 +200,7 @@ export default function AnalysisLabPage() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
+    <div className="container mx-auto p-4 md:p-5">
       <header className="mb-6">
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">Similarity LAB <span className="text-muted-foreground">- discover hidden connections</span></h1>
       </header>
@@ -212,9 +215,21 @@ export default function AnalysisLabPage() {
           placeholder="Enter wallet addresses, separated by commas, spaces, or new lines."
           className="min-h-[120px] font-mono"
         />
-        <Button onClick={handleAnalyze} disabled={isLoading} className="mt-4">
-          {isLoading ? 'Analyzing...' : 'Analyze'}
-        </Button>
+        <div className="flex items-center justify-between mt-4">
+            <RadioGroup defaultValue="capital" value={vectorType} onValueChange={(value: SimilarityVectorType) => setVectorType(value)} className="flex items-center gap-4">
+                <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="capital" id="r-capital" />
+                    <Label htmlFor="r-capital">Capital Similarity</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="binary" id="r-binary" />
+                    <Label htmlFor="r-binary">Binary Similarity</Label>
+                </div>
+            </RadioGroup>
+            <Button onClick={handleAnalyze} disabled={isLoading}>
+                {isLoading ? 'Analyzing...' : 'Analyze'}
+            </Button>
+        </div>
         {syncMessage && <p className="mt-4 text-center text-sm text-muted-foreground">{syncMessage}</p>}
       </div>
 
