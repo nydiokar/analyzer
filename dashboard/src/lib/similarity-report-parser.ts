@@ -40,7 +40,7 @@ export function generateKeyInsights(
                 wallets: [labelA, labelB],
                 score: binaryScore,
                 text: `Extremely high similarity in trading behavior, matched by strong capital alignment. Indicates a deeply shared strategy.`,
-                data: { binaryScore, capitalScore }
+                data: { binaryScore, capitalScore, walletA, walletB }
             });
         }
         
@@ -51,7 +51,7 @@ export function generateKeyInsights(
                 wallets: [labelA, labelB],
                 score: binaryScore,
                 text: `Wallets trade the same tokens, but allocate capital very differently. Suggests one may be mirroring trades with lower conviction or taking profits.`,
-                data: { binaryScore, capitalScore }
+                data: { binaryScore, capitalScore, walletA, walletB }
             });
         }
 
@@ -62,7 +62,7 @@ export function generateKeyInsights(
                 wallets: [labelA, labelB],
                 score: (binaryScore + capitalScore) / 2,
                 text: `Strong alignment in both trading history and capital allocation, suggesting a consistent, shared strategy.`,
-                data: { binaryScore, capitalScore }
+                data: { binaryScore, capitalScore, walletA, walletB }
             });
         }
     }
@@ -87,7 +87,7 @@ export function generateKeyInsights(
                             wallets: [walletLabels[walletA] || walletA, walletLabels[walletB] || walletB],
                             score: pair.binaryScore,
                             text: `These wallets have a strong shared trading history but currently hold none of the same tokens, suggesting a coordinated exit or rotation.`,
-                            data: { binaryScore: pair.binaryScore }
+                            data: { binaryScore: pair.binaryScore, walletA, walletB }
                         });
                     }
                 }

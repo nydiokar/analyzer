@@ -9,7 +9,7 @@ import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from
  * @param address The string to validate.
  * @returns `true` if the string is a plausible Solana public key, `false` otherwise.
  */
-const isValidSolanaAddress = (address: string): boolean => {
+export const isValidSolanaAddress = (address: string): boolean => {
   if (!address) {
     return false;
   }

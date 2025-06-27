@@ -8,7 +8,8 @@ import { SimilarityResultDisplay } from '@/components/analysis-lab/results/Simil
 import { CombinedSimilarityResult } from '@/components/analysis-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
 import { useToast } from '@/hooks/use-toast';
-import { shortenAddress, isValidSolanaAddress } from "@/lib/solana-utils";
+import { isValidSolanaAddress } from "@/lib/solana-utils";
+import { useApiKeyStore } from '@/store/api-key-store';
 
 interface WalletStatus {
   walletAddress: string;
@@ -26,7 +27,9 @@ export default function AnalysisLabPage() {
   const [missingWallets, setMissingWallets] = useState<string[]>([]);
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const apiKey = useApiKeyStore((state) => state.apiKey);
 
   useEffect(() => {
     try {
@@ -63,11 +66,21 @@ export default function AnalysisLabPage() {
     setAnalysisResult(null);
     setSyncMessage('');
 
-    const walletList = wallets
+    const rawWalletList = wallets
       .replace(/[,|\n\r]+/g, ' ') // Robustly handle different separators
       .split(' ')
       .map(w => w.trim())
       .filter(Boolean);
+
+    // Gracefully handle duplicates by using a Set
+    const walletList = Array.from(new Set(rawWalletList));
+    
+    if (rawWalletList.length !== walletList.length) {
+      toast({
+        title: "Duplicate wallets removed",
+        description: `We've automatically filtered out ${rawWalletList.length - walletList.length} duplicate addresses.`,
+      });
+    }
 
     if (walletList.length === 0) {
       setIsLoading(false);
@@ -117,70 +130,63 @@ export default function AnalysisLabPage() {
   const handleConfirmSync = async () => {
     setIsSyncDialogOpen(false);
     setIsLoading(true);
-    setSyncMessage(`Syncing ${missingWallets.length} missing wallet(s)... This may take a few minutes.`);
+    setSyncMessage(`Triggering sync for ${missingWallets.length} wallet(s)...`);
 
     try {
-      const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+      // Step 1: Trigger the analysis for the missing wallets. This returns immediately.
+      await fetcher('/analyses/wallets/trigger-analysis', {
+        method: 'POST',
+        body: JSON.stringify({ walletAddresses: missingWallets }),
+      });
 
-      for (const wallet of missingWallets) {
-        try {
-          await fetcher(`/analyses/wallets/${wallet}/trigger-analysis`, {
-            method: 'POST',
-          });
-          toast({
-            description: `Sync triggered for ${shortenAddress(wallet, 6)}...`,
-          });
-          await delay(500); // Wait 500ms before the next request
-        } catch (err: any) {
-          console.error(`Failed to trigger sync for ${wallet}`, err);
-          toast({
-            variant: "destructive",
-            title: `Sync Failed for ${shortenAddress(wallet, 6)}`,
-            description: err.message || "An unknown error occurred.",
-          });
-        }
-      }
+      toast({
+        title: "Sync Triggered",
+        description: "The backend is now syncing the missing wallets. Waiting for completion...",
+      });
 
-      // Start polling for wallet statuses
-      setSyncMessage(`Sync triggered for all wallets. Now waiting for completion...`);
+      // Step 2: Poll for completion.
       const pollInterval = setInterval(async () => {
+        const allWallets = Array.from(new Set(
+          wallets.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
+        ));
+
         try {
-          const walletList = wallets.split(/[\s,]+/).filter(Boolean);
-          const data: WalletStatusResponse = await fetcher('/analyses/wallets/status', {
-             method: 'POST',
-             body: JSON.stringify({ walletAddresses: walletList }),
+          const statusResponse: WalletStatusResponse = await fetcher('/analyses/wallets/status', {
+            method: 'POST',
+            body: JSON.stringify({ walletAddresses: allWallets }),
           });
 
-          const stillMissing = data?.statuses?.filter((s) => !s.exists).map((s) => s.walletAddress) ?? [];
+          const stillMissing = statusResponse?.statuses?.filter((s) => !s.exists).map((s) => s.walletAddress) ?? [];
 
           if (stillMissing.length === 0) {
             clearInterval(pollInterval);
-            setSyncMessage('All wallets are synced. Running similarity analysis...');
-            await runSimilarityAnalysis(walletList);
+            setSyncMessage('All wallets are synced. Running final analysis...');
+            toast({ title: "Sync Complete!", description: "All wallets are now ready." });
+            await runSimilarityAnalysis(allWallets);
           } else {
-            setMissingWallets(stillMissing);
-            setSyncMessage(`Waiting for ${stillMissing.length} wallet(s) to sync... Polling again in 10 seconds.`);
+            setSyncMessage(`Waiting for ${stillMissing.length} wallet(s) to sync... Checking again in 10 seconds.`);
           }
         } catch (error: any) {
-            const errorMessage = error?.payload?.message || error.message || 'Error during polling.';
-            setSyncMessage(`Error checking wallet status: ${errorMessage} Polling stopped.`);
-            toast({
-                variant: "destructive",
-                title: "Sync Failed",
-                description: errorMessage,
-            });
-            clearInterval(pollInterval);
-            setIsLoading(false);
+          clearInterval(pollInterval);
+          const errorMessage = error?.payload?.message || error.message || 'Error during polling.';
+          setSyncMessage(`Error checking wallet status: ${errorMessage}. Polling stopped.`);
+          toast({
+              variant: "destructive",
+              title: "Polling Failed",
+              description: errorMessage,
+          });
+          setIsLoading(false);
         }
-      }, 10000); 
+      }, 10000); // Poll every 10 seconds
+
     } catch (error: any) {
-      console.error('Error during sync trigger:', error);
-      const errorMessage = error?.payload?.message || error.message || 'Failed to start wallet sync.';
-      setSyncMessage(`${errorMessage} Please check the console and try again.`);
+      const errorMessage = error?.payload?.message || error.message || "An unexpected error occurred.";
+      setError(errorMessage);
+      setSyncMessage(errorMessage);
       toast({
-        variant: "destructive",
-        title: "Sync Error",
+        title: "Error Triggering Sync",
         description: errorMessage,
+        variant: "destructive",
       });
       setIsLoading(false);
     }
