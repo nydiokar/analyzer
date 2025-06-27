@@ -78,13 +78,14 @@ export interface CombinedPairwiseSimilarity {
   walletB: string;
   binaryScore: number;
   capitalScore: number;
-  sharedTokens: { mint: string; weightA: number; weightB: number }[];
+  sharedTokens: { mint: string }[];
+  capitalAllocation: Record<string, { weightA: number; weightB: number }>;
 }
 
 export interface CombinedSimilarityResult {
   pairwiseSimilarities: CombinedPairwiseSimilarity[];
   walletVectorsUsed: Record<string, Record<string, number>>;
-  uniqueTokensPerWallet: Record<string, number>;
+  uniqueTokensPerWallet: Record<string, { binary: number; capital: number }>;
   walletBalances?: Record<string, { tokenBalances: { mint: string }[] }>;
   vectorTypeUsed: 'combined';
 }

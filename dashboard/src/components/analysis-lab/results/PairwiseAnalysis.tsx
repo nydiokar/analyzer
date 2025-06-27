@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface PairwiseAnalysisProps {
@@ -28,19 +28,28 @@ const ScoreBar = ({ score, label, colorClass }: { score: number, label: string, 
     </div>
 );
 
-const PairCard = ({ pair, walletLabels, results }: { pair: CombinedPairwiseSimilarity, walletLabels: Record<string, string>, results: CombinedSimilarityResult }) => {
-    const { walletA, walletB, binaryScore, capitalScore, sharedTokens } = pair;
+const PairCard = ({ pair, walletLabels, results, sortKey }: { pair: CombinedPairwiseSimilarity, walletLabels: Record<string, string>, results: CombinedSimilarityResult, sortKey: SortKey }) => {
+    const { walletA, walletB, binaryScore, capitalScore, sharedTokens, capitalAllocation } = pair;
     const { uniqueTokensPerWallet } = results;
 
-    const uniqueTokensA = uniqueTokensPerWallet[walletA] || 0;
-    const uniqueTokensB = uniqueTokensPerWallet[walletB] || 0;
+    const uniqueTokensA = uniqueTokensPerWallet[walletA]?.binary || 0;
+    const uniqueTokensB = uniqueTokensPerWallet[walletB]?.binary || 0;
+    const uniqueCapitalTokensA = uniqueTokensPerWallet[walletA]?.capital || 0;
+    const uniqueCapitalTokensB = uniqueTokensPerWallet[walletB]?.capital || 0;
 
-    const sharedPctA = uniqueTokensA > 0 ? (sharedTokens.length / uniqueTokensA) * 100 : 0;
-    const sharedPctB = uniqueTokensB > 0 ? (sharedTokens.length / uniqueTokensB) * 100 : 0;
+    const sharedBehavioralPctA = uniqueTokensA > 0 ? (sharedTokens.length / uniqueTokensA) * 100 : 0;
+    const sharedCapitalPctA = uniqueCapitalTokensA > 0 ? (sharedTokens.length / uniqueCapitalTokensA) * 100 : 0;
     
-    const topSharedTokens = [...sharedTokens]
-        .sort((a, b) => (b.weightA + b.weightB) - (a.weightA + a.weightB))
-        .slice(0, 5);
+    const isCapitalSort = sortKey === 'capitalScore';
+
+    const topSharedTokens = useMemo(() => {
+        const sorted = [...sharedTokens];
+        if (isCapitalSort) {
+            sorted.sort((a, b) => (capitalAllocation[b.mint].weightA + capitalAllocation[b.mint].weightB) - (capitalAllocation[a.mint].weightA + capitalAllocation[a.mint].weightB));
+        }
+        return sorted.slice(0, 5);
+    }, [sharedTokens, sortKey, capitalAllocation]);
+
 
     return (
         <AccordionItem value={`item-${walletA}-${walletB}`} className="border rounded-lg px-3">
@@ -63,25 +72,47 @@ const PairCard = ({ pair, walletLabels, results }: { pair: CombinedPairwiseSimil
                 <div className="space-y-3 pt-2">
                     <p className="text-sm text-muted-foreground">
                         Sharing <span className="font-bold">{sharedTokens.length}</span> tokens. 
-                        This represents <span className="font-bold">{sharedPctA.toFixed(1)}%</span> of {walletLabels[walletA]}'s behavioral activity.
+                        This represents <span className="font-bold">
+                            {isCapitalSort ? sharedCapitalPctA.toFixed(1) : sharedBehavioralPctA.toFixed(1)}%
+                        </span> of {walletLabels[walletA]}'s {isCapitalSort ? 'capital deployment' : 'behavioral activity'}.
                     </p>
                     {topSharedTokens.length > 0 && (
                         <div>
-                             <h4 className="text-sm font-semibold mb-2">Top 5 Shared Tokens (by Capital)</h4>
+                             <h4 className="text-sm font-semibold mb-2">
+                                Top 5 Shared Tokens {isCapitalSort ? '(by Capital)' : '(by Interaction)'}
+                             </h4>
                              <Table>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Token</TableHead>
-                                        <TableHead className="text-right">{walletLabels[walletA]} Allocation</TableHead>
-                                        <TableHead className="text-right">{walletLabels[walletB]} Allocation</TableHead>
+                                        {isCapitalSort ? (
+                                            <>
+                                                <TableHead className="text-right">{walletLabels[walletA]} Allocation</TableHead>
+                                                <TableHead className="text-right">{walletLabels[walletB]} Allocation</TableHead>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <TableHead className="text-right">{walletLabels[walletA]}</TableHead>
+                                                <TableHead className="text-right">{walletLabels[walletB]}</TableHead>
+                                            </>
+                                        )}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {topSharedTokens.map(token => (
                                         <TableRow key={token.mint}>
                                             <TableCell className="font-mono text-xs truncate" title={token.mint}>{shortenAddress(token.mint, 10)}</TableCell>
-                                            <TableCell className="text-right">{(token.weightA * 100).toFixed(2)}%</TableCell>
-                                            <TableCell className="text-right">{(token.weightB * 100).toFixed(2)}%</TableCell>
+                                            {isCapitalSort ? (
+                                                <>
+                                                    <TableCell className="text-right">{(capitalAllocation[token.mint].weightA * 100).toFixed(2)}%</TableCell>
+                                                    <TableCell className="text-right">{(capitalAllocation[token.mint].weightB * 100).toFixed(2)}%</TableCell>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <TableCell className="text-right text-emerald-500">Traded</TableCell>
+                                                    <TableCell className="text-right text-emerald-500">Traded</TableCell>
+                                                </>
+                                            )}
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -123,7 +154,7 @@ export function PairwiseAnalysis({ results }: PairwiseAnalysisProps) {
                 <ScrollArea className="h-[400px] mt-4">
                      <Accordion type="single" collapsible className="w-full space-y-3">
                         {sortedPairs.map((pair) => (
-                           <PairCard key={`${pair.walletA}-${pair.walletB}`} pair={pair} walletLabels={walletLabels} results={results} />
+                           <PairCard key={`${pair.walletA}-${pair.walletB}`} pair={pair} walletLabels={walletLabels} results={results} sortKey={sortKey} />
                         ))}
                     </Accordion>
                 </ScrollArea>
