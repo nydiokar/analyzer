@@ -29,23 +29,38 @@ const ScoreBar = ({ score, label, colorClass }: { score: number, label: string, 
 );
 
 const PairCard = ({ pair, walletLabels, results, sortKey }: { pair: CombinedPairwiseSimilarity, walletLabels: Record<string, string>, results: CombinedSimilarityResult, sortKey: SortKey }) => {
-    const { walletA, walletB, binaryScore, capitalScore, sharedTokens, capitalAllocation } = pair;
-    const { uniqueTokensPerWallet } = results;
-
-    const uniqueTokensA = uniqueTokensPerWallet[walletA]?.binary || 0;
-    const uniqueTokensB = uniqueTokensPerWallet[walletB]?.binary || 0;
-    const uniqueCapitalTokensA = uniqueTokensPerWallet[walletA]?.capital || 0;
-    const uniqueCapitalTokensB = uniqueTokensPerWallet[walletB]?.capital || 0;
-
-    const sharedBehavioralPctA = uniqueTokensA > 0 ? (sharedTokens.length / uniqueTokensA) * 100 : 0;
-    const sharedCapitalPctA = uniqueCapitalTokensA > 0 ? (sharedTokens.length / uniqueCapitalTokensA) * 100 : 0;
+    const { 
+        walletA, walletB, 
+        binaryScore, capitalScore, 
+        sharedTokens, capitalAllocation, 
+        binarySharedTokenCount, binaryUniqueTokenCountA, binaryUniqueTokenCountB,
+        capitalSharedTokenCount, capitalUniqueTokenCountA, capitalUniqueTokenCountB
+    } = pair;
     
     const isCapitalSort = sortKey === 'capitalScore';
 
+    // --- Percentages for the summary text ---
+    const sharedBehavioralPctA = binaryUniqueTokenCountA > 0 ? (binarySharedTokenCount / binaryUniqueTokenCountA) * 100 : 0;
+    const sharedBehavioralPctB = binaryUniqueTokenCountB > 0 ? (binarySharedTokenCount / binaryUniqueTokenCountB) * 100 : 0;
+    
+    const sharedCapitalPctA = capitalUniqueTokenCountA > 0 ? (capitalSharedTokenCount / capitalUniqueTokenCountA) * 100 : 0;
+    const sharedCapitalPctB = capitalUniqueTokenCountB > 0 ? (capitalSharedTokenCount / capitalUniqueTokenCountB) * 100 : 0;
+
+    // --- Values for the summary text ---
+    const sharedCount = isCapitalSort ? capitalSharedTokenCount : binarySharedTokenCount;
+    const pctA = isCapitalSort ? sharedCapitalPctA : sharedBehavioralPctA;
+    const pctB = isCapitalSort ? sharedCapitalPctB : sharedBehavioralPctB;
+
     const topSharedTokens = useMemo(() => {
-        const sorted = [...sharedTokens];
-        if (isCapitalSort) {
-            sorted.sort((a, b) => (capitalAllocation[b.mint].weightA + capitalAllocation[b.mint].weightB) - (capitalAllocation[a.mint].weightA + capitalAllocation[a.mint].weightB));
+        const sorted = [...(sharedTokens || [])];
+        if (isCapitalSort && capitalAllocation) {
+            sorted.sort((a, b) => {
+                const allocA = capitalAllocation[a.mint];
+                const allocB = capitalAllocation[b.mint];
+                const scoreA = allocA ? allocA.weightA + allocA.weightB : 0;
+                const scoreB = allocB ? allocB.weightA + allocB.weightB : 0;
+                return scoreB - scoreA;
+            });
         }
         return sorted.slice(0, 5);
     }, [sharedTokens, sortKey, capitalAllocation]);
@@ -71,10 +86,10 @@ const PairCard = ({ pair, walletLabels, results, sortKey }: { pair: CombinedPair
             <AccordionContent>
                 <div className="space-y-3 pt-2">
                     <p className="text-sm text-muted-foreground">
-                        Sharing <span className="font-bold">{sharedTokens.length}</span> tokens. 
-                        This represents <span className="font-bold">
-                            {isCapitalSort ? sharedCapitalPctA.toFixed(1) : sharedBehavioralPctA.toFixed(1)}%
-                        </span> of {walletLabels[walletA]}'s {isCapitalSort ? 'capital deployment' : 'behavioral activity'}.
+                        Sharing <span className="font-bold">{sharedCount || 0}</span> tokens. This represents {' '}
+                        <span className="font-bold">{pctA.toFixed(1)}%</span> of {walletLabels[walletA]}'s and {' '}
+                        <span className="font-bold">{pctB.toFixed(1)}%</span> of {walletLabels[walletB]}'s {' '}
+                        {isCapitalSort ? 'capital deployment' : 'behavioral activity'}.
                     </p>
                     {topSharedTokens.length > 0 && (
                         <div>
@@ -85,34 +100,20 @@ const PairCard = ({ pair, walletLabels, results, sortKey }: { pair: CombinedPair
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Token</TableHead>
-                                        {isCapitalSort ? (
-                                            <>
-                                                <TableHead className="text-right">{walletLabels[walletA]} Allocation</TableHead>
-                                                <TableHead className="text-right">{walletLabels[walletB]} Allocation</TableHead>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <TableHead className="text-right">{walletLabels[walletA]}</TableHead>
-                                                <TableHead className="text-right">{walletLabels[walletB]}</TableHead>
-                                            </>
-                                        )}
+                                        <TableHead className="text-right">{walletLabels[walletA]} Allocation</TableHead>
+                                        <TableHead className="text-right">{walletLabels[walletB]} Allocation</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {topSharedTokens.map(token => (
                                         <TableRow key={token.mint}>
                                             <TableCell className="font-mono text-xs truncate" title={token.mint}>{shortenAddress(token.mint, 10)}</TableCell>
-                                            {isCapitalSort ? (
-                                                <>
-                                                    <TableCell className="text-right">{(capitalAllocation[token.mint].weightA * 100).toFixed(2)}%</TableCell>
-                                                    <TableCell className="text-right">{(capitalAllocation[token.mint].weightB * 100).toFixed(2)}%</TableCell>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <TableCell className="text-right text-emerald-500">Traded</TableCell>
-                                                    <TableCell className="text-right text-emerald-500">Traded</TableCell>
-                                                </>
-                                            )}
+                                            <TableCell className="text-right">
+                                                {capitalAllocation?.[token.mint] ? `${(capitalAllocation[token.mint].weightA * 100).toFixed(2)}%` : (isCapitalSort ? 'N/A' : <span className="text-emerald-500">Interaction</span>)}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {capitalAllocation?.[token.mint] ? `${(capitalAllocation[token.mint].weightB * 100).toFixed(2)}%` : (isCapitalSort ? 'N/A' : <span className="text-emerald-500">Interaction</span>)}
+                                            </TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>

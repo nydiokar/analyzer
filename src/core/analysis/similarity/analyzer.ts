@@ -74,9 +74,14 @@ export class SimilarityAnalyzer {
 
   private getAllRelevantMints(walletTransactions: Record<string, TransactionData[]>, vectorType: 'capital' | 'binary'): string[] {
       const mintsSet = new Set<string>();
+      const excluded = new Set(this.config.excludedMints || []);
+
       for (const address in walletTransactions) {
           const txs = walletTransactions[address] || [];
           for (const tx of txs) {
+              if (excluded.has(tx.mint)) {
+                  continue;
+              }
               if (vectorType === 'capital' && tx.direction !== 'in') {
                   continue;
               }
@@ -244,13 +249,22 @@ export class SimilarityAnalyzer {
               const walletA = walletOrder[i];
               const walletB = walletOrder[j];
               const score = similarityMatrix[walletA]?.[walletB] ?? 0;
-              const sharedTokensForPair = this.getSharedTokensForPair(walletVectors[walletA], walletVectors[walletB]);
+              
+              const vectorA = walletVectors[walletA];
+              const vectorB = walletVectors[walletB];
+
+              if (!vectorA || !vectorB) continue;
+
+              const sharedTokensForPair = this.getSharedTokensForPair(vectorA, vectorB);
 
               pairwiseSimilarities.push({
                   walletA,
                   walletB,
                   similarityScore: score,
                   sharedTokens: sharedTokensForPair,
+                  uniqueTokenCountA: uniqueTokensPerWallet[walletA] || 0,
+                  uniqueTokenCountB: uniqueTokensPerWallet[walletB] || 0,
+                  sharedTokenCount: sharedTokensForPair.length,
               });
               totalSimilarity += score;
               pairCount++;

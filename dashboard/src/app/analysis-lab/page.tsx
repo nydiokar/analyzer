@@ -32,7 +32,17 @@ export default function AnalysisLabPage() {
     try {
       const savedResult = localStorage.getItem('analysisResult');
       if (savedResult) {
-        setAnalysisResult(JSON.parse(savedResult));
+        const parsedResult = JSON.parse(savedResult);
+        
+        // Validate the data structure before setting state.
+        // If the first pair is missing the `capitalAllocation` property,
+        // assume the data is stale and discard it.
+        if (parsedResult?.pairwiseSimilarities?.[0] && parsedResult.pairwiseSimilarities[0].capitalAllocation === undefined) {
+          console.warn('Stale analysis result found in localStorage. Discarding.');
+          localStorage.removeItem('analysisResult');
+        } else {
+          setAnalysisResult(parsedResult);
+        }
       }
     } catch (error) {
         console.error("Failed to parse analysis result from localStorage", error);
@@ -52,9 +62,11 @@ export default function AnalysisLabPage() {
     setIsLoading(true);
     setAnalysisResult(null);
     setSyncMessage('');
+
     const walletList = wallets
-      .split(/[\s,]+/)
-      .map(line => line.replace(/^[^a-zA-Z0-9]+/, '').trim())
+      .replace(/[,|\n\r]+/g, ' ') // Robustly handle different separators
+      .split(' ')
+      .map(w => w.trim())
       .filter(Boolean);
 
     if (walletList.length === 0) {
@@ -63,32 +75,32 @@ export default function AnalysisLabPage() {
     }
 
     const invalidWallets = walletList.filter(w => !isValidSolanaAddress(w.trim()));
-
     if (invalidWallets.length > 0) {
       toast({
         variant: "destructive",
         title: "Invalid Wallet Addresses",
-        description: `Please correct the following addresses: ${invalidWallets.join(', ')}`,
+        description: `Please correct the following: ${invalidWallets.join(', ')}`,
       });
       setIsLoading(false);
       return;
     }
 
     try {
-      const data: WalletStatusResponse = await fetcher('/analyses/wallets/status', {
+      const statusResponse: WalletStatusResponse = await fetcher('/analyses/wallets/status', {
         method: 'POST',
         body: JSON.stringify({ walletAddresses: walletList }),
       });
       
-      const missing = data?.statuses?.filter((s) => !s.exists).map((s) => s.walletAddress) ?? [];
+      const missing = statusResponse?.statuses?.filter((s) => !s.exists).map((s) => s.walletAddress) || [];
 
       if (missing.length > 0) {
         setMissingWallets(missing);
         setIsSyncDialogOpen(true);
-        return;
+        setIsLoading(false); // Stop loading while dialog is open
+      } else {
+        // All wallets exist, proceed directly to analysis
+        await runSimilarityAnalysis(walletList);
       }
-
-      await runSimilarityAnalysis(walletList);
     } catch (error: any) {
       console.error('Error checking wallet status:', error);
       const errorMessage = error?.payload?.message || error.message || 'Error checking wallet status. Please try again.';
@@ -175,6 +187,8 @@ export default function AnalysisLabPage() {
   };
 
   const runSimilarityAnalysis = async (walletList: string[]) => {
+    setIsLoading(true);
+    setSyncMessage('Running analysis...');
     try {
       const data = await fetcher('/analyses/similarity', {
         method: 'POST',
@@ -182,6 +196,11 @@ export default function AnalysisLabPage() {
           walletAddresses: walletList,
         }),
       });
+
+      if (!data || !data.pairwiseSimilarities || data.pairwiseSimilarities.length === 0) {
+        throw new Error("Analysis completed but returned no data. The wallets may have no overlapping activity.");
+      }
+
       setAnalysisResult(data);
       setSyncMessage('');
     } catch (error: any) {

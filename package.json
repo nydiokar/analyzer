@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "scripts": {
@@ -14,6 +14,7 @@
     "verify": "tsc --noEmit",
     "setalert": "ts-node src/index.ts setalert",
     "manage-alerts": "ts-node src/manage-alerts.ts",
+    "users": "ts-node -r tsconfig-paths/register scripts/manage-users.ts",
     "calc-staking": "ts-node src/scripts/staking-calc.ts",
     "analyze-transfers": "ts-node src/scripts/transfer-analyzer.ts",
     "analyze": "ts-node -r ts-node/register src/scripts/helius-analyzer.ts",

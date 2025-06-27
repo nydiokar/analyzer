@@ -80,6 +80,16 @@ export interface CombinedPairwiseSimilarity {
   capitalScore: number;
   sharedTokens: { mint: string }[];
   capitalAllocation: Record<string, { weightA: number; weightB: number }>;
+  
+  // Explicit counts from the binary analysis
+  binarySharedTokenCount: number;
+  binaryUniqueTokenCountA: number;
+  binaryUniqueTokenCountB: number;
+
+  // Explicit counts from the capital analysis
+  capitalSharedTokenCount: number;
+  capitalUniqueTokenCountA: number;
+  capitalUniqueTokenCountB: number;
 }
 
 export interface CombinedSimilarityResult {

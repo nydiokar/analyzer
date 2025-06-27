@@ -42,14 +42,16 @@ export function MostCommonTokens({ results }: MostCommonTokensProps) {
         const tokenMap = new Map<string, Set<string>>();
 
         results.pairwiseSimilarities.forEach(pair => {
-            pair.sharedTokens.forEach(token => {
-                if (!tokenMap.has(token.mint)) {
-                    tokenMap.set(token.mint, new Set());
-                }
-                const wallets = tokenMap.get(token.mint)!;
-                wallets.add(pair.walletA);
-                wallets.add(pair.walletB);
-            });
+            if (pair.sharedTokens) {
+                pair.sharedTokens.forEach(token => {
+                    if (!tokenMap.has(token.mint)) {
+                        tokenMap.set(token.mint, new Set());
+                    }
+                    const wallets = tokenMap.get(token.mint)!;
+                    wallets.add(pair.walletA);
+                    wallets.add(pair.walletB);
+                });
+            }
         });
 
         return Array.from(tokenMap.entries()).map(([mint, walletsSet]) => ({

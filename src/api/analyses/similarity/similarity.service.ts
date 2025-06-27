@@ -10,8 +10,6 @@ import { TokenInfoService } from '../../token-info/token-info.service';
 import { WalletBalanceService } from '@/core/services/wallet-balance-service';
 import { CombinedSimilarityResult } from '@/types/similarity';
 
-// Re-using existing constant to avoid new dependencies
-const LAMPORTS_PER_SOL = 1e9;
 
 const logger = createLogger('SimilarityApiService');
 
@@ -54,6 +52,15 @@ export class SimilarityApiService {
                 throw new InternalServerErrorException('Analysis produced no results.');
             }
 
+            const combinedUniqueTokens: Record<string, { binary: number; capital: number }> = {};
+            const allWallets = new Set([...Object.keys(binaryResults.uniqueTokensPerWallet), ...Object.keys(capitalResults.uniqueTokensPerWallet)]);
+            allWallets.forEach(wallet => {
+                combinedUniqueTokens[wallet] = {
+                    binary: binaryResults.uniqueTokensPerWallet[wallet] || 0,
+                    capital: capitalResults.uniqueTokensPerWallet[wallet] || 0,
+                };
+            });
+
             const combinedResults: CombinedSimilarityResult = {
                 vectorTypeUsed: 'combined',
                 pairwiseSimilarities: binaryResults.pairwiseSimilarities.map(binaryPair => {
@@ -61,16 +68,33 @@ export class SimilarityApiService {
                         (p.walletA === binaryPair.walletA && p.walletB === binaryPair.walletB) ||
                         (p.walletA === binaryPair.walletB && p.walletB === binaryPair.walletA)
                     );
+
+                    const capitalAllocation = capitalPair?.sharedTokens.reduce((acc, token) => {
+                        acc[token.mint] = { weightA: token.weightA, weightB: token.weightB };
+                        return acc;
+                    }, {} as Record<string, { weightA: number; weightB: number }>);
+
                     return {
                         walletA: binaryPair.walletA,
                         walletB: binaryPair.walletB,
                         binaryScore: binaryPair.similarityScore,
                         capitalScore: capitalPair?.similarityScore || 0,
-                        sharedTokens: binaryPair.sharedTokens, 
+                        sharedTokens: binaryPair.sharedTokens.map(t => ({ mint: t.mint })),
+                        capitalAllocation: capitalAllocation || {},
+                        
+                        // From binary analysis
+                        binarySharedTokenCount: binaryPair.sharedTokenCount,
+                        binaryUniqueTokenCountA: binaryPair.uniqueTokenCountA,
+                        binaryUniqueTokenCountB: binaryPair.uniqueTokenCountB,
+
+                        // From capital analysis
+                        capitalSharedTokenCount: capitalPair?.sharedTokenCount || 0,
+                        capitalUniqueTokenCountA: capitalPair?.uniqueTokenCountA || 0,
+                        capitalUniqueTokenCountB: capitalPair?.uniqueTokenCountB || 0,
                     };
                 }),
-                walletVectorsUsed: capitalResults.walletVectorsUsed, // Use capital vectors as the reference
-                uniqueTokensPerWallet: capitalResults.uniqueTokensPerWallet,
+                walletVectorsUsed: capitalResults.walletVectorsUsed,
+                uniqueTokensPerWallet: combinedUniqueTokens,
             };
 
             const balancesRecord: Record<string, any> = {};
