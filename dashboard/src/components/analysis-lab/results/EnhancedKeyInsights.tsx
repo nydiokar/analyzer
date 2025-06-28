@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { CombinedSimilarityResult, KeyInsight, InsightType, CombinedPairwiseSimilarity } from "./types";
 import { generateKeyInsights } from '@/lib/similarity-report-parser';
@@ -10,8 +11,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { HelpCircle, Info } from "lucide-react";
+import { HelpCircle, Info, Copy, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface EnhancedKeyInsightsProps {
@@ -41,17 +43,58 @@ const getInsightIcon = (type: KeyInsight['type']) => {
   }
 };
 
-const ScoreBar = ({ score, label, colorClass }: { score: number, label: string, colorClass: string }) => (
+const ScoreBar = ({ score, label, textColor, bgColor }: { score: number, label: string, textColor: string, bgColor: string }) => (
     <div>
         <div className="flex justify-between items-center mb-1">
-            <span className={`text-xs font-medium ${colorClass}`}>{label}</span>
-            <span className={`text-xs font-semibold ${colorClass}`}>{score.toFixed(3)}</span>
+            <span className={`text-xs font-medium ${textColor}`}>{label}</span>
+            <span className={`text-xs font-semibold ${textColor}`}>{score.toFixed(3)}</span>
         </div>
         <div className="w-full bg-muted rounded-full h-2.5">
-            <div className={`${colorClass.replace('text', 'bg')} h-2.5 rounded-full`} style={{ width: `${score * 100}%` }}></div>
+            <div className={`${bgColor} h-2.5 rounded-full`} style={{ width: `${score * 100}%` }}></div>
         </div>
     </div>
 );
+
+// New component for interactive wallet badges
+const WalletBadge = ({ label, fullAddress }: { label: string, fullAddress: string }) => {
+    const { toast } = useToast();
+
+    const handleCopy = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            await navigator.clipboard.writeText(fullAddress);
+            toast({
+                title: "Copied!",
+                description: `Address ${label} copied to clipboard.`,
+            });
+        } catch (err) {
+            console.error("Failed to copy address:", err);
+            toast({
+                title: "Copy Failed",
+                description: "Could not copy address to clipboard.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    return (
+        <div className="inline-flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-1 rounded-md text-xs font-semibold group transition-all">
+            <Link
+                href={`/wallets/${fullAddress}`}
+                target="_blank"
+                className="hover:underline flex items-center gap-1"
+                title={`View details for ${fullAddress}`}
+            >
+                {label}
+                <ExternalLink className="h-3 w-3 opacity-60 group-hover:opacity-100 transition-opacity" />
+            </Link>
+            <button onClick={handleCopy} className="opacity-60 group-hover:opacity-100 transition-opacity" title={`Copy ${fullAddress}`}>
+                <Copy className="h-3 w-3" />
+            </button>
+        </div>
+    );
+};
 
 interface InsightCardProps {
     insight: KeyInsight;
@@ -113,34 +156,34 @@ const InsightCard = ({ insight, pair, walletLabels, sortKey, results }: InsightC
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild><Info className="h-4 w-4 text-muted-foreground cursor-help" /></TooltipTrigger>
-                                    <TooltipContent><p>Primary score used for this insight.</p></TooltipContent>
+                                    <TooltipContent><p>Approximate similarity score between wallets, based of capital allocation or token overlap across their portfolio.</p></TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                             <span className="font-semibold text-sm">Score: {insight.score.toFixed(3)}</span>
                         </div>
                     </div>
                     <div className="text-sm mt-2">
-                        Between <Badge variant="secondary">{walletA}</Badge> and <Badge variant="secondary">{walletB}</Badge>
+                        Between <WalletBadge label={walletA} fullAddress={pair.walletA} /> and <WalletBadge label={walletB} fullAddress={pair.walletB} />
                     </div>
                     <div className="text-sm mt-1">{insight.text}</div>
                 </div>
             </div>
 
             <div className="space-y-2">
-                <ScoreBar score={binaryScore} label="Behavioral" colorClass="text-blue-500" />
+                <ScoreBar score={binaryScore} label="Behavioral" textColor="text-blue-500" bgColor="bg-blue-500" />
                 <div className="text-xs text-muted-foreground">
-                    <span className="font-bold text-foreground">{binarySharedTokenCount}</span> common interacted tokens. 
-                    Wallet <Badge variant="secondary" className="text-xs">{walletA}</Badge> overlap: <span className="font-bold text-foreground">{sharedBehavioralPctA.toFixed(1)}%</span>. 
-                    Wallet <Badge variant="secondary" className="text-xs">{walletB}</Badge> overlap: <span className="font-bold text-foreground">{sharedBehavioralPctB.toFixed(1)}%</span>.
+                    <span className="font-bold text-foreground">{binarySharedTokenCount}</span> common token(s). 
+                    Allocation across tokens for Wallet <WalletBadge label={walletA} fullAddress={pair.walletA} />: <span className="font-bold text-foreground">{sharedBehavioralPctA.toFixed(1)}%</span>. 
+                    and Wallet <WalletBadge label={walletB} fullAddress={pair.walletB} />: <span className="font-bold text-foreground">{sharedBehavioralPctB.toFixed(1)}%</span>.
                 </div>
             </div>
 
             <div className="space-y-2">
-                <ScoreBar score={capitalScore} label="Capital" colorClass="text-emerald-500" />
+                <ScoreBar score={capitalScore} label="Capital" textColor="text-emerald-500" bgColor="bg-emerald-500" />
                 <div className="text-xs text-muted-foreground">
-                    <span className="font-bold text-foreground">{capitalSharedTokenCount}</span> common capital tokens. 
-                    Wallet <Badge variant="secondary" className="text-xs">{walletA}</Badge> overlap: <span className="font-bold text-foreground">{capitalOverlapPctA.toFixed(1)}%</span>. 
-                    Wallet <Badge variant="secondary" className="text-xs">{walletB}</Badge> overlap: <span className="font-bold text-foreground">{capitalOverlapPctB.toFixed(1)}%</span>.
+                    <span className="font-bold text-foreground">{capitalSharedTokenCount}</span> common token(s). 
+                    Allocation across capital for Wallet <WalletBadge label={walletA} fullAddress={pair.walletA} />: <span className="font-bold text-foreground">{capitalOverlapPctA.toFixed(1)}%</span>. 
+                    and Wallet <WalletBadge label={walletB} fullAddress={pair.walletB} />: <span className="font-bold text-foreground">{capitalOverlapPctB.toFixed(1)}%</span>.
                 </div>
             </div>
 

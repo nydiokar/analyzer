@@ -4,8 +4,6 @@ import { ForbiddenExceptionFilter } from './api/common/filters/forbidden-excepti
 import { Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as dotenv from 'dotenv';
-import { ApiKeyAuthGuard } from './api/auth/api-key-auth.guard';
-import { DatabaseService } from './api/database/database.service';
 
 dotenv.config();
 

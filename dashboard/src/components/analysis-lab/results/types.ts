@@ -69,8 +69,14 @@ export interface MostCommonToken {
 }
 
 export interface TokenInfo {
-  name: string;
-  symbol: string;
+  tokenAddress: string;
+  name?: string | null;
+  symbol?: string | null;
+  imageUrl?: string | null;
+  websiteUrl?: string | null;
+  twitterUrl?: string | null;
+  telegramUrl?: string | null;
+  description?: string | null;
 }
 
 export interface CombinedPairwiseSimilarity {

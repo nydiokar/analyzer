@@ -237,7 +237,7 @@ export default function AnalysisLabPage() {
           value={wallets}
           onChange={(e) => setWallets(e.target.value)}
           placeholder="Enter wallet addresses, separated by commas, spaces, or new lines."
-          className="min-h-[120px] font-mono"
+          className="min-h-[70px] font-mono"
         />
         <div className="flex items-center justify-end mt-4">
             <Button onClick={handleAnalyze} disabled={isLoading}>
