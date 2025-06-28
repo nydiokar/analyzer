@@ -213,8 +213,9 @@ export default function WalletProfileLayout({
     });
 
     try {
-      await fetcher(`/analyses/wallets/${walletAddress}/trigger-analysis`, {
+      await fetcher('/analyses/wallets/trigger-analysis', {
         method: 'POST',
+        body: JSON.stringify({ walletAddresses: [walletAddress] }),
       });
       
       setIsPolling(true); // Start polling for summary updates

@@ -27,7 +27,7 @@ export class SimilarityService {
   ) {
     this.config = config; // Store config
     this.similarityAnalyzer = new SimilarityAnalyzer(config); // Pass specific config
-    logger.info('SimilarityService instantiated with similarity-specific config.'); // Update log
+    // logger.info('SimilarityService instantiated with similarity-specific config.'); // Update log
   }
 
   /**

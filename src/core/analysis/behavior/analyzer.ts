@@ -337,7 +337,7 @@ export class BehaviorAnalyzer {
         // If there's still remaining sell amount, it means we're selling more than we bought
         // This could happen due to data inconsistencies, but we'll just ignore the excess
         if (remainingSellAmount > 0) {
-          this.logger.debug(`Excess sell amount ${remainingSellAmount} for token, possibly due to missing buy data or pre-analysis holdings`);
+          // this.logger.debug(`Excess sell amount ${remainingSellAmount} for token, possibly due to missing buy data or pre-analysis holdings`);
         }
       }
     }

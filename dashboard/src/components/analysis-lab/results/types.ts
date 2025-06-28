@@ -103,7 +103,20 @@ export interface CombinedSimilarityResult {
   globalMetrics?: GlobalMetrics;
   walletVectorsUsed: Record<string, Record<string, number>>;
   uniqueTokensPerWallet: Record<string, { binary: number; capital: number }>;
-  walletBalances?: Record<string, { tokenBalances: { mint: string }[] }>;
+  walletBalances?: Record<string, { 
+    tokenBalances: { 
+      mint: string;
+      amount: string; // Comes as a string from Helius
+      uiBalance: number;
+      valueUsd?: number | null;
+      name?: string | null;
+      symbol?: string | null;
+      imageUrl?: string | null;
+      websiteUrl?: string | null;
+      twitterUrl?: string | null;
+      telegramUrl?: string | null;
+    }[] 
+  }>;
   vectorTypeUsed: 'combined';
 }
 

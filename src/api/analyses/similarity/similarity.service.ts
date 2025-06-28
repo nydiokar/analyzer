@@ -45,6 +45,41 @@ export class SimilarityApiService {
             const similarityAnalyzer = new SimilarityService(this.databaseService, config);
             const balancesMap = await this.walletBalanceService.fetchWalletBalances(dto.walletAddresses);
             
+            // --- Start: Data Enrichment ---
+            // Enrich balances with prices and metadata BEFORE analysis and response creation.
+            const allMints = Array.from(balancesMap.values()).flatMap(b => b.tokenBalances.map(t => t.mint));
+            const uniqueMints = [...new Set(allMints)];
+
+            // Parallelize fetching prices and metadata
+            const [pricesMap, metadataMap] = await Promise.all([
+                this.dexscreenerService.getTokenPrices(uniqueMints),
+                this.tokenInfoService.findMany(uniqueMints).then(tokens => 
+                    new Map(tokens.map(t => [t.tokenAddress, t]))
+                )
+            ]);
+
+            // Inject the enriched data back into the balancesMap
+            for (const balanceData of balancesMap.values()) {
+                const enrichedTokens: TokenBalanceDetails[] = balanceData.tokenBalances.map(tb => {
+                    const price = pricesMap.get(tb.mint);
+                    const metadata = metadataMap.get(tb.mint);
+                    const valueUsd = (tb.uiBalance && price) ? tb.uiBalance * price : null;
+                    
+                    return { 
+                        ...tb, 
+                        valueUsd,
+                        name: metadata?.name,
+                        symbol: metadata?.symbol,
+                        imageUrl: metadata?.imageUrl,
+                        websiteUrl: metadata?.websiteUrl,
+                        twitterUrl: metadata?.twitterUrl,
+                        telegramUrl: metadata?.telegramUrl,
+                    };
+                });
+                balanceData.tokenBalances = enrichedTokens;
+            }
+            // --- End: Data Enrichment ---
+
             const [binaryResults, capitalResults] = await Promise.all([
                 similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'binary', balancesMap),
                 similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'capital', balancesMap)
@@ -100,21 +135,6 @@ export class SimilarityApiService {
                 uniqueTokensPerWallet: combinedUniqueTokens,
                 walletBalances: Object.fromEntries(balancesMap),
             };
-
-            // Fetch live balances and prices
-            const allMints = Array.from(balancesMap.values()).flatMap(b => b.tokenBalances.map(t => t.mint));
-            const uniqueMints = [...new Set(allMints)];
-            const pricesMap = await this.dexscreenerService.getTokenPrices(uniqueMints);
-
-            // Enrich the balances with USD values
-            for (const balanceData of balancesMap.values()) {
-                const enrichedTokens = balanceData.tokenBalances.map(tb => {
-                    const price = pricesMap.get(tb.mint);
-                    const valueUsd = (tb.uiBalance && price) ? tb.uiBalance * price : null;
-                    return { ...tb, valueUsd };
-                });
-                balanceData.tokenBalances = enrichedTokens as (TokenBalanceDetails & { valueUsd: number | null; })[];
-            }
 
             return combinedResults;
         } catch (error) {

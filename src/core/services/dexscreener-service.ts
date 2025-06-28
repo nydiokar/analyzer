@@ -100,8 +100,8 @@ export class DexscreenerService {
                     logger.error('An unknown error occurred while fetching token data for chunk.', error);
                 }
             } finally {
-                // Wait for 200ms after each request to stay within the 300 requests/minute limit
-                await sleep(200);
+                // Wait for 1000ms after each request to stay within the 300 requests/minute limit
+                await sleep(1000);
             }
         }
         logger.info(`Finished DexScreener enrichment job. Processed approximately ${processedCount} out of ${tokenAddresses.length} requested tokens.`);
@@ -128,7 +128,7 @@ export class DexscreenerService {
             } catch (error) {
                 logger.error('Failed to fetch token prices for chunk.', error);
             } finally {
-                await sleep(200);
+                await sleep(1000);
             }
         }
         return prices;

@@ -307,6 +307,7 @@ model MappingActivityLog {
   smallOutgoingHeuristicApplied      Int
   skippedDuplicateRecordKey          Int
   countByInteractionType             Json // Stores the { [type: string]: number } object
+  unknownTxSkippedNoJito             Int  @default(0) // Number of UNKNOWN txs skipped for not interacting with Jito
 
   @@index([walletAddress])
   @@index([timestamp])
