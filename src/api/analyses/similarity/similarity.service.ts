@@ -11,6 +11,7 @@ import { WalletBalanceService } from '@/core/services/wallet-balance-service';
 import { CombinedSimilarityResult } from '@/types/similarity';
 import { DexscreenerService } from '../../dexscreener/dexscreener.service';
 import { TokenBalanceDetails } from '@/types/wallet';
+import { TokenInfo } from '@prisma/client';
 
 
 const logger = createLogger('SimilarityApiService');
@@ -125,19 +126,34 @@ export class SimilarityApiService {
             const allMints = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
             const uniqueMints = [...new Set(allMints)];
 
-            const [pricesMap, metadataMap] = await Promise.all([
-                this.dexscreenerService.getTokenPrices(uniqueMints),
-                this.tokenInfoService.findMany(uniqueMints).then(tokens => 
-                    new Map(tokens.map(t => [t.tokenAddress, t]))
-                )
-            ]);
+            // Step 1: Find all existing metadata in our database.
+            const existingMetadata = await this.tokenInfoService.findMany(uniqueMints);
+            const existingMetadataMap = new Map(existingMetadata.map(t => [t.tokenAddress, t]));
+            logger.info(`Found ${existingMetadataMap.size} existing token metadata records in the database.`);
 
+            // Step 2: Identify mints that need fetching.
+            const mintsNeedingMetadata = uniqueMints.filter(mint => !existingMetadataMap.has(mint));
+            logger.info(`Identified ${mintsNeedingMetadata.length} new tokens requiring metadata fetch.`);
+
+            // Step 3: Fetch prices and trigger metadata saving in parallel.
+            // We don't await the metadata fetch directly as it's fire-and-forget.
+            // We will re-query for the full list after.
+            const [pricesMap, _] = await Promise.all([
+                this.dexscreenerService.getTokenPrices(uniqueMints),
+                this.dexscreenerService.fetchAndSaveTokenInfo(mintsNeedingMetadata),
+            ]);
+            
+            // Step 4: Re-query the database to get all metadata (including newly fetched).
+            const allMetadata = await this.tokenInfoService.findMany(uniqueMints);
+            const combinedMetadataMap = new Map(allMetadata.map(t => [t.tokenAddress, t]));
+
+            // Step 5: Enrich the original balances object.
             const enrichedBalances = { ...walletBalances };
             for (const walletAddress in enrichedBalances) {
                 const balanceData = enrichedBalances[walletAddress];
                 balanceData.tokenBalances = balanceData.tokenBalances.map((tb: any) => {
                     const price = pricesMap.get(tb.mint);
-                    const metadata = metadataMap.get(tb.mint);
+                    const metadata: TokenInfo | undefined = combinedMetadataMap.get(tb.mint);
                     const valueUsd = (tb.uiBalance && price) ? tb.uiBalance * price : null;
                     
                     return { 

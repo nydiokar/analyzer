@@ -60,13 +60,13 @@ export default function AnalysisLabPage() {
 
   useEffect(() => {
     if (analysisResult) {
-      localStorage.setItem('analysisResult', JSON.stringify(analysisResult));
+      // localStorage.setItem('analysisResult', JSON.stringify(analysisResult)); // This line causes storage quota errors
       if (analysisResult?.walletBalances) {
         // Start with raw balances, clear old enriched data on new analysis
         setEnrichedBalances(analysisResult.walletBalances);
       }
     } else {
-      localStorage.removeItem('analysisResult');
+      // localStorage.removeItem('analysisResult');
       setEnrichedBalances(null);
     }
   }, [analysisResult]);
@@ -286,7 +286,7 @@ export default function AnalysisLabPage() {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Populates the Contextual Holdings card with the latest token prices and metadata.</p>
+                    <p>Populates the Contextual Holdings with the latest token prices and metadata.</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
