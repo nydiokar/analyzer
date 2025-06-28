@@ -107,6 +107,33 @@ export class DexscreenerService {
         logger.info(`Finished DexScreener enrichment job. Processed approximately ${processedCount} out of ${tokenAddresses.length} requested tokens.`);
     }
 
+    async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
+        if (tokenAddresses.length === 0) {
+            return new Map();
+        }
+        const prices = new Map<string, number>();
+        const chunks = this.chunkArray(tokenAddresses, 30);
+
+        for (const chunk of chunks) {
+            try {
+                const url = `${this.baseUrl}/dex/tokens/${chunk.join(',')}`;
+                const response = await firstValueFrom(this.httpService.get(url));
+                const pairs: DexScreenerPair[] = response.data?.pairs || [];
+
+                for (const pair of pairs) {
+                    if (pair.priceUsd && pair.baseToken.address && !prices.has(pair.baseToken.address)) {
+                        prices.set(pair.baseToken.address, parseFloat(pair.priceUsd));
+                    }
+                }
+            } catch (error) {
+                logger.error('Failed to fetch token prices for chunk.', error);
+            } finally {
+                await sleep(200);
+            }
+        }
+        return prices;
+    }
+
     private transformPairsToTokenInfo(pairs: DexScreenerPair[], requestedAddresses: string[]): Prisma.TokenInfoCreateInput[] {
         const tokenInfoMap = new Map<string, Prisma.TokenInfoCreateInput>();
 

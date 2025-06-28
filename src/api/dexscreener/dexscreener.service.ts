@@ -24,4 +24,12 @@ export class DexscreenerService {
     // Fire-and-forget
     this.coreDexscreenerService.fetchAndSaveTokenInfo(tokenAddresses);
   }
+
+  async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
+    this.logger.debug(`[NestWrapper] Passing ${tokenAddresses.length} tokens to core service for price fetching.`);
+    if (tokenAddresses.length === 0) {
+      return new Map();
+    }
+    return this.coreDexscreenerService.getTokenPrices(tokenAddresses);
+  }
 } 

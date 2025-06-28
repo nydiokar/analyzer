@@ -13,10 +13,10 @@ import { TokenInfoModule } from '../token-info/token-info.module';
 @Module({
   imports: [
     DatabaseModule, // For WalletsController direct use
-    TokenPerformanceModule,
-    BehaviorModule,
-    // Removed: AggregatedMetricsModule,
     PnlOverviewModule,
+    BehaviorModule,
+    TokenPerformanceModule,
+    // Removed: AggregatedMetricsModule,
     TokenInfoModule,
   ],
   controllers: [WalletsController],

@@ -4,6 +4,7 @@ import { ForbiddenExceptionFilter } from './api/common/filters/forbidden-excepti
 import { Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as dotenv from 'dotenv';
+import { json } from 'express';
 
 dotenv.config();
 
@@ -12,6 +13,8 @@ async function bootstrap() {
   const port = process.env.PORT || 3001;
 
   app.setGlobalPrefix('api/v1');
+
+  app.use(json({ limit: '5mb' }));
 
   // Secure CORS setup for production
   const frontendUrl = process.env.FRONTEND_URL;

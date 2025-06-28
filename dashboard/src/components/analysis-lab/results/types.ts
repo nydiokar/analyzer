@@ -100,6 +100,7 @@ export interface CombinedPairwiseSimilarity {
 
 export interface CombinedSimilarityResult {
   pairwiseSimilarities: CombinedPairwiseSimilarity[];
+  globalMetrics?: GlobalMetrics;
   walletVectorsUsed: Record<string, Record<string, number>>;
   uniqueTokensPerWallet: Record<string, { binary: number; capital: number }>;
   walletBalances?: Record<string, { tokenBalances: { mint: string }[] }>;

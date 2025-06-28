@@ -9,6 +9,8 @@ import { HeliusApiClient } from '@/core/services/helius-api-client';
 import { TokenInfoService } from '../../token-info/token-info.service';
 import { WalletBalanceService } from '@/core/services/wallet-balance-service';
 import { CombinedSimilarityResult } from '@/types/similarity';
+import { DexscreenerService } from '../../dexscreener/dexscreener.service';
+import { TokenBalanceDetails } from '@/types/wallet';
 
 
 const logger = createLogger('SimilarityApiService');
@@ -21,6 +23,7 @@ export class SimilarityApiService {
         private readonly databaseService: DatabaseService,
         private readonly heliusApiClient: HeliusApiClient,
         private readonly tokenInfoService: TokenInfoService,
+        private readonly dexscreenerService: DexscreenerService,
     ) {
         this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
     }
@@ -40,11 +43,11 @@ export class SimilarityApiService {
             };
 
             const similarityAnalyzer = new SimilarityService(this.databaseService, config);
-            const walletBalancesMap = await this.walletBalanceService.fetchWalletBalances(dto.walletAddresses);
+            const balancesMap = await this.walletBalanceService.fetchWalletBalances(dto.walletAddresses);
             
             const [binaryResults, capitalResults] = await Promise.all([
-                similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'binary', walletBalancesMap),
-                similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'capital', walletBalancesMap)
+                similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'binary', balancesMap),
+                similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'capital', balancesMap)
             ]);
 
             if (!binaryResults || !capitalResults) {
@@ -95,13 +98,23 @@ export class SimilarityApiService {
                 }),
                 walletVectorsUsed: capitalResults.walletVectorsUsed,
                 uniqueTokensPerWallet: combinedUniqueTokens,
+                walletBalances: Object.fromEntries(balancesMap),
             };
 
-            const balancesRecord: Record<string, any> = {};
-            walletBalancesMap.forEach((value, key) => {
-                balancesRecord[key] = value;
-            });
-            combinedResults.walletBalances = balancesRecord;
+            // Fetch live balances and prices
+            const allMints = Array.from(balancesMap.values()).flatMap(b => b.tokenBalances.map(t => t.mint));
+            const uniqueMints = [...new Set(allMints)];
+            const pricesMap = await this.dexscreenerService.getTokenPrices(uniqueMints);
+
+            // Enrich the balances with USD values
+            for (const balanceData of balancesMap.values()) {
+                const enrichedTokens = balanceData.tokenBalances.map(tb => {
+                    const price = pricesMap.get(tb.mint);
+                    const valueUsd = (tb.uiBalance && price) ? tb.uiBalance * price : null;
+                    return { ...tb, valueUsd };
+                });
+                balanceData.tokenBalances = enrichedTokens as (TokenBalanceDetails & { valueUsd: number | null; })[];
+            }
 
             return combinedResults;
         } catch (error) {
