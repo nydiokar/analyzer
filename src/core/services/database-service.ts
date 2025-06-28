@@ -22,6 +22,7 @@ import zlib from 'zlib'; // Added zlib
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import { NotFoundException, InternalServerErrorException, Injectable, ConflictException } from '@nestjs/common';
+import { WalletAnalysisStatus } from '@/types/wallet';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -85,7 +86,11 @@ export type WalletBehaviorProfileUpsertData = Omit<Prisma.WalletBehaviorProfileC
 
 interface WalletStatus {
   walletAddress: string;
-  exists: boolean;
+  status: WalletAnalysisStatus;
+}
+
+interface WalletStatusResponse {
+  statuses: WalletStatus[];
 }
 
 // --- DatabaseService Class ---
@@ -187,45 +192,61 @@ export class DatabaseService {
     // --- Wallet Status and Search Methods ---
 
     /**
-     * Checks a list of wallet addresses against the database to see which ones have been analyzed.
-     * A wallet is considered to exist or be "ready" if its analysis has been completed,
-     * indicated by the presence of an `analyzedTimestampEnd`.
+     * Checks a list of wallet addresses against the database for their analysis readiness.
+     * This method powers both the initial check (identifying stale/missing wallets) and
+     * the polling check (waiting for analysis to complete).
      * @param walletAddresses An array of wallet addresses to check.
-     * @returns An object containing an array of wallet statuses.
+     * @returns An object containing an array of detailed wallet statuses.
      */
-    async getWalletsStatus(walletAddresses: string[]): Promise<{ statuses: WalletStatus[] }> {
+    async getWalletsStatus(walletAddresses: string[]): Promise<WalletStatusResponse> {
         if (!walletAddresses || walletAddresses.length === 0) {
             return { statuses: [] };
         }
 
-        // this.logger.debug(`Checking analysis status for ${walletAddresses.length} wallets.`);
         try {
-            const foundWallets = await this.prismaClient.wallet.findMany({
-                where: {
-                    address: {
-                        in: walletAddresses,
-                    },
-                },
-                select: {
-                    address: true,
-                    analyzedTimestampEnd: true,
-                },
+            const latestRuns = await this.prismaClient.analysisRun.findMany({
+                where: { walletAddress: { in: walletAddresses } },
+                orderBy: { runTimestamp: 'desc' },
+                distinct: ['walletAddress'],
             });
 
-            const foundWalletsMap = new Map(foundWallets.map(w => [w.address, w]));
+            const foundWallets = await this.prismaClient.wallet.findMany({
+                where: { address: { in: walletAddresses } },
+                select: { address: true, analyzedTimestampEnd: true },
+            });
+
+            const latestRunMap = new Map(latestRuns.map(run => [run.walletAddress, run]));
+            const walletMap = new Map(foundWallets.map(w => [w.address, w]));
+            const stalenessThreshold = Date.now() / 1000 - (24 * 60 * 60); // 24 hours ago in seconds
 
             const statuses: WalletStatus[] = walletAddresses.map(addr => {
-                const foundWallet = foundWalletsMap.get(addr);
-                return {
-                    walletAddress: addr,
-                    exists: !!foundWallet && foundWallet.analyzedTimestampEnd !== null,
-                };
+                const latestRun = latestRunMap.get(addr);
+                const wallet = walletMap.get(addr);
+
+                if (!latestRun) {
+                    return { walletAddress: addr, status: WalletAnalysisStatus.MISSING };
+                }
+                
+                if (latestRun.status === 'IN_PROGRESS' || latestRun.status === 'INITIATED') {
+                    return { walletAddress: addr, status: WalletAnalysisStatus.IN_PROGRESS };
+                }
+
+                if (latestRun.status === 'FAILED') {
+                    // It failed, but we treat it as "finished" for polling.
+                    // The "staleness" check below will determine if we should retry.
+                }
+
+                // If the run is COMPLETED or FAILED, check for staleness.
+                if (!wallet?.analyzedTimestampEnd || wallet.analyzedTimestampEnd < stalenessThreshold) {
+                    return { walletAddress: addr, status: WalletAnalysisStatus.STALE };
+                }
+
+                return { walletAddress: addr, status: WalletAnalysisStatus.READY };
             });
-            
-            // this.logger.debug(`Finished checking status for ${walletAddresses.length} wallets.`);
+
             return { statuses };
         } catch (error) {
-            this.logger.error('Error checking wallet status', { error, walletAddresses });
+            this.logger.error('Error checking wallet status via AnalysisRun', { error, walletAddresses });
             throw new InternalServerErrorException('Could not check wallet status in database.');
         }
     }

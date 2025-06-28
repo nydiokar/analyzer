@@ -31,10 +31,7 @@ export interface SingleSimilarityResult {
     walletVectorsUsed: Record<string, TokenVector>;
     pairwiseSimilarities: CorePairwiseResult[];
     clusters: WalletCluster[];
-    globalMetrics: {
-        averageSimilarity: number;
-        mostSimilarPairs: CorePairwiseResult[];
-    };
+    globalMetrics: GlobalMetrics;
     jaccardSimilarityMatrix?: Record<string, Record<string, number>>;
     sharedTokenCountsMatrix?: Record<string, Record<string, number>>;
     uniqueTokensPerWallet: Record<string, number>;
@@ -42,6 +39,11 @@ export interface SingleSimilarityResult {
     vectorTypeUsed: 'capital' | 'binary';
     holdingsPresenceJaccardMatrix?: Record<string, Record<string, number>>;
     holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
+}
+
+export interface GlobalMetrics {
+    averageSimilarity: number;
+    mostSimilarPairs: CorePairwiseResult[];
 }
 
 
@@ -70,6 +72,7 @@ export interface CombinedPairwiseSimilarity {
 
 export interface CombinedSimilarityResult {
     pairwiseSimilarities: CombinedPairwiseSimilarity[];
+    globalMetrics: GlobalMetrics;
     walletVectorsUsed: Record<string, TokenVector>;
     uniqueTokensPerWallet: Record<string, { binary: number; capital: number }>;
     walletBalances?: Record<string, WalletBalance>;

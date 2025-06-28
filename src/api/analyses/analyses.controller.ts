@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, UseGuards, ServiceUnavailableException, Body, HttpCode, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Logger, UseGuards, ServiceUnavailableException, Body, HttpCode, BadRequestException, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../database/database.service';
@@ -40,6 +40,17 @@ export class AnalysesController {
   ): Promise<any> {
     this.logger.log(`Received request to run similarity analysis for ${dto.walletAddresses.length} wallets.`);
     return this.similarityApiService.runAnalysis(dto);
+  }
+
+  @Post('/similarity/enrich-balances')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({ summary: 'Enriches a given set of wallet balances with price and metadata.' })
+  @ApiResponse({ status: 200, description: 'Enrichment completed successfully.'})
+  async enrichWalletBalances(
+    @Body() body: { walletBalances: Record<string, any> }, // Define a more specific DTO for this if needed
+  ): Promise<any> {
+    this.logger.log(`Received request to enrich balances for ${Object.keys(body.walletBalances).length} wallets.`);
+    return this.similarityApiService.enrichBalances(body.walletBalances);
   }
 
   @Post('/wallets/status')
@@ -145,5 +156,9 @@ export class AnalysesController {
     const message = `Analysis for ${analysesToRun.length} wallet(s) has been triggered successfully. ${skippedAnalyses.length} were skipped as they were already in progress.`;
     this.logger.log(message);
     return { message, triggeredAnalyses: analysesToRun, skippedAnalyses };
+  }
+
+  public isAnalysisRunning(walletAddress: string): boolean {
+    return this.runningAnalyses.has(walletAddress);
   }
 } 

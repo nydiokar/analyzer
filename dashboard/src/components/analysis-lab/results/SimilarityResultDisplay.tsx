@@ -6,9 +6,10 @@ import { ContextualHoldingsCard } from './ContextualHoldingsCard';
 
 interface SimilarityResultDisplayProps {
   results: CombinedSimilarityResult;
+  enrichedBalances: Record<string, any> | null;
 }
 
-export function SimilarityResultDisplay({ results }: SimilarityResultDisplayProps) {
+export function SimilarityResultDisplay({ results, enrichedBalances }: SimilarityResultDisplayProps) {
   return (
     <div className="space-y-6">
       {results.globalMetrics && <GlobalMetricsCard metrics={results.globalMetrics} />}
@@ -18,11 +19,11 @@ export function SimilarityResultDisplay({ results }: SimilarityResultDisplayProp
           <EnhancedKeyInsights results={results} />
         </div>
         <div className="lg:col-span-1 space-y-6">
-          <MostCommonTokens results={results} />
+          <MostCommonTokens results={results} enrichedBalances={enrichedBalances} />
         </div>
       </div>
 
-      <ContextualHoldingsCard results={results} />
+      <ContextualHoldingsCard results={results} enrichedBalances={enrichedBalances} />
     </div>
   );
 } 

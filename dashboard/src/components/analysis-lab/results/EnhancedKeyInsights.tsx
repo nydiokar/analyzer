@@ -23,7 +23,7 @@ interface EnhancedKeyInsightsProps {
 type SortKey = 'binaryScore' | 'capitalScore';
 
 const INSIGHT_COLORS: Record<InsightType, string> = {
-    [InsightType.VeryHighSimilarity]: 'bg-red-500/20 text-red-700 border-red-500/30 hover:bg-red-500/30',
+    [InsightType.HighSimilarity]: 'bg-red-500/20 text-red-700 border-red-500/30 hover:bg-red-500/30',
     [InsightType.SustainedAlignment]: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30 hover:bg-emerald-500/30',
     [InsightType.SignificantAsymmetry]: 'bg-purple-500/20 text-purple-700 border-purple-500/30 hover:bg-purple-500/30',
     [InsightType.BehavioralMirror]: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30 hover:bg-indigo-500/30',
@@ -35,7 +35,7 @@ const getInsightIcon = (type: KeyInsight['type']) => {
   switch (type) {
     case 'Sustained Alignment': return '🤝';
     case 'Significant Asymmetry': return '⚖️';
-    case 'Very High Similarity': return '🔗';
+    case 'High Similarity': return '🔗';
     case 'Behavioral Mirror': return '👯';
     case 'Capital Divergence': return '💰';
     case 'Shared Zero Holdings': return '🚫';
@@ -249,7 +249,7 @@ export function EnhancedKeyInsights({ results }: EnhancedKeyInsightsProps) {
     const combinedData = filteredPairs.map(pair => {
       const pairKey = [pair.walletA, pair.walletB].sort().join('|');
       const insight = insightMap.get(pairKey) || {
-          type: InsightType.VeryHighSimilarity, 
+          type: InsightType.HighSimilarity, 
           wallets: [walletLabels[pair.walletA], walletLabels[pair.walletB]],
           score: Math.max(pair.binaryScore, pair.capitalScore),
           text: `Significant overlap found in trading patterns or capital deployment.`,

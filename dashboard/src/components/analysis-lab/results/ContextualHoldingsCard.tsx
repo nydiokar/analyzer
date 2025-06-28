@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Copy, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from 'next/link';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 // This type is now provided directly in CombinedSimilarityResult
 // interface EnrichedTokenBalance {
@@ -20,6 +21,7 @@ import Link from 'next/link';
 
 interface ContextualHoldingsCardProps {
   results: CombinedSimilarityResult;
+  enrichedBalances: Record<string, any> | null;
 }
 
 const truncateAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -40,7 +42,8 @@ const formatUsdValue = (value: number | null | undefined) => {
   }).format(value);
 };
 
-export function ContextualHoldingsCard({ results }: ContextualHoldingsCardProps) {
+export function ContextualHoldingsCard({ results, enrichedBalances }: ContextualHoldingsCardProps) {
+  const balancesSource = enrichedBalances || results.walletBalances;
   const { walletBalances, uniqueTokensPerWallet } = results;
   const { toast } = useToast();
 
@@ -49,20 +52,20 @@ export function ContextualHoldingsCard({ results }: ContextualHoldingsCardProps)
   // const [tokenValues, setTokenValues] = useState<Record<string, number | null>>({});
   // const [isLoading, setIsLoading] = useState(true);
 
-  if (!walletBalances || Object.keys(walletBalances).length === 0) {
+  if (!balancesSource) {
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle>Contextual Holdings</CardTitle>
-                 <CardDescription>
-                    Current token balances for analyzed wallets. This data was not provided in the analysis result.
-                </CardDescription>
-            </CardHeader>
-        </Card>
-    )
+      <Card>
+        <CardHeader>
+          <CardTitle>Contextual Wallet Holdings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground">Loading wallet holdings...</p>
+        </CardContent>
+      </Card>
+    );
   }
 
-  const wallets = Object.keys(walletBalances);
+  const walletAddresses = Object.keys(balancesSource);
 
   return (
     <Card>
@@ -74,8 +77,8 @@ export function ContextualHoldingsCard({ results }: ContextualHoldingsCardProps)
         </CardHeader>
         <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {wallets.map(walletAddress => {
-                    const balanceInfo = walletBalances[walletAddress];
+                {walletAddresses.map(walletAddress => {
+                    const balanceInfo = balancesSource[walletAddress];
                     const uniqueCounts = uniqueTokensPerWallet[walletAddress];
 
                     // Sort balances by USD value, descending. Null/undefined values go to the bottom.

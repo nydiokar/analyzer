@@ -10,10 +10,13 @@ import { fetcher } from '@/lib/fetcher';
 import { useToast } from '@/hooks/use-toast';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { useApiKeyStore } from '@/store/api-key-store';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+
+type WalletAnalysisStatus = 'READY' | 'STALE' | 'MISSING' | 'IN_PROGRESS';
 
 interface WalletStatus {
   walletAddress: string;
-  exists: boolean;
+  status: WalletAnalysisStatus;
 }
 
 interface WalletStatusResponse {
@@ -22,8 +25,10 @@ interface WalletStatusResponse {
 
 export default function AnalysisLabPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isEnriching, setIsEnriching] = useState(false);
   const [wallets, setWallets] = useState('');
   const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
+  const [enrichedBalances, setEnrichedBalances] = useState<Record<string, any> | null>(null);
   const [missingWallets, setMissingWallets] = useState<string[]>([]);
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
@@ -56,10 +61,39 @@ export default function AnalysisLabPage() {
   useEffect(() => {
     if (analysisResult) {
       localStorage.setItem('analysisResult', JSON.stringify(analysisResult));
+      if (analysisResult?.walletBalances) {
+        // Start with raw balances, clear old enriched data on new analysis
+        setEnrichedBalances(analysisResult.walletBalances);
+      }
     } else {
       localStorage.removeItem('analysisResult');
+      setEnrichedBalances(null);
     }
   }, [analysisResult]);
+
+  const handleEnrichData = async () => {
+    if (!analysisResult?.walletBalances) return;
+    setIsEnriching(true);
+    try {
+      const enrichedData = await fetcher('/analyses/similarity/enrich-balances', {
+        method: 'POST',
+        body: JSON.stringify({ walletBalances: analysisResult.walletBalances }),
+      });
+      setEnrichedBalances(enrichedData);
+      toast({
+        title: "Data Enriched",
+        description: "Token prices and metadata have been updated.",
+      });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: "Enrichment Failed",
+        description: "Could not fetch token prices and metadata.",
+      });
+    } finally {
+      setIsEnriching(false);
+    }
+  };
 
   const handleAnalyze = async () => {
     setIsLoading(true);
@@ -104,10 +138,12 @@ export default function AnalysisLabPage() {
         body: JSON.stringify({ walletAddresses: walletList }),
       });
       
-      const missing = statusResponse?.statuses?.filter((s) => !s.exists).map((s) => s.walletAddress) || [];
+      const walletsNeedingWork = statusResponse?.statuses
+        ?.filter((s) => s.status === 'STALE' || s.status === 'MISSING')
+        .map((s) => s.walletAddress) || [];
 
-      if (missing.length > 0) {
-        setMissingWallets(missing);
+      if (walletsNeedingWork.length > 0) {
+        setMissingWallets(walletsNeedingWork);
         setIsSyncDialogOpen(true);
         setIsLoading(false); // Stop loading while dialog is open
       } else {
@@ -156,15 +192,15 @@ export default function AnalysisLabPage() {
             body: JSON.stringify({ walletAddresses: allWallets }),
           });
 
-          const stillMissing = statusResponse?.statuses?.filter((s) => !s.exists).map((s) => s.walletAddress) ?? [];
+          const walletsStillSyncing = statusResponse?.statuses?.filter((s) => s.status === 'IN_PROGRESS').map((s) => s.walletAddress) ?? [];
 
-          if (stillMissing.length === 0) {
+          if (walletsStillSyncing.length === 0) {
             clearInterval(pollInterval);
             setSyncMessage('All wallets are synced. Running final analysis...');
             toast({ title: "Sync Complete!", description: "All wallets are now ready." });
             await runSimilarityAnalysis(allWallets);
           } else {
-            setSyncMessage(`Waiting for ${stillMissing.length} wallet(s) to sync... Checking again in 10 seconds.`);
+            setSyncMessage(`Waiting for ${walletsStillSyncing.length} wallet(s) to sync... Checking again in 10 seconds.`);
           }
         } catch (error: any) {
           clearInterval(pollInterval);
@@ -233,23 +269,40 @@ export default function AnalysisLabPage() {
         <p className="text-muted-foreground mb-4">
           Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
         </p>
-        <Textarea
-          value={wallets}
-          onChange={(e) => setWallets(e.target.value)}
-          placeholder="Enter wallet addresses, separated by commas, spaces, or new lines."
-          className="min-h-[70px] font-mono"
-        />
-        <div className="flex items-center justify-end mt-4">
+        <div className="relative">
+          <Textarea
+            value={wallets}
+            onChange={(e) => setWallets(e.target.value)}
+            placeholder="Enter wallet addresses, separated by commas, spaces, or new lines."
+            className="min-h-[70px] font-mono pr-24" // Add padding to avoid text overlapping button
+          />
+          <div className="absolute top-1/2 right-3 -translate-y-1/2 flex items-center space-x-2">
+            {analysisResult && !isEnriching && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button onClick={handleEnrichData} variant="outline" size="sm">
+                      Refresh Prices
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Populates the Contextual Holdings card with the latest token prices and metadata.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {isEnriching && <span className="text-sm text-muted-foreground">Loading...</span>}
             <Button onClick={handleAnalyze} disabled={isLoading}>
                 {isLoading ? 'Analyzing...' : 'Analyze'}
             </Button>
+          </div>
         </div>
         {syncMessage && <p className="mt-4 text-center text-sm text-muted-foreground">{syncMessage}</p>}
       </div>
 
       {analysisResult && (
         <div className="mt-6">
-           <SimilarityResultDisplay results={analysisResult} />
+          <SimilarityResultDisplay results={analysisResult} enrichedBalances={enrichedBalances} />
         </div>
       )}
 

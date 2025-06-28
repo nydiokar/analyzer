@@ -35,7 +35,7 @@ export enum InsightType {
   CapitalDivergence = 'Capital Divergence',
   SustainedAlignment = 'Sustained Alignment',
   SignificantAsymmetry = 'Significant Asymmetry',
-  VeryHighSimilarity = 'Very High Similarity',
+  HighSimilarity = 'High Similarity',
   SharedZeroHoldings = 'Shared Zero Holdings',
 }
 

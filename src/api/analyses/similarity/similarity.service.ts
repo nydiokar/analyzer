@@ -44,51 +44,26 @@ export class SimilarityApiService {
 
             const similarityAnalyzer = new SimilarityService(this.databaseService, config);
             const balancesMap = await this.walletBalanceService.fetchWalletBalances(dto.walletAddresses);
-            
-            // --- Start: Data Enrichment ---
-            // Enrich balances with prices and metadata BEFORE analysis and response creation.
-            const allMints = Array.from(balancesMap.values()).flatMap(b => b.tokenBalances.map(t => t.mint));
-            const uniqueMints = [...new Set(allMints)];
 
-            // Parallelize fetching prices and metadata
-            const [pricesMap, metadataMap] = await Promise.all([
-                this.dexscreenerService.getTokenPrices(uniqueMints),
-                this.tokenInfoService.findMany(uniqueMints).then(tokens => 
-                    new Map(tokens.map(t => [t.tokenAddress, t]))
-                )
-            ]);
-
-            // Inject the enriched data back into the balancesMap
-            for (const balanceData of balancesMap.values()) {
-                const enrichedTokens: TokenBalanceDetails[] = balanceData.tokenBalances.map(tb => {
-                    const price = pricesMap.get(tb.mint);
-                    const metadata = metadataMap.get(tb.mint);
-                    const valueUsd = (tb.uiBalance && price) ? tb.uiBalance * price : null;
-                    
-                    return { 
-                        ...tb, 
-                        valueUsd,
-                        name: metadata?.name,
-                        symbol: metadata?.symbol,
-                        imageUrl: metadata?.imageUrl,
-                        websiteUrl: metadata?.websiteUrl,
-                        twitterUrl: metadata?.twitterUrl,
-                        telegramUrl: metadata?.telegramUrl,
-                    };
-                });
-                balanceData.tokenBalances = enrichedTokens;
-            }
-            // --- End: Data Enrichment ---
-
-            const [binaryResults, capitalResults] = await Promise.all([
+            // --- Start: Parallel Execution ---
+            // Kick off the core analysis.
+            const analysisPromise = Promise.all([
                 similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'binary', balancesMap),
                 similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'capital', balancesMap)
             ]);
+            // --- End: Parallel Execution ---
 
+            // --- Await Core Analysis ---
+            const [binaryResults, capitalResults] = await analysisPromise;
+            
             if (!binaryResults || !capitalResults) {
                 logger.warn(`Similarity analysis for wallets returned no results.`, { wallets: dto.walletAddresses });
                 throw new InternalServerErrorException('Analysis produced no results.');
             }
+
+            // --- Await Enrichment and Combine (if needed, but for now we send raw balances) ---
+            // For this optimization, we will NOT wait for the enrichmentPromise here.
+            // The frontend will be responsible for fetching enriched data separately.
 
             const combinedUniqueTokens: Record<string, { binary: number; capital: number }> = {};
             const allWallets = new Set([...Object.keys(binaryResults.uniqueTokensPerWallet), ...Object.keys(capitalResults.uniqueTokensPerWallet)]);
@@ -131,6 +106,7 @@ export class SimilarityApiService {
                         capitalUniqueTokenCountB: capitalPair?.uniqueTokenCountB || 0,
                     };
                 }),
+                globalMetrics: capitalResults.globalMetrics,
                 walletVectorsUsed: capitalResults.walletVectorsUsed,
                 uniqueTokensPerWallet: combinedUniqueTokens,
                 walletBalances: Object.fromEntries(balancesMap),
@@ -140,6 +116,43 @@ export class SimilarityApiService {
         } catch (error) {
             logger.error(`Error running similarity analysis for wallets: ${dto.walletAddresses.join(', ')}`, { error });
             throw new InternalServerErrorException('An error occurred while running the similarity analysis.');
+        }
+    }
+
+    async enrichBalances(walletBalances: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>): Promise<Record<string, any>> {
+        logger.info(`Enriching balances for ${Object.keys(walletBalances).length} wallets.`);
+        try {
+            const allMints = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
+            const uniqueMints = [...new Set(allMints)];
+
+            const [pricesMap, metadataMap] = await Promise.all([
+                this.dexscreenerService.getTokenPrices(uniqueMints),
+                this.tokenInfoService.findMany(uniqueMints).then(tokens => 
+                    new Map(tokens.map(t => [t.tokenAddress, t]))
+                )
+            ]);
+
+            const enrichedBalances = { ...walletBalances };
+            for (const walletAddress in enrichedBalances) {
+                const balanceData = enrichedBalances[walletAddress];
+                balanceData.tokenBalances = balanceData.tokenBalances.map((tb: any) => {
+                    const price = pricesMap.get(tb.mint);
+                    const metadata = metadataMap.get(tb.mint);
+                    const valueUsd = (tb.uiBalance && price) ? tb.uiBalance * price : null;
+                    
+                    return { 
+                        ...tb, 
+                        valueUsd,
+                        name: metadata?.name,
+                        symbol: metadata?.symbol,
+                        imageUrl: metadata?.imageUrl,
+                    };
+                });
+            }
+            return enrichedBalances;
+        } catch (error) {
+            logger.error('Error enriching wallet balances', { error });
+            throw new InternalServerErrorException('An error occurred while enriching balances.');
         }
     }
 } 

@@ -14,33 +14,35 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface MostCommonTokensProps {
   results: CombinedSimilarityResult;
+  enrichedBalances: Record<string, any> | null;
 }
 
-export function MostCommonTokens({ results }: MostCommonTokensProps) {
+// Function to build a lookup map for token metadata from enriched balances
+const buildTokenMetadataMap = (enrichedBalances: Record<string, any> | null) => {
+    const map = new Map<string, { name?: string; symbol?: string; imageUrl?: string, websiteUrl?: string; twitterUrl?: string; telegramUrl?: string; }>();
+    if (!enrichedBalances) return map;
+
+    for (const wallet of Object.values(enrichedBalances)) {
+        for (const token of wallet.tokenBalances) {
+            if (token.mint && !map.has(token.mint)) {
+                map.set(token.mint, {
+                    name: token.name,
+                    symbol: token.symbol,
+                    imageUrl: token.imageUrl,
+                    websiteUrl: token.websiteUrl,
+                    twitterUrl: token.twitterUrl,
+                    telegramUrl: token.telegramUrl,
+                });
+            }
+        }
+    }
+    return map;
+};
+
+export function MostCommonTokens({ results, enrichedBalances }: MostCommonTokensProps) {
     const { toast } = useToast();
 
-    // The data is now pre-enriched, so we can build the info map directly.
-    const tokenInfoMap = useMemo(() => {
-        const map = new Map<string, TokenInfo>();
-        if (!results.walletBalances) return map;
-
-        Object.values(results.walletBalances).forEach(balance => {
-            balance.tokenBalances.forEach(token => {
-                if (!map.has(token.mint)) {
-                    map.set(token.mint, {
-                        tokenAddress: token.mint,
-                        name: token.name,
-                        symbol: token.symbol,
-                        imageUrl: token.imageUrl,
-                        websiteUrl: token.websiteUrl,
-                        twitterUrl: token.twitterUrl,
-                        telegramUrl: token.telegramUrl,
-                    });
-                }
-            });
-        });
-        return map;
-    }, [results.walletBalances]);
+    const tokenMetadataMap = buildTokenMetadataMap(enrichedBalances);
 
     const commonTokens = useMemo(() => {
         const tokenMap = new Map<string, Set<string>>();
@@ -91,10 +93,11 @@ export function MostCommonTokens({ results }: MostCommonTokensProps) {
                 <ScrollArea className="h-[400px]">
                     <ul className="space-y-3">
                         {commonTokens.map((token) => {
-                            const info = tokenInfoMap.get(token.mint);
-                            const tokenName = info?.name || 'Unknown Token';
-                            const tokenSymbol = info?.symbol || shortenAddress(token.mint, 4);
-                            const isLoading = !info && tokenName === 'Unknown Token';
+                            const metadata = tokenMetadataMap.get(token.mint);
+                            const tokenName = metadata?.name || 'Unknown Token';
+                            const tokenSymbol = metadata?.symbol ? `.${metadata.symbol}` : '';
+                            const shortAddress = `${token.mint.slice(0, 4)}...${token.mint.slice(-4)}`;
+                            const isLoading = !metadata && tokenName === 'Unknown Token';
 
                             return (
                                 <li key={token.mint} className="text-sm flex justify-between items-center border-b pb-2">
@@ -102,7 +105,7 @@ export function MostCommonTokens({ results }: MostCommonTokensProps) {
                                         <PopoverTrigger asChild>
                                             <div className="flex items-center gap-3 flex-grow min-w-0 cursor-pointer">
                                                 <Avatar className="h-8 w-8">
-                                                    {isLoading ? <Skeleton className="h-8 w-8 rounded-full" /> : <AvatarImage src={info?.imageUrl ?? undefined} alt={tokenName} />}
+                                                    {isLoading ? <Skeleton className="h-8 w-8 rounded-full" /> : <AvatarImage src={metadata?.imageUrl ?? undefined} alt={tokenName} />}
                                                     <AvatarFallback>{tokenName.charAt(0)}</AvatarFallback>
                                                 </Avatar>
                                                 <div className="flex-grow min-w-0">
@@ -116,20 +119,20 @@ export function MostCommonTokens({ results }: MostCommonTokensProps) {
                                                             </TooltipContent>
                                                         </Tooltip>
                                                     </TooltipProvider>
-                                                    <div className="text-muted-foreground truncate">{tokenSymbol}</div>
+                                                    <div className="text-muted-foreground truncate">{shortAddress}{tokenSymbol}</div>
                                                 </div>
                                             </div>
                                         </PopoverTrigger>
                                         <PopoverContent className="w-auto p-2">
                                             <div className="space-y-2">
-                                                <div className="font-bold text-sm">{info?.name || 'Unknown Token'}</div>
+                                                <div className="font-bold text-sm">{tokenName}</div>
                                                 <div className="text-xs text-muted-foreground break-all">{token.mint}</div>
                                                 <div className="flex items-center gap-1 pt-1">
                                                     <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => { navigator.clipboard.writeText(token.mint); toast({ description: "Copied!" })}}><Copy className="h-3 w-3 mr-1"/>Copy</Button>
                                                     <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${token.mint}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3 w-3 mr-1"/>Solscan</a></Button>
-                                                    {info?.websiteUrl && <Button variant="ghost" size="icon" className="h-7 w-7" asChild><a href={info.websiteUrl} target="_blank" rel="noopener noreferrer"><Globe className="h-4 w-4"/></a></Button>}
-                                                    {info?.twitterUrl && <Button variant="ghost" size="icon" className="h-7 w-7" asChild><a href={info.twitterUrl} target="_blank" rel="noopener noreferrer"><Twitter className="h-4 w-4"/></a></Button>}
-                                                    {info?.telegramUrl && <Button variant="ghost" size="icon" className="h-7 w-7" asChild><a href={info.telegramUrl} target="_blank" rel="noopener noreferrer"><Send className="h-4 w-4"/></a></Button>}
+                                                    {metadata?.websiteUrl && <Button variant="ghost" size="icon" className="h-7 w-7" asChild><a href={metadata.websiteUrl} target="_blank" rel="noopener noreferrer"><Globe className="h-4 w-4"/></a></Button>}
+                                                    {metadata?.twitterUrl && <Button variant="ghost" size="icon" className="h-7 w-7" asChild><a href={metadata.twitterUrl} target="_blank" rel="noopener noreferrer"><Twitter className="h-4 w-4"/></a></Button>}
+                                                    {metadata?.telegramUrl && <Button variant="ghost" size="icon" className="h-7 w-7" asChild><a href={metadata.telegramUrl} target="_blank" rel="noopener noreferrer"><Send className="h-4 w-4"/></a></Button>}
                                                 </div>
                                             </div>
                                         </PopoverContent>

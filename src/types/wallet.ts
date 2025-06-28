@@ -37,6 +37,13 @@ export interface WalletBalance {
   fetchedAt: Date; // Timestamp of when the data was fetched
 }
 
+export enum WalletAnalysisStatus {
+  READY = 'READY',
+  STALE = 'STALE',
+  MISSING = 'MISSING',
+  IN_PROGRESS = 'IN_PROGRESS',
+}
+
 // Additional types for more detailed wallet information, if needed in the future
 // ... existing code ...
 
