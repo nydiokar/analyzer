@@ -12,7 +12,14 @@ interface SimilarityResultDisplayProps {
 export function SimilarityResultDisplay({ results, enrichedBalances }: SimilarityResultDisplayProps) {
   return (
     <div className="space-y-6">
-      {results.globalMetrics && <GlobalMetricsCard metrics={results.globalMetrics} />}
+      {results.globalMetrics && (
+        <GlobalMetricsCard
+          metrics={results.globalMetrics}
+          pairwiseSimilarities={results.pairwiseSimilarities}
+          walletBalances={enrichedBalances}
+          walletVectorsUsed={results.walletVectorsUsed}
+        />
+      )}
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
