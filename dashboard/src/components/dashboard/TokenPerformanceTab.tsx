@@ -321,7 +321,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const { startDate, endDate } = useTimeRangeStore();
   const { apiKey, isInitialized } = useApiKeyStore();
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10); // Reduced initial page size for better LCP
+  const [pageSize, setPageSize] = useState(20); // Initial page size
   const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
   const [sortOrder, setSortOrder] = useState('DESC');
   const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
@@ -574,7 +574,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   }
 
   return (
-    <Card className="p-0 md:p-0 mt-0 flex-1 flex flex-col">
+    <Card className="p-0 md:p-0 mt-0 flex flex-col">
       <div className="px-4 py-3 border-b">
         <Flex flexDirection="row" alignItems="center" justifyContent="between" className="gap-2 flex-wrap">
           <Flex flexDirection="row" alignItems="center" className="gap-2 flex-wrap">
@@ -605,7 +605,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
         </Flex>
       </div>
       
-      <div className="flex-1 overflow-x-auto">
+      <div className="overflow-x-auto">
         <Table className="min-w-full">
           <TableHeader>
             <TableRow>
@@ -632,7 +632,6 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
               <Select value={pageSize.toString()} onValueChange={(value) => startTransition(() => { setPageSize(Number(value)); setPage(1); })}>
                 <SelectTrigger className="w-16 h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="10">10</SelectItem>
                   <SelectItem value="20">20</SelectItem>
                   <SelectItem value="50">50</SelectItem>
                   <SelectItem value="100">100</SelectItem>

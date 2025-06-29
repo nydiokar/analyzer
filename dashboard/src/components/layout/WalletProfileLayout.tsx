@@ -557,7 +557,7 @@ export default function WalletProfileLayout({
             </div>
           </TabsContent>
 
-          <TabsContent value="token-performance" className="mt-0 p-0 flex-1 flex flex-col">
+          <TabsContent value="token-performance" className="mt-0 p-0 flex flex-col">
             <TokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} />
           </TabsContent>
 
