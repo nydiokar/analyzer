@@ -9,6 +9,8 @@ import {
   TooltipComponentOption,
   LegendComponent,
   LegendComponentOption,
+  VisualMapComponent,
+  VisualMapComponentOption,
 } from 'echarts/components';
 import { BarChart, BarSeriesOption, HeatmapChart, HeatmapSeriesOption, LineChart, LineSeriesOption, CustomChart, CustomSeriesOption } from 'echarts/charts';
 import { UniversalTransition } from 'echarts/features';
@@ -20,6 +22,7 @@ echarts.use([
   GridComponent,
   TooltipComponent,
   LegendComponent,
+  VisualMapComponent,
   BarChart,
   LineChart,
   HeatmapChart,

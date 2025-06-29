@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, memo, startTransition, useDeferredValue } from 'react';
 import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store'; 
 import { Card, Text, Flex } from '@tremor/react';
@@ -67,6 +67,144 @@ import {
   Send,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+
+// Enhanced spam detection using DexScreener data and transaction patterns  
+// MOVED OUTSIDE COMPONENT TO PREVENT RE-CREATION ON EVERY RENDER
+const analyzeTokenSpamRisk = (token: TokenPerformanceDataDto): {
+  riskLevel: 'safe' | 'high-risk';
+  riskScore: number;
+  reasons: string[];
+  primaryReason: string;
+} => {
+  let riskScore = 0;
+  const reasons: string[] = [];
+  
+  // Whitelist of well-known legitimate tokens (by symbol or name)
+  const LEGITIMATE_TOKENS = [
+    'SOL', 'USDC', 'USDT', 'BTC', 'ETH', 'WBTC', 'WETH', 'RAY', 'SRM', 'FTT',
+    'MNGO', 'STEP', 'ROPE', 'COPE', 'FIDA', 'KIN', 'MAPS', 'OXY', 'MEDIA',
+    'Wrapped SOL', 'USD Coin', 'Tether USD', 'Bitcoin', 'Ethereum', 'Wrapped Bitcoin',
+    'Raydium', 'Serum', 'FTX Token', 'Mango', 'Step Finance', 'Rope Token'
+  ];
+  
+  // If it's a legitimate token, mark as safe regardless of other factors
+  if (token.symbol && LEGITIMATE_TOKENS.includes(token.symbol)) {
+    return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'], primaryReason: 'Whitelisted legitimate token' };
+  }
+  if (token.name && LEGITIMATE_TOKENS.includes(token.name)) {
+    return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'], primaryReason: 'Whitelisted legitimate token' };
+  }
+  
+  const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
+  const totalSpent = token.totalSolSpent ?? 0;
+  const totalReceived = token.totalSolReceived ?? 0;
+  const netPnl = token.netSolProfitLoss ?? 0;
+  const transfersIn = token.transferCountIn ?? 0;
+  const transfersOut = token.transferCountOut ?? 0;
+  const totalTransfers = transfersIn + transfersOut;
+
+  // ULTIMATE SCAM PATTERN: Single transaction with zero SOL movement
+  if (totalTransfers === 1 && totalSpent === 0 && totalReceived === 0) {
+    riskScore += 85;
+    reasons.push('Airdrop scam (1 tx, no SOL movement)');
+  }
+
+  // Honeypot detection: Only spent SOL, never received SOL from selling
+  if (transfersIn > 0 && transfersOut === 0 && totalSpent > 0.01 && totalReceived === 0) {
+    riskScore += 45;
+    reasons.push('Potential honeypot (can buy, cannot sell)');
+  }
+
+  // Failed exit patterns: Multiple attempts to sell with minimal success
+  if (transfersOut >= 3 && totalReceived < (totalSpent * 0.1) && totalSpent > 0.05) {
+    riskScore += 35;
+    reasons.push('Failed exit attempts (multiple sells, minimal returns)');
+  }
+
+  // High-frequency micro transactions (potential bot/scam activity)
+  if (totalTransfers >= 10 && totalSpent < 0.1 && totalReceived < 0.1) {
+    riskScore += 60;
+    reasons.push('Bot activity (high frequency micro-transactions)');
+  }
+
+  // Dust attack pattern: Very small amounts with no real trading activity
+  if (totalSpent < 0.001 && totalReceived < 0.001 && totalTransfers > 0) {
+    riskScore += 30;
+    reasons.push('Dust attack pattern');
+  }
+
+  // Pump and dump pattern: Quick buy followed by immediate sell attempt
+  if (transfersIn === 1 && transfersOut >= 1 && token.firstTransferTimestamp && token.lastTransferTimestamp) {
+    const tradingDuration = token.lastTransferTimestamp - token.firstTransferTimestamp;
+    if (tradingDuration < 3600 && totalReceived < (totalSpent * 0.5)) {
+      riskScore += 25;
+      reasons.push('Pump & dump pattern (rapid trading, big loss)');
+    }
+  }
+
+  // Very recent token activity (less than 24 hours) with unknown metadata
+  const now = Date.now() / 1000;
+  if (isUnknown && token.firstTransferTimestamp && (now - token.firstTransferTimestamp) < (24 * 60 * 60)) {
+    riskScore += 15;
+    reasons.push('Very recent token (<24h old)');
+  }
+
+  // No social links or web presence for unknown tokens
+  if (isUnknown && !token.websiteUrl && !token.twitterUrl && !token.telegramUrl) {
+    riskScore += 20;
+    reasons.push('No web presence or social links');
+  }
+
+  // Unknown token metadata (base risk) - only add if no other significant reasons
+  if (isUnknown && reasons.length === 0) {
+    riskScore += 25;
+    reasons.push('Unknown token metadata');
+  }
+
+  // DexScreener data integration for enhanced risk assessment
+  if ((token as any).marketCapUsd && (token as any).marketCapUsd < 10000) {
+    riskScore += 30;
+    const marketCapK = ((token as any).marketCapUsd / 1000).toFixed(1);
+    reasons.push(`Very low market cap ($${marketCapK}K)`);
+  }
+  
+  if ((token as any).liquidityUsd && (token as any).liquidityUsd < 1000) {
+    riskScore += 25;
+    const liquidityK = ((token as any).liquidityUsd / 1000).toFixed(1);
+    reasons.push(`Very low liquidity ($${liquidityK}K)`);
+  }
+
+  // Very new trading pair (less than 7 days old)
+  if ((token as any).pairCreatedAt) {
+    const pairAge = (Date.now() - (token as any).pairCreatedAt) / (1000 * 60 * 60 * 24);
+    if (pairAge < 7) {
+      riskScore += 20;
+      reasons.push(`Very new trading pair (${pairAge.toFixed(1)} days old)`);
+    }
+  }
+
+  // No trading volume (dead token)
+  if ((token as any).volume24h !== undefined && (token as any).volume24h < 100) {
+    riskScore += 15;
+    reasons.push('Very low trading volume (<$100/24h)');
+  }
+
+  // Cap risk score at 100 to avoid confusion
+  riskScore = Math.min(riskScore, 100);
+
+  // Determine risk level
+  let riskLevel: 'safe' | 'high-risk';
+  if (riskScore >= 35) {
+    riskLevel = 'high-risk';
+  } else {
+    riskLevel = 'safe';
+  }
+
+  // Get the most important reason (first one is usually most critical)
+  const primaryReason = reasons.length > 0 ? reasons[0] : 'Low risk score';
+
+  return { riskLevel, riskScore, reasons, primaryReason };
+};
 
 interface TokenPerformanceTabProps {
   walletAddress: string;
@@ -179,150 +317,11 @@ const COLUMN_DEFINITIONS = [
   { id: 'lastTransferTimestamp', name: 'Last Trade', isSortable: true, className: 'text-center', icon: CalendarDaysIcon }, 
 ];
 
-// Enhanced spam detection using DexScreener data and transaction patterns
-const analyzeTokenSpamRisk = (token: TokenPerformanceDataDto): {
-  riskLevel: 'safe' | 'high-risk';
-  riskScore: number;
-  reasons: string[];
-  primaryReason: string;
-} => {
-  let riskScore = 0;
-  const reasons: string[] = [];
-  
-  // Whitelist of well-known legitimate tokens (by symbol or name)
-  const LEGITIMATE_TOKENS = [
-    'SOL', 'USDC', 'USDT', 'BTC', 'ETH', 'WBTC', 'WETH', 'RAY', 'SRM', 'FTT',
-    'MNGO', 'STEP', 'ROPE', 'COPE', 'FIDA', 'KIN', 'MAPS', 'OXY', 'MEDIA',
-    'Wrapped SOL', 'USD Coin', 'Tether USD', 'Bitcoin', 'Ethereum', 'Wrapped Bitcoin',
-    'Raydium', 'Serum', 'FTX Token', 'Mango', 'Step Finance', 'Rope Token'
-  ];
-  
-  // If it's a legitimate token, mark as safe regardless of other factors
-  if (token.symbol && LEGITIMATE_TOKENS.includes(token.symbol)) {
-    return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'], primaryReason: 'Whitelisted legitimate token' };
-  }
-  if (token.name && LEGITIMATE_TOKENS.includes(token.name)) {
-    return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'], primaryReason: 'Whitelisted legitimate token' };
-  }
-  
-  const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
-  const totalSpent = token.totalSolSpent ?? 0;
-  const totalReceived = token.totalSolReceived ?? 0;
-  const netPnl = token.netSolProfitLoss ?? 0;
-  const transfersIn = token.transferCountIn ?? 0;
-  const transfersOut = token.transferCountOut ?? 0;
-  const totalTransfers = transfersIn + transfersOut;
-
-  // ULTIMATE SCAM PATTERN: Single transaction with zero SOL movement
-  // This is the most obvious scam pattern based on user observation
-  if (totalTransfers === 1 && totalSpent === 0 && totalReceived === 0) {
-    riskScore += 85; // Very high score for this obvious pattern
-    reasons.push('Airdrop scam (1 tx, no SOL movement)');
-  }
-
-  // Honeypot detection: Only spent SOL, never received SOL from selling
-  // This indicates potential honeypot where you can buy but not sell
-  if (transfersIn > 0 && transfersOut === 0 && totalSpent > 0.01 && totalReceived === 0) {
-    riskScore += 45; // Increased importance
-    reasons.push('Potential honeypot (can buy, cannot sell)');
-  }
-
-  // Failed exit patterns: Multiple attempts to sell with minimal success
-  if (transfersOut >= 3 && totalReceived < (totalSpent * 0.1) && totalSpent > 0.05) {
-    riskScore += 35;
-    reasons.push('Failed exit attempts (multiple sells, minimal returns)');
-  }
-
-  // High-frequency micro transactions (potential bot/scam activity)
-  if (totalTransfers >= 10 && totalSpent < 0.1 && totalReceived < 0.1) {
-    riskScore += 60;
-    reasons.push('Bot activity (high frequency micro-transactions)');
-  }
-
-  // Dust attack pattern: Very small amounts with no real trading activity
-  if (totalSpent < 0.001 && totalReceived < 0.001 && totalTransfers > 0) {
-    riskScore += 30;
-    reasons.push('Dust attack pattern');
-  }
-
-  // Pump and dump pattern: Quick buy followed by immediate sell attempt
-  if (transfersIn === 1 && transfersOut >= 1 && token.firstTransferTimestamp && token.lastTransferTimestamp) {
-    const tradingDuration = token.lastTransferTimestamp - token.firstTransferTimestamp;
-    if (tradingDuration < 3600 && totalReceived < (totalSpent * 0.5)) { // Less than 1 hour, big loss
-      riskScore += 25;
-      reasons.push('Pump & dump pattern (rapid trading, big loss)');
-    }
-  }
-
-  // Very recent token activity (less than 24 hours) with unknown metadata
-  const now = Date.now() / 1000;
-  if (isUnknown && token.firstTransferTimestamp && (now - token.firstTransferTimestamp) < (24 * 60 * 60)) {
-    riskScore += 15;
-    reasons.push('Very recent token (<24h old)');
-  }
-
-  // No social links or web presence for unknown tokens
-  if (isUnknown && !token.websiteUrl && !token.twitterUrl && !token.telegramUrl) {
-    riskScore += 20; // Increased importance
-    reasons.push('No web presence or social links');
-  }
-
-  // Unknown token metadata (base risk) - only add if no other significant reasons
-  if (isUnknown && reasons.length === 0) {
-    riskScore += 25;
-    reasons.push('Unknown token metadata');
-  }
-
-  // DexScreener data integration for enhanced risk assessment
-  if ((token as any).marketCapUsd && (token as any).marketCapUsd < 10000) {
-    riskScore += 30;
-    const marketCapK = ((token as any).marketCapUsd / 1000).toFixed(1);
-    reasons.push(`Very low market cap ($${marketCapK}K)`);
-  }
-  
-  if ((token as any).liquidityUsd && (token as any).liquidityUsd < 1000) {
-    riskScore += 25;
-    const liquidityK = ((token as any).liquidityUsd / 1000).toFixed(1);
-    reasons.push(`Very low liquidity ($${liquidityK}K)`);
-  }
-
-  // Very new trading pair (less than 7 days old)
-  if ((token as any).pairCreatedAt) {
-    const pairAge = (Date.now() - (token as any).pairCreatedAt) / (1000 * 60 * 60 * 24); // days
-    if (pairAge < 7) {
-      riskScore += 20;
-      reasons.push(`Very new trading pair (${pairAge.toFixed(1)} days old)`);
-    }
-  }
-
-  // No trading volume (dead token)
-  if ((token as any).volume24h !== undefined && (token as any).volume24h < 100) {
-    riskScore += 15;
-    reasons.push('Very low trading volume (<$100/24h)');
-  }
-
-  // Cap risk score at 100 to avoid confusion
-  riskScore = Math.min(riskScore, 100);
-
-  // Determine risk level - lowered threshold to catch more scams
-  let riskLevel: 'safe' | 'high-risk';
-  if (riskScore >= 35) {
-    riskLevel = 'high-risk';
-  } else {
-    riskLevel = 'safe';
-  }
-
-  // Get the most important reason (first one is usually most critical)
-  const primaryReason = reasons.length > 0 ? reasons[0] : 'Low risk score';
-
-  return { riskLevel, riskScore, reasons, primaryReason };
-};
-
-export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: TokenPerformanceTabProps) {
+function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const { apiKey, isInitialized } = useApiKeyStore();
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(10); // Reduced initial page size for better LCP
   const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
   const [sortOrder, setSortOrder] = useState('DESC');
   const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
@@ -332,6 +331,9 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [spamFilter, setSpamFilter] = useState<string>('all');
+  
+  // Use deferred value for search to prevent blocking main thread during typing
+  const deferredSearchTerm = useDeferredValue(searchTerm);
 
   const [isEnriching, setIsEnriching] = useState<boolean>(false);
   const [enrichmentMessage, setEnrichmentMessage] = useState<string | null>(null);
@@ -350,7 +352,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
     if (startDate) params.append('startDate', startDate.toISOString());
     if (endDate) params.append('endDate', endDate.toISOString());
     if (showHoldingsOnly) params.append('showOnlyHoldings', 'true');
-    if (searchTerm) params.append('searchTerm', searchTerm);
+    if (deferredSearchTerm) params.append('searchTerm', deferredSearchTerm);
     if (spamFilter !== 'all') params.append('spamFilter', spamFilter);
     
     if (pnlFilter !== 'any') {
@@ -382,6 +384,15 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
 
   const tableData = useMemo(() => data?.data || [], [data]);
 
+  // Memoize spam analysis results to prevent expensive recalculations
+  const spamAnalysisResults = useMemo(() => {
+    const results = new Map<string, ReturnType<typeof analyzeTokenSpamRisk>>();
+    tableData.forEach(token => {
+      results.set(token.tokenAddress, analyzeTokenSpamRisk(token));
+    });
+    return results;
+  }, [tableData]);
+
   const triggerEnrichment = useCallback(() => {
     if (!walletAddress || !apiKey) return;
 
@@ -410,20 +421,26 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   }, [walletAddress, apiKey, localMutate, triggerEnrichment]);
 
   const handlePnlFilterChange = (newValue: string) => {
-    setPnlFilter(newValue);
-    setPage(1);
+    startTransition(() => {
+      setPnlFilter(newValue);
+      setPage(1);
+    });
   };
 
   const handleMinTradesToggleChange = (checked: boolean) => {
-    setMinTradesToggle(checked);
-    setPage(1);
+    startTransition(() => {
+      setMinTradesToggle(checked);
+      setPage(1);
+    });
   };
 
   const handleShowHoldingsToggleChange = (checked: boolean) => {
-    setShowHoldingsOnly(checked);
-    setPage(1);
-    // Force refresh when toggling holdings filter to ensure fresh data
-    localMutate();
+    startTransition(() => {
+      setShowHoldingsOnly(checked);
+      setPage(1);
+      // Force refresh when toggling holdings filter to ensure fresh data
+      localMutate();
+    });
   };
 
   const handleSort = (columnId: string) => {
@@ -445,13 +462,19 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   };
   
   const handleSearchTermChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Immediate update for responsive typing experience
     setSearchTerm(e.target.value);
-    setPage(1);
+    // Page reset in transition to avoid blocking
+    startTransition(() => {
+      setPage(1);
+    });
   };
 
   const handleSpamFilterChange = (newValue: string) => {
-    setSpamFilter(newValue);
-    setPage(1);
+    startTransition(() => {
+      setSpamFilter(newValue);
+      setPage(1);
+    });
   };
 
   const handlePageChange = (newPage: number) => {
@@ -474,7 +497,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   };
 
   const renderSkeletonTableRows = () => {
-    return Array.from({ length: 5 }).map((_, rowIndex) => (
+    return Array.from({ length: 3 }).map((_, rowIndex) => ( // Reduced skeleton rows for faster initial render
       <TableRow key={`skeleton-row-${rowIndex}`}>
         {COLUMN_DEFINITIONS.map((col, colIndex) => (
           <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn(col.className, col.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
@@ -515,174 +538,17 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
     return (
       <TableBody>
         {tableData.map((item: TokenPerformanceDataDto, index: number) => {
-          const pnl = item.netSolProfitLoss ?? 0;
-          const totalPnl = item.totalPnlSol ?? 0;
-          const pnlColor = pnl > 0 ? 'text-emerald-500' : pnl < 0 ? 'text-red-500' : 'text-muted-foreground';
-          const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (totalPnl / item.totalSolSpent) * 100 : (totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0);
-
+          const spamAnalysis = spamAnalysisResults.get(item.tokenAddress);
+          if (!spamAnalysis) return null;
+          
           return (
-            <TableRow key={item.tokenAddress + index}>
-              {COLUMN_DEFINITIONS.map(col => (
-                <TableCell key={col.id} className={cn("px-4 py-0.5 text-sm", col.className, col.id === 'tokenAddress' && 'sticky left-0 z-10 whitespace-nowrap bg-card dark:bg-dark-tremor-background-default', (col.id === 'netSolProfitLoss' || col.id === 'roi') && pnlColor)}>
-                  {col.id === 'tokenAddress' && (
-                     <Popover>
-                      <PopoverTrigger asChild>
-                        <div className="flex items-center gap-3 cursor-pointer">
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={item.imageUrl ?? undefined} alt={item.name || 'Token'} />
-                            <AvatarFallback>{(item.name || '?').charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          <div className="flex flex-col">
-                            <Text className="font-medium truncate max-w-[120px] sm:max-w-[150px]">
-                              {item.name || (item.tokenAddress.substring(0, 6) + '...' + item.tokenAddress.substring(item.tokenAddress.length - 4))}
-                            </Text>
-                            <Text className="text-muted-foreground text-sm">{item.symbol || 'Unknown'}</Text>
-                          </div>
-                          <div className="ml-auto flex items-center gap-1">
-                            {(() => {
-                              const spamAnalysis = analyzeTokenSpamRisk(item);
-                              if (spamAnalysis.riskLevel === 'high-risk') {
-                                return (
-                                  <TooltipProvider delayDuration={300}>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
-                                          <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
-                                        </div>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                                        <div className="space-y-1">
-                                          <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({spamAnalysis.riskScore}%)</p>
-                                          <p>{spamAnalysis.primaryReason}</p>
-                                        </div>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                );
-                              } else if ((!item.name || !item.symbol || item.name === 'Unknown Token') && spamAnalysis.riskLevel === 'safe') {
-                                return (
-                                  <TooltipProvider delayDuration={300}>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
-                                          <HelpCircleIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-                                        </div>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                                        <p>Unknown token</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                );
-                              }
-                              return null;
-                            })()}
-                            {(() => {
-                                // Only show "Currently held" for meaningful positions with SOL value
-                                const currentBalance = item.currentUiBalance ?? 0;
-                                const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
-                                const estimatedSolPriceUsd = 144;
-                                const currentValueSol = currentValueUsd ? currentValueUsd / estimatedSolPriceUsd : 0;
-                                
-                                // Must have token balance AND SOL value >= 0.01 SOL
-                                const isHeld = currentBalance > 0 && currentValueSol >= 0.01;
-                                const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
-                                const isExited = !isHeld && hadTrades;
-                                if (isHeld) {
-                                  return (
-                                    <TooltipProvider delayDuration={300}>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
-                                            <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" />
-                                          </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                                          <p>Currently held</p>
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
-                                  );
-                                }
-                                if (isExited) {
-                                  return (
-                                    <TooltipProvider delayDuration={300}>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
-                                            <LogOut className="h-3 w-3 text-slate-500 dark:text-slate-400" />
-                                          </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                                          <p>Position exited</p>
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
-                                  );
-                                }
-                                return null; // No icon when no trades and no balance
-                            })()}
-                          </div>
-                        </div>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-2" align="start">
-                        <div className="space-y-2">
-                          <div className="font-bold text-sm">{item.name || 'Unknown Token'}</div>
-                          <div className="text-xs text-muted-foreground break-all">{item.tokenAddress}</div>
-                          <div className="flex items-center gap-1 pt-1">
-                            <UiButton variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => navigator.clipboard.writeText(item.tokenAddress)}><CopyIcon className="h-3 w-3 mr-1"/> Copy</UiButton>
-                            <UiButton variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${item.tokenAddress}`} target="_blank" rel="noopener noreferrer"><ExternalLinkIcon className="h-3 w-3 mr-1"/> Solscan</a></UiButton>
-                            {item.websiteUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={item.websiteUrl} target="_blank" rel="noopener noreferrer"><Globe className="h-4 w-4" /></a></UiButton>}
-                            {item.twitterUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={item.twitterUrl} target="_blank" rel="noopener noreferrer"><TwitterIcon className="h-4 w-4" /></a></UiButton>}
-                            {item.telegramUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={item.telegramUrl} target="_blank" rel="noopener noreferrer"><Send className="h-4 w-4" /></a></UiButton>}
-                          </div>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  )}
-                  {col.id === 'netSolProfitLoss' && formatPnl(item.netSolProfitLoss)}
-                  {col.id === 'unrealizedPnlSol' && formatPnl(item.unrealizedPnlSol)}
-                  {col.id === 'totalPnlSol' && formatPnl(item.totalPnlSol)}
-                  {col.id === 'roi' && (roi === Infinity ? <span className="text-emerald-500">∞</span> : roi === -Infinity ? <span className="text-red-500">-∞</span> : formatPercentagePnl(roi))}
-                  {col.id === 'totalSolSpent' && (<Text className={cn("text-sm", (item.totalSolSpent ?? 0) > 0 ? 'text-red-400 dark:text-red-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolSpent)}</Text>)}
-                  {col.id === 'totalSolReceived' && (<Text className={cn("text-sm", (item.totalSolReceived ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolReceived)}</Text>)}
-                  {col.id === 'currentBalanceDisplay' && (
-                    <div className="text-right">
-                      {item.currentUiBalance === 0 ? (
-                        <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">-</Text>
-                      ) : (
-                        <div className="flex flex-col items-end">
-                          {/* SOL Value First - Most Important */}
-                          {item.currentHoldingsValueUsd ? (
-                            <Text className={cn(
-                              "text-sm font-mono",
-                              (item.currentHoldingsValueUsd / 144) >= 1 ? "text-orange-600 dark:text-orange-400 font-semibold" : // Significant position
-                              (item.currentHoldingsValueUsd / 144) >= 0.1 ? "text-slate-700 dark:text-slate-300" : // Medium position  
-                              "text-slate-500 dark:text-slate-400" // Small position
-                            )}>
-                              {formatSolAmount((item.currentHoldingsValueUsd / 144))} SOL
-                            </Text>
-                          ) : (
-                            <Text className="text-sm text-slate-500 dark:text-slate-400 font-mono">
-                              ? SOL
-                            </Text>
-                          )}
-                          {/* Token Amount Second - Less Important */}
-                          <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                            {formatTokenDisplayValue(item.currentUiBalance, item.currentUiBalanceString)} tokens
-                          </Text>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {col.id === 'marketCapDisplay' && <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">{formatMarketCap((item as any).marketCapUsd)}</Text>}
-                  {col.id === 'transferCountIn' && (<Text className={cn("text-sm", (item.transferCountIn ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountIn}</Text>)}
-                  {col.id === 'transferCountOut' && (<Text className={cn("text-sm", (item.transferCountOut ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountOut}</Text>)}
-                  {col.id === 'firstTransferTimestamp' && <Text className="text-sm">{formatDate(item.firstTransferTimestamp)}</Text>}
-                  {col.id === 'lastTransferTimestamp' && <Text className="text-sm">{formatDate(item.lastTransferTimestamp)}</Text>}
-                </TableCell>
-              ))}
-            </TableRow>
+            <TokenTableRow
+              key={item.tokenAddress}
+              item={item}
+              index={index}
+              spamAnalysis={spamAnalysis}
+              columns={COLUMN_DEFINITIONS}
+            />
           );
         })}
       </TableBody>
@@ -697,9 +563,9 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
     let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
     let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
     if (endPage - startPage + 1 < maxPagesToShow) { startPage = Math.max(1, endPage - maxPagesToShow + 1);}
-    if (startPage > 1) { items.push(<PaginationItem key="start-ellipsis"><PaginationLink onClick={() => handlePageChange(startPage - 1)} size="sm">...</PaginationLink></PaginationItem>);}
-    for (let i = startPage; i <= endPage; i++) { items.push(<PaginationItem key={i}><PaginationLink onClick={() => handlePageChange(i)} isActive={currentPage === i} size="sm">{i}</PaginationLink></PaginationItem>);}
-    if (endPage < totalPages) { items.push(<PaginationItem key="end-ellipsis"><PaginationLink onClick={() => handlePageChange(endPage + 1)} size="sm">...</PaginationLink></PaginationItem>);}
+    if (startPage > 1) { items.push(<PaginationItem key="start-ellipsis"><PaginationLink onClick={() => handlePageChange(startPage - 1)} className="h-7 w-7 p-0 text-xs">...</PaginationLink></PaginationItem>);}
+    for (let i = startPage; i <= endPage; i++) { items.push(<PaginationItem key={i}><PaginationLink onClick={() => handlePageChange(i)} isActive={currentPage === i} className="h-7 min-w-7 px-1 text-xs">{i}</PaginationLink></PaginationItem>);}
+    if (endPage < totalPages) { items.push(<PaginationItem key="end-ellipsis"><PaginationLink onClick={() => handlePageChange(endPage + 1)} className="h-7 w-7 p-0 text-xs">...</PaginationLink></PaginationItem>);}
     return items;
   };
 
@@ -708,7 +574,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
   }
 
   return (
-    <Card className="p-0 md:p-0 mt-0">
+    <Card className="p-0 md:p-0 mt-0 flex-1 flex flex-col">
       <div className="px-4 py-3 border-b">
         <Flex flexDirection="row" alignItems="center" justifyContent="between" className="gap-2 flex-wrap">
           <Flex flexDirection="row" alignItems="center" className="gap-2 flex-wrap">
@@ -739,7 +605,7 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
         </Flex>
       </div>
       
-      <div className="overflow-x-auto">
+      <div className="flex-1 overflow-x-auto">
         <Table className="min-w-full">
           <TableHeader>
             <TableRow>
@@ -759,16 +625,32 @@ export default function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, 
       </div>
 
       {data && data.totalPages > 0 && tableData.length > 0 && (
-        <div className="px-4 py-3 border-t">
-          <Pagination>
-            <PaginationContent>
-              <PaginationItem><UiButton variant="outline" size="sm" onClick={() => handlePageChange(1)} disabled={data.page === 1} aria-label="Go to first page"><ChevronsLeft className="h-4 w-4" /></UiButton></PaginationItem>
-              <PaginationItem><PaginationPrevious onClick={() => handlePageChange(data.page - 1)} className={cn(data.page === 1 && "pointer-events-none opacity-50")} /></PaginationItem>
-              {renderPaginationItems()}
-              <PaginationItem><PaginationNext onClick={() => handlePageChange(data.page + 1)} className={cn(!data.totalPages || data.page === data.totalPages && "pointer-events-none opacity-50")} /></PaginationItem>
-              <PaginationItem><UiButton variant="outline" size="sm" onClick={() => handlePageChange(data.totalPages)} disabled={!data.totalPages || data.page === data.totalPages} aria-label="Go to last page"><ChevronsRight className="h-4 w-4" /></UiButton></PaginationItem>
-            </PaginationContent>
-          </Pagination>
+        <div className="px-4 py-2 border-t">
+          <div className="flex items-center justify-between gap-2 min-h-8 w-full">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Per Page:</span>
+              <Select value={pageSize.toString()} onValueChange={(value) => startTransition(() => { setPageSize(Number(value)); setPage(1); })}>
+                <SelectTrigger className="w-16 h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-1 flex justify-center min-w-0 overflow-hidden">
+              <Pagination>
+                <PaginationContent className="gap-1">
+                  <PaginationItem><UiButton variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handlePageChange(1)} disabled={data.page === 1} aria-label="Go to first page"><ChevronsLeft className="h-3 w-3" /></UiButton></PaginationItem>
+                  <PaginationItem><PaginationPrevious onClick={() => handlePageChange(data.page - 1)} className={cn("h-7 px-2 text-xs", data.page === 1 && "pointer-events-none opacity-50")} /></PaginationItem>
+                  {renderPaginationItems()}
+                  <PaginationItem><PaginationNext onClick={() => handlePageChange(data.page + 1)} className={cn("h-7 px-2 text-xs", !data.totalPages || data.page === data.totalPages && "pointer-events-none opacity-50")} /></PaginationItem>
+                  <PaginationItem><UiButton variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handlePageChange(data.totalPages)} disabled={!data.totalPages || data.page === data.totalPages} aria-label="Go to last page"><ChevronsRight className="h-3 w-3" /></UiButton></PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          </div>
         </div>
       )}
     </Card>
@@ -849,5 +731,185 @@ const formatMarketCap = (value: number | null | undefined) => {
     maximumFractionDigits: precision,
   }) + suffixes[magnitude];
 };
+
+// Memoized table row component for better performance
+const TokenTableRow = memo(({ 
+  item, 
+  index, 
+  spamAnalysis,
+  columns 
+}: {
+  item: TokenPerformanceDataDto;
+  index: number;
+  spamAnalysis: ReturnType<typeof analyzeTokenSpamRisk>;
+  columns: typeof COLUMN_DEFINITIONS;
+}) => {
+  const pnl = item.netSolProfitLoss ?? 0;
+  const totalPnl = item.totalPnlSol ?? 0;
+  const pnlColor = pnl > 0 ? 'text-emerald-500' : pnl < 0 ? 'text-red-500' : 'text-muted-foreground';
+  const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (totalPnl / item.totalSolSpent) * 100 : (totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0);
+
+  return (
+    <TableRow key={item.tokenAddress + index}>
+      {columns.map(col => (
+        <TableCell key={col.id} className={cn("px-4 py-0.5 text-sm", col.className, col.id === 'tokenAddress' && 'sticky left-0 z-10 whitespace-nowrap bg-card dark:bg-dark-tremor-background-default', (col.id === 'netSolProfitLoss' || col.id === 'roi') && pnlColor)}>
+          {col.id === 'tokenAddress' && (
+             <Popover>
+              <PopoverTrigger asChild>
+                <div className="flex items-center gap-3 cursor-pointer">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={item.imageUrl ?? undefined} alt={item.name || 'Token'} />
+                    <AvatarFallback>{(item.name || '?').charAt(0)}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex flex-col">
+                    <Text className="font-medium truncate max-w-[120px] sm:max-w-[150px]">
+                      {item.name || (item.tokenAddress.substring(0, 6) + '...' + item.tokenAddress.substring(item.tokenAddress.length - 4))}
+                    </Text>
+                    <Text className="text-muted-foreground text-sm">{item.symbol || 'Unknown'}</Text>
+                  </div>
+                  <div className="ml-auto flex items-center gap-1">
+                    {spamAnalysis.riskLevel === 'high-risk' ? (
+                      <TooltipProvider delayDuration={300}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
+                              <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                            <div className="space-y-1">
+                              <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({spamAnalysis.riskScore}%)</p>
+                              <p>{spamAnalysis.primaryReason}</p>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (!item.name || !item.symbol || item.name === 'Unknown Token') && spamAnalysis.riskLevel === 'safe' ? (
+                      <TooltipProvider delayDuration={300}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
+                              <HelpCircleIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                            <p>Unknown token</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : null}
+                    {(() => {
+                        // Optimize holding status calculation - use memoized values
+                        const currentBalance = item.currentUiBalance ?? 0;
+                        const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
+                        const estimatedSolPriceUsd = 144;
+                        const currentValueSol = currentValueUsd ? currentValueUsd / estimatedSolPriceUsd : 0;
+                        
+                        // Must have token balance AND SOL value >= 0.01 SOL
+                        const isHeld = currentBalance > 0 && currentValueSol >= 0.01;
+                        const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
+                        const isExited = !isHeld && hadTrades;
+                        if (isHeld) {
+                          return (
+                            <TooltipProvider delayDuration={300}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
+                                    <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                                  <p>Currently held</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        }
+                        if (isExited) {
+                          return (
+                            <TooltipProvider delayDuration={300}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+                                    <LogOut className="h-3 w-3 text-slate-500 dark:text-slate-400" />
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                                  <p>Position exited</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        }
+                        return null; // No icon when no trades and no balance
+                    })()}
+                  </div>
+                </div>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-2" align="start">
+                <div className="space-y-2">
+                  <div className="font-bold text-sm">{item.name || 'Unknown Token'}</div>
+                  <div className="text-xs text-muted-foreground break-all">{item.tokenAddress}</div>
+                  <div className="flex items-center gap-1 pt-1">
+                    <UiButton variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => navigator.clipboard.writeText(item.tokenAddress)}><CopyIcon className="h-3 w-3 mr-1"/> Copy</UiButton>
+                    <UiButton variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${item.tokenAddress}`} target="_blank" rel="noopener noreferrer"><ExternalLinkIcon className="h-3 w-3 mr-1"/> Solscan</a></UiButton>
+                    {item.websiteUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={item.websiteUrl} target="_blank" rel="noopener noreferrer"><Globe className="h-4 w-4" /></a></UiButton>}
+                    {item.twitterUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={item.twitterUrl} target="_blank" rel="noopener noreferrer"><TwitterIcon className="h-4 w-4" /></a></UiButton>}
+                    {item.telegramUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={item.telegramUrl} target="_blank" rel="noopener noreferrer"><Send className="h-4 w-4" /></a></UiButton>}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+          {col.id === 'netSolProfitLoss' && formatPnl(item.netSolProfitLoss)}
+          {col.id === 'unrealizedPnlSol' && formatPnl(item.unrealizedPnlSol)}
+          {col.id === 'totalPnlSol' && formatPnl(item.totalPnlSol)}
+          {col.id === 'roi' && (roi === Infinity ? <span className="text-emerald-500">∞</span> : roi === -Infinity ? <span className="text-red-500">-∞</span> : formatPercentagePnl(roi))}
+          {col.id === 'totalSolSpent' && (<Text className={cn("text-sm", (item.totalSolSpent ?? 0) > 0 ? 'text-red-400 dark:text-red-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolSpent)}</Text>)}
+          {col.id === 'totalSolReceived' && (<Text className={cn("text-sm", (item.totalSolReceived ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolReceived)}</Text>)}
+          {col.id === 'currentBalanceDisplay' && (
+            <div className="text-right">
+              {item.currentUiBalance === 0 ? (
+                <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">-</Text>
+              ) : (
+                <div className="flex flex-col items-end">
+                  {/* SOL Value First - Most Important */}
+                  {item.currentHoldingsValueUsd ? (
+                    <Text className={cn(
+                      "text-sm font-mono",
+                      (item.currentHoldingsValueUsd / 144) >= 1 ? "text-orange-600 dark:text-orange-400 font-semibold" : // Significant position
+                      (item.currentHoldingsValueUsd / 144) >= 0.1 ? "text-slate-700 dark:text-slate-300" : // Medium position  
+                      "text-slate-500 dark:text-slate-400" // Small position
+                    )}>
+                      {formatSolAmount((item.currentHoldingsValueUsd / 144))} SOL
+                    </Text>
+                  ) : (
+                    <Text className="text-sm text-slate-500 dark:text-slate-400 font-mono">
+                      ? SOL
+                    </Text>
+                  )}
+                  {/* Token Amount Second - Less Important */}
+                  <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                    {formatTokenDisplayValue(item.currentUiBalance, item.currentUiBalanceString)} tokens
+                  </Text>
+                </div>
+              )}
+            </div>
+          )}
+          {col.id === 'marketCapDisplay' && <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">{formatMarketCap((item as any).marketCapUsd)}</Text>}
+          {col.id === 'transferCountIn' && (<Text className={cn("text-sm", (item.transferCountIn ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountIn}</Text>)}
+          {col.id === 'transferCountOut' && (<Text className={cn("text-sm", (item.transferCountOut ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountOut}</Text>)}
+          {col.id === 'firstTransferTimestamp' && <Text className="text-sm">{formatDate(item.firstTransferTimestamp)}</Text>}
+          {col.id === 'lastTransferTimestamp' && <Text className="text-sm">{formatDate(item.lastTransferTimestamp)}</Text>}
+        </TableCell>
+      ))}
+    </TableRow>
+  );
+});
+
+TokenTableRow.displayName = 'TokenTableRow';
+
+// Memoize the component to prevent unnecessary re-renders
+export default memo(TokenPerformanceTab);
 
 

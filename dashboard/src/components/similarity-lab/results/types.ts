@@ -108,6 +108,10 @@ export interface CombinedSimilarityResult {
     tokenBalances: (TokenInfo & { uiBalance: number; valueUsd: number | null })[];
   }>;
   vectorTypeUsed: 'combined';
+  sharedTokenCountsMatrix?: Record<string, Record<string, number>>;
+  jaccardSimilarityMatrix?: Record<string, Record<string, number>>;
+  holdingsPresenceJaccardMatrix?: Record<string, Record<string, number>>;
+  holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
 }
 
 // --- END: Types for the new Similarity Report Parser output --- 

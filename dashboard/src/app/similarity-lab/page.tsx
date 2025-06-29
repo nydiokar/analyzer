@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { SyncConfirmationDialog } from '@/components/similarity-lab/SyncConfirmationDialog';
@@ -22,6 +22,9 @@ interface WalletStatus {
 interface WalletStatusResponse {
   statuses: WalletStatus[];
 }
+
+// Memoize the heavy SimilarityResultDisplay component to prevent unnecessary re-renders
+const MemoizedSimilarityResultDisplay = memo(SimilarityResultDisplay);
 
 export default function AnalysisLabPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -70,6 +73,8 @@ export default function AnalysisLabPage() {
       setEnrichedBalances(null);
     }
   }, [analysisResult]);
+
+
 
   const handleEnrichData = async () => {
     if (!analysisResult?.walletBalances) return;
@@ -302,7 +307,7 @@ export default function AnalysisLabPage() {
 
       {analysisResult && (
         <div className="mt-6">
-          <SimilarityResultDisplay results={analysisResult} enrichedBalances={enrichedBalances} />
+          <MemoizedSimilarityResultDisplay results={analysisResult} enrichedBalances={enrichedBalances} />
         </div>
       )}
 

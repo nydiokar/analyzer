@@ -3,6 +3,10 @@ import { EnhancedKeyInsights } from './EnhancedKeyInsights';
 import { CombinedSimilarityResult } from './types';
 import { GlobalMetricsCard } from './GlobalMetricsCard';
 import { ContextualHoldingsCard } from './ContextualHoldingsCard';
+import { OverlapHeatmap } from './OverlapHeatmap';
+import { HistoricalVsLiveComparison } from './HistoricalVsLiveComparison';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Sparkles } from 'lucide-react';
 
 interface SimilarityResultDisplayProps {
   results: CombinedSimilarityResult;
@@ -10,6 +14,8 @@ interface SimilarityResultDisplayProps {
 }
 
 export function SimilarityResultDisplay({ results, enrichedBalances }: SimilarityResultDisplayProps) {
+  const hasAdvancedMatrices = results.sharedTokenCountsMatrix || results.jaccardSimilarityMatrix;
+
   return (
     <div className="space-y-6">
       {results.globalMetrics && (
@@ -28,6 +34,23 @@ export function SimilarityResultDisplay({ results, enrichedBalances }: Similarit
         <div className="lg:col-span-1 space-y-6">
           <MostCommonTokens results={results} enrichedBalances={enrichedBalances} />
         </div>
+      </div>
+
+      {/* Enhanced Analytics Banner */}
+      {hasAdvancedMatrices && (
+        <Alert>
+          <Sparkles className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Enhanced Analytics Unlocked:</strong> The analysis below reveals previously hidden patterns 
+            including token overlap breadth and strategic evolution over time.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* New high-value matrix visualizations */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <OverlapHeatmap results={results} />
+        <HistoricalVsLiveComparison results={results} />
       </div>
 
       <ContextualHoldingsCard results={results} enrichedBalances={enrichedBalances} />
