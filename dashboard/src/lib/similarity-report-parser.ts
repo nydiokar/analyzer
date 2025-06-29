@@ -4,7 +4,7 @@
  * suitable for rendering in React components, without any Node.js dependencies.
  */
 
-import { CombinedSimilarityResult, KeyInsight, InsightType } from "@/components/analysis-lab/results/types";
+import { CombinedSimilarityResult, KeyInsight, InsightType } from "@/components/similarity-lab/results/types";
 
 // --- Constants (from backend) ---
 
@@ -77,8 +77,8 @@ export function generateKeyInsights(
                 const pair = metrics.pairwiseSimilarities.find(p => (p.walletA === walletA && p.walletB === walletB) || (p.walletA === walletB && p.walletB === walletA));
                 
                 if (pair && pair.binaryScore > INSIGHT_THRESHOLDS.STRONG_BINARY) {
-                    const balanceA = new Set(metrics.walletBalances[walletA]?.tokenBalances.map(t => t.mint) || []);
-                    const balanceB = new Set(metrics.walletBalances[walletB]?.tokenBalances.map(t => t.mint) || []);
+                    const balanceA = new Set(metrics.walletBalances[walletA]?.tokenBalances.map(t => t.tokenAddress) || []);
+                    const balanceB = new Set(metrics.walletBalances[walletB]?.tokenBalances.map(t => t.tokenAddress) || []);
                     const intersection = new Set([...balanceA].filter(x => balanceB.has(x)));
                     
                     if (intersection.size === 0) {

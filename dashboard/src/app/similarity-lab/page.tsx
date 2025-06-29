@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { SyncConfirmationDialog } from '@/components/analysis-lab/SyncConfirmationDialog';
-import { SimilarityResultDisplay } from '@/components/analysis-lab/results/SimilarityResultDisplay';
-import { CombinedSimilarityResult } from '@/components/analysis-lab/results/types';
+import { SyncConfirmationDialog } from '@/components/similarity-lab/SyncConfirmationDialog';
+import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
+import { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
 import { useToast } from '@/hooks/use-toast';
 import { isValidSolanaAddress } from "@/lib/solana-utils";

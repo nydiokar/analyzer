@@ -21,10 +21,10 @@ The feature is split between the `dashboard` (Next.js frontend) and the `src/api
 
 | File Path                                                               | Role                                                                                                                                                               |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `dashboard/src/app/analysis-lab/page.tsx`                               | **Entrypoint & UI Orchestrator**. Manages user input, state (loading, errors, results), and orchestrates the entire multi-step analysis flow from the client-side.     |
-| `dashboard/src/components/analysis-lab/results/SimilarityResultDisplay.tsx` | **Results Rendering**. A dedicated component to display the final analysis results in a structured and digestible format.                                        |
-| `dashboard/src/components/analysis-lab/results/types.ts`                  | **Frontend Data Types**. Defines the TypeScript types for the analysis results (`CombinedSimilarityResult`, `PairwiseSimilarity`, etc.) used to render the data.     |
-| `dashboard/src/components/analysis-lab/SyncConfirmationDialog.tsx`        | **UX Component**. A modal dialog to inform the user about missing wallets and ask for confirmation before triggering the background sync and analysis process.      |
+| `dashboard/src/app/similarity-lab/page.tsx`                               | **Entrypoint & UI Orchestrator**. Manages user input, state (loading, errors, results), and orchestrates the entire multi-step analysis flow from the client-side.     |
+| `dashboard/src/components/similarity-lab/results/SimilarityResultDisplay.tsx` | **Results Rendering**. A dedicated component to display the final analysis results in a structured and digestible format.                                        |
+| `dashboard/src/components/similarity-lab/results/types.ts`                  | **Frontend Data Types**. Defines the TypeScript types for the analysis results (`CombinedSimilarityResult`, `PairwiseSimilarity`, etc.) used to render the data.     |
+| `dashboard/src/components/similarity-lab/SyncConfirmationDialog.tsx`        | **UX Component**. A modal dialog to inform the user about missing wallets and ask for confirmation before triggering the background sync and analysis process.      |
 | `dashboard/src/lib/fetcher.ts`                                            | **API Client**. A wrapper around `fetch` used by the frontend to make requests to the backend API.                                                                 |
 
 ### Backend (`src/`)

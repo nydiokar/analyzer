@@ -82,6 +82,8 @@ export class PnlAnalysisService {
         const isHistoricalView = !!timeRange;
         const isViewOnlyMode = !!options?.isViewOnly;
 
+        logger.info(`[PnlAnalysis] DEBUG: timeRange=${JSON.stringify(timeRange)}, options=${JSON.stringify(options)}, isHistoricalView=${isHistoricalView}, isViewOnlyMode=${isViewOnlyMode}`);
+
         let startTimeMs: number = 0;
 
         // Fetch current wallet state (SOL & Token Balances)
@@ -248,6 +250,8 @@ export class PnlAnalysisService {
                 tokenBalances: currentWalletBalance?.tokenBalances,
             };
 
+            logger.info(`[PnlAnalysis] DEBUG: About to check save condition. isHistoricalView=${isHistoricalView}, isViewOnlyMode=${isViewOnlyMode}, condition result=${!isHistoricalView && !isViewOnlyMode}`);
+
             if (!isHistoricalView && !isViewOnlyMode) {
                 const pnlSummaryDataForDb: any = {
                     walletAddress: walletAddress,
@@ -316,17 +320,36 @@ export class PnlAnalysisService {
                 }
                 
                 // Update the analyzed timestamp range for the wallet
-                if (summary.overallFirstTimestamp !== undefined && summary.overallLastTimestamp !== undefined) {
-                    await prisma.wallet.update({
+                const nowInSeconds = Math.floor(Date.now() / 1000);
+                const startTs = summary.overallFirstTimestamp !== undefined && summary.overallFirstTimestamp !== 0 ? summary.overallFirstTimestamp : nowInSeconds;
+                const endTs = nowInSeconds; // Always use current time for when analysis was completed
+
+                logger.info(`[PnlAnalysis] About to update wallet timestamps for ${walletAddress}. Conditions: isHistoricalView=${isHistoricalView}, isViewOnlyMode=${isViewOnlyMode}, startTs=${startTs}, endTs=${endTs}`);
+                
+                try {
+                    // First, let's verify the wallet exists
+                    const existingWallet = await prisma.wallet.findUnique({
                         where: { address: walletAddress },
-                        data: { 
-                            analyzedTimestampStart: summary.overallFirstTimestamp,
-                            analyzedTimestampEnd: summary.overallLastTimestamp
-                        },
+                        select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true }
                     });
-                    logger.info(`[PnlAnalysis] Updated Wallet analyzed range for ${walletAddress} to: ${summary.overallFirstTimestamp} - ${summary.overallLastTimestamp}.`);
-                } else {
-                    logger.warn(`[PnlAnalysis] Wallet analyzed range for ${walletAddress} not updated because overall timestamps were undefined in the summary.`);
+                    
+                    logger.info(`[PnlAnalysis] BEFORE UPDATE - Wallet ${walletAddress}: analyzedTimestampEnd=${existingWallet?.analyzedTimestampEnd}, lastSuccessfulFetchTimestamp=${existingWallet?.lastSuccessfulFetchTimestamp}`);
+                    
+                    const updateResult = await prisma.wallet.update({
+                        where: { address: walletAddress },
+                        data: {
+                            analyzedTimestampStart: startTs,
+                            analyzedTimestampEnd: endTs,
+                            lastSuccessfulFetchTimestamp: new Date(),
+                        },
+                        select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true }
+                    });
+                    
+                    logger.info(`[PnlAnalysis] AFTER UPDATE - Wallet ${walletAddress}: analyzedTimestampEnd=${updateResult.analyzedTimestampEnd}, lastSuccessfulFetchTimestamp=${updateResult.lastSuccessfulFetchTimestamp}`);
+                    logger.info(`[PnlAnalysis] SUCCESS: Updated Wallet analyzed range for ${walletAddress} to: ${startTs} - ${endTs}.`);
+                } catch (walletUpdateError) {
+                    logger.error(`[PnlAnalysis] ERROR: Failed to update Wallet timestamps for ${walletAddress}:`, walletUpdateError);
+                    // Don't throw here, let the analysis continue
                 }
 
                 // Upsert AnalysisResult records with token balances

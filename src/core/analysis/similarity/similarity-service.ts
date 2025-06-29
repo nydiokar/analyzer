@@ -42,9 +42,9 @@ export class SimilarityService {
     vectorType: 'capital' | 'binary' = 'capital',
     walletBalances?: Map<string, WalletBalance> 
   ): Promise<SingleSimilarityResult | null> {
-    logger.info(`Calculating comprehensive similarity for ${walletAddresses.length} wallets using primary vectorType: ${vectorType}.`);
+    // logger.info(`Calculating comprehensive similarity for ${walletAddresses.length} wallets using primary vectorType: ${vectorType}.`);
     if (walletBalances && walletBalances.size > 0) {
-      logger.info(`Received pre-fetched wallet balances for ${walletBalances.size} wallets.`);
+      // logger.info(`Received pre-fetched wallet balances for ${walletBalances.size} wallets.`);
     }
 
     if (walletAddresses.length < 2) {
@@ -151,7 +151,7 @@ export class SimilarityService {
     if (walletBalances && walletBalances.size >= 2) {
         const walletsWithBalanceData = Array.from(walletBalances.keys());
         if (walletsWithBalanceData.length >= 2) {
-            logger.info(`Calculating similarity based on current holdings for ${walletsWithBalanceData.length} wallets.`);
+            // logger.info(`Calculating similarity based on current holdings for ${walletsWithBalanceData.length} wallets.`);
 
             // 1. Get all unique tokens currently held across these wallets
             const allUniqueHeldTokensSet = new Set<string>();

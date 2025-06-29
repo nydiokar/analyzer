@@ -1,7 +1,7 @@
 ## 1. Feature Location: A New "Analysis Lab" Page
 I propose we create a new, top-level page called "Analysis Lab".
 Why a new page? This type of analysis (multi-wallet, on-demand, potentially heavy) is functionally different from looking at a single wallet's profile. It deserves its own dedicated space, free from the context of a single wallet. This also gives us a home for future on-demand analysis tools (like Correlation).
-Location: It would live at /analysis-lab and have a dedicated link in the main sidebar navigation, maybe with an icon like a beaker or microscope.
+Location: It would live at /similarity-lab and have a dedicated link in the main sidebar navigation, maybe with an icon like a beaker or microscope.
 
 ## 2. User Input: Handling Both Manual and Bulk Analysis
 The UI on this page needs to be flexible. I envision a two-part input section:
