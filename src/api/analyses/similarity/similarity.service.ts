@@ -111,6 +111,13 @@ export class SimilarityApiService {
                 walletVectorsUsed: capitalResults.walletVectorsUsed,
                 uniqueTokensPerWallet: combinedUniqueTokens,
                 walletBalances: Object.fromEntries(balancesMap),
+                sharedTokenCountsMatrix: capitalResults.sharedTokenCountsMatrix,
+                jaccardSimilarityMatrix: capitalResults.jaccardSimilarityMatrix,
+                // Use the filtered holdings matrix as the primary one (excludes spam/airdrops)
+                holdingsPresenceJaccardMatrix: capitalResults['holdingsPresenceFilteredJaccardMatrix'] || capitalResults.holdingsPresenceJaccardMatrix,
+                holdingsPresenceCosineMatrix: capitalResults.holdingsPresenceCosineMatrix,
+                // Keep the original all-tokens matrix for transparency/debugging
+                holdingsPresenceJaccardMatrixAllTokens: capitalResults.holdingsPresenceJaccardMatrix,
             };
 
             return combinedResults;
@@ -126,6 +133,10 @@ export class SimilarityApiService {
             const allMints = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
             const uniqueMints = [...new Set(allMints)];
 
+            // TODO: Add Redis caching here to fix 10-15k token performance bottleneck
+            // const cacheKey = `token_metadata_${uniqueMints.sort().join('|')}`;
+            // Check Redis cache first before hitting database/external APIs
+
             // Step 1: Find all existing metadata in our database.
             const existingMetadata = await this.tokenInfoService.findMany(uniqueMints);
             const existingMetadataMap = new Map(existingMetadata.map(t => [t.tokenAddress, t]));
@@ -136,8 +147,12 @@ export class SimilarityApiService {
             logger.info(`Identified ${mintsNeedingMetadata.length} new tokens requiring metadata fetch.`);
 
             // Step 3: Fetch prices and trigger metadata saving in parallel.
-            // We don't await the metadata fetch directly as it's fire-and-forget.
-            // We will re-query for the full list after.
+            // TODO: Implement batch processing and rate limiting for large token sets
+            // For >1000 tokens, should use job queue instead of synchronous processing
+            if (mintsNeedingMetadata.length > 1000) {
+                logger.warn(`Large token set (${mintsNeedingMetadata.length}) detected. Consider using job queue for better performance.`);
+            }
+
             const [pricesMap, _] = await Promise.all([
                 this.dexscreenerService.getTokenPrices(uniqueMints),
                 this.dexscreenerService.fetchAndSaveTokenInfo(mintsNeedingMetadata),
@@ -165,6 +180,8 @@ export class SimilarityApiService {
                     };
                 });
             }
+
+            // TODO: Cache the enriched result in Redis with TTL
             return enrichedBalances;
         } catch (error) {
             logger.error('Error enriching wallet balances', { error });

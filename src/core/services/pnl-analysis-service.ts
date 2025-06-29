@@ -82,8 +82,6 @@ export class PnlAnalysisService {
         const isHistoricalView = !!timeRange;
         const isViewOnlyMode = !!options?.isViewOnly;
 
-        logger.info(`[PnlAnalysis] DEBUG: timeRange=${JSON.stringify(timeRange)}, options=${JSON.stringify(options)}, isHistoricalView=${isHistoricalView}, isViewOnlyMode=${isViewOnlyMode}`);
-
         let startTimeMs: number = 0;
 
         // Fetch current wallet state (SOL & Token Balances)
@@ -250,8 +248,6 @@ export class PnlAnalysisService {
                 tokenBalances: currentWalletBalance?.tokenBalances,
             };
 
-            logger.info(`[PnlAnalysis] DEBUG: About to check save condition. isHistoricalView=${isHistoricalView}, isViewOnlyMode=${isViewOnlyMode}, condition result=${!isHistoricalView && !isViewOnlyMode}`);
-
             if (!isHistoricalView && !isViewOnlyMode) {
                 const pnlSummaryDataForDb: any = {
                     walletAddress: walletAddress,
@@ -309,7 +305,6 @@ export class PnlAnalysisService {
                             },
                         },
                     });
-                    logger.info(`[PnlAnalysis] Upserted WalletPnlSummary and AdvancedTradeStats for ${walletAddress}.`);
                 } else {
                     await prisma.walletPnlSummary.upsert({
                         where: { walletAddress: walletAddress },
@@ -324,18 +319,8 @@ export class PnlAnalysisService {
                 const startTs = summary.overallFirstTimestamp !== undefined && summary.overallFirstTimestamp !== 0 ? summary.overallFirstTimestamp : nowInSeconds;
                 const endTs = nowInSeconds; // Always use current time for when analysis was completed
 
-                logger.info(`[PnlAnalysis] About to update wallet timestamps for ${walletAddress}. Conditions: isHistoricalView=${isHistoricalView}, isViewOnlyMode=${isViewOnlyMode}, startTs=${startTs}, endTs=${endTs}`);
-                
-                try {
-                    // First, let's verify the wallet exists
-                    const existingWallet = await prisma.wallet.findUnique({
-                        where: { address: walletAddress },
-                        select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true }
-                    });
                     
-                    logger.info(`[PnlAnalysis] BEFORE UPDATE - Wallet ${walletAddress}: analyzedTimestampEnd=${existingWallet?.analyzedTimestampEnd}, lastSuccessfulFetchTimestamp=${existingWallet?.lastSuccessfulFetchTimestamp}`);
-                    
-                    const updateResult = await prisma.wallet.update({
+                    await prisma.wallet.update({
                         where: { address: walletAddress },
                         data: {
                             analyzedTimestampStart: startTs,
@@ -344,13 +329,7 @@ export class PnlAnalysisService {
                         },
                         select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true }
                     });
-                    
-                    logger.info(`[PnlAnalysis] AFTER UPDATE - Wallet ${walletAddress}: analyzedTimestampEnd=${updateResult.analyzedTimestampEnd}, lastSuccessfulFetchTimestamp=${updateResult.lastSuccessfulFetchTimestamp}`);
-                    logger.info(`[PnlAnalysis] SUCCESS: Updated Wallet analyzed range for ${walletAddress} to: ${startTs} - ${endTs}.`);
-                } catch (walletUpdateError) {
-                    logger.error(`[PnlAnalysis] ERROR: Failed to update Wallet timestamps for ${walletAddress}:`, walletUpdateError);
-                    // Don't throw here, let the analysis continue
-                }
+                                    
 
                 // Upsert AnalysisResult records with token balances
                 const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
@@ -407,7 +386,7 @@ export class PnlAnalysisService {
                 logger.info(`[PnlAnalysis] Successfully marked AnalysisRun ${runId} as COMPLETED.`);
             }
 
-            logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summary.netPnl} SOL`);
+            // logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summary.netPnl} SOL`);
             return { ...summary, runId: isViewOnlyMode ? undefined : runId };
 
         } catch (error: any) {
