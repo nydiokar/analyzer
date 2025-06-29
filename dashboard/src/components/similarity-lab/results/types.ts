@@ -112,6 +112,8 @@ export interface CombinedSimilarityResult {
   jaccardSimilarityMatrix?: Record<string, Record<string, number>>;
   holdingsPresenceJaccardMatrix?: Record<string, Record<string, number>>;
   holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
+  // Additional field for the original all-tokens holdings matrix (for transparency/debugging)
+  holdingsPresenceJaccardMatrixAllTokens?: Record<string, Record<string, number>>;
 }
 
 // --- END: Types for the new Similarity Report Parser output --- 

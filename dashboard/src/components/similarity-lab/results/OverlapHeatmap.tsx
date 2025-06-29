@@ -99,22 +99,35 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
     if (!results.sharedTokenCountsMatrix) return [];
 
     const matrix = results.sharedTokenCountsMatrix;
-    const pairs: { walletA: string; walletB: string; count: number }[] = [];
+    const pairs: { walletA: string; walletB: string; count: number; totalTokensA: number; totalTokensB: number; unionCount: number }[] = [];
 
     Object.keys(matrix).forEach(walletA => {
       Object.keys(matrix[walletA]).forEach(walletB => {
         if (walletA < walletB) { // Avoid duplicates
+          const sharedCount = matrix[walletA][walletB];
+          
+          // Calculate total unique tokens for both wallets
+          const totalTokensA = results.uniqueTokensPerWallet[walletA]?.binary || 0;
+          const totalTokensB = results.uniqueTokensPerWallet[walletB]?.binary || 0;
+          
+          // Union count: total unique tokens across both wallets
+          // This is approximated as A + B - shared (Jaccard formula)
+          const unionCount = totalTokensA + totalTokensB - sharedCount;
+          
           pairs.push({
             walletA,
             walletB,
-            count: matrix[walletA][walletB]
+            count: sharedCount,
+            totalTokensA,
+            totalTokensB,
+            unionCount
           });
         }
       });
     });
 
     return pairs.sort((a, b) => b.count - a.count).slice(0, 5);
-  }, [results.sharedTokenCountsMatrix]);
+  }, [results.sharedTokenCountsMatrix, results.uniqueTokensPerWallet]);
 
   if (!results.sharedTokenCountsMatrix || !heatmapData) {
     return (
@@ -183,7 +196,7 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
                     <span className="text-muted-foreground">↔</span>
                     <span className="font-mono">{shortenAddress(pair.walletB, 6)}</span>
                   </div>
-                  <span className="font-semibold">{pair.count} tokens</span>
+                  <span className="font-semibold">{pair.count}/{pair.unionCount} tokens</span>
                 </div>
               ))}
             </div>

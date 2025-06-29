@@ -161,13 +161,13 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
                 <Info className="h-4 w-4 text-muted-foreground cursor-help" />
               </TooltipTrigger>
               <TooltipContent>
-                <p>Reveals strategic shifts by comparing historical trading similarity with current holdings overlap</p>
+                <p>Compares historical trading patterns with current holdings (filtered to exclude spam/airdrops)</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </CardTitle>
         <CardDescription>
-          Strategic evolution analysis • {comparisonData.length} wallet pairs analyzed
+          Strategic evolution analysis • {comparisonData.length} wallet pairs analyzed • Filtered data (excluded possible spam)
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -187,7 +187,7 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
           </div>
           <div className="text-center p-3 bg-muted/50 rounded-lg">
             <div className="text-2xl font-bold">{formatPercentage(insights.avgCurrent)}</div>
-            <div className="text-xs text-muted-foreground">Avg Current</div>
+            <div className="text-xs text-muted-foreground">Avg Current (Filtered)</div>
           </div>
         </div>
 
@@ -199,7 +199,7 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
               <TableRow>
                 <TableHead>Wallet Pair</TableHead>
                 <TableHead className="text-center">Historical</TableHead>
-                <TableHead className="text-center">Current</TableHead>
+                <TableHead className="text-center">Current (Filtered)</TableHead>
                 <TableHead className="text-center">Shift</TableHead>
                 <TableHead className="text-center">Type</TableHead>
               </TableRow>
