@@ -1,0 +1,89 @@
+import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+// Configuration
+import { QueueNames } from './config/queue.config';
+import { redisConnection } from './config/redis.config';
+
+// Queues
+import { WalletOperationsQueue } from './queues/wallet-operations.queue';
+import { AnalysisOperationsQueue } from './queues/analysis-operations.queue';
+import { SimilarityOperationsQueue } from './queues/similarity-operations.queue';
+import { EnrichmentOperationsQueue } from './queues/enrichment-operations.queue';
+
+// Processors
+import { SimilarityOperationsProcessor } from './processors/similarity-operations.processor';
+
+// Services
+import { RedisLockService } from './services/redis-lock.service';
+
+// External dependencies
+import { DatabaseModule } from '../api/database/database.module';
+import { HeliusModule } from '../api/helius/helius.module';
+import { SimilarityModule } from '../api/analyses/similarity/similarity.module';
+import { BehaviorService } from '../api/wallets/behavior/behavior.service';
+import { PnlAnalysisService } from '../core/services/pnl-analysis-service';
+import { HeliusSyncService } from '../core/services/helius-sync-service';
+
+@Module({
+  imports: [
+    ConfigModule,
+    
+    // Register BullMQ queues with NestJS
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => ({
+        connection: redisConnection,
+      }),
+      inject: [ConfigService],
+    }),
+
+    // Register individual queues
+    BullModule.registerQueue(
+      { name: QueueNames.WALLET_OPERATIONS },
+      { name: QueueNames.ANALYSIS_OPERATIONS },
+      { name: QueueNames.SIMILARITY_OPERATIONS },
+      { name: QueueNames.ENRICHMENT_OPERATIONS }
+    ),
+
+    // Import external modules that provide dependencies
+    DatabaseModule,
+    HeliusModule,
+    SimilarityModule,
+  ],
+  
+  providers: [
+    // Redis Lock Service
+    RedisLockService,
+    
+    // Queue Services
+    WalletOperationsQueue,
+    AnalysisOperationsQueue,
+    SimilarityOperationsQueue,
+    EnrichmentOperationsQueue,
+
+    // Core Services (these may need to be imported from their respective modules)
+    PnlAnalysisService,
+    HeliusSyncService,
+    BehaviorService,
+
+    // Processors
+    SimilarityOperationsProcessor,
+  ],
+  
+  exports: [
+    // Export queue services for use in other modules
+    WalletOperationsQueue,
+    AnalysisOperationsQueue,
+    SimilarityOperationsQueue,
+    EnrichmentOperationsQueue,
+    
+    // Export Redis lock service for use in other processors
+    RedisLockService,
+    
+    // Export processors if needed by other modules
+    SimilarityOperationsProcessor,
+  ],
+})
+export class QueueModule {} 
