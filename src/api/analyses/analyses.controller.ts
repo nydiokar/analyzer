@@ -50,52 +50,12 @@ export class AnalysesController {
     this.logger.log(`[C3 Backwards Compatibility] Received request to run similarity analysis for ${dto.walletAddresses.length} wallets.`);
     
     try {
-      // Step 1: Submit job using the new job submission service
-      const jobSubmissionDto = {
-        walletAddresses: dto.walletAddresses,
-        vectorType: dto.vectorType,
-        failureThreshold: 0.8,
-        timeoutMinutes: 30
-      };
-
-      this.logger.log(`[C3] Submitting similarity job internally...`);
-      const jobResponse = await this.jobsService.submitSimilarityAnalysisJob(jobSubmissionDto);
-      const jobId = jobResponse.jobId;
-
-      this.logger.log(`[C3] Job ${jobId} submitted. Starting polling for result...`);
-
-      // Step 2: Poll for job completion (preserving synchronous behavior)
-      const maxPollingTime = 30 * 60 * 1000; // 30 minutes max
-      const pollingInterval = 5000; // 5 seconds
-      const startTime = Date.now();
-
-      while (Date.now() - startTime < maxPollingTime) {
-        const jobStatus = await this.jobsService.getJobStatus(jobId);
-        
-        this.logger.log(`[C3] Job ${jobId} status: ${jobStatus.status}, progress: ${jobStatus.progress}`);
-
-        if (jobStatus.status === 'completed') {
-          this.logger.log(`[C3] Job ${jobId} completed successfully. Returning result.`);
-          
-          // Return the result in the same format as the original endpoint
-          if (jobStatus.result) {
-            return jobStatus.result;
-          } else {
-            throw new InternalServerErrorException('Job completed but no result was returned');
-          }
-        } else if (jobStatus.status === 'failed') {
-          const errorMessage = jobStatus.error || 'Job failed without specific error message';
-          this.logger.error(`[C3] Job ${jobId} failed: ${errorMessage}`);
-          throw new InternalServerErrorException(`Similarity analysis failed: ${errorMessage}`);
-        }
-
-        // Wait before next poll
-        await new Promise(resolve => setTimeout(resolve, pollingInterval));
-      }
-
-      // Timeout reached
-      this.logger.error(`[C3] Job ${jobId} timed out after ${maxPollingTime}ms`);
-      throw new ServiceUnavailableException('Similarity analysis timed out. Please try again later or use the async endpoint.');
+      // **TRUE BACKWARDS COMPATIBILITY**: Use original similarity service directly
+      // This bypasses the job queue entirely for genuine pipeline comparison
+      this.logger.log(`[C3] Using original SimilarityApiService (bypassing job queue)...`);
+      const result = await this.similarityApiService.runAnalysis(dto);
+      this.logger.log(`[C3] Original similarity service completed successfully.`);
+      return result;
 
     } catch (error) {
       this.logger.error(`[C3] Error in backwards compatibility similarity analysis:`, error);
@@ -107,10 +67,10 @@ export class AnalysesController {
         throw error;
       }
 
-      // Fallback to original service for unexpected errors
+      // For unexpected errors, wrap in InternalServerErrorException
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`[C3] Falling back to original similarity service due to error: ${errorMessage}`);
-      return this.similarityApiService.runAnalysis(dto);
+      this.logger.error(`[C3] Unexpected error: ${errorMessage}`);
+      throw new InternalServerErrorException(`Similarity analysis failed: ${errorMessage}`);
     }
   }
 

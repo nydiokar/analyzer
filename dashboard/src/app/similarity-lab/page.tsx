@@ -11,6 +11,14 @@ import { useToast } from '@/hooks/use-toast';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { useApiKeyStore } from '@/store/api-key-store';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
+import { Zap, Settings, Clock, Info, Sparkles } from 'lucide-react';
 
 type WalletAnalysisStatus = 'READY' | 'STALE' | 'MISSING' | 'IN_PROGRESS';
 
@@ -36,6 +44,15 @@ export default function AnalysisLabPage() {
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
+  
+  // Analysis method selection
+  const [analysisMethod, setAnalysisMethod] = useState<'quick' | 'advanced'>('quick');
+  
+  // Job tracking for advanced method
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [jobProgress, setJobProgress] = useState<number>(0);
+  const [isPolling, setIsPolling] = useState(false);
+  
   const { toast } = useToast();
   const apiKey = useApiKeyStore((state) => state.apiKey);
 
@@ -104,6 +121,11 @@ export default function AnalysisLabPage() {
     setIsLoading(true);
     setAnalysisResult(null);
     setSyncMessage('');
+    
+    // Reset job state
+    setCurrentJobId(null);
+    setJobProgress(0);
+    setIsPolling(false);
 
     const rawWalletList = wallets
       .replace(/[,|\n\r]+/g, ' ') // Robustly handle different separators
@@ -201,8 +223,11 @@ export default function AnalysisLabPage() {
 
           if (walletsStillSyncing.length === 0) {
             clearInterval(pollInterval);
-            setSyncMessage('All wallets are synced. Running final analysis...');
+            setSyncMessage('All wallets are synced. Running similarity analysis...');
             toast({ title: "Sync Complete!", description: "All wallets are now ready." });
+            
+            // Note: We now run similarity analysis which will leverage the fresh wallet data
+            // The similarity analysis will detect recently analyzed wallets and won't duplicate work
             await runSimilarityAnalysis(allWallets);
           } else {
             setSyncMessage(`Waiting for ${walletsStillSyncing.length} wallet(s) to sync... Checking again in 10 seconds.`);
@@ -234,8 +259,17 @@ export default function AnalysisLabPage() {
   };
 
   const runSimilarityAnalysis = async (walletList: string[]) => {
+    if (analysisMethod === 'quick') {
+      await runQuickAnalysis(walletList);
+    } else {
+      await runAdvancedAnalysis(walletList);
+    }
+  };
+
+  // Quick analysis (existing synchronous method)
+  const runQuickAnalysis = async (walletList: string[]) => {
     setIsLoading(true);
-    setSyncMessage('Running analysis...');
+    setSyncMessage('Running quick analysis...');
     try {
       const data = await fetcher('/analyses/similarity', {
         method: 'POST',
@@ -262,6 +296,118 @@ export default function AnalysisLabPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Advanced analysis (new job-based method)
+  const runAdvancedAnalysis = async (walletList: string[]) => {
+    setIsLoading(true);
+    setSyncMessage('Submitting job to queue...');
+    setJobProgress(0);
+    
+    try {
+      // Submit job
+      const jobResponse = await fetcher('/analyses/similarity/queue', {
+        method: 'POST',
+        body: JSON.stringify({
+          walletAddresses: walletList,
+          vectorType: 'capital',
+          failureThreshold: 0.8,
+          timeoutMinutes: 30,
+        }),
+      });
+
+      setCurrentJobId(jobResponse.jobId);
+      setSyncMessage(`Job submitted! ID: ${jobResponse.jobId.slice(0, 8)}...`);
+      
+      // Start polling for job status
+      await pollJobStatus(jobResponse.jobId);
+      
+    } catch (error: any) {
+      console.error('Error submitting job:', error);
+      const errorMessage = error?.payload?.message || error.message || 'Failed to submit analysis job.';
+      setSyncMessage(errorMessage);
+      toast({
+        variant: "destructive",
+        title: "Job Submission Failed",
+        description: errorMessage,
+      });
+      setIsLoading(false);
+    }
+  };
+
+  // Poll job status
+  const pollJobStatus = async (jobId: string) => {
+    setIsPolling(true);
+    
+    const poll = async () => {
+      try {
+        const status = await fetcher(`/jobs/${jobId}`);  // Fixed: removed /status
+        
+        if (status.status === 'completed') {
+          setJobProgress(100);
+          setSyncMessage('Job completed! Processing results...');
+          
+          // Get the result - use the correct job result endpoint
+          const result = await fetcher(`/jobs/${jobId}/result`);
+          
+          // Add null checks to prevent "Cannot convert undefined or null to object" error
+          if (!result || !result.result || !result.result.data) {
+            throw new Error("Job completed but returned no data. The analysis may have failed silently.");
+          }
+          
+          // Validate the result has the expected structure (data is nested under result.data)
+          if (!result.result.data.pairwiseSimilarities || result.result.data.pairwiseSimilarities.length === 0) {
+            throw new Error("Analysis completed but returned no similarity data. The wallets may have no overlapping activity.");
+          }
+          
+          setAnalysisResult(result.result.data);  // Extract the actual data object
+          setSyncMessage('');
+          setIsLoading(false);
+          setIsPolling(false);
+          
+          toast({
+            title: "Analysis Complete",
+            description: "Advanced similarity analysis finished successfully!",
+          });
+          
+          return; // Exit polling
+        } else if (status.status === 'failed') {
+          setIsLoading(false);
+          setIsPolling(false);
+          const errorMessage = status.data?.error || `Job failed: ${status.data?.failedReason || 'Unknown error'}`;
+          setSyncMessage(errorMessage);
+          
+          toast({
+            variant: "destructive", 
+            title: "Analysis Failed",
+            description: errorMessage,
+          });
+          
+          return; // Exit polling
+        } else {
+          // Job still in progress
+          setJobProgress(status.progress || 0);
+          setSyncMessage(`Job in progress... ${status.status} (${Math.round(status.progress || 0)}%)`);
+        }
+        
+        // Continue polling
+        setTimeout(poll, 3000);
+        
+      } catch (error: any) {
+        console.error('Error polling job status:', error);
+        const errorMessage = error?.payload?.message || error.message || 'Job monitoring failed.';
+        setSyncMessage(errorMessage);
+        toast({
+          variant: "destructive",
+          title: "Job Failed",
+          description: errorMessage,
+        });
+        setIsLoading(false);
+        setIsPolling(false);
+      }
+    };
+    
+    setTimeout(poll, 1000); // Start polling after 1 second
   };
 
   return (
@@ -303,6 +449,60 @@ export default function AnalysisLabPage() {
           </div>
         </div>
         {syncMessage && <p className="mt-4 text-center text-sm text-muted-foreground">{syncMessage}</p>}
+        
+        {/* Analysis Method Selection */}
+        <div className="mt-4 pt-4 border-t">
+          <h3 className="text-sm font-medium mb-3">Analysis Method</h3>
+          <RadioGroup value={analysisMethod} onValueChange={(value) => setAnalysisMethod(value as 'quick' | 'advanced')} className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <RadioGroupItem value="quick" id="quick" className="peer sr-only" />
+              <Label
+                htmlFor="quick"
+                className="flex items-center space-x-2 rounded-md border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
+              >
+                <Zap className="h-4 w-4" />
+                <div className="flex-1">
+                  <div className="font-medium">Quick Analysis</div>
+                  <div className="text-xs text-muted-foreground">Synchronous • ~30s</div>
+                </div>
+                <Badge variant="secondary">Classic</Badge>
+              </Label>
+            </div>
+            <div>
+              <RadioGroupItem value="advanced" id="advanced" className="peer sr-only" />
+              <Label
+                htmlFor="advanced"
+                className="flex items-center space-x-2 rounded-md border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
+              >
+                <Settings className="h-4 w-4" />
+                <div className="flex-1">
+                  <div className="font-medium">Advanced Analysis</div>
+                  <div className="text-xs text-muted-foreground">Smart • Job Queue • Progress Tracking</div>
+                </div>
+                <Badge variant="outline">Smart</Badge>
+              </Label>
+            </div>
+          </RadioGroup>
+        </div>
+        
+        {/* Job Progress (Advanced Method) */}
+        {analysisMethod === 'advanced' && currentJobId && isPolling && (
+          <Alert className="mt-4">
+            <Clock className="h-4 w-4" />
+            <AlertDescription>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span>Job Progress</span>
+                  <span className="text-sm font-mono">{Math.round(jobProgress)}%</span>
+                </div>
+                <Progress value={jobProgress} className="w-full" />
+                <div className="text-xs text-muted-foreground">
+                  Job ID: {currentJobId?.slice(0, 8)}...
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
       </div>
 
       {analysisResult && (
