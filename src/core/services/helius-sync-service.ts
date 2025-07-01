@@ -8,6 +8,7 @@ import {
 import { HeliusTransaction } from '@/types/helius-api';
 import { Prisma, Wallet } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
+import { HELIUS_CONFIG } from '../../config/constants';
 
 const logger = createLogger('HeliusSyncService');
 
@@ -166,7 +167,8 @@ export class HeliusSyncService {
                stopAtSignatureForNewer, 
                newestProcessedTimestampForNewer, 
                true, 
-               undefined 
+               undefined,
+               HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
            ); 
            newerTransactionsFetchedCount = newerTransactions.length;
            logger.info(`[Sync] SmartFetch Phase 1 (Newer): Fetched ${newerTransactionsFetchedCount} potentially newer transactions from API for ${walletAddress}.`);
@@ -200,7 +202,8 @@ export class HeliusSyncService {
                         undefined,
                         undefined,
                         true, 
-                        oldestProcessedTimestamp
+                        oldestProcessedTimestamp,
+                        HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
                     );
                     logger.info(`[Sync] SmartFetch Phase 2 (Older): Fetched ${olderTransactions.length} potentially older transactions from API for ${walletAddress}.`);
                     if (olderTransactions.length > 0) {
@@ -275,7 +278,8 @@ export class HeliusSyncService {
                 stopAtSignatureForStd, 
                 newestProcessedTimestampForStd, 
                 includeCached,
-                untilTimestampForStd 
+                untilTimestampForStd,
+                HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
             );
             logger.info(`[Sync] Standard Fetch: Fetched ${transactions.length} transactions from HeliusApiClient for ${walletAddress}.`);
             if (transactions.length > 0) {

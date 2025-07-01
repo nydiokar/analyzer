@@ -17,7 +17,7 @@ export class AnalysisOperationsQueue {
    * Add a PNL analysis job to the queue
    */
   async addPnlAnalysisJob(data: AnalyzePnlJobData, options?: { priority?: number; delay?: number }) {
-    const jobId = generateJobId.analyzePnl(data.walletAddress, data.dependsOnSyncJob);
+    const jobId = generateJobId.analyzePnl(data.walletAddress, data.requestId);
     
     return this.queue.add('analyze-pnl', data, {
       jobId,
@@ -30,7 +30,7 @@ export class AnalysisOperationsQueue {
    * Add a behavior analysis job to the queue
    */
   async addBehaviorAnalysisJob(data: AnalyzeBehaviorJobData, options?: { priority?: number; delay?: number }) {
-    const jobId = generateJobId.analyzeBehavior(data.walletAddress, data.dependsOnSyncJob);
+    const jobId = generateJobId.analyzeBehavior(data.walletAddress, data.requestId);
     
     return this.queue.add('analyze-behavior', data, {
       jobId,

@@ -177,7 +177,7 @@ export class SimilarityService {
             
             const activeTokens = new Set(analysisResults.map(result => result.tokenAddress));
             activelyTradedTokensByWallet.set(walletAddr, activeTokens);
-            logger.debug(`[Historical Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${analysisResults.length} actively traded tokens (paid fees)`);
+            // logger.debug(`[Historical Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${analysisResults.length} actively traded tokens (paid fees)`);
         }
         
         // Filter binaryRelevantMints to only include tokens actively traded by at least one wallet
@@ -185,7 +185,7 @@ export class SimilarityService {
             return Array.from(activelyTradedTokensByWallet.values()).some(tokenSet => tokenSet.has(mint));
         });
         
-        logger.debug(`[Historical Filtered] Filtered from ${binaryRelevantMints.length} to ${filteredHistoricalMints.length} tokens (excluding passive interactions)`);
+        // logger.debug(`[Historical Filtered] Filtered from ${binaryRelevantMints.length} to ${filteredHistoricalMints.length} tokens (excluding passive interactions)`);
         
         if (filteredHistoricalMints.length > 0) {
             // Create filtered binary vectors using only actively traded tokens
@@ -200,7 +200,7 @@ export class SimilarityService {
                 }
                 
                 const activeCount = Object.values(filteredBinaryVectors[walletAddr]).filter(v => v === 1).length;
-                logger.debug(`[Historical Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${activeCount} actively traded out of ${filteredHistoricalMints.length} total`);
+               //  logger.debug(`[Historical Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${activeCount} actively traded out of ${filteredHistoricalMints.length} total`);
             }
             
             // Calculate Jaccard similarity matrix manually since the method is private
@@ -213,7 +213,7 @@ export class SimilarityService {
                         const similarity = jaccardSimilarityMatrix[wallet1][wallet2];
                         const wallet1Tokens = Object.values(filteredBinaryVectors[wallet1]).filter(v => v === 1).length;
                         const wallet2Tokens = Object.values(filteredBinaryVectors[wallet2]).filter(v => v === 1).length;
-                        logger.info(`[Historical Filtered Similarity] ${wallet1.slice(0, 8)}...${wallet1.slice(-4)} ↔ ${wallet2.slice(0, 8)}...${wallet2.slice(-4)}: ${(similarity * 100).toFixed(1)}% (actively traded tokens)`);
+                       //  logger.info(`[Historical Filtered Similarity] ${wallet1.slice(0, 8)}...${wallet1.slice(-4)} ↔ ${wallet2.slice(0, 8)}...${wallet2.slice(-4)}: ${(similarity * 100).toFixed(1)}% (actively traded tokens)`);
                     }
                 }
             }
@@ -222,7 +222,7 @@ export class SimilarityService {
         }
         
         // DEBUG: Log the actual vectors for historical trading
-        logger.debug(`[Historical Debug] Wallets with binary vectors: ${walletsWithBinaryVectors.length}`);
+        // logger.debug(`[Historical Debug] Wallets with binary vectors: ${walletsWithBinaryVectors.length}`);
     } else {
         logger.warn('No relevant mints for binary vectors. Jaccard matrix will be empty.');
         // Initialize empty matrix structure
@@ -272,11 +272,11 @@ export class SimilarityService {
             const tokensToUse = useMeaningfulFiltering ? Array.from(allTokensWithMeaningfulBalanceSet) : Array.from(allUniqueHeldTokensSet);
             const allUniqueHeldTokens = tokensToUse.sort();
             
-            logger.debug(`[Holdings Similarity] Total tokens (including zero balance): ${allTokensIncludingZeroSet.size}`);
-            logger.debug(`[Holdings Similarity] Tokens with positive balance: ${allUniqueHeldTokensSet.size}`);
-            logger.debug(`[Holdings Similarity] Tokens with balance >= ${MIN_MEANINGFUL_BALANCE}: ${allTokensWithMeaningfulBalanceSet.size}`);
-            logger.debug(`[Holdings Similarity] Using ${useMeaningfulFiltering ? 'meaningful-balance-filtered' : 'balance-filtered'} tokens: ${allUniqueHeldTokens.length}`);
-            logger.debug(`[Holdings Similarity] Filtered out ${allTokensIncludingZeroSet.size - allUniqueHeldTokens.length} tokens`);
+            // logger.debug(`[Holdings Similarity] Total tokens (including zero balance): ${allTokensIncludingZeroSet.size}`);
+            // logger.debug(`[Holdings Similarity] Tokens with positive balance: ${allUniqueHeldTokensSet.size}`);
+            // logger.debug(`[Holdings Similarity] Tokens with balance >= ${MIN_MEANINGFUL_BALANCE}: ${allTokensWithMeaningfulBalanceSet.size}`);
+            // logger.debug(`[Holdings Similarity] Using ${useMeaningfulFiltering ? 'meaningful-balance-filtered' : 'balance-filtered'} tokens: ${allUniqueHeldTokens.length}`);
+            // logger.debug(`[Holdings Similarity] Filtered out ${allTokensIncludingZeroSet.size - allUniqueHeldTokens.length} tokens`);
 
             if (allUniqueHeldTokens.length > 0) {
                 // 2. Create Holdings Presence Vectors
@@ -288,7 +288,7 @@ export class SimilarityService {
                 const walletsWithHoldingsVectors = walletsWithBalanceData.filter(addr => holdingsPresenceVectors[addr]);
                 
                 // DEBUG: Log the actual vectors for current holdings
-                logger.info(`[Holdings Debug] Wallets with holdings vectors: ${walletsWithHoldingsVectors.length}`);
+                // logger.info(`[Holdings Debug] Wallets with holdings vectors: ${walletsWithHoldingsVectors.length}`);
                 for (const walletAddr of walletsWithHoldingsVectors) {
                     const vector = holdingsPresenceVectors[walletAddr];
                     const tokensHeld = Object.entries(vector).filter(([_, value]) => value === 1).map(([token, _]) => token);
@@ -299,7 +299,7 @@ export class SimilarityService {
                         tokensHeld.includes(tb.mint) && tb.uiBalance >= MIN_MEANINGFUL_BALANCE
                     ).length || 0;
                     
-                    logger.info(`[Holdings Debug] Wallet ${walletAddr.slice(0,8)}...${walletAddr.slice(-4)}: ${tokensHeld.length} tokens held out of ${allUniqueHeldTokens.length} total (${meaningfulTokens} meaningful)`);
+                   //  logger.info(`[Holdings Debug] Wallet ${walletAddr.slice(0,8)}...${walletAddr.slice(-4)}: ${tokensHeld.length} tokens held out of ${allUniqueHeldTokens.length} total (${meaningfulTokens} meaningful)`);
                 }
 
                 if (walletsWithHoldingsVectors.length >= 2) {
@@ -341,14 +341,14 @@ export class SimilarityService {
                                     }
                                 }
                                 
-                                logger.info(`[Holdings Similarity - All Tokens] ${walletA.slice(0,8)}...${walletA.slice(-4)} ↔ ${walletB.slice(0,8)}...${walletB.slice(-4)}: ${(similarity * 100).toFixed(1)}% (${intersection}/${union} tokens)`);
+                                // logger.info(`[Holdings Similarity - All Tokens] ${walletA.slice(0,8)}...${walletA.slice(-4)} ↔ ${walletB.slice(0,8)}...${walletB.slice(-4)}: ${(similarity * 100).toFixed(1)}% (${intersection}/${union} tokens)`);
                             }
                         }
                     }
                     
                     // NEW: Calculate FILTERED holdings similarity (only tokens actually traded)
                     try {
-                        logger.debug('[Holdings Filtered] Starting filtered holdings similarity calculation...');
+                        logger// .debug('[Holdings Filtered] Starting filtered holdings similarity calculation...');
                         
                         // Get tokens that each wallet has actually traded from AnalysisResult table
                         const tradedTokensByWallet = new Map<string, Set<string>>();
@@ -440,7 +440,7 @@ export class SimilarityService {
                                             }
                                         }
                                         
-                                        logger.info(`[Holdings Similarity - Filtered] ${walletA.slice(0,8)}...${walletA.slice(-4)} ↔ ${walletB.slice(0,8)}...${walletB.slice(-4)}: ${(filteredSimilarity * 100).toFixed(1)}% (${intersection}/${union} actually traded tokens)`);
+                                        // logger.info(`[Holdings Similarity - Filtered] ${walletA.slice(0,8)}...${walletA.slice(-4)} ↔ ${walletB.slice(0,8)}...${walletB.slice(-4)}: ${(filteredSimilarity * 100).toFixed(1)}% (${intersection}/${union} actually traded tokens)`);
                                     }
                                 }
                             }

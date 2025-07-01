@@ -274,6 +274,15 @@ export class SimilarityOperationsProcessor {
    * Process sync for a single wallet with Redis lock-based idempotency
    */
   private async processSingleWalletSync(walletAddress: string, requestId: string): Promise<void> {
+    // First check if wallet was recently synced (fast path)
+    const wallet = await this.databaseService.getWallet(walletAddress);
+    const lastSyncAge = Date.now() - (wallet?.lastSuccessfulFetchTimestamp?.getTime() || 0);
+    
+    if (lastSyncAge < 5 * 60 * 1000) { // 5 minutes
+      this.logger.debug(`Wallet ${walletAddress} already synced recently (${Math.round(lastSyncAge / 1000)}s ago), skipping`);
+      return;
+    }
+
     const lockKey = RedisLockService.createWalletLockKey(walletAddress, 'sync');
     const lockValue = generateJobId.syncWallet(walletAddress, requestId);
     const lockTtl = 10 * 60 * 1000; // 10 minutes
@@ -281,16 +290,19 @@ export class SimilarityOperationsProcessor {
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, lockValue, lockTtl);
     
     if (!lockAcquired) {
-      // Check if wallet was recently synced
-      const wallet = await this.databaseService.getWallet(walletAddress);
-      const lastSyncAge = Date.now() - (wallet?.lastSuccessfulFetchTimestamp?.getTime() || 0);
+      // If lock failed, check again if wallet was synced while we were waiting
+      const updatedWallet = await this.databaseService.getWallet(walletAddress);
+      const newLastSyncAge = Date.now() - (updatedWallet?.lastSuccessfulFetchTimestamp?.getTime() || 0);
       
-      if (lastSyncAge < 5 * 60 * 1000) { // 5 minutes
-        this.logger.debug(`Wallet ${walletAddress} already synced recently, skipping`);
+      if (newLastSyncAge < 5 * 60 * 1000) { // 5 minutes
+        this.logger.debug(`Wallet ${walletAddress} was synced by another process while waiting, proceeding`);
         return;
       }
       
-      throw new Error(`Wallet ${walletAddress} is being synced by another process`);
+      // If still not synced, wait for the other sync to complete
+      this.logger.warn(`Wallet ${walletAddress} is being synced by another process, waiting for completion...`);
+      await this.waitForSyncCompletion(walletAddress, 3 * 60 * 1000); // Wait up to 3 minutes
+      return;
     }
 
     try {
@@ -310,7 +322,7 @@ export class SimilarityOperationsProcessor {
         skipApi: false,
         fetchOlder: false,
         smartFetch: true,
-        maxSignatures: 1000
+        maxSignatures: 200
       });
 
       this.logger.debug(`Successfully synced wallet: ${walletAddress}`);
@@ -373,6 +385,28 @@ export class SimilarityOperationsProcessor {
     if (!result) {
       throw new Error(`Behavior analysis returned no results for ${walletAddress}`);
     }
+  }
+
+  /**
+   * Wait for another sync process to complete by polling wallet status
+   */
+  private async waitForSyncCompletion(walletAddress: string, timeoutMs: number): Promise<void> {
+    const startTime = Date.now();
+    const pollInterval = 5000; // 5 seconds
+    
+    while (Date.now() - startTime < timeoutMs) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      
+      const wallet = await this.databaseService.getWallet(walletAddress);
+      const lastSyncAge = Date.now() - (wallet?.lastSuccessfulFetchTimestamp?.getTime() || 0);
+      
+      if (lastSyncAge < 30 * 1000) { // 30 seconds
+        this.logger.debug(`Wallet ${walletAddress} sync completed by another process`);
+        return;
+      }
+    }
+    
+    throw new Error(`Timeout waiting for wallet ${walletAddress} sync to complete`);
   }
 
   /**

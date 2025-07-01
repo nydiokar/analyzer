@@ -7,5 +7,6 @@ import { QueueModule } from '../../queues/queue.module';
   imports: [QueueModule], // Import QueueModule to access queue services
   controllers: [JobsController],
   providers: [JobsService],
+  exports: [JobsService], // Export JobsService for use in other modules (C3 task)
 })
 export class JobsModule {} 

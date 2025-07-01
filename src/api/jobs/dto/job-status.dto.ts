@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsString, IsOptional, IsDateString } from 'class-validator';
+import { IsEnum, IsNumber, IsString, IsOptional, IsDateString, IsArray, IsBoolean } from 'class-validator';
 
 export class JobStatusResponseDto {
   @ApiProperty({ description: 'Unique job identifier' })
@@ -131,4 +131,104 @@ export class JobListResponseDto {
   @ApiProperty({ description: 'Offset applied to the query' })
   @IsNumber()
   offset: number;
+}
+
+// === C2 Task: Job Submission DTOs ===
+
+export class SyncWalletJobRequestDto {
+  @ApiProperty({ description: 'Wallet address to sync' })
+  @IsString()
+  walletAddress: string;
+
+  @ApiProperty({ description: 'Force refresh even if recently synced', required: false })
+  @IsOptional()
+  @IsBoolean()
+  forceRefresh?: boolean;
+
+  @ApiProperty({ description: 'Fetch older transactions', required: false })
+  @IsOptional()
+  @IsBoolean()
+  fetchOlder?: boolean;
+
+  @ApiProperty({ description: 'Fetch all transactions', required: false })
+  @IsOptional()
+  @IsBoolean()
+  fetchAll?: boolean;
+}
+
+export class AnalyzeWalletJobRequestDto {
+  @ApiProperty({ description: 'Wallet address to analyze' })
+  @IsString()
+  walletAddress: string;
+
+  @ApiProperty({ 
+    description: 'Analysis types to perform',
+    enum: ['pnl', 'behavior'],
+    isArray: true
+  })
+  @IsArray()
+  @IsEnum(['pnl', 'behavior'], { each: true })
+  analysisTypes: ('pnl' | 'behavior')[];
+
+  @ApiProperty({ description: 'Force refresh even if recently analyzed', required: false })
+  @IsOptional()
+  @IsBoolean()
+  forceRefresh?: boolean;
+}
+
+export class SimilarityAnalysisJobRequestDto {
+  @ApiProperty({ 
+    description: 'Array of wallet addresses to analyze',
+    type: [String],
+    minItems: 2
+  })
+  @IsArray()
+  @IsString({ each: true })
+  walletAddresses: string[];
+
+  @ApiProperty({ 
+    description: 'Vector type for similarity calculation',
+    enum: ['capital', 'binary'],
+    required: false,
+    default: 'capital'
+  })
+  @IsOptional()
+  @IsEnum(['capital', 'binary'])
+  vectorType?: 'capital' | 'binary';
+
+  @ApiProperty({ description: 'Failure threshold (0-1)', required: false, default: 0.8 })
+  @IsOptional()
+  @IsNumber()
+  failureThreshold?: number;
+
+  @ApiProperty({ description: 'Timeout in minutes', required: false, default: 30 })
+  @IsOptional()
+  @IsNumber()
+  timeoutMinutes?: number;
+}
+
+export class JobSubmissionResponseDto {
+  @ApiProperty({ description: 'Unique job identifier' })
+  @IsString()
+  jobId: string;
+
+  @ApiProperty({ description: 'Request identifier for tracking' })
+  @IsString()
+  requestId: string;
+
+  @ApiProperty({ description: 'Initial job status', enum: ['queued'] })
+  @IsEnum(['queued'])
+  status: 'queued';
+
+  @ApiProperty({ description: 'Queue name where job was added' })
+  @IsString()
+  queueName: string;
+
+  @ApiProperty({ description: 'Estimated processing time' })
+  @IsString()
+  estimatedProcessingTime: string;
+
+  @ApiProperty({ description: 'URL to monitor job status' })
+  @IsString()
+  monitoringUrl: string;
 } 

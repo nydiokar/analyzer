@@ -9,6 +9,7 @@ import {
 } from '@/types/helius-api';
 import { DatabaseService } from '../../api/database/database.service';
 import { Injectable } from '@nestjs/common';
+import { HELIUS_CONFIG } from '../../config/constants';
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
 interface SignatureInfo {
@@ -33,7 +34,6 @@ async function delay(ms: number): Promise<void> {
 // --- End Retry Logic Helper ---
 
 // --- Default Rate Limit --- (Now configurable)
-const DEFAULT_RPS = 10; // Default target Requests Per Second (Developer Plan)
 const RATE_LIMIT_SAFETY_BUFFER_MS = 15; // Add small buffer
 
 // Define RPC URLs at the module level
@@ -49,7 +49,7 @@ export class HeliusApiClient {
   private readonly api: AxiosInstance;
   private readonly apiKey: string;
   private readonly baseUrl: string;
-  private readonly BATCH_SIZE = 100; // Maximum signatures to process in one batch
+  private readonly BATCH_SIZE = HELIUS_CONFIG.BATCH_SIZE; // Maximum signatures to process in one batch
   private lastRequestTime: number = 0;
   private readonly minRequestIntervalMs: number; // Calculated based on RPS
   private readonly rpcUrl: string; // Store the full RPC URL with API key
@@ -70,7 +70,7 @@ export class HeliusApiClient {
       : 'https://api-devnet.helius.xyz');
     this.rpcUrl = `${rpcNetworkUrl}?api-key=${this.apiKey}`; // Store the full RPC URL with API key
     
-    const targetRps = config.requestsPerSecond || DEFAULT_RPS;
+    const targetRps = config.requestsPerSecond || HELIUS_CONFIG.DEFAULT_RPS;
     // Calculate interval: (1000 ms / RPS) + safety buffer
     this.minRequestIntervalMs = Math.ceil(1000 / targetRps) + RATE_LIMIT_SAFETY_BUFFER_MS;
     logger.info(`Initializing HeliusApiClient: Target RPS=${targetRps}, Min Request Interval=${this.minRequestIntervalMs}ms`);
@@ -302,7 +302,7 @@ export class HeliusApiClient {
     newestProcessedTimestamp?: number, // Optional timestamp to filter results (exclusive)
     includeCached: boolean = true, // Flag to control whether to include cached transactions in results
     untilTimestamp?: number,
-    phase2InternalConcurrency: number = 3 // Changed default from 3 to 1
+    phase2InternalConcurrency: number = HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable internal concurrency
   ): Promise<HeliusTransaction[]> {
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run
@@ -710,7 +710,7 @@ export class HeliusApiClient {
         'getMultipleAccounts',
         params
       );
-      logger.info(`Successfully fetched multiple accounts for ${pubkeys.length} pubkeys.`);
+      // logger.info(`Successfully fetched multiple accounts for ${pubkeys.length} pubkeys.`);
       return result;
     } catch (error) {
       logger.error(

@@ -83,7 +83,7 @@ export class WalletOperationsProcessor {
 
     try {
       await job.updateProgress(5);
-      this.logger.log(`Processing wallet sync for ${walletAddress} with options:`, syncOptions);
+      // this.logger.log(`Processing wallet sync for ${walletAddress} with options:`, syncOptions);
 
       // 2. Check if recent sync exists (idempotency at service level)
       const wallet = await this.databaseService.getWallet(walletAddress);
@@ -116,12 +116,12 @@ export class WalletOperationsProcessor {
         fetchAll: syncOptions.fetchAll ?? true,
         skipApi: false,
         fetchOlder: syncOptions.fetchOlder ?? false,
-        maxSignatures: 2000,
+        maxSignatures: 200,
         smartFetch: true,
       };
 
       await job.updateProgress(20);
-      const syncResult = await this.heliusSyncService.syncWalletData(walletAddress, heliusSyncOptions);
+      await this.heliusSyncService.syncWalletData(walletAddress, heliusSyncOptions);
       
       await job.updateProgress(90);
       this.checkTimeout(startTime, timeoutMs, 'Completing wallet sync');

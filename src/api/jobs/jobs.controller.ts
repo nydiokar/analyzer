@@ -1,5 +1,5 @@
-import { Controller, Get, Param, Query, UseGuards, Logger } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Param, Query, UseGuards, Logger, Post, Body, HttpCode } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { ApiKeyAuthGuard } from '../auth/api-key-auth.guard';
 import { JobsService } from './jobs.service';
 import { JobState } from 'bullmq';
@@ -7,7 +7,11 @@ import {
   JobStatusResponseDto, 
   QueueStatsResponseDto, 
   AllQueueStatsResponseDto, 
-  JobListResponseDto 
+  JobListResponseDto,
+  SyncWalletJobRequestDto,
+  AnalyzeWalletJobRequestDto,
+  SimilarityAnalysisJobRequestDto,
+  JobSubmissionResponseDto
 } from './dto/job-status.dto';
 
 @ApiTags('Jobs')
@@ -19,6 +23,61 @@ export class JobsController {
   constructor(
     private readonly jobsService: JobsService,
   ) {}
+
+  // === C2 Task: Job Submission Endpoints ===
+
+  @Post('wallets/sync')
+  @HttpCode(202)
+  @ApiOperation({ 
+    summary: 'Submit wallet sync job',
+    description: 'Submits a job to sync wallet transaction data from Helius API.'
+  })
+  @ApiBody({ type: SyncWalletJobRequestDto })
+  @ApiResponse({ 
+    status: 202, 
+    description: 'Sync job submitted successfully',
+    type: JobSubmissionResponseDto
+  })
+  @ApiResponse({ status: 400, description: 'Invalid wallet address or parameters' })
+  async submitSyncWalletJob(@Body() dto: SyncWalletJobRequestDto): Promise<JobSubmissionResponseDto> {
+    return this.jobsService.submitSyncWalletJob(dto);
+  }
+
+  @Post('wallets/analyze')
+  @HttpCode(202)
+  @ApiOperation({ 
+    summary: 'Submit wallet analysis job',
+    description: 'Submits jobs to perform PNL and/or behavior analysis on a wallet.'
+  })
+  @ApiBody({ type: AnalyzeWalletJobRequestDto })
+  @ApiResponse({ 
+    status: 202, 
+    description: 'Analysis job(s) submitted successfully',
+    type: JobSubmissionResponseDto
+  })
+  @ApiResponse({ status: 400, description: 'Invalid wallet address or analysis types' })
+  async submitAnalyzeWalletJob(@Body() dto: AnalyzeWalletJobRequestDto): Promise<JobSubmissionResponseDto> {
+    return this.jobsService.submitAnalyzeWalletJob(dto);
+  }
+
+  @Post('similarity/analyze')
+  @HttpCode(202)
+  @ApiOperation({ 
+    summary: 'Submit similarity analysis job',
+    description: 'Submits a job to perform similarity analysis on multiple wallets.'
+  })
+  @ApiBody({ type: SimilarityAnalysisJobRequestDto })
+  @ApiResponse({ 
+    status: 202, 
+    description: 'Similarity analysis job submitted successfully',
+    type: JobSubmissionResponseDto
+  })
+  @ApiResponse({ status: 400, description: 'Invalid wallet addresses or parameters' })
+  async submitSimilarityAnalysisJob(@Body() dto: SimilarityAnalysisJobRequestDto): Promise<JobSubmissionResponseDto> {
+    return this.jobsService.submitSimilarityAnalysisJob(dto);
+  }
+
+  // === Existing Job Status Endpoints ===
 
   @Get(':jobId')
   @ApiOperation({ 
@@ -34,6 +93,53 @@ export class JobsController {
   @ApiResponse({ status: 404, description: 'Job not found' })
   async getJobStatus(@Param('jobId') jobId: string): Promise<JobStatusResponseDto> {
     return this.jobsService.getJobStatus(jobId);
+  }
+
+  @Get(':jobId/progress')
+  @ApiOperation({ 
+    summary: 'Get job progress by ID',
+    description: 'Retrieves only the progress information for a specific job.'
+  })
+  @ApiParam({ name: 'jobId', description: 'The unique job ID', type: String })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Job progress retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        jobId: { type: 'string' },
+        status: { type: 'string', enum: ['waiting', 'active', 'completed', 'failed'] },
+        progress: { oneOf: [{ type: 'number' }, { type: 'object' }] }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  async getJobProgress(@Param('jobId') jobId: string): Promise<{ jobId: string; status: string; progress: number | object }> {
+    return this.jobsService.getJobProgress(jobId);
+  }
+
+  @Get(':jobId/result')
+  @ApiOperation({ 
+    summary: 'Get job result by ID',
+    description: 'Retrieves only the result information for a specific job.'
+  })
+  @ApiParam({ name: 'jobId', description: 'The unique job ID', type: String })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Job result retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        jobId: { type: 'string' },
+        status: { type: 'string', enum: ['waiting', 'active', 'completed', 'failed'] },
+        result: { type: 'object', description: 'Job result data (only available for completed jobs)' },
+        error: { type: 'string', description: 'Error message (only available for failed jobs)' }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  async getJobResult(@Param('jobId') jobId: string): Promise<{ jobId: string; status: string; result?: any; error?: string }> {
+    return this.jobsService.getJobResult(jobId);
   }
 
   @Get('queue/:queueName/stats')

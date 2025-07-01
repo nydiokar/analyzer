@@ -15,6 +15,7 @@ import { isValidSolanaAddress } from '../pipes/solana-address.pipe';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
 import { SimilarityAnalysisFlowData } from '../../queues/jobs/types';
 import { generateJobId } from '../../queues/utils/job-id-generator';
+import { JobsService } from '../jobs/jobs.service';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -30,11 +31,15 @@ export class AnalysesController {
     private readonly behaviorService: BehaviorService,
     private readonly similarityApiService: SimilarityApiService,
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
+    private readonly jobsService: JobsService,
   ) {}
 
   @Post('/similarity')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ summary: 'Runs a similarity analysis on a given set of wallets.' })
+  @ApiOperation({ 
+    summary: 'Runs a similarity analysis on a given set of wallets.',
+    description: 'C3 Backwards Compatibility: Internally uses job queue but maintains synchronous interface for existing clients.'
+  })
   @ApiBody({ type: SimilarityAnalysisRequestDto })
   @ApiResponse({ status: 200, description: 'Similarity analysis completed successfully.'})
   @ApiResponse({ status: 400, description: 'Invalid input, e.g., fewer than 2 wallets provided.' })
@@ -42,8 +47,71 @@ export class AnalysesController {
   async runSimilarityAnalysis(
     @Body() dto: SimilarityAnalysisRequestDto,
   ): Promise<any> {
-    this.logger.log(`Received request to run similarity analysis for ${dto.walletAddresses.length} wallets.`);
-    return this.similarityApiService.runAnalysis(dto);
+    this.logger.log(`[C3 Backwards Compatibility] Received request to run similarity analysis for ${dto.walletAddresses.length} wallets.`);
+    
+    try {
+      // Step 1: Submit job using the new job submission service
+      const jobSubmissionDto = {
+        walletAddresses: dto.walletAddresses,
+        vectorType: dto.vectorType,
+        failureThreshold: 0.8,
+        timeoutMinutes: 30
+      };
+
+      this.logger.log(`[C3] Submitting similarity job internally...`);
+      const jobResponse = await this.jobsService.submitSimilarityAnalysisJob(jobSubmissionDto);
+      const jobId = jobResponse.jobId;
+
+      this.logger.log(`[C3] Job ${jobId} submitted. Starting polling for result...`);
+
+      // Step 2: Poll for job completion (preserving synchronous behavior)
+      const maxPollingTime = 30 * 60 * 1000; // 30 minutes max
+      const pollingInterval = 5000; // 5 seconds
+      const startTime = Date.now();
+
+      while (Date.now() - startTime < maxPollingTime) {
+        const jobStatus = await this.jobsService.getJobStatus(jobId);
+        
+        this.logger.log(`[C3] Job ${jobId} status: ${jobStatus.status}, progress: ${jobStatus.progress}`);
+
+        if (jobStatus.status === 'completed') {
+          this.logger.log(`[C3] Job ${jobId} completed successfully. Returning result.`);
+          
+          // Return the result in the same format as the original endpoint
+          if (jobStatus.result) {
+            return jobStatus.result;
+          } else {
+            throw new InternalServerErrorException('Job completed but no result was returned');
+          }
+        } else if (jobStatus.status === 'failed') {
+          const errorMessage = jobStatus.error || 'Job failed without specific error message';
+          this.logger.error(`[C3] Job ${jobId} failed: ${errorMessage}`);
+          throw new InternalServerErrorException(`Similarity analysis failed: ${errorMessage}`);
+        }
+
+        // Wait before next poll
+        await new Promise(resolve => setTimeout(resolve, pollingInterval));
+      }
+
+      // Timeout reached
+      this.logger.error(`[C3] Job ${jobId} timed out after ${maxPollingTime}ms`);
+      throw new ServiceUnavailableException('Similarity analysis timed out. Please try again later or use the async endpoint.');
+
+    } catch (error) {
+      this.logger.error(`[C3] Error in backwards compatibility similarity analysis:`, error);
+      
+      // If it's already a known HTTP exception, re-throw it
+      if (error instanceof BadRequestException || 
+          error instanceof InternalServerErrorException || 
+          error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+
+      // Fallback to original service for unexpected errors
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`[C3] Falling back to original similarity service due to error: ${errorMessage}`);
+      return this.similarityApiService.runAnalysis(dto);
+    }
   }
 
   @Post('/similarity/enrich-balances')
@@ -226,7 +294,7 @@ export class AnalysesController {
             fetchAll: true,
             skipApi: false,
             fetchOlder: true,
-            maxSignatures: 2000,
+            maxSignatures: 200,
             smartFetch: true,
           };
 
