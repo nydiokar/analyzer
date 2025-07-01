@@ -7,7 +7,7 @@ import { RedisLockService } from '../services/redis-lock.service';
 import { WalletOperationsQueue } from '../queues/wallet-operations.queue';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
 import { HeliusSyncService } from '../../core/services/helius-sync-service';
-import { PnlAnalysisService } from '../../core/services/pnl-analysis-service';
+import { PnlAnalysisService } from '../../api/pnl_analysis/pnl-analysis.service';
 import { BehaviorService } from '../../api/wallets/behavior/behavior.service';
 import { SimilarityApiService } from '../../api/analyses/similarity/similarity.service';
 import { DatabaseService } from '../../api/database/database.service';

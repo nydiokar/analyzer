@@ -18,13 +18,12 @@ import { SimilarityOperationsProcessor } from './processors/similarity-operation
 // Services
 import { RedisLockService } from './services/redis-lock.service';
 
-// External dependencies
+// External dependencies - Import modules that provide the services we need
 import { DatabaseModule } from '../api/database/database.module';
 import { HeliusModule } from '../api/helius/helius.module';
 import { SimilarityModule } from '../api/analyses/similarity/similarity.module';
-import { BehaviorService } from '../api/wallets/behavior/behavior.service';
-import { PnlAnalysisService } from '../core/services/pnl-analysis-service';
-import { HeliusSyncService } from '../core/services/helius-sync-service';
+import { BehaviorModule } from '../api/wallets/behavior/behavior.module';
+import { PnlAnalysisModule } from '../api/pnl_analysis/pnl-analysis.module';
 
 @Module({
   imports: [
@@ -47,10 +46,12 @@ import { HeliusSyncService } from '../core/services/helius-sync-service';
       { name: QueueNames.ENRICHMENT_OPERATIONS }
     ),
 
-    // Import external modules that provide dependencies
-    DatabaseModule,
-    HeliusModule,
-    SimilarityModule,
+    // Import modules that provide the services we need
+    DatabaseModule,    // Provides DatabaseService
+    HeliusModule,      // Provides HeliusApiClient, HeliusSyncService (Global module)
+    SimilarityModule,  // Provides SimilarityApiService
+    BehaviorModule,    // Provides BehaviorService
+    PnlAnalysisModule, // Provides PnlAnalysisService
   ],
   
   providers: [
@@ -63,12 +64,7 @@ import { HeliusSyncService } from '../core/services/helius-sync-service';
     SimilarityOperationsQueue,
     EnrichmentOperationsQueue,
 
-    // Core Services (these may need to be imported from their respective modules)
-    PnlAnalysisService,
-    HeliusSyncService,
-    BehaviorService,
-
-    // Processors
+    // Processors (services will be injected from imported modules)
     SimilarityOperationsProcessor,
   ],
   

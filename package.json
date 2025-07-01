@@ -20,7 +20,9 @@
     "pm2:start:wallet-analysis": "npm run build && pm2 start ecosystem.config.js",
     "pm2:start:backend": "npm run build && pm2 start ecosystem.backend.config.js --env production",
     "debug:mapper": "ts-node -r tsconfig-paths/register scripts/debug_mapper.ts",
-    "test:bullmq": "npx ts-node src/queues/test-similarity-flow.ts"
+    "test:queues": "npx ts-node src/queues/test-similarity-flow.ts",
+    "test:integration": "npx ts-node -r tsconfig-paths/register src/queues/test-backend-integration.ts",
+    "validate:deps": "npx ts-node -r tsconfig-paths/register scripts/validate-dependencies.ts"
   },
   "keywords": [
     "crypto",
