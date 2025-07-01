@@ -13,7 +13,10 @@ import { SimilarityOperationsQueue } from './queues/similarity-operations.queue'
 import { EnrichmentOperationsQueue } from './queues/enrichment-operations.queue';
 
 // Processors
+import { WalletOperationsProcessor } from './processors/wallet-operations.processor';
+import { AnalysisOperationsProcessor } from './processors/analysis-operations.processor';
 import { SimilarityOperationsProcessor } from './processors/similarity-operations.processor';
+import { EnrichmentOperationsProcessor } from './processors/enrichment-operations.processor';
 
 // Services
 import { RedisLockService } from './services/redis-lock.service';
@@ -24,6 +27,8 @@ import { HeliusModule } from '../api/helius/helius.module';
 import { SimilarityModule } from '../api/analyses/similarity/similarity.module';
 import { BehaviorModule } from '../api/wallets/behavior/behavior.module';
 import { PnlAnalysisModule } from '../api/pnl_analysis/pnl-analysis.module';
+import { TokenInfoModule } from '../api/token-info/token-info.module';
+import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
 
 @Module({
   imports: [
@@ -52,6 +57,8 @@ import { PnlAnalysisModule } from '../api/pnl_analysis/pnl-analysis.module';
     SimilarityModule,  // Provides SimilarityApiService
     BehaviorModule,    // Provides BehaviorService
     PnlAnalysisModule, // Provides PnlAnalysisService
+    TokenInfoModule,   // Provides TokenInfoService
+    DexscreenerModule, // Provides DexscreenerService
   ],
   
   providers: [
@@ -65,7 +72,10 @@ import { PnlAnalysisModule } from '../api/pnl_analysis/pnl-analysis.module';
     EnrichmentOperationsQueue,
 
     // Processors (services will be injected from imported modules)
+    WalletOperationsProcessor,
+    AnalysisOperationsProcessor,
     SimilarityOperationsProcessor,
+    EnrichmentOperationsProcessor,
   ],
   
   exports: [
@@ -79,7 +89,10 @@ import { PnlAnalysisModule } from '../api/pnl_analysis/pnl-analysis.module';
     RedisLockService,
     
     // Export processors if needed by other modules
+    WalletOperationsProcessor,
+    AnalysisOperationsProcessor, 
     SimilarityOperationsProcessor,
+    EnrichmentOperationsProcessor,
   ],
 })
 export class QueueModule {} 

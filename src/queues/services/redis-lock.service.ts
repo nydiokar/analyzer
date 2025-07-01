@@ -185,6 +185,24 @@ export class RedisLockService {
   }
 
   /**
+   * Utility method to create a lock key for wallet sync operations
+   * @param walletAddress - The wallet address to sync
+   * @returns string - Formatted lock key
+   */
+  static createSyncLockKey(walletAddress: string): string {
+    return `lock:wallet:sync:${walletAddress}`;
+  }
+
+  /**
+   * Utility method to create a lock key for enrichment operations
+   * @param identifier - Token address or batch identifier
+   * @returns string - Formatted lock key
+   */
+  static createEnrichmentLockKey(identifier: string): string {
+    return `lock:enrichment:${identifier}`;
+  }
+
+  /**
    * Cleanup method to be called on application shutdown
    */
   async onApplicationShutdown(): Promise<void> {

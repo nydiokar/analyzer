@@ -80,7 +80,6 @@ export interface WalletSyncResult extends JobResult {
   walletAddress: string;
   status: 'synced' | 'already-current' | 'failed';
   lastSync?: Date;
-  transactionCount?: number;
 }
 
 export interface AnalysisResult extends JobResult {

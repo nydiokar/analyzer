@@ -3,9 +3,10 @@ import { AnalysesController } from './analyses.controller';
 
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from '../database/database.module'; 
-import { PnlAnalysisModule } from 'api/pnl_analysis/pnl-analysis.module';
+import { PnlAnalysisModule } from '../pnl_analysis/pnl-analysis.module';
 import { BehaviorModule } from '../wallets/behavior/behavior.module';
 import { SimilarityModule } from './similarity/similarity.module';
+import { QueueModule } from '../../queues/queue.module';
 // HeliusModule is now global, so AnalysesModule does not need to import it directly
 // PnlAnalysisModule and BehaviorModule are still removed from the previous test step
 
@@ -16,6 +17,7 @@ import { SimilarityModule } from './similarity/similarity.module';
     PnlAnalysisModule, // Ensures PnlAnalysisService is available
     BehaviorModule,    // Ensures BehaviorService is available
     SimilarityModule,  // Provides SimilarityApiService
+    QueueModule,       // Provides SimilarityOperationsQueue for job queueing
                        // HeliusModule is global and provides HeliusSyncService
                        // PnlAnalysisModule and BehaviorModule still omitted for this test run
   ],

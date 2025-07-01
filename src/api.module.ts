@@ -9,6 +9,8 @@ import { UsersModule } from './api/users/users.module'; // Import the new UsersM
 import { DexscreenerModule } from './api/dexscreener/dexscreener.module';
 import { TokenInfoModule } from './api/token-info/token-info.module';
 import { HealthModule } from './api/health/health.module';
+import { JobsModule } from './api/jobs/jobs.module'; // Import JobsModule for job status API
+import { WebSocketModule } from './api/websocket/websocket.module'; // Import WebSocketModule for real-time updates
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { HealthModule } from './api/health/health.module';
     DexscreenerModule,
     TokenInfoModule,
     HealthModule,
+    JobsModule,     // Imports job status API endpoints
+    WebSocketModule, // Imports WebSocket gateway for real-time job progress
     // BehaviorModule is now imported by WalletsModule, so remove from here if not directly used by ApiModule itself
   ],
   controllers: [

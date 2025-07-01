@@ -12,6 +12,9 @@ import { SimilarityAnalysisRequestDto } from './similarity/similarity-analysis.d
 import { WalletStatusRequestDto, WalletStatusResponseDto } from './dto/wallet-status.dto';
 import { TriggerAnalysisDto } from './dto/trigger-analysis.dto';
 import { isValidSolanaAddress } from '../pipes/solana-address.pipe';
+import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
+import { SimilarityAnalysisFlowData } from '../../queues/jobs/types';
+import { generateJobId } from '../../queues/utils/job-id-generator';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -26,6 +29,7 @@ export class AnalysesController {
     private readonly pnlAnalysisService: PnlAnalysisService,
     private readonly behaviorService: BehaviorService,
     private readonly similarityApiService: SimilarityApiService,
+    private readonly similarityOperationsQueue: SimilarityOperationsQueue,
   ) {}
 
   @Post('/similarity')
@@ -51,6 +55,109 @@ export class AnalysesController {
   ): Promise<any> {
     this.logger.log(`Received request to enrich balances for ${Object.keys(body.walletBalances).length} wallets.`);
     return this.similarityApiService.enrichBalances(body.walletBalances);
+  }
+
+  @Post('/similarity/queue')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ 
+    summary: 'Queue a similarity analysis job',
+    description: 'Adds a similarity analysis job to the BullMQ queue for background processing. Returns job ID and status for monitoring via the Jobs API.'
+  })
+  @ApiBody({ 
+    type: SimilarityAnalysisRequestDto,
+    description: 'Similarity analysis request with wallet addresses and optional configuration'
+  })
+  @ApiResponse({ 
+    status: 202, 
+    description: 'Similarity analysis job queued successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        jobId: { type: 'string', description: 'Unique job identifier for tracking' },
+        requestId: { type: 'string', description: 'Request identifier for this similarity analysis' },
+        status: { type: 'string', enum: ['queued'], description: 'Initial job status' },
+        queueName: { type: 'string', example: 'similarity-operations' },
+        walletCount: { type: 'number', description: 'Number of wallets to analyze' },
+        estimatedProcessingTime: { type: 'string', description: 'Estimated processing time' },
+        monitoringUrl: { type: 'string', description: 'URL to monitor job status' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid input - fewer than 2 wallets provided or invalid addresses' })
+  @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
+  @HttpCode(202)
+  async queueSimilarityAnalysis(
+    @Body() dto: SimilarityAnalysisRequestDto,
+  ): Promise<{
+    jobId: string;
+    requestId: string;
+    status: string;
+    queueName: string;
+    walletCount: number;
+    estimatedProcessingTime: string;
+    monitoringUrl: string;
+  }> {
+    this.logger.log(`Received request to queue similarity analysis for ${dto.walletAddresses.length} wallets.`);
+
+    // Validate input
+    if (!dto.walletAddresses || dto.walletAddresses.length < 2) {
+      throw new BadRequestException('At least two wallet addresses are required for similarity analysis.');
+    }
+
+    // Validate wallet addresses
+    const invalidWallets = dto.walletAddresses.filter(w => !isValidSolanaAddress(w));
+    if (invalidWallets.length > 0) {
+      throw new BadRequestException(`Invalid Solana address(es) provided: ${invalidWallets.join(', ')}`);
+    }
+
+    try {
+      // Generate request ID  
+      const requestId = `similarity-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Prepare job data - delegate to existing SimilarityApiService
+      const jobData: SimilarityAnalysisFlowData = {
+        walletAddresses: dto.walletAddresses,
+        requestId,
+        failureThreshold: 0.8, // 80% success rate required
+        timeoutMinutes: 30, // 30 minute timeout
+        similarityConfig: {
+          vectorType: dto.vectorType || 'capital', // Use DTO vectorType
+        }
+      };
+
+      // Add job to similarity operations queue
+      const job = await this.similarityOperationsQueue.addSimilarityAnalysisFlow(jobData, {
+        priority: 5, // Normal priority
+        delay: 0 // No delay
+      });
+
+      // Calculate estimated processing time based on wallet count
+      const baseTimeMinutes = 5; // Base processing time
+      const timePerWallet = 2; // Additional minutes per wallet
+      const estimatedMinutes = baseTimeMinutes + (dto.walletAddresses.length * timePerWallet);
+      const estimatedTime = estimatedMinutes > 60 
+        ? `${Math.round(estimatedMinutes / 60)} hour(s)`
+        : `${estimatedMinutes} minute(s)`;
+
+      this.logger.log(`Queued similarity analysis job ${job.id} for request ${requestId} with ${dto.walletAddresses.length} wallets`);
+
+      return {
+        jobId: job.id!,
+        requestId,
+        status: 'queued',
+        queueName: 'similarity-operations',
+        walletCount: dto.walletAddresses.length,
+        estimatedProcessingTime: estimatedTime,
+        monitoringUrl: `/jobs/${job.id}`
+      };
+
+    } catch (error) {
+      this.logger.error(`Failed to queue similarity analysis:`, error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to queue similarity analysis job');
+    }
   }
 
   @Post('/wallets/status')
