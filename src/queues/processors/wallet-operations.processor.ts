@@ -29,7 +29,7 @@ export class WalletOperationsProcessor {
     );
 
     this.worker.on('completed', (job) => {
-      this.logger.log(`Job ${job.id} completed successfully`);
+      this.logger.debug(`Job ${job.id} completed successfully`);
     });
 
     this.worker.on('failed', (job, err) => {
@@ -40,13 +40,13 @@ export class WalletOperationsProcessor {
       this.logger.error('Worker error:', err);
     });
 
-    this.logger.log('WalletOperationsProcessor initialized with worker');
+          this.logger.debug('WalletOperationsProcessor initialized with worker');
   }
 
   private async processJob(job: Job): Promise<any> {
     const jobName = job.name;
     
-    this.logger.log(`Processing ${jobName} job ${job.id}`);
+    this.logger.debug(`Processing ${jobName} job ${job.id}`);
     
     switch (jobName) {
       case 'sync-wallet':
@@ -95,7 +95,7 @@ export class WalletOperationsProcessor {
       
       if (shouldSkipSync) {
         await job.updateProgress(100);
-        this.logger.log(`Wallet ${walletAddress} is already current. Skipping sync.`);
+        this.logger.debug(`Wallet ${walletAddress} is already current. Skipping sync.`);
         return {
           success: true,
           walletAddress,
@@ -171,7 +171,7 @@ export class WalletOperationsProcessor {
     
     try {
       await job.updateProgress(10);
-      this.logger.log(`Fetching balance for wallet ${walletAddress}`);
+      this.logger.debug(`Fetching balance for wallet ${walletAddress}`);
 
       const walletBalanceService = new WalletBalanceService(this.heliusApiClient);
       
@@ -193,7 +193,7 @@ export class WalletOperationsProcessor {
         processingTimeMs: Date.now() - startTime
       };
 
-      this.logger.log(`Balance fetched for ${walletAddress}: ${walletBalance.solBalance} SOL`);
+      this.logger.debug(`Balance fetched for ${walletAddress}: ${walletBalance.solBalance} SOL`);
       return result;
 
     } catch (error) {
@@ -215,7 +215,7 @@ export class WalletOperationsProcessor {
    * Shutdown the worker gracefully
    */
   async shutdown(): Promise<void> {
-    this.logger.log('Shutting down WalletOperationsProcessor worker...');
+    this.logger.debug('Shutting down WalletOperationsProcessor worker...');
     await this.worker.close();
   }
 } 

@@ -155,7 +155,7 @@ export class HeliusApiClient {
             const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
 
             // Log the failure
-            const logLevel = retries === 0 ? 'info' : 'warn'; 
+            const logLevel = retries === 0 ? 'debug' : 'warn'; 
             logger[logLevel](`Attempt ${attempt} failed: Error fetching RPC signatures page`, { 
                 error: this.sanitizeError(error), address, limit, before, status 
             });
@@ -177,7 +177,7 @@ export class HeliusApiClient {
 
             if (shouldRetry) {
                  const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries);
-                 logger.info(`Attempt ${attempt}: Encountered retryable error (status=${status ?? 'N/A'}). Retrying RPC signatures fetch in ${backoffTime}ms...`);
+                 logger.debug(`Attempt ${attempt}: Encountered retryable error (status=${status ?? 'N/A'}). Retrying RPC signatures fetch in ${backoffTime}ms...`);
                  await delay(backoffTime);
                  retries++;
             } else {
@@ -234,9 +234,8 @@ export class HeliusApiClient {
             const attempt = retries + 1;
             const signatureCount = signatures.length;
 
-            // Log initial failure as info, subsequent retry attempts as warn?
-            // Let's log the initial failure that triggers retry as info, keep final failure as error.
-            const logLevel = retries === 0 ? 'info' : 'warn'; 
+            // Log initial failure as debug, subsequent retry attempts as warn
+            const logLevel = retries === 0 ? 'debug' : 'warn'; 
             logger[logLevel](`Attempt ${attempt} failed: Error fetching transactions by signatures`, { 
                 error: this.sanitizeError(error), signatureCount, status 
             });
@@ -250,7 +249,7 @@ export class HeliusApiClient {
             if (isAxiosError && status) {
                 if (status === 429 || status >= 500) { // Retry on rate limit or server error
                     const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries);
-                    logger.info(`Attempt ${attempt}: Rate limit or server error (${status}). Retrying batch in ${backoffTime}ms...`);
+                    logger.debug(`Attempt ${attempt}: Rate limit or server error (${status}). Retrying batch in ${backoffTime}ms...`);
                     await delay(backoffTime);
                     retries++;
                 } else { // Don't retry for client errors (4xx except 429)
@@ -259,7 +258,7 @@ export class HeliusApiClient {
                 }
             } else { // Handle non-HTTP errors (e.g., network issues)
                 const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries);
-                logger.info(`Attempt ${attempt}: Network or unknown error. Retrying batch in ${backoffTime}ms...`);
+                logger.debug(`Attempt ${attempt}: Network or unknown error. Retrying batch in ${backoffTime}ms...`);
                 await delay(backoffTime);
                 retries++;
             }
@@ -313,7 +312,7 @@ export class HeliusApiClient {
     const cachedTransactions: HeliusTransaction[] = [];
 
     // === PHASE 1: Fetch Signatures via RPC ===
-    logger.info(`Starting Phase 1: Fetching signatures via Solana RPC for ${address}`);
+    logger.debug(`Starting Phase 1: Fetching signatures via Solana RPC for ${address}`);
     let lastRpcSignature: string | null = null;
     let hasMoreSignatures = true;
     let fetchedSignaturesCount = 0;
@@ -332,7 +331,7 @@ export class HeliusApiClient {
             if (stopAtSignature) {
                 const stopIndex = signatureInfos.findIndex(info => info.signature === stopAtSignature);
                 if (stopIndex !== -1) {
-                    logger.info(`Found stopAtSignature (${stopAtSignature}) in the current batch at index ${stopIndex}. Stopping signature fetch.`);
+                    logger.debug(`Found stopAtSignature (${stopAtSignature}) in the current batch at index ${stopIndex}. Stopping signature fetch.`);
                     hasMoreSignatures = false;
                 }
             }
@@ -340,18 +339,18 @@ export class HeliusApiClient {
             // IMPORTANT: This condition stops PAGINATION, not processing of already fetched signatures.
             // We will apply a hard limit AFTER this loop if maxSignatures is set.
             if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures && !stopAtSignature) {
-                logger.info(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, which meets or exceeds an intended conceptual target related to maxSignatures (${maxSignatures}). Stopping further RPC pagination.`);
+                logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, which meets or exceeds an intended conceptual target related to maxSignatures (${maxSignatures}). Stopping further RPC pagination.`);
                 hasMoreSignatures = false;
             } else if (signatureInfos.length < rpcLimit) {
-                logger.info('Last page of RPC signatures reached (received less than limit).');
+                logger.debug('Last page of RPC signatures reached (received less than limit).');
                 hasMoreSignatures = false;
             }
         } else {
-            logger.info('Last page of RPC signatures reached (received 0 items).');
+            logger.debug('Last page of RPC signatures reached (received 0 items).');
             hasMoreSignatures = false;
         }
       }
-      logger.info(`Finished Phase 1. Total signatures retrieved via RPC: ${allRpcSignaturesInfo.length}`);
+      logger.debug(`Finished Phase 1. Total signatures retrieved via RPC: ${allRpcSignaturesInfo.length}`);
 
     } catch (rpcError) {
        logger.error('Failed during RPC signature fetching phase (Phase 1): Returning empty list.', { 
@@ -364,7 +363,7 @@ export class HeliusApiClient {
 
     // --- Apply hard maxSignatures limit to the RPC results before detail fetching ---
     if (maxSignatures !== null && allRpcSignaturesInfo.length > maxSignatures) {
-        logger.info(`RPC fetch resulted in ${allRpcSignaturesInfo.length} signatures. Applying hard limit of ${maxSignatures}.`);
+        logger.debug(`RPC fetch resulted in ${allRpcSignaturesInfo.length} signatures. Applying hard limit of ${maxSignatures}.`);
         // Sort by blockTime descending (newest first) to keep the most recent ones
         // Handle null/undefined blockTimes by treating them as older than any defined blockTime
         allRpcSignaturesInfo.sort((a, b) => {
@@ -373,7 +372,7 @@ export class HeliusApiClient {
             return timeB - timeA; // Descending order
         });
         allRpcSignaturesInfo = allRpcSignaturesInfo.slice(0, maxSignatures);
-        logger.info(`Sliced RPC signatures to newest ${allRpcSignaturesInfo.length} based on maxSignatures limit.`);
+        logger.debug(`Sliced RPC signatures to newest ${allRpcSignaturesInfo.length} based on maxSignatures limit.`);
     }
 
     const uniqueSignatures = Array.from(new Set(allRpcSignaturesInfo.map(s => s.signature)));
@@ -398,14 +397,14 @@ export class HeliusApiClient {
       }
     }
     
-    logger.info(`Found ${cacheHits} signatures in cache. Need to fetch details for ${signaturesToFetchDetails.size} signatures.`);
+    logger.debug(`Found ${cacheHits} signatures in cache. Need to fetch details for ${signaturesToFetchDetails.size} signatures.`);
     logger.debug(`Cache inclusion is ${includeCached ? 'enabled' : 'disabled'}, keeping ${cachedTransactions.length} cached transactions.`);
 
     const signaturesToFetchArray = Array.from(signaturesToFetchDetails);
 
     // === PHASE 2: Fetch Uncached Details SEQUENTIALLY & Save to Cache ===
     if (signaturesToFetchArray.length > 0) {
-        logger.info(`Starting Phase 2: Fetching parsed details from Helius for ${signaturesToFetchArray.length} new signatures with internal concurrency of ${phase2InternalConcurrency}.`);
+        logger.debug(`Starting Phase 2: Fetching parsed details from Helius for ${signaturesToFetchArray.length} new signatures with internal concurrency of ${phase2InternalConcurrency}.`);
         
         // Reset newlyFetchedTransactions here as it only holds results from THIS phase
         newlyFetchedTransactions = []; 
@@ -450,16 +449,19 @@ export class HeliusApiClient {
             processedSignaturesCount += chunkSignatures.length; // Update based on the size of the chunk attempted
             const currentPercentage = Math.floor((newlyFetchedTransactions.length / totalSignaturesToFetch) * 100); // Progress based on successfully fetched
             
-            if (currentPercentage >= lastLoggedPercentage + 5 || processedSignaturesCount >= totalSignaturesToFetch) {
+            // Only show progress for larger operations (more than 50 signatures)
+            if (totalSignaturesToFetch > 50 && (currentPercentage >= lastLoggedPercentage + 25 || processedSignaturesCount >= totalSignaturesToFetch)) {
                  const displayPercentage = Math.min(100, Math.floor((processedSignaturesCount / totalSignaturesToFetch) * 100));
                  process.stdout.write(`  Fetching details: Processed ~${displayPercentage}% of signatures (${newlyFetchedTransactions.length} successful txns fetched so far)...\r`);
                  lastLoggedPercentage = currentPercentage;
             }
         } // End loop through chunks
         
-        process.stdout.write('\n'); // Newline after final progress update
+        if (totalSignaturesToFetch > 50) {
+            process.stdout.write('\n'); // Newline after final progress update only if we showed progress
+        }
         logger.debug('Concurrent batch requests for Phase 2 finished.');
-        logger.info(`Successfully fetched details for ${newlyFetchedTransactions.length} out of ${totalSignaturesToFetch} new transactions attempted in Phase 2.`);
+        logger.debug(`Successfully fetched details for ${newlyFetchedTransactions.length} out of ${totalSignaturesToFetch} new transactions attempted in Phase 2.`);
 
         // --- Save newly fetched transactions to DB Cache --- 
         if (newlyFetchedTransactions.length > 0) {
@@ -469,15 +471,15 @@ export class HeliusApiClient {
             logger.debug('Finished saving new transactions to cache.');
             // Do NOT combine with cached data here. newlyFetchedTransactions holds the results.
         } else {
-             logger.info('No new transactions were successfully fetched in Phase 2.');
+             logger.debug('No new transactions were successfully fetched in Phase 2.');
         }
     } // End if signaturesToFetchArray.length > 0
     
     // Merge cached and newly fetched transactions based on includeCached flag
     if (includeCached) {
-      logger.info(`Loaded ${cachedTransactions.length} cached transactions.`);
+      logger.debug(`Loaded ${cachedTransactions.length} cached transactions.`);
     } else {
-      logger.info(`Skipping ${cachedTxMap.size} cached transactions (cache inclusion disabled).`);
+      logger.debug(`Skipping ${cachedTxMap.size} cached transactions (cache inclusion disabled).`);
     }
     
     const allTransactions = includeCached 
@@ -492,7 +494,7 @@ export class HeliusApiClient {
         const countBefore = filteredTransactions.length;
         filteredTransactions = filteredTransactions.filter(tx => tx.timestamp > newestProcessedTimestamp);
         const countAfter = filteredTransactions.length;
-        logger.info(`Filtered by newestProcessedTimestamp (${newestProcessedTimestamp}): ${countBefore} -> ${countAfter} transactions.`);
+        logger.debug(`Filtered by newestProcessedTimestamp (${newestProcessedTimestamp}): ${countBefore} -> ${countAfter} transactions.`);
     } else {
         logger.debug('No newestProcessedTimestamp provided, skipping timestamp filter.');
     }
@@ -502,7 +504,7 @@ export class HeliusApiClient {
         const countBefore = filteredTransactions.length;
         filteredTransactions = filteredTransactions.filter(tx => tx.timestamp < untilTimestamp);
         const countAfter = filteredTransactions.length;
-        logger.info(`Filtered by untilTimestamp (${untilTimestamp}): ${countBefore} -> ${countAfter} transactions.`);
+        logger.debug(`Filtered by untilTimestamp (${untilTimestamp}): ${countBefore} -> ${countAfter} transactions.`);
     } else {
         logger.debug('No untilTimestamp provided, skipping until filter.');
     }
@@ -653,7 +655,7 @@ export class HeliusApiClient {
           );
         }
         const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries - 1); // Exponential backoff
-        logger.info(`Retrying RPC method ${method} in ${backoffTime}ms...`);
+        logger.debug(`Retrying RPC method ${method} in ${backoffTime}ms...`);
         await delay(backoffTime);
       }
     }

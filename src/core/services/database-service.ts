@@ -387,6 +387,7 @@ export class DatabaseService {
                 update: {}, // No fields to update if it exists
                 create: { address: walletAddress },
             });
+            this.logger.debug(`[DB] Successfully upserted wallet: ${walletAddress}`);
             return wallet;
         } catch (error) {
             this.logger.error(`Error ensuring wallet ${walletAddress} exists in database`, { error });
@@ -907,10 +908,10 @@ export class DatabaseService {
         }
         const newTransactions = transactions.filter(tx => !existingSignatures.has(tx.signature));
         if (newTransactions.length === 0) {
-             this.logger.info('No new transactions to add to cache.');
+             this.logger.debug('No new transactions to add to cache.');
             return { count: 0 };
         }
-         this.logger.info(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
+         this.logger.debug(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
         const dataToSave = newTransactions.map(tx => {
             const jsonString = JSON.stringify(tx);
             const compressedRawData = zlib.deflateSync(Buffer.from(jsonString, 'utf-8'));
@@ -924,7 +925,7 @@ export class DatabaseService {
             const result = await this.prismaClient.heliusTransactionCache.createMany({
                 data: dataToSave,
             });
-             this.logger.info(`Cache save complete. ${result.count} new transactions added to HeliusTransactionCache.`);
+             this.logger.debug(`Cache save complete. ${result.count} new transactions added to HeliusTransactionCache.`);
             return result;
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -947,7 +948,7 @@ export class DatabaseService {
     async saveSwapAnalysisInputs(
         inputs: Prisma.SwapAnalysisInputCreateInput[]
     ): Promise<Prisma.BatchPayload> {
-        this.logger.info(`[DB] Attempting to save ${inputs.length} SwapAnalysisInput records efficiently...`);
+        this.logger.debug(`[DB] Attempting to save ${inputs.length} SwapAnalysisInput records efficiently...`);
         if (inputs.length === 0) {
             return { count: 0 };
         }
@@ -1019,7 +1020,7 @@ export class DatabaseService {
             batchRecordTracker.get(record.signature)!.add(recordKey);
         }
         
-        this.logger.info(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
+        this.logger.debug(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
 
         if (uniqueNewRecordsToInsert.length > 0) {
             // --- REMOVED Detailed Logging for Potential Float Precision Issues ---
@@ -1027,13 +1028,13 @@ export class DatabaseService {
             // as the primary debugging for that is complete. The iterative save handles the skips.
             // --- End of REMOVED Detailed Logging ---
             
-            this.logger.info(`[DB] Attempting to bulk insert ${uniqueNewRecordsToInsert.length} records with createMany...`);
+            this.logger.debug(`[DB] Attempting to bulk insert ${uniqueNewRecordsToInsert.length} records with createMany...`);
             try {
                 // The fast path: try to insert everything in one go.
                 const result = await this.prismaClient.swapAnalysisInput.createMany({
                     data: uniqueNewRecordsToInsert,
                 });
-                this.logger.info(`[DB] createMany successful. Inserted ${result.count} records.`);
+                this.logger.debug(`[DB] createMany successful. Inserted ${result.count} records.`);
                 return result;
             } catch (error) {
                 // The fallback path: if the batch fails due to a unique constraint violation...
@@ -1056,7 +1057,7 @@ export class DatabaseService {
                             }
                         }
                     }
-                    this.logger.info(`[DB] Iterative fallback complete. Successfully inserted: ${successfulInserts}, Skipped duplicates: ${skippedDuplicatesCount}`);
+                    this.logger.debug(`[DB] Iterative fallback complete. Successfully inserted: ${successfulInserts}, Skipped duplicates: ${skippedDuplicatesCount}`);
                     return { count: successfulInserts };
 
                 } else {
@@ -1067,7 +1068,7 @@ export class DatabaseService {
             }
 
         } else {
-            this.logger.info('[DB] No unique new SwapAnalysisInput records to add after filtering.');
+            this.logger.debug('[DB] No unique new SwapAnalysisInput records to add after filtering.');
             return { count: 0 };
         }
     }

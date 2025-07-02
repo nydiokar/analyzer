@@ -236,15 +236,15 @@ export class AnalysesController {
       (async () => {
         try {
           this.runningAnalyses.add(walletAddress);
-          this.logger.log(`Lock acquired for analysis of wallet: ${walletAddress}.`);
+          this.logger.debug(`Lock acquired for analysis of wallet: ${walletAddress}.`);
           
           const initialWalletState: Wallet | null = await this.databaseService.getWallet(walletAddress);
           const isNewWalletFlow = !initialWalletState;
 
           if (isNewWalletFlow) {
-            this.logger.log(`Wallet ${walletAddress} appears new or not yet in DB. Proceeding with comprehensive sync and analysis.`);
+            this.logger.debug(`Wallet ${walletAddress} appears new or not yet in DB. Proceeding with comprehensive sync and analysis.`);
           } else {
-            this.logger.log(`Wallet ${walletAddress} exists. Proceeding with update sync and full re-analysis.`);
+            this.logger.debug(`Wallet ${walletAddress} exists. Proceeding with update sync and full re-analysis.`);
           }
 
           const syncOptions: SyncOptions = {
@@ -256,9 +256,9 @@ export class AnalysesController {
             smartFetch: true,
           };
 
-          this.logger.log(`Calling HeliusSyncService.syncWalletData for ${walletAddress} with options: ${JSON.stringify(syncOptions)}`);
+          this.logger.debug(`Calling HeliusSyncService.syncWalletData for ${walletAddress} with options: ${JSON.stringify(syncOptions)}`);
           await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-          this.logger.log(`Helius sync process completed for ${walletAddress}.`);
+          this.logger.debug(`Helius sync process completed for ${walletAddress}.`);
 
           const currentWallet: Wallet | null = await this.databaseService.ensureWalletExists(walletAddress);
           if (!currentWallet) {
@@ -266,14 +266,14 @@ export class AnalysesController {
             return;
           }
 
-          this.logger.log('Wallet data synced, proceeding to PNL and Behavior analysis.');
+          this.logger.debug('Wallet data synced, proceeding to PNL and Behavior analysis.');
           await this.pnlAnalysisService.analyzeWalletPnl(walletAddress);
-          this.logger.log(`PNL analysis completed for ${walletAddress}.`);
+          this.logger.debug(`PNL analysis completed for ${walletAddress}.`);
 
-          this.logger.log(`Starting Behavior analysis for wallet: ${walletAddress}.`);
+          this.logger.debug(`Starting Behavior analysis for wallet: ${walletAddress}.`);
           const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
           await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig);
-          this.logger.log(`Behavior analysis completed for ${walletAddress}.`);
+          this.logger.debug(`Behavior analysis completed for ${walletAddress}.`);
 
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -281,7 +281,7 @@ export class AnalysesController {
           this.logger.error(`Unexpected error during async analysis for ${walletAddress}: ${errorMessage}`, errorStack, String(error));
         } finally {
           this.runningAnalyses.delete(walletAddress);
-          this.logger.log(`Lock released after analysis of wallet: ${walletAddress}.`);
+          this.logger.debug(`Lock released after analysis of wallet: ${walletAddress}.`);
         }
       })();
     });

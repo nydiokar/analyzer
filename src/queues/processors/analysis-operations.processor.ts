@@ -29,7 +29,7 @@ export class AnalysisOperationsProcessor {
     );
 
     this.worker.on('completed', (job) => {
-      this.logger.log(`Job ${job.id} completed successfully`);
+      this.logger.debug(`Job ${job.id} completed successfully`);
     });
 
     this.worker.on('failed', (job, err) => {
@@ -40,13 +40,13 @@ export class AnalysisOperationsProcessor {
       this.logger.error('Worker error:', err);
     });
 
-    this.logger.log('AnalysisOperationsProcessor initialized with worker');
+    this.logger.debug('AnalysisOperationsProcessor initialized with worker');
   }
 
   private async processJob(job: Job): Promise<any> {
     const jobName = job.name;
     
-    this.logger.log(`Processing ${jobName} job ${job.id}`);
+    this.logger.debug(`Processing ${jobName} job ${job.id}`);
     
     switch (jobName) {
       case 'analyze-pnl':
@@ -83,7 +83,7 @@ export class AnalysisOperationsProcessor {
 
     try {
       await job.updateProgress(5);
-      this.logger.log(`Processing PnL analysis for ${walletAddress}`);
+              this.logger.debug(`Processing PnL analysis for ${walletAddress}`);
 
       // Check if recent analysis exists (idempotency at service level)
       if (!forceRefresh) {
@@ -96,7 +96,7 @@ export class AnalysisOperationsProcessor {
         
         if (shouldSkipAnalysis) {
           await job.updateProgress(100);
-          this.logger.log(`PnL analysis for ${walletAddress} is already current. Skipping analysis.`);
+          this.logger.debug(`PnL analysis for ${walletAddress} is already current. Skipping analysis.`);
           
           return {
             success: true,
@@ -179,7 +179,7 @@ export class AnalysisOperationsProcessor {
 
     try {
       await job.updateProgress(5);
-      this.logger.log(`Processing behavior analysis for ${walletAddress}`);
+              this.logger.debug(`Processing behavior analysis for ${walletAddress}`);
 
       // Execute behavior analysis with existing optimal service and timeout guard
       await job.updateProgress(20);
@@ -255,7 +255,7 @@ export class AnalysisOperationsProcessor {
    * Shutdown the worker gracefully
    */
   async shutdown(): Promise<void> {
-    this.logger.log('Shutting down AnalysisOperationsProcessor worker...');
+    this.logger.debug('Shutting down AnalysisOperationsProcessor worker...');
     await this.worker.close();
   }
 } 

@@ -39,7 +39,7 @@ export class BehaviorAnalyzer {
   constructor(config: BehaviorAnalysisConfig) {
     this.config = config;
     this.logger = createLogger('BehaviorAnalyzer');
-    this.logger.info('BehaviorAnalyzer instantiated with behavior-specific config.');
+    this.logger.debug('BehaviorAnalyzer instantiated with behavior-specific config.');
   }
 
   /**
