@@ -23,6 +23,7 @@ import { RedisLockService } from './services/redis-lock.service';
 import { AlertingService } from './services/alerting.service';
 import { DeadLetterQueueService } from './services/dead-letter-queue.service';
 import { QueueHealthService } from './services/queue-health.service';
+import { JobEventsBridgeService } from './services/job-events-bridge.service';
 
 // External dependencies - Import modules that provide the services we need
 import { DatabaseModule } from '../api/database/database.module';
@@ -32,6 +33,7 @@ import { BehaviorModule } from '../api/wallets/behavior/behavior.module';
 import { PnlAnalysisModule } from '../api/pnl_analysis/pnl-analysis.module';
 import { TokenInfoModule } from '../api/token-info/token-info.module';
 import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
+import { WebSocketModule } from '../api/websocket/websocket.module';
 
 @Module({
   imports: [
@@ -62,6 +64,7 @@ import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
     PnlAnalysisModule, // Provides PnlAnalysisService
     TokenInfoModule,   // Provides TokenInfoService
     DexscreenerModule, // Provides DexscreenerService
+    WebSocketModule,   // Provides JobProgressGateway
   ],
   
   providers: [
@@ -70,6 +73,7 @@ import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
     AlertingService,
     DeadLetterQueueService,
     QueueHealthService,
+    JobEventsBridgeService,
     
     // Queue Services
     WalletOperationsQueue,
@@ -96,6 +100,7 @@ import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
     AlertingService,
     DeadLetterQueueService,
     QueueHealthService,
+    JobEventsBridgeService,
     
     // Export processors if needed by other modules
     WalletOperationsProcessor,

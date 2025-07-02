@@ -43,12 +43,9 @@ export function useJobProgress(options: UseJobProgressOptions = {}): UseJobProgr
   const failureCountRef = useRef<number>(0);
   const [websocketDisabled, setWebsocketDisabled] = useState(false);
 
-  const {
-    onJobProgress,
-    onJobCompleted,
-    onJobFailed,
-    onConnectionChange
-  } = options;
+  // Use refs for callbacks to avoid recreating WebSocket connection on every render
+  const callbacksRef = useRef(options);
+  callbacksRef.current = options;
 
   // WebSocket connection (optional enhancement - polling is the reliable fallback)
   useEffect(() => {
@@ -59,7 +56,9 @@ export function useJobProgress(options: UseJobProgressOptions = {}): UseJobProgr
     }
 
     // SIMPLE APPROACH: Connect directly to backend in all environments
-    const backendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+    // Remove any /api/v1 suffix from base URL for WebSocket connections
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+    const backendUrl = rawBackendUrl.replace('/api/v1', '');
     const socketUrl = `${backendUrl}/job-progress`;
     
     console.log(`🔌 Attempting WebSocket connection (optional real-time updates): ${socketUrl}`);
@@ -82,13 +81,13 @@ export function useJobProgress(options: UseJobProgressOptions = {}): UseJobProgr
       setIsConnected(true);
       setError(null);
       failureCountRef.current = 0; // Reset failure count on successful connection
-      onConnectionChange?.(true);
+      callbacksRef.current.onConnectionChange?.(true);
       console.log(`✅ WebSocket connected - real-time updates enabled`);
     });
 
     socket.on('disconnect', (reason) => {
       setIsConnected(false);
-      onConnectionChange?.(false);
+      callbacksRef.current.onConnectionChange?.(false);
       console.log(`ℹ️ WebSocket disconnected: ${reason} - polling fallback active`);
       // Don't set error for disconnections - this is normal
     });
@@ -96,7 +95,7 @@ export function useJobProgress(options: UseJobProgressOptions = {}): UseJobProgr
     socket.on('connect_error', (err) => {
       failureCountRef.current += 1;
       setIsConnected(false);
-      onConnectionChange?.(false);
+      callbacksRef.current.onConnectionChange?.(false);
       
       // Only log detailed errors in development
       if (process.env.NODE_ENV === 'development') {
@@ -130,17 +129,17 @@ export function useJobProgress(options: UseJobProgressOptions = {}): UseJobProgr
     // Job progress event handlers
     socket.on('job-progress', (data: JobProgressData) => {
       console.log('📊 Real-time job progress:', data);
-      onJobProgress?.(data);
+      callbacksRef.current.onJobProgress?.(data);
     });
 
     socket.on('job-completed', (data: JobCompletedData) => {
       console.log('✅ Real-time job completion:', data);
-      onJobCompleted?.(data);
+      callbacksRef.current.onJobCompleted?.(data);
     });
 
     socket.on('job-failed', (data: JobFailedData) => {
       console.log('❌ Real-time job failure:', data);
-      onJobFailed?.(data);
+      callbacksRef.current.onJobFailed?.(data);
     });
 
     // Cleanup on unmount
@@ -149,7 +148,7 @@ export function useJobProgress(options: UseJobProgressOptions = {}): UseJobProgr
         socket.disconnect();
       }
     };
-  }, [onJobProgress, onJobCompleted, onJobFailed, onConnectionChange, websocketDisabled]);
+  }, [websocketDisabled]); // Only depend on websocketDisabled, not the callbacks
 
   // Subscribe to job updates
   const subscribeToJob = useCallback((jobId: string) => {

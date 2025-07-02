@@ -59,18 +59,36 @@ export class AlertingService {
    */
   async emitMetric(metric: MetricEvent): Promise<void> {
     const timestamp = metric.timestamp || Date.now();
-    const metricWithTimestamp = {
-      ...metric,
-      timestamp: new Date(timestamp).toISOString(),
-    };
-
-    this.logger.debug(`📊 METRIC: ${metric.name} = ${metric.value}`, metricWithTimestamp);
+    
+    // Only log meaningful metrics, not every counter increment
+    if (this.isImportantMetric(metric)) {
+      this.logger.log(`📊 ${metric.name}: ${metric.value}${metric.tags ? ' | ' + Object.entries(metric.tags).map(([k,v]) => `${k}:${v}`).join(', ') : ''}`);
+    }
 
     // TODO: Future integrations:
     // - Prometheus metrics export
     // - StatsD integration
     // - Custom metrics API
     // - Time-series database storage
+  }
+
+  /**
+   * Determine if a metric is important enough to log
+   */
+  private isImportantMetric(metric: MetricEvent): boolean {
+    // Log important metrics only
+    const importantMetrics = [
+      'job_failures_total',
+      'queue_processing_time_ms',
+      'dead_letter_queue_size',
+      'redis_connection_failures',
+      'memory_usage_mb',
+      'api_request_duration_ms'
+    ];
+    
+    // Log if it's an important metric or if the value is significant
+    return importantMetrics.some(important => metric.name.includes(important)) || 
+           metric.value > 100; // Only log large values
   }
 
   /**

@@ -14,12 +14,10 @@ import { useApiKeyStore } from '@/store/api-key-store';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
-import { Zap, Settings, Clock, Info, Sparkles, Wifi, WifiOff } from 'lucide-react';
+import { Zap, Settings, Clock, Info, Sparkles } from 'lucide-react';
 
 type WalletAnalysisStatus = 'READY' | 'STALE' | 'MISSING' | 'IN_PROGRESS';
 
@@ -72,7 +70,7 @@ export default function AnalysisLabPage() {
         setSyncMessage(`Job in progress... ${data.status} (${Math.round(data.progress)}%)`);
       }
     },
-    onJobCompleted: async (data) => {
+            onJobCompleted: async (data) => {
       if (data.jobId === currentJobId) {
         setJobProgress(100);
         setSyncMessage('Job completed! Processing results...');
@@ -92,6 +90,13 @@ export default function AnalysisLabPage() {
           }
           
           setAnalysisResult(result.result.data);  // Extract the actual data object
+          
+          // Cleanup WebSocket subscription and clear job state
+          unsubscribeFromJob(data.jobId);
+          
+          // Clear all job-related state
+          setCurrentJobId(null);
+          setJobProgress(0);
           setSyncMessage('');
           setIsLoading(false);
           setIsPolling(false);
@@ -100,10 +105,6 @@ export default function AnalysisLabPage() {
             title: "Analysis Complete",
             description: `Advanced similarity analysis finished successfully in ${Math.round(data.processingTime / 1000)}s!`,
           });
-          
-          // Cleanup WebSocket subscription
-          unsubscribeFromJob(data.jobId);
-          setCurrentJobId(null);
           
         } catch (error: any) {
           console.error('Error processing job result:', error);
@@ -114,15 +115,17 @@ export default function AnalysisLabPage() {
             title: "Result Processing Failed",
             description: errorMessage,
           });
+          
+          // Clear job state even on error
+          setCurrentJobId(null);
+          setJobProgress(0);
           setIsLoading(false);
           setIsPolling(false);
         }
       }
     },
-    onJobFailed: (data) => {
+        onJobFailed: (data) => {
       if (data.jobId === currentJobId) {
-        setIsLoading(false);
-        setIsPolling(false);
         const errorMessage = data.error || `Job failed: ${data.failedReason || 'Unknown error'}`;
         setSyncMessage(errorMessage);
         
@@ -132,13 +135,20 @@ export default function AnalysisLabPage() {
           description: errorMessage,
         });
         
-                // Cleanup WebSocket subscription
+        // Cleanup WebSocket subscription and clear all job state
         unsubscribeFromJob(data.jobId);
         setCurrentJobId(null);
+        setJobProgress(0);
+        setIsLoading(false);
+        setIsPolling(false);
       }
     },
     onConnectionChange: (connected) => {
-      if (!connected && currentJobId && useWebSocket) {
+      if (connected && currentJobId && useWebSocket && !isPolling) {
+        // WebSocket connected during a job - subscribe immediately
+        console.log('🔌 WebSocket connected during job - subscribing immediately');
+        subscribeToJob(currentJobId);
+      } else if (!connected && currentJobId && useWebSocket) {
         // WebSocket disconnected during a job - fallback to polling
         toast({
           title: "Connection Lost",
@@ -424,24 +434,23 @@ export default function AnalysisLabPage() {
       setCurrentJobId(jobResponse.jobId);
       setSyncMessage(`Job submitted! ID: ${jobResponse.jobId.slice(0, 8)}...`);
       
-      // 🔑 SMART CONNECTION: Try WebSocket first, fallback to polling
-      if (useWebSocket) {
-        console.log('🔌 Attempting WebSocket connection for job tracking...');
+      // 🔑 IMMEDIATE SUBSCRIPTION: Subscribe right away, don't wait
+      if (useWebSocket && wsConnected) {
+        console.log('✅ WebSocket connected - subscribing to job immediately');
+        subscribeToJob(jobResponse.jobId);
+        setIsPolling(false);
         
-        // Wait a moment for connection, then subscribe
+        // Safety fallback: If no progress after 5 seconds, switch to polling
         setTimeout(() => {
-          if (wsConnected) {
-            console.log('✅ WebSocket connected - subscribing to job');
-            subscribeToJob(jobResponse.jobId);
-            setIsPolling(false);
-          } else {
-            console.log('ℹ️ WebSocket unavailable - using polling updates (equally reliable)');
+          if (jobProgress === 0 && isLoading) {
+            console.log('⚠️ No WebSocket progress after 5s - switching to polling');
             setUseWebSocket(false);
             pollJobStatus(jobResponse.jobId);
           }
-        }, 2000); // Give WebSocket time to connect
+        }, 5000);
       } else {
-        console.log('📊 Using polling for job status');
+        console.log('📊 WebSocket not ready - using polling for job status');
+        setUseWebSocket(false);
         await pollJobStatus(jobResponse.jobId);
       }
       
@@ -484,6 +493,10 @@ export default function AnalysisLabPage() {
           }
           
           setAnalysisResult(result.result.data);  // Extract the actual data object
+          
+          // Clear all job-related state
+          setCurrentJobId(null);
+          setJobProgress(0);
           setSyncMessage('');
           setIsLoading(false);
           setIsPolling(false);
@@ -495,8 +508,6 @@ export default function AnalysisLabPage() {
           
           return; // Exit polling
         } else if (status.status === 'failed') {
-          setIsLoading(false);
-          setIsPolling(false);
           const errorMessage = status.data?.error || `Job failed: ${status.data?.failedReason || 'Unknown error'}`;
           setSyncMessage(errorMessage);
           
@@ -505,6 +516,12 @@ export default function AnalysisLabPage() {
             title: "Analysis Failed",
             description: errorMessage,
           });
+          
+          // Clear all job-related state
+          setCurrentJobId(null);
+          setJobProgress(0);
+          setIsLoading(false);
+          setIsPolling(false);
           
           return; // Exit polling
         } else {
@@ -525,6 +542,10 @@ export default function AnalysisLabPage() {
           title: "Job Failed",
           description: errorMessage,
         });
+        
+        // Clear all job-related state on error
+        setCurrentJobId(null);
+        setJobProgress(0);
         setIsLoading(false);
         setIsPolling(false);
       }
@@ -599,19 +620,8 @@ export default function AnalysisLabPage() {
               >
                 <Settings className="h-4 w-4" />
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">Advanced Analysis</span>
-                    {wsError ? (
-                      <WifiOff className="h-3 w-3 text-orange-500" />
-                    ) : wsConnected ? (
-                      <Wifi className="h-3 w-3 text-green-500" />
-                    ) : (
-                      <WifiOff className="h-3 w-3 text-orange-500" />
-                    )}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Smart • Job Queue • {wsConnected ? 'Real-time Updates' : 'Polling Updates'}
-                  </div>
+                  <div className="font-medium">Advanced Analysis</div>
+                  <div className="text-xs text-muted-foreground">Smart • Job Queue • Real-time Updates</div>
                 </div>
                 <Badge variant="outline">Smart</Badge>
               </Label>
@@ -626,19 +636,7 @@ export default function AnalysisLabPage() {
             <AlertDescription>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span>Job Progress</span>
-                    <div className="flex items-center gap-1">
-                      {wsConnected && !wsError ? (
-                        <Wifi className="h-3 w-3 text-green-500" />
-                      ) : (
-                        <WifiOff className="h-3 w-3 text-orange-500" />
-                      )}
-                      <span className="text-xs text-muted-foreground">
-                        {wsConnected && !wsError ? 'Real-time' : isPolling ? 'Polling' : 'Connecting...'}
-                      </span>
-                    </div>
-                  </div>
+                  <span>Job Progress</span>
                   <span className="text-sm font-mono">{Math.round(jobProgress)}%</span>
                 </div>
                 <Progress value={jobProgress} className="w-full" />

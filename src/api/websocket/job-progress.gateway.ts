@@ -195,7 +195,10 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   }
 
   private handleCustomProgressEvent(data: any) {
-    this.logger.debug(`Custom progress event: ${JSON.stringify(data)}`);
+    // Only log if it's a significant progress event (not every small update)
+    if (data.progress && (data.progress === 100 || data.progress % 25 === 0)) {
+      this.logger.log(`Job ${data.jobId} progress: ${data.progress}% (${data.queue})`);
+    }
     
     // Broadcast custom events
     this.broadcastToSubscribers('custom-progress', data, data.jobId, data.queue);
