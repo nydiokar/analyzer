@@ -19,7 +19,6 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { ApiKeyAuthGuard } from '../../auth/api-key-auth.guard';
 
 // Services from their respective feature folders
 import { DatabaseService } from '../../database/database.service';
@@ -45,7 +44,6 @@ import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../../wallets
 
 @ApiTags('Wallets')
 @Controller('wallets')
-@UseGuards(ApiKeyAuthGuard)
 export class WalletsController {
   private readonly logger = new Logger(WalletsController.name);
 

@@ -60,12 +60,12 @@ export class ApiKeyAuthGuard implements CanActivate {
       // Attach user to request for downstream use and add to cache
       request.user = user;
       this.apiKeyCache.set(apiKey, user);
-      this.logger.verbose(`User ${user.id} validated and added to cache.`);
+      this.logger.debug(`User ${user.id} validated and added to cache.`);
 
       // --- Permission Check based on isDemo flag ---
       this.checkDemoPermissions(request, user);
       
-      this.logger.verbose(`User ${user.id} (isDemo: ${user.isDemo}) granted access to ${request.method} ${request.path}`);
+      this.logger.debug(`User ${user.id} (isDemo: ${user.isDemo}) granted access to ${request.method} ${request.path}`);
       return true;
 
     } catch (error) {

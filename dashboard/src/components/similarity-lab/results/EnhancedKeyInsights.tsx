@@ -203,17 +203,20 @@ const InsightCard = ({ insight, pair, walletLabels, sortKey, results }: InsightC
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {topSharedTokens.map(token => (
-                                        <TableRow key={token.mint}>
-                                            <TableCell className="font-mono text-xs truncate" title={token.mint}>{shortenAddress(token.mint, 10)}</TableCell>
-                                            <TableCell className="text-right">
-                                                {capitalAllocation?.[token.mint] ? `${(capitalAllocation[token.mint].weightA * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                {capitalAllocation?.[token.mint] ? `${(capitalAllocation[token.mint].weightB * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {topSharedTokens.map(token => {
+                                        const allocation = capitalAllocation?.[token.mint];
+                                        return (
+                                            <TableRow key={token.mint}>
+                                                <TableCell className="font-mono text-xs truncate" title={token.mint}>{shortenAddress(token.mint, 10)}</TableCell>
+                                                <TableCell className="text-right">
+                                                    {allocation?.weightA !== undefined ? `${(allocation.weightA * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {allocation?.weightB !== undefined ? `${(allocation.weightB * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
                         </AccordionContent>

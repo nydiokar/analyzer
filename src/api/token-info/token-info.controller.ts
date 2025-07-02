@@ -1,13 +1,11 @@
-import { Controller, Post, Body, UseGuards, ValidationPipe, Logger, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Body, ValidationPipe, Logger, Req, ForbiddenException } from '@nestjs/common';
 import { TokenInfoService } from './token-info.service';
-import { ApiKeyAuthGuard } from '../auth/api-key-auth.guard';
 import { GetTokenInfoRequestDto } from './dto/get-token-info.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { Request } from 'express';
 
 @ApiTags('token-info')
 @Controller('token-info')
-@UseGuards(ApiKeyAuthGuard)
 export class TokenInfoController {
   private readonly logger = new Logger(TokenInfoController.name);
 

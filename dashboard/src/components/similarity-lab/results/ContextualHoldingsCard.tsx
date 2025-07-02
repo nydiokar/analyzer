@@ -79,7 +79,7 @@ export function ContextualHoldingsCard({ results, enrichedBalances }: Contextual
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {walletAddresses.map(walletAddress => {
                     const balanceInfo = balancesSource[walletAddress];
-                    const uniqueCounts = uniqueTokensPerWallet[walletAddress];
+                    const uniqueCounts = uniqueTokensPerWallet[walletAddress] || { binary: 0, capital: 0 };
 
                     // Sort balances by USD value, descending. Null/undefined values go to the bottom.
                     const sortedBalances = [...(balanceInfo.tokenBalances || [])].sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1));

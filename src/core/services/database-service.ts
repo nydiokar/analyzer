@@ -453,11 +453,46 @@ export class DatabaseService {
     async deleteUser(userId: string): Promise<User | null> {
         this.logger.debug(`Attempting to delete user with ID: ${userId}`);
         try {
-            const user = await this.prismaClient.user.delete({
-                where: { id: userId },
+            // Use a transaction to ensure atomicity
+            return await this.prismaClient.$transaction(async (tx) => {
+                // First, check if user exists
+                const existingUser = await tx.user.findUnique({
+                    where: { id: userId },
+                });
+                
+                if (!existingUser) {
+                    this.logger.warn(`User ${userId} not found for deletion.`);
+                    return null;
+                }
+
+                // Delete related records in the correct order to avoid foreign key violations
+                
+                // 1. Delete ActivityLog records
+                const deletedActivityLogs = await tx.activityLog.deleteMany({
+                    where: { userId: userId },
+                });
+                this.logger.debug(`Deleted ${deletedActivityLogs.count} activity logs for user ${userId}`);
+
+                // 2. Delete UserFavoriteWallet records
+                const deletedFavorites = await tx.userFavoriteWallet.deleteMany({
+                    where: { userId: userId },
+                });
+                this.logger.debug(`Deleted ${deletedFavorites.count} favorite wallets for user ${userId}`);
+
+                // 3. Delete WalletNote records
+                const deletedNotes = await tx.walletNote.deleteMany({
+                    where: { userId: userId },
+                });
+                this.logger.debug(`Deleted ${deletedNotes.count} wallet notes for user ${userId}`);
+
+                // 4. Finally, delete the User record
+                const deletedUser = await tx.user.delete({
+                    where: { id: userId },
+                });
+
+                this.logger.info(`User ${userId} and all related data deleted successfully.`);
+                return deletedUser;
             });
-            this.logger.info(`User ${userId} deleted successfully.`);
-            return user;
         } catch (error: any) {
             // Prisma throws P2025 if record to delete is not found
             if (error.code === 'P2025') {
@@ -516,7 +551,7 @@ export class DatabaseService {
         errorMessage?: string,
         sourceIp?: string
     ): Promise<ActivityLog | null> {
-        this.logger.info('Logging activity for user ID: ' + userId + ', action: ' + actionType);
+        this.logger.debug('Logging activity for user ID: ' + userId + ', action: ' + actionType);
         try {
             const activity = await this.prismaClient.activityLog.create({
                 data: {

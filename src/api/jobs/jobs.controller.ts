@@ -1,6 +1,5 @@
-import { Controller, Get, Param, Query, UseGuards, Logger, Post, Body, HttpCode } from '@nestjs/common';
+import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
-import { ApiKeyAuthGuard } from '../auth/api-key-auth.guard';
 import { JobsService } from './jobs.service';
 import { JobState } from 'bullmq';
 import { 
@@ -16,7 +15,6 @@ import {
 
 @ApiTags('Jobs')
 @Controller('jobs')
-@UseGuards(ApiKeyAuthGuard)
 export class JobsController {
   private readonly logger = new Logger(JobsController.name);
 

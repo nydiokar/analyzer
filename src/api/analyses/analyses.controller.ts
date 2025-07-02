@@ -6,7 +6,6 @@ import { PnlAnalysisService } from '../pnl_analysis/pnl-analysis.service';
 import { BehaviorService } from '../wallets/behavior/behavior.service';
 import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
 import { Wallet } from '@prisma/client';
-import { ApiKeyAuthGuard } from '../auth/api-key-auth.guard';
 import { SimilarityApiService } from './similarity/similarity.service';
 import { SimilarityAnalysisRequestDto } from './similarity/similarity-analysis.dto';
 import { WalletStatusRequestDto, WalletStatusResponseDto } from './dto/wallet-status.dto';
@@ -19,7 +18,6 @@ import { JobsService } from '../jobs/jobs.service';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
-@UseGuards(ApiKeyAuthGuard)
 export class AnalysesController {
   private readonly logger = new Logger(AnalysesController.name);
   private runningAnalyses = new Set<string>();

@@ -1,5 +1,4 @@
-import { Module, MiddlewareConsumer, NestModule, RequestMethod } from '@nestjs/common';
-import { AuthMiddleware } from './api/auth/auth.middleware';
+import { Module } from '@nestjs/common';
 import { DatabaseModule } from './api/database/database.module';
 import { TestController } from './api/test/test.controller';
 // Import the main WalletsModule which groups wallet-related features and controllers
@@ -33,13 +32,10 @@ import { WebSocketModule } from './api/websocket/websocket.module'; // Import We
     // API specific services that are not part of a feature module
   ],
 })
-export class ApiModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(AuthMiddleware)
-      .exclude(
-        { path: 'health', method: RequestMethod.GET },
-      )
-      .forRoutes('*');
-  }
+export class ApiModule {
+  // Removed middleware configuration - using global ApiKeyAuthGuard instead
+  // The global guard handles all authentication including:
+  // - API key validation with caching
+  // - Demo user permissions  
+  // - @Public decorator support for health endpoint
 } 

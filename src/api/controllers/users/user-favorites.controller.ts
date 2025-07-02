@@ -1,13 +1,11 @@
-import { Controller, Post, Delete, Get, Param, Body, Req, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Post, Delete, Get, Param, Body, Req, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiBody, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AddFavoriteWalletDto } from '../../users/user-favorites.dto';
 import { UserFavoritesService } from '../../users/user-favorites.service';
 import { FavoriteWalletDetailDto } from '../../users/favorite-wallet-detail.dto';
 import { User } from '@prisma/client';
-import { ApiKeyAuthGuard } from '../../auth/api-key-auth.guard';
 
-// The AuthMiddleware in api.module.ts already protects routes starting with 'users'
-// and populates req.user.
+// The global ApiKeyAuthGuard protects all routes and populates req.user.
 
 interface AuthenticatedRequest extends Request {
   user?: User; // user is optional as it's populated by the guard
@@ -15,7 +13,6 @@ interface AuthenticatedRequest extends Request {
 
 @ApiTags('Users - Favorites')
 @Controller('users/me/favorites')
-@UseGuards(ApiKeyAuthGuard)
 @ApiBearerAuth()
 export class UserFavoritesController {
   constructor(private readonly userFavoritesService: UserFavoritesService) {}

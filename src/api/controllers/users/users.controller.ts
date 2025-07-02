@@ -1,7 +1,6 @@
-import { Controller, Get, Req, UseGuards, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Req, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { User } from '@prisma/client';
-import { ApiKeyAuthGuard } from '../../auth/api-key-auth.guard';
 import { UserProfileDto } from '../../users/user-profile.dto';
 
 interface AuthenticatedRequest extends Request {
@@ -10,7 +9,6 @@ interface AuthenticatedRequest extends Request {
 
 @ApiTags('Users')
 @Controller('users')
-@UseGuards(ApiKeyAuthGuard)
 @ApiBearerAuth()
 export class UsersController {
   constructor() {}

@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService, HttpHealthIndicator, HealthIndicatorResult } from '@nestjs/terminus';
 import { DatabaseService } from '../database/database.service';
 import { PrismaClient } from '@prisma/client';
+import { Public } from '../auth/public.decorator';
 
 @ApiTags('Health')
 @Controller('health')
@@ -19,6 +20,7 @@ export class HealthController {
   }
 
   @Get()
+  @Public() // Health endpoint should be accessible without authentication
   @HealthCheck()
   @ApiOperation({ summary: 'Check the health of the API and its dependencies' })
   @ApiResponse({ status: 200, description: 'Health check passed successfully' })
