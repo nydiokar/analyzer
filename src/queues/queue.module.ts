@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
@@ -20,6 +20,9 @@ import { EnrichmentOperationsProcessor } from './processors/enrichment-operation
 
 // Services
 import { RedisLockService } from './services/redis-lock.service';
+import { AlertingService } from './services/alerting.service';
+import { DeadLetterQueueService } from './services/dead-letter-queue.service';
+import { QueueHealthService } from './services/queue-health.service';
 
 // External dependencies - Import modules that provide the services we need
 import { DatabaseModule } from '../api/database/database.module';
@@ -62,8 +65,11 @@ import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
   ],
   
   providers: [
-    // Redis Lock Service
+    // Core Services
     RedisLockService,
+    AlertingService,
+    DeadLetterQueueService,
+    QueueHealthService,
     
     // Queue Services
     WalletOperationsQueue,
@@ -85,8 +91,11 @@ import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
     SimilarityOperationsQueue,
     EnrichmentOperationsQueue,
     
-    // Export Redis lock service for use in other processors
+    // Export core services for use in other modules
     RedisLockService,
+    AlertingService,
+    DeadLetterQueueService,
+    QueueHealthService,
     
     // Export processors if needed by other modules
     WalletOperationsProcessor,
@@ -95,4 +104,20 @@ import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
     EnrichmentOperationsProcessor,
   ],
 })
-export class QueueModule {} 
+export class QueueModule implements OnModuleInit {
+  constructor(
+    private readonly queueHealthService: QueueHealthService,
+    private readonly walletOperationsQueue: WalletOperationsQueue,
+    private readonly analysisOperationsQueue: AnalysisOperationsQueue,
+    private readonly similarityOperationsQueue: SimilarityOperationsQueue,
+    private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
+  ) {}
+
+  async onModuleInit() {
+    // Register all queues with the health service for monitoring
+    this.queueHealthService.registerQueue(QueueNames.WALLET_OPERATIONS, this.walletOperationsQueue.getQueue());
+    this.queueHealthService.registerQueue(QueueNames.ANALYSIS_OPERATIONS, this.analysisOperationsQueue.getQueue());
+    this.queueHealthService.registerQueue(QueueNames.SIMILARITY_OPERATIONS, this.similarityOperationsQueue.getQueue());
+    this.queueHealthService.registerQueue(QueueNames.ENRICHMENT_OPERATIONS, this.enrichmentOperationsQueue.getQueue());
+  }
+} 

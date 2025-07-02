@@ -12,6 +12,7 @@ import {
   SimilarityAnalysisJobRequestDto,
   JobSubmissionResponseDto
 } from './dto/job-status.dto';
+import { DeadLetterQueueService } from '../../queues/services/dead-letter-queue.service';
 
 @ApiTags('Jobs')
 @Controller('jobs')
@@ -20,6 +21,7 @@ export class JobsController {
 
   constructor(
     private readonly jobsService: JobsService,
+    private readonly deadLetterQueueService: DeadLetterQueueService,
   ) {}
 
   // === C2 Task: Job Submission Endpoints ===
@@ -219,5 +221,89 @@ export class JobsController {
   })
   async getAllQueueStats(): Promise<AllQueueStatsResponseDto> {
     return this.jobsService.getAllQueueStats();
+  }
+
+  // === D3 Task: Dead Letter Queue Monitoring ===
+
+  @Get('failed/stats')
+  @ApiOperation({ 
+    summary: 'Get dead letter queue statistics',
+    description: 'Retrieves statistics about failed jobs and monitoring status.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Dead letter queue statistics retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        queueName: { type: 'string' },
+        waiting: { type: 'number' },
+        active: { type: 'number' },
+        completed: { type: 'number' },
+        failed: { type: 'number' },
+        monitoredQueues: { type: 'array', items: { type: 'string' } }
+      }
+    }
+  })
+  async getFailedJobStats() {
+    const stats = await this.deadLetterQueueService.getDeadLetterStats();
+    return {
+      ...stats,
+      description: 'Dead letter queue for failed job monitoring and alerting'
+    };
+  }
+
+  @Get('failed/recent')
+  @ApiOperation({ 
+    summary: 'Get recent failed jobs',
+    description: 'Retrieves a list of recent failed jobs for investigation.'
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    description: 'Maximum number of failed jobs to return',
+    required: false,
+    type: Number,
+    example: 20
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Recent failed jobs retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        failedJobs: { 
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              data: { type: 'object' },
+              timestamp: { type: 'number' },
+              finishedOn: { type: 'number' },
+              returnvalue: { type: 'object' }
+            }
+          }
+        },
+        total: { type: 'number' }
+      }
+    }
+  })
+  async getRecentFailedJobs(@Query('limit') limit?: number) {
+    const limitValue = Math.min(limit || 20, 100); // Cap at 100
+    const failedJobs = await this.deadLetterQueueService.getRecentFailedJobs(limitValue);
+    
+    return {
+      failedJobs: failedJobs.map(job => ({
+        id: job.id,
+        name: job.name,
+        data: job.data,
+        timestamp: job.timestamp,
+        finishedOn: job.finishedOn,
+        returnvalue: job.returnvalue, // This contains the FailedJobMetrics
+      })),
+      total: failedJobs.length,
+      note: 'Failed job records are automatically created when jobs fail and contain investigation details'
+    };
   }
 } 

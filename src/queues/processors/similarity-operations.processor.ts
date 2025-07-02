@@ -75,7 +75,7 @@ export class SimilarityOperationsProcessor {
 
     try {
       this.logger.log(`Starting similarity analysis for ${walletAddresses.length} wallets, requestId: ${requestId}`);
-      this.logger.log(`Following SAME logic as quick analysis - using existing data only`);
+     // this.logger.log(`Following SAME logic as quick analysis - using existing data only`);
 
       // Progress update: Starting analysis
       await job.updateProgress(20);

@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ForbiddenExceptionFilter } from './api/common/filters/forbidden-exception.filter';
 import { Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as dotenv from 'dotenv';
 import { json } from 'express';
 
@@ -15,6 +16,8 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   app.use(json({ limit: '5mb' }));
+
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // Secure CORS setup for production
   const frontendUrl = process.env.FRONTEND_URL;
@@ -49,5 +52,6 @@ async function bootstrap() {
   await app.listen(port, '::');
   Logger.log(`🚀 Application is running on: http://localhost:${port}/api/v1`, 'Bootstrap');
   Logger.log(`📚 API Documentation available at: http://localhost:${port}/api-docs`, 'Bootstrap');
+  Logger.log(`🔌 WebSocket server enabled at: ws://localhost:${port}/job-progress`, 'Bootstrap');
 }
 bootstrap();

@@ -8,6 +8,7 @@ import { SimilarityResultDisplay } from '@/components/similarity-lab/results/Sim
 import { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
 import { useToast } from '@/hooks/use-toast';
+import { useJobProgress } from '@/hooks/useJobProgress';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { useApiKeyStore } from '@/store/api-key-store';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -18,7 +19,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Zap, Settings, Clock, Info, Sparkles } from 'lucide-react';
+import { Zap, Settings, Clock, Info, Sparkles, Wifi, WifiOff } from 'lucide-react';
 
 type WalletAnalysisStatus = 'READY' | 'STALE' | 'MISSING' | 'IN_PROGRESS';
 
@@ -52,9 +53,102 @@ export default function AnalysisLabPage() {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
   const [isPolling, setIsPolling] = useState(false);
+  const [useWebSocket, setUseWebSocket] = useState(true);
   
   const { toast } = useToast();
   const apiKey = useApiKeyStore((state) => state.apiKey);
+
+  // WebSocket job progress hook - STANDARD AUTO-CONNECTION
+  const {
+    isConnected: wsConnected,
+    error: wsError,
+    subscribeToJob,
+    unsubscribeFromJob,
+    cleanup: cleanupWebSocket
+  } = useJobProgress({
+    onJobProgress: (data) => {
+      if (data.jobId === currentJobId) {
+        setJobProgress(data.progress);
+        setSyncMessage(`Job in progress... ${data.status} (${Math.round(data.progress)}%)`);
+      }
+    },
+    onJobCompleted: async (data) => {
+      if (data.jobId === currentJobId) {
+        setJobProgress(100);
+        setSyncMessage('Job completed! Processing results...');
+        
+        try {
+          // Get the result - use the correct job result endpoint
+          const result = await fetcher(`/jobs/${data.jobId}/result`);
+          
+          // Add null checks to prevent "Cannot convert undefined or null to object" error
+          if (!result || !result.result || !result.result.data) {
+            throw new Error("Job completed but returned no data. The analysis may have failed silently.");
+          }
+          
+          // Validate the result has the expected structure (data is nested under result.data)
+          if (!result.result.data.pairwiseSimilarities || result.result.data.pairwiseSimilarities.length === 0) {
+            throw new Error("Analysis completed but returned no similarity data. The wallets may have no overlapping activity.");
+          }
+          
+          setAnalysisResult(result.result.data);  // Extract the actual data object
+          setSyncMessage('');
+          setIsLoading(false);
+          setIsPolling(false);
+          
+          toast({
+            title: "Analysis Complete",
+            description: `Advanced similarity analysis finished successfully in ${Math.round(data.processingTime / 1000)}s!`,
+          });
+          
+          // Cleanup WebSocket subscription
+          unsubscribeFromJob(data.jobId);
+          setCurrentJobId(null);
+          
+        } catch (error: any) {
+          console.error('Error processing job result:', error);
+          const errorMessage = error?.payload?.message || error.message || 'Failed to process job result.';
+          setSyncMessage(errorMessage);
+          toast({
+            variant: "destructive",
+            title: "Result Processing Failed",
+            description: errorMessage,
+          });
+          setIsLoading(false);
+          setIsPolling(false);
+        }
+      }
+    },
+    onJobFailed: (data) => {
+      if (data.jobId === currentJobId) {
+        setIsLoading(false);
+        setIsPolling(false);
+        const errorMessage = data.error || `Job failed: ${data.failedReason || 'Unknown error'}`;
+        setSyncMessage(errorMessage);
+        
+        toast({
+          variant: "destructive", 
+          title: "Analysis Failed",
+          description: errorMessage,
+        });
+        
+                // Cleanup WebSocket subscription
+        unsubscribeFromJob(data.jobId);
+        setCurrentJobId(null);
+      }
+    },
+    onConnectionChange: (connected) => {
+      if (!connected && currentJobId && useWebSocket) {
+        // WebSocket disconnected during a job - fallback to polling
+        toast({
+          title: "Connection Lost",
+          description: "Falling back to polling for job updates.",
+        });
+        setUseWebSocket(false);
+        pollJobStatus(currentJobId);
+      }
+    }
+  });
 
   useEffect(() => {
     try {
@@ -77,6 +171,16 @@ export default function AnalysisLabPage() {
         localStorage.removeItem('analysisResult');
     }
   }, []);
+
+  // Cleanup WebSocket on unmount and job completion
+  useEffect(() => {
+    return () => {
+      if (currentJobId) {
+        unsubscribeFromJob(currentJobId);
+      }
+      cleanupWebSocket();
+    };
+  }, [currentJobId, unsubscribeFromJob, cleanupWebSocket]);
 
   useEffect(() => {
     if (analysisResult) {
@@ -126,6 +230,7 @@ export default function AnalysisLabPage() {
     setCurrentJobId(null);
     setJobProgress(0);
     setIsPolling(false);
+    setUseWebSocket(true);
 
     const rawWalletList = wallets
       .replace(/[,|\n\r]+/g, ' ') // Robustly handle different separators
@@ -319,8 +424,26 @@ export default function AnalysisLabPage() {
       setCurrentJobId(jobResponse.jobId);
       setSyncMessage(`Job submitted! ID: ${jobResponse.jobId.slice(0, 8)}...`);
       
-      // Start polling for job status
-      await pollJobStatus(jobResponse.jobId);
+      // 🔑 SMART CONNECTION: Try WebSocket first, fallback to polling
+      if (useWebSocket) {
+        console.log('🔌 Attempting WebSocket connection for job tracking...');
+        
+        // Wait a moment for connection, then subscribe
+        setTimeout(() => {
+          if (wsConnected) {
+            console.log('✅ WebSocket connected - subscribing to job');
+            subscribeToJob(jobResponse.jobId);
+            setIsPolling(false);
+          } else {
+            console.log('ℹ️ WebSocket unavailable - using polling updates (equally reliable)');
+            setUseWebSocket(false);
+            pollJobStatus(jobResponse.jobId);
+          }
+        }, 2000); // Give WebSocket time to connect
+      } else {
+        console.log('📊 Using polling for job status');
+        await pollJobStatus(jobResponse.jobId);
+      }
       
     } catch (error: any) {
       console.error('Error submitting job:', error);
@@ -476,8 +599,19 @@ export default function AnalysisLabPage() {
               >
                 <Settings className="h-4 w-4" />
                 <div className="flex-1">
-                  <div className="font-medium">Advanced Analysis</div>
-                  <div className="text-xs text-muted-foreground">Smart • Job Queue • Progress Tracking</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Advanced Analysis</span>
+                    {wsError ? (
+                      <WifiOff className="h-3 w-3 text-orange-500" />
+                    ) : wsConnected ? (
+                      <Wifi className="h-3 w-3 text-green-500" />
+                    ) : (
+                      <WifiOff className="h-3 w-3 text-orange-500" />
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Smart • Job Queue • {wsConnected ? 'Real-time Updates' : 'Polling Updates'}
+                  </div>
                 </div>
                 <Badge variant="outline">Smart</Badge>
               </Label>
@@ -486,13 +620,25 @@ export default function AnalysisLabPage() {
         </div>
         
         {/* Job Progress (Advanced Method) */}
-        {analysisMethod === 'advanced' && currentJobId && isPolling && (
+        {analysisMethod === 'advanced' && currentJobId && (
           <Alert className="mt-4">
             <Clock className="h-4 w-4" />
             <AlertDescription>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span>Job Progress</span>
+                  <div className="flex items-center gap-2">
+                    <span>Job Progress</span>
+                    <div className="flex items-center gap-1">
+                      {wsConnected && !wsError ? (
+                        <Wifi className="h-3 w-3 text-green-500" />
+                      ) : (
+                        <WifiOff className="h-3 w-3 text-orange-500" />
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {wsConnected && !wsError ? 'Real-time' : isPolling ? 'Polling' : 'Connecting...'}
+                      </span>
+                    </div>
+                  </div>
                   <span className="text-sm font-mono">{Math.round(jobProgress)}%</span>
                 </div>
                 <Progress value={jobProgress} className="w-full" />

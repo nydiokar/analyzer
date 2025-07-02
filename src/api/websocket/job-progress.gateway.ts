@@ -71,15 +71,28 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
       maxRetriesPerRequest: 3,
       enableReadyCheck: false,
       lazyConnect: true,
+      connectTimeout: 5000, // 5 second timeout for Redis
     };
     
     this.redisSubscriber = new Redis(ioredisOptions);
     this.redisPublisher = new Redis(ioredisOptions);
+    
+    // Set up error handlers to prevent crashes
+    this.redisSubscriber.on('error', (err) => {
+      this.logger.error('Redis subscriber connection error:', err);
+    });
+    
+    this.redisPublisher.on('error', (err) => {
+      this.logger.error('Redis publisher connection error:', err);
+    });
   }
 
   afterInit(server: Server) {
     this.logger.log('WebSocket Gateway initialized');
-    this.setupRedisSubscriptions();
+    // Delay Redis setup to avoid blocking WebSocket connections
+    setImmediate(() => {
+      this.setupRedisSubscriptions();
+    });
   }
 
   handleConnection(client: Socket) {

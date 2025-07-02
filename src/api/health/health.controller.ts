@@ -4,6 +4,7 @@ import { HealthCheck, HealthCheckService, HttpHealthIndicator, HealthIndicatorRe
 import { DatabaseService } from '../database/database.service';
 import { PrismaClient } from '@prisma/client';
 import { Public } from '../auth/public.decorator';
+import { QueueHealthService, OverallHealthStatus } from '../../queues/services/queue-health.service';
 
 @ApiTags('Health')
 @Controller('health')
@@ -15,6 +16,7 @@ export class HealthController {
     private health: HealthCheckService,
     private http: HttpHealthIndicator,
     private readonly databaseService: DatabaseService,
+    private readonly queueHealthService: QueueHealthService,
   ) {
     this.prisma = new PrismaClient();
   }
@@ -66,6 +68,75 @@ export class HealthController {
     } catch (error) {
       this.logger.error('Health check failed:', error);
       throw error;
+    }
+  }
+
+  @Get('queues')
+  @Public() // Queue health endpoint should be accessible without authentication
+  @ApiOperation({ 
+    summary: 'Check the health of BullMQ queues and Redis',
+    description: 'Returns detailed health status for all monitored queues, Redis connection, and overall system health'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Queue health check completed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['healthy', 'degraded', 'unhealthy'] },
+        timestamp: { type: 'string' },
+        redis: { type: 'object' },
+        queues: { type: 'array' },
+        summary: { type: 'object' },
+        issues: { type: 'array' }
+      }
+    }
+  })
+  @ApiResponse({ status: 503, description: 'Queue health check failed or system unhealthy' })
+  async checkQueues(): Promise<OverallHealthStatus> {
+    const startTime = Date.now();
+    
+    try {
+      this.logger.log('Performing queue health check...');
+      
+      const healthStatus = await this.queueHealthService.getOverallHealth();
+      const responseTime = Date.now() - startTime;
+      
+      this.logger.log(
+        `Queue health check completed in ${responseTime}ms: ${healthStatus.status} ` +
+        `(${healthStatus.summary.healthyQueues}/${healthStatus.summary.totalQueues} queues healthy, ` +
+        `Redis: ${healthStatus.redis.status})`
+      );
+
+      // If the system is unhealthy, we should still return 200 but with unhealthy status
+      // The HTTP status code 503 should be reserved for cases where the endpoint itself fails
+      return healthStatus;
+      
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      this.logger.error(`Queue health check failed after ${responseTime}ms:`, error);
+      
+      // Return a minimal unhealthy status if the check itself fails
+      const failedHealthStatus: OverallHealthStatus = {
+        status: 'unhealthy',
+        timestamp: new Date().toISOString(),
+        redis: {
+          status: 'unhealthy',
+          connectionStatus: 'error',
+          issues: ['Health check failed']
+        },
+        queues: [],
+        summary: {
+          totalQueues: 0,
+          healthyQueues: 0,
+          degradedQueues: 0,
+          unhealthyQueues: 0,
+          totalJobs: { waiting: 0, active: 0, completed: 0, failed: 0 }
+        },
+        issues: [`Queue health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`]
+      };
+      
+      return failedHealthStatus;
     }
   }
 } 
