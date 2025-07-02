@@ -29,9 +29,10 @@ export class SimilarityApiService {
         this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
     }
 
-    async runAnalysis(dto: SimilarityAnalysisRequestDto): Promise<CombinedSimilarityResult> {
+    async runAnalysis(dto: SimilarityAnalysisRequestDto, preFetchedBalances?: Map<string, any>): Promise<CombinedSimilarityResult> {
         logger.info(`Received request to run comprehensive similarity analysis for ${dto.walletAddresses.length} wallets.`, {
             wallets: dto.walletAddresses,
+            preFetched: !!preFetchedBalances
         });
 
         if (!dto.walletAddresses || dto.walletAddresses.length < 2) {
@@ -44,7 +45,7 @@ export class SimilarityApiService {
             };
 
             const similarityAnalyzer = new SimilarityService(this.databaseService, config);
-            const balancesMap = await this.walletBalanceService.fetchWalletBalances(dto.walletAddresses);
+            const balancesMap = preFetchedBalances || await this.walletBalanceService.fetchWalletBalances(dto.walletAddresses);
 
             // --- Start: Parallel Execution ---
             // Kick off the core analysis.
@@ -62,9 +63,9 @@ export class SimilarityApiService {
                 throw new InternalServerErrorException('Analysis produced no results.');
             }
 
-            // --- Await Enrichment and Combine (if needed, but for now we send raw balances) ---
-            // For this optimization, we will NOT wait for the enrichmentPromise here.
-            // The frontend will be responsible for fetching enriched data separately.
+            // --- Return Raw Balances (Job Queue Handles Enrichment) ---
+            // The job queue processor will handle enrichment in parallel for optimal performance.
+            // This service focuses purely on similarity calculation using existing data.
 
             const combinedUniqueTokens: Record<string, { binary: number; capital: number }> = {};
             const allWallets = new Set([...Object.keys(binaryResults.uniqueTokensPerWallet), ...Object.keys(capitalResults.uniqueTokensPerWallet)]);

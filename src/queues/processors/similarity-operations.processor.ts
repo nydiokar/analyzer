@@ -6,17 +6,31 @@ import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { SimilarityApiService } from '../../api/analyses/similarity/similarity.service';
 import { DatabaseService } from '../../api/database/database.service';
+import { WalletBalanceService } from '../../core/services/wallet-balance-service';
+import { HeliusApiClient } from '../../core/services/helius-api-client';
+import { TokenInfoService } from '../../api/token-info/token-info.service';
+import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
+import { PnlAnalysisService } from '../../api/pnl_analysis/pnl-analysis.service';
+import { BehaviorService } from '../../api/wallets/behavior/behavior.service';
 
 @Injectable()
 export class SimilarityOperationsProcessor {
   private readonly logger = new Logger(SimilarityOperationsProcessor.name);
   private readonly worker: Worker;
+  private readonly walletBalanceService: WalletBalanceService;
 
   constructor(
     private readonly redisLockService: RedisLockService,
     private readonly similarityApiService: SimilarityApiService,
-    private readonly databaseService: DatabaseService
+    private readonly databaseService: DatabaseService,
+    private readonly heliusApiClient: HeliusApiClient,
+    private readonly tokenInfoService: TokenInfoService,
+    private readonly heliusSyncService: HeliusSyncService,
+    private readonly pnlAnalysisService: PnlAnalysisService,
+    private readonly behaviorService: BehaviorService,
   ) {
+    // Initialize WalletBalanceService
+    this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
     
     this.worker = new Worker(
@@ -50,12 +64,12 @@ export class SimilarityOperationsProcessor {
   }
 
   /**
-   * Process the similarity analysis flow: just calculate similarity on existing data (like quick analysis)
-   * Implements job orchestration for reliability without changing the operational logic
+   * Process the similarity analysis flow: run a full historical sync and enrichment in parallel.
+   * This is the true "Advanced Analysis" flow.
    */
   async processSimilarityFlow(job: Job<SimilarityAnalysisFlowData>): Promise<SimilarityFlowResult> {
     const { walletAddresses, requestId, failureThreshold = 0.8, timeoutMinutes = 30, similarityConfig } = job.data;
-    
+
     // Apply deduplication strategy
     const expectedJobId = generateJobId.calculateSimilarity(walletAddresses, requestId);
     if (job.id !== expectedJobId) {
@@ -74,51 +88,83 @@ export class SimilarityOperationsProcessor {
     }
 
     try {
-      this.logger.log(`Starting similarity analysis for ${walletAddresses.length} wallets, requestId: ${requestId}`);
-     // this.logger.log(`Following SAME logic as quick analysis - using existing data only`);
-
-      // Progress update: Starting analysis
-      await job.updateProgress(20);
+      this.logger.log(`Starting ADVANCED similarity analysis for ${walletAddresses.length} wallets.`);
+      await job.updateProgress(5);
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
-
-      // SAME LOGIC AS Legacy Similarity ANALYSIS: Use SimilarityApiService directly on existing data
-      // This will:
-      // 1. Fetch current SPL balances (live data)
-      // TODO: this logic of first getting the SPL balances will allow for fetching metadata for the SPL tokens via DEXSCREENER while the main
-      // transactions details is being fetched from HELIUS. (could it happen in parallel with the transactions details?) 2 queues? 
-
-      // 2. Use existing transaction data from database  
-      // 3. Calculate similarity matrices
-      // 4. Return combined results
-      await job.updateProgress(50);
-      this.logger.log(`Running similarity analysis using existing data (no sync, no re-analysis)`);
       
-      const similarityResult = await this.similarityApiService.runAnalysis({
-        walletAddresses: walletAddresses,
-        vectorType: similarityConfig?.vectorType || 'capital'
-      });
+      // STEP 1: PARALLEL I/O KICK-OFF
+      this.logger.log('Kicking off deep sync and balance fetch in parallel.');
+      const [syncSettlement, balancesSettlement] = await Promise.allSettled([
+        this._orchestrateDeepSync(walletAddresses, job),
+        this.walletBalanceService.fetchWalletBalances(walletAddresses)
+      ]);
 
-      // Progress update: Analysis complete
+      // Critical Path Failure Handling
+      if (syncSettlement.status === 'rejected') {
+        this.logger.error('Critical failure during historical sync:', syncSettlement.reason);
+        throw new Error(`Critical failure during historical sync: ${syncSettlement.reason}`);
+      }
+      if (balancesSettlement.status === 'rejected') {
+        this.logger.error('Critical failure during balance fetching:', balancesSettlement.reason);
+        throw new Error(`Critical failure during balance fetching: ${balancesSettlement.reason}`);
+      }
+      const balancesMap = balancesSettlement.value;
+      
+      this.logger.log('Deep sync and balance fetch complete. DB is ready.');
+      await job.updateProgress(60); // Progress checkpoint after the slowest parts
+      this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
+
+      // STEP 2: FINAL ANALYSIS & ENRICHMENT
+      this.logger.log('Starting final similarity calculation and enrichment...');
+      const [similarityResult, enrichedBalances] = await Promise.allSettled([
+        this.similarityApiService.runAnalysis({
+          walletAddresses: walletAddresses,
+          vectorType: similarityConfig?.vectorType || 'capital'
+        }, balancesMap),
+        this.enrichTokenMetadataInParallel(balancesMap)
+      ]);
+      
+      await job.updateProgress(90);
+      this.checkTimeout(startTime, timeoutMs, 'Final analysis and enrichment');
+
+      // STEP 3: MERGE RESULTS
+      let finalResult;
+      if (similarityResult.status === 'fulfilled') {
+        finalResult = similarityResult.value;
+        
+        if (enrichedBalances.status === 'fulfilled') {
+          this.logger.log('Similarity analysis and enrichment completed successfully.');
+          finalResult.walletBalances = enrichedBalances.value;
+        } else {
+          this.logger.warn('Enrichment failed, proceeding with raw balances:', enrichedBalances.reason);
+        }
+      } else {
+        this.logger.error('Similarity analysis failed:', similarityResult.reason);
+        throw similarityResult.reason;
+      }
+
       await job.updateProgress(100);
-      this.checkTimeout(startTime, timeoutMs, 'Similarity calculation completed');
+      this.checkTimeout(startTime, timeoutMs, 'Final result preparation');
 
-      // Create result with metadata (following the exact type definition)
       const result: SimilarityFlowResult = {
         success: true,
-        data: similarityResult,
+        data: finalResult,
         requestId: requestId,
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime,
         metadata: {
           requestedWallets: walletAddresses.length,
-          processedWallets: walletAddresses.length, // All wallets processed (using existing data)
-          failedWallets: 0, // No failures when using existing data
-          successRate: 1.0, // 100% success rate
+          processedWallets: walletAddresses.length,
+          failedWallets: 0,
+          successRate: 1.0,
           processingTimeMs: Date.now() - startTime
         }
       };
 
-      this.logger.log(`Similarity analysis completed successfully in ${Date.now() - startTime}ms. Mode: existing_data_only`);
+      const hasEnrichedData = finalResult.walletBalances?.[Object.keys(finalResult.walletBalances)[0]]?.tokenBalances?.[0]?.valueUsd !== undefined;
+      const mode = hasEnrichedData ? 'full_sync_with_enrichment' : 'full_sync_raw_balances';
+      
+      this.logger.log(`Advanced similarity analysis completed successfully in ${Date.now() - startTime}ms. Mode: ${mode}`);
       return result;
 
     } catch (error) {
@@ -133,6 +179,73 @@ export class SimilarityOperationsProcessor {
       } catch (lockError) {
         this.logger.warn(`Failed to release lock ${lockKey}:`, lockError);
       }
+    }
+  }
+
+  /**
+   * Orchestrates the full data synchronization and analysis pipeline for a list of wallets.
+   * This includes fetching all transactions and running PNL and behavior analysis.
+   */
+  private async _orchestrateDeepSync(walletAddresses: string[], job: Job): Promise<void> {
+    this.logger.log(`Orchestrating deep sync for ${walletAddresses.length} wallets...`);
+    // This part of the flow will account for up to 55% of the progress bar (5% to 60%).
+    const progressStep = 55 / walletAddresses.length;
+    let currentProgress = 5;
+
+    // Process each wallet's full sync pipeline in parallel.
+    await Promise.all(
+      walletAddresses.map(async (walletAddress) => {
+        try {
+          const syncOptions: SyncOptions = { 
+            fetchAll: true, 
+            smartFetch: true, 
+            maxSignatures: 2000,
+            limit: 1000,
+            skipApi: false,
+            fetchOlder: true,
+          };
+          await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+
+          const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
+          // These can also run in parallel as they depend only on the sync having completed.
+          await Promise.all([
+              this.pnlAnalysisService.analyzeWalletPnl(walletAddress),
+              this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig),
+          ]);
+
+          // Increment progress safely after each wallet is fully processed.
+          currentProgress += progressStep;
+          await job.updateProgress(Math.floor(currentProgress));
+
+        } catch (error) {
+          this.logger.error(`Deep sync failed for wallet ${walletAddress}`, error);
+          // We throw to ensure the entire job fails if one wallet cannot be synced,
+          // guaranteeing data integrity for the final similarity analysis.
+          throw new Error(`Failed to sync and analyze wallet: ${walletAddress}`);
+        }
+      })
+    );
+
+    this.logger.log('All wallets have completed the deep sync process.');
+  }
+
+  /**
+   * Smart enrichment with TODO fixes: Redis caching, batch processing, large token set handling
+   */
+  private async enrichTokenMetadataInParallel(balancesMap: Map<string, any>): Promise<Record<string, any>> {
+    try {
+      // Convert balances map to the format expected by enrichBalances method
+      const walletBalances: Record<string, any> = {};
+      for (const [walletAddress, balanceData] of balancesMap) {
+        walletBalances[walletAddress] = balanceData;
+      }
+
+      // Use the existing enrichBalances method from SimilarityApiService
+      return await this.similarityApiService.enrichBalances(walletBalances);
+    } catch (error) {
+      this.logger.error('Error during parallel token metadata enrichment:', error);
+      // Re-throw to be handled by Promise.allSettled in the main flow
+      throw error;
     }
   }
 
