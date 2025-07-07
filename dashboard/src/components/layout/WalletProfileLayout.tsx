@@ -58,7 +58,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { getTagColor, getCollectionColor } from '@/lib/color-utils';
-import { debounce } from 'lodash';
+
 
 // Import the new tab component
 import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
@@ -66,6 +66,8 @@ import TokenPerformanceTab from '@/components/dashboard/TokenPerformanceTab';
 import AccountStatsPnlTab from '@/components/dashboard/AccountStatsPnlTab';
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
 import ReviewerLogTab from '@/components/dashboard/ReviewerLogTab';
+import { WalletEditForm } from './WalletEditForm';
+import QuickAddForm from './QuickAddForm';
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
@@ -97,63 +99,14 @@ export default function WalletProfileLayout({
   
   // Quick add modal state
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
-  const [quickAddForm, setQuickAddForm] = useState({
-    nickname: '',
-    tags: [] as string[],
-    collections: [] as string[],
-    newTag: '',
-    newCollection: ''
-  });
   
   // Edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editForm, setEditForm] = useState({
-    nickname: '',
-    tags: [] as string[],
-    collections: [] as string[],
-    newTag: '',
-    newCollection: ''
-  });
   
   // Delete confirmation state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Debounced input handlers for performance
-  const debouncedSetQuickNickname = useCallback(debounce((nickname: string) => {
-    setQuickAddForm(prev => ({ ...prev, nickname }));
-  }, 200), []);
-  
-  const debouncedSetQuickNewTag = useCallback(debounce((newTag: string) => {
-    setQuickAddForm(prev => ({ ...prev, newTag }));
-  }, 200), []);
-  
-  const debouncedSetQuickNewCollection = useCallback(debounce((newCollection: string) => {
-    setQuickAddForm(prev => ({ ...prev, newCollection }));
-  }, 200), []);
-  
-  const debouncedSetEditNickname = useCallback(debounce((nickname: string) => {
-    setEditForm(prev => ({ ...prev, nickname }));
-  }, 200), []);
-  
-  const debouncedSetEditNewTag = useCallback(debounce((newTag: string) => {
-    setEditForm(prev => ({ ...prev, newTag }));
-  }, 200), []);
-  
-  const debouncedSetEditNewCollection = useCallback(debounce((newCollection: string) => {
-    setEditForm(prev => ({ ...prev, newCollection }));
-  }, 200), []);
-  
-  // Cleanup debounced functions
-  useEffect(() => {
-    return () => {
-      debouncedSetQuickNickname.cancel();
-      debouncedSetQuickNewTag.cancel();
-      debouncedSetQuickNewCollection.cancel();
-      debouncedSetEditNickname.cancel();
-      debouncedSetEditNewTag.cancel();
-      debouncedSetEditNewCollection.cancel();
-    };
-  }, [debouncedSetQuickNickname, debouncedSetQuickNewTag, debouncedSetQuickNewCollection, debouncedSetEditNickname, debouncedSetEditNewTag, debouncedSetEditNewCollection]);
+  // Form state updates are fast - no debouncing needed for responsive typing
 
   // Use the centralized hook
   const { favorites: favoritesData, mutate: mutateFavorites, isLoading: isLoadingFavorites } = useFavorites();
@@ -341,13 +294,6 @@ export default function WalletProfileLayout({
       setShowDeleteConfirm(true);
     } else {
       // Show quick add modal for new favorites
-      setQuickAddForm({
-        nickname: '',
-        tags: [],
-        collections: [],
-        newTag: '',
-        newCollection: ''
-      });
       setShowQuickAddModal(true);
     }
   };
@@ -373,64 +319,29 @@ export default function WalletProfileLayout({
     }
   };
 
-  // Quick add modal functions
-  const handleQuickAddSave = async () => {
+  // Quick add modal function
+  const handleQuickAddSave = async (formData: { nickname: string; tags: string[]; collections: string[] }) => {
     try {
       await fetcher('/users/me/favorites', {
         method: 'POST',
         body: JSON.stringify({
           walletAddress,
-          nickname: quickAddForm.nickname.trim() || undefined,
-          tags: quickAddForm.tags,
-          collections: quickAddForm.collections,
+          nickname: formData.nickname.trim() || undefined,
+          tags: formData.tags,
+          collections: formData.collections,
         }),
       });
       
       await mutateFavorites();
-      setShowQuickAddModal(false);
       
       toast.success("Added to Favorites", {
-        description: `${quickAddForm.nickname || truncateWalletAddress(walletAddress, 10, 8)} has been organized.`,
+        description: `${formData.nickname || truncateWalletAddress(walletAddress, 10, 8)} has been organized.`,
       });
     } catch (err: any) {
       toast.error("Failed to add favorite", {
         description: err.message || "An unexpected error occurred.",
       });
     }
-  };
-
-  const addQuickTag = () => {
-    if (quickAddForm.newTag.trim() && !quickAddForm.tags.includes(quickAddForm.newTag.trim())) {
-      setQuickAddForm(prev => ({
-        ...prev,
-        tags: [...prev.tags, prev.newTag.trim()],
-        newTag: ''
-      }));
-    }
-  };
-
-  const removeQuickTag = (tagToRemove: string) => {
-    setQuickAddForm(prev => ({
-      ...prev,
-      tags: prev.tags.filter(tag => tag !== tagToRemove)
-    }));
-  };
-
-  const addQuickCollection = () => {
-    if (quickAddForm.newCollection.trim() && !quickAddForm.collections.includes(quickAddForm.newCollection.trim())) {
-      setQuickAddForm(prev => ({
-        ...prev,
-        collections: [...prev.collections, prev.newCollection.trim()],
-        newCollection: ''
-      }));
-    }
-  };
-
-  const removeQuickCollection = (collectionToRemove: string) => {
-    setQuickAddForm(prev => ({
-      ...prev,
-      collections: prev.collections.filter(collection => collection !== collectionToRemove)
-    }));
   };
 
   // Get wallet display name
@@ -444,78 +355,36 @@ export default function WalletProfileLayout({
   };
 
   // Edit modal functions
-  const openEditModal = () => {
+  const openEditModal = useCallback(() => {
     if (currentFavoriteData) {
-      setEditForm({
-        nickname: currentFavoriteData.nickname || '',
-        tags: currentFavoriteData.tags || [],
-        collections: currentFavoriteData.collections || [],
-        newTag: '',
-        newCollection: ''
-      });
       setShowEditModal(true);
     }
-  };
+  }, [currentFavoriteData]);
 
-  const handleEditSave = async () => {
+  const handleEditSave = useCallback(async (formData: { nickname: string; tags: string[]; collections: string[] }) => {
     if (!currentFavoriteData) return;
     
     try {
       await fetcher(`/users/me/favorites/${walletAddress}`, {
         method: 'PUT',
         body: JSON.stringify({
-          nickname: editForm.nickname.trim() || undefined,
-          tags: editForm.tags,
-          collections: editForm.collections,
+          nickname: formData.nickname.trim() || undefined,
+          tags: formData.tags,
+          collections: formData.collections,
         }),
       });
       
       await mutateFavorites();
-      setShowEditModal(false);
       
       toast.success("Wallet updated", {
-        description: `${editForm.nickname || truncateWalletAddress(walletAddress, 10, 8)} has been updated.`,
+        description: `${formData.nickname || truncateWalletAddress(walletAddress, 10, 8)} has been updated.`,
       });
     } catch (err: any) {
       toast.error("Failed to update wallet", {
         description: err.message || "An unexpected error occurred.",
       });
     }
-  };
-
-  const addEditTag = () => {
-    if (editForm.newTag.trim() && !editForm.tags.includes(editForm.newTag.trim())) {
-      setEditForm(prev => ({
-        ...prev,
-        tags: [...prev.tags, prev.newTag.trim()],
-        newTag: ''
-      }));
-    }
-  };
-
-  const removeEditTag = (tagToRemove: string) => {
-    setEditForm(prev => ({
-      ...prev,
-      tags: prev.tags.filter(tag => tag !== tagToRemove)
-    }));
-  };
-
-  const addEditCollection = () => {
-    if (editForm.newCollection.trim() && !editForm.collections.includes(editForm.newCollection.trim())) {
-      setEditForm(prev => ({
-        ...prev,
-        collections: [...prev.collections, prev.newCollection.trim()],
-        newCollection: ''
-      }));
-    }
-  };
-
-  const removeEditCollection = (collectionToRemove: string) => {
-    setEditForm(prev => ({
-      ...prev,
-      collections: prev.collections.filter(collection => collection !== collectionToRemove)
-    }));
-  };
+  }, [currentFavoriteData, walletAddress, mutateFavorites]);
 
   const ExpandedAnalysisControl = () => (
     <div className="flex flex-col items-start gap-1 w-full md:w-auto">
@@ -959,174 +828,26 @@ export default function WalletProfileLayout({
       </main>
       
       {/* Quick Add Modal */}
-      <Dialog open={showQuickAddModal} onOpenChange={setShowQuickAddModal}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Organize Wallet</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Nickname (optional)</label>
-              <Input
-                placeholder="Enter a memorable name..."
-                value={quickAddForm.nickname}
-                onChange={(e) => debouncedSetQuickNickname(e.target.value)}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Tags</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {quickAddForm.tags.map((tag) => (
-                  <Badge 
-                    key={tag} 
-                    variant="secondary" 
-                    className={`text-xs px-2 py-1 border cursor-pointer ${getTagColor(tag)}`}
-                    onClick={() => removeQuickTag(tag)}
-                  >
-                    <Tags className="h-3 w-3 mr-1" />
-                    {tag}
-                    <X className="h-3 w-3 ml-1" />
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-1">
-                <Input
-                  placeholder="Add tag..."
-                  value={quickAddForm.newTag}
-                  onChange={(e) => debouncedSetQuickNewTag(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addQuickTag()}
-                />
-                <Button onClick={addQuickTag} size="sm" variant="outline">
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Collections</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {quickAddForm.collections.map((collection) => (
-                  <Badge 
-                    key={collection} 
-                    className={`text-xs px-2 py-1 cursor-pointer ${getCollectionColor(collection)}`}
-                    onClick={() => removeQuickCollection(collection)}
-                  >
-                    <FolderOpen className="h-3 w-3 mr-1" />
-                    {collection}
-                    <X className="h-3 w-3 ml-1" />
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-1">
-                <Input
-                  placeholder="Add collection..."
-                  value={quickAddForm.newCollection}
-                  onChange={(e) => debouncedSetQuickNewCollection(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addQuickCollection()}
-                />
-                <Button onClick={addQuickCollection} size="sm" variant="outline">
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setShowQuickAddModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleQuickAddSave}>
-              Add to Favorites
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <QuickAddForm
+        isOpen={showQuickAddModal}
+        onClose={() => setShowQuickAddModal(false)}
+        onSave={handleQuickAddSave}
+        walletAddress={walletAddress}
+        title="Organize Wallet"
+      />
       
       {/* Edit Modal */}
-      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Edit Wallet Data</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Nickname</label>
-              <Input
-                placeholder="Enter a memorable name..."
-                value={editForm.nickname}
-                onChange={(e) => debouncedSetEditNickname(e.target.value)}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Tags</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {editForm.tags.map((tag) => (
-                  <Badge 
-                    key={tag} 
-                    variant="secondary" 
-                    className={`text-xs px-2 py-1 border cursor-pointer ${getTagColor(tag)}`}
-                    onClick={() => removeEditTag(tag)}
-                  >
-                    <Tags className="h-3 w-3 mr-1" />
-                    {tag}
-                    <X className="h-3 w-3 ml-1" />
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-1">
-                <Input
-                  placeholder="Add tag..."
-                  value={editForm.newTag}
-                  onChange={(e) => debouncedSetEditNewTag(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addEditTag()}
-                />
-                <Button onClick={addEditTag} size="sm" variant="outline">
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Collections</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {editForm.collections.map((collection) => (
-                  <Badge 
-                    key={collection} 
-                    className={`text-xs px-2 py-1 cursor-pointer ${getCollectionColor(collection)}`}
-                    onClick={() => removeEditCollection(collection)}
-                  >
-                    <FolderOpen className="h-3 w-3 mr-1" />
-                    {collection}
-                    <X className="h-3 w-3 ml-1" />
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-1">
-                <Input
-                  placeholder="Add collection..."
-                  value={editForm.newCollection}
-                  onChange={(e) => debouncedSetEditNewCollection(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addEditCollection()}
-                />
-                <Button onClick={addEditCollection} size="sm" variant="outline">
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setShowEditModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleEditSave}>
-              Save Changes
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <WalletEditForm
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        onSave={handleEditSave}
+        initialData={{
+          nickname: currentFavoriteData?.nickname || '',
+          tags: currentFavoriteData?.tags || [],
+          collections: currentFavoriteData?.collections || [],
+        }}
+        title="Edit Wallet Data"
+      />
       
       {/* Remove Confirmation Dialog */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>

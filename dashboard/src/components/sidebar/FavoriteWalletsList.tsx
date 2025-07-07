@@ -8,7 +8,8 @@ import { AlertTriangle, Trash2, Star, Loader2, Info, StarIcon, CopyIcon, Edit2, 
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useState, useMemo, useCallback, memo, useEffect } from 'react';
-import { debounce } from 'lodash';
+import { WalletEditForm } from '../layout/WalletEditForm';
+
 import {
   Popover,
   PopoverContent,
@@ -40,7 +41,6 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { useApiKeyStore } from '@/store/api-key-store';
-import FavoriteWalletItem from './FavoriteWalletItem';
 import { FavoriteWallet } from '@/types/api';
 import { cn } from '@/lib/utils';
 import { getTagColor, getCollectionColor } from '@/lib/color-utils';
@@ -62,35 +62,6 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
   
   // Edit state
   const [editingWallet, setEditingWallet] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({
-    nickname: '',
-    tags: [] as string[],
-    collections: [] as string[],
-    newTag: '',
-    newCollection: ''
-  });
-  
-  // Debounced input handlers for performance (similar to WalletSearch)
-  const debouncedSetNickname = useCallback(debounce((nickname: string) => {
-    setEditForm(prev => ({ ...prev, nickname }));
-  }, 200), []);
-  
-  const debouncedSetNewTag = useCallback(debounce((newTag: string) => {
-    setEditForm(prev => ({ ...prev, newTag }));
-  }, 200), []);
-  
-  const debouncedSetNewCollection = useCallback(debounce((newCollection: string) => {
-    setEditForm(prev => ({ ...prev, newCollection }));
-  }, 200), []);
-  
-  // Cleanup debounced functions
-  useEffect(() => {
-    return () => {
-      debouncedSetNickname.cancel();
-      debouncedSetNewTag.cancel();
-      debouncedSetNewCollection.cancel();
-    };
-  }, [debouncedSetNickname, debouncedSetNewTag, debouncedSetNewCollection]);
   
   // Delete confirmation state
   const [walletToDelete, setWalletToDelete] = useState<FavoriteWallet | null>(null);
@@ -126,44 +97,47 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     return cache;
   }, [favoriteWallets]);
 
-  // Organize data for filters - optimized version
-  const organizedData = useMemo(() => {
-    if (!favoriteWallets?.length) return { tags: [], collections: [], filteredWallets: [] };
-    
-    // Get unique tags and collections
+  // Separate expensive computations to avoid recalculating everything
+  const allTags = useMemo(() => {
+    if (!favoriteWallets?.length) return [];
     const tagSet = new Set<string>();
-    const collectionSet = new Set<string>();
-    
     favoriteWallets.forEach(wallet => {
       wallet.tags?.forEach(tag => tagSet.add(tag));
+    });
+    return Array.from(tagSet).sort();
+  }, [favoriteWallets]);
+
+  const allCollections = useMemo(() => {
+    if (!favoriteWallets?.length) return [];
+    const collectionSet = new Set<string>();
+    favoriteWallets.forEach(wallet => {
       wallet.collections?.forEach(collection => collectionSet.add(collection));
     });
+    return Array.from(collectionSet).sort();
+  }, [favoriteWallets]);
 
-    // Filter wallets based on current selection
-    let filteredWallets = favoriteWallets;
+  // Optimize filtering - only recalculate when filter changes
+  const filteredWallets = useMemo(() => {
+    if (!favoriteWallets?.length) return [];
+    
+    let filtered = favoriteWallets;
     
     if (filterMode === 'tag' && selectedTag) {
-      filteredWallets = favoriteWallets.filter(wallet => 
+      filtered = favoriteWallets.filter(wallet => 
         wallet.tags?.includes(selectedTag)
       );
     } else if (filterMode === 'collection' && selectedCollection) {
-      filteredWallets = favoriteWallets.filter(wallet => 
+      filtered = favoriteWallets.filter(wallet => 
         wallet.collections?.includes(selectedCollection)
       );
     }
 
     // Sort using cached times - much faster
-    filteredWallets = [...filteredWallets].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       const aTime = walletTimesCache.get(a.walletAddress) || 0;
       const bTime = walletTimesCache.get(b.walletAddress) || 0;
       return bTime - aTime;
     });
-
-    return {
-      tags: Array.from(tagSet).sort(),
-      collections: Array.from(collectionSet).sort(),
-      filteredWallets
-    };
   }, [favoriteWallets, filterMode, selectedTag, selectedCollection, walletTimesCache]);
 
   // Memoized callbacks for performance
@@ -198,32 +172,24 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     }
   }, []);
 
-  const openEditDialog = (wallet: FavoriteWallet) => {
-    setEditForm({
-      nickname: wallet.nickname || '',
-      tags: wallet.tags || [],
-      collections: wallet.collections || [],
-      newTag: '',
-      newCollection: ''
-    });
+  const openEditDialog = useCallback((wallet: FavoriteWallet) => {
     setEditingWallet(wallet.walletAddress);
-  };
+  }, []);
 
-  const closeEditDialog = () => {
+  const closeEditDialog = useCallback(() => {
     setEditingWallet(null);
-    setEditForm({ nickname: '', tags: [], collections: [], newTag: '', newCollection: '' });
-  };
+  }, []);
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = useCallback(async (formData: { nickname: string; tags: string[]; collections: string[] }) => {
     if (!editingWallet) return;
     
     try {
       await fetcher(`/users/me/favorites/${editingWallet}`, {
         method: 'PUT',
         body: JSON.stringify({
-          nickname: editForm.nickname.trim() || undefined,
-          tags: editForm.tags,
-          collections: editForm.collections,
+          nickname: formData.nickname.trim() || undefined,
+          tags: formData.tags,
+          collections: formData.collections,
         }),
       });
       toast.success("Favorite updated!");
@@ -232,41 +198,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     } catch (err: any) {
       toast.error(`Failed to update: ${err.message}`);
     }
-  };
-
-  const addTag = () => {
-    if (editForm.newTag.trim() && !editForm.tags.includes(editForm.newTag.trim())) {
-      setEditForm(prev => ({
-        ...prev,
-        tags: [...prev.tags, prev.newTag.trim()],
-        newTag: ''
-      }));
-    }
-  };
-
-  const removeTag = (tagToRemove: string) => {
-    setEditForm(prev => ({
-      ...prev,
-      tags: prev.tags.filter(tag => tag !== tagToRemove)
-    }));
-  };
-
-  const addCollection = () => {
-    if (editForm.newCollection.trim() && !editForm.collections.includes(editForm.newCollection.trim())) {
-      setEditForm(prev => ({
-        ...prev,
-        collections: [...prev.collections, prev.newCollection.trim()],
-        newCollection: ''
-      }));
-    }
-  };
-
-  const removeCollection = (collectionToRemove: string) => {
-    setEditForm(prev => ({
-      ...prev,
-      collections: prev.collections.filter(collection => collection !== collectionToRemove)
-    }));
-  };
+  }, [editingWallet, closeEditDialog, mutateFavorites]);
 
   const selectTagFilter = (tag: string) => {
     if (filterMode === 'tag' && selectedTag === tag) {
@@ -290,45 +222,72 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     }
   };
 
-  const renderCompactWallet = (wallet: FavoriteWallet) => {
+  const renderCompactWallet = (wallet: FavoriteWallet, index: number) => {
     const displayName = wallet.nickname || `${wallet.walletAddress.substring(0, 6)}...${wallet.walletAddress.substring(wallet.walletAddress.length - 4)}`;
+    const isEven = index % 2 === 0;
+    
+    // Generate initials for avatar
+    const getInitials = (name: string) => {
+      if (wallet.nickname) {
+        return wallet.nickname.slice(0, 2).toUpperCase();
+      }
+      return wallet.walletAddress.slice(0, 2).toUpperCase();
+    };
     
     return (
-      <div key={wallet.walletAddress} className="group flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted/50 transition-colors">
+              <div 
+          key={wallet.walletAddress} 
+          className={`group flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-muted/70 transition-all duration-200 border ${
+            isEven ? 'bg-muted/20' : 'bg-background'
+          } hover:border-primary/20`}
+        >
+        {/* Discreet Number & Avatar */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center justify-center w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs font-medium">
+            {index + 1}
+          </div>
+          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-purple-400 to-blue-500 text-white text-xs font-medium">
+            {getInitials(displayName)}
+          </div>
+        </div>
+        
         <div className="flex-1 min-w-0">
-          <Link href={`/wallets/${wallet.walletAddress}`} className="block">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium truncate hover:text-primary">
-                {displayName}
-              </span>
-              {wallet.pnl && (
-                <span className={`text-xs font-mono ${wallet.pnl > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {wallet.pnl > 0 ? '+' : ''}{wallet.pnl.toFixed(1)} <span className="text-xs opacity-75">SOL</span>
+          <Link href={`/wallets/${wallet.walletAddress}`} className="block group-hover:text-primary transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-medium truncate block">
+                  {displayName}
                 </span>
-              )}
-            </div>
-            
-            {/* Tags and Collections */}
-            {((wallet.tags?.length || 0) > 0 || (wallet.collections?.length || 0) > 0) && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {(wallet.tags?.length || 0) > 0 && (
-                  <div className="flex items-center gap-1">
-                    <Tags className="h-3 w-3" />
-                    <span>{wallet.tags?.length || 0}</span>
-                  </div>
-                )}
-                {(wallet.collections?.length || 0) > 0 && (
-                  <div className="flex items-center gap-1">
-                    <FolderOpen className="h-3 w-3" />
-                    <span>{wallet.collections?.length || 0}</span>
+                {/* Tags and Collections */}
+                {((wallet.tags?.length || 0) > 0 || (wallet.collections?.length || 0) > 0) && (
+                  <div className="flex items-center gap-2 text-xs mt-1">
+                    {(wallet.tags?.length || 0) > 0 && (
+                      <div className="flex items-center gap-1 text-purple-600">
+                        <Tags className="h-3 w-3" />
+                        <span>{wallet.tags?.length || 0}</span>
+                      </div>
+                    )}
+                    {(wallet.collections?.length || 0) > 0 && (
+                      <div className="flex items-center gap-1 text-blue-600">
+                        <FolderOpen className="h-3 w-3" />
+                        <span>{wallet.collections?.length || 0}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
+              {wallet.pnl && (
+                <div className="text-right flex-shrink-0 ml-3">
+                  <span className={`text-sm font-semibold ${wallet.pnl > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {wallet.pnl > 0 ? '+' : ''}{wallet.pnl.toFixed(1)} SOL
+                  </span>
+                </div>
+              )}
+            </div>
           </Link>
-          </div>
+        </div>
           
-        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-all duration-200 ml-3 flex-shrink-0">
           {/* Details popout */}
           {((wallet.tags?.length || 0) > 0 || (wallet.collections?.length || 0) > 0) && (
             <Popover>
@@ -339,9 +298,9 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                   <Button
                     variant="ghost"
                     size="icon"
-                        className="h-6 w-6 text-muted-foreground hover:text-purple-500"
-                      >
-                        <Filter className="h-3 w-3" />
+                    className="h-6 w-6 text-muted-foreground hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950"
+                  >
+                    <Filter className="h-3 w-3" />
                   </Button>
                     </PopoverTrigger>
                 </TooltipTrigger>
@@ -415,10 +374,10 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                   <Button
                     variant="ghost"
                     size="icon"
-                  className="h-6 w-6 text-muted-foreground hover:text-blue-500"
-                  onClick={() => openEditDialog(wallet)}
-                >
-                  <Edit2 className="h-3 w-3" />
+                    className="h-6 w-6 text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
+                    onClick={() => openEditDialog(wallet)}
+                  >
+                    <Edit2 className="h-3 w-3" />
                   </Button>
                 </TooltipTrigger>
               <TooltipContent><p>Edit tags</p></TooltipContent>
@@ -431,10 +390,10 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                   <Button
                     variant="ghost"
                     size="icon"
-                  className="h-6 w-6 text-muted-foreground hover:text-red-500"
-                  onClick={() => handleRemoveFavorite(wallet.walletAddress)}
-                >
-                  <Trash2 className="h-3 w-3" />
+                    className="h-6 w-6 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+                    onClick={() => handleRemoveFavorite(wallet.walletAddress)}
+                  >
+                    <Trash2 className="h-3 w-3" />
                   </Button>
                 </TooltipTrigger>
               <TooltipContent><p>Remove</p></TooltipContent>
@@ -462,7 +421,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
           All ({favoriteWallets?.length || 0})
         </Button>
         
-        {organizedData.tags.length > 0 && (
+        {allTags.length > 0 && (
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -475,7 +434,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
             </PopoverTrigger>
             <PopoverContent className="w-56 p-2" side="right">
               <div className="space-y-1">
-                {organizedData.tags.map(tag => (
+                {allTags.map(tag => (
                   <Button
                     key={tag}
                     variant="ghost"
@@ -494,7 +453,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
           </Popover>
         )}
         
-        {organizedData.collections.length > 0 && (
+        {allCollections.length > 0 && (
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -507,7 +466,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
             </PopoverTrigger>
             <PopoverContent className="w-56 p-2" side="right">
               <div className="space-y-1">
-                {organizedData.collections.map(collection => (
+                {allCollections.map(collection => (
                   <Button
                     key={collection}
                     variant="ghost"
@@ -618,9 +577,9 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
         {renderFilterSection()}
 
         {/* Wallet List */}
-        <div className="space-y-1">
-          {organizedData.filteredWallets.length > 0 ? (
-            organizedData.filteredWallets.map(wallet => renderCompactWallet(wallet))
+        <div className="space-y-2">
+          {filteredWallets.length > 0 ? (
+            filteredWallets.map((wallet, index) => renderCompactWallet(wallet, index))
           ) : (
             <div className="text-center p-4 text-sm text-muted-foreground">
               No wallets match the current filter
@@ -631,228 +590,101 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     );
   };
 
-  // Edit Dialog
-  const editDialog = (
-    <Dialog open={!!editingWallet} onOpenChange={(open) => !open && closeEditDialog()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit Favorite Wallet</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          {/* Nickname */}
-          <div>
-            <label className="text-sm font-medium">Nickname</label>
-            <Input
-              value={editForm.nickname}
-                              onChange={(e) => debouncedSetNickname(e.target.value)}
-              placeholder="Enter nickname"
-              className="mt-1"
-            />
-          </div>
+  // Get current editing wallet data
+  const currentEditingWallet = useMemo(() => {
+    return editingWallet ? favoriteWallets?.find(w => w.walletAddress === editingWallet) : null;
+  }, [editingWallet, favoriteWallets]);
 
-          {/* Tags */}
-          <div>
-            <label className="text-sm font-medium">Tags</label>
-            <div className="mt-1 space-y-2">
-              <div className="flex flex-wrap gap-1">
-                {editForm.tags.map(tag => (
-                  <Badge key={tag} className={`${getTagColor(tag)} group`}>
-                    {tag}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-3 w-3 ml-1 opacity-0 group-hover:opacity-100 text-current hover:text-red-600"
-                      onClick={() => removeTag(tag)}
-                    >
-                      <X className="h-2 w-2" />
-                    </Button>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex space-x-1">
-                <Input
-                  value={editForm.newTag}
-                  onChange={(e) => debouncedSetNewTag(e.target.value)}
-                  placeholder="Add tag"
-                  className="text-sm"
-                  onKeyDown={(e) => e.key === 'Enter' && addTag()}
-                />
-                <Button size="sm" onClick={addTag}>
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* Collections */}
-          <div>
-            <label className="text-sm font-medium">Collections</label>
-            <div className="mt-1 space-y-2">
-              <div className="flex flex-wrap gap-1">
-                {editForm.collections.map(collection => (
-                  <Badge key={collection} className={`${getCollectionColor(collection)} group`}>
-                    {collection}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-3 w-3 ml-1 opacity-0 group-hover:opacity-100 text-current hover:text-red-600"
-                      onClick={() => removeCollection(collection)}
-                    >
-                      <X className="h-2 w-2" />
-                    </Button>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex space-x-1">
-                <Input
-                  value={editForm.newCollection}
-                  onChange={(e) => debouncedSetNewCollection(e.target.value)}
-                  placeholder="Add collection"
-                  className="text-sm"
-                  onKeyDown={(e) => e.key === 'Enter' && addCollection()}
-                />
-                <Button size="sm" onClick={addCollection}>
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={closeEditDialog}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveEdit}>
-              Save Changes
-            </Button>
+  // Render favorites trigger button for sidebar
+  const renderFavoritesTrigger = () => {
+    if (!favoriteWallets?.length) {
+      return (
+        <div className="flex items-center justify-between py-2 px-3 text-sm text-muted-foreground">
+          <div className="flex items-center">
+            <Star className="h-4 w-4 mr-2" />
+            {!isCollapsed && <span>No Favorites</span>}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
-  );
+      );
+    }
 
-  if (isCollapsed) {
-      return (
-      <>
-        <Popover>
+    const displayCount = favoriteWallets.length;
+    const recentWallet = portfolioStats?.recentWallet;
+
+    return (
+      <div className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 transition-colors cursor-pointer">
+        <div className="flex items-center min-w-0 flex-1">
+          <Star className="h-4 w-4 mr-2 text-yellow-500 flex-shrink-0" />
+          {!isCollapsed && (
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Favorites ({displayCount})</span>
+                {portfolioStats && (
+                  <span className={`text-xs font-mono ${portfolioStats.totalPnl > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {portfolioStats.totalPnl > 0 ? '+' : ''}{portfolioStats.totalPnl.toFixed(1)} <span className="opacity-75">SOL</span>
+                  </span>
+                )}
+              </div>
+              {recentWallet && (
+                <div className="text-xs text-muted-foreground truncate">
+                  Recent: {recentWallet.nickname || `${recentWallet.walletAddress.substring(0, 6)}...`}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {!isCollapsed && <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {/* Always use popover approach for better UX */}
+      <Popover>
+        <TooltipProvider delayDuration={100}>
           <Tooltip>
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="w-full h-10 flex items-center justify-center rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
-                  <StarIcon size={20} />
-                </Button>
+                <div className="w-full">
+                  {renderFavoritesTrigger()}
+                </div>
               </PopoverTrigger>
             </TooltipTrigger>
-            <TooltipContent side="right" align="center">
+            <TooltipContent side={isCollapsed ? "right" : "top"} align="center">
               <p>Show Favorites</p>
-          </TooltipContent>
-        </Tooltip>
-        <PopoverContent side="right" align="start" className="w-80 p-2">
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <PopoverContent 
+          side={isCollapsed ? "right" : "left"} 
+          align="start" 
+          className="w-96 p-3"
+          sideOffset={isCollapsed ? 8 : 12}
+        >
           <CardHeader className="px-2 py-2">
-             <CardTitle className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
-                Favorites
-             </CardTitle>
+            <CardTitle className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
+              Favorites
+            </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 max-h-96 overflow-y-auto">
             {renderFavoritesContent()}
           </CardContent>
         </PopoverContent>
       </Popover>
-        {editDialog}
-        
-        {/* Delete Confirmation Dialog */}
-        <AlertDialog open={!!walletToDelete} onOpenChange={(open) => !open && setWalletToDelete(null)}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-amber-500" />
-                Remove Wallet from Favorites?
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                <div className="space-y-3">
-                  <p>
-                    You're about to remove <span className="font-medium">{walletToDelete?.nickname || 'this wallet'}</span> from your favorites.
-                  </p>
-                  
-                  {/* Show what will be lost */}
-                  {(walletToDelete?.tags?.length || walletToDelete?.collections?.length) && (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-md">
-                      <p className="text-sm font-medium text-amber-800 mb-2">⚠️ This will permanently delete:</p>
-                      <div className="space-y-2">
-                        {walletToDelete?.tags && walletToDelete.tags.length > 0 && (
-                          <div>
-                            <span className="text-xs text-amber-700 font-medium">Tags ({walletToDelete.tags.length}):</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {walletToDelete.tags.slice(0, 3).map(tag => (
-                                <Badge key={tag} variant="outline" className="text-xs">
-                                  {tag}
-                                </Badge>
-                              ))}
-                              {walletToDelete.tags.length > 3 && (
-                                <Badge variant="outline" className="text-xs">
-                                  +{walletToDelete.tags.length - 3} more
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                        
-                        {walletToDelete?.collections && walletToDelete.collections.length > 0 && (
-                          <div>
-                            <span className="text-xs text-amber-700 font-medium">Collections ({walletToDelete.collections.length}):</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {walletToDelete.collections.slice(0, 3).map(collection => (
-                                <Badge key={collection} variant="outline" className="text-xs">
-                                  {collection}
-                                </Badge>
-                              ))}
-                              {walletToDelete.collections.length > 3 && (
-                                <Badge variant="outline" className="text-xs">
-                                  +{walletToDelete.collections.length - 3} more
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
-                  <p className="text-sm text-muted-foreground">
-                    This action cannot be undone. You'll need to re-add the wallet and recreate all tags if you want to favorite it again.
-                  </p>
-                </div>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction 
-                onClick={confirmDeleteWallet}
-                className="bg-red-600 hover:bg-red-700"
-              >
-                Yes, Remove Wallet
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </>
-    );
-  }
-
-  return (
-    <>
-    <Card className="mb-2">
-      <CardHeader className="px-4 py-3 pb-2">
-        <CardTitle className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
-          Favorites
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        {renderFavoritesContent()}
-      </CardContent>
-    </Card>
-      {editDialog}
+      
+      {/* Edit Form */}
+      <WalletEditForm
+        isOpen={!!editingWallet}
+        onClose={closeEditDialog}
+        onSave={handleSaveEdit}
+        initialData={{
+          nickname: currentEditingWallet?.nickname || '',
+          tags: currentEditingWallet?.tags || [],
+          collections: currentEditingWallet?.collections || [],
+        }}
+        title="Edit Favorite Wallet"
+      />
       
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!walletToDelete} onOpenChange={(open) => !open && setWalletToDelete(null)}>

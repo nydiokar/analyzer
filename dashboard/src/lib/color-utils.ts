@@ -1,19 +1,19 @@
-// Improved color palette for tags - softer, more professional
+// Purple-themed color palette for tags - better contrast and readability
 const TAG_COLORS = {
-  'high-volume-trader': 'bg-rose-50 text-rose-700 border-rose-200',
-  'follow': 'bg-blue-50 text-blue-700 border-blue-200',
-  'research': 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  'risky': 'bg-amber-50 text-amber-700 border-amber-200',
-  'hodl': 'bg-violet-50 text-violet-700 border-violet-200',
-  'bot-activity': 'bg-slate-50 text-slate-700 border-slate-200',
-  'defi': 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  'nft': 'bg-pink-50 text-pink-700 border-pink-200',
-  'meme': 'bg-orange-50 text-orange-700 border-orange-200',
-  'whale': 'bg-cyan-50 text-cyan-700 border-cyan-200',
-  'default': 'bg-gray-50 text-gray-700 border-gray-200'
+  'high-volume-trader': 'bg-purple-600 text-white border-purple-500',
+  'follow': 'bg-purple-500 text-white border-purple-400',
+  'research': 'bg-violet-600 text-white border-violet-500',
+  'risky': 'bg-fuchsia-600 text-white border-fuchsia-500',
+  'hodl': 'bg-indigo-600 text-white border-indigo-500',
+  'bot-activity': 'bg-purple-700 text-white border-purple-600',
+  'defi': 'bg-violet-700 text-white border-violet-600',
+  'nft': 'bg-purple-800 text-white border-purple-700',
+  'meme': 'bg-fuchsia-500 text-white border-fuchsia-400',
+  'whale': 'bg-indigo-500 text-white border-indigo-400',
+  'default': 'bg-purple-600 text-white border-purple-500'
 } as const;
 
-// Collection colors - distinct from tags
+// Collection colors - distinct from tags, using complementary colors
 const COLLECTION_COLORS = {
   'main-portfolio': 'bg-emerald-600 text-white',
   'watchlist': 'bg-amber-600 text-white',
