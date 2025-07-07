@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { getTagColor, getCollectionColor } from '@/lib/color-utils';
+import { debounce } from 'lodash';
 
 // Import the new tab component
 import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
@@ -116,6 +117,43 @@ export default function WalletProfileLayout({
   
   // Delete confirmation state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Debounced input handlers for performance
+  const debouncedSetQuickNickname = useCallback(debounce((nickname: string) => {
+    setQuickAddForm(prev => ({ ...prev, nickname }));
+  }, 200), []);
+  
+  const debouncedSetQuickNewTag = useCallback(debounce((newTag: string) => {
+    setQuickAddForm(prev => ({ ...prev, newTag }));
+  }, 200), []);
+  
+  const debouncedSetQuickNewCollection = useCallback(debounce((newCollection: string) => {
+    setQuickAddForm(prev => ({ ...prev, newCollection }));
+  }, 200), []);
+  
+  const debouncedSetEditNickname = useCallback(debounce((nickname: string) => {
+    setEditForm(prev => ({ ...prev, nickname }));
+  }, 200), []);
+  
+  const debouncedSetEditNewTag = useCallback(debounce((newTag: string) => {
+    setEditForm(prev => ({ ...prev, newTag }));
+  }, 200), []);
+  
+  const debouncedSetEditNewCollection = useCallback(debounce((newCollection: string) => {
+    setEditForm(prev => ({ ...prev, newCollection }));
+  }, 200), []);
+  
+  // Cleanup debounced functions
+  useEffect(() => {
+    return () => {
+      debouncedSetQuickNickname.cancel();
+      debouncedSetQuickNewTag.cancel();
+      debouncedSetQuickNewCollection.cancel();
+      debouncedSetEditNickname.cancel();
+      debouncedSetEditNewTag.cancel();
+      debouncedSetEditNewCollection.cancel();
+    };
+  }, [debouncedSetQuickNickname, debouncedSetQuickNewTag, debouncedSetQuickNewCollection, debouncedSetEditNickname, debouncedSetEditNewTag, debouncedSetEditNewCollection]);
 
   // Use the centralized hook
   const { favorites: favoritesData, mutate: mutateFavorites, isLoading: isLoadingFavorites } = useFavorites();
@@ -932,7 +970,7 @@ export default function WalletProfileLayout({
               <Input
                 placeholder="Enter a memorable name..."
                 value={quickAddForm.nickname}
-                onChange={(e) => setQuickAddForm(prev => ({ ...prev, nickname: e.target.value }))}
+                onChange={(e) => debouncedSetQuickNickname(e.target.value)}
               />
             </div>
             
@@ -956,7 +994,7 @@ export default function WalletProfileLayout({
                 <Input
                   placeholder="Add tag..."
                   value={quickAddForm.newTag}
-                  onChange={(e) => setQuickAddForm(prev => ({ ...prev, newTag: e.target.value }))}
+                  onChange={(e) => debouncedSetQuickNewTag(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && addQuickTag()}
                 />
                 <Button onClick={addQuickTag} size="sm" variant="outline">
@@ -984,7 +1022,7 @@ export default function WalletProfileLayout({
                 <Input
                   placeholder="Add collection..."
                   value={quickAddForm.newCollection}
-                  onChange={(e) => setQuickAddForm(prev => ({ ...prev, newCollection: e.target.value }))}
+                  onChange={(e) => debouncedSetQuickNewCollection(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && addQuickCollection()}
                 />
                 <Button onClick={addQuickCollection} size="sm" variant="outline">
@@ -1017,7 +1055,7 @@ export default function WalletProfileLayout({
               <Input
                 placeholder="Enter a memorable name..."
                 value={editForm.nickname}
-                onChange={(e) => setEditForm(prev => ({ ...prev, nickname: e.target.value }))}
+                onChange={(e) => debouncedSetEditNickname(e.target.value)}
               />
             </div>
             
@@ -1041,7 +1079,7 @@ export default function WalletProfileLayout({
                 <Input
                   placeholder="Add tag..."
                   value={editForm.newTag}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, newTag: e.target.value }))}
+                  onChange={(e) => debouncedSetEditNewTag(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && addEditTag()}
                 />
                 <Button onClick={addEditTag} size="sm" variant="outline">
@@ -1069,7 +1107,7 @@ export default function WalletProfileLayout({
                 <Input
                   placeholder="Add collection..."
                   value={editForm.newCollection}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, newCollection: e.target.value }))}
+                  onChange={(e) => debouncedSetEditNewCollection(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && addEditCollection()}
                 />
                 <Button onClick={addEditCollection} size="sm" variant="outline">

@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { AlertTriangle, Trash2, Star, Loader2, Info, StarIcon, CopyIcon, Edit2, Check, X, Tags, FolderOpen, Plus, ChevronDown, ChevronRight, Filter, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, memo, useEffect } from 'react';
+import { debounce } from 'lodash';
 import {
   Popover,
   PopoverContent,
@@ -69,6 +70,28 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     newCollection: ''
   });
   
+  // Debounced input handlers for performance (similar to WalletSearch)
+  const debouncedSetNickname = useCallback(debounce((nickname: string) => {
+    setEditForm(prev => ({ ...prev, nickname }));
+  }, 200), []);
+  
+  const debouncedSetNewTag = useCallback(debounce((newTag: string) => {
+    setEditForm(prev => ({ ...prev, newTag }));
+  }, 200), []);
+  
+  const debouncedSetNewCollection = useCallback(debounce((newCollection: string) => {
+    setEditForm(prev => ({ ...prev, newCollection }));
+  }, 200), []);
+  
+  // Cleanup debounced functions
+  useEffect(() => {
+    return () => {
+      debouncedSetNickname.cancel();
+      debouncedSetNewTag.cancel();
+      debouncedSetNewCollection.cancel();
+    };
+  }, [debouncedSetNickname, debouncedSetNewTag, debouncedSetNewCollection]);
+  
   // Delete confirmation state
   const [walletToDelete, setWalletToDelete] = useState<FavoriteWallet | null>(null);
 
@@ -91,7 +114,19 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     };
   }, [favoriteWallets]);
 
-  // Organize data for filters
+  // Pre-computed wallet times to avoid expensive date parsing on every sort
+  const walletTimesCache = useMemo(() => {
+    if (!favoriteWallets?.length) return new Map();
+    
+    const cache = new Map<string, number>();
+    favoriteWallets.forEach(wallet => {
+      const time = wallet.lastViewedAt ? new Date(wallet.lastViewedAt).getTime() : new Date(wallet.createdAt).getTime();
+      cache.set(wallet.walletAddress, time);
+    });
+    return cache;
+  }, [favoriteWallets]);
+
+  // Organize data for filters - optimized version
   const organizedData = useMemo(() => {
     if (!favoriteWallets?.length) return { tags: [], collections: [], filteredWallets: [] };
     
@@ -117,10 +152,10 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
       );
     }
 
-    // Sort by most recent (lastViewedAt or createdAt)
-    filteredWallets = filteredWallets.sort((a, b) => {
-      const aTime = a.lastViewedAt ? new Date(a.lastViewedAt).getTime() : new Date(a.createdAt).getTime();
-      const bTime = b.lastViewedAt ? new Date(b.lastViewedAt).getTime() : new Date(b.createdAt).getTime();
+    // Sort using cached times - much faster
+    filteredWallets = [...filteredWallets].sort((a, b) => {
+      const aTime = walletTimesCache.get(a.walletAddress) || 0;
+      const bTime = walletTimesCache.get(b.walletAddress) || 0;
       return bTime - aTime;
     });
 
@@ -129,16 +164,17 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
       collections: Array.from(collectionSet).sort(),
       filteredWallets
     };
-  }, [favoriteWallets, filterMode, selectedTag, selectedCollection]);
+  }, [favoriteWallets, filterMode, selectedTag, selectedCollection, walletTimesCache]);
 
-  const handleRemoveFavorite = (walletAddress: string) => {
+  // Memoized callbacks for performance
+  const handleRemoveFavorite = useCallback((walletAddress: string) => {
     const wallet = favoriteWallets?.find(w => w.walletAddress === walletAddress);
     if (wallet) {
       setWalletToDelete(wallet);
     }
-  };
+  }, [favoriteWallets]);
 
-  const confirmDeleteWallet = async () => {
+  const confirmDeleteWallet = useCallback(async () => {
     if (!walletToDelete) return;
     
     try {
@@ -146,21 +182,21 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
       toast.success("Wallet removed from favorites", {
         description: `${walletToDelete.nickname || 'Wallet'} and all its tags have been removed.`
       });
-      mutateFavorites();
+      mutateFavorites(); 
       setWalletToDelete(null);
     } catch (err: any) {
       toast.error(`Failed to remove: ${err.message}`);
     }
-  };
+  }, [walletToDelete, mutateFavorites]);
 
-  const handleCopyAddress = async (walletAddress: string) => {
+  const handleCopyAddress = useCallback(async (walletAddress: string) => {
     try {
       await navigator.clipboard.writeText(walletAddress);
       toast.success("Address copied!");
     } catch (err) {
       toast.error("Failed to copy address");
     }
-  };
+  }, []);
 
   const openEditDialog = (wallet: FavoriteWallet) => {
     setEditForm({
@@ -290,28 +326,28 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
               </div>
             )}
           </Link>
-        </div>
-        
+          </div>
+          
         <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
           {/* Details popout */}
           {((wallet.tags?.length || 0) > 0 || (wallet.collections?.length || 0) > 0) && (
             <Popover>
-              <TooltipProvider delayDuration={100}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
+                  <Button
+                    variant="ghost"
+                    size="icon"
                         className="h-6 w-6 text-muted-foreground hover:text-purple-500"
                       >
                         <Filter className="h-3 w-3" />
-                      </Button>
+                  </Button>
                     </PopoverTrigger>
-                  </TooltipTrigger>
+                </TooltipTrigger>
                   <TooltipContent><p>Details</p></TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              </Tooltip>
+            </TooltipProvider>
               <PopoverContent className="w-80 p-3" side="right">
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
@@ -372,40 +408,40 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
               </PopoverContent>
             </Popover>
           )}
-          
-          <TooltipProvider delayDuration={100}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
+            
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                   className="h-6 w-6 text-muted-foreground hover:text-blue-500"
                   onClick={() => openEditDialog(wallet)}
                 >
                   <Edit2 className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
+                  </Button>
+                </TooltipTrigger>
               <TooltipContent><p>Edit tags</p></TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          
-          <TooltipProvider delayDuration={100}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
+              </Tooltip>
+            </TooltipProvider>
+            
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                   className="h-6 w-6 text-muted-foreground hover:text-red-500"
                   onClick={() => handleRemoveFavorite(wallet.walletAddress)}
                 >
                   <Trash2 className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
+                  </Button>
+                </TooltipTrigger>
               <TooltipContent><p>Remove</p></TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
-      </div>
     );
   };
 
@@ -448,12 +484,12 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                     onClick={() => selectTagFilter(tag)}
                   >
                     <Badge className={`mr-2 ${getTagColor(tag)}`}>
-                      {tag}
-                    </Badge>
+                  {tag}
+                </Badge>
                     ({favoriteWallets?.filter(w => w.tags?.includes(tag)).length || 0})
                   </Button>
-                ))}
-              </div>
+              ))}
+            </div>
             </PopoverContent>
           </Popover>
         )}
@@ -480,12 +516,12 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                     onClick={() => selectCollectionFilter(collection)}
                   >
                     <Badge className={`mr-2 ${getCollectionColor(collection)}`}>
-                      {collection}
-                    </Badge>
+                  {collection}
+                </Badge>
                     ({favoriteWallets?.filter(w => w.collections?.includes(collection)).length || 0})
                   </Button>
-                ))}
-              </div>
+              ))}
+            </div>
             </PopoverContent>
           </Popover>
         )}
@@ -507,8 +543,8 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
           )}
         </div>
       )}
-    </div>
-  );
+      </div>
+    );
 
   const renderFavoritesContent = () => {
     if (!isInitialized) {
@@ -608,7 +644,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
             <label className="text-sm font-medium">Nickname</label>
             <Input
               value={editForm.nickname}
-              onChange={(e) => setEditForm(prev => ({ ...prev, nickname: e.target.value }))}
+                              onChange={(e) => debouncedSetNickname(e.target.value)}
               placeholder="Enter nickname"
               className="mt-1"
             />
@@ -636,7 +672,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
               <div className="flex space-x-1">
                 <Input
                   value={editForm.newTag}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, newTag: e.target.value }))}
+                  onChange={(e) => debouncedSetNewTag(e.target.value)}
                   placeholder="Add tag"
                   className="text-sm"
                   onKeyDown={(e) => e.key === 'Enter' && addTag()}
@@ -670,7 +706,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
               <div className="flex space-x-1">
                 <Input
                   value={editForm.newCollection}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, newCollection: e.target.value }))}
+                  onChange={(e) => debouncedSetNewCollection(e.target.value)}
                   placeholder="Add collection"
                   className="text-sm"
                   onKeyDown={(e) => e.key === 'Enter' && addCollection()}
@@ -697,7 +733,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
   );
 
   if (isCollapsed) {
-    return (
+      return (
       <>
         <Popover>
           <Tooltip>
@@ -710,19 +746,19 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
             </TooltipTrigger>
             <TooltipContent side="right" align="center">
               <p>Show Favorites</p>
-            </TooltipContent>
-          </Tooltip>
-          <PopoverContent side="right" align="start" className="w-80 p-2">
-            <CardHeader className="px-2 py-2">
-               <CardTitle className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
-                  Favorites
-               </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {renderFavoritesContent()}
-            </CardContent>
-          </PopoverContent>
-        </Popover>
+          </TooltipContent>
+        </Tooltip>
+        <PopoverContent side="right" align="start" className="w-80 p-2">
+          <CardHeader className="px-2 py-2">
+             <CardTitle className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
+                Favorites
+             </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {renderFavoritesContent()}
+          </CardContent>
+        </PopoverContent>
+      </Popover>
         {editDialog}
         
         {/* Delete Confirmation Dialog */}
@@ -806,16 +842,16 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
 
   return (
     <>
-      <Card className="mb-2">
-        <CardHeader className="px-4 py-3 pb-2">
-          <CardTitle className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
-            Favorites
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {renderFavoritesContent()}
-        </CardContent>
-      </Card>
+    <Card className="mb-2">
+      <CardHeader className="px-4 py-3 pb-2">
+        <CardTitle className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
+          Favorites
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        {renderFavoritesContent()}
+      </CardContent>
+    </Card>
       {editDialog}
       
       {/* Delete Confirmation Dialog */}
