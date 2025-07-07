@@ -257,6 +257,8 @@ model User {
   createdAt       DateTime             @default(now())
   lastSeenAt      DateTime?
   isActive        Boolean              @default(true)
+  
+  // Relations
   activityLogs    ActivityLog[]
   favoriteWallets UserFavoriteWallet[] // Added for User-FavoriteWallets relationship
   walletNotes     WalletNote[]
@@ -340,7 +342,7 @@ model WalletNote {
   @@index([createdAt])
 }
 
-// New model for User Favorite Wallets
+// Enhanced model for User Favorite Wallets with simple tagging
 model UserFavoriteWallet {
   userId        String
   walletAddress String

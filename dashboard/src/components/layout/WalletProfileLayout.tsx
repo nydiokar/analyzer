@@ -19,7 +19,11 @@ import {
   FileText,        // Notes
   RefreshCw,     // Added for the refresh button
   Star,          // Added Star icon for favorites
-  Bot            // Added for high-frequency indicator
+  Plus,
+  X,
+  Tags,
+  FolderOpen,
+  Edit2          // Edit icon for wallet data
 } from 'lucide-react' 
 import { toast } from 'sonner';
 import {
@@ -36,6 +40,24 @@ import { useApiKeyStore } from '@/store/api-key-store';
 import { WalletSummaryData } from '@/types/api';
 import { useFavorites } from '@/hooks/useFavorites';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
+import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { getTagColor, getCollectionColor } from '@/lib/color-utils';
 
 // Import the new tab component
 import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
@@ -55,6 +77,8 @@ function truncateWalletAddress(address: string, startChars = 6, endChars = 4): s
   return `${address.substring(0, startChars)}...${address.substring(address.length - endChars)}`;
 }
 
+
+
 export default function WalletProfileLayout({
   children,
   walletAddress,
@@ -69,13 +93,38 @@ export default function WalletProfileLayout({
   const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false);
   const [analysisRequestTime, setAnalysisRequestTime] = useState<Date | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  
+  // Quick add modal state
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [quickAddForm, setQuickAddForm] = useState({
+    nickname: '',
+    tags: [] as string[],
+    collections: [] as string[],
+    newTag: '',
+    newCollection: ''
+  });
+  
+  // Edit modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    nickname: '',
+    tags: [] as string[],
+    collections: [] as string[],
+    newTag: '',
+    newCollection: ''
+  });
+  
+  // Delete confirmation state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Use the centralized hook
   const { favorites: favoritesData, mutate: mutateFavorites, isLoading: isLoadingFavorites } = useFavorites();
 
-  const isCurrentWalletFavorite = React.useMemo(() => {
-    return !!favoritesData?.find(fav => fav.walletAddress === walletAddress);
+  const currentFavoriteData = React.useMemo(() => {
+    return favoritesData?.find(fav => fav.walletAddress === walletAddress);
   }, [favoritesData, walletAddress]);
+
+  const isCurrentWalletFavorite = !!currentFavoriteData;
 
   const walletSummaryKey = isInitialized && apiKey && walletAddress ? `/wallets/${walletAddress}/summary` : null;
   const { data: walletSummary, error: summaryError, isLoading: isLoadingWalletSummary } = useSWR<WalletSummaryData>(
@@ -247,44 +296,187 @@ export default function WalletProfileLayout({
       return;
     }
   
+    const currentIsFavorite = isCurrentWalletFavorite;
+    
+    if (currentIsFavorite) {
+      // Show confirmation dialog for removal
+      setShowDeleteConfirm(true);
+    } else {
+      // Show quick add modal for new favorites
+      setQuickAddForm({
+        nickname: '',
+        tags: [],
+        collections: [],
+        newTag: '',
+        newCollection: ''
+      });
+      setShowQuickAddModal(true);
+    }
+  };
+
+  const confirmRemoveFavorite = async () => {
+    if (!walletAddress || !apiKey) return;
+    
     setIsTogglingFavorite(true);
     
-    const currentIsFavorite = isCurrentWalletFavorite;
-    const method = currentIsFavorite ? 'DELETE' : 'POST';
-    const url = currentIsFavorite
-      ? `/users/me/favorites/${walletAddress}`
-      : `/users/me/favorites`;
-  
-    const body = currentIsFavorite ? undefined : JSON.stringify({ walletAddress });
-    
-    // Optimistic update
-    const previousFavorites = favoritesData;
-    
     try {
-      if (method === 'POST') {
-        await fetcher(url, {
-          method: 'POST',
-          body: JSON.stringify({ walletAddress, name: 'Unnamed' }), // Name can be editable later
-        });
-      } else {
-        await fetcher(url, { method: 'DELETE' });
-      }
-
-      // Revalidate the data from the server
+      await fetcher(`/users/me/favorites/${walletAddress}`, { method: 'DELETE' });
       await mutateFavorites();
-  
-      toast.success(currentIsFavorite ? "Removed from Favorites" : "Added to Favorites", {
-        description: `${truncateWalletAddress(walletAddress, 10, 8)} has been updated.`,
+      toast.success("Removed from Favorites", {
+        description: `${currentFavoriteData?.nickname || 'Wallet'} has been removed.`,
       });
-  
+      setShowDeleteConfirm(false);
     } catch (err: any) {
-      toast.error("Favorite Update Failed", {
+      toast.error("Failed to remove favorite", {
         description: err.message || "An unexpected error occurred.",
       });
-      mutateFavorites();
     } finally {
       setIsTogglingFavorite(false);
     }
+  };
+
+  // Quick add modal functions
+  const handleQuickAddSave = async () => {
+    try {
+      await fetcher('/users/me/favorites', {
+        method: 'POST',
+        body: JSON.stringify({
+          walletAddress,
+          nickname: quickAddForm.nickname.trim() || undefined,
+          tags: quickAddForm.tags,
+          collections: quickAddForm.collections,
+        }),
+      });
+      
+      await mutateFavorites();
+      setShowQuickAddModal(false);
+      
+      toast.success("Added to Favorites", {
+        description: `${quickAddForm.nickname || truncateWalletAddress(walletAddress, 10, 8)} has been organized.`,
+      });
+    } catch (err: any) {
+      toast.error("Failed to add favorite", {
+        description: err.message || "An unexpected error occurred.",
+      });
+    }
+  };
+
+  const addQuickTag = () => {
+    if (quickAddForm.newTag.trim() && !quickAddForm.tags.includes(quickAddForm.newTag.trim())) {
+      setQuickAddForm(prev => ({
+        ...prev,
+        tags: [...prev.tags, prev.newTag.trim()],
+        newTag: ''
+      }));
+    }
+  };
+
+  const removeQuickTag = (tagToRemove: string) => {
+    setQuickAddForm(prev => ({
+      ...prev,
+      tags: prev.tags.filter(tag => tag !== tagToRemove)
+    }));
+  };
+
+  const addQuickCollection = () => {
+    if (quickAddForm.newCollection.trim() && !quickAddForm.collections.includes(quickAddForm.newCollection.trim())) {
+      setQuickAddForm(prev => ({
+        ...prev,
+        collections: [...prev.collections, prev.newCollection.trim()],
+        newCollection: ''
+      }));
+    }
+  };
+
+  const removeQuickCollection = (collectionToRemove: string) => {
+    setQuickAddForm(prev => ({
+      ...prev,
+      collections: prev.collections.filter(collection => collection !== collectionToRemove)
+    }));
+  };
+
+  // Get wallet display name
+  const getWalletDisplayName = (expanded: boolean = true) => {
+    if (currentFavoriteData?.nickname) {
+      return currentFavoriteData.nickname;
+    }
+    return expanded 
+      ? truncateWalletAddress(walletAddress, 8, 6)
+      : truncateWalletAddress(walletAddress, 6, 4);
+  };
+
+  // Edit modal functions
+  const openEditModal = () => {
+    if (currentFavoriteData) {
+      setEditForm({
+        nickname: currentFavoriteData.nickname || '',
+        tags: currentFavoriteData.tags || [],
+        collections: currentFavoriteData.collections || [],
+        newTag: '',
+        newCollection: ''
+      });
+      setShowEditModal(true);
+    }
+  };
+
+  const handleEditSave = async () => {
+    if (!currentFavoriteData) return;
+    
+    try {
+      await fetcher(`/users/me/favorites/${walletAddress}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          nickname: editForm.nickname.trim() || undefined,
+          tags: editForm.tags,
+          collections: editForm.collections,
+        }),
+      });
+      
+      await mutateFavorites();
+      setShowEditModal(false);
+      
+      toast.success("Wallet updated", {
+        description: `${editForm.nickname || truncateWalletAddress(walletAddress, 10, 8)} has been updated.`,
+      });
+    } catch (err: any) {
+      toast.error("Failed to update wallet", {
+        description: err.message || "An unexpected error occurred.",
+      });
+    }
+  };
+
+  const addEditTag = () => {
+    if (editForm.newTag.trim() && !editForm.tags.includes(editForm.newTag.trim())) {
+      setEditForm(prev => ({
+        ...prev,
+        tags: [...prev.tags, prev.newTag.trim()],
+        newTag: ''
+      }));
+    }
+  };
+
+  const removeEditTag = (tagToRemove: string) => {
+    setEditForm(prev => ({
+      ...prev,
+      tags: prev.tags.filter(tag => tag !== tagToRemove)
+    }));
+  };
+
+  const addEditCollection = () => {
+    if (editForm.newCollection.trim() && !editForm.collections.includes(editForm.newCollection.trim())) {
+      setEditForm(prev => ({
+        ...prev,
+        collections: [...prev.collections, prev.newCollection.trim()],
+        newCollection: ''
+      }));
+    }
+  };
+
+  const removeEditCollection = (collectionToRemove: string) => {
+    setEditForm(prev => ({
+      ...prev,
+      collections: prev.collections.filter(collection => collection !== collectionToRemove)
+    }));
   };
 
   const ExpandedAnalysisControl = () => (
@@ -361,37 +553,95 @@ export default function WalletProfileLayout({
           <div className='flex flex-col items-start gap-3 md:gap-2 md:pl-11'> 
             {walletAddress && isHeaderExpanded && (
               <>
-                <div className="flex items-center gap-1">
-                  <WalletIcon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                  <Badge variant="outline" className="px-2 py-1 text-xs md:text-sm font-mono truncate">
-                    {truncateWalletAddress(walletAddress, 8, 6)} 
-                  </Badge>
-                  <Button variant="ghost" size="icon" onClick={copyToClipboard} className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0">
-                    <CopyIcon className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                    <span className="sr-only">Copy wallet address</span>
-                  </Button>
-                  {apiKey && (
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={handleToggleFavorite} 
-                            disabled={isTogglingFavorite || isLoadingFavorites}
-                            className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
-                          >
-                            <Star 
-                              className={`h-3.5 w-3.5 md:h-4 md:w-4 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} 
-                            />
-                            <span className="sr-only">{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</span>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          <p>{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-1">
+                    <WalletIcon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                    
+                    {/* Display nickname if available, otherwise wallet address */}
+                    {currentFavoriteData?.nickname ? (
+                      <span className="text-sm font-medium">{currentFavoriteData.nickname}</span>
+                    ) : (
+                      <Badge variant="outline" className="px-2 py-1 text-xs md:text-sm font-mono truncate">
+                        {truncateWalletAddress(walletAddress, 8, 6)} 
+                      </Badge>
+                    )}
+                    
+                    <Button variant="ghost" size="icon" onClick={copyToClipboard} className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0">
+                      <CopyIcon className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                      <span className="sr-only">Copy wallet address</span>
+                    </Button>
+                    {apiKey && (
+                      <>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={handleToggleFavorite} 
+                                disabled={isTogglingFavorite || isLoadingFavorites}
+                                className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
+                              >
+                                <Star 
+                                  className={`h-3.5 w-3.5 md:h-4 md:w-4 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} 
+                                />
+                                <span className="sr-only">{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</span>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">
+                              <p>{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        
+                        {/* Edit button for favorites */}
+                        {isCurrentWalletFavorite && (
+                          <TooltipProvider delayDuration={100}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  onClick={openEditModal} 
+                                  className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                                  <span className="sr-only">Edit wallet data</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom">
+                                <p>Edit wallet data</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  
+                  {/* Tags and Collections Display */}
+                  {currentFavoriteData && ((currentFavoriteData.tags && currentFavoriteData.tags.length > 0) || (currentFavoriteData.collections && currentFavoriteData.collections.length > 0)) && (
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      {currentFavoriteData.tags?.map((tag) => (
+                        <Badge 
+                          key={tag} 
+                          variant="secondary" 
+                          className={`text-xs px-2 py-0.5 border ${getTagColor(tag)}`}
+                        >
+                          <Tags className="h-3 w-3 mr-1" />
+                          {tag}
+                        </Badge>
+                      ))}
+                      {currentFavoriteData.collections?.map((collection) => (
+                        <Badge 
+                          key={collection} 
+                          className={`text-xs px-2 py-0.5 ${getCollectionColor(collection)}`}
+                        >
+                          <FolderOpen className="h-3 w-3 mr-1" />
+                          {collection}
+                        </Badge>
+                      ))}
+                    </div>
                   )}
                   {/* High-frequency wallet indicator */}
                   {isValidData && walletSummary?.classification === 'high_frequency' && (
@@ -415,33 +665,62 @@ export default function WalletProfileLayout({
 
             {walletAddress && !isHeaderExpanded && (
               <div className="w-full flex items-center justify-between gap-2 py-1">
-                <div className="flex items-center gap-1 flex-shrink min-w-0">
-                  <WalletIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <Badge variant="outline" className="px-1.5 py-0.5 text-xs font-mono truncate">
-                    {truncateWalletAddress(walletAddress, 6, 4)}
-                  </Badge>
-                  <Button variant="ghost" size="icon" onClick={copyToClipboard} className="h-6 w-6 flex-shrink-0">
-                    <CopyIcon className="h-3 w-3" />
-                  </Button>
-                  {apiKey && (
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={handleToggleFavorite} 
-                            disabled={isTogglingFavorite || isLoadingFavorites}
-                            className="h-6 w-6 flex-shrink-0"
-                          >
-                            <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom"><p>{isCurrentWalletFavorite ? 'Remove' : 'Add'} Favorite</p></TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                  {/* High-frequency wallet indicator (collapsed) */}
+                                  <div className="flex items-center gap-1 flex-shrink min-w-0">
+                    <WalletIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    
+                    {/* Display nickname if available, otherwise wallet address */}
+                    {currentFavoriteData?.nickname ? (
+                      <span className="text-xs font-medium truncate">{currentFavoriteData.nickname}</span>
+                    ) : (
+                      <Badge variant="outline" className="px-1.5 py-0.5 text-xs font-mono truncate">
+                        {truncateWalletAddress(walletAddress, 6, 4)}
+                      </Badge>
+                    )}
+                    
+                    <Button variant="ghost" size="icon" onClick={copyToClipboard} className="h-6 w-6 flex-shrink-0">
+                      <CopyIcon className="h-3 w-3" />
+                    </Button>
+                    {apiKey && (
+                      <>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={handleToggleFavorite} 
+                                disabled={isTogglingFavorite || isLoadingFavorites}
+                                className="h-6 w-6 flex-shrink-0"
+                              >
+                                <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom"><p>{isCurrentWalletFavorite ? 'Remove' : 'Add'} Favorite</p></TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        
+                        {/* Edit button for favorites */}
+                        {isCurrentWalletFavorite && (
+                          <TooltipProvider delayDuration={100}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  onClick={openEditModal} 
+                                  className="h-6 w-6 flex-shrink-0"
+                                >
+                                  <Edit2 className="h-3 w-3" />
+                                  <span className="sr-only">Edit wallet data</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom"><p>Edit wallet data</p></TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </>
+                    )}
+                    {/* High-frequency wallet indicator (collapsed) */}
                   {isValidData && walletSummary?.classification === 'high_frequency' && (
                     <TooltipProvider delayDuration={100}>
                       <Tooltip>
@@ -640,6 +919,255 @@ export default function WalletProfileLayout({
           </TabsContent>
         </div>
       </main>
+      
+      {/* Quick Add Modal */}
+      <Dialog open={showQuickAddModal} onOpenChange={setShowQuickAddModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Organize Wallet</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Nickname (optional)</label>
+              <Input
+                placeholder="Enter a memorable name..."
+                value={quickAddForm.nickname}
+                onChange={(e) => setQuickAddForm(prev => ({ ...prev, nickname: e.target.value }))}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Tags</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {quickAddForm.tags.map((tag) => (
+                  <Badge 
+                    key={tag} 
+                    variant="secondary" 
+                    className={`text-xs px-2 py-1 border cursor-pointer ${getTagColor(tag)}`}
+                    onClick={() => removeQuickTag(tag)}
+                  >
+                    <Tags className="h-3 w-3 mr-1" />
+                    {tag}
+                    <X className="h-3 w-3 ml-1" />
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                <Input
+                  placeholder="Add tag..."
+                  value={quickAddForm.newTag}
+                  onChange={(e) => setQuickAddForm(prev => ({ ...prev, newTag: e.target.value }))}
+                  onKeyPress={(e) => e.key === 'Enter' && addQuickTag()}
+                />
+                <Button onClick={addQuickTag} size="sm" variant="outline">
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Collections</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {quickAddForm.collections.map((collection) => (
+                  <Badge 
+                    key={collection} 
+                    className={`text-xs px-2 py-1 cursor-pointer ${getCollectionColor(collection)}`}
+                    onClick={() => removeQuickCollection(collection)}
+                  >
+                    <FolderOpen className="h-3 w-3 mr-1" />
+                    {collection}
+                    <X className="h-3 w-3 ml-1" />
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                <Input
+                  placeholder="Add collection..."
+                  value={quickAddForm.newCollection}
+                  onChange={(e) => setQuickAddForm(prev => ({ ...prev, newCollection: e.target.value }))}
+                  onKeyPress={(e) => e.key === 'Enter' && addQuickCollection()}
+                />
+                <Button onClick={addQuickCollection} size="sm" variant="outline">
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowQuickAddModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleQuickAddSave}>
+              Add to Favorites
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Edit Modal */}
+      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Wallet Data</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Nickname</label>
+              <Input
+                placeholder="Enter a memorable name..."
+                value={editForm.nickname}
+                onChange={(e) => setEditForm(prev => ({ ...prev, nickname: e.target.value }))}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Tags</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {editForm.tags.map((tag) => (
+                  <Badge 
+                    key={tag} 
+                    variant="secondary" 
+                    className={`text-xs px-2 py-1 border cursor-pointer ${getTagColor(tag)}`}
+                    onClick={() => removeEditTag(tag)}
+                  >
+                    <Tags className="h-3 w-3 mr-1" />
+                    {tag}
+                    <X className="h-3 w-3 ml-1" />
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                <Input
+                  placeholder="Add tag..."
+                  value={editForm.newTag}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, newTag: e.target.value }))}
+                  onKeyPress={(e) => e.key === 'Enter' && addEditTag()}
+                />
+                <Button onClick={addEditTag} size="sm" variant="outline">
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Collections</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {editForm.collections.map((collection) => (
+                  <Badge 
+                    key={collection} 
+                    className={`text-xs px-2 py-1 cursor-pointer ${getCollectionColor(collection)}`}
+                    onClick={() => removeEditCollection(collection)}
+                  >
+                    <FolderOpen className="h-3 w-3 mr-1" />
+                    {collection}
+                    <X className="h-3 w-3 ml-1" />
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                <Input
+                  placeholder="Add collection..."
+                  value={editForm.newCollection}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, newCollection: e.target.value }))}
+                  onKeyPress={(e) => e.key === 'Enter' && addEditCollection()}
+                />
+                <Button onClick={addEditCollection} size="sm" variant="outline">
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowEditModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditSave}>
+              Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Remove Confirmation Dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove from Favorites?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <div>
+                  Removing <span className="font-medium">{currentFavoriteData?.nickname || 'this wallet'}</span> from favorites will delete it's metadata.
+                </div>
+                
+                {/* Show what will be lost */}
+                {(currentFavoriteData?.nickname || (currentFavoriteData?.tags && currentFavoriteData.tags.length > 0) || (currentFavoriteData?.collections && currentFavoriteData.collections.length > 0)) && (
+                  <div className="p-3 bg-muted/50 border rounded-md">
+                    <div className="text-sm font-medium mb-2">This will also remove:</div>
+                    <div className="space-y-2">
+                      {currentFavoriteData?.nickname && (
+                        <div>
+                          <span className="text-xs text-muted-foreground font-medium">Nickname:</span>
+                          <div className="mt-1">
+                            <Badge variant="secondary" className="text-xs">{currentFavoriteData.nickname}</Badge>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {currentFavoriteData?.tags && currentFavoriteData.tags.length > 0 && (
+                        <div>
+                          <span className="text-xs text-muted-foreground font-medium">Tags ({currentFavoriteData.tags.length}):</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {currentFavoriteData.tags.slice(0, 3).map(tag => (
+                              <Badge key={tag} variant="secondary" className={`text-xs ${getTagColor(tag)}`}>
+                                {tag}
+                              </Badge>
+                            ))}
+                            {currentFavoriteData.tags.length > 3 && (
+                              <Badge variant="secondary" className="text-xs">
+                                +{currentFavoriteData.tags.length - 3} more
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {currentFavoriteData?.collections && currentFavoriteData.collections.length > 0 && (
+                        <div>
+                          <span className="text-xs text-muted-foreground font-medium">Collections ({currentFavoriteData.collections.length}):</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {currentFavoriteData.collections.slice(0, 3).map(collection => (
+                              <Badge key={collection} className={`text-xs ${getCollectionColor(collection)}`}>
+                                {collection}
+                              </Badge>
+                            ))}
+                            {currentFavoriteData.collections.length > 3 && (
+                              <Badge variant="secondary" className="text-xs">
+                                +{currentFavoriteData.collections.length - 3} more
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmRemoveFavorite}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={isTogglingFavorite}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Tabs>
   );
 } 

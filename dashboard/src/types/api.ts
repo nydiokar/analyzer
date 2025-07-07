@@ -216,11 +216,34 @@ export interface PnlOverviewResponse {
   allTimeData: PnlOverviewResponseData;
 }
 
-// Represents the structure of a single favorite wallet entry
+// Simple structure for favorite wallet entries with JSON-based tags/collections
 export interface FavoriteWallet {
   walletAddress: string;
-  tag: string | null;
+  nickname?: string;
+  tags?: string[];
+  collections?: string[];
+  metadata?: any;
   createdAt: string;
+  lastViewedAt?: string;
+  // Performance metrics (optional)
+  pnl?: number;
+  winRate?: number;
+}
+
+// DTOs for creating favorite wallets
+export interface AddFavoriteWalletRequest {
+  walletAddress: string;
+  nickname?: string;
+  tags?: string[];
+  collections?: string[];
+}
+
+// DTOs for updating favorite wallets
+export interface UpdateFavoriteWalletRequest {
+  nickname?: string;
+  tags?: string[];
+  collections?: string[];
+  metadata?: any;
 }
 
 // --- Job Status Types ---

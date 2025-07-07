@@ -1,17 +1,19 @@
-import { Controller, Post, Delete, Get, Param, Body, Req, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Delete, Get, Param, Body, Req, HttpCode, HttpStatus, UseGuards, Put } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiBody, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { AddFavoriteWalletDto } from '../../users/user-favorites.dto';
+import { AddFavoriteWalletDto, FavoriteWalletDetailDto, UpdateFavoriteWalletDto } from '../../users/favorite-wallet-detail.dto';
 import { UserFavoritesService } from '../../users/user-favorites.service';
-import { FavoriteWalletDetailDto } from '../../users/favorite-wallet-detail.dto';
 import { User } from '@prisma/client';
+import { ApiKeyAuthGuard } from '../../auth/api-key-auth.guard';
+import { Request } from 'express';
 
+// Define the authenticated request interface
 // The global ApiKeyAuthGuard protects all routes and populates req.user.
 
 interface AuthenticatedRequest extends Request {
-  user?: User; // user is optional as it's populated by the guard
+  user?: User;
 }
 
-@ApiTags('Users - Favorites')
+@ApiTags('User Favorites')
 @Controller('users/me/favorites')
 @ApiBearerAuth()
 export class UserFavoritesController {
@@ -31,7 +33,7 @@ export class UserFavoritesController {
     @Req() req: AuthenticatedRequest, 
   ): Promise<void> {
     const userId = req.user!.id;
-    return this.userFavoritesService.addFavorite(userId, addFavoriteWalletDto.walletAddress);
+    return this.userFavoritesService.addFavorite(userId, addFavoriteWalletDto);
   }
 
   @Delete(':walletAddress')
@@ -49,6 +51,34 @@ export class UserFavoritesController {
     return this.userFavoritesService.removeFavorite(userId, walletAddress);
   }
 
+  @Put(':walletAddress')
+  @ApiOperation({ summary: "Update a favorite wallet's metadata" })
+  @ApiParam({ name: 'walletAddress', description: 'The wallet address to update', type: String })
+  @ApiBody({ type: UpdateFavoriteWalletDto })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Favorite wallet updated successfully.' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Favorite wallet not found.' })
+  async updateFavorite(
+    @Param('walletAddress') walletAddress: string,
+    @Body() updateFavoriteWalletDto: UpdateFavoriteWalletDto,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<void> {
+    const userId = req.user!.id;
+    return this.userFavoritesService.updateFavorite(userId, walletAddress, updateFavoriteWalletDto);
+  }
+
+  @Post(':walletAddress/viewed')
+  @ApiOperation({ summary: "Mark a favorite wallet as viewed" })
+  @ApiParam({ name: 'walletAddress', description: 'The wallet address that was viewed', type: String })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Wallet view timestamp updated.' })
+  @HttpCode(HttpStatus.OK)
+  async markAsViewed(
+    @Param('walletAddress') walletAddress: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<void> {
+    const userId = req.user!.id;
+    return this.userFavoritesService.updateLastViewed(userId, walletAddress);
+  }
+
   @Get()
   @ApiOperation({ summary: "Get the authenticated user's favorite wallets" })
   @ApiResponse({ status: HttpStatus.OK, description: 'List of favorite wallets.', type: [FavoriteWalletDetailDto] })
@@ -59,5 +89,25 @@ export class UserFavoritesController {
   ): Promise<FavoriteWalletDetailDto[]> {
     const userId = req.user!.id;
     return this.userFavoritesService.getFavorites(userId);
+  }
+
+  @Get('tags')
+  @ApiOperation({ summary: "Get all unique tags used by the authenticated user" })
+  @ApiResponse({ status: HttpStatus.OK, description: 'List of unique tags.', type: [String] })
+  async getUserTags(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<string[]> {
+    const userId = req.user!.id;
+    return this.userFavoritesService.getUserTags(userId);
+  }
+
+  @Get('collections')
+  @ApiOperation({ summary: "Get all unique collections used by the authenticated user" })
+  @ApiResponse({ status: HttpStatus.OK, description: 'List of unique collections.', type: [String] })
+  async getUserCollections(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<string[]> {
+    const userId = req.user!.id;
+    return this.userFavoritesService.getUserCollections(userId);
   }
 } 

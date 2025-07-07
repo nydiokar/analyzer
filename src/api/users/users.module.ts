@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
-import { UserFavoritesController } from '../controllers/users/user-favorites.controller';
+import { DatabaseModule } from '../database/database.module';
 import { UserFavoritesService } from './user-favorites.service';
+import { UserFavoritesController } from '../controllers/users/user-favorites.controller';
 import { UsersController } from '../controllers/users/users.controller';
 
 @Module({
-  imports: [],
-  controllers: [UserFavoritesController, UsersController],
+  imports: [DatabaseModule],
   providers: [UserFavoritesService],
-  exports: [UserFavoritesService], // Export if other modules might need this service directly
+  controllers: [UserFavoritesController, UsersController],
+  exports: [UserFavoritesService],
 })
 export class UsersModule {} 

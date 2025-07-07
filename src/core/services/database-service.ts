@@ -912,6 +912,127 @@ export class DatabaseService {
             throw new InternalServerErrorException('Could not fetch favorite wallets.');
         }
     }
+
+    /**
+     * Updates a favorite wallet's metadata.
+     *
+     * @param userId The ID of the user.
+     * @param walletAddress The address of the wallet to update.
+     * @param updateData The data to update.
+     * @throws NotFoundException if the favorite entry does not exist.
+     * @throws InternalServerErrorException for other database errors.
+     */
+    async updateFavoriteWallet(
+        userId: string, 
+        walletAddress: string, 
+        updateData: { nickname?: string; tags?: string | null; collections?: string | null; metadata?: any }
+    ): Promise<void> {
+        this.logger.debug(`Updating favorite wallet ${walletAddress} for user ${userId}`);
+        try {
+            await this.prismaClient.userFavoriteWallet.update({
+                where: { userId_walletAddress: { userId, walletAddress } },
+                data: updateData,
+            });
+            this.logger.info(`Favorite wallet ${walletAddress} updated for user ${userId}`);
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+                throw new NotFoundException('Favorite wallet not found');
+            }
+            this.logger.error(`Error updating favorite wallet ${walletAddress} for user ${userId}:`, { error });
+            throw new InternalServerErrorException('Could not update favorite wallet.');
+        }
+    }
+
+    /**
+     * Updates the last viewed timestamp for a favorite wallet.
+     *
+     * @param userId The ID of the user.
+     * @param walletAddress The address of the wallet.
+     */
+    async updateFavoriteWalletLastViewed(userId: string, walletAddress: string): Promise<void> {
+        this.logger.debug(`Updating last viewed for wallet ${walletAddress} for user ${userId}`);
+        try {
+            await this.prismaClient.userFavoriteWallet.update({
+                where: { userId_walletAddress: { userId, walletAddress } },
+                data: { lastViewedAt: new Date() },
+            });
+        } catch (error) {
+            // Silently fail if the wallet is not favorited
+            if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025')) {
+                this.logger.error(`Error updating last viewed for wallet ${walletAddress} for user ${userId}:`, { error });
+            }
+        }
+    }
+
+    /**
+     * Gets all unique tags used by a user across their favorite wallets.
+     *
+     * @param userId The ID of the user.
+     * @returns Array of unique tag strings.
+     */
+    async getUserFavoriteTags(userId: string): Promise<string[]> {
+        this.logger.debug(`Fetching favorite tags for user ${userId}`);
+        try {
+            const favorites = await this.prismaClient.userFavoriteWallet.findMany({
+                where: { userId },
+                select: { tags: true },
+            });
+
+            const tagSet = new Set<string>();
+            favorites.forEach(fav => {
+                if (fav.tags) {
+                    try {
+                        const tags = JSON.parse(fav.tags);
+                        if (Array.isArray(tags)) {
+                            tags.forEach((tag: string) => tagSet.add(tag));
+                        }
+                    } catch (e) {
+                        // Skip invalid JSON
+                    }
+                }
+            });
+
+            return Array.from(tagSet).sort();
+        } catch (error) {
+            this.logger.error(`Error fetching favorite tags for user ${userId}:`, { error });
+            return [];
+        }
+    }
+
+    /**
+     * Gets all unique collections used by a user across their favorite wallets.
+     *
+     * @param userId The ID of the user.
+     * @returns Array of unique collection strings.
+     */
+    async getUserFavoriteCollections(userId: string): Promise<string[]> {
+        this.logger.debug(`Fetching favorite collections for user ${userId}`);
+        try {
+            const favorites = await this.prismaClient.userFavoriteWallet.findMany({
+                where: { userId },
+                select: { collections: true },
+            });
+
+            const collectionSet = new Set<string>();
+            favorites.forEach(fav => {
+                if (fav.collections) {
+                    try {
+                        const collections = JSON.parse(fav.collections);
+                        if (Array.isArray(collections)) {
+                            collections.forEach((collection: string) => collectionSet.add(collection));
+                        }
+                    } catch (e) {
+                        // Skip invalid JSON
+                    }
+                }
+            });
+
+            return Array.from(collectionSet).sort();
+        } catch (error) {
+            this.logger.error(`Error fetching favorite collections for user ${userId}:`, { error });
+            return [];
+        }
+    }
     // --- End Wallet Favorite Methods ---
 
     // --- Wallet Methods ---
