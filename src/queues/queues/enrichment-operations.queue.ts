@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
-import { EnrichMetadataJobData, FetchDexScreenerJobData } from '../jobs/types';
+import { EnrichMetadataJobData, EnrichTokenBalancesJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 
 @Injectable()
@@ -14,7 +14,24 @@ export class EnrichmentOperationsQueue {
   }
 
   /**
-   * Add a metadata enrichment job to the queue
+   * Add a token balance enrichment job to the queue (new sophisticated enrichment)
+   */
+  async addEnrichTokenBalances(data: EnrichTokenBalancesJobData, options?: { priority?: number; delay?: number }) {
+    // Generate job ID based on all tokens in the wallet balances
+    const allTokens = Object.values(data.walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
+    const sortedTokens = [...new Set(allTokens)].sort().join('-');
+    const jobId = generateJobId.enrichMetadata(sortedTokens, data.requestId);
+    
+    return this.queue.add('enrich-token-balances', data, {
+      jobId,
+      priority: options?.priority || data.priority || 3,
+      delay: options?.delay || 0,
+    });
+  }
+
+  /**
+   * Add a metadata enrichment job to the queue (legacy)
+   * @deprecated Use addEnrichTokenBalances instead
    */
   async addEnrichMetadataJob(data: EnrichMetadataJobData, options?: { priority?: number; delay?: number }) {
     const tokenAddress = data.tokenAddresses[0]; // Use first token for job ID
@@ -27,18 +44,7 @@ export class EnrichmentOperationsQueue {
     });
   }
 
-  /**
-   * Add a DexScreener data fetch job to the queue
-   */
-  async addFetchDexScreenerJob(data: FetchDexScreenerJobData, options?: { priority?: number; delay?: number }) {
-    const jobId = generateJobId.fetchDexScreener(data.tokenAddress, data.requestId);
-    
-    return this.queue.add('fetch-dexscreener', data, {
-      jobId,
-      priority: options?.priority || data.priority || 3,
-      delay: options?.delay || 0,
-    });
-  }
+
 
   /**
    * Get job by ID

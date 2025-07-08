@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
-import { SimilarityAnalysisFlowData } from '../jobs/types';
+import { ComprehensiveSimilarityFlowData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 
 @Injectable()
@@ -16,7 +16,7 @@ export class SimilarityOperationsQueue {
   /**
    * Add a similarity analysis flow job to the queue
    */
-  async addSimilarityAnalysisFlow(data: SimilarityAnalysisFlowData, options?: { priority?: number; delay?: number }) {
+  async addSimilarityAnalysisFlow(data: ComprehensiveSimilarityFlowData, options?: { priority?: number; delay?: number }) {
     const jobId = generateJobId.calculateSimilarity(data.walletAddresses, data.requestId);
     
     return this.queue.add('similarity-analysis-flow', data, {

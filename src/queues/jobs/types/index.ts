@@ -58,7 +58,7 @@ export interface SimilarityAnalysisFlowData {
 export interface ComprehensiveSimilarityFlowData {
   walletAddresses: string[];
   requestId: string;
-  syncRequired?: boolean;       // Whether to sync historical data first
+  walletsNeedingSync?: string[]; // Specific wallets that need sync (empty array = no sync needed)
   enrichMetadata?: boolean;     // Whether to enrich token metadata (default true)
   failureThreshold?: number;    // Partial failure tolerance (default 0.8)
   timeoutMinutes?: number;      // Job-level timeout (default 45)
@@ -88,11 +88,13 @@ export interface EnrichMetadataJobData {
   requestId?: string;
 }
 
-export interface FetchDexScreenerJobData {
-  tokenAddress: string;
+export interface EnrichTokenBalancesJobData {
+  walletBalances: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>;
+  requestId: string;
   priority?: number;
-  requestId?: string;
+  optimizationHint?: 'small' | 'large' | 'massive'; // For smart batching
 }
+
 
 // Common Job Result Types
 export interface JobResult {
@@ -131,4 +133,14 @@ export interface MetadataEnrichmentResult extends JobResult {
   tokenAddress: string;
   status: 'enriched' | 'already-current' | 'failed';
   lastUpdated?: Date;
+}
+
+export interface EnrichTokenBalancesResult extends JobResult {
+  enrichedBalances: Record<string, any>;
+  metadata: {
+    totalTokens: number;
+    enrichedTokens: number;
+    backgroundProcessedTokens: number;
+    processingStrategy: 'sync' | 'background' | 'hybrid';
+  };
 } 

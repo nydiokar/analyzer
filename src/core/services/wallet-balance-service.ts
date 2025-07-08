@@ -34,17 +34,17 @@ export class WalletBalanceService {
   }
 
   /**
-   * Fetches the SOL and SPL token balances for a list of wallet addresses.
-   * Batches requests to `getMultipleAccounts` for SOL balances if more than 100 wallet addresses are provided.
-   * Fetches SPL token balances for each wallet sequentially using `getTokenAccountsByOwner`.
+   * Fetches the SOL and SPL token balances for a list of wallet addresses WITHOUT token metadata.
+   * This is optimized for speed and should be used when you need raw balances quickly.
+   * Use enrichWalletBalancesWithMetadata() separately if you need token metadata.
    *
    * @param walletAddresses An array of public key strings for the wallets.
    * @param commitment Optional. The commitment level to use for RPC calls (e.g., "finalized", "confirmed").
    * @returns A Promise resolving to a Map where keys are wallet addresses (string) and values are `WalletBalance` objects.
-   *          Each `WalletBalance` object contains the SOL balance, an array of token balances, and the timestamp when balances were fetched.
+   *          Each `WalletBalance` object contains the SOL balance, an array of token balances (without metadata), and the timestamp when balances were fetched.
    *          If a wallet address cannot be processed, its entry might have default/zero balances.
    */
-  public async fetchWalletBalances(
+  public async fetchWalletBalancesRaw(
     walletAddresses: string[],
     commitment?: string
   ): Promise<Map<string, WalletBalance>> {
@@ -52,7 +52,7 @@ export class WalletBalanceService {
       return new Map();
     }
 
-    logger.info(`Fetching wallet balances for ${walletAddresses.length} addresses. Commitment: ${commitment || 'default'}`);
+    logger.info(`Fetching RAW wallet balances for ${walletAddresses.length} addresses. Commitment: ${commitment || 'default'}`);
     const walletBalances = new Map<string, WalletBalance>();
     const fetchedAt = new Date();
 
@@ -166,16 +166,41 @@ export class WalletBalanceService {
       }
     }
 
-    // Fetch all token metadata in one batch
-    const allMints = Object.values(walletBalances).flatMap(data => data.tokenBalances.map(t => t.mint));
-    const uniqueMints = [...new Set(allMints)];
-    let tokenInfoMap: Map<string, TokenInfo> = new Map();
-    if (this.tokenInfoService && uniqueMints.length > 0) {
-      const tokenInfos = await this.tokenInfoService.findMany(uniqueMints);
-      tokenInfoMap = new Map(tokenInfos.map(info => [info.tokenAddress, info]));
+    logger.info(`Successfully processed RAW wallet balance fetching for ${walletAddresses.length} addresses (no metadata).`);
+    return walletBalances;
+  }
+
+  /**
+   * Enriches existing wallet balances with token metadata.
+   * This method takes raw balances and adds name, symbol, and imageUrl metadata.
+   * 
+   * @param walletBalances The raw wallet balances to enrich
+   * @returns The enriched wallet balances with metadata
+   */
+  public async enrichWalletBalancesWithMetadata(
+    walletBalances: Map<string, WalletBalance>
+  ): Promise<Map<string, WalletBalance>> {
+    if (!this.tokenInfoService) {
+      logger.warn('TokenInfoService not available, returning balances without metadata enrichment');
+      return walletBalances;
     }
 
-    for (const [address, data] of Object.entries(walletBalances)) {
+    const allMints = Array.from(walletBalances.values()).flatMap(data => data.tokenBalances.map(t => t.mint));
+    const uniqueMints = [...new Set(allMints)];
+    
+    if (uniqueMints.length === 0) {
+      logger.debug('No tokens found to enrich with metadata');
+      return walletBalances;
+    }
+
+    logger.info(`Enriching ${uniqueMints.length} unique tokens with metadata`);
+    
+    const tokenInfos = await this.tokenInfoService.findMany(uniqueMints);
+    const tokenInfoMap = new Map(tokenInfos.map(info => [info.tokenAddress, info]));
+
+    const enrichedBalances = new Map<string, WalletBalance>();
+    
+    for (const [address, data] of walletBalances.entries()) {
       const tokenBalancesWithMetadata = data.tokenBalances.map(token => {
         const metadata = tokenInfoMap.get(token.mint);
         return {
@@ -186,14 +211,33 @@ export class WalletBalanceService {
         };
       });
 
-      walletBalances.set(address, {
+      enrichedBalances.set(address, {
         solBalance: data.solBalance,
         tokenBalances: tokenBalancesWithMetadata,
         fetchedAt: new Date(),
       });
     }
 
-    logger.info(`Successfully processed wallet balance fetching for ${walletAddresses.length} addresses.`);
-    return walletBalances;
+    logger.info(`Successfully enriched wallet balances with metadata for ${enrichedBalances.size} wallets`);
+    return enrichedBalances;
+  }
+
+  /**
+   * Fetches the SOL and SPL token balances for a list of wallet addresses WITH token metadata.
+   * This method combines fetchWalletBalancesRaw() + enrichWalletBalancesWithMetadata().
+   * Use fetchWalletBalancesRaw() for faster initial results, then enrich separately if needed.
+   *
+   * @param walletAddresses An array of public key strings for the wallets.
+   * @param commitment Optional. The commitment level to use for RPC calls (e.g., "finalized", "confirmed").
+   * @returns A Promise resolving to a Map where keys are wallet addresses (string) and values are `WalletBalance` objects.
+   *          Each `WalletBalance` object contains the SOL balance, an array of token balances, and the timestamp when balances were fetched.
+   *          If a wallet address cannot be processed, its entry might have default/zero balances.
+   */
+  public async fetchWalletBalances(
+    walletAddresses: string[],
+    commitment?: string
+  ): Promise<Map<string, WalletBalance>> {
+    const rawBalances = await this.fetchWalletBalancesRaw(walletAddresses, commitment);
+    return await this.enrichWalletBalancesWithMetadata(rawBalances);
   }
 } 

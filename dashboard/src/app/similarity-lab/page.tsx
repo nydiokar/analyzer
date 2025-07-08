@@ -205,8 +205,6 @@ export default function AnalysisLabPage() {
     }
   }, [analysisResult]);
 
-
-
   const handleEnrichData = async () => {
     if (!analysisResult?.walletBalances) return;
     setIsEnriching(true);

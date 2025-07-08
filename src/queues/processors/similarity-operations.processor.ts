@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
-import { SimilarityAnalysisFlowData, SimilarityFlowResult } from '../jobs/types';
+import { ComprehensiveSimilarityFlowData, SimilarityFlowResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { SimilarityApiService } from '../../api/analyses/similarity/similarity.service';
@@ -57,7 +57,7 @@ export class SimilarityOperationsProcessor {
     
     switch (jobName) {
       case 'similarity-analysis-flow':
-        return this.processSimilarityFlow(job as Job<SimilarityAnalysisFlowData>);
+        return this.processSimilarityFlow(job as Job<ComprehensiveSimilarityFlowData>);
       default:
         throw new Error(`Unknown job type: ${jobName}`);
     }
@@ -67,8 +67,11 @@ export class SimilarityOperationsProcessor {
    * Process the similarity analysis flow: run a full historical sync and enrichment in parallel.
    * This is the true "Advanced Analysis" flow.
    */
-  async processSimilarityFlow(job: Job<SimilarityAnalysisFlowData>): Promise<SimilarityFlowResult> {
-    const { walletAddresses, requestId, failureThreshold = 0.8, timeoutMinutes = 30, similarityConfig } = job.data;
+  async processSimilarityFlow(job: Job<ComprehensiveSimilarityFlowData>): Promise<SimilarityFlowResult> {
+    const { walletAddresses, requestId, walletsNeedingSync = [], enrichMetadata = false, failureThreshold = 0.8, timeoutMinutes = 45, similarityConfig } = job.data;
+    
+    // Determine if sync is needed based on the wallets list (no redundant boolean needed)
+    const syncRequired = walletsNeedingSync.length > 0;
 
     // Apply deduplication strategy
     const expectedJobId = generateJobId.calculateSimilarity(walletAddresses, requestId);
@@ -93,55 +96,57 @@ export class SimilarityOperationsProcessor {
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
       // STEP 1: PARALLEL I/O KICK-OFF
-      this.logger.log('Kicking off deep sync and balance fetch in parallel.');
-      const [syncSettlement, balancesSettlement] = await Promise.allSettled([
-        this._orchestrateDeepSync(walletAddresses, job),
-        this.walletBalanceService.fetchWalletBalances(walletAddresses)
-      ]);
+      let balancesMap: Map<string, any>;
+      
+      if (syncRequired) {
+        this.logger.log('Kicking off deep sync and balance fetch in parallel.');
+        this.logger.log(`Syncing ${walletsNeedingSync.length}/${walletAddresses.length} wallets: ${walletsNeedingSync.join(', ')}`);
+        
+        const [syncSettlement, balancesSettlement] = await Promise.allSettled([
+          this._orchestrateDeepSync(walletsNeedingSync, job), // Only sync wallets that need it
+          this.walletBalanceService.fetchWalletBalancesRaw(walletAddresses) // Fetch all balances
+        ]);
 
-      // Critical Path Failure Handling
-      if (syncSettlement.status === 'rejected') {
-        this.logger.error('Critical failure during historical sync:', syncSettlement.reason);
-        throw new Error(`Critical failure during historical sync: ${syncSettlement.reason}`);
+        // Critical Path Failure Handling
+        if (syncSettlement.status === 'rejected') {
+          this.logger.error('Critical failure during historical sync:', syncSettlement.reason);
+          throw new Error(`Critical failure during historical sync: ${syncSettlement.reason}`);
+        }
+        if (balancesSettlement.status === 'rejected') {
+          this.logger.error('Critical failure during balance fetching:', balancesSettlement.reason);
+          throw new Error(`Critical failure during balance fetching: ${balancesSettlement.reason}`);
+        }
+        balancesMap = balancesSettlement.value;
+      } else {
+        this.logger.log('Skipping deep sync, fetching current balances only.');
+        balancesMap = await this.walletBalanceService.fetchWalletBalancesRaw(walletAddresses);
       }
-      if (balancesSettlement.status === 'rejected') {
-        this.logger.error('Critical failure during balance fetching:', balancesSettlement.reason);
-        throw new Error(`Critical failure during balance fetching: ${balancesSettlement.reason}`);
-      }
-      const balancesMap = balancesSettlement.value;
       
       this.logger.log('Deep sync and balance fetch complete. DB is ready.');
       await job.updateProgress(60); // Progress checkpoint after the slowest parts
       this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
 
-      // STEP 2: FINAL ANALYSIS & ENRICHMENT
-      this.logger.log('Starting final similarity calculation and enrichment...');
-      const [similarityResult, enrichedBalances] = await Promise.allSettled([
-        this.similarityApiService.runAnalysis({
-          walletAddresses: walletAddresses,
-          vectorType: similarityConfig?.vectorType || 'capital'
-        }, balancesMap),
-        this.enrichTokenMetadataInParallel(balancesMap)
-      ]);
+      // STEP 2: FINAL ANALYSIS (Raw balances, enrichment will be handled by job queue)
+      this.logger.log('Starting final similarity calculation with raw balances...');
+      const similarityResult = await this.similarityApiService.runAnalysis({
+        walletAddresses: walletAddresses,
+        vectorType: similarityConfig?.vectorType || 'capital'
+      }, balancesMap);
       
       await job.updateProgress(90);
-      this.checkTimeout(startTime, timeoutMs, 'Final analysis and enrichment');
+      this.checkTimeout(startTime, timeoutMs, 'Final analysis');
 
-      // STEP 3: MERGE RESULTS
-      let finalResult;
-      if (similarityResult.status === 'fulfilled') {
-        finalResult = similarityResult.value;
-        
-        if (enrichedBalances.status === 'fulfilled') {
-          this.logger.log('Similarity analysis and enrichment completed successfully.');
-          finalResult.walletBalances = enrichedBalances.value;
-        } else {
-          this.logger.warn('Enrichment failed, proceeding with raw balances:', enrichedBalances.reason);
-        }
-      } else {
-        this.logger.error('Similarity analysis failed:', similarityResult.reason);
-        throw similarityResult.reason;
+      // STEP 3: PREPARE RESULTS (Raw balances, enrichment will be queued separately)
+      const finalResult = similarityResult;
+      
+      // Convert balances map to the format expected by the result
+      const rawBalances: Record<string, any> = {};
+      for (const [walletAddress, balanceData] of balancesMap) {
+        rawBalances[walletAddress] = balanceData;
       }
+      finalResult.walletBalances = rawBalances;
+      
+      this.logger.log('Similarity analysis completed successfully with raw balances.');
 
       await job.updateProgress(100);
       this.checkTimeout(startTime, timeoutMs, 'Final result preparation');
@@ -161,8 +166,8 @@ export class SimilarityOperationsProcessor {
         }
       };
 
-      const hasEnrichedData = finalResult.walletBalances?.[Object.keys(finalResult.walletBalances)[0]]?.tokenBalances?.[0]?.valueUsd !== undefined;
-      const mode = hasEnrichedData ? 'full_sync_with_enrichment' : 'full_sync_raw_balances';
+      // Since we're returning raw balances, enrichment will be handled separately
+      const mode = 'full_sync_raw_balances';
       
       this.logger.log(`Advanced similarity analysis completed successfully in ${Date.now() - startTime}ms. Mode: ${mode}`);
       return result;
@@ -187,6 +192,11 @@ export class SimilarityOperationsProcessor {
    * This includes fetching all transactions and running PNL and behavior analysis.
    */
   private async _orchestrateDeepSync(walletAddresses: string[], job: Job): Promise<void> {
+    if (walletAddresses.length === 0) {
+      this.logger.log('No wallets need sync - skipping deep sync operation.');
+      return;
+    }
+    
     this.logger.log(`Orchestrating deep sync for ${walletAddresses.length} wallets...`);
     // This part of the flow will account for up to 55% of the progress bar (5% to 60%).
     const progressStep = 55 / walletAddresses.length;
@@ -229,25 +239,7 @@ export class SimilarityOperationsProcessor {
     this.logger.log('All wallets have completed the deep sync process.');
   }
 
-  /**
-   * Smart enrichment with TODO fixes: Redis caching, batch processing, large token set handling
-   */
-  private async enrichTokenMetadataInParallel(balancesMap: Map<string, any>): Promise<Record<string, any>> {
-    try {
-      // Convert balances map to the format expected by enrichBalances method
-      const walletBalances: Record<string, any> = {};
-      for (const [walletAddress, balanceData] of balancesMap) {
-        walletBalances[walletAddress] = balanceData;
-      }
 
-      // Use the existing enrichBalances method from SimilarityApiService
-      return await this.similarityApiService.enrichBalances(walletBalances);
-    } catch (error) {
-      this.logger.error('Error during parallel token metadata enrichment:', error);
-      // Re-throw to be handled by Promise.allSettled in the main flow
-      throw error;
-    }
-  }
 
   /**
    * Check if operation has timed out and throw error if so

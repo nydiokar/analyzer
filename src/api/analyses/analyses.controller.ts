@@ -12,7 +12,8 @@ import { WalletStatusRequestDto, WalletStatusResponseDto } from './dto/wallet-st
 import { TriggerAnalysisDto } from './dto/trigger-analysis.dto';
 import { isValidSolanaAddress } from '../pipes/solana-address.pipe';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
-import { SimilarityAnalysisFlowData } from '../../queues/jobs/types';
+import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operations.queue';
+import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData } from '../../queues/jobs/types';
 import { generateJobId } from '../../queues/utils/job-id-generator';
 import { JobsService } from '../jobs/jobs.service';
 
@@ -29,6 +30,7 @@ export class AnalysesController {
     private readonly behaviorService: BehaviorService,
     private readonly similarityApiService: SimilarityApiService,
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
+    private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly jobsService: JobsService,
   ) {}
 
@@ -74,13 +76,87 @@ export class AnalysesController {
 
   @Post('/similarity/enrich-balances')
   @Throttle({ default: { limit: 20, ttl: 60000 } })
-  @ApiOperation({ summary: 'Enriches a given set of wallet balances with price and metadata.' })
-  @ApiResponse({ status: 200, description: 'Enrichment completed successfully.'})
+  @ApiOperation({ 
+    summary: 'Queue wallet balance enrichment job',
+    description: 'Queues a balance enrichment job using the sophisticated enrichment system. Returns job ID for monitoring via the Jobs API.'
+  })
+  @ApiResponse({ 
+    status: 202, 
+    description: 'Enrichment job queued successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        jobId: { type: 'string', description: 'Unique job identifier for tracking' },
+        requestId: { type: 'string', description: 'Request identifier for this enrichment' },
+        status: { type: 'string', enum: ['queued'], description: 'Initial job status' },
+        queueName: { type: 'string', example: 'enrichment-operations' },
+        walletCount: { type: 'number', description: 'Number of wallets to enrich' },
+        tokenCount: { type: 'number', description: 'Total number of tokens to enrich' },
+        monitoringUrl: { type: 'string', description: 'URL to monitor job status' }
+      }
+    }
+  })
+  @HttpCode(202)
   async enrichWalletBalances(
-    @Body() body: { walletBalances: Record<string, any> }, // Define a more specific DTO for this if needed
-  ): Promise<any> {
-    this.logger.log(`Received request to enrich balances for ${Object.keys(body.walletBalances).length} wallets.`);
-    return this.similarityApiService.enrichBalances(body.walletBalances);
+    @Body() body: { walletBalances: Record<string, any> },
+  ): Promise<{
+    jobId: string;
+    requestId: string;
+    status: string;
+    queueName: string;
+    walletCount: number;
+    tokenCount: number;
+    monitoringUrl: string;
+  }> {
+    this.logger.log(`Received request to queue balance enrichment for ${Object.keys(body.walletBalances).length} wallets.`);
+
+    try {
+      // Generate request ID
+      const requestId = `enrichment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Count total tokens to enrich
+      const totalTokens = Object.values(body.walletBalances).reduce((count, wallet: any) => {
+        return count + (wallet.tokenBalances?.length || 0);
+      }, 0);
+
+      // Determine optimization hint based on token count
+      let optimizationHint: 'small' | 'large' | 'massive' = 'small';
+      if (totalTokens > 10000) {
+        optimizationHint = 'massive';
+      } else if (totalTokens > 1000) {
+        optimizationHint = 'large';
+      }
+
+      // Prepare job data
+      const jobData: EnrichTokenBalancesJobData = {
+        walletBalances: body.walletBalances,
+        requestId,
+        priority: 5, // Normal priority
+        optimizationHint
+      };
+
+      // Add job to enrichment operations queue
+      const job = await this.enrichmentOperationsQueue.addEnrichTokenBalances(jobData, {
+        priority: 5,
+        delay: 0
+      });
+
+      this.logger.log(`Queued balance enrichment job ${job.id} for request ${requestId} with ${Object.keys(body.walletBalances).length} wallets and ${totalTokens} tokens`);
+
+      return {
+        jobId: job.id!,
+        requestId,
+        status: 'queued',
+        queueName: 'enrichment-operations',
+        walletCount: Object.keys(body.walletBalances).length,
+        tokenCount: totalTokens,
+        monitoringUrl: `/jobs/${job.id}`
+      };
+
+    } catch (error) {
+      this.logger.error(`Failed to queue balance enrichment:`, error);
+      throw new InternalServerErrorException('Failed to queue balance enrichment job');
+    }
   }
 
   @Post('/similarity/queue')
@@ -140,12 +216,22 @@ export class AnalysesController {
       // Generate request ID  
       const requestId = `similarity-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+      // Check wallet status to determine which wallets need sync
+      const walletStatuses = await this.databaseService.getWalletsStatus(dto.walletAddresses);
+      const walletsNeedingSync = walletStatuses.statuses
+        .filter(status => status.status === 'STALE' || status.status === 'MISSING')
+        .map(status => status.walletAddress);
+      
+      this.logger.log(`Advanced analysis: ${walletsNeedingSync.length}/${dto.walletAddresses.length} wallets need sync: [${walletsNeedingSync.join(', ')}]`);
+
       // Prepare job data - delegate to existing SimilarityApiService
-      const jobData: SimilarityAnalysisFlowData = {
+      const jobData: ComprehensiveSimilarityFlowData = {
         walletAddresses: dto.walletAddresses,
         requestId,
+        walletsNeedingSync, // Pass specific wallets to sync (empty array = no sync needed)
+        enrichMetadata: false, // Don't enrich metadata in similarity flow (handled separately)
         failureThreshold: 0.8, // 80% success rate required
-        timeoutMinutes: 30, // 30 minute timeout
+        timeoutMinutes: walletsNeedingSync.length > 0 ? 45 : 15, // Longer timeout if sync is needed
         similarityConfig: {
           vectorType: dto.vectorType || 'capital', // Use DTO vectorType
         }
