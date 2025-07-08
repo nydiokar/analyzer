@@ -23,6 +23,11 @@ const buildTokenMetadataMap = (enrichedBalances: Record<string, any> | null) => 
     if (!enrichedBalances) return map;
 
     for (const wallet of Object.values(enrichedBalances)) {
+        // Check if wallet exists and has tokenBalances array
+        if (!wallet || !wallet.tokenBalances || !Array.isArray(wallet.tokenBalances)) {
+            continue;
+        }
+        
         for (const token of wallet.tokenBalances) {
             if (token.mint && !map.has(token.mint)) {
                 map.set(token.mint, {

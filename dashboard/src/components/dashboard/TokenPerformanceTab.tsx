@@ -531,7 +531,12 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
         return <TableBody>{renderSkeletonTableRows()}</TableBody>;
       }
       // If not enriching and still no data, then it's final.
-      return <TableBody><TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data" description="No token activity detected for the selected period or filters." className="my-8" /></TableCell></TableRow></TableBody>;
+      const hasDateFilter = startDate || endDate;
+      const emptyMessage = hasDateFilter 
+        ? "No token activity detected for the selected time period. Try expanding the date range or selecting 'All' to see historical data."
+        : "No token activity detected for the selected filters.";
+      
+      return <TableBody><TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
     }
 
     // If we have data, render it.

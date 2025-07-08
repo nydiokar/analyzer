@@ -1,7 +1,7 @@
 import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ForbiddenExceptionFilter } from './api/common/filters/forbidden-exception.filter';
-import { Logger } from '@nestjs/common';
+import { Logger, LogLevel } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as dotenv from 'dotenv';
@@ -10,7 +10,22 @@ import { json } from 'express';
 dotenv.config();
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Configure logging levels based on environment
+  const isDev = process.env.NODE_ENV !== 'production';
+  const isQuietMode = process.env.QUIET_MODE === 'true';
+  
+  let logLevels: LogLevel[];
+  if (isQuietMode) {
+    logLevels = ['error', 'warn']; // Minimal logging
+  } else if (isDev) {
+    logLevels = ['error', 'warn', 'log']; // Reduced verbosity for development
+  } else {
+    logLevels = ['error', 'warn', 'log', 'debug', 'verbose']; // Full logging for production
+  }
+
+  const app = await NestFactory.create(AppModule, {
+    logger: logLevels,
+  });
   const port = process.env.PORT || 3001;
 
   app.setGlobalPrefix('api/v1');
