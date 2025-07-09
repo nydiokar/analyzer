@@ -37,22 +37,6 @@ export interface AnalyzeBehaviorJobData {
   requestId?: string;
 }
 
-// Similarity Operations Job Data
-export interface SimilarityAnalysisFlowData {
-  walletAddresses: string[];
-  requestId: string;
-  failureThreshold?: number;    // Partial failure tolerance (default 0.8)
-  timeoutMinutes?: number;      // Job-level timeout (default 30)
-  similarityConfig?: {
-    vectorType?: 'capital' | 'binary';
-    minSharedTokens?: number;
-    timeRange?: {
-      from?: Date;
-      to?: Date;
-    };
-    excludeMints?: string[];
-  };
-}
 
 // Comprehensive Similarity Flow with Dual Queues
 export interface ComprehensiveSimilarityFlowData {
@@ -73,21 +57,9 @@ export interface ComprehensiveSimilarityFlowData {
   };
 }
 
-// Balance Fetching + Enrichment Job Data
-export interface BalanceEnrichmentFlowData {
-  walletAddresses: string[];
-  requestId: string;
-  enrichMetadata?: boolean;     // Whether to enrich metadata (default true)
-  timeoutMinutes?: number;      // Job-level timeout (default 20)
-}
+
 
 // Enrichment Operations Job Data
-export interface EnrichMetadataJobData {
-  tokenAddresses: string[];
-  priority?: number;
-  requestId?: string;
-}
-
 export interface EnrichTokenBalancesJobData {
   walletBalances: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>;
   requestId: string;
@@ -129,11 +101,7 @@ export interface SimilarityFlowResult extends JobResult {
   similarityResultId?: string; // Reference to stored similarity result
 }
 
-export interface MetadataEnrichmentResult extends JobResult {
-  tokenAddress: string;
-  status: 'enriched' | 'already-current' | 'failed';
-  lastUpdated?: Date;
-}
+
 
 export interface EnrichTokenBalancesResult extends JobResult {
   enrichedBalances: Record<string, any>;

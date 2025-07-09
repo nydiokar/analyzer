@@ -16,6 +16,7 @@ import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operat
 import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData } from '../../queues/jobs/types';
 import { generateJobId } from '../../queues/utils/job-id-generator';
 import { JobsService } from '../jobs/jobs.service';
+import { EnrichmentStrategyService } from './enrichment-strategy.service';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -32,6 +33,7 @@ export class AnalysesController {
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly jobsService: JobsService,
+    private readonly enrichmentStrategyService: EnrichmentStrategyService,
   ) {}
 
   @Post('/similarity')
@@ -119,13 +121,10 @@ export class AnalysesController {
         return count + (wallet.tokenBalances?.length || 0);
       }, 0);
 
-      // Determine optimization hint based on token count
-      let optimizationHint: 'small' | 'large' | 'massive' = 'small';
-      if (totalTokens > 10000) {
-        optimizationHint = 'massive';
-      } else if (totalTokens > 1000) {
-        optimizationHint = 'large';
-      }
+      // Determine optimization hint based on token count using strategy service
+      const optimizationHint = this.enrichmentStrategyService.determineOptimizationHint(totalTokens);
+      
+      this.logger.log(`Determined optimization hint '${optimizationHint}' for ${totalTokens} tokens. Strategy: ${this.enrichmentStrategyService.getStrategyDescription(optimizationHint)}`);
 
       // Prepare job data
       const jobData: EnrichTokenBalancesJobData = {

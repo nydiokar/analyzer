@@ -49,6 +49,7 @@ export default function AnalysisLabPage() {
   
   // Job tracking for advanced method
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
   const [isPolling, setIsPolling] = useState(false);
   const [useWebSocket, setUseWebSocket] = useState(true);
@@ -70,44 +71,89 @@ export default function AnalysisLabPage() {
         setSyncMessage(`Job in progress... ${data.status} (${Math.round(data.progress)}%)`);
       }
     },
+    onEnrichmentComplete: (data) => {
+      // Handle enrichment completion for progressive enhancement
+      if (data.requestId && analysisResult && data.enrichedBalances) {
+        console.log('🎨 Enrichment completed for request:', data.requestId);
+        setEnrichedBalances(data.enrichedBalances);
+        setIsEnriching(false);
+        
+        toast({
+          title: "Enrichment Complete",
+          description: "Token metadata and prices have been loaded!",
+          variant: "default",
+        });
+      }
+    },
+    onEnrichmentError: (data) => {
+      // Handle enrichment errors gracefully
+      if (data.requestId && analysisResult) {
+        console.error('❌ Enrichment failed for request:', data.requestId, data.error);
+        setIsEnriching(false);
+        
+        toast({
+          title: "Enrichment Failed",
+          description: "Unable to load token metadata. Raw results are still available.",
+          variant: "destructive",
+        });
+      }
+    },
             onJobCompleted: async (data) => {
+      // Handle similarity job completion
       if (data.jobId === currentJobId) {
         setJobProgress(100);
-        setSyncMessage('Job completed! Processing results...');
+        setSyncMessage('Similarity analysis completed! Processing results...');
         
         try {
-          // Get the result - use the correct job result endpoint
+          // Get the similarity result
           const result = await fetcher(`/jobs/${data.jobId}/result`);
           
-          // Add null checks to prevent "Cannot convert undefined or null to object" error
           if (!result || !result.result || !result.result.data) {
             throw new Error("Job completed but returned no data. The analysis may have failed silently.");
           }
           
-          // Validate the result has the expected structure (data is nested under result.data)
           if (!result.result.data.pairwiseSimilarities || result.result.data.pairwiseSimilarities.length === 0) {
             throw new Error("Analysis completed but returned no similarity data. The wallets may have no overlapping activity.");
           }
           
-          setAnalysisResult(result.result.data);  // Extract the actual data object
+          setAnalysisResult(result.result.data);
           
-          // Cleanup WebSocket subscription and clear job state
+          // Set enrichment loading state and subscribe to enrichment job
+          if (result.result.data.walletBalances && analysisMethod === 'advanced') {
+            setIsEnriching(true);
+            setEnrichedBalances(result.result.data.walletBalances);
+            
+            // Subscribe to enrichment job if it was queued
+            if (result.result.enrichmentJobId) {
+              setEnrichmentJobId(result.result.enrichmentJobId);
+              subscribeToJob(result.result.enrichmentJobId);
+              
+              toast({
+                title: "Analysis Complete",
+                description: "Results loaded! Enriching with token metadata...",
+                variant: "default",
+              });
+            } else {
+              // No enrichment job was queued (error case)
+              setIsEnriching(false);
+              toast({
+                title: "Analysis Complete",
+                description: "Results loaded! Token enrichment unavailable.",
+                variant: "default",
+              });
+            }
+          }
+          
+          // Clean up similarity job subscription but keep enrichment subscription active
           unsubscribeFromJob(data.jobId);
-          
-          // Clear all job-related state
           setCurrentJobId(null);
           setJobProgress(0);
           setSyncMessage('');
           setIsLoading(false);
           setIsPolling(false);
           
-          toast({
-            title: "Analysis Complete",
-            description: `Advanced similarity analysis finished successfully in ${Math.round(data.processingTime / 1000)}s!`,
-          });
-          
         } catch (error: any) {
-          console.error('Error processing job result:', error);
+          console.error('Error processing similarity job result:', error);
           const errorMessage = error?.payload?.message || error.message || 'Failed to process job result.';
           setSyncMessage(errorMessage);
           toast({
@@ -116,15 +162,47 @@ export default function AnalysisLabPage() {
             description: errorMessage,
           });
           
-          // Clear job state even on error
           setCurrentJobId(null);
           setJobProgress(0);
           setIsLoading(false);
           setIsPolling(false);
         }
       }
+      
+      // Handle enrichment job completion
+      if (data.jobId === enrichmentJobId) {
+        try {
+          const result = await fetcher(`/jobs/${data.jobId}/result`);
+          
+          if (result?.result?.enrichedBalances) {
+            setEnrichedBalances(result.result.enrichedBalances);
+            setIsEnriching(false);
+            
+            toast({
+              title: "Enrichment Complete",
+              description: "Token metadata and prices have been loaded!",
+              variant: "default",
+            });
+          }
+          
+          // Clean up enrichment job subscription
+          unsubscribeFromJob(data.jobId);
+          setEnrichmentJobId(null);
+          
+        } catch (error: any) {
+          console.error('Error processing enrichment job result:', error);
+          setIsEnriching(false);
+          
+          toast({
+            title: "Enrichment Failed",
+            description: "Unable to load token metadata. Raw results are still available.",
+            variant: "destructive",
+          });
+        }
+      }
     },
         onJobFailed: (data) => {
+      // Handle similarity job failure
       if (data.jobId === currentJobId) {
         const errorMessage = data.error || `Job failed: ${data.failedReason || 'Unknown error'}`;
         setSyncMessage(errorMessage);
@@ -141,6 +219,22 @@ export default function AnalysisLabPage() {
         setJobProgress(0);
         setIsLoading(false);
         setIsPolling(false);
+      }
+      
+      // Handle enrichment job failure  
+      if (data.jobId === enrichmentJobId) {
+        console.error('Enrichment job failed:', data);
+        setIsEnriching(false);
+        
+        toast({
+          variant: "destructive",
+          title: "Enrichment Failed", 
+          description: data.error || "Token enrichment failed. Raw results are still available.",
+        });
+        
+        // Cleanup enrichment job subscription
+        unsubscribeFromJob(data.jobId);
+        setEnrichmentJobId(null);
       }
     },
     onConnectionChange: (connected) => {
@@ -188,9 +282,12 @@ export default function AnalysisLabPage() {
       if (currentJobId) {
         unsubscribeFromJob(currentJobId);
       }
+      if (enrichmentJobId) {
+        unsubscribeFromJob(enrichmentJobId);
+      }
       cleanupWebSocket();
     };
-  }, [currentJobId, unsubscribeFromJob, cleanupWebSocket]);
+  }, [currentJobId, enrichmentJobId, unsubscribeFromJob, cleanupWebSocket]);
 
   useEffect(() => {
     if (analysisResult) {
@@ -208,24 +305,35 @@ export default function AnalysisLabPage() {
   const handleEnrichData = async () => {
     if (!analysisResult?.walletBalances) return;
     setIsEnriching(true);
+    
     try {
-      const enrichedData = await fetcher('/analyses/similarity/enrich-balances', {
+      // Queue enrichment job (returns job ID)
+      const enrichmentJob = await fetcher('/analyses/similarity/enrich-balances', {
         method: 'POST',
         body: JSON.stringify({ walletBalances: analysisResult.walletBalances }),
       });
-      setEnrichedBalances(enrichedData);
-      toast({
-        title: "Data Enriched",
-        description: "Token prices and metadata have been updated.",
-      });
-    } catch (error) {
+      
+      // Subscribe to enrichment job completion
+      if (enrichmentJob.jobId && wsConnected) {
+        setEnrichmentJobId(enrichmentJob.jobId);
+        subscribeToJob(enrichmentJob.jobId);
+        
+        toast({
+          title: "Enrichment Started",
+          description: "Fetching token prices and metadata...",
+        });
+      } else {
+        throw new Error('Failed to start enrichment job');
+      }
+    } catch (error: any) {
+      console.error('Error starting enrichment job:', error);
+      setIsEnriching(false);
+      
       toast({
         variant: 'destructive',
         title: "Enrichment Failed",
-        description: "Could not fetch token prices and metadata.",
+        description: error.message || "Could not start token enrichment.",
       });
-    } finally {
-      setIsEnriching(false);
     }
   };
 

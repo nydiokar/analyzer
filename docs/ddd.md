@@ -2,6 +2,330 @@
 
 This document outlines a realistic plan to refactor the existing `SimilarityOperationsProcessor`. The goal is to evolve the "Advanced Analysis" from a simple job that uses existing data into a true, deep analysis engine that intelligently runs operations in parallel to minimize user wait time.
 
+## 🎯 CRITICAL EVALUATION: Current State vs Target Architecture
+
+### **Current Architecture Issues**
+Looking at the current implementation and the optimal semantic flow outlined, here are the key problems:
+
+1. **❌ Wrong Queue Structure**: We have 4 queues but the semantic flow needs 3 with specific priorities
+2. **❌ Orchestration vs Participation**: `SimilarityOperationsProcessor` orchestrates everything instead of being part of the parallel flow
+3. **❌ Missing Balance Helper**: No `getBalances()` helper that checks Redis first then creates job if needed
+4. **❌ Sequential Processing**: Jobs wait for each other instead of racing with Redis coordination
+5. **❌ Wrong Redis Keys**: Not using the `balance:{wallet}`, `analysis:{wallet}:{reqId}`, `enrich:{wallet}:{reqId}` pattern
+
+### **Target Architecture (Minimal Changes Needed)**
+
+```typescript
+// Target: 3 queues with proper priorities and concurrency
+balancesQ      priority 1  concurrency 50  // wallet-operations.processor.ts
+analysisQ      priority 2  concurrency 10  // analysis-operations.processor.ts  
+enrichQ        priority 3  concurrency 20  // enrichment-operations.processor.ts
+// similarity-operations.processor.ts becomes part of analysisQ
+```
+
+**Key Redis Pattern:**
+```typescript
+// Redis keys for coordination
+balance:{wallet} TTL 30s         // raw array of tokens
+analysis:{wallet}:{reqId}        // JSON with similarity, PnL, behavior
+enrich:{wallet}:{reqId}          // JSON with token metadata
+```
+
+**Semantic Flow Implementation:**
+```typescript
+// API route fires both jobs immediately
+const reqId = nanoid()
+analysisQ.add('analysis', { wallet, reqId })  // includes similarity
+enrichQ.add('enrich', { wallet, reqId })
+// HTTP 202 with reqId for WebSocket subscription
+```
+
+## 🔧 MINIMAL IMPLEMENTATION PLAN
+
+### **Phase 1: Fix Queue Structure and Priorities**
+
+#### ✅ Task 1.1: Update Queue Configuration
+- **File**: `src/queues/config/queue.config.ts`
+- **Action**: Consolidate to 3 queues with proper priorities
+- **Status**: ❌ TODO
+
+```typescript
+// REPLACE current 4-queue structure with semantic flow structure
+export const QueueConfigs = {
+  [QueueNames.WALLET_OPERATIONS]: {  // This becomes balancesQ
+    queueOptions: {
+      connection: redisConnection,
+      defaultJobOptions: {
+        priority: 1,  // Highest priority
+        removeOnComplete: 1000,
+        removeOnFail: 100,
+      }
+    },
+    workerOptions: {
+      connection: redisConnection,
+      concurrency: 50,  // High concurrency for balance fetching
+    }
+  },
+  
+  [QueueNames.ANALYSIS_OPERATIONS]: {  // This becomes analysisQ  
+    queueOptions: {
+      connection: redisConnection,
+      defaultJobOptions: {
+        priority: 2,  // Medium priority
+        removeOnComplete: 1000,
+        removeOnFail: 100,
+      }
+    },
+    workerOptions: {
+      connection: redisConnection,
+      concurrency: 10,  // Medium concurrency for analysis
+    }
+  },
+  
+  [QueueNames.ENRICHMENT_OPERATIONS]: {  // This becomes enrichQ
+    queueOptions: {
+      connection: redisConnection,
+      defaultJobOptions: {
+        priority: 3,  // Lower priority
+        removeOnComplete: 1000,
+        removeOnFail: 100,
+      }
+    },
+    workerOptions: {
+      connection: redisConnection,
+      concurrency: 20,  // High concurrency for enrichment
+    }
+  }
+  
+  // REMOVE: SIMILARITY_OPERATIONS queue - merge into analysis
+};
+```
+
+#### ✅ Task 1.2: Merge Similarity into Analysis Operations
+- **File**: `src/queues/processors/analysis-operations.processor.ts`
+- **Action**: Add similarity job type to existing analysis processor
+- **Status**: ❌ TODO
+
+```typescript
+// ADD to existing analysis processor
+async processJob(job: Job): Promise<any> {
+  const jobName = job.name;
+  
+  switch (jobName) {
+    case 'analyze-pnl':
+      return await this.processAnalyzePnl(job);
+    case 'analyze-behavior':
+      return await this.processAnalyzeBehavior(job);
+    case 'analyze-similarity':  // NEW: Add similarity as analysis job type
+      return await this.processAnalyzeSimilarity(job);
+    default:
+      throw new Error(`Unknown job type: ${jobName}`);
+  }
+}
+
+// MOVE from similarity-operations.processor.ts to here
+async processAnalyzeSimilarity(job: Job): Promise<any> {
+  const { wallet, reqId } = job.data;
+  const balances = await this.getBalances(wallet);  // Use helper
+  const result = await this.similarityApiService.runAnalysis(balances);
+  await this.redis.set(`analysis:${wallet}:${reqId}`, JSON.stringify(result));
+  this.websocketGateway.emit(`analysis:${reqId}`, result);
+  return result;
+}
+```
+
+### **Phase 2: Implement Balance Helper Pattern**
+
+#### ✅ Task 2.1: Create getBalances() Helper
+- **File**: `src/core/services/balance-cache.service.ts`
+- **Action**: Replace current implementation with semantic flow pattern
+- **Status**: ❌ TODO
+
+```typescript
+// REPLACE entire BalanceCacheService with this pattern
+@Injectable()
+export class BalanceCacheService {
+  private redis: Redis;
+  private walletOperationsQueue: Queue;
+
+  constructor() {
+    this.redis = new Redis(/* config */);
+    this.walletOperationsQueue = new Queue(QueueNames.WALLET_OPERATIONS, /* config */);
+  }
+
+  async getBalances(wallet: string): Promise<any> {
+    // Check Redis cache first
+    let balances = await this.redis.get(`balance:${wallet}`);
+    if (balances) return JSON.parse(balances);
+    
+    // Not in cache, create job if needed
+    const jobId = `bal:${wallet}`;
+    const job = await this.walletOperationsQueue.add('fetch-balances', { wallet }, { jobId });
+    
+    // Wait for job to complete and return result
+    balances = await job.waitUntilFinished();
+    return balances;
+  }
+}
+```
+
+#### ✅ Task 2.2: Update Wallet Operations Processor
+- **File**: `src/queues/processors/wallet-operations.processor.ts`
+- **Action**: Add balance fetching with Redis caching
+- **Status**: ❌ TODO
+
+```typescript
+// ADD to existing wallet processor
+async processJob(job: Job): Promise<any> {
+  const jobName = job.name;
+  
+  switch (jobName) {
+    case 'sync-wallet':
+      return await this.processSyncWallet(job);
+    case 'fetch-balance':
+      return await this.processFetchBalance(job);
+    case 'fetch-balances':  // NEW: Add balance fetching with caching
+      return await this.processFetchBalances(job);
+    default:
+      throw new Error(`Unknown job type: ${jobName}`);
+  }
+}
+
+// NEW method for semantic flow
+async processFetchBalances(job: Job): Promise<any> {
+  const { wallet } = job.data;
+  
+  // Fetch both helius sync and raw balances in parallel
+  const [helius, balances] = await Promise.all([
+    this.heliusApiClient.syncWalletData(wallet),
+    this.walletBalanceService.fetchWalletBalances([wallet])
+  ]);
+  
+  const merged = this.mergeBalanceData(helius, balances);
+  
+  // Cache with 30s TTL
+  await this.redis.set(`balance:${wallet}`, JSON.stringify(merged), 'EX', 30);
+  
+  return merged;
+}
+```
+
+### **Phase 3: Update API Routes for Parallel Job Firing**
+
+#### ✅ Task 3.1: Modify Similarity Analysis Endpoint
+- **File**: `src/api/analyses/analyses.controller.ts`
+- **Action**: Fire both analysis and enrichment jobs immediately
+- **Status**: ❌ TODO
+
+```typescript
+// REPLACE complex similarity flow with simple parallel firing
+@Post('similarity/queue')
+async triggerSimilarityAnalysis(@Body() dto: SimilarityAnalysisRequestDto) {
+  const reqId = nanoid();
+  
+  // Fire both jobs immediately - no waiting!
+  await Promise.all([
+    this.analysisOperationsQueue.add('analyze-similarity', { 
+      wallets: dto.walletAddresses, 
+      reqId 
+    }),
+    this.enrichmentOperationsQueue.add('enrich-token-balances', { 
+      wallets: dto.walletAddresses, 
+      reqId 
+    })
+  ]);
+  
+  // Return immediately with subscription info
+  return {
+    success: true,
+    requestId: reqId,
+    message: 'Analysis and enrichment jobs queued. Subscribe to WebSocket for results.'
+  };
+}
+```
+
+### **Phase 4: Update Enrichment Processor for Parallel Flow**
+
+#### ✅ Task 4.1: Simplify Enrichment Processor
+- **File**: `src/queues/processors/enrichment-operations.processor.ts`
+- **Action**: Remove complex orchestration, focus on enrichment only
+- **Status**: ❌ TODO
+
+```typescript
+// SIMPLIFY to follow semantic flow
+async processJob(job: Job): Promise<any> {
+  const jobName = job.name;
+  
+  switch (jobName) {
+    case 'enrich-token-balances':
+      return await this.processEnrichTokenBalances(job);
+    default:
+      throw new Error(`Unknown job type: ${jobName}`);
+  }
+}
+
+// SIMPLIFIED enrichment that uses balance helper
+async processEnrichTokenBalances(job: Job): Promise<any> {
+  const { wallets, reqId } = job.data;
+  
+  // Use balance helper - will wait for balances if needed
+  const balances = await Promise.all(
+    wallets.map(wallet => this.balanceCacheService.getBalances(wallet))
+  );
+  
+  // Run enrichment in parallel
+  const enriched = await Promise.all(
+    balances.flatMap(b => 
+      b.tokenBalances.map(t => this.dexscreenerService.enrichToken(t.address))
+    )
+  );
+  
+  // Cache result and emit
+  await this.redis.set(`enrich:${wallets.join(',')}:${reqId}`, JSON.stringify(enriched));
+  this.websocketGateway.emit(`enrich:${reqId}`, enriched);
+  
+  return enriched;
+}
+```
+
+### **Phase 5: Remove Similarity Operations Processor**
+
+#### ✅ Task 5.1: Eliminate Redundant Processor
+- **File**: `src/queues/processors/similarity-operations.processor.ts`
+- **Action**: Delete entire file - functionality moved to analysis processor
+- **Status**: ❌ TODO
+
+#### ✅ Task 5.2: Update Module Imports
+- **File**: `src/queues/queue.module.ts`
+- **Action**: Remove similarity processor from imports
+- **Status**: ❌ TODO
+
+## 🎯 EXPECTED OUTCOME
+
+After these minimal changes, the flow will be:
+
+1. **API call** → Fire both `analysisQ` and `enrichQ` jobs immediately
+2. **analysisQ job** → Use `getBalances()` helper → Run similarity → Cache result → Emit WebSocket
+3. **enrichQ job** → Use `getBalances()` helper → Run enrichment → Cache result → Emit WebSocket
+4. **Frontend** → Subscribe to both events → Show results as they arrive
+
+**Key Benefits:**
+- ✅ **True Parallelism**: Both jobs race, no sequential dependencies
+- ✅ **Redis Coordination**: Eliminates race conditions via shared cache
+- ✅ **Existing Code Reuse**: Minimal changes to current processors
+- ✅ **WebSocket Events**: Real-time results as they complete
+- ✅ **Proper Priorities**: Balance fetching gets highest priority
+
+**Performance Gains:**
+- ✅ **Immediate API Response**: HTTP 202 with requestId
+- ✅ **Parallel Processing**: Analysis and enrichment run simultaneously
+- ✅ **Smart Caching**: 30s TTL prevents redundant balance fetching
+- ✅ **High Concurrency**: 50 balance workers, 10 analysis workers, 20 enrichment workers
+
+This achieves the exact semantic flow you outlined with minimal disruption to existing code!
+
+---
+
 ## 1. The Goal (Corrected Understanding)
 
 Our "Advanced Analysis" button in the Similarity Lab triggers a BullMQ job (`similarity-analysis-flow`). Currently, this job is fast because it only fetches current balances and uses whatever historical data is already in the database.
@@ -595,95 +919,4 @@ const syncRequired = walletsNeedingSync.length > 0; // Derive, don't duplicate
   const enrichmentJob = await this.enrichmentOperationsQueue.addEnrichTokenBalances({
     walletBalances,
     requestId,
-    priority: 5,
-    optimizationHint: this.determineOptimizationHint(walletBalances)
-  });
-  ```
-
-#### ✅ Task F4: Eliminate Duplicate Toast Messages - COMPLETED
-- **Problem**: Two identical completion toasts appear simultaneously
-- **Files**: `dashboard/src/app/similarity-lab/page.tsx`
-- **Solution**: Separate toast messages for each completion stage
-- **Status**: ✅ COMPLETED - Now using distinct toast messages for similarity and enrichment
-- **Implementation**:
-  ```typescript
-  // ✅ Similarity completion toast
-  toast({
-    title: "Analysis Complete",
-    description: "Results loaded! Enriching with token metadata...",
-    variant: "default",
-  });
-  
-  // ✅ Enrichment completion toast (separate)
-  toast({
-    title: "Enrichment Complete", 
-    description: "Token metadata and prices have been loaded!",
-    variant: "default",
-  });
-  ```
-
-#### ✅ Task F5: Fix State Management Race Conditions - COMPLETED
-- **Problem**: useEffect can overwrite enriched data with raw data
-- **Files**: `dashboard/src/app/similarity-lab/page.tsx`
-- **Solution**: Proper state dependency management and data flow guards
-- **Status**: ✅ COMPLETED - Now using separate state management for similarity and enrichment phases
-- **Implementation**:
-  ```typescript
-  // ✅ Separate state tracking prevents race conditions
-  const [analysisResult, setAnalysisResult] = useState(null);
-  const [enrichedBalances, setEnrichedBalances] = useState(null);
-  const [isEnriching, setIsEnriching] = useState(false);
-  
-  // ✅ Only update enriched balances when new analysis starts
-  useEffect(() => {
-    if (analysisResult?.walletBalances) {
-      setEnrichedBalances(analysisResult.walletBalances); // Start with raw
-    } else {
-      setEnrichedBalances(null);
-    }
-  }, [analysisResult]);
-  ```
-
-### Phase 6: Testing and Validation
-**Goal**: Ensure end-to-end functionality after critical fixes
-
-#### 6.1 Test Scenarios
-- Small token sets (<100 tokens): Should process synchronously
-- Large token sets (>1000 tokens): Should use hybrid approach
-- Massive token sets (>10k tokens): Should use background processing
-
-#### 6.2 Performance Validation
-- UI should show raw results immediately
-- Enrichment should happen asynchronously
-- WebSocket should notify when enrichment completes
-
-## Key Architectural Benefits
-
-1. **Preserve Battle-tested Logic**: All smart heuristics from `enrichBalances()` are preserved
-2. **Proper Separation**: Similarity analysis and enrichment are decoupled
-3. **No UI Blocking**: Raw results shown immediately, enrichment happens async
-4. **Scalable**: Can handle any token set size without performance degradation
-5. **Clean Architecture**: Job queue handles all background processing
-
-## Implementation Notes
-
-### Critical Preservation Points
-- **Database optimization**: Always check existing metadata first
-- **Smart batching**: Different strategies for different token set sizes
-- **Error resilience**: Partial failures shouldn't break entire enrichment
-- **Performance heuristics**: Background processing for massive sets
-
-### Integration Dependencies
-- BullMQ job queue system (already working)
-- Redis locks for job deduplication (already working)
-- WebSocket progress notifications (already working)
-- Database layer for metadata storage (already working)
-
-## Next Steps for Implementation
-
-1. **Start with Phase 1**: Clean up bloat and consolidate job types
-2. **Phase 2 is Critical**: Careful extraction of `enrichBalances()` logic
-3. **Phase 3 Requires Testing**: Ensure similarity flow works with job queue
-4. **Phase 4 is Integration**: Make sure all components communicate properly
-
-This plan eliminates architectural violations while preserving all valuable logic and creating a proper async enrichment system that doesn't block the UI.
+    priority: 5

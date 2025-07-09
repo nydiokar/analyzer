@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
-import { EnrichMetadataJobData, EnrichTokenBalancesJobData, EnrichTokenBalancesResult, MetadataEnrichmentResult } from '../jobs/types';
+import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { TokenInfoService } from '../../api/token-info/token-info.service';
 import { DexscreenerService } from '../../api/dexscreener/dexscreener.service';
+import { BalanceCacheService } from '../../core/services/balance-cache.service';
+import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
 
 @Injectable()
 export class EnrichmentOperationsProcessor {
@@ -16,6 +18,8 @@ export class EnrichmentOperationsProcessor {
     private readonly redisLockService: RedisLockService,
     private readonly tokenInfoService: TokenInfoService,
     private readonly dexscreenerService: DexscreenerService,
+    private readonly balanceCacheService: BalanceCacheService,
+    private readonly websocketGateway: JobProgressGateway,
   ) {
     const config = QueueConfigs[QueueNames.ENRICHMENT_OPERATIONS];
     
@@ -48,10 +52,68 @@ export class EnrichmentOperationsProcessor {
     switch (jobName) {
       case 'enrich-token-balances':
         return await this.processEnrichTokenBalances(job as Job<EnrichTokenBalancesJobData>);
-      case 'enrich-metadata': // Keep for backward compatibility
-        return await this.processEnrichMetadata(job as Job<EnrichMetadataJobData>);
+      case 'parallel-enrichment':
+        return await this.processParallelEnrichment(job);
+
       default:
         throw new Error(`Unknown job type: ${jobName}`);
+    }
+  }
+
+  /**
+   * Process parallel enrichment job using cached balances
+   * This runs in the enrichQ queue for the new parallel architecture
+   */
+  async processParallelEnrichment(job: Job<{ walletAddresses: string[]; requestId: string }>): Promise<void> {
+    const { walletAddresses, requestId } = job.data;
+    const startTime = Date.now();
+    
+    this.logger.log(`Processing parallel enrichment for ${walletAddresses.length} wallets, requestId: ${requestId}`);
+    
+    try {
+      // Get cached balances for all wallets
+      const walletBalances: Record<string, any> = {};
+      
+      for (const walletAddress of walletAddresses) {
+        const balances = await this.balanceCacheService.getBalances(walletAddress);
+        walletBalances[walletAddress] = balances;
+      }
+      
+      // Use the existing sophisticated enrichment logic
+      const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
+      
+      // Store enriched result in Redis cache
+      const cacheKey = `enrich:${requestId}`;
+      const redis = new (require('ioredis'))({
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379')
+      });
+      
+      await redis.set(cacheKey, JSON.stringify(enrichedBalances), 'EX', 300); // 5 minutes TTL
+      
+      // Emit WebSocket event for frontend update
+      await this.websocketGateway.publishCompletedEvent(
+        requestId,
+        'enrichment',
+        enrichedBalances,
+        Date.now() - startTime
+      );
+      
+      this.logger.log(`Parallel enrichment completed for requestId: ${requestId}`);
+      
+    } catch (error) {
+      this.logger.error(`Parallel enrichment failed for requestId: ${requestId}`, error);
+      
+      // Emit failure event
+      await this.websocketGateway.publishFailedEvent(
+        requestId,
+        'enrichment',
+        error instanceof Error ? error.message : String(error),
+        1,
+        1
+      );
+      
+      throw error;
     }
   }
 
@@ -61,7 +123,7 @@ export class EnrichmentOperationsProcessor {
    */
   async processEnrichTokenBalances(job: Job<EnrichTokenBalancesJobData>): Promise<EnrichTokenBalancesResult> {
     const { walletBalances, requestId, optimizationHint } = job.data;
-    const timeoutMs = JobTimeouts['enrich-metadata'].timeout;
+    const timeoutMs = JobTimeouts['enrich-token-balances'].timeout;
     const startTime = Date.now();
     
           // Apply deduplication strategy using wallet balances
@@ -119,7 +181,7 @@ export class EnrichmentOperationsProcessor {
    * Sophisticated balance enrichment logic transferred from similarity service
    * Preserves all smart features: database-first optimization, smart batching, background processing
    */
-  private async enrichBalancesWithSophisticatedLogic(
+  public async enrichBalancesWithSophisticatedLogic(
     walletBalances: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>,
     job: Job
   ): Promise<Record<string, any>> {
@@ -235,58 +297,7 @@ export class EnrichmentOperationsProcessor {
     this.logger.log(`Background enrichment completed for ${tokenAddresses.length} tokens`);
   }
 
-  /**
-   * Legacy method for backward compatibility with old job type
-   * @deprecated Use processEnrichTokenBalances instead
-   */
-  async processEnrichMetadata(job: Job<EnrichMetadataJobData>): Promise<MetadataEnrichmentResult[]> {
-    const { tokenAddresses, requestId } = job.data;
-    
-    // Convert to new format and delegate to new method
-    const walletBalances = this.convertTokenAddressesToWalletBalances(tokenAddresses);
-    const newJobData: EnrichTokenBalancesJobData = {
-      walletBalances,
-      requestId: requestId || 'legacy-request',
-      optimizationHint: 'small'
-    };
-    
-    // Create a new job-like object for compatibility
-    const newJob = {
-      ...job,
-      data: newJobData,
-      updateProgress: job.updateProgress.bind(job)
-    } as Job<EnrichTokenBalancesJobData>;
-    
-    const result = await this.processEnrichTokenBalances(newJob);
-    
-    // Convert back to legacy format
-    const legacyResults: MetadataEnrichmentResult[] = tokenAddresses.map(tokenAddress => ({
-      success: true,
-      tokenAddress,
-      status: 'enriched' as const,
-      lastUpdated: new Date(),
-      timestamp: result.timestamp,
-      processingTimeMs: result.processingTimeMs
-    }));
-    
-    return legacyResults;
-  }
 
-  /**
-   * Temporary helper to convert token addresses to wallet balances format
-   * TODO: Remove when legacy support is no longer needed
-   */
-  private convertTokenAddressesToWalletBalances(tokenAddresses: string[]): Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }> {
-    // This is a temporary conversion - in the real implementation, the job data will contain actual wallet balances
-    return {
-      'temp-wallet': {
-        tokenBalances: tokenAddresses.map(mint => ({
-          mint,
-          uiBalance: 0 // Placeholder - real implementation will have actual balances
-        }))
-      }
-    };
-  }
 
   /**
    * Map optimization hint to processing strategy

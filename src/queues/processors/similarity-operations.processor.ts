@@ -12,6 +12,10 @@ import { TokenInfoService } from '../../api/token-info/token-info.service';
 import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
 import { PnlAnalysisService } from '../../api/pnl_analysis/pnl-analysis.service';
 import { BehaviorService } from '../../api/wallets/behavior/behavior.service';
+import { EnrichmentOperationsProcessor } from './enrichment-operations.processor';
+import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
+import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
+import { BalanceCacheService } from '../../core/services/balance-cache.service';
 
 @Injectable()
 export class SimilarityOperationsProcessor {
@@ -28,6 +32,10 @@ export class SimilarityOperationsProcessor {
     private readonly heliusSyncService: HeliusSyncService,
     private readonly pnlAnalysisService: PnlAnalysisService,
     private readonly behaviorService: BehaviorService,
+    private readonly enrichmentProcessor: EnrichmentOperationsProcessor,
+    private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
+    private readonly websocketGateway: JobProgressGateway,
+    private readonly balanceCacheService: BalanceCacheService,
   ) {
     // Initialize WalletBalanceService
     this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
@@ -136,7 +144,7 @@ export class SimilarityOperationsProcessor {
       await job.updateProgress(90);
       this.checkTimeout(startTime, timeoutMs, 'Final analysis');
 
-      // STEP 3: PREPARE RESULTS (Raw balances, enrichment will be queued separately)
+      // STEP 3: PREPARE RESULTS (Raw balances, enrichment will run in background)
       const finalResult = similarityResult;
       
       // Convert balances map to the format expected by the result
@@ -150,6 +158,12 @@ export class SimilarityOperationsProcessor {
 
       await job.updateProgress(100);
       this.checkTimeout(startTime, timeoutMs, 'Final result preparation');
+
+      // STEP 4: CACHE BALANCES FOR PARALLEL PROCESSING
+      this.logger.log('Caching balances for parallel processing...');
+      for (const [walletAddress, balanceData] of balancesMap) {
+        await this.balanceCacheService.cacheBalances(walletAddress, balanceData);
+      }
 
       const result: SimilarityFlowResult = {
         success: true,
@@ -165,9 +179,8 @@ export class SimilarityOperationsProcessor {
           processingTimeMs: Date.now() - startTime
         }
       };
-
-      // Since we're returning raw balances, enrichment will be handled separately
-      const mode = 'full_sync_raw_balances';
+      
+      const mode = 'full_sync_raw_balances_with_background_enrichment';
       
       this.logger.log(`Advanced similarity analysis completed successfully in ${Date.now() - startTime}ms. Mode: ${mode}`);
       return result;
@@ -186,6 +199,8 @@ export class SimilarityOperationsProcessor {
       }
     }
   }
+
+
 
   /**
    * Orchestrates the full data synchronization and analysis pipeline for a list of wallets.
@@ -240,6 +255,19 @@ export class SimilarityOperationsProcessor {
   }
 
 
+
+  /**
+   * Determine optimization hint based on wallet balances
+   */
+  private determineOptimizationHint(walletBalances: Record<string, any>): 'small' | 'large' | 'massive' {
+    const totalTokens = Object.values(walletBalances).reduce((count: number, wallet: any) => {
+      return count + (wallet.tokenBalances?.length || 0);
+    }, 0);
+
+    if (totalTokens > 10000) return 'massive';
+    if (totalTokens > 1000) return 'large';
+    return 'small';
+  }
 
   /**
    * Check if operation has timed out and throw error if so

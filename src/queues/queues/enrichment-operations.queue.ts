@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
-import { EnrichMetadataJobData, EnrichTokenBalancesJobData } from '../jobs/types';
+import { EnrichTokenBalancesJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 
 @Injectable()
@@ -29,20 +29,7 @@ export class EnrichmentOperationsQueue {
     });
   }
 
-  /**
-   * Add a metadata enrichment job to the queue (legacy)
-   * @deprecated Use addEnrichTokenBalances instead
-   */
-  async addEnrichMetadataJob(data: EnrichMetadataJobData, options?: { priority?: number; delay?: number }) {
-    const tokenAddress = data.tokenAddresses[0]; // Use first token for job ID
-    const jobId = generateJobId.enrichMetadata(tokenAddress, data.requestId);
-    
-    return this.queue.add('enrich-metadata', data, {
-      jobId,
-      priority: options?.priority || data.priority || 3,
-      delay: options?.delay || 0,
-    });
-  }
+
 
 
 

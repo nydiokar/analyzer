@@ -20,10 +20,24 @@ interface JobFailedData {
   failedReason?: string;
 }
 
+interface EnrichmentCompleteData {
+  requestId: string;
+  enrichedBalances: Record<string, any>;
+  timestamp: number;
+}
+
+interface EnrichmentErrorData {
+  requestId: string;
+  error: string;
+  timestamp: number;
+}
+
 interface UseJobProgressOptions {
   onJobProgress?: (data: JobProgressData) => void;
   onJobCompleted?: (data: JobCompletedData) => void;
   onJobFailed?: (data: JobFailedData) => void;
+  onEnrichmentComplete?: (data: EnrichmentCompleteData) => void;
+  onEnrichmentError?: (data: EnrichmentErrorData) => void;
   onConnectionChange?: (connected: boolean) => void;
 }
 
@@ -132,14 +146,32 @@ export function useJobProgress(options: UseJobProgressOptions = {}): UseJobProgr
       callbacksRef.current.onJobProgress?.(data);
     });
 
-    socket.on('job-completed', (data: JobCompletedData) => {
-      console.log('✅ Real-time job completion:', data);
-      callbacksRef.current.onJobCompleted?.(data);
+    socket.on('job-completed', (data: any) => {
+      // Handle enrichment completion events
+      if (data.queue === 'enrichment' && data.result?.requestId) {
+        console.log('🎨 Real-time enrichment completion:', data);
+        callbacksRef.current.onEnrichmentComplete?.(data.result);
+      } else {
+        // Handle regular job completion
+        console.log('✅ Real-time job completion:', data);
+        callbacksRef.current.onJobCompleted?.(data);
+      }
     });
 
-    socket.on('job-failed', (data: JobFailedData) => {
-      console.log('❌ Real-time job failure:', data);
-      callbacksRef.current.onJobFailed?.(data);
+    socket.on('job-failed', (data: any) => {
+      // Handle enrichment errors
+      if (data.queue === 'enrichment') {
+        console.log('❌ Real-time enrichment failure:', data);
+        callbacksRef.current.onEnrichmentError?.({
+          requestId: data.jobId,
+          error: data.error,
+          timestamp: Date.now()
+        });
+      } else {
+        // Handle regular job failure
+        console.log('❌ Real-time job failure:', data);
+        callbacksRef.current.onJobFailed?.(data);
+      }
     });
 
     // Cleanup on unmount

@@ -31,11 +31,7 @@ export const JobTimeouts = {
     staleAfter: 45 * 60 * 1000,     // 45 minutes = stale
     retryBackoff: 'exponential' as const
   },
-  'enrich-metadata': {
-    timeout: 2 * 60 * 1000,         // 2 minutes max
-    staleAfter: 5 * 60 * 1000,      // 5 minutes = stale
-    retryBackoff: 'fixed' as const
-  },
+
   'enrich-token-balances': {
     timeout: 10 * 60 * 1000,        // 10 minutes max (sophisticated enrichment)
     staleAfter: 15 * 60 * 1000,     // 15 minutes = stale
@@ -110,7 +106,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
         removeOnFail: 25,
         attempts: 3,               // External API calls need retries
         backoff: {
-          type: JobTimeouts['enrich-metadata'].retryBackoff, 
+          type: JobTimeouts['enrich-token-balances'].retryBackoff, 
           delay: 3000
         }
       }
