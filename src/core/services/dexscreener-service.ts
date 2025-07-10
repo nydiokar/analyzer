@@ -83,6 +83,7 @@ export class DexscreenerService {
                             tokenAddress: addr,
                             name: 'Unknown Token',
                             symbol: addr.slice(0, 4) + '...' + addr.slice(-4),
+                            dexscreenerUpdatedAt: new Date(), // Prevent re-fetching
                         });
                     }
                 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, memo } from 'react';
+import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { SyncConfirmationDialog } from '@/components/similarity-lab/SyncConfirmationDialog';
@@ -9,6 +9,7 @@ import { CombinedSimilarityResult } from '@/components/similarity-lab/results/ty
 import { fetcher } from '@/lib/fetcher';
 import { useToast } from '@/hooks/use-toast';
 import { useJobProgress } from '@/hooks/useJobProgress';
+import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { useApiKeyStore } from '@/store/api-key-store';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -49,217 +50,114 @@ export default function AnalysisLabPage() {
   
   // Job tracking for advanced method
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
-  const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
-  const [isPolling, setIsPolling] = useState(false);
-  const [useWebSocket, setUseWebSocket] = useState(true);
   
   const { toast } = useToast();
   const apiKey = useApiKeyStore((state) => state.apiKey);
 
-  // WebSocket job progress hook - STANDARD AUTO-CONNECTION
+  // Simple WebSocket callbacks that DON'T depend on changing state
   const {
     isConnected: wsConnected,
-    error: wsError,
     subscribeToJob,
     unsubscribeFromJob,
     cleanup: cleanupWebSocket
   } = useJobProgress({
-    onJobProgress: (data) => {
-      if (data.jobId === currentJobId) {
-        setJobProgress(data.progress);
-        setSyncMessage(`Job in progress... ${data.status} (${Math.round(data.progress)}%)`);
+    onJobProgress: useCallback((data: JobProgressData) => {
+      console.log('📊 Job progress:', data.jobId, data.progress);
+      setJobProgress(data.progress);
+      setSyncMessage(`Job in progress... ${data.status || 'processing'} (${Math.round(data.progress)}%)`);
+    }, []),
+    
+    onJobCompleted: useCallback(async (data: any) => {
+      console.log('✅ Job completed - Raw data:', data);
+      
+      if (data.jobId !== currentJobId) {
+        console.log('✅ Ignoring completion for different job:', data.jobId, 'vs current:', currentJobId);
+        return;
       }
-    },
-    onEnrichmentComplete: (data) => {
-      // Handle enrichment completion for progressive enhancement
-      if (data.requestId && data.requestId === currentRequestId && analysisResult && data.enrichedBalances) {
-        console.log('🎨 Enrichment completed for request:', data.requestId);
+      
+      console.log('✅ Processing completion for our job:', data.jobId);
+      setJobProgress(100);
+      setSyncMessage('Job completed! Fetching results...');
+      
+      try {
+        const result = await fetcher(`/jobs/${data.jobId}/result`);
+        
+        if (!result || !result.result || !result.result.data) {
+          throw new Error("Job completed but returned no data.");
+        }
+        
+        const resultData = result.result;
+        
+        if (resultData?.data) {
+          console.log('✅ Setting analysis result from fetched data');
+          setAnalysisResult(resultData.data);
+          
+          if (resultData.data.walletBalances && analysisMethod === 'advanced') {
+            setIsEnriching(true);
+            setEnrichedBalances(resultData.data.walletBalances);
+          }
+          
+          if (resultData.enrichmentJobId) {
+            setEnrichmentJobId(resultData.enrichmentJobId);
+          } else {
+            setIsLoading(false);
+          }
+          
+          setCurrentJobId(null);
+          setSyncMessage('');
+          
+          toast({
+            title: "Analysis Complete",
+            description: "Results are ready!",
+          });
+        } else {
+          console.error('❌ No result data found in fetched job result');
+          setError('Job completed but no result data found');
+          setIsLoading(false);
+        }
+      } catch (error: any) {
+        console.error('❌ Error fetching job result:', error);
+        setError(error.message);
+        setIsLoading(false);
+      }
+    }, [analysisMethod, toast, currentJobId]),
+    
+    onJobFailed: useCallback((data: JobFailedData) => {
+      console.error('❌ Job failed:', data.jobId, data.error);
+      setError(data.error);
+      setSyncMessage(data.error);
+      setIsLoading(false);
+      setJobProgress(0);
+      setCurrentJobId(null);
+      toast({
+        variant: "destructive",
+        title: "Job Failed",
+        description: data.error,
+      });
+    }, [toast]),
+    
+    onEnrichmentComplete: useCallback((data: EnrichmentCompletionData) => {
+      console.log('🎨 Enrichment completed');
+      if (data.enrichedBalances) {
         setEnrichedBalances(data.enrichedBalances);
         setIsEnriching(false);
-        
         toast({
           title: "Enrichment Complete",
-          description: "Token metadata and prices have been loaded!",
-          variant: "default",
+          description: "Token metadata loaded!",
         });
       }
-    },
-    onEnrichmentError: (data) => {
-      // Handle enrichment errors gracefully
-      if (data.requestId && data.requestId === currentRequestId && analysisResult) {
-        console.error('❌ Enrichment failed for request:', data.requestId, data.error);
-        setIsEnriching(false);
-        
-        toast({
-          title: "Enrichment Failed",
-          description: "Unable to load token metadata. Raw results are still available.",
-          variant: "destructive",
-        });
-      }
-    },
-            onJobCompleted: async (data) => {
-      // Handle similarity job completion
-      if (data.jobId === currentJobId) {
-        setJobProgress(100);
-        setSyncMessage('Similarity analysis completed! Processing results...');
-        
-        try {
-          // Get the similarity result
-          const result = await fetcher(`/jobs/${data.jobId}/result`);
-          
-          if (!result || !result.result || !result.result.data) {
-            throw new Error("Job completed but returned no data. The analysis may have failed silently.");
-          }
-          
-          if (!result.result.data.pairwiseSimilarities || result.result.data.pairwiseSimilarities.length === 0) {
-            throw new Error("Analysis completed but returned no similarity data. The wallets may have no overlapping activity.");
-          }
-          
-          setAnalysisResult(result.result.data);
-          
-          // The new backend flow triggers enrichment in parallel.
-          // The UI will now show the raw results immediately and wait for the
-          // onEnrichmentComplete WebSocket event to populate metadata.
-          // We set isEnriching to true to show a loading state in the UI.
-          if (result.result.data.walletBalances && analysisMethod === 'advanced') {
-            setIsEnriching(true);
-            setEnrichedBalances(result.result.data.walletBalances); // Show raw balances first
-            
-            // Subscribe to the enrichment job if we have the job ID
-            if (result.result.enrichmentJobId) {
-              setEnrichmentJobId(result.result.enrichmentJobId);
-              subscribeToJob(result.result.enrichmentJobId);
-              console.log('🔔 Subscribed to enrichment job:', result.result.enrichmentJobId);
-            }
-            
-            toast({
-              title: "Analysis Complete",
-              description: "Results loaded! Waiting for token metadata enrichment...",
-              variant: "default",
-            });
-          }
-          
-          // Clean up similarity job subscription
-          unsubscribeFromJob(data.jobId);
-          setCurrentJobId(null);
-          setJobProgress(0);
-          setSyncMessage('');
-          setIsLoading(false);
-          setIsPolling(false);
-          
-        } catch (error: any) {
-          console.error('Error processing similarity job result:', error);
-          const errorMessage = error?.payload?.message || error.message || 'Failed to process job result.';
-          setSyncMessage(errorMessage);
-          toast({
-            variant: "destructive",
-            title: "Result Processing Failed",
-            description: errorMessage,
-          });
-          
-          setCurrentJobId(null);
-          setJobProgress(0);
-          setIsLoading(false);
-          setIsPolling(false);
-        }
-      }
-      
-      // Handle enrichment job completion
-      if (data.jobId === enrichmentJobId) {
-        try {
-          const result = await fetcher(`/jobs/${data.jobId}/result`);
-          
-          if (result?.result?.enrichedBalances) {
-            setEnrichedBalances(result.result.enrichedBalances);
-            setIsEnriching(false);
-            
-            toast({
-              title: "Enrichment Complete",
-              description: "Token metadata and prices have been loaded!",
-              variant: "default",
-            });
-          }
-          
-          // Clean up enrichment job subscription
-          unsubscribeFromJob(data.jobId);
-          setEnrichmentJobId(null);
-          
-        } catch (error: any) {
-          console.error('Error processing enrichment job result:', error);
-          setIsEnriching(false);
-          
-          toast({
-            title: "Enrichment Failed",
-            description: "Unable to load token metadata. Raw results are still available.",
-            variant: "destructive",
-          });
-        }
-      }
-    },
-        onJobFailed: (data) => {
-      // Handle similarity job failure
-      if (data.jobId === currentJobId) {
-        const errorMessage = data.error || `Job failed: ${data.failedReason || 'Unknown error'}`;
-        setSyncMessage(errorMessage);
-        
-        toast({
-          variant: "destructive", 
-          title: "Analysis Failed",
-          description: errorMessage,
-        });
-        
-        // Cleanup WebSocket subscription and clear all job state
-        unsubscribeFromJob(data.jobId);
-        setCurrentJobId(null);
-        setJobProgress(0);
-        setIsLoading(false);
-        setIsPolling(false);
-      }
-      
-      // Handle enrichment job failure  
-      if (data.jobId === enrichmentJobId) {
-        console.error('Enrichment job failed:', data);
-        setIsEnriching(false); // Stop the loading indicator
-        
-        toast({
-          variant: "destructive",
-          title: "Enrichment Failed", 
-          description: data.error || "Token enrichment failed. You can try again manually.",
-        });
-        
-        // Cleanup enrichment job subscription
-        unsubscribeFromJob(data.jobId);
-        setEnrichmentJobId(null);
-      }
-    },
-    onConnectionChange: (connected) => {
-      if (connected && currentJobId && useWebSocket && !isPolling) {
-        // WebSocket connected during a job - subscribe immediately
-        console.log('🔌 WebSocket connected during job - subscribing immediately');
-        subscribeToJob(currentJobId);
-      } else if (!connected && currentJobId && useWebSocket) {
-        // WebSocket disconnected during a job - fallback to polling
-        toast({
-          title: "Connection Lost",
-          description: "Falling back to polling for job updates.",
-        });
-        setUseWebSocket(false);
-        pollJobStatus(currentJobId);
-      }
-    }
+    }, [toast]),
   });
+
+
 
   useEffect(() => {
     try {
       const savedResult = localStorage.getItem('analysisResult');
       if (savedResult) {
         const parsedResult = JSON.parse(savedResult);
-        
-        // Validate the data structure before setting state.
-        // If the first pair is missing the `capitalAllocation` property,
-        // assume the data is stale and discard it.
         if (parsedResult?.pairwiseSimilarities?.[0] && parsedResult.pairwiseSimilarities[0].capitalAllocation === undefined) {
           console.warn('Stale analysis result found in localStorage. Discarding.');
           localStorage.removeItem('analysisResult');
@@ -268,49 +166,37 @@ export default function AnalysisLabPage() {
         }
       }
     } catch (error) {
-        console.error("Failed to parse analysis result from localStorage", error);
-        localStorage.removeItem('analysisResult');
+      console.error("Failed to parse analysis result from localStorage", error);
+      localStorage.removeItem('analysisResult');
     }
   }, []);
 
-  // Cleanup WebSocket on unmount and job completion
   useEffect(() => {
-    return () => {
-      if (currentJobId) {
-        unsubscribeFromJob(currentJobId);
-      }
-      if (enrichmentJobId) {
-        unsubscribeFromJob(enrichmentJobId);
-      }
-      cleanupWebSocket();
-    };
-  }, [currentJobId, enrichmentJobId, unsubscribeFromJob, cleanupWebSocket]);
-
-  useEffect(() => {
-    if (analysisResult) {
-      // localStorage.setItem('analysisResult', JSON.stringify(analysisResult)); // This line causes storage quota errors
-      if (analysisResult?.walletBalances) {
-        // Start with raw balances, clear old enriched data on new analysis
-        setEnrichedBalances(analysisResult.walletBalances);
-      }
+    if (analysisResult?.walletBalances) {
+      setEnrichedBalances(analysisResult.walletBalances);
     } else {
-      // localStorage.removeItem('analysisResult');
       setEnrichedBalances(null);
     }
   }, [analysisResult]);
+
+  // Subscribe to enrichment job when ID is set
+  useEffect(() => {
+    if (enrichmentJobId && wsConnected) {
+      console.log('🔔 Subscribing to enrichment job:', enrichmentJobId);
+      subscribeToJob(enrichmentJobId);
+    }
+  }, [enrichmentJobId, wsConnected, subscribeToJob]);
 
   const handleEnrichData = async () => {
     if (!analysisResult?.walletBalances) return;
     setIsEnriching(true);
     
     try {
-      // Queue enrichment job (returns job ID)
       const enrichmentJob = await fetcher('/analyses/similarity/enrich-balances', {
         method: 'POST',
         body: JSON.stringify({ walletBalances: analysisResult.walletBalances }),
       });
       
-      // Subscribe to enrichment job completion
       if (enrichmentJob.jobId && wsConnected) {
         setEnrichmentJobId(enrichmentJob.jobId);
         subscribeToJob(enrichmentJob.jobId);
@@ -335,7 +221,6 @@ export default function AnalysisLabPage() {
   };
 
   const handleAnalyze = async () => {
-    // Branch immediately based on analysis method
     if (analysisMethod === 'quick') {
       await handleQuickAnalyze();
     } else {
@@ -343,27 +228,14 @@ export default function AnalysisLabPage() {
     }
   };
 
-  // Quick Analysis: Check status, sync if needed, then run analysis
   const handleQuickAnalyze = async () => {
     setIsLoading(true);
     setAnalysisResult(null);
     setSyncMessage('');
 
-    const rawWalletList = wallets
-      .replace(/[,|\n\r]+/g, ' ') // Robustly handle different separators
-      .split(' ')
-      .map(w => w.trim())
-      .filter(Boolean);
-
-    // Gracefully handle duplicates by using a Set
-    const walletList = Array.from(new Set(rawWalletList));
-    
-    if (rawWalletList.length !== walletList.length) {
-      toast({
-        title: "Duplicate wallets removed",
-        description: `We've automatically filtered out ${rawWalletList.length - walletList.length} duplicate addresses.`,
-      });
-    }
+    const walletList = Array.from(new Set(
+      wallets.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
+    ));
 
     if (walletList.length === 0) {
       setIsLoading(false);
@@ -375,7 +247,7 @@ export default function AnalysisLabPage() {
       toast({
         variant: "destructive",
         title: "Invalid Wallet Addresses",
-        description: `Please correct the following: ${invalidWallets.join(', ')}`,
+        description: `Please correct: ${invalidWallets.join(', ')}`,
       });
       setIsLoading(false);
       return;
@@ -394,52 +266,33 @@ export default function AnalysisLabPage() {
       if (walletsNeedingWork.length > 0) {
         setMissingWallets(walletsNeedingWork);
         setIsSyncDialogOpen(true);
-        setIsLoading(false); // Stop loading while dialog is open
+        setIsLoading(false);
       } else {
-        // All wallets exist, proceed directly to quick analysis
         await runQuickAnalysis(walletList);
       }
     } catch (error: any) {
       console.error('Error checking wallet status:', error);
-      const errorMessage = error?.payload?.message || error.message || 'Error checking wallet status. Please try again.';
+      const errorMessage = error?.payload?.message || error.message || 'Error checking wallet status.';
       toast({
         variant: "destructive",
         title: "Analysis Failed",
         description: errorMessage,
-      })
+      });
       setSyncMessage(errorMessage);
       setIsLoading(false);
     }
   };
 
-  // Advanced Analysis: Skip status check, directly run advanced analysis (handles sync internally)
   const handleAdvancedAnalyze = async () => {
     setIsLoading(true);
     setAnalysisResult(null);
     setSyncMessage('');
-    
-    // Reset job state
     setCurrentJobId(null);
     setJobProgress(0);
-    setIsPolling(false);
-    setUseWebSocket(true);
-    setCurrentRequestId(null);
 
-    const rawWalletList = wallets
-      .replace(/[,|\n\r]+/g, ' ') // Robustly handle different separators
-      .split(' ')
-      .map(w => w.trim())
-      .filter(Boolean);
-
-    // Gracefully handle duplicates by using a Set
-    const walletList = Array.from(new Set(rawWalletList));
-    
-    if (rawWalletList.length !== walletList.length) {
-      toast({
-        title: "Duplicate wallets removed",
-        description: `We've automatically filtered out ${rawWalletList.length - walletList.length} duplicate addresses.`,
-      });
-    }
+    const walletList = Array.from(new Set(
+      wallets.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
+    ));
 
     if (walletList.length === 0) {
       setIsLoading(false);
@@ -451,13 +304,12 @@ export default function AnalysisLabPage() {
       toast({
         variant: "destructive",
         title: "Invalid Wallet Addresses",
-        description: `Please correct the following: ${invalidWallets.join(', ')}`,
+        description: `Please correct: ${invalidWallets.join(', ')}`,
       });
       setIsLoading(false);
       return;
     }
 
-    // Advanced Analysis: Direct to job queue (handles sync internally)
     await runAdvancedAnalysis(walletList);
   };
 
@@ -467,7 +319,6 @@ export default function AnalysisLabPage() {
     setSyncMessage(`Triggering sync for ${missingWallets.length} wallet(s)...`);
 
     try {
-      // Step 1: Trigger the analysis for the missing wallets. This returns immediately.
       await fetcher('/analyses/wallets/trigger-analysis', {
         method: 'POST',
         body: JSON.stringify({ walletAddresses: missingWallets }),
@@ -475,11 +326,11 @@ export default function AnalysisLabPage() {
 
       toast({
         title: "Sync Triggered",
-        description: "The backend is now syncing the missing wallets. Waiting for completion...",
+        description: "Syncing missing wallets...",
       });
 
-      // Step 2: Poll for completion.
-      const pollInterval = setInterval(async () => {
+      // Simple polling for sync completion
+      const checkSync = async () => {
         const allWallets = Array.from(new Set(
           wallets.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
         ));
@@ -490,69 +341,50 @@ export default function AnalysisLabPage() {
             body: JSON.stringify({ walletAddresses: allWallets }),
           });
 
-          const walletsStillSyncing = statusResponse?.statuses?.filter((s) => s.status === 'IN_PROGRESS').map((s) => s.walletAddress) ?? [];
+          const stillSyncing = statusResponse?.statuses?.filter((s) => s.status === 'IN_PROGRESS').length || 0;
 
-          if (walletsStillSyncing.length === 0) {
-            clearInterval(pollInterval);
-            setSyncMessage('All wallets are synced. Running similarity analysis...');
-            toast({ title: "Sync Complete!", description: "All wallets are now ready." });
-            
-            // Note: After sync, run quick analysis (sync dialog only applies to quick analysis)
+          if (stillSyncing === 0) {
+            setSyncMessage('Sync complete! Running analysis...');
             await runQuickAnalysis(allWallets);
           } else {
-            setSyncMessage(`Waiting for ${walletsStillSyncing.length} wallet(s) to sync... Checking again in 10 seconds.`);
+            setSyncMessage(`Syncing ${stillSyncing} wallet(s)...`);
+            setTimeout(checkSync, 5000);
           }
         } catch (error: any) {
-          clearInterval(pollInterval);
-          const errorMessage = error?.payload?.message || error.message || 'Error during polling.';
-          setSyncMessage(`Error checking wallet status: ${errorMessage}. Polling stopped.`);
-          toast({
-              variant: "destructive",
-              title: "Polling Failed",
-              description: errorMessage,
-          });
+          setError(error.message);
           setIsLoading(false);
         }
-      }, 10000); // Poll every 10 seconds
+      };
+
+      setTimeout(checkSync, 2000);
 
     } catch (error: any) {
-      const errorMessage = error?.payload?.message || error.message || "An unexpected error occurred.";
+      const errorMessage = error?.payload?.message || error.message || "Sync failed.";
       setError(errorMessage);
       setSyncMessage(errorMessage);
-      toast({
-        title: "Error Triggering Sync",
-        description: errorMessage,
-        variant: "destructive",
-      });
       setIsLoading(false);
     }
   };
 
-
-
-  // Quick analysis (existing synchronous method)
   const runQuickAnalysis = async (walletList: string[]) => {
-    setIsLoading(true);
     setSyncMessage('Running quick analysis...');
     try {
       const data = await fetcher('/analyses/similarity', {
         method: 'POST',
-        body: JSON.stringify({
-          walletAddresses: walletList,
-        }),
+        body: JSON.stringify({ walletAddresses: walletList }),
       });
 
       if (!data || !data.pairwiseSimilarities || data.pairwiseSimilarities.length === 0) {
-        throw new Error("Analysis completed but returned no data. The wallets may have no overlapping activity.");
+        throw new Error("No similarity data found.");
       }
 
       setAnalysisResult(data);
       setSyncMessage('');
     } catch (error: any) {
       console.error('Error running similarity analysis:', error);
-      const errorMessage = error?.payload?.message || error.message || 'An error occurred during similarity analysis.';
+      const errorMessage = error?.payload?.message || error.message || 'Analysis failed.';
       setSyncMessage(errorMessage);
-       toast({
+      toast({
         variant: "destructive",
         title: "Analysis Failed",
         description: errorMessage,
@@ -562,14 +394,11 @@ export default function AnalysisLabPage() {
     }
   };
 
-  // Advanced analysis (new job-based method)
   const runAdvancedAnalysis = async (walletList: string[]) => {
-    setIsLoading(true);
     setSyncMessage('Submitting job to queue...');
     setJobProgress(0);
     
     try {
-      // Submit job
       const jobResponse = await fetcher('/analyses/similarity/queue', {
         method: 'POST',
         body: JSON.stringify({
@@ -577,37 +406,32 @@ export default function AnalysisLabPage() {
           vectorType: 'capital',
           failureThreshold: 0.8,
           timeoutMinutes: 30,
-          enrichMetadata: true, // Enable token metadata enrichment
+          enrichMetadata: true,
         }),
       });
 
       setCurrentJobId(jobResponse.jobId);
-      setCurrentRequestId(jobResponse.requestId); // 🔑 Store the request ID for correlation
       setSyncMessage(`Job submitted! ID: ${jobResponse.jobId.slice(0, 8)}...`);
       
-      // 🔑 IMMEDIATE SUBSCRIPTION: Subscribe right away, don't wait
-      if (useWebSocket && wsConnected) {
-        console.log('✅ WebSocket connected - subscribing to job immediately');
+      if (wsConnected) {
+        console.log('🔌 Using WebSocket for job updates');
         subscribeToJob(jobResponse.jobId);
-        setIsPolling(false);
         
-        // Safety fallback: If no progress after 5 seconds, switch to polling
+        // Fallback to polling if no progress
         setTimeout(() => {
           if (jobProgress === 0 && isLoading) {
-            console.log('⚠️ No WebSocket progress after 5s - switching to polling');
-            setUseWebSocket(false);
+            console.log('⚠️ No WebSocket progress - falling back to polling');
             pollJobStatus(jobResponse.jobId);
           }
         }, 5000);
       } else {
-        console.log('📊 WebSocket not ready - using polling for job status');
-        setUseWebSocket(false);
+        console.log('📊 WebSocket not connected - using polling');
         await pollJobStatus(jobResponse.jobId);
       }
       
     } catch (error: any) {
       console.error('Error submitting job:', error);
-      const errorMessage = error?.payload?.message || error.message || 'Failed to submit analysis job.';
+      const errorMessage = error?.payload?.message || error.message || 'Failed to submit job.';
       setSyncMessage(errorMessage);
       toast({
         variant: "destructive",
@@ -618,109 +442,96 @@ export default function AnalysisLabPage() {
     }
   };
 
-  // Poll job status
   const pollJobStatus = async (jobId: string) => {
-    setIsPolling(true);
+    console.log('📊 Starting polling for job:', jobId);
+    let attempts = 0;
+    const maxAttempts = 60;
     
     const poll = async () => {
+      if (attempts >= maxAttempts || !isLoading) return;
+      
+      attempts++;
+      
       try {
-        const status = await fetcher(`/jobs/${jobId}`);  // Fixed: removed /status
+        const status = await fetcher(`/jobs/${jobId}`);
         
         if (status.status === 'completed') {
-          setJobProgress(100);
-          setSyncMessage('Job completed! Processing results...');
-          
-          // Get the result - use the correct job result endpoint
-          const result = await fetcher(`/jobs/${jobId}/result`);
-          
-          // Add null checks to prevent "Cannot convert undefined or null to object" error
-          if (!result || !result.result || !result.result.data) {
-            throw new Error("Job completed but returned no data. The analysis may have failed silently.");
+          // Job completed via polling - handle result directly
+          try {
+            const result = await fetcher(`/jobs/${jobId}/result`);
+            
+            if (result?.result?.data) {
+              setAnalysisResult(result.result.data);
+              
+              if (result.result.data.walletBalances && analysisMethod === 'advanced') {
+                setIsEnriching(true);
+                setEnrichedBalances(result.result.data.walletBalances);
+              }
+              
+              if (result.result.enrichmentJobId) {
+                setEnrichmentJobId(result.result.enrichmentJobId);
+              } else {
+                setIsLoading(false);
+              }
+              
+              setCurrentJobId(null);
+              setSyncMessage('');
+              
+              toast({
+                title: "Analysis Complete",
+                description: "Results are ready!",
+              });
+            }
+          } catch (error: any) {
+            console.error('Error getting job result:', error);
+            setError(error.message);
+            setIsLoading(false);
           }
-          
-          // Validate the result has the expected structure (data is nested under result.data)
-          if (!result.result.data.pairwiseSimilarities || result.result.data.pairwiseSimilarities.length === 0) {
-            throw new Error("Analysis completed but returned no similarity data. The wallets may have no overlapping activity.");
-          }
-          
-          setAnalysisResult(result.result.data);  // Extract the actual data object
-          
-          // Clear all job-related state
-          setCurrentJobId(null);
-          setJobProgress(0);
-          setSyncMessage('');
-          setIsLoading(false);
-          setIsPolling(false);
-          
-          toast({
-            title: "Analysis Complete",
-            description: "Advanced similarity analysis finished successfully!",
-          });
-          
-          return; // Exit polling
+          return;
         } else if (status.status === 'failed') {
-          const errorMessage = status.data?.error || `Job failed: ${status.data?.failedReason || 'Unknown error'}`;
+          const errorMessage = status.data?.error || 'Job failed';
+          setError(errorMessage);
           setSyncMessage(errorMessage);
-          
-          toast({
-            variant: "destructive", 
-            title: "Analysis Failed",
-            description: errorMessage,
-          });
-          
-          // Clear all job-related state
-          setCurrentJobId(null);
-          setJobProgress(0);
           setIsLoading(false);
-          setIsPolling(false);
-          
-          return; // Exit polling
+          return;
         } else {
-          // Job still in progress
-          setJobProgress(status.progress || 0);
-          setSyncMessage(`Job in progress... ${status.status} (${Math.round(status.progress || 0)}%)`);
+          const progress = status.progress || 0;
+          setJobProgress(progress);
+          setSyncMessage(`Job in progress... ${Math.round(progress)}%`);
         }
         
-        // Continue polling
         setTimeout(poll, 3000);
         
       } catch (error: any) {
-        console.error('Error polling job status:', error);
-        const errorMessage = error?.payload?.message || error.message || 'Job monitoring failed.';
-        setSyncMessage(errorMessage);
-        toast({
-          variant: "destructive",
-          title: "Job Failed",
-          description: errorMessage,
-        });
-        
-        // Clear all job-related state on error
-        setCurrentJobId(null);
-        setJobProgress(0);
+        console.error('Polling error:', error);
+        setError(error.message);
         setIsLoading(false);
-        setIsPolling(false);
       }
     };
     
-    setTimeout(poll, 1000); // Start polling after 1 second
+    setTimeout(poll, 1000);
   };
 
   return (
     <div className="container mx-auto p-4 md:p-5">
       <header className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">Similarity LAB <span className="text-muted-foreground">- discover hidden connections</span></h1>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
+          Similarity LAB <span className="text-muted-foreground">- discover hidden connections</span>
+        </h1>
       </header>
+      
       <div className="bg-card p-6 rounded-lg shadow-sm border">
         <h2 className="text-xl font-semibold mb-2">Wallet Group Similarity</h2>
         <p className="text-muted-foreground mb-4">
           Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
         </p>
+        
         <div className="relative">
           <Textarea
             value={wallets}
             onChange={(e) => setWallets(e.target.value)}
             placeholder="Enter wallet addresses, separated by commas, spaces, or new lines."
-            className="min-h-[70px] font-mono pr-24" // Add padding to avoid text overlapping button
+            className="min-h-[70px] font-mono pr-24"
           />
           <div className="absolute top-1/2 right-3 -translate-y-1/2 flex items-center space-x-2">
             {analysisResult && (
@@ -732,16 +543,17 @@ export default function AnalysisLabPage() {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Populates the Contextual Holdings with the latest token prices and metadata.</p>
+                    <p>Loads the latest token prices and metadata.</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             )}
             <Button onClick={handleAnalyze} disabled={isLoading}>
-                {isLoading ? 'Analyzing...' : 'Analyze'}
+              {isLoading ? 'Analyzing...' : 'Analyze'}
             </Button>
           </div>
         </div>
+        
         {syncMessage && <p className="mt-4 text-center text-sm text-muted-foreground">{syncMessage}</p>}
         
         {/* Analysis Method Selection */}

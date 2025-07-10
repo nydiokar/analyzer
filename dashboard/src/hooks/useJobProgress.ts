@@ -1,245 +1,142 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { toast } from './use-toast';
+import { 
+  JobCompletionData, 
+  JobProgressData, 
+  JobFailedData,
+  EnrichmentCompletionData 
+} from '@/types/websockets';
 
-interface JobProgressData {
-  jobId: string;
-  progress: number;
-  status: string;
-  data?: any;
-}
-
-interface JobCompletedData {
-  jobId: string;
-  result: any;
-  processingTime: number;
-}
-
-interface JobFailedData {
-  jobId: string;
-  error: string;
-  failedReason?: string;
-}
-
-interface EnrichmentCompleteData {
-  requestId: string;
-  enrichedBalances: Record<string, any>;
-  timestamp: number;
-}
-
-interface EnrichmentErrorData {
-  requestId: string;
-  error: string;
-  timestamp: number;
-}
-
-interface UseJobProgressOptions {
-  onJobProgress?: (data: JobProgressData) => void;
-  onJobCompleted?: (data: JobCompletedData) => void;
-  onJobFailed?: (data: JobFailedData) => void;
-  onEnrichmentComplete?: (data: EnrichmentCompleteData) => void;
-  onEnrichmentError?: (data: EnrichmentErrorData) => void;
+/**
+ * Callbacks for the useJobProgress hook.
+ */
+export interface UseJobProgressCallbacks {
+  onJobProgress: (data: JobProgressData) => void;
+  onJobCompleted: (data: JobCompletionData) => void;
+  onJobFailed: (data: JobFailedData) => void;
+  onEnrichmentComplete: (data: EnrichmentCompletionData) => void;
+  onEnrichmentError?: (data: { requestId: string; error: string }) => void;
   onConnectionChange?: (connected: boolean) => void;
 }
 
-interface UseJobProgressReturn {
-  isConnected: boolean;
-  error: string | null;
-  subscribeToJob: (jobId: string) => void;
-  unsubscribeFromJob: (jobId: string) => void;
-  cleanup: () => void;
-}
-
-export function useJobProgress(options: UseJobProgressOptions = {}): UseJobProgressReturn {
+export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
-  const subscribedJobsRef = useRef<Set<string>>(new Set());
-  const failureCountRef = useRef<number>(0);
-  const [websocketDisabled, setWebsocketDisabled] = useState(false);
+  const [socket, setSocket] = useState<Socket | null>(null);
 
-  // Use refs for callbacks to avoid recreating WebSocket connection on every render
-  const callbacksRef = useRef(options);
-  callbacksRef.current = options;
-
-  // WebSocket connection (optional enhancement - polling is the reliable fallback)
+  // Use a ref to store the latest callbacks
+  const callbacksRef = useRef(callbacks);
   useEffect(() => {
-    // Skip WebSocket if disabled due to repeated failures
-    if (websocketDisabled) {
-      console.log('ℹ️ WebSocket disabled - using reliable polling updates');
-      return;
-    }
+    callbacksRef.current = callbacks;
+  }, [callbacks]);
 
-    // SIMPLE APPROACH: Connect directly to backend in all environments
-    // Remove any /api/v1 suffix from base URL for WebSocket connections
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
-    const backendUrl = rawBackendUrl.replace('/api/v1', '');
-    const socketUrl = `${backendUrl}/job-progress`;
-    
-    console.log(`🔌 Attempting WebSocket connection (optional real-time updates): ${socketUrl}`);
-    
-    const socket = io(socketUrl, {
+  useEffect(() => {
+    // Create socket
+    const newSocket = io(process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001/job-progress', {
       autoConnect: true,
-      reconnection: true,
-      reconnectionDelay: 2000,
-      reconnectionAttempts: 2, // Reduced attempts
-      timeout: 10000, // Reduced timeout
-      transports: ['polling', 'websocket'], // Start with polling, upgrade to websocket
-      upgrade: true,
-      rememberUpgrade: false, // Don't remember to allow fresh connections
+      transports: ['websocket'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
-    socketRef.current = socket;
-
-    // Connection event handlers
-    socket.on('connect', () => {
+    // Simple event handlers
+    const handleConnect = () => {
+      console.log('✅ WebSocket connected');
       setIsConnected(true);
       setError(null);
-      failureCountRef.current = 0; // Reset failure count on successful connection
       callbacksRef.current.onConnectionChange?.(true);
-      console.log(`✅ WebSocket connected - real-time updates enabled`);
-    });
+    };
 
-    socket.on('disconnect', (reason) => {
+    const handleDisconnect = (reason: string) => {
+      console.log('🔌 WebSocket disconnected:', reason);
       setIsConnected(false);
       callbacksRef.current.onConnectionChange?.(false);
-      console.log(`ℹ️ WebSocket disconnected: ${reason} - polling fallback active`);
-      // Don't set error for disconnections - this is normal
-    });
+    };
+    
+    const handleError = (error: any) => {
+      console.error('🔌 WebSocket error:', error);
+      setError(error.message || 'WebSocket error');
+    };
 
-    socket.on('connect_error', (err) => {
-      failureCountRef.current += 1;
-      setIsConnected(false);
-      callbacksRef.current.onConnectionChange?.(false);
+    const handleJobCompleted = (data: any) => {
+      console.log('📢 Job completed - RAW EVENT STRUCTURE:', JSON.stringify(data, null, 2));
+      console.log('📢 Job completed - Queue:', data.queue);
+      console.log('📢 Job completed - JobId:', data.jobId);
+      console.log('📢 Job completed - Result structure:', data.result ? Object.keys(data.result) : 'No result');
       
-      // Only log detailed errors in development
-      if (process.env.NODE_ENV === 'development') {
-        console.warn(`⚠️ WebSocket connection failed (${failureCountRef.current}/2):`, err.message);
-      }
-
-      // Disable WebSocket after 2 consecutive failures - no dramatic errors
-      if (failureCountRef.current >= 2) {
-        console.log('ℹ️ WebSocket disabled - using polling updates (equally reliable)');
-        setWebsocketDisabled(true);
-        socket.disconnect();
-      }
-    });
-
-    socket.on('reconnect', (attemptNumber) => {
-      console.log(`✅ WebSocket reconnected - real-time updates restored`);
-      setError(null);
-    });
-
-    socket.on('reconnect_error', (err) => {
-      // Silent in production - this is not critical
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('WebSocket reconnection failed:', err.message);
-      }
-    });
-
-    socket.on('reconnect_failed', () => {
-      console.log('ℹ️ WebSocket reconnection failed - continuing with polling updates');
-    });
-
-    // Job progress event handlers
-    socket.on('job-progress', (data: JobProgressData) => {
-      console.log('📊 Real-time job progress:', data);
-      callbacksRef.current.onJobProgress?.(data);
-    });
-
-    socket.on('job-completed', (data: any) => {
-      // Handle enrichment completion events
-      if (data.queue === 'enrichment' && data.result?.requestId) {
-        console.log('🎨 Real-time enrichment completion:', data);
+      // Handle enrichment completion
+      if (data.queue === 'enrichment-operations' && data.result) {
         callbacksRef.current.onEnrichmentComplete?.(data.result);
       } else {
-        // Handle regular job completion
-        console.log('✅ Real-time job completion:', data);
+        // Pass all job completion events to the main handler
         callbacksRef.current.onJobCompleted?.(data);
       }
-    });
+    };
 
-    socket.on('job-failed', (data: any) => {
-      // Handle enrichment errors
-      if (data.queue === 'enrichment') {
-        console.log('❌ Real-time enrichment failure:', data);
-        callbacksRef.current.onEnrichmentError?.({
-          requestId: data.jobId,
-          error: data.error,
-          timestamp: Date.now()
-        });
+    const handleJobProgress = (data: JobProgressData) => {
+      console.log('📊 Job progress event:', data.jobId, data.progress, data.queue);
+      callbacksRef.current.onJobProgress?.(data);
+    };
+
+    const handleJobFailed = (data: JobFailedData) => {
+      console.error('❌ Job failed:', data.jobId, data.error);
+      if (data.queue === 'enrichment-operations' && callbacksRef.current.onEnrichmentError) {
+        callbacksRef.current.onEnrichmentError?.({ requestId: data.jobId, error: data.error });
       } else {
-        // Handle regular job failure
-        console.log('❌ Real-time job failure:', data);
         callbacksRef.current.onJobFailed?.(data);
       }
-    });
-
-    // Cleanup on unmount
-    return () => {
-      if (socket.connected) {
-        socket.disconnect();
-      }
     };
-  }, [websocketDisabled]); // Only depend on websocketDisabled, not the callbacks
 
-  // Subscribe to job updates
+    // Attach listeners
+    newSocket.on('connect', handleConnect);
+    newSocket.on('disconnect', handleDisconnect);
+    newSocket.on('connect_error', handleError);
+    newSocket.on('job-progress', handleJobProgress);
+    newSocket.on('job-completed', handleJobCompleted);
+    newSocket.on('job-failed', handleJobFailed);
+
+    setSocket(newSocket);
+
+    // Cleanup
+    return () => {
+      newSocket.off('connect', handleConnect);
+      newSocket.off('disconnect', handleDisconnect);
+      newSocket.off('connect_error', handleError);
+      newSocket.off('job-progress', handleJobProgress);
+      newSocket.off('job-completed', handleJobCompleted);
+      newSocket.off('job-failed', handleJobFailed);
+      newSocket.disconnect();
+    };
+  }, []); // Dependencies are intentionally empty to prevent re-connections on re-renders. Callbacks are accessed via a ref.
+
   const subscribeToJob = useCallback((jobId: string) => {
-    if (!socketRef.current) {
-      console.warn('Socket not initialized');
-      return;
+    if (socket?.connected) {
+      console.log('🔔 Subscribing to job:', jobId);
+      socket.emit('subscribe-to-job', { jobId });
+    } else {
+      console.warn('⚠️ Cannot subscribe - socket not connected');
     }
+  }, [socket]);
 
-    if (!socketRef.current.connected) {
-      console.warn('Socket not connected - will subscribe once connected');
-      return;
-    }
-
-    if (subscribedJobsRef.current.has(jobId)) {
-      console.log(`Already subscribed to job: ${jobId}`);
-      return;
-    }
-
-    socketRef.current.emit('subscribe-to-job', { jobId });
-    subscribedJobsRef.current.add(jobId);
-    console.log(`Subscribed to job: ${jobId}`);
-  }, []);
-
-  // Unsubscribe from job updates
   const unsubscribeFromJob = useCallback((jobId: string) => {
-    if (!socketRef.current || !subscribedJobsRef.current.has(jobId)) {
-      return;
+    if (socket?.connected) {
+      console.log('🔕 Unsubscribing from job:', jobId);
+      socket.emit('unsubscribe-from-job', { jobId });
     }
+  }, [socket]);
 
-    if (socketRef.current.connected) {
-      socketRef.current.emit('unsubscribe-from-job', { jobId });
-    }
-    subscribedJobsRef.current.delete(jobId);
-    console.log(`Unsubscribed from job: ${jobId}`);
-  }, []);
-
-  // Cleanup function for manual cleanup
   const cleanup = useCallback(() => {
-    if (socketRef.current) {
-      // Unsubscribe from all jobs
-      subscribedJobsRef.current.forEach(jobId => {
-        if (socketRef.current?.connected) {
-          socketRef.current.emit('unsubscribe-from-job', { jobId });
-        }
-      });
-      subscribedJobsRef.current.clear();
-
-      if (socketRef.current.connected) {
-        socketRef.current.disconnect();
-      }
-      socketRef.current = null;
+    if (socket) {
+      socket.disconnect();
     }
-  }, []);
+  }, [socket]);
 
-  return {
-    isConnected,
-    error,
-    subscribeToJob,
-    unsubscribeFromJob,
-    cleanup
+  return { 
+    subscribeToJob, 
+    unsubscribeFromJob, 
+    isConnected, 
+    error, 
+    cleanup 
   };
-} 
+};

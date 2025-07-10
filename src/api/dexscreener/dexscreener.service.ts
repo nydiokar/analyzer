@@ -21,8 +21,8 @@ export class DexscreenerService {
     if (tokenAddresses.length === 0) {
       return;
     }
-    // Fire-and-forget
-    this.coreDexscreenerService.fetchAndSaveTokenInfo(tokenAddresses);
+    // Await the core service to ensure completion.
+    await this.coreDexscreenerService.fetchAndSaveTokenInfo(tokenAddresses);
   }
 
   async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {

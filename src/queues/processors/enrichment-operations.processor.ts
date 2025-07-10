@@ -80,7 +80,20 @@ export class EnrichmentOperationsProcessor {
       }
       
       // Use the existing sophisticated enrichment logic
-      const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
+      const { enrichedBalances, summary } = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
+      
+      // If no new tokens were actually fetched, we can short-circuit the expensive cache write.
+      if (summary.newTokensFetched === 0) {
+        this.logger.log(`Skipping cache write for request ${requestId} as no new token metadata was fetched.`);
+        await this.websocketGateway.publishCompletedEvent(
+          job.id!,
+          'enrichment',
+          enrichedBalances,
+          Date.now() - startTime
+        );
+        this.logger.log(`Parallel enrichment completed for requestId: ${requestId} (no-op).`);
+        return { enrichedBalances };
+      }
       
       // Store enriched result in Redis cache
       const cacheKey = `enrich:${requestId}`;
@@ -181,94 +194,75 @@ export class EnrichmentOperationsProcessor {
   }
 
   /**
-   * Sophisticated balance enrichment logic transferred from similarity service
-   * Preserves all smart features: database-first optimization, smart batching, background processing
+   * Sophisticated balance enrichment logic using actual service methods.
+   * This version is corrected to use the real implementation.
    */
   public async enrichBalancesWithSophisticatedLogic(
     walletBalances: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>,
     job: Job
-  ): Promise<Record<string, any>> {
+  ): Promise<{ enrichedBalances: Record<string, any>, summary: { newTokensFetched: number, totalTokens: number } }> {
     this.logger.log(`Enriching balances for ${Object.keys(walletBalances).length} wallets using sophisticated logic.`);
     
     try {
       const allMints = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
       const uniqueMints = [...new Set(allMints)];
 
-      // TODO: Add Redis caching here to fix 10-15k token performance bottleneck
-      // const cacheKey = `token_metadata_${uniqueMints.sort().join('|')}`;
-      // Check Redis cache first before hitting database/external APIs
+      // Step 1: Find existing metadata in the database.
+      const existingTokens = await this.tokenInfoService.findMany(uniqueMints);
+      const existingTokensMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
+      this.logger.log(`Found ${existingTokens.length} existing token metadata records in the database.`);
 
-      // Step 1: Find all existing metadata in our database (database-first optimization)
-      const existingMetadata = await this.tokenInfoService.findMany(uniqueMints);
-      const existingMetadataMap = new Map(existingMetadata.map(t => [t.tokenAddress, t]));
-      this.logger.log(`Found ${existingMetadataMap.size} existing token metadata records in the database.`);
+      // Step 2: Identify mints that need fetching (new or stale).
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const tokensToFetch = uniqueMints.filter(mint => {
+        const existingToken = existingTokensMap.get(mint);
+        // Fetch if the token doesn't exist OR if it exists but hasn't been updated recently.
+        return !existingToken || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
+      });
+      this.logger.log(`Identified ${tokensToFetch.length} new or stale tokens requiring metadata fetch.`);
 
-      // Step 2: Identify mints that need fetching
-      const mintsNeedingMetadata = uniqueMints.filter(mint => !existingMetadataMap.has(mint));
-      this.logger.log(`Identified ${mintsNeedingMetadata.length} new tokens requiring metadata fetch.`);
-
-      // Step 3: Handle large token sets efficiently (smart batching)
-      let pricesMap: Map<string, number>;
-      let allMetadata: any[];
-
-      if (mintsNeedingMetadata.length > 1000) {
-        this.logger.warn(`Large token set (${mintsNeedingMetadata.length}) detected. Using optimized enrichment strategy.`);
+      // Step 3: Fetch and save info for new tokens if any exist.
+      if (tokensToFetch.length > 0) {
+        this.logger.log(`Processing ${tokensToFetch.length} tokens synchronously.`);
+        // This service fetches and saves token info, effectively updating them.
+        await this.dexscreenerService.fetchAndSaveTokenInfo(tokensToFetch);
         
-        // For large sets, prioritize speed over completeness
-        // Get prices for all tokens, but only fetch metadata for existing tokens
-        pricesMap = await this.dexscreenerService.getTokenPrices(uniqueMints);
-        allMetadata = existingMetadata; // Use only existing metadata
-        
-        // Trigger background enrichment for missing tokens (background processing)
-        this.triggerBackgroundEnrichment(mintsNeedingMetadata).catch(error => {
-          this.logger.warn('Background enrichment failed:', error);
-        });
-        
-        await job.updateProgress(70);
-      } else {
-        // For small sets, use the full synchronous enrichment
-        this.logger.log(`Processing ${mintsNeedingMetadata.length} tokens synchronously.`);
-        
-        const [prices, _] = await Promise.all([
-          this.dexscreenerService.getTokenPrices(uniqueMints),
-          this.dexscreenerService.fetchAndSaveTokenInfo(mintsNeedingMetadata),
-        ]);
-        
-        pricesMap = prices;
-        allMetadata = await this.tokenInfoService.findMany(uniqueMints);
-        await job.updateProgress(70);
+        // Re-fetch all tokens to include the newly added/updated ones.
+        const allTokensNow = await this.tokenInfoService.findMany(uniqueMints);
+        for (const token of allTokensNow) {
+          if (!existingTokensMap.has(token.tokenAddress)) {
+            existingTokensMap.set(token.tokenAddress, token);
+          }
+        }
       }
       
-      // Step 4: Build final metadata map
-      const combinedMetadataMap = new Map(allMetadata.map(t => [t.tokenAddress, t]));
-
-      // Step 5: Enrich the original balances object
-      const enrichedBalances = { ...walletBalances };
-      for (const walletAddress in enrichedBalances) {
-        const balanceData = enrichedBalances[walletAddress];
-        balanceData.tokenBalances = balanceData.tokenBalances.map((tb: any) => {
-          const price = pricesMap.get(tb.mint);
-          const metadata = combinedMetadataMap.get(tb.mint);
-          const valueUsd = (tb.uiBalance && price) ? tb.uiBalance * price : null;
-          
-          return { 
-            ...tb, 
-            valueUsd,
-            name: metadata?.name,
-            symbol: metadata?.symbol,
-            imageUrl: metadata?.imageUrl,
-          };
-        });
+      // Step 4: Enrich the original balances object with the metadata.
+      const finalEnrichedBalances = { ...walletBalances };
+      for (const walletAddress in finalEnrichedBalances) {
+        const balances = finalEnrichedBalances[walletAddress].tokenBalances as any[];
+        for (const tokenBalance of balances) {
+          const tokenInfo = existingTokensMap.get(tokenBalance.mint);
+          if (tokenInfo) {
+            // Add metadata fields to the balance object
+            tokenBalance.name = tokenInfo.name;
+            tokenBalance.symbol = tokenInfo.symbol;
+            tokenBalance.imageUrl = tokenInfo.imageUrl;
+          }
+        }
       }
       
-      await job.updateProgress(90);
-
-      // TODO: Cache the enriched result in Redis with TTL
-      this.logger.log(`Successfully enriched balances for ${Object.keys(enrichedBalances).length} wallets with ${combinedMetadataMap.size} tokens having metadata.`);
-      return enrichedBalances;
+      // Step 5: Return the result with a summary.
+      return { 
+        enrichedBalances: finalEnrichedBalances, 
+        summary: {
+          newTokensFetched: tokensToFetch.length, // This now represents tokens that were new or stale.
+          totalTokens: uniqueMints.length
+        }
+      };
+      
     } catch (error) {
-      this.logger.error('Error enriching wallet balances with sophisticated logic', { error });
-      throw new Error('An error occurred while enriching balances.');
+      this.logger.error(`Error in enrichBalancesWithSophisticatedLogic for job ${job.id}:`, error);
+      throw error;
     }
   }
 

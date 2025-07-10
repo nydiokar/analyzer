@@ -121,26 +121,34 @@ export class SimilarityOperationsProcessor {
       // STEP 2: HANDLE BALANCE FETCH COMPLETION (SHORT TASK)
       this.logger.log('Awaiting raw balance fetch to complete...');
       const balancesMap = await balancePromise;
-      this.logger.log('Raw balances fetched. Caching and triggering parallel enrichment job...');
+      this.logger.log('Raw balances fetched. Caching and kicking off parallel heavy tasks...');
       await job.updateProgress(15);
 
-      // Cache balances and trigger enrichment immediately. This now runs in parallel to the sync.
+      // Cache balances immediately so the enrichment job can find them.
       for (const [walletAddress, balanceData] of balancesMap) {
         await this.balanceCacheService.cacheBalances(walletAddress, balanceData);
       }
-      const enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
-        walletAddresses,
-        requestId,
-      });
-      this.logger.log(`Parallel enrichment job has been queued for request: ${requestId}.`);
-      await job.updateProgress(20);
+      
+      let enrichmentJob: Job | undefined;
+      if (enrichMetadata) {
+        // STEP 2: TRIGGER PARALLEL ENRICHMENT (FIRE & FORGET)
+        this.logger.log(`Triggering parallel enrichment job for request: ${requestId}.`);
+        enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
+          walletAddresses,
+          requestId,
+        });
+        this.logger.log(`Parallel enrichment job has been queued for request: ${requestId}.`);
+      }
 
-      // STEP 3: AWAIT DEEP SYNC COMPLETION (LONG TASK)
-      this.logger.log('Awaiting deep sync and analysis to complete...');
-      await syncPromise;
-      this.logger.log('Deep sync and analysis finished.');
-      await job.updateProgress(60);
-      this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
+      // STEP 3: AWAIT DEEP SYNC COMPLETION (if needed)
+      // This is the primary long-running task for this flow.
+      if (syncRequired) {
+        this.logger.log('Awaiting deep sync and analysis to complete...');
+        await syncPromise;
+        this.logger.log('Deep sync and analysis finished.');
+        await job.updateProgress(60);
+        this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
+      }
 
       // STEP 4: FINAL ANALYSIS (using balances from STEP 2)
       this.logger.log('Starting final similarity calculation with raw balances...');
@@ -172,7 +180,7 @@ export class SimilarityOperationsProcessor {
         requestId: requestId,
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime,
-        enrichmentJobId: enrichmentJob.id, // Include enrichment job ID for frontend subscription
+        enrichmentJobId: enrichmentJob?.id, // Include enrichment job ID for frontend subscription
         metadata: {
           requestedWallets: walletAddresses.length,
           processedWallets: walletAddresses.length,

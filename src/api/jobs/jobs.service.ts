@@ -203,6 +203,39 @@ export class JobsService {
     throw new NotFoundException(`Job with ID ${jobId} not found in any queue`);
   }
 
+  async cancelJob(jobId: string): Promise<{ success: boolean; message: string }> {
+    this.logger.log(`Received request to cancel job: ${jobId}`);
+
+    const queues = [
+      { name: 'wallet-operations', queue: this.walletOperationsQueue },
+      { name: 'analysis-operations', queue: this.analysisOperationsQueue },
+      { name: 'similarity-operations', queue: this.similarityOperationsQueue },
+      { name: 'enrichment-operations', queue: this.enrichmentOperationsQueue },
+    ];
+
+    for (const { name, queue } of queues) {
+      const job = await queue.getJob(jobId);
+      if (job) {
+        if (await job.isWaiting() || await job.isActive()) {
+          try {
+            await job.remove();
+            this.logger.log(`Successfully removed job ${jobId} from queue ${name}.`);
+            return { success: true, message: `Job ${jobId} was successfully cancelled.` };
+          } catch (error) {
+            this.logger.error(`Error removing job ${jobId} from queue ${name}:`, error);
+            throw new Error(`Failed to cancel job ${jobId}.`);
+          }
+        } else {
+          const state = await job.getState();
+          this.logger.warn(`Job ${jobId} could not be cancelled because it is already in state: ${state}.`);
+          return { success: false, message: `Job ${jobId} could not be cancelled. Status: ${state}.` };
+        }
+      }
+    }
+
+    throw new NotFoundException(`Job with ID ${jobId} not found for cancellation.`);
+  }
+
   async getQueueStats(queueName: string): Promise<QueueStatsResponseDto> {
     this.logger.log(`Fetching stats for queue: ${queueName}`);
 

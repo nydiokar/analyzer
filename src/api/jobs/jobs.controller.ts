@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode } from '@nestjs/common';
+import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { JobsService } from './jobs.service';
 import { JobState } from 'bullmq';
@@ -141,6 +141,21 @@ export class JobsController {
   async getJobResult(@Param('jobId') jobId: string): Promise<{ jobId: string; status: string; result?: any; error?: string }> {
     return this.jobsService.getJobResult(jobId);
   }
+
+  /*
+  @Delete(':jobId')
+  @ApiOperation({
+    summary: 'Cancel a running or pending job',
+    description: 'Attempts to find and remove a job from its queue if it is currently waiting or active.'
+  })
+  @ApiParam({ name: 'jobId', description: 'The unique job ID to cancel', type: String })
+  @ApiResponse({ status: 200, description: 'Job cancelled successfully.' })
+  @ApiResponse({ status: 404, description: 'Job not found.' })
+  @ApiResponse({ status: 400, description: 'Job is already completed or failed and cannot be cancelled.' })
+  async cancelJob(@Param('jobId') jobId: string) {
+    return this.jobsService.cancelJob(jobId);
+  }
+  */
 
   @Get('queue/:queueName/stats')
   @ApiOperation({ 
