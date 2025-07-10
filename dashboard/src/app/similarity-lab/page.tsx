@@ -49,6 +49,7 @@ export default function AnalysisLabPage() {
   
   // Job tracking for advanced method
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
   const [isPolling, setIsPolling] = useState(false);
@@ -73,7 +74,7 @@ export default function AnalysisLabPage() {
     },
     onEnrichmentComplete: (data) => {
       // Handle enrichment completion for progressive enhancement
-      if (data.requestId && analysisResult && data.enrichedBalances) {
+      if (data.requestId && data.requestId === currentRequestId && analysisResult && data.enrichedBalances) {
         console.log('🎨 Enrichment completed for request:', data.requestId);
         setEnrichedBalances(data.enrichedBalances);
         setIsEnriching(false);
@@ -87,7 +88,7 @@ export default function AnalysisLabPage() {
     },
     onEnrichmentError: (data) => {
       // Handle enrichment errors gracefully
-      if (data.requestId && analysisResult) {
+      if (data.requestId && data.requestId === currentRequestId && analysisResult) {
         console.error('❌ Enrichment failed for request:', data.requestId, data.error);
         setIsEnriching(false);
         
@@ -118,33 +119,21 @@ export default function AnalysisLabPage() {
           
           setAnalysisResult(result.result.data);
           
-          // Set enrichment loading state and subscribe to enrichment job
+          // The new backend flow triggers enrichment in parallel.
+          // The UI will now show the raw results immediately and wait for the
+          // onEnrichmentComplete WebSocket event to populate metadata.
+          // We set isEnriching to true to show a loading state in the UI.
           if (result.result.data.walletBalances && analysisMethod === 'advanced') {
             setIsEnriching(true);
-            setEnrichedBalances(result.result.data.walletBalances);
-            
-            // Subscribe to enrichment job if it was queued
-            if (result.result.enrichmentJobId) {
-              setEnrichmentJobId(result.result.enrichmentJobId);
-              subscribeToJob(result.result.enrichmentJobId);
-              
-              toast({
-                title: "Analysis Complete",
-                description: "Results loaded! Enriching with token metadata...",
-                variant: "default",
-              });
-            } else {
-              // No enrichment job was queued (error case)
-              setIsEnriching(false);
-              toast({
-                title: "Analysis Complete",
-                description: "Results loaded! Token enrichment unavailable.",
-                variant: "default",
-              });
-            }
+            setEnrichedBalances(result.result.data.walletBalances); // Show raw balances first
+            toast({
+              title: "Analysis Complete",
+              description: "Results loaded! Waiting for token metadata enrichment...",
+              variant: "default",
+            });
           }
           
-          // Clean up similarity job subscription but keep enrichment subscription active
+          // Clean up similarity job subscription
           unsubscribeFromJob(data.jobId);
           setCurrentJobId(null);
           setJobProgress(0);
@@ -224,12 +213,12 @@ export default function AnalysisLabPage() {
       // Handle enrichment job failure  
       if (data.jobId === enrichmentJobId) {
         console.error('Enrichment job failed:', data);
-        setIsEnriching(false);
+        setIsEnriching(false); // Stop the loading indicator
         
         toast({
           variant: "destructive",
           title: "Enrichment Failed", 
-          description: data.error || "Token enrichment failed. Raw results are still available.",
+          description: data.error || "Token enrichment failed. You can try again manually.",
         });
         
         // Cleanup enrichment job subscription
@@ -347,6 +336,7 @@ export default function AnalysisLabPage() {
     setJobProgress(0);
     setIsPolling(false);
     setUseWebSocket(true);
+    setCurrentRequestId(null);
 
     const rawWalletList = wallets
       .replace(/[,|\n\r]+/g, ' ') // Robustly handle different separators
@@ -538,6 +528,7 @@ export default function AnalysisLabPage() {
       });
 
       setCurrentJobId(jobResponse.jobId);
+      setCurrentRequestId(jobResponse.requestId); // 🔑 Store the request ID for correlation
       setSyncMessage(`Job submitted! ID: ${jobResponse.jobId.slice(0, 8)}...`);
       
       // 🔑 IMMEDIATE SUBSCRIPTION: Subscribe right away, don't wait
@@ -678,12 +669,12 @@ export default function AnalysisLabPage() {
             className="min-h-[70px] font-mono pr-24" // Add padding to avoid text overlapping button
           />
           <div className="absolute top-1/2 right-3 -translate-y-1/2 flex items-center space-x-2">
-            {analysisResult && !isEnriching && (
+            {analysisResult && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button onClick={handleEnrichData} variant="outline" size="sm">
-                      Refresh Prices
+                    <Button onClick={handleEnrichData} variant="outline" size="sm" disabled={isEnriching}>
+                      {isEnriching ? 'Enriching...' : 'Refresh Prices'}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -692,7 +683,6 @@ export default function AnalysisLabPage() {
                 </Tooltip>
               </TooltipProvider>
             )}
-            {isEnriching && <span className="text-sm text-muted-foreground">Loading...</span>}
             <Button onClick={handleAnalyze} disabled={isLoading}>
                 {isLoading ? 'Analyzing...' : 'Analyze'}
             </Button>

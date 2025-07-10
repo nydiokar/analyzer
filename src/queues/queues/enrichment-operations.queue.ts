@@ -29,9 +29,18 @@ export class EnrichmentOperationsQueue {
     });
   }
 
-
-
-
+  /**
+   * Add a parallel enrichment job to the queue, triggered by the main similarity flow
+   */
+  async addParallelEnrichmentJob(data: { walletAddresses: string[], requestId: string }, options?: { priority?: number; delay?: number }) {
+    const jobId = generateJobId.enrichParallel(data.requestId);
+    
+    return this.queue.add('parallel-enrichment', data, {
+      jobId,
+      priority: options?.priority || 7, // Lower priority than core analysis
+      delay: options?.delay || 0,
+    });
+  }
 
   /**
    * Get job by ID

@@ -7,7 +7,7 @@ export interface JobIdGenerator {
   analyzeBehavior: (walletAddress: string, dependsOnSync?: string) => string;
   calculateSimilarity: (walletAddresses: string[], requestId: string) => string;
   enrichMetadata: (tokenAddress: string, requestId?: string) => string;
-  fetchDexScreener: (tokenAddress: string, requestId?: string) => string;
+  enrichParallel: (requestId: string) => string;
 }
 
 export const generateJobId: JobIdGenerator = {
@@ -39,11 +39,11 @@ export const generateJobId: JobIdGenerator = {
     const hashInput = `enrich-${tokenAddress}-${requestId}`;
     return `enrich-${crypto.createHash('md5').update(hashInput).digest('hex').slice(0, 8)}`;
   },
-  
-  fetchDexScreener: (tokenAddress: string, requestId = 'default') => {
-    const hashInput = `dex-${tokenAddress}-${requestId}`;
-    return `dex-${crypto.createHash('md5').update(hashInput).digest('hex').slice(0, 8)}`;
-  }
+
+  enrichParallel: (requestId: string) => {
+    const hashInput = `enrich-parallel-${requestId}`;
+    return `enrich-parallel-${crypto.createHash('md5').update(hashInput).digest('hex').slice(0, 12)}`;
+  },
 };
 
 // Utility function to validate job ID format

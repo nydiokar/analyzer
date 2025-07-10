@@ -9,7 +9,6 @@ import { HeliusApiClient } from '@/core/services/helius-api-client';
 import { TokenInfoService } from '../../token-info/token-info.service';
 import { WalletBalanceService } from '@/core/services/wallet-balance-service';
 import { CombinedSimilarityResult } from '@/types/similarity';
-import { DexscreenerService } from '../../dexscreener/dexscreener.service';
 
 
 const logger = createLogger('SimilarityApiService');
@@ -22,7 +21,6 @@ export class SimilarityApiService {
         private readonly databaseService: DatabaseService,
         private readonly heliusApiClient: HeliusApiClient,
         private readonly tokenInfoService: TokenInfoService,
-        private readonly dexscreenerService: DexscreenerService,
     ) {
         this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
     }

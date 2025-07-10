@@ -32,9 +32,7 @@ export class SimilarityOperationsProcessor {
     private readonly heliusSyncService: HeliusSyncService,
     private readonly pnlAnalysisService: PnlAnalysisService,
     private readonly behaviorService: BehaviorService,
-    private readonly enrichmentProcessor: EnrichmentOperationsProcessor,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
-    private readonly websocketGateway: JobProgressGateway,
     private readonly balanceCacheService: BalanceCacheService,
   ) {
     // Initialize WalletBalanceService
@@ -103,38 +101,40 @@ export class SimilarityOperationsProcessor {
       await job.updateProgress(5);
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
-      // STEP 1: PARALLEL I/O KICK-OFF
-      let balancesMap: Map<string, any>;
+      // STEP 1: PARALLEL KICK-OFF OF LONG & SHORT TASKS
+      this.logger.log('Kicking off deep sync and balance fetch in parallel.');
       
-      if (syncRequired) {
-        this.logger.log('Kicking off deep sync and balance fetch in parallel.');
-        this.logger.log(`Syncing ${walletsNeedingSync.length}/${walletAddresses.length} wallets: ${walletsNeedingSync.join(', ')}`);
-        
-        const [syncSettlement, balancesSettlement] = await Promise.allSettled([
-          this._orchestrateDeepSync(walletsNeedingSync, job), // Only sync wallets that need it
-          this.walletBalanceService.fetchWalletBalancesRaw(walletAddresses) // Fetch all balances
-        ]);
+      const syncPromise = syncRequired 
+        ? this._orchestrateDeepSync(walletsNeedingSync, job)
+        : Promise.resolve();
 
-        // Critical Path Failure Handling
-        if (syncSettlement.status === 'rejected') {
-          this.logger.error('Critical failure during historical sync:', syncSettlement.reason);
-          throw new Error(`Critical failure during historical sync: ${syncSettlement.reason}`);
-        }
-        if (balancesSettlement.status === 'rejected') {
-          this.logger.error('Critical failure during balance fetching:', balancesSettlement.reason);
-          throw new Error(`Critical failure during balance fetching: ${balancesSettlement.reason}`);
-        }
-        balancesMap = balancesSettlement.value;
-      } else {
-        this.logger.log('Skipping deep sync, fetching current balances only.');
-        balancesMap = await this.walletBalanceService.fetchWalletBalancesRaw(walletAddresses);
+      const balancePromise = this.walletBalanceService.fetchWalletBalancesRaw(walletAddresses);
+
+      // STEP 2: HANDLE BALANCE FETCH COMPLETION (SHORT TASK)
+      this.logger.log('Awaiting raw balance fetch to complete...');
+      const balancesMap = await balancePromise;
+      this.logger.log('Raw balances fetched. Caching and triggering parallel enrichment job...');
+      await job.updateProgress(15);
+
+      // Cache balances and trigger enrichment immediately. This now runs in parallel to the sync.
+      for (const [walletAddress, balanceData] of balancesMap) {
+        await this.balanceCacheService.cacheBalances(walletAddress, balanceData);
       }
-      
-      this.logger.log('Deep sync and balance fetch complete. DB is ready.');
-      await job.updateProgress(60); // Progress checkpoint after the slowest parts
+      await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
+        walletAddresses,
+        requestId,
+      });
+      this.logger.log(`Parallel enrichment job has been queued for request: ${requestId}.`);
+      await job.updateProgress(20);
+
+      // STEP 3: AWAIT DEEP SYNC COMPLETION (LONG TASK)
+      this.logger.log('Awaiting deep sync and analysis to complete...');
+      await syncPromise;
+      this.logger.log('Deep sync and analysis finished.');
+      await job.updateProgress(60);
       this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
 
-      // STEP 2: FINAL ANALYSIS (Raw balances, enrichment will be handled by job queue)
+      // STEP 4: FINAL ANALYSIS (using balances from STEP 2)
       this.logger.log('Starting final similarity calculation with raw balances...');
       const similarityResult = await this.similarityApiService.runAnalysis({
         walletAddresses: walletAddresses,
@@ -144,10 +144,9 @@ export class SimilarityOperationsProcessor {
       await job.updateProgress(90);
       this.checkTimeout(startTime, timeoutMs, 'Final analysis');
 
-      // STEP 3: PREPARE RESULTS (Raw balances, enrichment will run in background)
+      // STEP 5: PREPARE RESULTS (Raw balances, enrichment runs in background)
       const finalResult = similarityResult;
       
-      // Convert balances map to the format expected by the result
       const rawBalances: Record<string, any> = {};
       for (const [walletAddress, balanceData] of balancesMap) {
         rawBalances[walletAddress] = balanceData;
@@ -158,12 +157,6 @@ export class SimilarityOperationsProcessor {
 
       await job.updateProgress(100);
       this.checkTimeout(startTime, timeoutMs, 'Final result preparation');
-
-      // STEP 4: CACHE BALANCES FOR PARALLEL PROCESSING
-      this.logger.log('Caching balances for parallel processing...');
-      for (const [walletAddress, balanceData] of balancesMap) {
-        await this.balanceCacheService.cacheBalances(walletAddress, balanceData);
-      }
 
       const result: SimilarityFlowResult = {
         success: true,
