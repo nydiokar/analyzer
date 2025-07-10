@@ -37,6 +37,12 @@ export class SimilarityOperationsProcessor {
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly balanceCacheService: BalanceCacheService,
   ) {
+    // Debug: Check if TokenInfoService is available
+    this.logger.log(`TokenInfoService available: ${!!this.tokenInfoService}`);
+    if (!this.tokenInfoService) {
+      this.logger.warn('TokenInfoService is not available in SimilarityOperationsProcessor constructor!');
+    }
+    
     // Initialize WalletBalanceService
     this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
@@ -76,7 +82,7 @@ export class SimilarityOperationsProcessor {
    * This is the true "Advanced Analysis" flow.
    */
   async processSimilarityFlow(job: Job<ComprehensiveSimilarityFlowData>): Promise<SimilarityFlowResult> {
-    const { walletAddresses, requestId, walletsNeedingSync = [], enrichMetadata = false, failureThreshold = 0.8, timeoutMinutes = 45, similarityConfig } = job.data;
+    const { walletAddresses, requestId, walletsNeedingSync = [], enrichMetadata = true, failureThreshold = 0.8, timeoutMinutes = 45, similarityConfig } = job.data;
     
     // Determine if sync is needed based on the wallets list (no redundant boolean needed)
     const syncRequired = walletsNeedingSync.length > 0;
@@ -122,7 +128,7 @@ export class SimilarityOperationsProcessor {
       for (const [walletAddress, balanceData] of balancesMap) {
         await this.balanceCacheService.cacheBalances(walletAddress, balanceData);
       }
-      await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
+      const enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
         walletAddresses,
         requestId,
       });
@@ -166,6 +172,7 @@ export class SimilarityOperationsProcessor {
         requestId: requestId,
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime,
+        enrichmentJobId: enrichmentJob.id, // Include enrichment job ID for frontend subscription
         metadata: {
           requestedWallets: walletAddresses.length,
           processedWallets: walletAddresses.length,

@@ -91,6 +91,7 @@ export interface AnalysisResult extends JobResult {
 
 export interface SimilarityFlowResult extends JobResult {
   requestId: string;
+  enrichmentJobId?: string; // Job ID for background enrichment subscription
   metadata: {
     requestedWallets: number;
     processedWallets: number;

@@ -64,7 +64,7 @@ export class EnrichmentOperationsProcessor {
    * Process parallel enrichment job using cached balances
    * This runs in the enrichQ queue for the new parallel architecture
    */
-  async processParallelEnrichment(job: Job<{ walletAddresses: string[]; requestId: string }>): Promise<void> {
+  async processParallelEnrichment(job: Job<{ walletAddresses: string[]; requestId: string }>): Promise<{ enrichedBalances: Record<string, any> }> {
     const { walletAddresses, requestId } = job.data;
     const startTime = Date.now();
     
@@ -93,7 +93,7 @@ export class EnrichmentOperationsProcessor {
       
       // Emit WebSocket event for frontend update
       await this.websocketGateway.publishCompletedEvent(
-        requestId,
+        job.id!,  // Use the actual job ID that frontend subscribes to
         'enrichment',
         enrichedBalances,
         Date.now() - startTime
@@ -101,12 +101,15 @@ export class EnrichmentOperationsProcessor {
       
       this.logger.log(`Parallel enrichment completed for requestId: ${requestId}`);
       
+      // Return the enriched balances for the frontend to consume
+      return { enrichedBalances };
+      
     } catch (error) {
       this.logger.error(`Parallel enrichment failed for requestId: ${requestId}`, error);
       
       // Emit failure event
       await this.websocketGateway.publishFailedEvent(
-        requestId,
+        job.id!,  // Use the actual job ID that frontend subscribes to
         'enrichment',
         error instanceof Error ? error.message : String(error),
         1,

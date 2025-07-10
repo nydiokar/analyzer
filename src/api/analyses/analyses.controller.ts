@@ -228,7 +228,7 @@ export class AnalysesController {
         walletAddresses: dto.walletAddresses,
         requestId,
         walletsNeedingSync, // Pass specific wallets to sync (empty array = no sync needed)
-        enrichMetadata: false, // Don't enrich metadata in similarity flow (handled separately)
+        enrichMetadata: true, // Enable metadata enrichment for proper token display
         failureThreshold: 0.8, // 80% success rate required
         timeoutMinutes: walletsNeedingSync.length > 0 ? 45 : 15, // Longer timeout if sync is needed
         similarityConfig: {

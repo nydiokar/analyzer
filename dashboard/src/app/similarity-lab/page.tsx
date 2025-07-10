@@ -126,6 +126,14 @@ export default function AnalysisLabPage() {
           if (result.result.data.walletBalances && analysisMethod === 'advanced') {
             setIsEnriching(true);
             setEnrichedBalances(result.result.data.walletBalances); // Show raw balances first
+            
+            // Subscribe to the enrichment job if we have the job ID
+            if (result.result.enrichmentJobId) {
+              setEnrichmentJobId(result.result.enrichmentJobId);
+              subscribeToJob(result.result.enrichmentJobId);
+              console.log('🔔 Subscribed to enrichment job:', result.result.enrichmentJobId);
+            }
+            
             toast({
               title: "Analysis Complete",
               description: "Results loaded! Waiting for token metadata enrichment...",
@@ -569,6 +577,7 @@ export default function AnalysisLabPage() {
           vectorType: 'capital',
           failureThreshold: 0.8,
           timeoutMinutes: 30,
+          enrichMetadata: true, // Enable token metadata enrichment
         }),
       });
 
