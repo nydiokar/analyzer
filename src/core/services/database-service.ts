@@ -1801,5 +1801,25 @@ export class DatabaseService {
         });
         return results.map(r => r.tokenAddress);
     }
+
+    /**
+     * Finds multiple TokenInfo records but only selects a partial set of fields.
+     * This is optimized for the similarity lab's "skeleton" load.
+     */
+    async findManyTokenInfoPartial(tokenAddresses: string[]): Promise<Partial<TokenInfo>[]> {
+        if (tokenAddresses.length === 0) {
+            return [];
+        }
+        return this.prismaClient.tokenInfo.findMany({
+            where: { tokenAddress: { in: tokenAddresses } },
+            select: {
+                tokenAddress: true,
+                name: true,
+                symbol: true,
+                imageUrl: true,
+                priceUsd: true,
+            },
+        });
+    }
 }
 

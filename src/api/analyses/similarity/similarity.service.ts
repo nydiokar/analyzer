@@ -1,34 +1,30 @@
-import { Injectable, InternalServerErrorException, BadRequestException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, BadRequestException, Logger } from '@nestjs/common';
 import { createLogger } from '@/core/utils/logger';
 import { DatabaseService } from '../../database/database.service';
 import { SimilarityService } from '@/core/analysis/similarity/similarity-service';
 import { SimilarityAnalysisRequestDto } from './similarity-analysis.dto';
 import { SimilarityAnalysisConfig } from '@/types/analysis';
 import { DEFAULT_EXCLUDED_MINTS } from '../../../config/constants';
-import { HeliusApiClient } from '@/core/services/helius-api-client';
 import { TokenInfoService } from '../../token-info/token-info.service';
-import { WalletBalanceService } from '@/core/services/wallet-balance-service';
 import { CombinedSimilarityResult } from '@/types/similarity';
-
+import { BalanceCacheService } from '../../balance-cache/balance-cache.service';
+import { WalletBalance } from '@/types/wallet';
 
 const logger = createLogger('SimilarityApiService');
 
 @Injectable()
 export class SimilarityApiService {
-    private walletBalanceService: WalletBalanceService;
+    private readonly logger = new Logger(SimilarityApiService.name);
 
     constructor(
         private readonly databaseService: DatabaseService,
-        private readonly heliusApiClient: HeliusApiClient,
+        private readonly balanceCacheService: BalanceCacheService,
         private readonly tokenInfoService: TokenInfoService,
-    ) {
-        this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
-    }
+    ) {}
 
-    async runAnalysis(dto: SimilarityAnalysisRequestDto, freshBalancesMap?: Map<string, any>): Promise<CombinedSimilarityResult> {
-        logger.info(`Received request to run comprehensive similarity analysis for ${dto.walletAddresses.length} wallets.`, {
+    async runAnalysis(dto: SimilarityAnalysisRequestDto): Promise<CombinedSimilarityResult> {
+        this.logger.log(`Received request to run comprehensive similarity analysis for ${dto.walletAddresses.length} wallets.`, {
             wallets: dto.walletAddresses,
-            usingProvidedBalances: !!freshBalancesMap
         });
 
         if (!dto.walletAddresses || dto.walletAddresses.length < 2) {
@@ -41,54 +37,56 @@ export class SimilarityApiService {
             };
 
             const similarityAnalyzer = new SimilarityService(this.databaseService, config);
-            // Use raw balance fetching for faster analysis - metadata will be enriched separately
-            const balancesMap = freshBalancesMap || await this.walletBalanceService.fetchWalletBalancesRaw(dto.walletAddresses);
+            
+            // Fetch fresh, fully-structured balances HERE, inside the service.
+            const balancesMap = new Map<string, WalletBalance>();
+            for (const address of dto.walletAddresses) {
+                const balance = await this.balanceCacheService.getBalances(address);
+                if (balance) {
+                    balancesMap.set(address, balance);
+                }
+            }
+            
+            // --- Pre-enrich balances with existing metadata ---
+            const uniqueMints = Array.from(new Set(
+                [...balancesMap.values()].flatMap(balance => balance.tokenBalances.map(tb => tb.mint))
+            ));
 
-            // --- Start: Parallel Execution ---
+            const tokenInfo = await this.tokenInfoService.findManyPartial(uniqueMints);
+            const tokenInfoMap = new Map(tokenInfo.map(info => [info.tokenAddress, info]));
+
+            for (const [walletAddress, balance] of balancesMap) {
+                for (const tokenBalance of balance.tokenBalances) {
+                    const info = tokenInfoMap.get(tokenBalance.mint);
+                    if (info) {
+                        tokenBalance.name = info.name;
+                        tokenBalance.symbol = info.symbol;
+                        tokenBalance.imageUrl = info.imageUrl;
+
+                        if (info.priceUsd) {
+                            const price = parseFloat(info.priceUsd);
+                            const rawBalance = BigInt(tokenBalance.balance);
+                            const divisor = BigInt(10 ** tokenBalance.decimals);
+                            const numericBalance = Number(rawBalance) / Number(divisor);
+                            
+                            tokenBalance.priceUsd = price;
+                            tokenBalance.valueUsd = numericBalance * price;
+                        }
+                    }
+                }
+            }
+            
             // Kick off the core analysis.
             const analysisPromise = Promise.all([
                 similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'binary', balancesMap),
                 similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'capital', balancesMap)
             ]);
-            // --- End: Parallel Execution ---
-
-            // --- Await Core Analysis ---
+            
             const [binaryResults, capitalResults] = await analysisPromise;
             
-            // Enhanced error handling for no transaction data scenarios
             if (!binaryResults || !capitalResults) {
-                // Check if we have balance data that we can use for holdings-based similarity
-                const hasBalanceData = balancesMap && balancesMap.size > 0;
-                const totalTokensAcrossWallets = hasBalanceData ? 
-                    Array.from(balancesMap.values()).reduce((sum, wallet) => sum + (wallet.tokenBalances?.length || 0), 0) : 0;
-                
-                logger.warn(`Similarity analysis for wallets returned no results.`, { 
-                    wallets: dto.walletAddresses,
-                    hasBalanceData,
-                    totalTokensAcrossWallets,
-                    binaryResultsNull: !binaryResults,
-                    capitalResultsNull: !capitalResults
-                });
-
-                if (hasBalanceData && totalTokensAcrossWallets > 0) {
-                    // We have balance data but no transaction data - this suggests the Helius API is failing
-                    // Let's provide a more helpful error message
-                    throw new InternalServerErrorException(
-                        'Unable to fetch transaction data for similarity analysis. ' +
-                        'This may be due to Helius API issues or network connectivity problems. ' +
-                        'Please try again later or contact support if the issue persists.'
-                    );
-                } else {
-                    // No transaction data and no balance data
-                    throw new InternalServerErrorException(
-                        'No transaction or balance data available for similarity analysis. ' +
-                        'Please ensure the wallets have trading activity and try again.'
-                    );
-                }
+                throw new InternalServerErrorException('No transaction or balance data available for similarity analysis.');
             }
-
-            // --- Return Raw Balances (UI will handle enrichment separately) ---
-            // This allows the frontend to show results immediately while enriching metadata in parallel.
 
             const combinedUniqueTokens: Record<string, { binary: number; capital: number }> = {};
             const allWallets = new Set([...Object.keys(binaryResults.uniqueTokensPerWallet), ...Object.keys(capitalResults.uniqueTokensPerWallet)]);
@@ -120,12 +118,10 @@ export class SimilarityApiService {
                         sharedTokens: binaryPair.sharedTokens.map(t => ({ mint: t.mint })),
                         capitalAllocation: capitalAllocation || {},
                         
-                        // From binary analysis
                         binarySharedTokenCount: binaryPair.sharedTokenCount,
                         binaryUniqueTokenCountA: binaryPair.uniqueTokenCountA,
                         binaryUniqueTokenCountB: binaryPair.uniqueTokenCountB,
 
-                        // From capital analysis
                         capitalSharedTokenCount: capitalPair?.sharedTokenCount || 0,
                         capitalUniqueTokenCountA: capitalPair?.uniqueTokenCountA || 0,
                         capitalUniqueTokenCountB: capitalPair?.uniqueTokenCountB || 0,
@@ -137,10 +133,8 @@ export class SimilarityApiService {
                 walletBalances: Object.fromEntries(balancesMap),
                 sharedTokenCountsMatrix: capitalResults.sharedTokenCountsMatrix,
                 jaccardSimilarityMatrix: capitalResults.jaccardSimilarityMatrix,
-                // Use the filtered holdings matrix as the primary one (excludes spam/airdrops)
                 holdingsPresenceJaccardMatrix: capitalResults['holdingsPresenceFilteredJaccardMatrix'] || capitalResults.holdingsPresenceJaccardMatrix,
                 holdingsPresenceCosineMatrix: capitalResults.holdingsPresenceCosineMatrix,
-                // Keep the original all-tokens matrix for transparency/debugging
                 holdingsPresenceJaccardMatrixAllTokens: capitalResults.holdingsPresenceJaccardMatrix,
             };
 
@@ -148,15 +142,11 @@ export class SimilarityApiService {
         } catch (error) {
             logger.error(`Error running similarity analysis for wallets: ${dto.walletAddresses.join(', ')}`, { error });
             
-            // If it's already a structured error, re-throw it
             if (error instanceof BadRequestException || error instanceof InternalServerErrorException) {
                 throw error;
             }
             
-            // Otherwise, wrap in a generic error
             throw new InternalServerErrorException('An unexpected error occurred while running the similarity analysis.');
         }
     }
-
-
 } 

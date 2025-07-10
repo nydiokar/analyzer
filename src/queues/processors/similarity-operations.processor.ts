@@ -116,22 +116,9 @@ export class SimilarityOperationsProcessor {
         ? this._orchestrateDeepSync(walletsNeedingSync, job)
         : Promise.resolve();
 
-      const balancePromise = this.walletBalanceService.fetchWalletBalancesRaw(walletAddresses);
-
-      // STEP 2: HANDLE BALANCE FETCH COMPLETION (SHORT TASK)
-      this.logger.log('Awaiting raw balance fetch to complete...');
-      const balancesMap = await balancePromise;
-      this.logger.log('Raw balances fetched. Caching and kicking off parallel heavy tasks...');
-      await job.updateProgress(15);
-
-      // Cache balances immediately so the enrichment job can find them.
-      for (const [walletAddress, balanceData] of balancesMap) {
-        await this.balanceCacheService.cacheBalances(walletAddress, balanceData);
-      }
-      
+      // STEP 2: Let enrichment job start if needed. Balances will be fetched inside the service.
       let enrichmentJob: Job | undefined;
       if (enrichMetadata) {
-        // STEP 2: TRIGGER PARALLEL ENRICHMENT (FIRE & FORGET)
         this.logger.log(`Triggering parallel enrichment job for request: ${requestId}.`);
         enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
           walletAddresses,
@@ -141,7 +128,6 @@ export class SimilarityOperationsProcessor {
       }
 
       // STEP 3: AWAIT DEEP SYNC COMPLETION (if needed)
-      // This is the primary long-running task for this flow.
       if (syncRequired) {
         this.logger.log('Awaiting deep sync and analysis to complete...');
         await syncPromise;
@@ -150,33 +136,25 @@ export class SimilarityOperationsProcessor {
         this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
       }
 
-      // STEP 4: FINAL ANALYSIS (using balances from STEP 2)
-      this.logger.log('Starting final similarity calculation with raw balances...');
+      // STEP 4: FINAL ANALYSIS (The service now fetches its own balances)
+      this.logger.log('Starting final similarity calculation...');
       const similarityResult = await this.similarityApiService.runAnalysis({
         walletAddresses: walletAddresses,
         vectorType: similarityConfig?.vectorType || 'capital'
-      }, balancesMap);
+      });
       
       await job.updateProgress(90);
       this.checkTimeout(startTime, timeoutMs, 'Final analysis');
 
-      // STEP 5: PREPARE RESULTS (Raw balances, enrichment runs in background)
-      const finalResult = similarityResult;
-      
-      const rawBalances: Record<string, any> = {};
-      for (const [walletAddress, balanceData] of balancesMap) {
-        rawBalances[walletAddress] = balanceData;
-      }
-      finalResult.walletBalances = rawBalances;
-      
-      this.logger.log('Similarity analysis completed successfully with raw balances.');
+      // STEP 5: PREPARE RESULTS (The result from the service is now complete)
+      this.logger.log('Similarity analysis completed successfully.');
 
       await job.updateProgress(100);
       this.checkTimeout(startTime, timeoutMs, 'Final result preparation');
 
       const result: SimilarityFlowResult = {
         success: true,
-        data: finalResult,
+        data: similarityResult,
         requestId: requestId,
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime,

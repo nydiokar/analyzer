@@ -39,7 +39,6 @@ export default function AnalysisLabPage() {
   const [isEnriching, setIsEnriching] = useState(false);
   const [wallets, setWallets] = useState('');
   const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
-  const [enrichedBalances, setEnrichedBalances] = useState<Record<string, any> | null>(null);
   const [missingWallets, setMissingWallets] = useState<string[]>([]);
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
@@ -96,7 +95,7 @@ export default function AnalysisLabPage() {
           
           if (resultData.data.walletBalances && analysisMethod === 'advanced') {
             setIsEnriching(true);
-            setEnrichedBalances(resultData.data.walletBalances);
+            // setEnrichedBalances(resultData.data.walletBalances); // This line is removed
           }
           
           if (resultData.enrichmentJobId) {
@@ -141,8 +140,18 @@ export default function AnalysisLabPage() {
     onEnrichmentComplete: useCallback((data: EnrichmentCompletionData) => {
       console.log('🎨 Enrichment completed');
       if (data.enrichedBalances) {
-        setEnrichedBalances(data.enrichedBalances);
+        // Merge enriched data into the main analysis result to trigger re-render
+        setAnalysisResult(prevResult => {
+          if (!prevResult) return null;
+          return {
+            ...prevResult,
+            walletBalances: data.enrichedBalances,
+          };
+        });
+        
         setIsEnriching(false);
+        setIsLoading(false); 
+        
         toast({
           title: "Enrichment Complete",
           description: "Token metadata loaded!",
@@ -172,11 +181,7 @@ export default function AnalysisLabPage() {
   }, []);
 
   useEffect(() => {
-    if (analysisResult?.walletBalances) {
-      setEnrichedBalances(analysisResult.walletBalances);
-    } else {
-      setEnrichedBalances(null);
-    }
+    // This effect is no longer needed as we merge the state
   }, [analysisResult]);
 
   // Subscribe to enrichment job when ID is set
@@ -465,7 +470,7 @@ export default function AnalysisLabPage() {
               
               if (result.result.data.walletBalances && analysisMethod === 'advanced') {
                 setIsEnriching(true);
-                setEnrichedBalances(result.result.data.walletBalances);
+                // setEnrichedBalances(result.result.data.walletBalances); // This line is removed
               }
               
               if (result.result.enrichmentJobId) {
@@ -613,7 +618,7 @@ export default function AnalysisLabPage() {
 
       {analysisResult && (
         <div className="mt-6">
-          <MemoizedSimilarityResultDisplay results={analysisResult} enrichedBalances={enrichedBalances} />
+          <MemoizedSimilarityResultDisplay results={analysisResult} />
         </div>
       )}
 

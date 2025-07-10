@@ -207,55 +207,47 @@ export class EnrichmentOperationsProcessor {
       const allMints = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
       const uniqueMints = [...new Set(allMints)];
 
-      // Step 1: Find existing metadata in the database.
-      const existingTokens = await this.tokenInfoService.findMany(uniqueMints);
-      const existingTokensMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
-      this.logger.log(`Found ${existingTokens.length} existing token metadata records in the database.`);
+      // Step 1: Get all available token info from our local database. This is our baseline.
+      const allExistingInfo = await this.tokenInfoService.findMany(uniqueMints);
+      const existingInfoMap = new Map(allExistingInfo.map(info => [info.tokenAddress, info]));
+      this.logger.log(`Found ${existingInfoMap.size} records in the DB for ${uniqueMints.length} unique mints.`);
 
-      // Step 2: Identify mints that need fetching (new or stale).
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      const tokensToFetch = uniqueMints.filter(mint => {
-        const existingToken = existingTokensMap.get(mint);
-        // Fetch if the token doesn't exist OR if it exists but hasn't been updated recently.
-        return !existingToken || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
-      });
-      this.logger.log(`Identified ${tokensToFetch.length} new or stale tokens requiring metadata fetch.`);
+      // Step 2: Get fresh prices from the external API.
+      const freshPrices = await this.dexscreenerService.getTokenPrices(uniqueMints);
+      const freshPricesMap = new Map(Object.entries(freshPrices));
+      this.logger.log(`Fetched ${freshPricesMap.size} fresh prices from the external API.`);
 
-      // Step 3: Fetch and save info for new tokens if any exist.
-      if (tokensToFetch.length > 0) {
-        this.logger.log(`Processing ${tokensToFetch.length} tokens synchronously.`);
-        // This service fetches and saves token info, effectively updating them.
-        await this.dexscreenerService.fetchAndSaveTokenInfo(tokensToFetch);
-        
-        // Re-fetch all tokens to include the newly added/updated ones.
-        const allTokensNow = await this.tokenInfoService.findMany(uniqueMints);
-        for (const token of allTokensNow) {
-          if (!existingTokensMap.has(token.tokenAddress)) {
-            existingTokensMap.set(token.tokenAddress, token);
-          }
-        }
-      }
-      
-      // Step 4: Enrich the original balances object with the metadata.
+      // Step 3: Enrich the balances using the best available data.
       const finalEnrichedBalances = { ...walletBalances };
       for (const walletAddress in finalEnrichedBalances) {
         const balances = finalEnrichedBalances[walletAddress].tokenBalances as any[];
         for (const tokenBalance of balances) {
-          const tokenInfo = existingTokensMap.get(tokenBalance.mint);
-          if (tokenInfo) {
-            // Add metadata fields to the balance object
-            tokenBalance.name = tokenInfo.name;
-            tokenBalance.symbol = tokenInfo.symbol;
-            tokenBalance.imageUrl = tokenInfo.imageUrl;
+          const dbInfo = existingInfoMap.get(tokenBalance.mint);
+          
+          // Use fresh price if available, otherwise fall back to the price from our database.
+          const freshPrice = freshPricesMap.get(tokenBalance.mint);
+          const priceToUse = freshPrice ?? (dbInfo?.priceUsd ? parseFloat(dbInfo.priceUsd) : null);
+          
+          tokenBalance.name = dbInfo?.name ?? 'Unknown Token';
+          tokenBalance.symbol = dbInfo?.symbol ?? 'UNKNOWN';
+          tokenBalance.imageUrl = dbInfo?.imageUrl ?? null;
+          tokenBalance.priceUsd = priceToUse;
+
+          if (priceToUse !== null && typeof tokenBalance.uiBalance === 'number') {
+            tokenBalance.valueUsd = tokenBalance.uiBalance * priceToUse;
+          } else {
+            tokenBalance.valueUsd = null;
           }
         }
       }
+
+      this.logger.log(`Enrichment logic completed for ${Object.keys(walletBalances).length} wallets.`);
       
-      // Step 5: Return the result with a summary.
+      // Step 4: Return the fully enriched balances.
       return { 
         enrichedBalances: finalEnrichedBalances, 
         summary: {
-          newTokensFetched: tokensToFetch.length, // This now represents tokens that were new or stale.
+          newTokensFetched: 0, // This now represents tokens that were new or stale.
           totalTokens: uniqueMints.length
         }
       };

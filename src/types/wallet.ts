@@ -29,6 +29,12 @@ export interface TokenBalanceDetails {
   decimals: number;
   uiBalance: number; // User-friendly balance, already divided by 10^decimals
   uiBalanceString: string; // User-friendly balance as a string
+  // Optional fields for enriched data
+  name?: string;
+  symbol?: string;
+  imageUrl?: string;
+  priceUsd?: number;
+  valueUsd?: number;
 }
 
 export interface WalletBalance {

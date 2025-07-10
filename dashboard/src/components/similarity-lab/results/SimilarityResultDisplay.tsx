@@ -10,10 +10,9 @@ import { Sparkles } from 'lucide-react';
 
 interface SimilarityResultDisplayProps {
   results: CombinedSimilarityResult;
-  enrichedBalances: Record<string, any> | null;
 }
 
-export function SimilarityResultDisplay({ results, enrichedBalances }: SimilarityResultDisplayProps) {
+export function SimilarityResultDisplay({ results }: SimilarityResultDisplayProps) {
   const hasAdvancedMatrices = results.sharedTokenCountsMatrix || results.jaccardSimilarityMatrix;
 
   return (
@@ -22,7 +21,7 @@ export function SimilarityResultDisplay({ results, enrichedBalances }: Similarit
         <GlobalMetricsCard
           metrics={results.globalMetrics}
           pairwiseSimilarities={results.pairwiseSimilarities}
-          walletBalances={enrichedBalances}
+          walletBalances={results.walletBalances}
           walletVectorsUsed={results.walletVectorsUsed}
         />
       )}
@@ -32,7 +31,7 @@ export function SimilarityResultDisplay({ results, enrichedBalances }: Similarit
           <EnhancedKeyInsights results={results} />
         </div>
         <div className="lg:col-span-1 space-y-6">
-          <MostCommonTokens results={results} enrichedBalances={enrichedBalances} />
+          <MostCommonTokens results={results} enrichedBalances={results.walletBalances || {}} />
         </div>
       </div>
 
@@ -53,7 +52,7 @@ export function SimilarityResultDisplay({ results, enrichedBalances }: Similarit
         <HistoricalVsLiveComparison results={results} />
       </div>
 
-      <ContextualHoldingsCard results={results} enrichedBalances={enrichedBalances} />
+      <ContextualHoldingsCard results={results} enrichedBalances={results.walletBalances || {}} />
     </div>
   );
 } 
