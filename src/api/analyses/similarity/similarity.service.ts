@@ -55,9 +55,36 @@ export class SimilarityApiService {
             // --- Await Core Analysis ---
             const [binaryResults, capitalResults] = await analysisPromise;
             
+            // Enhanced error handling for no transaction data scenarios
             if (!binaryResults || !capitalResults) {
-                logger.warn(`Similarity analysis for wallets returned no results.`, { wallets: dto.walletAddresses });
-                throw new InternalServerErrorException('Analysis produced no results.');
+                // Check if we have balance data that we can use for holdings-based similarity
+                const hasBalanceData = balancesMap && balancesMap.size > 0;
+                const totalTokensAcrossWallets = hasBalanceData ? 
+                    Array.from(balancesMap.values()).reduce((sum, wallet) => sum + (wallet.tokenBalances?.length || 0), 0) : 0;
+                
+                logger.warn(`Similarity analysis for wallets returned no results.`, { 
+                    wallets: dto.walletAddresses,
+                    hasBalanceData,
+                    totalTokensAcrossWallets,
+                    binaryResultsNull: !binaryResults,
+                    capitalResultsNull: !capitalResults
+                });
+
+                if (hasBalanceData && totalTokensAcrossWallets > 0) {
+                    // We have balance data but no transaction data - this suggests the Helius API is failing
+                    // Let's provide a more helpful error message
+                    throw new InternalServerErrorException(
+                        'Unable to fetch transaction data for similarity analysis. ' +
+                        'This may be due to Helius API issues or network connectivity problems. ' +
+                        'Please try again later or contact support if the issue persists.'
+                    );
+                } else {
+                    // No transaction data and no balance data
+                    throw new InternalServerErrorException(
+                        'No transaction or balance data available for similarity analysis. ' +
+                        'Please ensure the wallets have trading activity and try again.'
+                    );
+                }
             }
 
             // --- Return Raw Balances (UI will handle enrichment separately) ---
@@ -120,7 +147,14 @@ export class SimilarityApiService {
             return combinedResults;
         } catch (error) {
             logger.error(`Error running similarity analysis for wallets: ${dto.walletAddresses.join(', ')}`, { error });
-            throw new InternalServerErrorException('An error occurred while running the similarity analysis.');
+            
+            // If it's already a structured error, re-throw it
+            if (error instanceof BadRequestException || error instanceof InternalServerErrorException) {
+                throw error;
+            }
+            
+            // Otherwise, wrap in a generic error
+            throw new InternalServerErrorException('An unexpected error occurred while running the similarity analysis.');
         }
     }
 

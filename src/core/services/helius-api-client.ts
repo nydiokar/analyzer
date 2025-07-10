@@ -55,6 +55,11 @@ export class HeliusApiClient {
   private readonly rpcUrl: string; // Store the full RPC URL with API key
   private readonly RPC_SIGNATURE_LIMIT = 1000; // Max limit for getSignaturesForAddress
   private dbService: DatabaseService; // Add DatabaseService member
+  
+  // Global rate limiter - shared across all instances to prevent overwhelming API
+  private static globalLastRequestTime: number = 0;
+  private static globalRequestQueue: Array<() => void> = [];
+  private static processingQueue: boolean = false;
 
   /**
    * Handles configuration and sets up the Axios instance.
@@ -86,16 +91,40 @@ export class HeliusApiClient {
     this.dbService = dbService; // Assign passed DatabaseService instance
   }
 
-  /** Ensures a minimum interval between requests to respect rate limits. */
+  /** Ensures a minimum interval between requests to respect rate limits globally. */
   private async rateLimit(): Promise<void> {
-    const now = Date.now();
-    const timeSinceLastRequest = now - this.lastRequestTime;
-    if (timeSinceLastRequest < this.minRequestIntervalMs) {
-      const waitTime = this.minRequestIntervalMs - timeSinceLastRequest;
-      logger.debug(`Rate limiting: Waiting ${waitTime}ms...`);
-      await delay(waitTime);
+    return new Promise((resolve) => {
+      HeliusApiClient.globalRequestQueue.push(resolve);
+      this.processGlobalQueue();
+    });
+  }
+
+  /** Processes the global request queue to enforce rate limits across all instances. */
+  private async processGlobalQueue(): Promise<void> {
+    if (HeliusApiClient.processingQueue) {
+      return; // Already processing
     }
-    this.lastRequestTime = Date.now();
+    
+    HeliusApiClient.processingQueue = true;
+    
+    while (HeliusApiClient.globalRequestQueue.length > 0) {
+      const now = Date.now();
+      const timeSinceLastRequest = now - HeliusApiClient.globalLastRequestTime;
+      
+      if (timeSinceLastRequest < this.minRequestIntervalMs) {
+        const waitTime = this.minRequestIntervalMs - timeSinceLastRequest;
+        logger.debug(`Global rate limiting: Waiting ${waitTime}ms for next request...`);
+        await delay(waitTime);
+      }
+      
+      HeliusApiClient.globalLastRequestTime = Date.now();
+      const resolve = HeliusApiClient.globalRequestQueue.shift();
+      if (resolve) {
+        resolve();
+      }
+    }
+    
+    HeliusApiClient.processingQueue = false;
   }
 
   /**
@@ -233,6 +262,21 @@ export class HeliusApiClient {
             const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
             const attempt = retries + 1;
             const signatureCount = signatures.length;
+
+            // Enhanced error logging for 400 errors to help with diagnosis
+            if (isAxiosError && status === 400) {
+                const responseData = (error as AxiosError).response?.data;
+                logger.error(`Attempt ${attempt}: 400 Bad Request error fetching transactions`, {
+                    signatureCount,
+                    sampleSignatures: signatures.slice(0, 3), // Log first 3 signatures for diagnosis
+                    endpoint: `/v0/transactions?api-key=***`,
+                    requestPayload: {
+                        transactions: signatures.slice(0, 3) // Show structure but limit data
+                    },
+                    responseData: responseData ? JSON.stringify(responseData).substring(0, 500) : 'No response data',
+                    error: this.sanitizeError(error)
+                });
+            }
 
             // Log initial failure as debug, subsequent retry attempts as warn
             const logLevel = retries === 0 ? 'debug' : 'warn'; 

@@ -51,7 +51,15 @@ export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 // Performance configuration for Helius API
 export const HELIUS_CONFIG = {
   DEFAULT_RPS: 25, // Requests per second (adjust based on your Helius plan)
-  INTERNAL_CONCURRENCY: 5, // Concurrent batches for transaction detail fetching
+  INTERNAL_CONCURRENCY: 5, // Concurrent batches for transaction detail fetching (reduced from 5)
   BATCH_SIZE: 100, // Signatures per batch request
-  SYNC_CONCURRENCY: 3 // Number of wallets that can sync simultaneously
+} as const;
+
+// Queue and processing configuration
+export const PROCESSING_CONFIG = {
+  WALLET_SYNC_CONCURRENCY: 3, // Number of wallets that can sync simultaneously
+  BATCH_PROCESSING_TIMEOUT_MS: 30 * 60 * 1000, // 30 minutes
+  FAILURE_THRESHOLD: 0.8, // 80% success rate required
+  RETRY_ATTEMPTS: 1,
+  RETRY_DELAY_MS: 2000
 } as const;

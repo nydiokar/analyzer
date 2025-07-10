@@ -15,7 +15,9 @@ import { BehaviorService } from '../../api/wallets/behavior/behavior.service';
 import { EnrichmentOperationsProcessor } from './enrichment-operations.processor';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
-import { BalanceCacheService } from '../../core/services/balance-cache.service';
+import { BalanceCacheService } from '../../api/balance-cache/balance-cache.service';
+import { PROCESSING_CONFIG } from '../../config/constants';
+import { BatchProcessor } from '../utils/batch-processor';
 
 @Injectable()
 export class SimilarityOperationsProcessor {
@@ -198,6 +200,7 @@ export class SimilarityOperationsProcessor {
   /**
    * Orchestrates the full data synchronization and analysis pipeline for a list of wallets.
    * This includes fetching all transactions and running PNL and behavior analysis.
+   * Uses concurrency control to prevent overwhelming the Helius API.
    */
   private async _orchestrateDeepSync(walletAddresses: string[], job: Job): Promise<void> {
     if (walletAddresses.length === 0) {
@@ -205,20 +208,23 @@ export class SimilarityOperationsProcessor {
       return;
     }
     
-    this.logger.log(`Orchestrating deep sync for ${walletAddresses.length} wallets...`);
+    this.logger.log(`Orchestrating deep sync for ${walletAddresses.length} wallets with concurrency limit of ${PROCESSING_CONFIG.WALLET_SYNC_CONCURRENCY}...`);
     // This part of the flow will account for up to 55% of the progress bar (5% to 60%).
     const progressStep = 55 / walletAddresses.length;
     let currentProgress = 5;
 
-    // Process each wallet's full sync pipeline in parallel.
-    await Promise.all(
-      walletAddresses.map(async (walletAddress) => {
+    // Process wallets with concurrency control to prevent API rate limiting
+    const batchProcessor = new BatchProcessor();
+    
+    const syncSummary = await batchProcessor.processBatch(
+      walletAddresses,
+      async (walletAddress: string, index: number) => {
         try {
           const syncOptions: SyncOptions = { 
             fetchAll: true, 
             smartFetch: true, 
             maxSignatures: 2000,
-            limit: 1000,
+            limit: 100, // Respect Helius API's 100 transaction limit per request
             skipApi: false,
             fetchOlder: true,
           };
@@ -235,16 +241,33 @@ export class SimilarityOperationsProcessor {
           currentProgress += progressStep;
           await job.updateProgress(Math.floor(currentProgress));
 
+          return { walletAddress, status: 'completed' };
+
         } catch (error) {
           this.logger.error(`Deep sync failed for wallet ${walletAddress}`, error);
-          // We throw to ensure the entire job fails if one wallet cannot be synced,
+          // Throw to ensure the entire job fails if one wallet cannot be synced,
           // guaranteeing data integrity for the final similarity analysis.
           throw new Error(`Failed to sync and analyze wallet: ${walletAddress}`);
         }
-      })
+      },
+      (walletAddress: string, index: number) => walletAddress,
+      {
+        maxConcurrency: PROCESSING_CONFIG.WALLET_SYNC_CONCURRENCY,
+        failureThreshold: PROCESSING_CONFIG.FAILURE_THRESHOLD,
+        timeoutMs: PROCESSING_CONFIG.BATCH_PROCESSING_TIMEOUT_MS,
+        retryAttempts: PROCESSING_CONFIG.RETRY_ATTEMPTS,
+        retryDelayMs: PROCESSING_CONFIG.RETRY_DELAY_MS
+      }
     );
 
-    this.logger.log('All wallets have completed the deep sync process.');
+    this.logger.log(`Deep sync completed: ${syncSummary.successfulItems}/${syncSummary.totalItems} wallets successful (${(syncSummary.successRate * 100).toFixed(1)}%)`);
+    
+    if (syncSummary.failedItems > 0) {
+      const failedWallets = syncSummary.results
+        .filter(r => !r.success)
+        .map(r => r.itemId);
+      this.logger.warn(`Failed to sync ${syncSummary.failedItems} wallets: ${failedWallets.join(', ')}`);
+    }
   }
 
 

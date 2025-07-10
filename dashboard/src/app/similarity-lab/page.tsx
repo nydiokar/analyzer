@@ -327,16 +327,19 @@ export default function AnalysisLabPage() {
   };
 
   const handleAnalyze = async () => {
+    // Branch immediately based on analysis method
+    if (analysisMethod === 'quick') {
+      await handleQuickAnalyze();
+    } else {
+      await handleAdvancedAnalyze();
+    }
+  };
+
+  // Quick Analysis: Check status, sync if needed, then run analysis
+  const handleQuickAnalyze = async () => {
     setIsLoading(true);
     setAnalysisResult(null);
     setSyncMessage('');
-    
-    // Reset job state
-    setCurrentJobId(null);
-    setJobProgress(0);
-    setIsPolling(false);
-    setUseWebSocket(true);
-    setCurrentRequestId(null);
 
     const rawWalletList = wallets
       .replace(/[,|\n\r]+/g, ' ') // Robustly handle different separators
@@ -385,8 +388,8 @@ export default function AnalysisLabPage() {
         setIsSyncDialogOpen(true);
         setIsLoading(false); // Stop loading while dialog is open
       } else {
-        // All wallets exist, proceed directly to analysis
-        await runSimilarityAnalysis(walletList);
+        // All wallets exist, proceed directly to quick analysis
+        await runQuickAnalysis(walletList);
       }
     } catch (error: any) {
       console.error('Error checking wallet status:', error);
@@ -399,6 +402,55 @@ export default function AnalysisLabPage() {
       setSyncMessage(errorMessage);
       setIsLoading(false);
     }
+  };
+
+  // Advanced Analysis: Skip status check, directly run advanced analysis (handles sync internally)
+  const handleAdvancedAnalyze = async () => {
+    setIsLoading(true);
+    setAnalysisResult(null);
+    setSyncMessage('');
+    
+    // Reset job state
+    setCurrentJobId(null);
+    setJobProgress(0);
+    setIsPolling(false);
+    setUseWebSocket(true);
+    setCurrentRequestId(null);
+
+    const rawWalletList = wallets
+      .replace(/[,|\n\r]+/g, ' ') // Robustly handle different separators
+      .split(' ')
+      .map(w => w.trim())
+      .filter(Boolean);
+
+    // Gracefully handle duplicates by using a Set
+    const walletList = Array.from(new Set(rawWalletList));
+    
+    if (rawWalletList.length !== walletList.length) {
+      toast({
+        title: "Duplicate wallets removed",
+        description: `We've automatically filtered out ${rawWalletList.length - walletList.length} duplicate addresses.`,
+      });
+    }
+
+    if (walletList.length === 0) {
+      setIsLoading(false);
+      return;
+    }
+
+    const invalidWallets = walletList.filter(w => !isValidSolanaAddress(w.trim()));
+    if (invalidWallets.length > 0) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Wallet Addresses",
+        description: `Please correct the following: ${invalidWallets.join(', ')}`,
+      });
+      setIsLoading(false);
+      return;
+    }
+
+    // Advanced Analysis: Direct to job queue (handles sync internally)
+    await runAdvancedAnalysis(walletList);
   };
 
   const handleConfirmSync = async () => {
@@ -437,9 +489,8 @@ export default function AnalysisLabPage() {
             setSyncMessage('All wallets are synced. Running similarity analysis...');
             toast({ title: "Sync Complete!", description: "All wallets are now ready." });
             
-            // Note: We now run similarity analysis which will leverage the fresh wallet data
-            // The similarity analysis will detect recently analyzed wallets and won't duplicate work
-            await runSimilarityAnalysis(allWallets);
+            // Note: After sync, run quick analysis (sync dialog only applies to quick analysis)
+            await runQuickAnalysis(allWallets);
           } else {
             setSyncMessage(`Waiting for ${walletsStillSyncing.length} wallet(s) to sync... Checking again in 10 seconds.`);
           }
@@ -469,13 +520,7 @@ export default function AnalysisLabPage() {
     }
   };
 
-  const runSimilarityAnalysis = async (walletList: string[]) => {
-    if (analysisMethod === 'quick') {
-      await runQuickAnalysis(walletList);
-    } else {
-      await runAdvancedAnalysis(walletList);
-    }
-  };
+
 
   // Quick analysis (existing synchronous method)
   const runQuickAnalysis = async (walletList: string[]) => {

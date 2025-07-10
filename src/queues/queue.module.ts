@@ -34,6 +34,7 @@ import { PnlAnalysisModule } from '../api/pnl_analysis/pnl-analysis.module';
 import { TokenInfoModule } from '../api/token-info/token-info.module';
 import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
 import { WebSocketModule } from '../api/websocket/websocket.module';
+import { BalanceCacheModule } from '../api/balance-cache/balance-cache.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { WebSocketModule } from '../api/websocket/websocket.module';
     TokenInfoModule,   // Provides TokenInfoService
     DexscreenerModule, // Provides DexscreenerService
     WebSocketModule,   // Provides JobProgressGateway
+    BalanceCacheModule, // Provides BalanceCacheService
   ],
   
   providers: [

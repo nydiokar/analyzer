@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
-import { DatabaseService } from './database-service';
+import { DatabaseService } from '../database/database.service';
 
 @Injectable()
 export class BalanceCacheService {
