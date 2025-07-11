@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Redis, RedisOptions } from 'ioredis';
 import { redisConfig } from '../config/redis.config';
 
+const truncate = (str: string, length = 64) => {
+  if (str.length <= length) return str;
+  return `${str.substring(0, length / 2)}...${str.substring(str.length - length / 2)}`;
+}
+
 @Injectable()
 export class RedisLockService {
   private readonly logger = new Logger(RedisLockService.name);
@@ -24,14 +29,14 @@ export class RedisLockService {
       const result = await this.redis.set(lockKey, lockValue, 'PX', ttlMs, 'NX');
       
       if (result === 'OK') {
-        this.logger.debug(`Lock acquired: ${lockKey} with value: ${lockValue}`);
+        this.logger.debug(`Lock acquired: ${truncate(lockKey)} with value: ${truncate(lockValue)}`);
         return true;
       } else {
-        this.logger.debug(`Lock already exists: ${lockKey}`);
+        this.logger.debug(`Lock already exists: ${truncate(lockKey)}`);
         return false;
       }
     } catch (error) {
-      this.logger.error(`Failed to acquire lock ${lockKey}:`, error);
+      this.logger.error(`Failed to acquire lock ${truncate(lockKey)}:`, error);
       return false;
     }
   }
@@ -58,14 +63,14 @@ export class RedisLockService {
       const result = await this.redis.eval(luaScript, 1, lockKey, lockValue) as number;
       
       if (result === 1) {
-        this.logger.debug(`Lock released: ${lockKey} with value: ${lockValue}`);
+        this.logger.debug(`Lock released: ${truncate(lockKey)}`);
         return true;
       } else {
-        this.logger.debug(`Lock not owned or doesn't exist: ${lockKey}`);
+        this.logger.debug(`Lock not owned or doesn't exist: ${truncate(lockKey)}`);
         return false;
       }
     } catch (error) {
-      this.logger.error(`Failed to release lock ${lockKey}:`, error);
+      this.logger.error(`Failed to release lock ${truncate(lockKey)}:`, error);
       return false;
     }
   }
@@ -90,7 +95,7 @@ export class RedisLockService {
 
       return true;
     } catch (error) {
-      this.logger.error(`Failed to check lock ${lockKey}:`, error);
+      this.logger.error(`Failed to check lock ${truncate(lockKey)}:`, error);
       return false;
     }
   }
@@ -117,14 +122,14 @@ export class RedisLockService {
       const result = await this.redis.eval(luaScript, 1, lockKey, lockValue, ttlMs.toString()) as number;
       
       if (result === 1) {
-        this.logger.debug(`Lock TTL extended: ${lockKey} for ${ttlMs}ms`);
+        this.logger.debug(`Lock TTL extended: ${truncate(lockKey)} for ${ttlMs}ms`);
         return true;
       } else {
-        this.logger.debug(`Lock not owned or doesn't exist: ${lockKey}`);
+        this.logger.debug(`Lock not owned or doesn't exist: ${truncate(lockKey)}`);
         return false;
       }
     } catch (error) {
-      this.logger.error(`Failed to extend lock ${lockKey}:`, error);
+      this.logger.error(`Failed to extend lock ${truncate(lockKey)}:`, error);
       return false;
     }
   }
@@ -138,7 +143,7 @@ export class RedisLockService {
     try {
       return await this.redis.pttl(lockKey);
     } catch (error) {
-      this.logger.error(`Failed to get TTL for lock ${lockKey}:`, error);
+      this.logger.error(`Failed to get TTL for lock ${truncate(lockKey)}:`, error);
       return -2;
     }
   }
@@ -153,14 +158,14 @@ export class RedisLockService {
       const result = await this.redis.del(lockKey);
       
       if (result === 1) {
-        this.logger.warn(`Lock force released: ${lockKey}`);
+        this.logger.warn(`Lock force released: ${truncate(lockKey)}`);
         return true;
       } else {
-        this.logger.debug(`Lock didn't exist: ${lockKey}`);
+        this.logger.debug(`Lock didn't exist: ${truncate(lockKey)}`);
         return false;
       }
     } catch (error) {
-      this.logger.error(`Failed to force release lock ${lockKey}:`, error);
+      this.logger.error(`Failed to force release lock ${truncate(lockKey)}:`, error);
       return false;
     }
   }

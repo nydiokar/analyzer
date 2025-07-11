@@ -176,3 +176,52 @@ This document provides an overview of the React components created for the Walle
 -   **File Path:** `dashboard/src/lib/fetcher.ts`
 -   **Purpose:** Provides a shared SWR fetcher function for making API calls.
 -   **Current State:** Contains an `async` function that takes a URL, includes the `X-API-Key` header (from `NEXT_PUBLIC_API_KEY` environment variable), handles response errors (including parsing JSON error payloads), and returns the JSON response. 
+
+
+
+For the new docs! 
+
+component WalletBadge
+
+graph TD
+    A[User Request: Unify Wallet Display] --> B(Analyze Request);
+    B --> C{Update WalletBadge Component};
+    C --> D[Add 'Details' link to internal wallet page];
+    C --> E[Improve Layout];
+    D & E --> F(Update ContextualHoldingsCard);
+    F --> G[Replace simple link with WalletBadge];
+    F --> H(Update MostCommonTokens);
+    H --> I[Replace text list in tooltip with WalletBadges];
+    G & I --> J[Completion];
+    subgraph Legend
+        direction LR
+        subgraph "Node Types"
+            direction LR
+            start_node[Start]
+            process_node(Process)
+            decision_node{Decision}
+            complete_node[Completion]
+        end
+        subgraph "Line Types"
+            direction LR
+            line1 --- line2
+        end
+    end
+
+    style A fill:#8A2BE2,stroke:#333,stroke-width:2px,color:#fff
+    style B fill:#4682B4,stroke:#333,stroke-width:2px,color:#fff
+    style C fill:#4682B4,stroke:#333,stroke-width:2px,color:#fff
+    style D fill:#5F9EA0,stroke:#333,stroke-width:2px,color:#fff
+    style E fill:#5F9EA0,stroke:#333,stroke-width:2px,color:#fff
+    style F fill:#4682B4,stroke:#333,stroke-width:2px,color:#fff
+    style G fill:#5F9EA0,stroke:#333,stroke-width:2px,color:#fff
+    style H fill:#4682B4,stroke:#333,stroke-width:2px,color:#fff
+    style I fill:#5F9EA0,stroke:#333,stroke-width:2px,color:#fff
+    style J fill:#32CD32,stroke:#333,stroke-width:2px,color:#fff
+
+    style start_node fill:#8A2BE2,stroke:#333,stroke-width:2px,color:#fff
+    style process_node fill:#4682B4,stroke:#333,stroke-width:2px,color:#fff
+    style decision_node fill:#FFA500,stroke:#333,stroke-width:2px,color:#fff
+    style complete_node fill:#32CD32,stroke:#333,stroke-width:2px,color:#fff
+    style line1 stroke:#333,stroke-width:2px
+    style line2 stroke:#333,stroke-width:2px
