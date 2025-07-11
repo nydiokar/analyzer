@@ -3,6 +3,7 @@ import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { EnrichTokenBalancesJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
+import { Job } from 'bullmq';
 
 @Injectable()
 export class EnrichmentOperationsQueue {
@@ -30,9 +31,10 @@ export class EnrichmentOperationsQueue {
   }
 
   /**
-   * Add a parallel enrichment job to the queue, triggered by the main similarity flow
+   * Add parallel enrichment job to the queue
+   * This is a simplified version for the new parallel architecture
    */
-  async addParallelEnrichmentJob(data: { walletAddresses: string[], requestId: string }, options?: { priority?: number; delay?: number }) {
+  async addParallelEnrichmentJob(data: { walletBalances: Record<string, any>, requestId: string }, options?: { priority?: number, delay?: number }): Promise<Job> {
     const jobId = generateJobId.enrichParallel(data.requestId);
     
     return this.queue.add('parallel-enrichment', data, {

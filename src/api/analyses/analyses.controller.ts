@@ -17,6 +17,7 @@ import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData } from '../
 import { generateJobId } from '../../queues/utils/job-id-generator';
 import { JobsService } from '../jobs/jobs.service';
 import { EnrichmentStrategyService } from './enrichment-strategy.service';
+import { WalletBalance } from '@/types/wallet';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -55,7 +56,7 @@ export class AnalysesController {
       // **TRUE BACKWARDS COMPATIBILITY**: Use original similarity service directly
       // This bypasses the job queue entirely for genuine pipeline comparison
       this.logger.log(`[C3] Using original SimilarityApiService (bypassing job queue)...`);
-      const result = await this.similarityApiService.runAnalysis(dto);
+      const result = await this.similarityApiService.runAnalysis(dto, new Map<string, WalletBalance>());
       this.logger.log(`[C3] Original similarity service completed successfully.`);
       return result;
 

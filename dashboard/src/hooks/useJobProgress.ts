@@ -60,7 +60,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobCompleted = (data: any) => {
-      console.log('📢 Job completed - RAW EVENT STRUCTURE:', JSON.stringify(data, null, 2));
+     // console.log('📢 Job completed - RAW EVENT STRUCTURE:', JSON.stringify(data, null, 2));
       console.log('📢 Job completed - Queue:', data.queue);
       console.log('📢 Job completed - JobId:', data.jobId);
       console.log('📢 Job completed - Result structure:', data.result ? Object.keys(data.result) : 'No result');

@@ -12,12 +12,12 @@ import { TokenInfoService } from '../../api/token-info/token-info.service';
 import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
 import { PnlAnalysisService } from '../../api/pnl_analysis/pnl-analysis.service';
 import { BehaviorService } from '../../api/wallets/behavior/behavior.service';
-import { EnrichmentOperationsProcessor } from './enrichment-operations.processor';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
 import { BalanceCacheService } from '../../api/balance-cache/balance-cache.service';
 import { PROCESSING_CONFIG } from '../../config/constants';
 import { BatchProcessor } from '../utils/batch-processor';
+import { WalletBalance } from '../../types/wallet';
 
 @Injectable()
 export class SimilarityOperationsProcessor {
@@ -111,6 +111,10 @@ export class SimilarityOperationsProcessor {
       await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
+      // Fetch all balances ONCE using the new efficient batch method.
+      const walletBalances = await this.balanceCacheService.getManyBalances(walletAddresses);
+      this.logger.log(`Fetched initial balances for ${Object.keys(walletBalances).length} wallets.`);
+
       // STEP 1: PARALLEL KICK-OFF OF LONG & SHORT TASKS
       this.logger.log('Kicking off deep sync and balance fetch in parallel.');
       
@@ -123,7 +127,7 @@ export class SimilarityOperationsProcessor {
       if (enrichMetadata) {
         this.logger.log(`Triggering parallel enrichment job for request: ${requestId}.`);
         enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
-          walletAddresses,
+          walletBalances,
           requestId,
         });
         this.logger.log(`Parallel enrichment job has been queued for request: ${requestId}.`);
@@ -139,12 +143,24 @@ export class SimilarityOperationsProcessor {
         this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
       }
 
-      // STEP 4: FINAL ANALYSIS (The service now fetches its own balances)
+      // STEP 4: FINAL ANALYSIS (The service now uses the pre-fetched balances)
       this.logger.log('Starting final similarity calculation...');
-      const similarityResult = await this.similarityApiService.runAnalysis({
-        walletAddresses: walletAddresses,
-        vectorType: similarityConfig?.vectorType || 'capital'
-      });
+      
+      // Convert the balances object to a Map as expected by the service
+      const balancesMap = new Map<string, WalletBalance>();
+      for (const address in walletBalances) {
+        if (walletBalances[address]) {
+          balancesMap.set(address, walletBalances[address] as WalletBalance);
+        }
+      }
+
+      const similarityResult = await this.similarityApiService.runAnalysis(
+        {
+          walletAddresses: walletAddresses,
+          vectorType: similarityConfig?.vectorType || 'capital',
+        },
+        balancesMap,
+      );
       
       await job.updateProgress(90);
       await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);

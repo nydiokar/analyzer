@@ -34,9 +34,13 @@ interface WalletStatusResponse {
 // Memoize the heavy SimilarityResultDisplay component to prevent unnecessary re-renders
 const MemoizedSimilarityResultDisplay = memo(SimilarityResultDisplay);
 
+type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
+
 export default function AnalysisLabPage() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [isEnriching, setIsEnriching] = useState(false);
+  const [jobStatuses, setJobStatuses] = useState<{ analysis: JobStatus, enrichment: JobStatus }>({
+    analysis: 'idle',
+    enrichment: 'idle',
+  });
   const [wallets, setWallets] = useState('');
   const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
   const [missingWallets, setMissingWallets] = useState<string[]>([]);
@@ -63,10 +67,15 @@ export default function AnalysisLabPage() {
     cleanup: cleanupWebSocket
   } = useJobProgress({
     onJobProgress: useCallback((data: JobProgressData) => {
-      console.log('📊 Job progress:', data.jobId, data.progress);
-      setJobProgress(data.progress);
-      setSyncMessage(`Job in progress... ${data.status || 'processing'} (${Math.round(data.progress)}%)`);
-    }, []),
+      // Only update the main progress bar for the main analysis job
+      if (data.jobId === currentJobId) {
+        console.log('📊 Main job progress:', data.jobId, data.progress);
+        setJobProgress(data.progress);
+        setSyncMessage(`Job in progress... ${data.status || 'processing'} (${Math.round(data.progress)}%)`);
+      } else {
+        console.log('🎨 Ignoring progress for other job:', data.jobId);
+      }
+    }, [currentJobId]),
     
     onJobCompleted: useCallback(async (data: any) => {
       console.log('✅ Job completed - Raw data:', data);
@@ -92,19 +101,12 @@ export default function AnalysisLabPage() {
         if (resultData?.data) {
           console.log('✅ Setting analysis result from fetched data');
           setAnalysisResult(resultData.data);
-          
-          if (resultData.data.walletBalances && analysisMethod === 'advanced') {
-            setIsEnriching(true);
-            // setEnrichedBalances(resultData.data.walletBalances); // This line is removed
-          }
+          setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
           
           if (resultData.enrichmentJobId) {
             setEnrichmentJobId(resultData.enrichmentJobId);
-          } else {
-            setIsLoading(false);
           }
           
-          setCurrentJobId(null);
           setSyncMessage('');
           
           toast({
@@ -113,21 +115,26 @@ export default function AnalysisLabPage() {
           });
         } else {
           console.error('❌ No result data found in fetched job result');
+          setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
           setError('Job completed but no result data found');
-          setIsLoading(false);
         }
       } catch (error: any) {
         console.error('❌ Error fetching job result:', error);
+        setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
         setError(error.message);
-        setIsLoading(false);
       }
-    }, [analysisMethod, toast, currentJobId]),
+    }, [toast, currentJobId]),
     
     onJobFailed: useCallback((data: JobFailedData) => {
       console.error('❌ Job failed:', data.jobId, data.error);
+      if (data.jobId === currentJobId) {
+        setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
+      }
+      if (data.jobId === enrichmentJobId) {
+        setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
+      }
       setError(data.error);
       setSyncMessage(data.error);
-      setIsLoading(false);
       setJobProgress(0);
       setCurrentJobId(null);
       toast({
@@ -135,7 +142,7 @@ export default function AnalysisLabPage() {
         title: "Job Failed",
         description: data.error,
       });
-    }, [toast]),
+    }, [toast, currentJobId, enrichmentJobId]),
     
     onEnrichmentComplete: useCallback((data: EnrichmentCompletionData) => {
       console.log('🎨 Enrichment completed');
@@ -149,8 +156,7 @@ export default function AnalysisLabPage() {
           };
         });
         
-        setIsEnriching(false);
-        setIsLoading(false); 
+        setJobStatuses(prev => ({ ...prev, enrichment: 'completed' }));
         
         toast({
           title: "Enrichment Complete",
@@ -160,6 +166,7 @@ export default function AnalysisLabPage() {
     }, [toast]),
   });
 
+  const isRunning = useMemo(() => jobStatuses.analysis === 'running' || jobStatuses.enrichment === 'running', [jobStatuses]);
 
 
   useEffect(() => {
@@ -189,12 +196,13 @@ export default function AnalysisLabPage() {
     if (enrichmentJobId && wsConnected) {
       console.log('🔔 Subscribing to enrichment job:', enrichmentJobId);
       subscribeToJob(enrichmentJobId);
+      setJobStatuses(prev => ({ ...prev, enrichment: 'running' }));
     }
   }, [enrichmentJobId, wsConnected, subscribeToJob]);
 
   const handleEnrichData = async () => {
     if (!analysisResult?.walletBalances) return;
-    setIsEnriching(true);
+    setJobStatuses(prev => ({ ...prev, enrichment: 'running' }));
     
     try {
       const enrichmentJob = await fetcher('/analyses/similarity/enrich-balances', {
@@ -215,7 +223,7 @@ export default function AnalysisLabPage() {
       }
     } catch (error: any) {
       console.error('Error starting enrichment job:', error);
-      setIsEnriching(false);
+      setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
       
       toast({
         variant: 'destructive',
@@ -234,7 +242,7 @@ export default function AnalysisLabPage() {
   };
 
   const handleQuickAnalyze = async () => {
-    setIsLoading(true);
+    setJobStatuses({ analysis: 'running', enrichment: 'idle' });
     setAnalysisResult(null);
     setSyncMessage('');
 
@@ -243,7 +251,7 @@ export default function AnalysisLabPage() {
     ));
 
     if (walletList.length === 0) {
-      setIsLoading(false);
+      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
       return;
     }
 
@@ -254,7 +262,7 @@ export default function AnalysisLabPage() {
         title: "Invalid Wallet Addresses",
         description: `Please correct: ${invalidWallets.join(', ')}`,
       });
-      setIsLoading(false);
+      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
       return;
     }
 
@@ -271,7 +279,7 @@ export default function AnalysisLabPage() {
       if (walletsNeedingWork.length > 0) {
         setMissingWallets(walletsNeedingWork);
         setIsSyncDialogOpen(true);
-        setIsLoading(false);
+        setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
       } else {
         await runQuickAnalysis(walletList);
       }
@@ -284,12 +292,12 @@ export default function AnalysisLabPage() {
         description: errorMessage,
       });
       setSyncMessage(errorMessage);
-      setIsLoading(false);
+      setJobStatuses({ analysis: 'failed', enrichment: 'idle' });
     }
   };
 
   const handleAdvancedAnalyze = async () => {
-    setIsLoading(true);
+    setJobStatuses({ analysis: 'running', enrichment: 'idle' });
     setAnalysisResult(null);
     setSyncMessage('');
     setCurrentJobId(null);
@@ -300,7 +308,7 @@ export default function AnalysisLabPage() {
     ));
 
     if (walletList.length === 0) {
-      setIsLoading(false);
+      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
       return;
     }
 
@@ -311,7 +319,7 @@ export default function AnalysisLabPage() {
         title: "Invalid Wallet Addresses",
         description: `Please correct: ${invalidWallets.join(', ')}`,
       });
-      setIsLoading(false);
+      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
       return;
     }
 
@@ -320,7 +328,7 @@ export default function AnalysisLabPage() {
 
   const handleConfirmSync = async () => {
     setIsSyncDialogOpen(false);
-    setIsLoading(true);
+    setJobStatuses({ analysis: 'running', enrichment: 'idle' });
     setSyncMessage(`Triggering sync for ${missingWallets.length} wallet(s)...`);
 
     try {
@@ -357,7 +365,7 @@ export default function AnalysisLabPage() {
           }
         } catch (error: any) {
           setError(error.message);
-          setIsLoading(false);
+          setJobStatuses({ analysis: 'failed', enrichment: 'idle' });
         }
       };
 
@@ -367,7 +375,7 @@ export default function AnalysisLabPage() {
       const errorMessage = error?.payload?.message || error.message || "Sync failed.";
       setError(errorMessage);
       setSyncMessage(errorMessage);
-      setIsLoading(false);
+      setJobStatuses({ analysis: 'failed', enrichment: 'idle' });
     }
   };
 
@@ -395,7 +403,7 @@ export default function AnalysisLabPage() {
         description: errorMessage,
       });
     } finally {
-      setIsLoading(false);
+      setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
     }
   };
 
@@ -424,7 +432,7 @@ export default function AnalysisLabPage() {
         
         // Fallback to polling if no progress
         setTimeout(() => {
-          if (jobProgress === 0 && isLoading) {
+          if (jobProgress === 0 && jobStatuses.analysis === 'running') {
             console.log('⚠️ No WebSocket progress - falling back to polling');
             pollJobStatus(jobResponse.jobId);
           }
@@ -443,7 +451,7 @@ export default function AnalysisLabPage() {
         title: "Job Submission Failed",
         description: errorMessage,
       });
-      setIsLoading(false);
+      setJobStatuses({ analysis: 'failed', enrichment: 'idle' });
     }
   };
 
@@ -453,7 +461,7 @@ export default function AnalysisLabPage() {
     const maxAttempts = 60;
     
     const poll = async () => {
-      if (attempts >= maxAttempts || !isLoading) return;
+      if (attempts >= maxAttempts || jobStatuses.analysis !== 'running') return;
       
       attempts++;
       
@@ -469,14 +477,14 @@ export default function AnalysisLabPage() {
               setAnalysisResult(result.result.data);
               
               if (result.result.data.walletBalances && analysisMethod === 'advanced') {
-                setIsEnriching(true);
+                setJobStatuses(prev => ({ ...prev, enrichment: 'running' }));
                 // setEnrichedBalances(result.result.data.walletBalances); // This line is removed
               }
               
               if (result.result.enrichmentJobId) {
                 setEnrichmentJobId(result.result.enrichmentJobId);
               } else {
-                setIsLoading(false);
+                setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
               }
               
               setCurrentJobId(null);
@@ -490,14 +498,14 @@ export default function AnalysisLabPage() {
           } catch (error: any) {
             console.error('Error getting job result:', error);
             setError(error.message);
-            setIsLoading(false);
+            setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
           }
           return;
         } else if (status.status === 'failed') {
           const errorMessage = status.data?.error || 'Job failed';
           setError(errorMessage);
           setSyncMessage(errorMessage);
-          setIsLoading(false);
+          setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
           return;
         } else {
           const progress = status.progress || 0;
@@ -510,7 +518,7 @@ export default function AnalysisLabPage() {
       } catch (error: any) {
         console.error('Polling error:', error);
         setError(error.message);
-        setIsLoading(false);
+        setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
       }
     };
     
@@ -543,8 +551,8 @@ export default function AnalysisLabPage() {
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button onClick={handleEnrichData} variant="outline" size="sm" disabled={isEnriching}>
-                      {isEnriching ? 'Enriching...' : 'Refresh Prices'}
+                    <Button onClick={handleEnrichData} variant="outline" size="sm" disabled={jobStatuses.enrichment === 'running'}>
+                      {jobStatuses.enrichment === 'running' ? 'Enriching...' : 'Refresh Prices'}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -553,8 +561,8 @@ export default function AnalysisLabPage() {
                 </Tooltip>
               </TooltipProvider>
             )}
-            <Button onClick={handleAnalyze} disabled={isLoading}>
-              {isLoading ? 'Analyzing...' : 'Analyze'}
+            <Button onClick={handleAnalyze} disabled={jobStatuses.analysis === 'running'}>
+              {jobStatuses.analysis === 'running' ? 'Analyzing...' : 'Analyze'}
             </Button>
           </div>
         </div>
@@ -597,7 +605,7 @@ export default function AnalysisLabPage() {
         </div>
         
         {/* Job Progress (Advanced Method) */}
-        {analysisMethod === 'advanced' && currentJobId && (
+        {analysisMethod === 'advanced' && jobStatuses.analysis === 'running' && (
           <Alert className="mt-4">
             <Clock className="h-4 w-4" />
             <AlertDescription>

@@ -64,24 +64,19 @@ export class EnrichmentOperationsProcessor {
    * Process parallel enrichment job using cached balances
    * This runs in the enrichQ queue for the new parallel architecture
    */
-  async processParallelEnrichment(job: Job<{ walletAddresses: string[]; requestId: string }>): Promise<{ enrichedBalances: Record<string, any> }> {
-    const { walletAddresses, requestId } = job.data;
+  async processParallelEnrichment(job: Job<{ walletBalances: Record<string, any>; requestId: string }>): Promise<{ enrichedBalances: Record<string, any> }> {
+    const { walletBalances, requestId } = job.data;
     const startTime = Date.now();
     
-    this.logger.log(`Processing parallel enrichment for ${walletAddresses.length} wallets, requestId: ${requestId}`);
+    this.logger.log(`Processing parallel enrichment for ${Object.keys(walletBalances).length} wallets, requestId: ${requestId}`);
     
     try {
-      // Get cached balances for all wallets
-      const walletBalances: Record<string, any> = {};
-      
-      for (const walletAddress of walletAddresses) {
-        const balances = await this.balanceCacheService.getBalances(walletAddress);
-        walletBalances[walletAddress] = balances;
-      }
-      
       // Use the existing sophisticated enrichment logic
       const { enrichedBalances, summary } = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
       
+      await job.updateProgress(100);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
+
       // If no new tokens were actually fetched, we can short-circuit the expensive cache write.
       if (summary.newTokensFetched === 0) {
         this.logger.log(`Skipping cache write for request ${requestId} as no new token metadata was fetched.`);

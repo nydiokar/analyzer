@@ -18,14 +18,14 @@ export class SimilarityApiService {
 
     constructor(
         private readonly databaseService: DatabaseService,
-        private readonly balanceCacheService: BalanceCacheService,
         private readonly tokenInfoService: TokenInfoService,
     ) {}
 
-    async runAnalysis(dto: SimilarityAnalysisRequestDto): Promise<CombinedSimilarityResult> {
-        this.logger.log(`Received request to run comprehensive similarity analysis for ${dto.walletAddresses.length} wallets.`, {
-            wallets: dto.walletAddresses,
-        });
+    async runAnalysis(
+        dto: SimilarityAnalysisRequestDto, 
+        balancesMap: Map<string, WalletBalance>
+    ): Promise<CombinedSimilarityResult> {
+        this.logger.log(`Received request to run comprehensive similarity analysis for ${dto.walletAddresses.length} wallets.`);
 
         if (!dto.walletAddresses || dto.walletAddresses.length < 2) {
             throw new BadRequestException('At least two wallet addresses are required for similarity analysis.');
@@ -38,15 +38,8 @@ export class SimilarityApiService {
 
             const similarityAnalyzer = new SimilarityService(this.databaseService, config);
             
-            // Fetch fresh, fully-structured balances HERE, inside the service.
-            const balancesMap = new Map<string, WalletBalance>();
-            for (const address of dto.walletAddresses) {
-                const balance = await this.balanceCacheService.getBalances(address);
-                if (balance) {
-                    balancesMap.set(address, balance);
-                }
-            }
-            
+            // --- Balances are now pre-fetched and passed in ---
+
             // --- Pre-enrich balances with existing metadata ---
             const uniqueMints = Array.from(new Set(
                 [...balancesMap.values()].flatMap(balance => balance.tokenBalances.map(tb => tb.mint))

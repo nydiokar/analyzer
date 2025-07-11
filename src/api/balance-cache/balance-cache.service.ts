@@ -63,6 +63,56 @@ export class BalanceCacheService {
   }
 
   /**
+   * Get balances for multiple wallets, efficiently using Redis `mget` and a single backend fetch for misses.
+   */
+  async getManyBalances(walletAddresses: string[]): Promise<Record<string, WalletBalance | null>> {
+    if (walletAddresses.length === 0) {
+      return {};
+    }
+
+    const cacheKeys = walletAddresses.map(addr => `balance:${addr}`);
+    const cachedResults = await this.redis.mget(cacheKeys);
+    
+    const balances: Record<string, WalletBalance | null> = {};
+    const missedAddresses: string[] = [];
+
+    cachedResults.forEach((cached, index) => {
+      const address = walletAddresses[index];
+      if (cached) {
+        balances[address] = JSON.parse(cached);
+      } else {
+        missedAddresses.push(address);
+      }
+    });
+
+    this.logger.debug(`Cache hit for ${walletAddresses.length - missedAddresses.length} wallets. Missed: ${missedAddresses.length}`);
+
+    if (missedAddresses.length > 0) {
+      try {
+        const fetchedBalancesMap = await this.walletBalanceService.fetchWalletBalancesRaw(missedAddresses);
+        
+        const cachePipeline = this.redis.pipeline();
+        
+        for (const address of missedAddresses) {
+          const fetchedBalance = fetchedBalancesMap.get(address) || null;
+          balances[address] = fetchedBalance;
+          cachePipeline.set(`balance:${address}`, JSON.stringify(fetchedBalance), 'EX', 30);
+        }
+        
+        await cachePipeline.exec();
+        this.logger.debug(`Fetched and cached ${missedAddresses.length} missing balances.`);
+
+      } catch (error) {
+        this.logger.error(`Error fetching batch balances for ${missedAddresses.join(', ')}:`, error);
+        // Fill missed addresses with null to indicate failure
+        missedAddresses.forEach(addr => balances[addr] = null);
+      }
+    }
+
+    return balances;
+  }
+
+  /**
    * Cache balance data for a wallet.
    * Ensures the TTL is consistent.
    */
