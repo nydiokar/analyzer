@@ -8,7 +8,7 @@ import { HeliusApiClient } from './helius-api-client';
 import { WalletBalanceService } from './wallet-balance-service';
 import { WalletBalance } from '@/types/wallet';
 import { Injectable } from '@nestjs/common';
-import { ITokenInfoService } from '../../types/token-info-service.interface';
+import { TokenInfoService } from '../../api/token-info/token-info.service';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -23,7 +23,7 @@ export class PnlAnalysisService {
     private advancedStatsAnalyzer: AdvancedStatsAnalyzer;
     private walletBalanceService: WalletBalanceService | null;
     private heliusApiClient: HeliusApiClient | null;
-    private tokenInfoService: ITokenInfoService | null;
+    private tokenInfoService: TokenInfoService | null;
 
     /**
      * Constructs an instance of the PnlAnalysisService.
@@ -35,7 +35,7 @@ export class PnlAnalysisService {
     constructor(
         private databaseService: DatabaseService,
         heliusApiClient: HeliusApiClient | null,
-        tokenInfoService: ITokenInfoService | null,
+        tokenInfoService: TokenInfoService | null,
     ) {
         this.swapAnalyzer = new SwapAnalyzer();
         this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
@@ -43,16 +43,11 @@ export class PnlAnalysisService {
         this.tokenInfoService = tokenInfoService;
 
         if (this.heliusApiClient) {
-            this.walletBalanceService = new WalletBalanceService(this.heliusApiClient);
-            logger.info('PnlAnalysisService instantiated with HeliusApiClient. WalletBalanceService active.');
+            this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
+            logger.info('PnlAnalysisService instantiated with HeliusApiClient and TokenInfoService. WalletBalanceService active.');
         } else {
             this.walletBalanceService = null;
             logger.info('PnlAnalysisService instantiated without HeliusApiClient. WalletBalanceService inactive.');
-        }
-        if (this.tokenInfoService) {
-            logger.info('PnlAnalysisService instantiated with TokenInfoService. Token info enrichment active.');
-        } else {
-            logger.info('PnlAnalysisService instantiated without TokenInfoService. Token info enrichment inactive.');
         }
     }
 

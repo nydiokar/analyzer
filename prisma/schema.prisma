@@ -252,8 +252,8 @@ model User {
 
 model ActivityLog {
   id                String   @id @default(cuid()) // Or use autoincrement Int
-  userId            String
-  user              User     @relation(fields: [userId], references: [id])
+  userId            String?
+  user              User?     @relation(fields: [userId], references: [id])
   actionType        String // e.g., 'get_wallet_summary', 'get_token_performance', 'run_pnl_analysis'
   timestamp         DateTime @default(now())
   requestParameters String? // Input parameters for the action (stored as JSON string)

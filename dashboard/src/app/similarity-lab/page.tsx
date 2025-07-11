@@ -108,38 +108,11 @@ export default function AnalysisLabPage() {
           setCurrentJobId(null);
         }
       } 
-      // Case 2: The enrichment job has completed.
-      else if (data.jobId === enrichmentJobId) {
-        console.log('🎨 Processing completion for ENRICHMENT job:', data.jobId);
-        try {
-          const result = await fetcher(`/jobs/${data.jobId}/result`);
-          // CORRECTED: The result is at result.result.enrichedBalances, not result.result.data.enrichedBalances
-          if (!result || !result.result?.enrichedBalances) throw new Error("Enrichment job returned no balance data.");
-
-          const enrichmentData = result.result;
-
-          // Merge enriched data into the existing analysis result
-          setAnalysisResult(prevResult => {
-            if (!prevResult) return null; // Should not happen if flow is correct
-            return {
-              ...prevResult,
-              walletBalances: enrichmentData.enrichedBalances,
-            };
-          });
-
-          setJobStatuses(prev => ({ ...prev, enrichment: 'completed' }));
-          toast({ title: "Token Data Loaded", description: "Prices and metadata have been updated." });
-        } catch (error: any) {
-          console.error('❌ Error fetching enrichment job result:', error);
-          // Non-critical error, just toast it.
-          toast({ variant: "destructive", title: "Enrichment Failed", description: error.message });
-        }
-      }
-      // Case 3: An unrelated job completed. Ignore it.
+      // All enrichment logic is now in onEnrichmentComplete
       else {
         console.log('Ignoring completion for unrelated job:', data.jobId);
       }
-    }, [toast, currentJobId, enrichmentJobId]),
+    }, [toast, currentJobId]),
     
     onJobFailed: useCallback((data: JobFailedData) => {
       console.error('❌ Job failed:', data.jobId, data.error);
@@ -160,11 +133,32 @@ export default function AnalysisLabPage() {
       });
     }, [toast, currentJobId, enrichmentJobId]),
     
-    onEnrichmentComplete: useCallback((data: EnrichmentCompletionData) => {
-      // THIS LOGIC IS NOW HANDLED IN onJobCompleted.
-      // This callback remains to satisfy the hook but does nothing.
-      console.log('🎨 onEnrichmentComplete fired but is handled by onJobCompleted.');
-    }, []),
+    onEnrichmentComplete: useCallback(async (data: EnrichmentCompletionData) => {
+      console.log('🎨 Processing completion for ENRICHMENT job:', data);
+      try {
+        // The enrichment data is passed directly in the event payload
+        if (!data || !data.enrichedBalances) {
+          throw new Error("Enrichment job returned no balance data.");
+        }
+
+        // Merge enriched data into the existing analysis result
+        setAnalysisResult(prevResult => {
+          if (!prevResult) return null; // Should not happen if flow is correct
+          return {
+            ...prevResult,
+            walletBalances: data.enrichedBalances,
+          };
+        });
+
+        setJobStatuses(prev => ({ ...prev, enrichment: 'completed' }));
+        toast({ title: "Token Data Loaded", description: "Prices and metadata have been updated." });
+      } catch (error: any) {
+        console.error('❌ Error processing enrichment data:', error);
+        // Non-critical error, just toast it.
+        toast({ variant: "destructive", title: "Enrichment Failed", description: error.message });
+        setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
+      }
+    }, [toast]),
   });
 
   const isRunning = useMemo(() => jobStatuses.analysis === 'running' || jobStatuses.enrichment === 'running', [jobStatuses]);

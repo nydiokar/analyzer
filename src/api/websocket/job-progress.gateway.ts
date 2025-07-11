@@ -132,7 +132,8 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     for (const [clientId, subscription] of this.clientSubscriptions) {
       if (jobId && subscription.jobIds.has(jobId)) {
         this.server.to(clientId).emit(event, data);
-        this.logger.debug(`Broadcasted ${event} to client ${clientId} for job ${jobId}`);
+        // The following line is the source of the excessive log messages.
+        // this.logger.debug(`Broadcasted ${event} to client ${clientId} for job ${jobId}`);
       }
     }
   }

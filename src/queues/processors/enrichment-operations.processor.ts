@@ -215,23 +215,17 @@ export class EnrichmentOperationsProcessor {
       const existingInfoMap = new Map(allExistingInfo.map(info => [info.tokenAddress, info]));
       this.logger.log(`Found ${existingInfoMap.size} records in the DB for ${uniqueMints.length} unique mints after enrichment trigger.`);
 
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 50);
-      // Step 2: Get fresh prices from the external API.
-      const freshPrices = await this.dexscreenerService.getTokenPrices(uniqueMints);
-      const freshPricesMap = new Map(Object.entries(freshPrices));
-      this.logger.log(`Fetched ${freshPricesMap.size} fresh prices from the external API.`);
-
       await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 75);
-      // Step 3: Enrich the balances using the best available data.
+      
+      // Step 2: Enrich the balances using the best available data from the database.
+      // The call to getTokenPrices is removed as triggerTokenInfoEnrichment already updated the prices in the DB.
       const finalEnrichedBalances = { ...walletBalances };
       for (const walletAddress in finalEnrichedBalances) {
         const balances = finalEnrichedBalances[walletAddress].tokenBalances as any[];
         for (const tokenBalance of balances) {
           const dbInfo = existingInfoMap.get(tokenBalance.mint);
           
-          // Use fresh price if available, otherwise fall back to the price from our database.
-          const freshPrice = freshPricesMap.get(tokenBalance.mint);
-          const priceToUse = freshPrice ?? (dbInfo?.priceUsd ? parseFloat(dbInfo.priceUsd) : null);
+          const priceToUse = dbInfo?.priceUsd ? parseFloat(dbInfo.priceUsd) : null;
           
           tokenBalance.name = dbInfo?.name ?? 'Unknown Token';
           tokenBalance.symbol = dbInfo?.symbol ?? 'UNKNOWN';

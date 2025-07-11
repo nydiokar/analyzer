@@ -68,29 +68,30 @@ export class DexscreenerService {
                 const response = await firstValueFrom(this.httpService.get(url));
                 const pairs: DexScreenerPair[] = response.data?.pairs || [];
 
-
                 const tokenInfoFromPairs = this.transformPairsToTokenInfo(pairs, chunk);
-                const foundAddresses = new Set(tokenInfoFromPairs.map(t => t.tokenAddress));
                 
-                const notFoundAddresses = chunk.filter(addr => !foundAddresses.has(addr));
+                // --- OPTIMIZATION: Bulk Upsert and Placeholder Creation ---
 
-                const finalUpserts: Prisma.TokenInfoCreateInput[] = [...tokenInfoFromPairs];
-
-                if (notFoundAddresses.length > 0) {
-                    logger.warn(`Chunk ${index + 1}: Could not find metadata for ${notFoundAddresses.length} tokens. Creating placeholders to prevent re-fetching.`);
-                    for (const addr of notFoundAddresses) {
-                        finalUpserts.push({
-                            tokenAddress: addr,
-                            name: 'Unknown Token',
-                            symbol: addr.slice(0, 4) + '...' + addr.slice(-4),
-                            dexscreenerUpdatedAt: new Date(), // Prevent re-fetching
-                        });
-                    }
+                // 1. Upsert all found tokens. This updates existing ones and creates new ones found via API.
+                if (tokenInfoFromPairs.length > 0) {
+                    await this.databaseService.upsertManyTokenInfo(tokenInfoFromPairs);
+                    logger.info(`Saved/updated ${tokenInfoFromPairs.length} token records from API for chunk ${index + 1}.`);
                 }
 
-                if (finalUpserts.length > 0) {
-                    await this.databaseService.upsertManyTokenInfo(finalUpserts);
-                    logger.info(`Saved/updated ${finalUpserts.length} token records for chunk ${index + 1}.`);
+                // 2. Efficiently create placeholders for any tokens not found by the API.
+                const foundAddresses = new Set(tokenInfoFromPairs.map(t => t.tokenAddress));
+                const notFoundAddresses = chunk.filter(addr => !foundAddresses.has(addr));
+
+                if (notFoundAddresses.length > 0) {
+                    logger.warn(`Chunk ${index + 1}: ${notFoundAddresses.length} tokens not found via API. Creating placeholders.`);
+                    const placeholderData = notFoundAddresses.map(addr => ({
+                        tokenAddress: addr,
+                        name: 'Unknown Token',
+                        symbol: addr.slice(0, 4) + '...' + addr.slice(-4),
+                        dexscreenerUpdatedAt: new Date(), // Mark as checked
+                    }));
+                    // Use the existing, robust upsertMany method for placeholders.
+                    await this.databaseService.upsertManyTokenInfo(placeholderData);
                 }
                 
                 processedCount += chunk.length;
