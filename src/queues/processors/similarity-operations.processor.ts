@@ -36,6 +36,7 @@ export class SimilarityOperationsProcessor {
     private readonly behaviorService: BehaviorService,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly balanceCacheService: BalanceCacheService,
+    private readonly websocketGateway: JobProgressGateway,
   ) {
     // Debug: Check if TokenInfoService is available
     this.logger.log(`TokenInfoService available: ${!!this.tokenInfoService}`);
@@ -107,6 +108,7 @@ export class SimilarityOperationsProcessor {
     try {
       this.logger.log(`Starting ADVANCED similarity analysis for ${walletAddresses.length} wallets.`);
       await job.updateProgress(5);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
       // STEP 1: PARALLEL KICK-OFF OF LONG & SHORT TASKS
@@ -133,6 +135,7 @@ export class SimilarityOperationsProcessor {
         await syncPromise;
         this.logger.log('Deep sync and analysis finished.');
         await job.updateProgress(60);
+        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60);
         this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
       }
 
@@ -144,12 +147,14 @@ export class SimilarityOperationsProcessor {
       });
       
       await job.updateProgress(90);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
       this.checkTimeout(startTime, timeoutMs, 'Final analysis');
 
       // STEP 5: PREPARE RESULTS (The result from the service is now complete)
       this.logger.log('Similarity analysis completed successfully.');
 
       await job.updateProgress(100);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
       this.checkTimeout(startTime, timeoutMs, 'Final result preparation');
 
       const result: SimilarityFlowResult = {
@@ -232,7 +237,9 @@ export class SimilarityOperationsProcessor {
 
           // Increment progress safely after each wallet is fully processed.
           currentProgress += progressStep;
-          await job.updateProgress(Math.floor(currentProgress));
+          const progress = Math.floor(currentProgress);
+          await job.updateProgress(progress);
+          await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
 
           return { walletAddress, status: 'completed' };
 

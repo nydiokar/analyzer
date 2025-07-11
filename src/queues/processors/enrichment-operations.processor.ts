@@ -160,12 +160,14 @@ export class EnrichmentOperationsProcessor {
 
       try {
         await job.updateProgress(5);
+        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
         this.logger.log(`Processing sophisticated token enrichment for ${Object.keys(walletBalances).length} wallets`);
 
         // Use the sophisticated logic from enrichBalances method
         const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
 
         await job.updateProgress(100);
+        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
         this.logger.log(`Sophisticated token enrichment completed successfully`);
         
         // Format the result according to the new interface
@@ -204,6 +206,7 @@ export class EnrichmentOperationsProcessor {
     this.logger.log(`Enriching balances for ${Object.keys(walletBalances).length} wallets using sophisticated logic.`);
     
     try {
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 25);
       const allMints = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
       const uniqueMints = [...new Set(allMints)];
 
@@ -212,11 +215,13 @@ export class EnrichmentOperationsProcessor {
       const existingInfoMap = new Map(allExistingInfo.map(info => [info.tokenAddress, info]));
       this.logger.log(`Found ${existingInfoMap.size} records in the DB for ${uniqueMints.length} unique mints.`);
 
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 50);
       // Step 2: Get fresh prices from the external API.
       const freshPrices = await this.dexscreenerService.getTokenPrices(uniqueMints);
       const freshPricesMap = new Map(Object.entries(freshPrices));
       this.logger.log(`Fetched ${freshPricesMap.size} fresh prices from the external API.`);
 
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 75);
       // Step 3: Enrich the balances using the best available data.
       const finalEnrichedBalances = { ...walletBalances };
       for (const walletAddress in finalEnrichedBalances) {
