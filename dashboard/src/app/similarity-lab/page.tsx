@@ -78,52 +78,68 @@ export default function AnalysisLabPage() {
     }, [currentJobId]),
     
     onJobCompleted: useCallback(async (data: any) => {
-      console.log('✅ Job completed - Raw data:', data);
-      
-      if (data.jobId !== currentJobId) {
-        console.log('✅ Ignoring completion for different job:', data.jobId, 'vs current:', currentJobId);
-        return;
-      }
-      
-      console.log('✅ Processing completion for our job:', data.jobId);
-      setJobProgress(100);
-      setSyncMessage('Job completed! Fetching results...');
-      
-      try {
-        const result = await fetcher(`/jobs/${data.jobId}/result`);
-        
-        if (!result || !result.result || !result.result.data) {
-          throw new Error("Job completed but returned no data.");
-        }
-        
-        const resultData = result.result;
-        
-        if (resultData?.data) {
-          console.log('✅ Setting analysis result from fetched data');
+      console.log('✅ Job completed hook fired. Job ID:', data.jobId);
+
+      // Case 1: The main analysis job has completed.
+      if (data.jobId === currentJobId) {
+        console.log('✅ Processing completion for MAIN job:', data.jobId);
+        setJobProgress(100);
+        setSyncMessage('Analysis complete! Fetching results...');
+        try {
+          const result = await fetcher(`/jobs/${data.jobId}/result`);
+          if (!result || !result.result || !result.result.data) throw new Error("Job completed but returned no data.");
+          
+          const resultData = result.result;
           setAnalysisResult(resultData.data);
           setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
           
+          // CRITICAL: Set the enrichmentJobId from the result payload
           if (resultData.enrichmentJobId) {
             setEnrichmentJobId(resultData.enrichmentJobId);
           }
           
+          setCurrentJobId(null); // Clear the main job ID
           setSyncMessage('');
-          
-          toast({
-            title: "Analysis Complete",
-            description: "Results are ready!",
-          });
-        } else {
-          console.error('❌ No result data found in fetched job result');
+          toast({ title: "Analysis Complete", description: "Results are ready to view." });
+        } catch (error: any) {
+          console.error('❌ Error fetching main job result:', error);
+          setError(error.message || 'Failed to fetch job results.');
           setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
-          setError('Job completed but no result data found');
+          setCurrentJobId(null);
         }
-      } catch (error: any) {
-        console.error('❌ Error fetching job result:', error);
-        setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
-        setError(error.message);
+      } 
+      // Case 2: The enrichment job has completed.
+      else if (data.jobId === enrichmentJobId) {
+        console.log('🎨 Processing completion for ENRICHMENT job:', data.jobId);
+        try {
+          const result = await fetcher(`/jobs/${data.jobId}/result`);
+          // CORRECTED: The result is at result.result.enrichedBalances, not result.result.data.enrichedBalances
+          if (!result || !result.result?.enrichedBalances) throw new Error("Enrichment job returned no balance data.");
+
+          const enrichmentData = result.result;
+
+          // Merge enriched data into the existing analysis result
+          setAnalysisResult(prevResult => {
+            if (!prevResult) return null; // Should not happen if flow is correct
+            return {
+              ...prevResult,
+              walletBalances: enrichmentData.enrichedBalances,
+            };
+          });
+
+          setJobStatuses(prev => ({ ...prev, enrichment: 'completed' }));
+          toast({ title: "Token Data Loaded", description: "Prices and metadata have been updated." });
+        } catch (error: any) {
+          console.error('❌ Error fetching enrichment job result:', error);
+          // Non-critical error, just toast it.
+          toast({ variant: "destructive", title: "Enrichment Failed", description: error.message });
+        }
       }
-    }, [toast, currentJobId]),
+      // Case 3: An unrelated job completed. Ignore it.
+      else {
+        console.log('Ignoring completion for unrelated job:', data.jobId);
+      }
+    }, [toast, currentJobId, enrichmentJobId]),
     
     onJobFailed: useCallback((data: JobFailedData) => {
       console.error('❌ Job failed:', data.jobId, data.error);
@@ -145,25 +161,10 @@ export default function AnalysisLabPage() {
     }, [toast, currentJobId, enrichmentJobId]),
     
     onEnrichmentComplete: useCallback((data: EnrichmentCompletionData) => {
-      console.log('🎨 Enrichment completed');
-      if (data.enrichedBalances) {
-        // Merge enriched data into the main analysis result to trigger re-render
-        setAnalysisResult(prevResult => {
-          if (!prevResult) return null;
-          return {
-            ...prevResult,
-            walletBalances: data.enrichedBalances,
-          };
-        });
-        
-        setJobStatuses(prev => ({ ...prev, enrichment: 'completed' }));
-        
-        toast({
-          title: "Enrichment Complete",
-          description: "Token metadata loaded!",
-        });
-      }
-    }, [toast]),
+      // THIS LOGIC IS NOW HANDLED IN onJobCompleted.
+      // This callback remains to satisfy the hook but does nothing.
+      console.log('🎨 onEnrichmentComplete fired but is handled by onJobCompleted.');
+    }, []),
   });
 
   const isRunning = useMemo(() => jobStatuses.analysis === 'running' || jobStatuses.enrichment === 'running', [jobStatuses]);

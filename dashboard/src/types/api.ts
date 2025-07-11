@@ -214,4 +214,23 @@ export interface FavoriteWallet {
   walletAddress: string;
   tag: string | null;
   createdAt: string;
-} 
+}
+
+// --- Job Status Types ---
+// Based on src/api/jobs/dto/job-status.dto.ts
+export interface JobStatusResponseDto {
+  id: string;
+  name: string;
+  queue: string;
+  status: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed' | 'paused';
+  progress: number | object;
+  data: any;
+  result?: any;
+  error?: string;
+  createdAt: string; // ISO Date string
+  processedAt?: string; // ISO Date string
+  finishedAt?: string; // ISO Date string
+  attempts: number;
+  maxAttempts: number;
+  remainingTime?: number;
+}

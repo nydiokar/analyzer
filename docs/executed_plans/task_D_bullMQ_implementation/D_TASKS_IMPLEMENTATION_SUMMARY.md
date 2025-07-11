@@ -127,10 +127,10 @@ const {
 
 ### API Endpoints:
 ```http
-GET /api/v1/jobs/failed/stats
+GET jobs/failed/stats
 # Returns dead letter queue statistics and monitored queues
 
-GET /api/v1/jobs/failed/recent?limit=20  
+GET /jobs/failed/recent?limit=20  
 # Returns recent failed jobs for investigation
 ```
 
@@ -289,9 +289,9 @@ npm run build  # All TypeScript compilation successful
 ```
 
 ### API Endpoints Ready:
-- ✅ `GET /api/v1/health/queues` - Queue health monitoring
-- ✅ `GET /api/v1/jobs/failed/stats` - Dead letter queue stats  
-- ✅ `GET /api/v1/jobs/failed/recent` - Recent failed jobs
+- ✅ `GET /health/queues` - Queue health monitoring
+- ✅ `GET /jobs/failed/stats` - Dead letter queue stats  
+- ✅ `GET /jobs/failed/recent` - Recent failed jobs
 - ✅ `WebSocket /job-progress` - Real-time job progress
 
 ### Services Active:

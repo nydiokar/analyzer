@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Job, Worker } from 'bullmq';
+import { Job, Worker, QueueEvents } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { ComprehensiveSimilarityFlowData, SimilarityFlowResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
@@ -18,6 +18,8 @@ import { BalanceCacheService } from '../../api/balance-cache/balance-cache.servi
 import { PROCESSING_CONFIG } from '../../config/constants';
 import { BatchProcessor } from '../utils/batch-processor';
 import { WalletBalance } from '../../types/wallet';
+import { join } from 'path';
+import { pathToFileURL } from 'url';
 
 @Injectable()
 export class SimilarityOperationsProcessor {
@@ -45,13 +47,21 @@ export class SimilarityOperationsProcessor {
     }
     
     // Initialize WalletBalanceService
-    this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
+    this.walletBalanceService = new WalletBalanceService(this.heliusApiClient);
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
     
+    // The worker now runs the logic from a separate file in a sandboxed process.
+    // We must convert the file path to a URL for ESM compatibility on Windows.
+    const workerPath = join(__dirname, '..', 'workers', 'similarity.worker.js');
+    const workerUrl = pathToFileURL(workerPath);
+
     this.worker = new Worker(
       QueueNames.SIMILARITY_OPERATIONS,
-      async (job: Job) => this.processJob(job),
-      config.workerOptions
+      workerUrl,
+      {
+        ...config.workerOptions,
+        concurrency: 2, // Example: align with resource allocation plan
+      }
     );
 
     this.worker.on('completed', (job) => {
@@ -67,22 +77,11 @@ export class SimilarityOperationsProcessor {
     });
   }
 
-  private async processJob(job: Job): Promise<SimilarityFlowResult> {
-    const jobName = job.name;
-    
-    switch (jobName) {
-      case 'similarity-analysis-flow':
-        return this.processSimilarityFlow(job as Job<ComprehensiveSimilarityFlowData>);
-      default:
-        throw new Error(`Unknown job type: ${jobName}`);
-    }
-  }
-
   /**
-   * Process the similarity analysis flow: run a full historical sync and enrichment in parallel.
-   * This is the true "Advanced Analysis" flow.
+   * This method is now public so it can be called by the sandboxed worker process.
+   * It contains the core logic for the similarity analysis flow.
    */
-  async processSimilarityFlow(job: Job<ComprehensiveSimilarityFlowData>): Promise<SimilarityFlowResult> {
+  public async processSimilarityFlow(job: Job<ComprehensiveSimilarityFlowData>): Promise<SimilarityFlowResult> {
     const { walletAddresses, requestId, walletsNeedingSync = [], enrichMetadata = true, failureThreshold = 0.8, timeoutMinutes = 45, similarityConfig } = job.data;
     
     // Determine if sync is needed based on the wallets list (no redundant boolean needed)

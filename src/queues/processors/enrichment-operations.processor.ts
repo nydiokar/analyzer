@@ -201,14 +201,19 @@ export class EnrichmentOperationsProcessor {
     this.logger.log(`Enriching balances for ${Object.keys(walletBalances).length} wallets using sophisticated logic.`);
     
     try {
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 25);
       const allMints = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
       const uniqueMints = [...new Set(allMints)];
 
-      // Step 1: Get all available token info from our local database. This is our baseline.
+      // Step 0: CRITICAL - Trigger the fetching and saving of any NEW token metadata.
+      // This was the missing piece. This ensures our DB has the info before we try to read from it.
+      await this.tokenInfoService.triggerTokenInfoEnrichment(uniqueMints, 'system-enrichment-job');
+      
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 25);
+
+      // Step 1: Get all available token info from our local database. This is now up-to-date.
       const allExistingInfo = await this.tokenInfoService.findMany(uniqueMints);
       const existingInfoMap = new Map(allExistingInfo.map(info => [info.tokenAddress, info]));
-      this.logger.log(`Found ${existingInfoMap.size} records in the DB for ${uniqueMints.length} unique mints.`);
+      this.logger.log(`Found ${existingInfoMap.size} records in the DB for ${uniqueMints.length} unique mints after enrichment trigger.`);
 
       await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 50);
       // Step 2: Get fresh prices from the external API.
@@ -247,8 +252,8 @@ export class EnrichmentOperationsProcessor {
       return { 
         enrichedBalances: finalEnrichedBalances, 
         summary: {
-          newTokensFetched: 0, // This now represents tokens that were new or stale.
-          totalTokens: uniqueMints.length
+          newTokensFetched: existingInfoMap.size, // A more representative number of available tokens.
+          totalTokens: uniqueMints.length,
         }
       };
       

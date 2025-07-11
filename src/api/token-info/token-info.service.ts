@@ -35,8 +35,8 @@ export class TokenInfoService implements ITokenInfoService {
     });
 
 
-    // This is a fire-and-forget call. We don't await it.
-    this.dexscreenerService.fetchAndSaveTokenInfo(newTokensToFetch);
+    // This is no longer fire-and-forget. We must await completion.
+    await this.dexscreenerService.fetchAndSaveTokenInfo(newTokensToFetch);
   }
 
   async findMany(tokenAddresses: string[]) {
