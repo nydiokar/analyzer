@@ -5,6 +5,7 @@ import { shortenAddress } from '@/lib/solana-utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Info } from 'lucide-react';
 import EChartComponent from '@/components/charts/EChartComponent';
+import { WalletBadge } from '@/components/shared/WalletBadge';
 
 interface OverlapHeatmapProps {
   results: CombinedSimilarityResult;
@@ -53,6 +54,7 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
       xAxis: {
         type: 'category' as const,
         data: walletLabels,
+        show: false, // Hide the x-axis labels
         axisLabel: {
           rotate: 45,
           fontSize: 10
@@ -61,6 +63,7 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
       yAxis: {
         type: 'category' as const,
         data: walletLabels,
+        show: false, // Hide the y-axis labels
         axisLabel: {
           fontSize: 10
         }
@@ -73,11 +76,12 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
         left: 'center',
         bottom: '2%',
         inRange: {
-          color: ['#f7fafc', '#2563eb']
+          color: ['#1f2937', '#38bdf8'] // Dark gray to light blue
         },
         text: ['High Overlap', 'Low Overlap'],
         textStyle: {
-          fontSize: 10
+          fontSize: 10,
+          color: '#a1a1aa' // Lighter text for dark theme
         }
       },
       series: [{
@@ -192,9 +196,9 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
                 <div key={`${pair.walletA}-${pair.walletB}`} className="flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2">
                     <span className="text-muted-foreground">#{index + 1}</span>
-                    <span className="font-mono">{shortenAddress(pair.walletA, 6)}</span>
+                    <WalletBadge address={pair.walletA} />
                     <span className="text-muted-foreground">↔</span>
-                    <span className="font-mono">{shortenAddress(pair.walletB, 6)}</span>
+                    <WalletBadge address={pair.walletB} />
                   </div>
                   <span className="font-semibold">{pair.count}/{pair.unionCount} tokens</span>
                 </div>

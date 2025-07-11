@@ -7,10 +7,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { Copy, ExternalLink } from "lucide-react";
+import { Copy, ExternalLink, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from 'next/link';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useMemo } from 'react';
+import { WalletBadge } from '@/components/shared/WalletBadge';
 
 // This type is now provided directly in CombinedSimilarityResult
 // interface EnrichedTokenBalance {
@@ -22,6 +25,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 interface ContextualHoldingsCardProps {
   results: CombinedSimilarityResult;
   enrichedBalances: Record<string, any> | null;
+  onRefreshPrices: () => void;
+  isRefreshing: boolean;
 }
 
 const truncateAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -42,7 +47,7 @@ const formatUsdValue = (value: number | null | undefined) => {
   }).format(value);
 };
 
-export function ContextualHoldingsCard({ results, enrichedBalances }: ContextualHoldingsCardProps) {
+export function ContextualHoldingsCard({ results, enrichedBalances, onRefreshPrices, isRefreshing }: ContextualHoldingsCardProps) {
   const balancesSource = enrichedBalances || results.walletBalances;
   const { walletBalances, uniqueTokensPerWallet } = results;
   const { toast } = useToast();
@@ -67,13 +72,40 @@ export function ContextualHoldingsCard({ results, enrichedBalances }: Contextual
 
   const walletAddresses = Object.keys(balancesSource);
 
+  const { walletOrder, hasBalances } = useMemo(() => {
+    const balances = balancesSource || {};
+    const order = Object.keys(balances);
+    const hasAnyBalances = order.some(addr => balances[addr]?.tokenBalances?.length > 0);
+    return { walletOrder: order, hasBalances: hasAnyBalances };
+  }, [balancesSource]);
+
   return (
     <Card>
-        <CardHeader>
-            <CardTitle>Contextual Holdings</CardTitle>
-            <CardDescription>
-                A snapshot of current token balances for each analyzed wallet, sorted by USD value to show significance.
-            </CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Contextual Holdings</CardTitle>
+              <CardDescription>
+                  A snapshot of current token balances for each analyzed wallet, sorted by USD value.
+              </CardDescription>
+            </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={onRefreshPrices}
+                    disabled={isRefreshing || !hasBalances}
+                    className="flex-shrink-0"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{isRefreshing ? 'Refreshing prices...' : (hasBalances ? 'Click to refresh token prices' : 'No holdings to refresh')}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
         </CardHeader>
         <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -88,22 +120,7 @@ export function ContextualHoldingsCard({ results, enrichedBalances }: Contextual
                     return (
                         <div key={walletAddress} className="border rounded-lg p-3 space-y-2 flex flex-col">
                             <div className="flex justify-between items-center">
-                                <div className="flex items-center gap-2">
-                                  <Link href={`/wallets/${walletAddress}`} passHref>
-                                    <h4 className="font-semibold text-sm hover:underline cursor-pointer">{truncateAddress(walletAddress)}</h4>
-                                  </Link>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-5 w-5"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(walletAddress);
-                                      toast({ description: "Wallet address copied!" });
-                                    }}
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                </div>
+                                <WalletBadge address={walletAddress} />
                                 <Badge variant="outline">
                                     {uniqueCounts.capital} Tokens
                                 </Badge>
@@ -141,8 +158,26 @@ export function ContextualHoldingsCard({ results, enrichedBalances }: Contextual
                                                   <div className="font-bold text-sm">{token?.name || 'Unknown Token'}</div>
                                                   <div className="text-xs text-muted-foreground break-all">{token.mint}</div>
                                                   <div className="flex items-center gap-1 pt-1">
-                                                      <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => { navigator.clipboard.writeText(token.mint); toast({ description: "Copied!" })}}><Copy className="h-3 w-3 mr-1"/>Copy</Button>
-                                                      <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${token.mint}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3 w-3 mr-1"/>Solscan</a></Button>
+                                                    <TooltipProvider>
+                                                      <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                          <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => { navigator.clipboard.writeText(token.mint); toast({ description: "Copied!" })}}><Copy className="h-3 w-3 mr-1"/>Copy</Button>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>
+                                                          <p>Copy token address</p>
+                                                        </TooltipContent>
+                                                      </Tooltip>
+                                                    </TooltipProvider>
+                                                    <TooltipProvider>
+                                                      <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                           <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${token.mint}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3 w-3 mr-1"/>Solscan</a></Button>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>
+                                                          <p>View on Solscan</p>
+                                                        </TooltipContent>
+                                                      </Tooltip>
+                                                    </TooltipProvider>
                                                   </div>
                                               </div>
                                             </PopoverContent>

@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { CombinedSimilarityResult, KeyInsight, InsightType, CombinedPairwiseSimilarity } from "./types";
 import { generateKeyInsights } from '@/lib/similarity-report-parser';
-import { shortenAddress } from '@/lib/solana-utils';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -15,6 +14,10 @@ import { HelpCircle, Info, Copy, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { WalletBadge } from '@/components/shared/WalletBadge';
 
 interface EnhancedKeyInsightsProps {
   results: CombinedSimilarityResult;
@@ -29,6 +32,50 @@ const INSIGHT_COLORS: Record<InsightType, string> = {
     [InsightType.BehavioralMirror]: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30 hover:bg-indigo-500/30',
     [InsightType.CapitalDivergence]: 'bg-orange-500/20 text-orange-700 border-orange-500/30 hover:bg-orange-500/30',
     [InsightType.SharedZeroHoldings]: 'bg-gray-500/20 text-gray-700 border-gray-500/30 hover:bg-gray-500/30',
+};
+
+// New component for rendering token info with a popover
+const TokenBadge = ({ mint, enrichedBalances }: { mint: string, enrichedBalances: EnhancedKeyInsightsProps['results']['walletBalances']}) => {
+    const { toast } = useToast();
+
+    // Find the token info from any of the wallet balances
+    let tokenInfo;
+    if (enrichedBalances) {
+      for (const walletAddress in enrichedBalances) {
+        const foundToken = enrichedBalances[walletAddress]?.tokenBalances?.find(t => t.tokenAddress === mint);
+        if (foundToken) {
+          tokenInfo = foundToken;
+          break;
+        }
+      }
+    }
+    
+    const name = tokenInfo?.name || 'Unknown Token';
+    const symbol = tokenInfo?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <div className="flex items-center space-x-2 cursor-pointer group">
+                    <Avatar className="h-5 w-5">
+                        <AvatarImage src={tokenInfo?.imageUrl ?? undefined} alt={name} />
+                        <AvatarFallback className="text-xs">{symbol.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <span className="font-mono text-xs group-hover:underline">{name} ({symbol})</span>
+                </div>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-2">
+                <div className="space-y-2">
+                    <div className="font-bold text-sm">{name}</div>
+                    <div className="text-xs text-muted-foreground break-all">{mint}</div>
+                    <div className="flex items-center gap-1 pt-1">
+                        <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => { navigator.clipboard.writeText(mint); toast({ description: "Copied!" })}}><Copy className="h-3 w-3 mr-1"/>Copy</Button>
+                        <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${mint}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3 w-3 mr-1"/>Solscan</a></Button>
+                    </div>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
 };
 
 const getInsightIcon = (type: KeyInsight['type']) => {
@@ -55,56 +102,14 @@ const ScoreBar = ({ score, label, textColor, bgColor }: { score: number, label: 
     </div>
 );
 
-// New component for interactive wallet badges
-const WalletBadge = ({ label, fullAddress }: { label: string, fullAddress: string }) => {
-    const { toast } = useToast();
-
-    const handleCopy = async (e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        try {
-            await navigator.clipboard.writeText(fullAddress);
-            toast({
-                title: "Copied!",
-                description: `Address ${label} copied to clipboard.`,
-            });
-        } catch (err) {
-            console.error("Failed to copy address:", err);
-            toast({
-                title: "Copy Failed",
-                description: "Could not copy address to clipboard.",
-                variant: "destructive",
-            });
-        }
-    };
-
-    return (
-        <div className="inline-flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-1 rounded-md text-xs font-semibold group transition-all">
-            <Link
-                href={`/wallets/${fullAddress}`}
-                target="_blank"
-                className="hover:underline flex items-center gap-1"
-                title={`View details for ${fullAddress}`}
-            >
-                {label}
-                <ExternalLink className="h-3 w-3 opacity-60 group-hover:opacity-100 transition-opacity" />
-            </Link>
-            <button onClick={handleCopy} className="opacity-60 group-hover:opacity-100 transition-opacity" title={`Copy ${fullAddress}`}>
-                <Copy className="h-3 w-3" />
-            </button>
-        </div>
-    );
-};
-
 interface InsightCardProps {
     insight: KeyInsight;
     pair: CombinedPairwiseSimilarity;
-    walletLabels: Record<string, string>;
     sortKey: SortKey;
     results: CombinedSimilarityResult;
 }
 
-const InsightCard = ({ insight, pair, walletLabels, sortKey, results }: InsightCardProps) => {
+const InsightCard = ({ insight, pair, sortKey, results }: InsightCardProps) => {
     const { binaryScore, capitalScore, sharedTokens, capitalAllocation, binarySharedTokenCount, capitalSharedTokenCount } = pair;
 
     const totalBinaryTokensA = results.uniqueTokensPerWallet[pair.walletA]?.binary ?? 0;
@@ -142,9 +147,6 @@ const InsightCard = ({ insight, pair, walletLabels, sortKey, results }: InsightC
         return sorted.slice(0, 10);
     }, [sharedTokens, capitalAllocation, isCapitalSort]);
     
-    const walletA = walletLabels[pair.walletA];
-    const walletB = walletLabels[pair.walletB];
-
     return (
         <li className="p-4 bg-muted/50 rounded-lg space-y-4">
             <div className="flex items-start w-full">
@@ -163,7 +165,7 @@ const InsightCard = ({ insight, pair, walletLabels, sortKey, results }: InsightC
                         </div>
                     </div>
                     <div className="text-sm mt-2">
-                        Between <WalletBadge label={walletA} fullAddress={pair.walletA} /> and <WalletBadge label={walletB} fullAddress={pair.walletB} />
+                        Between <WalletBadge address={pair.walletA} /> and <WalletBadge address={pair.walletB} />
                     </div>
                     <div className="text-sm mt-1">{insight.text}</div>
                 </div>
@@ -173,8 +175,8 @@ const InsightCard = ({ insight, pair, walletLabels, sortKey, results }: InsightC
                 <ScoreBar score={binaryScore} label="Behavioral" textColor="text-blue-500" bgColor="bg-blue-500" />
                 <div className="text-xs text-muted-foreground">
                     <span className="font-bold text-foreground">{binarySharedTokenCount}</span> common token(s). 
-                    Allocation across tokens for Wallet <WalletBadge label={walletA} fullAddress={pair.walletA} />: <span className="font-bold text-foreground">{sharedBehavioralPctA.toFixed(1)}%</span>. 
-                    and Wallet <WalletBadge label={walletB} fullAddress={pair.walletB} />: <span className="font-bold text-foreground">{sharedBehavioralPctB.toFixed(1)}%</span>.
+                    Allocation across tokens for Wallet <WalletBadge address={pair.walletA} />: <span className="font-bold text-foreground">{sharedBehavioralPctA.toFixed(1)}%</span>. 
+                    and Wallet <WalletBadge address={pair.walletB} />: <span className="font-bold text-foreground">{sharedBehavioralPctB.toFixed(1)}%</span>.
                 </div>
             </div>
 
@@ -182,8 +184,8 @@ const InsightCard = ({ insight, pair, walletLabels, sortKey, results }: InsightC
                 <ScoreBar score={capitalScore} label="Capital" textColor="text-emerald-500" bgColor="bg-emerald-500" />
                 <div className="text-xs text-muted-foreground">
                     <span className="font-bold text-foreground">{capitalSharedTokenCount}</span> common token(s). 
-                    Allocation across capital for Wallet <WalletBadge label={walletA} fullAddress={pair.walletA} />: <span className="font-bold text-foreground">{capitalOverlapPctA.toFixed(1)}%</span>. 
-                    and Wallet <WalletBadge label={walletB} fullAddress={pair.walletB} />: <span className="font-bold text-foreground">{capitalOverlapPctB.toFixed(1)}%</span>.
+                    Allocation across capital for Wallet <WalletBadge address={pair.walletA} />: <span className="font-bold text-foreground">{capitalOverlapPctA.toFixed(1)}%</span>. 
+                    and Wallet <WalletBadge address={pair.walletB} />: <span className="font-bold text-foreground">{capitalOverlapPctB.toFixed(1)}%</span>.
                 </div>
             </div>
 
@@ -198,8 +200,8 @@ const InsightCard = ({ insight, pair, walletLabels, sortKey, results }: InsightC
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Token</TableHead>
-                                        <TableHead className="text-right">{walletA} Allocation</TableHead>
-                                        <TableHead className="text-right">{walletB} Allocation</TableHead>
+                                        <TableHead className="text-right"><WalletBadge address={pair.walletA} /></TableHead>
+                                        <TableHead className="text-right"><WalletBadge address={pair.walletB} /></TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -207,7 +209,9 @@ const InsightCard = ({ insight, pair, walletLabels, sortKey, results }: InsightC
                                         const allocation = capitalAllocation?.[token.mint];
                                         return (
                                             <TableRow key={token.mint}>
-                                                <TableCell className="font-mono text-xs truncate" title={token.mint}>{shortenAddress(token.mint, 10)}</TableCell>
+                                                <TableCell className="font-medium">
+                                                    <TokenBadge mint={token.mint} enrichedBalances={results.walletBalances} />
+                                                </TableCell>
                                                 <TableCell className="text-right">
                                                     {allocation?.weightA !== undefined ? `${(allocation.weightA * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
                                                 </TableCell>
@@ -231,7 +235,7 @@ export function EnhancedKeyInsights({ results }: EnhancedKeyInsightsProps) {
   const [sortKey, setSortKey] = useState<SortKey>('binaryScore');
   
   const walletLabels = useMemo(() => Object.keys(results.walletVectorsUsed).reduce((acc, address) => {
-      acc[address] = shortenAddress(address, 6);
+      acc[address] = `${address.slice(0, 6)}...${address.slice(-4)}`;
       return acc;
   }, {} as Record<string, string>), [results.walletVectorsUsed]);
 
@@ -288,7 +292,7 @@ export function EnhancedKeyInsights({ results }: EnhancedKeyInsightsProps) {
           <ScrollArea className="h-[700px] -mx-3">
              <ul className="space-y-4 px-3">
                 {processedPairs.map(({ insight, pair }) => (
-                    <InsightCard key={pair.walletA + '-' + pair.walletB} insight={insight} pair={pair} walletLabels={walletLabels} sortKey={sortKey} results={results} />
+                    <InsightCard key={pair.walletA + '-' + pair.walletB} insight={insight} pair={pair} sortKey={sortKey} results={results} />
                 ))}
             </ul>
           </ScrollArea>

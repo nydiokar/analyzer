@@ -10,9 +10,11 @@ import { Sparkles } from 'lucide-react';
 
 interface SimilarityResultDisplayProps {
   results: CombinedSimilarityResult;
+  onRefreshPrices: () => void;
+  isRefreshing: boolean;
 }
 
-export function SimilarityResultDisplay({ results }: SimilarityResultDisplayProps) {
+export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing }: SimilarityResultDisplayProps) {
   const hasAdvancedMatrices = results.sharedTokenCountsMatrix || results.jaccardSimilarityMatrix;
 
   return (
@@ -52,7 +54,12 @@ export function SimilarityResultDisplay({ results }: SimilarityResultDisplayProp
         <HistoricalVsLiveComparison results={results} />
       </div>
 
-      <ContextualHoldingsCard results={results} enrichedBalances={results.walletBalances || {}} />
+      <ContextualHoldingsCard 
+        results={results} 
+        enrichedBalances={results.walletBalances || {}} 
+        onRefreshPrices={onRefreshPrices}
+        isRefreshing={isRefreshing}
+      />
     </div>
   );
 } 

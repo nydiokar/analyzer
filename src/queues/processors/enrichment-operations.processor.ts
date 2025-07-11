@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger, Injectable } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult } from '../jobs/types';
@@ -11,15 +11,15 @@ import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
 
 @Injectable()
 export class EnrichmentOperationsProcessor {
-  private readonly logger = new Logger(EnrichmentOperationsProcessor.name);
+    private readonly logger = new Logger(EnrichmentOperationsProcessor.name);
   private readonly worker: Worker;
 
-  constructor(
+    constructor(
     private readonly redisLockService: RedisLockService,
-    private readonly tokenInfoService: TokenInfoService,
+        private readonly tokenInfoService: TokenInfoService,
     private readonly dexscreenerService: DexscreenerService,
     private readonly balanceCacheService: BalanceCacheService,
-    private readonly websocketGateway: JobProgressGateway,
+        private readonly websocketGateway: JobProgressGateway,
   ) {
     const config = QueueConfigs[QueueNames.ENRICHMENT_OPERATIONS];
     

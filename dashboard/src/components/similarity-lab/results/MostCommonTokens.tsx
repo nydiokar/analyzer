@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WalletBadge } from "@/components/shared/WalletBadge";
 
 interface MostCommonTokensProps {
   results: CombinedSimilarityResult;
@@ -120,7 +121,12 @@ export function MostCommonTokens({ results, enrichedBalances }: MostCommonTokens
                                                                 <div className="truncate font-medium">{tokenName}</div>
                                                             </TooltipTrigger>
                                                             <TooltipContent>
-                                                                <p>Shared by: {token.wallets.map(w => shortenAddress(w, 4)).join(', ')}</p>
+                                                                <div className="flex flex-col gap-2 p-2 max-w-xs">
+                                                                    <p className="font-bold">Shared by:</p>
+                                                                    <div className="flex flex-wrap gap-2">
+                                                                        {token.wallets.map(w => <WalletBadge key={w} address={w} />)}
+                                                                    </div>
+                                                                </div>
                                                             </TooltipContent>
                                                         </Tooltip>
                                                     </TooltipProvider>

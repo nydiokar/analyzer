@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Info, Users, ArrowRight, Wallet, Sigma, TrendingUp, HelpCircle } from 'lucide-react';
 import EChartComponent from '@/components/charts/EChartComponent';
 import { formatToMillion } from '@/lib/utils';
+import { WalletBadge } from "@/components/shared/WalletBadge";
 
 interface GlobalMetricsCardProps {
   metrics: GlobalMetrics;
@@ -13,8 +14,6 @@ interface GlobalMetricsCardProps {
   walletBalances?: Record<string, any> | null;
   walletVectorsUsed?: Record<string, Record<string, number>>;
 }
-
-const truncateAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
 const StatCard = ({ title, value, icon, details, tooltipContent }: { title: string, value: string | number, icon: React.ReactNode, details?: React.ReactNode, tooltipContent?: string }) => {
     const cardContent = (
@@ -102,7 +101,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
       if (sortedTokens.length > 0) {
         const [mint, value] = sortedTokens[0];
         topTokenDominance = value / totalValueAnalyzed;
-        topTokenSymbol = truncateAddress(mint);
+        topTokenSymbol = `${mint.slice(0,4)}...${mint.slice(-4)}`;
       }
     }
 
@@ -200,9 +199,9 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                       {topPairs.map((pair, index) => (
                           <div key={index} className="card flex items-center justify-between px-2 py-1.5">
                               <div className="flex items-center space-x-2">
-                                  <Badge variant="secondary">{truncateAddress(pair.walletA)}</Badge>
+                                  <WalletBadge address={pair.walletA} />
                                   <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                                  <Badge variant="secondary">{truncateAddress(pair.walletB)}</Badge>
+                                  <WalletBadge address={pair.walletB} />
                               </div>
                               <Badge variant="outline" className="font-semibold">
                                   {percentFormatter.format((pair.capitalScore + pair.binaryScore) / 2)}

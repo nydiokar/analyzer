@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { CombinedSimilarityResult } from './types';
-import { shortenAddress } from '@/lib/solana-utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Info, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { WalletBadge } from '@/components/shared/WalletBadge';
 
 interface HistoricalVsLiveComparisonProps {
   results: CombinedSimilarityResult;
@@ -209,9 +209,9 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
                 <TableRow key={`${pair.walletA}-${pair.walletB}`}>
                   <TableCell>
                     <div className="flex items-center gap-1 text-xs">
-                      <span className="font-mono">{shortenAddress(pair.walletA, 6)}</span>
+                      <WalletBadge address={pair.walletA} />
                       <span className="text-muted-foreground">↔</span>
-                      <span className="font-mono">{shortenAddress(pair.walletB, 6)}</span>
+                      <WalletBadge address={pair.walletB} />
                     </div>
                   </TableCell>
                   <TableCell className="text-center text-xs">
@@ -250,9 +250,11 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
                 </h5>
                 <div className="space-y-1">
                   {insights.topConvergences.map((pair, i) => (
-                    <div key={i} className="text-xs text-green-700">
-                      {shortenAddress(pair.walletA, 6)} ↔ {shortenAddress(pair.walletB, 6)}: 
-                      <span className="font-medium ml-1">+{formatPercentage(pair.shift)}</span>
+                    <div key={i} className="text-xs text-green-700 flex items-center gap-1">
+                      <WalletBadge address={pair.walletA} />
+                      <span>↔</span>
+                      <WalletBadge address={pair.walletB} />:
+                      <span className="font-medium ml-1">{formatPercentage(pair.shift)}</span>
                     </div>
                   ))}
                 </div>
@@ -267,8 +269,10 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
                 </h5>
                 <div className="space-y-1">
                   {insights.topDivergences.map((pair, i) => (
-                    <div key={i} className="text-xs text-red-700">
-                      {shortenAddress(pair.walletA, 6)} ↔ {shortenAddress(pair.walletB, 6)}: 
+                    <div key={i} className="text-xs text-red-700 flex items-center gap-1">
+                      <WalletBadge address={pair.walletA} />
+                      <span>↔</span>
+                      <WalletBadge address={pair.walletB} />:
                       <span className="font-medium ml-1">{formatPercentage(pair.shift)}</span>
                     </div>
                   ))}

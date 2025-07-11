@@ -55,6 +55,7 @@ export default function AnalysisLabPage() {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   
   const { toast } = useToast();
   const apiKey = useApiKeyStore((state) => state.apiKey);
@@ -157,11 +158,19 @@ export default function AnalysisLabPage() {
         // Non-critical error, just toast it.
         toast({ variant: "destructive", title: "Enrichment Failed", description: error.message });
         setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
+        setIsRefreshing(false);
       }
     }, [toast]),
   });
 
-  const isRunning = useMemo(() => jobStatuses.analysis === 'running' || jobStatuses.enrichment === 'running', [jobStatuses]);
+  const isRunning = useMemo(() => jobStatuses.analysis === 'running' || jobStatuses.enrichment === 'running' || isRefreshing, [jobStatuses, isRefreshing]);
+
+  // When enrichment is complete, no matter how it was triggered, stop the refreshing state.
+  useEffect(() => {
+    if (jobStatuses.enrichment === 'completed' || jobStatuses.enrichment === 'failed') {
+      setIsRefreshing(false);
+    }
+  }, [jobStatuses.enrichment]);
 
 
   useEffect(() => {
@@ -194,6 +203,43 @@ export default function AnalysisLabPage() {
       setJobStatuses(prev => ({ ...prev, enrichment: 'running' }));
     }
   }, [enrichmentJobId, wsConnected, subscribeToJob]);
+
+  const handleRefreshPrices = async () => {
+    if (!analysisResult?.walletBalances) {
+      toast({
+        variant: 'destructive',
+        title: 'Cannot Refresh',
+        description: 'There are no balances to refresh.',
+      });
+      return;
+    }
+    setIsRefreshing(true);
+    toast({ title: "Refreshing Prices...", description: "Fetching the latest token market data." });
+    
+    try {
+      // Queue an enrichment job
+      const job = await fetcher('/analyses/similarity/enrich-balances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey || '' },
+        body: JSON.stringify({ walletBalances: analysisResult.walletBalances }),
+      });
+
+      if (job.jobId) {
+        setEnrichmentJobId(job.jobId); // Set the ID to be tracked
+        subscribeToJob(job.jobId);     // Subscribe to its progress
+      } else {
+        throw new Error("Failed to queue enrichment job.");
+      }
+
+    } catch (error: any) {
+      setIsRefreshing(false);
+      toast({
+        variant: 'destructive',
+        title: 'Refresh Failed',
+        description: error.message || "Could not start the price refresh job.",
+      });
+    }
+  };
 
   const handleEnrichData = async () => {
     if (!analysisResult?.walletBalances) return;
@@ -520,6 +566,12 @@ export default function AnalysisLabPage() {
     setTimeout(poll, 1000);
   };
 
+  const getWalletList = () => {
+    return Array.from(new Set(
+      wallets.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
+    ));
+  };
+
   return (
     <div className="container mx-auto p-4 md:p-5">
       <header className="mb-6">
@@ -556,9 +608,35 @@ export default function AnalysisLabPage() {
                 </Tooltip>
               </TooltipProvider>
             )}
-            <Button onClick={handleAnalyze} disabled={jobStatuses.analysis === 'running'}>
-              {jobStatuses.analysis === 'running' ? 'Analyzing...' : 'Analyze'}
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex-grow">
+                    <Button
+                      onClick={handleAnalyze}
+                      disabled={isRunning || getWalletList().length < 2}
+                      className="w-full"
+                    >
+                      {jobStatuses.analysis === 'running' ? (
+                        <div className="flex items-center">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Analyzing...
+                        </div>
+                      ) : 'Analyze'}
+                    </Button>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>
+                    {isRunning
+                      ? "An analysis or refresh is already in progress."
+                      : getWalletList().length < 2
+                      ? "Enter at least two wallet addresses to begin."
+                      : `Run a ${analysisMethod} analysis on the provided wallets.`}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
         
@@ -621,7 +699,11 @@ export default function AnalysisLabPage() {
 
       {analysisResult && (
         <div className="mt-6">
-          <MemoizedSimilarityResultDisplay results={analysisResult} />
+          <MemoizedSimilarityResultDisplay 
+            results={analysisResult} 
+            onRefreshPrices={handleRefreshPrices}
+            isRefreshing={isRefreshing}
+          />
         </div>
       )}
 

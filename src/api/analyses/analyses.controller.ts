@@ -111,7 +111,11 @@ export class AnalysesController {
     tokenCount: number;
     monitoringUrl: string;
   }> {
-    this.logger.log(`Received request to queue balance enrichment for ${Object.keys(body.walletBalances).length} wallets.`);
+    this.logger.log(`Received request to queue balance enrichment for ${Object.keys(body.walletBalances || {}).length} wallets.`);
+
+    if (!body.walletBalances || Object.keys(body.walletBalances).length === 0) {
+      throw new BadRequestException('Invalid request: walletBalances object is missing or empty.');
+    }
 
     try {
       // Generate request ID
@@ -119,8 +123,16 @@ export class AnalysesController {
 
       // Count total tokens to enrich
       const totalTokens = Object.values(body.walletBalances).reduce((count, wallet: any) => {
-        return count + (wallet.tokenBalances?.length || 0);
+        // Add a check to ensure wallet and wallet.tokenBalances are valid
+        if (wallet && Array.isArray(wallet.tokenBalances)) {
+          return count + wallet.tokenBalances.length;
+        }
+        return count;
       }, 0);
+
+      if (totalTokens === 0) {
+        throw new BadRequestException('No tokens found in the provided wallet balances to enrich.');
+      }
 
       // Determine optimization hint based on token count using strategy service
       const optimizationHint = this.enrichmentStrategyService.determineOptimizationHint(totalTokens);
