@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Redis, RedisOptions } from 'ioredis';
-import { redisConfig } from '../config/redis.config';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Redis } from 'ioredis';
+import { REDIS_CLIENT } from '../config/redis.provider';
 
 const truncate = (str: string, length = 64) => {
   if (str.length <= length) return str;
@@ -10,11 +10,8 @@ const truncate = (str: string, length = 64) => {
 @Injectable()
 export class RedisLockService {
   private readonly logger = new Logger(RedisLockService.name);
-  private readonly redis: Redis;
 
-  constructor() {
-    this.redis = new Redis(redisConfig as RedisOptions);
-  }
+  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
 
   /**
    * Acquire a distributed lock using Redis NX (SET IF NOT EXISTS)
@@ -207,15 +204,17 @@ export class RedisLockService {
     return `lock:enrichment:${identifier}`;
   }
 
-  /**
-   * Cleanup method to be called on application shutdown
-   */
-  async onApplicationShutdown(): Promise<void> {
-    try {
-      await this.redis.quit();
-      this.logger.log('Redis connection closed');
-    } catch (error) {
-      this.logger.error('Error closing Redis connection:', error);
-    }
-  }
+  // No longer needed as the connection is managed centrally by the provider
+  // and will be closed on application shutdown via the provider's logic.
+  // /**
+  //  * Cleanup method to be called on application shutdown
+  //  */
+  // async onApplicationShutdown(): Promise<void> {
+  //   try {
+  //     await this.redis.quit();
+  //     this.logger.log('Redis connection closed');
+  //   } catch (error) {
+  //     this.logger.error('Error closing Redis connection:', error);
+  //   }
+  // }
 } 

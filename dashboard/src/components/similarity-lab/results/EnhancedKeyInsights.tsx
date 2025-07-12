@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, memo } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { CombinedSimilarityResult, KeyInsight, InsightType, CombinedPairwiseSimilarity } from "./types";
@@ -109,7 +109,7 @@ interface InsightCardProps {
     results: CombinedSimilarityResult;
 }
 
-const InsightCard = ({ insight, pair, sortKey, results }: InsightCardProps) => {
+const InsightCard = memo(({ insight, pair, sortKey, results }: InsightCardProps) => {
     const { binaryScore, capitalScore, sharedTokens, capitalAllocation, binarySharedTokenCount, capitalSharedTokenCount } = pair;
 
     const totalBinaryTokensA = results.uniqueTokensPerWallet[pair.walletA]?.binary ?? 0;
@@ -229,9 +229,11 @@ const InsightCard = ({ insight, pair, sortKey, results }: InsightCardProps) => {
             )}
         </li>
     );
-};
+});
+InsightCard.displayName = 'InsightCard'; // Good practice for debugging
 
-export function EnhancedKeyInsights({ results }: EnhancedKeyInsightsProps) {
+// Wrap the main component in React.memo
+export const EnhancedKeyInsights = memo(({ results }: EnhancedKeyInsightsProps) => {
   const [sortKey, setSortKey] = useState<SortKey>('binaryScore');
   
   const walletLabels = useMemo(() => Object.keys(results.walletVectorsUsed).reduce((acc, address) => {
@@ -266,8 +268,11 @@ export function EnhancedKeyInsights({ results }: EnhancedKeyInsightsProps) {
     });
     
     return combinedData.sort((a, b) => b.pair[sortKey] - a.pair[sortKey]);
-  }, [results, walletLabels, sortKey]);
+  }, [results, walletLabels]);
 
+  const sortedPairs = useMemo(() => {
+    return processedPairs.sort((a, b) => b.pair[sortKey] - a.pair[sortKey]);
+  }, [processedPairs, sortKey]);
 
   return (
     <Card className="h-full border">
@@ -291,7 +296,7 @@ export function EnhancedKeyInsights({ results }: EnhancedKeyInsightsProps) {
         ) : (
           <ScrollArea className="h-[700px] -mx-3">
              <ul className="space-y-4 px-3">
-                {processedPairs.map(({ insight, pair }) => (
+                {sortedPairs.map(({ insight, pair }) => (
                     <InsightCard key={pair.walletA + '-' + pair.walletB} insight={insight} pair={pair} sortKey={sortKey} results={results} />
                 ))}
             </ul>
@@ -300,4 +305,6 @@ export function EnhancedKeyInsights({ results }: EnhancedKeyInsightsProps) {
       </CardContent>
     </Card>
   );
-} 
+});
+
+EnhancedKeyInsights.displayName = 'EnhancedKeyInsights'; // Add display name 

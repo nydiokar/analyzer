@@ -1,10 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/hooks/use-toast"; // Import the standalone toast function
 import { cn } from "@/lib/utils";
 import { Copy, ExternalLink, Wallet, Info } from "lucide-react";
 import Link from "next/link";
+import { memo } from "react"; // Import memo
 
 interface WalletBadgeProps {
   address: string;
@@ -13,8 +14,8 @@ interface WalletBadgeProps {
 
 const truncateAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
-export function WalletBadge({ address, className }: WalletBadgeProps) {
-  const { toast } = useToast();
+export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
+  // No longer need the useToast() hook here
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent the popover from closing
@@ -86,4 +87,6 @@ export function WalletBadge({ address, className }: WalletBadgeProps) {
       </PopoverContent>
     </Popover>
   );
-} 
+});
+
+WalletBadge.displayName = "WalletBadge"; 

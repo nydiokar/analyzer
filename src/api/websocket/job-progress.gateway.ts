@@ -9,8 +9,9 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
-import { Redis, RedisOptions } from 'ioredis';
+import { Inject, Logger } from '@nestjs/common';
+import { Redis } from 'ioredis';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 // --- Event Interfaces ---
 interface JobProgressEvent {
@@ -55,26 +56,13 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
 
   private readonly logger = new Logger(JobProgressGateway.name);
   private readonly redisSubscriber: Redis;
-  private readonly redisPublisher: Redis;
   private readonly clientSubscriptions = new Map<string, ClientSubscription>();
 
-  constructor() {
-    const ioredisOptions: RedisOptions = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD,
-      db: parseInt(process.env.REDIS_DB || '0', 10),
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: false,
-      lazyConnect: true,
-      connectTimeout: 5000,
-    };
-    
-    this.redisSubscriber = new Redis(ioredisOptions);
-    this.redisPublisher = new Redis(ioredisOptions);
+  constructor(@Inject(REDIS_CLIENT) private readonly redisPublisher: Redis) {
+    // The publisher is injected. We create a dedicated subscriber from it.
+    this.redisSubscriber = this.redisPublisher.duplicate();
     
     this.redisSubscriber.on('error', (err) => this.logger.error('Redis subscriber connection error:', err));
-    this.redisPublisher.on('error', (err) => this.logger.error('Redis publisher connection error:', err));
   }
 
   afterInit(server: Server) {
@@ -179,8 +167,13 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   
   async onModuleDestroy() {
     this.logger.log('Closing WebSocket Gateway connections...');
-    if (this.redisSubscriber) await this.redisSubscriber.quit();
-    if (this.redisPublisher) await this.redisPublisher.quit();
-    if (this.server) this.server.close();
+    // We only quit the duplicated subscriber connection.
+    // The injected publisher connection is managed by the central provider.
+    if (this.redisSubscriber) {
+      await this.redisSubscriber.quit();
+    }
+    if (this.server) {
+      this.server.close();
+    }
   }
 }

@@ -1,3 +1,6 @@
+'use client';
+
+import { memo } from 'react'; // Import memo
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { CombinedSimilarityResult, TokenInfo } from './types';
 import { Badge } from '@/components/ui/badge';
@@ -12,8 +15,9 @@ import { useToast } from "@/hooks/use-toast";
 import Link from 'next/link';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { WalletBadge } from '@/components/shared/WalletBadge';
+import { TokenHoldingRow } from './TokenHoldingRow'; // Import the new component
 
 // This type is now provided directly in CombinedSimilarityResult
 // interface EnrichedTokenBalance {
@@ -47,7 +51,8 @@ const formatUsdValue = (value: number | null | undefined) => {
   }).format(value);
 };
 
-export function ContextualHoldingsCard({ results, enrichedBalances, onRefreshPrices, isRefreshing }: ContextualHoldingsCardProps) {
+// Wrap the entire component with React.memo
+export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefreshPrices, isRefreshing }: ContextualHoldingsCardProps) => {
   const balancesSource = enrichedBalances || results.walletBalances;
   const { walletBalances, uniqueTokensPerWallet } = results;
   const { toast } = useToast();
@@ -79,6 +84,12 @@ export function ContextualHoldingsCard({ results, enrichedBalances, onRefreshPri
     return { walletOrder: order, hasBalances: hasAnyBalances };
   }, [balancesSource]);
 
+  const areBalancesLoading = !balancesSource || Object.keys(balancesSource).length === 0;
+
+  // Use useCallback for functions passed as props to memoized components
+  const memoizedFormatUsdValue = useCallback(formatUsdValue, []);
+  const memoizedTruncateAddress = useCallback(truncateAddress, []);
+
   return (
     <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -95,14 +106,14 @@ export function ContextualHoldingsCard({ results, enrichedBalances, onRefreshPri
                     variant="outline"
                     size="icon"
                     onClick={onRefreshPrices}
-                    disabled={isRefreshing || !hasBalances}
+                    disabled={isRefreshing || areBalancesLoading}
                     className="flex-shrink-0"
                   >
                     <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{isRefreshing ? 'Refreshing prices...' : (hasBalances ? 'Click to refresh token prices' : 'No holdings to refresh')}</p>
+                  <p>{isRefreshing ? 'Refreshing prices...' : (areBalancesLoading ? 'Waiting for balances to load...' : 'Click to refresh token prices')}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -133,55 +144,13 @@ export function ContextualHoldingsCard({ results, enrichedBalances, onRefreshPri
                                 <ScrollArea className="h-[200px] pr-3">
                                     <div className="space-y-1.5">
                                         {sortedBalances.map((token, index) => (
-                                          <Popover key={`${walletAddress}-${token.mint}-${index}`}>
-                                            <PopoverTrigger asChild>
-                                              <div className="flex items-center justify-between space-x-2 text-xs p-1 hover:bg-muted/50 rounded-sm cursor-pointer">
-                                                  <div className="flex items-center space-x-2 overflow-hidden">
-                                                      <Avatar className="h-4 w-4">
-                                                          <AvatarImage src={token?.imageUrl ?? undefined} alt={token?.name || 'Token'} />
-                                                          <AvatarFallback className="text-xs">
-                                                              {token?.symbol ? token.symbol.charAt(0) : '?'}
-                                                          </AvatarFallback>
-                                                      </Avatar>
-                                                      <div className="flex flex-col truncate">
-                                                        <span className="font-medium truncate">{token?.name || 'Unknown Token'}</span>
-                                                        <span className="text-muted-foreground uppercase">{token?.symbol || truncateAddress(token.mint)}</span>
-                                                      </div>
-                                                  </div>
-                                                  <div className="font-mono text-right text-foreground font-medium flex-shrink-0">
-                                                      {formatUsdValue(token.valueUsd)}
-                                                  </div>
-                                              </div>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-2">
-                                              <div className="space-y-2">
-                                                  <div className="font-bold text-sm">{token?.name || 'Unknown Token'}</div>
-                                                  <div className="text-xs text-muted-foreground break-all">{token.mint}</div>
-                                                  <div className="flex items-center gap-1 pt-1">
-                                                    <TooltipProvider>
-                                                      <Tooltip>
-                                                        <TooltipTrigger asChild>
-                                                          <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => { navigator.clipboard.writeText(token.mint); toast({ description: "Copied!" })}}><Copy className="h-3 w-3 mr-1"/>Copy</Button>
-                                                        </TooltipTrigger>
-                                                        <TooltipContent>
-                                                          <p>Copy token address</p>
-                                                        </TooltipContent>
-                                                      </Tooltip>
-                                                    </TooltipProvider>
-                                                    <TooltipProvider>
-                                                      <Tooltip>
-                                                        <TooltipTrigger asChild>
-                                                           <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${token.mint}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3 w-3 mr-1"/>Solscan</a></Button>
-                                                        </TooltipTrigger>
-                                                        <TooltipContent>
-                                                          <p>View on Solscan</p>
-                                                        </TooltipContent>
-                                                      </Tooltip>
-                                                    </TooltipProvider>
-                                                  </div>
-                                              </div>
-                                            </PopoverContent>
-                                          </Popover>
+                                          <TokenHoldingRow
+                                            key={`${walletAddress}-${token.mint}-${index}`}
+                                            token={token}
+                                            walletAddress={walletAddress}
+                                            formatUsdValue={memoizedFormatUsdValue}
+                                            truncateAddress={memoizedTruncateAddress}
+                                          />
                                         ))}
                                     </div>
                                 </ScrollArea>
@@ -194,4 +163,6 @@ export function ContextualHoldingsCard({ results, enrichedBalances, onRefreshPri
       </CardContent>
     </Card>
   );
-} 
+});
+
+ContextualHoldingsCard.displayName = 'ContextualHoldingsCard'; 

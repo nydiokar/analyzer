@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; // Import the new form
 import { SyncConfirmationDialog } from '@/components/similarity-lab/SyncConfirmationDialog';
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
 import { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
@@ -41,7 +41,7 @@ export default function AnalysisLabPage() {
     analysis: 'idle',
     enrichment: 'idle',
   });
-  const [wallets, setWallets] = useState('');
+  const [walletList, setWalletList] = useState<string[]>([]); // State to hold the final list of wallets
   const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
   const [missingWallets, setMissingWallets] = useState<string[]>([]);
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
@@ -204,7 +204,12 @@ export default function AnalysisLabPage() {
     }
   }, [enrichmentJobId, wsConnected, subscribeToJob]);
 
-  const handleRefreshPrices = async () => {
+  // This callback will be passed to the new form component
+  const handleWalletsChange = useCallback((wallets: string[]) => {
+    setWalletList(wallets);
+  }, []);
+
+  const handleRefreshPrices = useCallback(async () => {
     if (!analysisResult?.walletBalances) {
       toast({
         variant: 'destructive',
@@ -239,7 +244,7 @@ export default function AnalysisLabPage() {
         description: error.message || "Could not start the price refresh job.",
       });
     }
-  };
+  }, [analysisResult, apiKey, subscribeToJob, toast, setEnrichmentJobId]);
 
   const handleEnrichData = async () => {
     if (!analysisResult?.walletBalances) return;
@@ -286,10 +291,6 @@ export default function AnalysisLabPage() {
     setJobStatuses({ analysis: 'running', enrichment: 'idle' });
     setAnalysisResult(null);
     setSyncMessage('');
-
-    const walletList = Array.from(new Set(
-      wallets.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
-    ));
 
     if (walletList.length === 0) {
       setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
@@ -344,10 +345,6 @@ export default function AnalysisLabPage() {
     setCurrentJobId(null);
     setJobProgress(0);
 
-    const walletList = Array.from(new Set(
-      wallets.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
-    ));
-
     if (walletList.length === 0) {
       setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
       return;
@@ -385,9 +382,7 @@ export default function AnalysisLabPage() {
 
       // Simple polling for sync completion
       const checkSync = async () => {
-        const allWallets = Array.from(new Set(
-          wallets.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
-        ));
+        const allWallets = walletList;
 
         try {
           const statusResponse: WalletStatusResponse = await fetcher('/analyses/wallets/status', {
@@ -567,9 +562,7 @@ export default function AnalysisLabPage() {
   };
 
   const getWalletList = () => {
-    return Array.from(new Set(
-      wallets.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
-    ));
+    return walletList;
   };
 
   return (
@@ -586,59 +579,12 @@ export default function AnalysisLabPage() {
           Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
         </p>
         
-        <div className="relative">
-          <Textarea
-            value={wallets}
-            onChange={(e) => setWallets(e.target.value)}
-            placeholder="Enter wallet addresses, separated by commas, spaces, or new lines."
-            className="min-h-[70px] font-mono pr-24"
-          />
-          <div className="absolute top-1/2 right-3 -translate-y-1/2 flex items-center space-x-2">
-            {analysisResult && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button onClick={handleEnrichData} variant="outline" size="sm" disabled={jobStatuses.enrichment === 'running'}>
-                      {jobStatuses.enrichment === 'running' ? 'Enriching...' : 'Refresh Prices'}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Loads the latest token prices and metadata.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex-grow">
-                    <Button
-                      onClick={handleAnalyze}
-                      disabled={isRunning || getWalletList().length < 2}
-                      className="w-full"
-                    >
-                      {jobStatuses.analysis === 'running' ? (
-                        <div className="flex items-center">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                          Analyzing...
-                        </div>
-                      ) : 'Analyze'}
-                    </Button>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>
-                    {isRunning
-                      ? "An analysis or refresh is already in progress."
-                      : getWalletList().length < 2
-                      ? "Enter at least two wallet addresses to begin."
-                      : `Run a ${analysisMethod} analysis on the provided wallets.`}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-        </div>
+        <WalletInputForm
+          onWalletsChange={handleWalletsChange}
+          onAnalyze={handleAnalyze}
+          isRunning={isRunning}
+          analysisMethod={analysisMethod}
+        />
         
         {syncMessage && <p className="mt-4 text-center text-sm text-muted-foreground">{syncMessage}</p>}
         

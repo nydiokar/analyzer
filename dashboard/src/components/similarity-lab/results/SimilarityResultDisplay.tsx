@@ -14,8 +14,11 @@ interface SimilarityResultDisplayProps {
   isRefreshing: boolean;
 }
 
+const EMPTY_BALANCES = {}; // Define a constant empty object
+
 export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing }: SimilarityResultDisplayProps) {
   const hasAdvancedMatrices = results.sharedTokenCountsMatrix || results.jaccardSimilarityMatrix;
+  const enrichedBalances = results.walletBalances || EMPTY_BALANCES; // Use the constant
 
   return (
     <div className="space-y-6">
@@ -33,7 +36,7 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
           <EnhancedKeyInsights results={results} />
         </div>
         <div className="lg:col-span-1 space-y-6">
-          <MostCommonTokens results={results} enrichedBalances={results.walletBalances || {}} />
+          <MostCommonTokens results={results} enrichedBalances={enrichedBalances} />
         </div>
       </div>
 
@@ -56,7 +59,7 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
 
       <ContextualHoldingsCard 
         results={results} 
-        enrichedBalances={results.walletBalances || {}} 
+        enrichedBalances={enrichedBalances} 
         onRefreshPrices={onRefreshPrices}
         isRefreshing={isRefreshing}
       />

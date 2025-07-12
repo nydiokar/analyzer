@@ -1,17 +1,18 @@
+'use client';
+
+import { useMemo, memo } from 'react'; // Import memo
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { useMemo } from 'react';
-import { shortenAddress } from "@/lib/solana-utils";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { CombinedSimilarityResult, TokenInfo } from "./types";
-import { Button } from "@/components/ui/button";
-import { Copy, ExternalLink, Globe, X as Twitter, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WalletBadge } from "@/components/shared/WalletBadge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { CombinedSimilarityResult, TokenInfo } from "./types";
+import { Button } from "@/components/ui/button";
+import { Copy, ExternalLink, Globe, X as Twitter, Send } from "lucide-react";
 
 interface MostCommonTokensProps {
   results: CombinedSimilarityResult;
@@ -45,7 +46,8 @@ const buildTokenMetadataMap = (enrichedBalances: Record<string, any> | null) => 
     return map;
 };
 
-export function MostCommonTokens({ results, enrichedBalances }: MostCommonTokensProps) {
+// Wrap the component in React.memo
+export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonTokensProps) => {
     const { toast } = useToast();
 
     const tokenMetadataMap = buildTokenMetadataMap(enrichedBalances);
@@ -71,7 +73,7 @@ export function MostCommonTokens({ results, enrichedBalances }: MostCommonTokens
             count: walletsSet.size,
             wallets: Array.from(walletsSet),
         })).sort((a, b) => b.count - a.count).slice(0, 20);
-    }, [results.pairwiseSimilarities]);
+    }, [results.pairwiseSimilarities, enrichedBalances]);
     
     if (commonTokens.length === 0) {
         return (
@@ -159,4 +161,6 @@ export function MostCommonTokens({ results, enrichedBalances }: MostCommonTokens
             </CardContent>
         </Card>
     );
-} 
+});
+
+MostCommonTokens.displayName = 'MostCommonTokens'; // Add display name 

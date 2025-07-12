@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 // Configuration
 import { QueueNames } from './config/queue.config';
 import { redisConnection } from './config/redis.config';
+import { RedisModule } from './config/redis.module'; // Import RedisModule
 
 // Queues
 import { WalletOperationsQueue } from './queues/wallet-operations.queue';
@@ -39,6 +40,7 @@ import { BalanceCacheModule } from '../api/balance-cache/balance-cache.module';
 @Module({
   imports: [
     ConfigModule,
+    RedisModule, // Add RedisModule here
     
     // Register BullMQ queues with NestJS
     BullModule.forRootAsync({
