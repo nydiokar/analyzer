@@ -9,8 +9,6 @@ import { PnlOverviewModule } from './pnl_overview/pnl-overview.module';
 // which it does for the summary endpoint's activity logging and direct data fetches.
 import { DatabaseModule } from '../database/database.module';
 import { TokenInfoModule } from '../token-info/token-info.module';
-import { WalletClassificationService } from '../../core/services/wallet-classification.service';
-import { SmartFetchService } from '../../core/services/smart-fetch-service';
 
 @Module({
   imports: [
@@ -22,7 +20,7 @@ import { SmartFetchService } from '../../core/services/smart-fetch-service';
     TokenInfoModule,
   ],
   controllers: [WalletsController],
-  providers: [WalletClassificationService, SmartFetchService],
+  providers: [],
   // Services are provided within their respective feature modules (TokenPerformanceService, BehaviorService)
   // and made available through exports if needed, or used by the controller via DI.
 }) 

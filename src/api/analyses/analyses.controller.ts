@@ -4,6 +4,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../database/database.service';
 import { PnlAnalysisService } from '../pnl_analysis/pnl-analysis.service';
 import { BehaviorService } from '../wallets/behavior/behavior.service';
+import { SmartFetchService } from '../../core/services/smart-fetch-service';
 
 import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
 import { Wallet } from '@prisma/client';
@@ -36,6 +37,7 @@ export class AnalysesController {
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly jobsService: JobsService,
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
+    private readonly smartFetchService: SmartFetchService,
   ) {}
 
   @Post('/similarity/enrich-balances')
@@ -317,17 +319,17 @@ export class AnalysesController {
 
           this.logger.debug(`Calling HeliusSyncService.syncWalletData for ${walletAddress} with options: ${JSON.stringify(syncOptions)}`);
           
-          // Check if this is a high_frequency wallet and notify user
+          // Auto-classify wallet and notify if high-frequency
           try {
-            const classification = await this.databaseService.getWalletClassification(walletAddress);
-            if (classification?.classification === 'high_frequency') {
+            const finalClassification = await this.smartFetchService.getOrAutoClassifyWallet(walletAddress);
+            if (finalClassification === 'high_frequency') {
               // Send WebSocket notification about limited analysis
               const message = `High-frequency wallet detected. Analysis limited to ${syncOptions.maxSignatures} recent transactions for optimal performance.`;
               // TODO: Add WebSocket broadcast here when WebSocket service is available
               this.logger.log(`🤖 [Analysis] ${message} - Wallet: ${walletAddress}`);
             }
           } catch (error) {
-            this.logger.warn(`Failed to check wallet classification for ${walletAddress}:`, error);
+            this.logger.warn(`Failed to auto-classify wallet ${walletAddress}:`, error);
           }
           
           await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
