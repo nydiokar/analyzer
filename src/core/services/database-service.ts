@@ -128,20 +128,87 @@ export class DatabaseService {
         stats: Omit<Prisma.MappingActivityLogCreateInput, 'walletAddress' | 'timestamp' | 'id'> // Use Prisma generated type
     ): Promise<MappingActivityLog | null> {
         this.logger.debug(`Saving mapping activity log for wallet: ${walletAddress}`);
+        
+        // Add defensive validation and default values for all required fields
+        const safeStats = {
+            totalTransactionsReceived: this.ensureNumber(stats.totalTransactionsReceived, 0),
+            transactionsSkippedError: this.ensureNumber(stats.transactionsSkippedError, 0),
+            transactionsSuccessfullyProcessed: this.ensureNumber(stats.transactionsSuccessfullyProcessed, 0),
+            analysisInputsGenerated: this.ensureNumber(stats.analysisInputsGenerated, 0),
+            nativeSolTransfersProcessed: this.ensureNumber(stats.nativeSolTransfersProcessed, 0),
+            tokenTransfersProcessed: this.ensureNumber(stats.tokenTransfersProcessed, 0),
+            wsolTransfersProcessed: this.ensureNumber(stats.wsolTransfersProcessed, 0),
+            usdcTransfersProcessed: this.ensureNumber(stats.usdcTransfersProcessed, 0),
+            otherTokenTransfersProcessed: this.ensureNumber(stats.otherTokenTransfersProcessed, 0),
+            feePayerHeuristicApplied: this.ensureNumber(stats.feePayerHeuristicApplied, 0),
+            feesCalculated: this.ensureNumber(stats.feesCalculated, 0),
+            eventMatcherAttempts: this.ensureNumber(stats.eventMatcherAttempts, 0),
+            eventMatcherPrimaryMintsIdentified: this.ensureNumber(stats.eventMatcherPrimaryMintsIdentified, 0),
+            eventMatcherConsistentSolFound: this.ensureNumber(stats.eventMatcherConsistentSolFound, 0),
+            eventMatcherConsistentUsdcFound: this.ensureNumber(stats.eventMatcherConsistentUsdcFound, 0),
+            eventMatcherAmbiguous: this.ensureNumber(stats.eventMatcherAmbiguous, 0),
+            eventMatcherNoConsistentValue: this.ensureNumber(stats.eventMatcherNoConsistentValue, 0),
+            splToSplSwapDetections: this.ensureNumber(stats.splToSplSwapDetections, 0),
+            associatedValueFromSplToSpl: this.ensureNumber(stats.associatedValueFromSplToSpl, 0),
+            associatedValueFromEventMatcher: this.ensureNumber(stats.associatedValueFromEventMatcher, 0),
+            associatedValueFromTotalMovement: this.ensureNumber(stats.associatedValueFromTotalMovement, 0),
+            associatedValueFromNetChange: this.ensureNumber(stats.associatedValueFromNetChange, 0),
+            smallOutgoingHeuristicApplied: this.ensureNumber(stats.smallOutgoingHeuristicApplied, 0),
+            skippedDuplicateRecordKey: this.ensureNumber(stats.skippedDuplicateRecordKey, 0),
+            unknownTxSkippedNoJito: this.ensureNumber((stats as any).unknownTxSkippedNoJito, 0),
+            countByInteractionType: (stats as any).countByInteractionType || {}
+        };
+
+        // Log any field corrections for debugging
+        const corrections = [];
+        Object.keys(safeStats).forEach(key => {
+            if (key !== 'countByInteractionType' && (stats as any)[key] !== safeStats[key]) {
+                corrections.push(`${key}: ${(stats as any)[key]} → ${safeStats[key]}`);
+            }
+        });
+        if (corrections.length > 0) {
+            this.logger.warn(`Applied default values to mapping stats for ${walletAddress}: ${corrections.join(', ')}`);
+        }
+
         try {
             const logEntry = await this.prismaClient.mappingActivityLog.create({
                 data: {
                     walletAddress,
                     timestamp: new Date(), // Set timestamp at save time
-                    ...stats,
+                    ...safeStats,
                 },
             });
             this.logger.info(`Mapping activity log saved with ID: ${logEntry.id} for wallet ${walletAddress}`);
             return logEntry;
         } catch (error) {
-            this.logger.error('Error saving mapping activity log', { error, walletAddress });
+            // Enhanced error logging with field analysis
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.error('Error saving mapping activity log - DETAILED ANALYSIS:', { 
+                error: errorMessage,
+                walletAddress,
+                receivedStats: stats,
+                safeStats,
+                errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+                // Log which fields might be problematic
+                fieldAnalysis: Object.keys(safeStats).map(key => ({
+                    field: key,
+                    receivedValue: (stats as any)[key],
+                    receivedType: typeof (stats as any)[key],
+                    safenessApplied: (stats as any)[key] !== safeStats[key]
+                }))
+            });
             return null;
         }
+    }
+
+    /**
+     * Helper method to ensure a value is a valid number, providing a default if not
+     */
+    private ensureNumber(value: any, defaultValue: number): number {
+        if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+            return Math.floor(value); // Ensure integer for database
+        }
+        return defaultValue;
     }
     // --- End Mapping Activity Log Methods ---
 
@@ -553,22 +620,54 @@ export class DatabaseService {
         sourceIp?: string
     ): Promise<ActivityLog | null> {
         this.logger.debug('Logging activity for user ID: ' + userId + ', action: ' + actionType);
-        try {
-            const activity = await this.prismaClient.activityLog.create({
-                data: {
-                    userId,
-                    actionType,
-                    requestParameters: requestParameters ? JSON.stringify(requestParameters) : null,
-                    status,
-                    durationMs,
-                    errorMessage,
-                    sourceIp,
-                },
+        
+        // Handle system operations by setting userId to null to avoid foreign key constraint issues
+        const isSystemOperation = userId?.startsWith('system-') || userId === 'system-enrichment-job';
+        
+        // Defensive validation for activity logging
+        const safeData = {
+            userId: isSystemOperation ? null : (userId?.trim() || null), // Set to null for system operations
+            actionType: actionType?.trim() || 'unknown_action',
+            requestParameters: requestParameters ? JSON.stringify(requestParameters) : null,
+            status: status || 'INITIATED',
+            durationMs: durationMs || null,
+            errorMessage: errorMessage?.trim() || null,
+            sourceIp: sourceIp?.trim() || null
+        };
+
+        // Additional validation
+        const validationInfo = {
+            userIdValid: safeData.userId === null || (typeof safeData.userId === 'string' && safeData.userId.length > 0),
+            actionTypeValid: typeof safeData.actionType === 'string' && safeData.actionType.length > 0,
+            statusValid: ['INITIATED', 'SUCCESS', 'FAILURE'].includes(safeData.status),
+            durationValid: safeData.durationMs === null || (typeof safeData.durationMs === 'number' && safeData.durationMs >= 0)
+        };
+
+        if (!validationInfo.userIdValid || !validationInfo.actionTypeValid || !validationInfo.statusValid || !validationInfo.durationValid) {
+            this.logger.warn('Invalid activity log data - validation failed', { 
+                receivedParams: { userId, actionType, requestParameters, status, durationMs, errorMessage, sourceIp },
+                safeData,
+                validationInfo
             });
-            this.logger.debug('Activity logged with ID: ' + activity.id);
-            return activity;
+            return null;
+        }
+
+        try {
+            const activityLog = await this.prismaClient.activityLog.create({
+                data: safeData
+            });
+            
+            this.logger.debug(`Activity logged successfully: ${activityLog.id} for ${isSystemOperation ? 'system operation' : 'user: ' + safeData.userId}`);
+            return activityLog;
         } catch (error) {
-            this.logger.error('Error logging activity', { error });
+            this.logger.error('Error logging activity - DETAILED ANALYSIS:', {
+                error: error instanceof Error ? error.message : String(error),
+                errorType: error?.constructor?.name,
+                receivedParams: { userId, actionType, requestParameters, status, durationMs, errorMessage, sourceIp },
+                safeData,
+                validationInfo,
+                isSystemOperation
+            });
             return null;
         }
     }

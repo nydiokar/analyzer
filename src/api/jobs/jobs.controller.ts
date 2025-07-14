@@ -142,7 +142,6 @@ export class JobsController {
     return this.jobsService.getJobResult(jobId);
   }
 
-  /*
   @Delete(':jobId')
   @ApiOperation({
     summary: 'Cancel a running or pending job',
@@ -155,7 +154,6 @@ export class JobsController {
   async cancelJob(@Param('jobId') jobId: string) {
     return this.jobsService.cancelJob(jobId);
   }
-  */
 
   @Get('queue/:queueName/stats')
   @ApiOperation({ 

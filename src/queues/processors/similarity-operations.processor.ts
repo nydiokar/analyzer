@@ -136,7 +136,6 @@ export class SimilarityOperationsProcessor {
       if (syncRequired) {
         this.logger.log('Awaiting deep sync and analysis to complete...');
         await syncPromise;
-        this.logger.log('Deep sync and analysis finished.');
         await job.updateProgress(60);
         await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60);
         this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');

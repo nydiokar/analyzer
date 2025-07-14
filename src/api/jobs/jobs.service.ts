@@ -16,6 +16,7 @@ import {
 } from './dto/job-status.dto';
 import { generateJobId } from '../../queues/utils/job-id-generator';
 import { isValidSolanaAddress } from '../pipes/solana-address.pipe';
+import { RedisLockService } from '../../queues/services/redis-lock.service';
 
 @Injectable()
 export class JobsService {
@@ -26,6 +27,7 @@ export class JobsService {
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
+    private readonly redisLockService: RedisLockService,
   ) {}
 
   // === C2 Task: Job Submission Methods ===
@@ -218,17 +220,24 @@ export class JobsService {
       if (job) {
         if (await job.isWaiting() || await job.isActive()) {
           try {
+            // Clean up Redis locks before removing job (especially for similarity jobs)
+            if (name === 'similarity-operations' && job.data?.requestId) {
+              const lockKey = RedisLockService.createSimilarityLockKey(job.data.requestId);
+              await this.redisLockService.releaseLock(lockKey, jobId);
+              this.logger.log(`Released similarity lock for job ${jobId}, requestId: ${job.data.requestId}`);
+            }
+
             await job.remove();
-            this.logger.log(`Successfully removed job ${jobId} from queue ${name}.`);
+            this.logger.log(`Successfully cancelled and removed job ${jobId} from queue ${name}.`);
             return { success: true, message: `Job ${jobId} was successfully cancelled.` };
           } catch (error) {
-            this.logger.error(`Error removing job ${jobId} from queue ${name}:`, error);
-            throw new Error(`Failed to cancel job ${jobId}.`);
+            this.logger.error(`Error cancelling job ${jobId} from queue ${name}:`, error);
+            throw new Error(`Failed to cancel job ${jobId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
         } else {
           const state = await job.getState();
           this.logger.warn(`Job ${jobId} could not be cancelled because it is already in state: ${state}.`);
-          return { success: false, message: `Job ${jobId} could not be cancelled. Status: ${state}.` };
+          return { success: false, message: `Job ${jobId} could not be cancelled. Current status: ${state}.` };
         }
       }
     }

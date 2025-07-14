@@ -335,10 +335,18 @@ model UserFavoriteWallet {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   wallet        Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
   createdAt     DateTime @default(now())
+  
+  // Simple organization fields
+  nickname      String?  // User-defined nickname/title for the wallet
+  tags          String?  // JSON array: ["DeFi", "High Performer", "Research"]
+  collections   String?  // JSON array: ["Main Portfolio", "Watchlist"]
+  metadata      Json?    // Future flexibility for any custom data
+  lastViewedAt  DateTime? // Track when user last viewed this wallet
 
   @@id([userId, walletAddress])
   @@index([userId])
   @@index([walletAddress])
+  @@index([lastViewedAt])
 }
 
 model TokenInfo {
