@@ -26,6 +26,8 @@ import { BehaviorService } from '../../wallets/behavior/behavior.service';
 import { TokenPerformanceService, PaginatedTokenPerformanceResponse } from '../../wallets/token_performance/token-performance.service';
 import { PnlOverviewService, PnlOverviewResponse } from '../../wallets/pnl_overview/pnl-overview.service';
 import { TokenInfoService } from '../../token-info/token-info.service';
+import { WalletClassificationService } from '../../../core/services/wallet-classification.service';
+import { SmartFetchService } from '../../../core/services/smart-fetch-service';
 
 
 // DTOs
@@ -53,6 +55,8 @@ export class WalletsController {
     private readonly tokenPerformanceService: TokenPerformanceService,
     private readonly pnlOverviewService: PnlOverviewService,
     private readonly tokenInfoService: TokenInfoService,
+    private readonly classificationService: WalletClassificationService,
+    private readonly smartFetchService: SmartFetchService,
   ) {}
 
   @Get('search')
@@ -222,6 +226,9 @@ export class WalletsController {
       // For simplicity in this refactor, we primarily use the overallPnlSummary for KPIs.
       // The frontend time range selector influences other tabs more directly (Token Performance, PNL Overview tab).
 
+      // Get wallet classification for frontend display with auto-classification
+      const finalClassification = await this.smartFetchService.getOrAutoClassifyWallet(walletAddress);
+
       const summary: WalletSummaryResponse = {
         status: 'ok',
         walletAddress,
@@ -231,6 +238,7 @@ export class WalletsController {
         latestPnl: latestPnl,
         tokenWinRate: tokenWinRate,
         behaviorClassification: behaviorClassification,
+        classification: finalClassification,
         currentSolBalance: currentSolBalance,
         balancesFetchedAt: balancesFetchedAt ? balancesFetchedAt.toISOString() : null,
       };
@@ -763,6 +771,65 @@ export class WalletsController {
       }
       this.logger.error(`Error updating note ${noteId} for wallet ${walletAddress} by user ${userId}:`, error);
       throw new InternalServerErrorException('Failed to update note.');
+    }
+  }
+
+  @Get(':walletAddress/classification')
+  @ApiOperation({
+    summary: 'Get wallet classification and smart fetch status',
+    description: 'Returns classification status and fetch limitations for high-frequency wallets',
+  })
+  @ApiParam({ name: 'walletAddress', description: 'Wallet address to check classification for' })
+  @ApiResponse({ status: 200, description: 'Wallet classification retrieved successfully' })
+  async getWalletClassification(
+    @Param('walletAddress') walletAddress: string,
+    @Req() req: Request & { user?: any },
+  ) {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User could not be identified.');
+    }
+
+    try {
+      // Log activity
+      await this.databaseService.logActivity(
+        userId,
+        'get_wallet_classification',
+        { walletAddress },
+        'SUCCESS'
+      );
+
+      // Use centralized auto-classification logic
+      const finalClassification = await this.smartFetchService.getOrAutoClassifyWallet(walletAddress);
+      const recommendation = await this.classificationService.getSmartFetchRecommendation(walletAddress);
+      
+      return {
+        walletAddress,
+        classification: finalClassification,
+        smartFetch: {
+          shouldLimitFetch: recommendation.shouldLimitFetch,
+          maxSignatures: recommendation.maxSignatures,
+          reason: recommendation.reason,
+          cacheHours: recommendation.cacheHours,
+        },
+        message: recommendation.shouldLimitFetch 
+          ? `This wallet shows high-frequency activity patterns. Transaction analysis is limited to ${recommendation.maxSignatures} recent transactions to improve performance.`
+          : 'Normal transaction analysis applied.',
+      };
+    } catch (error) {
+      this.logger.error(`Error getting classification for wallet ${walletAddress}:`, error);
+      
+      // Log failed activity
+      await this.databaseService.logActivity(
+        userId,
+        'get_wallet_classification',
+        { walletAddress },
+        'FAILURE',
+        undefined,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+
+      throw new InternalServerErrorException('Failed to retrieve wallet classification');
     }
   }
 

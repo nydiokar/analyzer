@@ -18,7 +18,8 @@ import {
   Users,           // Behavioral Patterns (could also be Zap or ActivitySquare)
   FileText,        // Notes
   RefreshCw,     // Added for the refresh button
-  Star           // Added Star icon for favorites
+  Star,          // Added Star icon for favorites
+  Bot            // Added for high-frequency indicator
 } from 'lucide-react' 
 import { toast } from 'sonner';
 import {
@@ -392,6 +393,21 @@ export default function WalletProfileLayout({
                       </Tooltip>
                     </TooltipProvider>
                   )}
+                  {/* High-frequency wallet indicator */}
+                  {isValidData && walletSummary?.classification === 'high_frequency' && (
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="h-7 w-7 md:h-8 md:w-8 flex items-center justify-center">
+                            <Bot className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-500" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>High-frequency wallet - possible bot actviity. Analysis limited.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                 </div>
                 <ExpandedAnalysisControl />
               </>
@@ -422,6 +438,21 @@ export default function WalletProfileLayout({
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent side="bottom"><p>{isCurrentWalletFavorite ? 'Remove' : 'Add'} Favorite</p></TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                  {/* High-frequency wallet indicator (collapsed) */}
+                  {isValidData && walletSummary?.classification === 'high_frequency' && (
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="h-6 w-6 flex items-center justify-center">
+                            <Bot className="h-3 w-3 text-orange-500" />
+                          </div>  
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>High-frequency wallet</p>
+                        </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   )}

@@ -28,6 +28,17 @@ model Wallet {
   // Timestamp of the NEWEST transaction included in the last successful analysis
   analyzedTimestampEnd         Int?
 
+  // Wallet classification for bot detection
+  classification               String?   @default("unknown") // "bot", "human", "unknown", "institutional"
+  classificationConfidence     Float?    // 0.0-1.0 confidence score
+  classificationUpdatedAt      DateTime? // When classification was last updated
+  classificationMethod         String?   // "behavioral", "pattern", "manual", "api"
+  isVerifiedBot               Boolean   @default(false) // Manual verification flag
+  
+  // Bot-specific metadata
+  botType                     String?   // "arbitrage", "mev", "market_maker", "liquidity", "spam"
+  botPatternTags              Json?     // Array of detected patterns: ["high_frequency", "micro_transactions", "true_flipper"]
+
   // Relations to the latest summaries and profiles - fixed to be referenced by children
   pnlSummary      WalletPnlSummary?
   behaviorProfile WalletBehaviorProfile?
@@ -37,6 +48,10 @@ model Wallet {
   walletNotes     WalletNote[]
   favoritedBy     UserFavoriteWallet[] // Added for Wallet-FavoriteWallets relationship
   AnalysisResult  AnalysisResult[]
+
+  @@index([classification])
+  @@index([classificationConfidence])
+  @@index([isVerifiedBot])
 }
 
 // Stores raw Helius transaction details.

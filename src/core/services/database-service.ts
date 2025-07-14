@@ -256,6 +256,130 @@ export class DatabaseService {
     }
     // --- End WalletPnlSummary and WalletBehaviorProfile Accessors ---
 
+    // --- MappingActivityLog Methods ---
+
+    /**
+     * Get recent mapping activity logs for a wallet
+     */
+    async getMappingActivityLogs(
+        walletAddress: string, 
+        options: { limit?: number; fromDate?: Date } = {}
+    ): Promise<MappingActivityLog[]> {
+        const { limit = 10, fromDate } = options;
+        
+        try {
+            const whereClause: any = { walletAddress };
+            if (fromDate) {
+                whereClause.timestamp = { gte: fromDate };
+            }
+
+            return await this.prismaClient.mappingActivityLog.findMany({
+                where: whereClause,
+                orderBy: { timestamp: 'desc' },
+                take: limit,
+            });
+        } catch (error) {
+            this.logger.error(`Error fetching mapping activity logs for ${walletAddress}:`, error);
+            return [];
+        }
+    }
+
+    // --- Wallet Classification Methods ---
+
+    /**
+     * Updates wallet classification data including bot detection results
+     */
+    async updateWalletClassification(
+        walletAddress: string,
+        classificationData: {
+            classification: string;
+            classificationConfidence?: number;
+            classificationMethod?: string;
+            classificationUpdatedAt?: Date;
+            botType?: string;
+            botPatternTags?: string[];
+            isVerifiedBot?: boolean;
+        }
+    ): Promise<Wallet> {
+        const updateData: any = {
+            classification: classificationData.classification,
+            classificationUpdatedAt: classificationData.classificationUpdatedAt || new Date(),
+        };
+
+        if (classificationData.classificationConfidence !== undefined) {
+            updateData.classificationConfidence = classificationData.classificationConfidence;
+        }
+
+        if (classificationData.classificationMethod) {
+            updateData.classificationMethod = classificationData.classificationMethod;
+        }
+
+        if (classificationData.botType) {
+            updateData.botType = classificationData.botType;
+        }
+
+        if (classificationData.botPatternTags) {
+            updateData.botPatternTags = classificationData.botPatternTags;
+        }
+
+        if (classificationData.isVerifiedBot !== undefined) {
+            updateData.isVerifiedBot = classificationData.isVerifiedBot;
+        }
+
+        return await this.prismaClient.wallet.update({
+            where: { address: walletAddress },
+            data: updateData,
+        });
+    }
+
+    /**
+     * Gets wallet classification data
+     */
+    async getWalletClassification(walletAddress: string): Promise<{
+        classification: string | null;
+        classificationConfidence: number | null;
+        classificationMethod: string | null;
+        classificationUpdatedAt: Date | null;
+        botType: string | null;
+        botPatternTags: any | null;
+        isVerifiedBot: boolean;
+    } | null> {
+        const wallet = await this.prismaClient.wallet.findUnique({
+            where: { address: walletAddress },
+            select: {
+                classification: true,
+                classificationConfidence: true,
+                classificationMethod: true,
+                classificationUpdatedAt: true,
+                botType: true,
+                botPatternTags: true,
+                isVerifiedBot: true,
+            },
+        });
+
+        return wallet;
+    }
+
+    /**
+     * Simple wallet classification update for minimal implementation
+     */
+    async updateWalletSimpleClassification(
+        walletAddress: string,
+        classification: string
+    ): Promise<void> {
+        try {
+            await this.prismaClient.wallet.update({
+                where: { address: walletAddress },
+                data: { classification },
+            });
+        } catch (error) {
+            this.logger.error(`Error updating simple classification for ${walletAddress}:`, error);
+            throw error;
+        }
+    }
+
+    // --- End Wallet Classification Methods ---
+
     // --- Wallet Status and Search Methods ---
 
     /**

@@ -9,6 +9,7 @@ import { HeliusTransaction } from '@/types/helius-api';
 import { Prisma, Wallet } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
 import { HELIUS_CONFIG } from '../../config/constants';
+import { SmartFetchService } from './smart-fetch-service';
 
 const logger = createLogger('HeliusSyncService');
 
@@ -45,23 +46,28 @@ export interface SyncOptions {
 export class HeliusSyncService {
     private heliusClient: HeliusApiClient;
 
+    private smartFetchService: SmartFetchService;
+
     /**
      * Constructs an instance of the HeliusSyncService.
      *
      * @param databaseService Instance of DatabaseService for database interactions.
      * @param heliusApiClient Instance of HeliusApiClient for Helius API interactions.
+     * @param smartFetchService Optional SmartFetchService. If not provided, creates new instance.
      * @throws Error if heliusApiClient is not provided.
      */
     constructor(
         private databaseService: DatabaseService,
-        heliusApiClient: HeliusApiClient // Changed from heliusApiKey: string
+        heliusApiClient: HeliusApiClient, // Changed from heliusApiKey: string
+        smartFetchService?: SmartFetchService
     ) {
         if (!heliusApiClient) {
             // Service requires an API client instance
             throw new Error('HeliusSyncService requires a valid HeliusApiClient instance.');
         }
         this.heliusClient = heliusApiClient; // Use the provided instance
-        logger.info('HeliusSyncService instantiated with provided HeliusApiClient.');
+        this.smartFetchService = smartFetchService || new SmartFetchService();
+        logger.info('HeliusSyncService instantiated with provided HeliusApiClient and SmartFetchService.');
     }
 
     /**
@@ -90,7 +96,7 @@ export class HeliusSyncService {
 
         logger.debug(`[Sync] Starting data synchronization for wallet: ${walletAddress}`);
         logger.debug('[Sync] Options:', options); // Log the sync options
-
+        
         // Implementation Notes:
         // 1. Get current wallet state (newest/oldest sig/ts) from databaseService.getWallet()
         // 2. Determine fetch parameters (untilSig, untilTs, beforeSig, beforeTs, limit) based on options and state.
@@ -106,14 +112,35 @@ export class HeliusSyncService {
         //    - Process/save fetched transactions.
         // 5. Use processAndSaveTransactions helper (extracted below).
 
-        // --- START OF LOGIC TO BE MOVED/ADAPTED FROM helius-analyzer.ts --- 
-        
-        // Example structure (needs full implementation using helius-analyzer logic)
+        // ✅ SMART FETCH INTEGRATION - Check if wallet should have limited fetching
+        let adjustedOptions = { ...options };
         try {
-            if (options.smartFetch && options.maxSignatures) {
-                 await this.executeSmartFetch(walletAddress, options);
+            const fetchRecommendation = await this.smartFetchService.getSmartFetchRecommendation(walletAddress);
+            
+            if (fetchRecommendation.shouldLimitFetch) {
+                // Override maxSignatures to prevent constant 10k+ fetches
+                const originalMax = adjustedOptions.maxSignatures;
+                adjustedOptions.maxSignatures = fetchRecommendation.maxSignatures;
+                
+                logger.info(`🚨 [SmartFetch] Limiting fetch for ${walletAddress}: ${originalMax} → ${fetchRecommendation.maxSignatures} signatures`);
+                logger.info(`📊 [SmartFetch] Reason: ${fetchRecommendation.reason}`);
+                
+                // Update wallet classification
+                await this.smartFetchService.updateWalletClassificationIfNeeded(walletAddress);
             } else {
-                 await this.executeStandardFetch(walletAddress, options);
+                logger.debug(`✅ [SmartFetch] Normal fetch recommended for ${walletAddress}: ${fetchRecommendation.reason}`);
+            }
+        } catch (error) {
+            logger.warn(`[SmartFetch] Failed to get smart fetch recommendation for ${walletAddress}, using original options:`, error);
+            // Continue with original options if smart fetch fails
+        }
+
+        // Execute sync with (potentially adjusted) options
+        try {
+            if (adjustedOptions.smartFetch && adjustedOptions.maxSignatures) {
+                 await this.executeSmartFetch(walletAddress, adjustedOptions);
+            } else {
+                 await this.executeStandardFetch(walletAddress, adjustedOptions);
             }
              logger.debug(`[Sync] Synchronization complete for wallet: ${walletAddress}`);
         } catch (error) {
@@ -121,7 +148,6 @@ export class HeliusSyncService {
              // Decide if error should be re-thrown or just logged
              // throw error; // Re-throw if caller needs to handle it
         }
-        // --- END OF LOGIC TO BE MOVED/ADAPTED --- 
     }
 
     // --- Private Helper Methods (Extracted/Adapted from helius-analyzer.ts) ---

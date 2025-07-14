@@ -27,6 +27,7 @@ export interface WalletSummaryData {
   latestPnl?: number | null; // Moved from keyPerformanceIndicators
   tokenWinRate?: number | null; // Moved from keyPerformanceIndicators
   behaviorClassification: string | null; // High-level classification from BehaviorService
+  classification?: string | null; // Wallet classification: 'normal', 'high_frequency', 'unknown'
   rawAdvancedStats?: AdvancedStatsResult; // Full raw object for more detail if needed by client
   rawBehaviorMetrics?: BehaviorMetrics; // Full raw object for more detail if needed by client
   currentSolBalance?: number | null;

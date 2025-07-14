@@ -51,6 +51,13 @@ export class WalletSummaryResponse {
   behaviorClassification?: string | null;
 
   @ApiPropertyOptional({ 
+    description: 'The wallet classification for performance optimization.',
+    example: 'high_frequency',
+    enum: ['normal', 'high_frequency', 'unknown'],
+  })
+  classification?: string | null;
+
+  @ApiPropertyOptional({ 
     description: 'The current SOL balance of the wallet.',
     example: 10.5 
   })

@@ -23,6 +23,25 @@ export const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxAP
 
 export const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 
+// Transaction mapping configuration
+export const TRANSACTION_MAPPING_CONFIG = {
+  // Jito MEV protection filtering
+  ENABLE_JITO_FILTERING: true, // Set to false to include bot transactions without Jito protection
+  JITO_PROGRAM_PREFIX: 'jitodontfront',
+  
+  // Bot transaction handling
+  BOT_DETECTION_ENABLED: true,
+  BOT_TRANSACTION_HANDLING: 'include' as 'include' | 'exclude' | 'mark', // How to handle suspected bot transactions
+  
+  // Dust filtering thresholds
+  NATIVE_SOL_LAMPORT_THRESHOLD: 100000, // 0.0001 SOL
+  SOL_DUST_TRANSFER_THRESHOLD: 0.001, // 0.001 SOL
+  
+  // Bot activity thresholds
+  HIGH_FREQUENCY_THRESHOLD: 10, // transactions
+  MICRO_TRANSACTION_SOL_THRESHOLD: 0.1, // SOL value
+} as const;
+
 // Analysis configuration
 export const CLUSTERING_CONFIG = {
   excludedMints: DEFAULT_EXCLUDED_MINTS,
@@ -41,7 +60,7 @@ export const CLUSTERING_CONFIG = {
 
 export const ANALYSIS_EXECUTION_CONFIG = {
   SIMILARITY_LAB_MAX_SIGNATURES: 200,
-  DASHBOARD_MAX_SIGNATURES: 5000,
+  DASHBOARD_MAX_SIGNATURES: 2000,
 } as const;
 
 // Database configuration

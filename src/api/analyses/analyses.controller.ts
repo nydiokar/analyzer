@@ -4,6 +4,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../database/database.service';
 import { PnlAnalysisService } from '../pnl_analysis/pnl-analysis.service';
 import { BehaviorService } from '../wallets/behavior/behavior.service';
+
 import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
 import { Wallet } from '@prisma/client';
 import { SimilarityApiService } from './similarity/similarity.service';
@@ -17,7 +18,6 @@ import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData } from '../
 import { generateJobId } from '../../queues/utils/job-id-generator';
 import { JobsService } from '../jobs/jobs.service';
 import { EnrichmentStrategyService } from './enrichment-strategy.service';
-import { WalletBalance } from '@/types/wallet';
 import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
 
 @ApiTags('Analyses')
@@ -316,6 +316,20 @@ export class AnalysesController {
           };
 
           this.logger.debug(`Calling HeliusSyncService.syncWalletData for ${walletAddress} with options: ${JSON.stringify(syncOptions)}`);
+          
+          // Check if this is a high_frequency wallet and notify user
+          try {
+            const classification = await this.databaseService.getWalletClassification(walletAddress);
+            if (classification?.classification === 'high_frequency') {
+              // Send WebSocket notification about limited analysis
+              const message = `High-frequency wallet detected. Analysis limited to ${syncOptions.maxSignatures} recent transactions for optimal performance.`;
+              // TODO: Add WebSocket broadcast here when WebSocket service is available
+              this.logger.log(`🤖 [Analysis] ${message} - Wallet: ${walletAddress}`);
+            }
+          } catch (error) {
+            this.logger.warn(`Failed to check wallet classification for ${walletAddress}:`, error);
+          }
+          
           await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
           this.logger.debug(`Helius sync process completed for ${walletAddress}.`);
 
@@ -331,8 +345,10 @@ export class AnalysesController {
 
           this.logger.debug(`Starting Behavior analysis for wallet: ${walletAddress}.`);
           const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
-          await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig);
+          const behaviorMetrics = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig);
           this.logger.debug(`Behavior analysis completed for ${walletAddress}.`);
+
+          // Smart fetch classification is now handled in HeliusSyncService
 
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
