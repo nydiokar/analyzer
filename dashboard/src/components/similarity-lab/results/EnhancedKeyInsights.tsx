@@ -18,6 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { WalletBadge } from '@/components/shared/WalletBadge';
+import { TokenBadge } from '@/components/shared/TokenBadge';
 
 interface EnhancedKeyInsightsProps {
   results: CombinedSimilarityResult;
@@ -34,48 +35,24 @@ const INSIGHT_COLORS: Record<InsightType, string> = {
     [InsightType.SharedZeroHoldings]: 'bg-gray-500/20 text-gray-700 border-gray-500/30 hover:bg-gray-500/30',
 };
 
-// New component for rendering token info with a popover
-const TokenBadge = ({ mint, enrichedBalances }: { mint: string, enrichedBalances: EnhancedKeyInsightsProps['results']['walletBalances']}) => {
-    const { toast } = useToast();
-
-    // Find the token info from any of the wallet balances
-    let tokenInfo;
-    if (enrichedBalances) {
-      for (const walletAddress in enrichedBalances) {
-        const foundToken = enrichedBalances[walletAddress]?.tokenBalances?.find(t => t.tokenAddress === mint);
-        if (foundToken) {
-          tokenInfo = foundToken;
-          break;
-        }
-      }
-    }
+// Helper function to extract token metadata from enriched balances
+const getTokenMetadata = (mint: string, enrichedBalances: EnhancedKeyInsightsProps['results']['walletBalances']) => {
+    if (!enrichedBalances) return undefined;
     
-    const name = tokenInfo?.name || 'Unknown Token';
-    const symbol = tokenInfo?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
-
-    return (
-        <Popover>
-            <PopoverTrigger asChild>
-                <div className="flex items-center space-x-2 cursor-pointer group">
-                    <Avatar className="h-5 w-5">
-                        <AvatarImage src={tokenInfo?.imageUrl ?? undefined} alt={name} />
-                        <AvatarFallback className="text-xs">{symbol.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <span className="font-mono text-xs group-hover:underline">{name} ({symbol})</span>
-                </div>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-2">
-                <div className="space-y-2">
-                    <div className="font-bold text-sm">{name}</div>
-                    <div className="text-xs text-muted-foreground break-all">{mint}</div>
-                    <div className="flex items-center gap-1 pt-1">
-                        <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => { navigator.clipboard.writeText(mint); toast({ description: "Copied!" })}}><Copy className="h-3 w-3 mr-1"/>Copy</Button>
-                        <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${mint}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3 w-3 mr-1"/>Solscan</a></Button>
-                    </div>
-                </div>
-            </PopoverContent>
-        </Popover>
-    );
+    for (const walletAddress in enrichedBalances) {
+        const foundToken = enrichedBalances[walletAddress]?.tokenBalances?.find(t => (t as any).mint === mint);
+        if (foundToken) {
+            return {
+                name: foundToken.name || undefined,
+                symbol: foundToken.symbol || undefined,
+                imageUrl: foundToken.imageUrl || undefined,
+                websiteUrl: foundToken.websiteUrl || undefined,
+                twitterUrl: foundToken.twitterUrl || undefined,
+                telegramUrl: foundToken.telegramUrl || undefined
+            };
+        }
+    }
+    return undefined;
 };
 
 const getInsightIcon = (type: KeyInsight['type']) => {
@@ -210,7 +187,11 @@ const InsightCard = memo(({ insight, pair, sortKey, results }: InsightCardProps)
                                         return (
                                             <TableRow key={token.mint}>
                                                 <TableCell className="font-medium">
-                                                    <TokenBadge mint={token.mint} enrichedBalances={results.walletBalances} />
+                                                    <TokenBadge 
+                                                        mint={token.mint} 
+                                                        metadata={getTokenMetadata(token.mint, results.walletBalances)} 
+                                                        size="sm" 
+                                                    />
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     {allocation?.weightA !== undefined ? `${(allocation.weightA * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}

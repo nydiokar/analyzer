@@ -42,7 +42,7 @@ export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="outline" size="sm" onClick={handleCopy} className="flex-1 w-full">
+                        <Button variant="outline" size="sm" onClick={handleCopy} className="flex-1 w-full" tabIndex={-1}>
                             <Copy className="h-3 w-3 mr-1" />
                             Copy
                         </Button>
@@ -56,7 +56,7 @@ export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Button variant="outline" size="sm" className="flex-1 w-full" asChild>
-                            <Link href={`https://solscan.io/account/${address}`} target="_blank" rel="noopener noreferrer">
+                            <Link href={`https://solscan.io/account/${address}`} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
                                 <ExternalLink className="h-3 w-3 mr-1" />
                                 Solscan
                             </Link>
@@ -71,7 +71,7 @@ export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
                 <Tooltip>
                     <TooltipTrigger asChild>
                          <Button variant="outline" size="sm" className="flex-1 w-full" asChild>
-                            <Link href={`/wallets/${address}`}>
+                            <Link href={`/wallets/${address}`} tabIndex={-1}>
                                 <Info className="h-3 w-3 mr-1" />
                                 Details
                             </Link>

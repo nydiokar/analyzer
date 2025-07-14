@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { CombinedSimilarityResult, TokenInfo } from "./types";
 import { Button } from "@/components/ui/button";
 import { Copy, ExternalLink, Globe, X as Twitter, Send } from "lucide-react";
+import { TokenBadge } from "@/components/shared/TokenBadge";
 
 interface MostCommonTokensProps {
   results: CombinedSimilarityResult;
@@ -109,47 +110,29 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
 
                             return (
                                 <li key={token.mint} className="text-sm flex justify-between items-center border-b pb-2">
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                            <div className="flex items-center gap-3 flex-grow min-w-0 cursor-pointer">
-                                                <Avatar className="h-8 w-8">
-                                                    {isLoading ? <Skeleton className="h-8 w-8 rounded-full" /> : <AvatarImage src={metadata?.imageUrl ?? undefined} alt={tokenName} />}
-                                                    <AvatarFallback>{tokenName.charAt(0)}</AvatarFallback>
-                                                </Avatar>
-                                                <div className="flex-grow min-w-0">
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <div className="truncate font-medium">{tokenName}</div>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>
-                                                                <div className="flex flex-col gap-2 p-2 max-w-xs">
-                                                                    <p className="font-bold">Shared by:</p>
-                                                                    <div className="flex flex-wrap gap-2">
-                                                                        {token.wallets.map(w => <WalletBadge key={w} address={w} />)}
-                                                                    </div>
-                                                                </div>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                    <div className="text-muted-foreground truncate">{shortAddress}{tokenSymbol}</div>
-                                                </div>
-                                            </div>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-2">
-                                            <div className="space-y-2">
-                                                <div className="font-bold text-sm">{tokenName}</div>
-                                                <div className="text-xs text-muted-foreground break-all">{token.mint}</div>
-                                                <div className="flex items-center gap-1 pt-1">
-                                                    <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => { navigator.clipboard.writeText(token.mint); toast({ description: "Copied!" })}}><Copy className="h-3 w-3 mr-1"/>Copy</Button>
-                                                    <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${token.mint}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3 w-3 mr-1"/>Solscan</a></Button>
-                                                    {metadata?.websiteUrl && <Button variant="ghost" size="icon" className="h-7 w-7" asChild><a href={metadata.websiteUrl} target="_blank" rel="noopener noreferrer"><Globe className="h-4 w-4"/></a></Button>}
-                                                    {metadata?.twitterUrl && <Button variant="ghost" size="icon" className="h-7 w-7" asChild><a href={metadata.twitterUrl} target="_blank" rel="noopener noreferrer"><Twitter className="h-4 w-4"/></a></Button>}
-                                                    {metadata?.telegramUrl && <Button variant="ghost" size="icon" className="h-7 w-7" asChild><a href={metadata.telegramUrl} target="_blank" rel="noopener noreferrer"><Send className="h-4 w-4"/></a></Button>}
-                                                </div>
-                                            </div>
-                                        </PopoverContent>
-                                    </Popover>
+                                    <div className="flex items-center gap-3 flex-grow min-w-0">
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <div className="flex-1 min-w-0">
+                                                        <TokenBadge 
+                                                            mint={token.mint} 
+                                                            metadata={metadata} 
+                                                            size="lg" 
+                                                        />
+                                                    </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <div className="flex flex-col gap-2 p-2 max-w-xs">
+                                                        <p className="font-bold">Shared by:</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {token.wallets.map(w => <WalletBadge key={w} address={w} />)}
+                                                        </div>
+                                                    </div>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </div>
                                     <div className="flex items-center gap-2 ml-4">
                                         <Badge variant="secondary">{token.count} wallets</Badge>
                                     </div>
