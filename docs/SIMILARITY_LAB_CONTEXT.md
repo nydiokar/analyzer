@@ -24,7 +24,7 @@ The feature is split between the `dashboard` (Next.js frontend) and the `src/api
 | `dashboard/src/app/similarity-lab/page.tsx`                               | **Entrypoint & UI Orchestrator**. Manages user input, state (loading, errors, results), and orchestrates the entire multi-step analysis flow from the client-side.     |
 | `dashboard/src/components/similarity-lab/results/SimilarityResultDisplay.tsx` | **Results Rendering**. A dedicated component to display the final analysis results in a structured and digestible format.                                        |
 | `dashboard/src/components/similarity-lab/results/types.ts`                  | **Frontend Data Types**. Defines the TypeScript types for the analysis results (`CombinedSimilarityResult`, `PairwiseSimilarity`, etc.) used to render the data.     |
-| `dashboard/src/components/similarity-lab/SyncConfirmationDialog.tsx`        | **UX Component**. A modal dialog to inform the user about missing wallets and ask for confirmation before triggering the background sync and analysis process.      |
+| ~~`dashboard/src/components/similarity-lab/SyncConfirmationDialog.tsx`~~        | **REMOVED**. This component was part of the old Quick/Advanced analysis pattern that has been simplified.      |
 | `dashboard/src/lib/fetcher.ts`                                            | **API Client**. A wrapper around `fetch` used by the frontend to make requests to the backend API.                                                                 |
 
 ### Backend (`src/`)
@@ -51,7 +51,7 @@ The following endpoints in `analyses.controller.ts` support the Similarity Lab f
     -   **Response Body**: `{ message: string; triggeredAnalyses: string[]; skippedAnalyses: string[] }`
     -   **Purpose**: Triggers a background job to sync data for the given wallets. It runs analysis (Helius sync, PNL, Behavior) and does not block.
 
--   `POST /analyses/similarity`
+-   ~~`POST /analyses/similarity`~~ **REMOVED** - Old quick analysis endpoint
     -   **Request Body**: `{ walletAddresses: string[] }`
     -   **Response Body**: `CombinedSimilarityResult` (structure defined in frontend types)
     -   **Purpose**: Executes the final similarity analysis on a set of wallets that are confirmed to exist in the database and returns the detailed results. 

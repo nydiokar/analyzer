@@ -22,4 +22,4 @@ export class SimilarityAnalysisRequestDto {
   @IsOptional()
   @IsIn(['capital', 'binary'])
   vectorType?: 'capital' | 'binary';
-} 
+}

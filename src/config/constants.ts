@@ -39,12 +39,17 @@ export const CLUSTERING_CONFIG = {
   MAX_DAILY_TOKENS_FOR_FILTER: 50 // From activityCorrelator.ts for bot filtering
 } as const;
 
+export const ANALYSIS_EXECUTION_CONFIG = {
+  SIMILARITY_LAB_MAX_SIGNATURES: 200,
+  DASHBOARD_MAX_SIGNATURES: 5000,
+} as const;
+
 // Database configuration
 export const DB_CONFIG = {
   batchSize: 100,
   maxRetries: 3,
   retryDelayMs: 1000
-} as const; 
+} as const;
 
 export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 

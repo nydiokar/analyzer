@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; // Import the new form
-import { SyncConfirmationDialog } from '@/components/similarity-lab/SyncConfirmationDialog';
+
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
 import { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
@@ -13,23 +13,11 @@ import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletion
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { useApiKeyStore } from '@/store/api-key-store';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Zap, Settings, Clock, Info, Sparkles } from 'lucide-react';
+import { Clock, Info, Sparkles } from 'lucide-react';
 
-type WalletAnalysisStatus = 'READY' | 'STALE' | 'MISSING' | 'IN_PROGRESS';
 
-interface WalletStatus {
-  walletAddress: string;
-  status: WalletAnalysisStatus;
-}
-
-interface WalletStatusResponse {
-  statuses: WalletStatus[];
-}
 
 // Memoize the heavy SimilarityResultDisplay component to prevent unnecessary re-renders
 const MemoizedSimilarityResultDisplay = memo(SimilarityResultDisplay);
@@ -43,15 +31,11 @@ export default function AnalysisLabPage() {
   });
   const [walletList, setWalletList] = useState<string[]>([]); // State to hold the final list of wallets
   const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
-  const [missingWallets, setMissingWallets] = useState<string[]>([]);
-  const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
+
   const [syncMessage, setSyncMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   
-  // Analysis method selection
-  const [analysisMethod, setAnalysisMethod] = useState<'quick' | 'advanced'>('quick');
-  
-  // Job tracking for advanced method
+  // Job tracking for analysis
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
@@ -172,7 +156,6 @@ export default function AnalysisLabPage() {
     }
   }, [jobStatuses.enrichment]);
 
-
   useEffect(() => {
     try {
       const savedResult = localStorage.getItem('analysisResult');
@@ -280,65 +263,6 @@ export default function AnalysisLabPage() {
   };
 
   const handleAnalyze = async () => {
-    if (analysisMethod === 'quick') {
-      await handleQuickAnalyze();
-    } else {
-      await handleAdvancedAnalyze();
-    }
-  };
-
-  const handleQuickAnalyze = async () => {
-    setJobStatuses({ analysis: 'running', enrichment: 'idle' });
-    setAnalysisResult(null);
-    setSyncMessage('');
-
-    if (walletList.length === 0) {
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      return;
-    }
-
-    const invalidWallets = walletList.filter(w => !isValidSolanaAddress(w.trim()));
-    if (invalidWallets.length > 0) {
-      toast({
-        variant: "destructive",
-        title: "Invalid Wallet Addresses",
-        description: `Please correct: ${invalidWallets.join(', ')}`,
-      });
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      return;
-    }
-
-    try {
-      const statusResponse: WalletStatusResponse = await fetcher('/analyses/wallets/status', {
-        method: 'POST',
-        body: JSON.stringify({ walletAddresses: walletList }),
-      });
-      
-      const walletsNeedingWork = statusResponse?.statuses
-        ?.filter((s) => s.status === 'STALE' || s.status === 'MISSING')
-        .map((s) => s.walletAddress) || [];
-
-      if (walletsNeedingWork.length > 0) {
-        setMissingWallets(walletsNeedingWork);
-        setIsSyncDialogOpen(true);
-        setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      } else {
-        await runQuickAnalysis(walletList);
-      }
-    } catch (error: any) {
-      console.error('Error checking wallet status:', error);
-      const errorMessage = error?.payload?.message || error.message || 'Error checking wallet status.';
-      toast({
-        variant: "destructive",
-        title: "Analysis Failed",
-        description: errorMessage,
-      });
-      setSyncMessage(errorMessage);
-      setJobStatuses({ analysis: 'failed', enrichment: 'idle' });
-    }
-  };
-
-  const handleAdvancedAnalyze = async () => {
     setJobStatuses({ analysis: 'running', enrichment: 'idle' });
     setAnalysisResult(null);
     setSyncMessage('');
@@ -361,89 +285,13 @@ export default function AnalysisLabPage() {
       return;
     }
 
-    await runAdvancedAnalysis(walletList);
+    // Skip status checking - let the similarity processor handle sync intelligently
+    await runAnalysis(walletList);
   };
 
-  const handleConfirmSync = async () => {
-    setIsSyncDialogOpen(false);
-    setJobStatuses({ analysis: 'running', enrichment: 'idle' });
-    setSyncMessage(`Triggering sync for ${missingWallets.length} wallet(s)...`);
 
-    try {
-      await fetcher('/analyses/wallets/trigger-analysis', {
-        method: 'POST',
-        body: JSON.stringify({ walletAddresses: missingWallets }),
-      });
 
-      toast({
-        title: "Sync Triggered",
-        description: "Syncing missing wallets...",
-      });
-
-      // Simple polling for sync completion
-      const checkSync = async () => {
-        const allWallets = walletList;
-
-        try {
-          const statusResponse: WalletStatusResponse = await fetcher('/analyses/wallets/status', {
-            method: 'POST',
-            body: JSON.stringify({ walletAddresses: allWallets }),
-          });
-
-          const stillSyncing = statusResponse?.statuses?.filter((s) => s.status === 'IN_PROGRESS').length || 0;
-
-          if (stillSyncing === 0) {
-            setSyncMessage('Sync complete! Running analysis...');
-            await runQuickAnalysis(allWallets);
-          } else {
-            setSyncMessage(`Syncing ${stillSyncing} wallet(s)...`);
-            setTimeout(checkSync, 5000);
-          }
-        } catch (error: any) {
-          setError(error.message);
-          setJobStatuses({ analysis: 'failed', enrichment: 'idle' });
-        }
-      };
-
-      setTimeout(checkSync, 2000);
-
-    } catch (error: any) {
-      const errorMessage = error?.payload?.message || error.message || "Sync failed.";
-      setError(errorMessage);
-      setSyncMessage(errorMessage);
-      setJobStatuses({ analysis: 'failed', enrichment: 'idle' });
-    }
-  };
-
-  const runQuickAnalysis = async (walletList: string[]) => {
-    setSyncMessage('Running quick analysis...');
-    try {
-      const data = await fetcher('/analyses/similarity', {
-        method: 'POST',
-        body: JSON.stringify({ walletAddresses: walletList }),
-      });
-
-      if (!data || !data.pairwiseSimilarities || data.pairwiseSimilarities.length === 0) {
-        throw new Error("No similarity data found.");
-      }
-
-      setAnalysisResult(data);
-      setSyncMessage('');
-    } catch (error: any) {
-      console.error('Error running similarity analysis:', error);
-      const errorMessage = error?.payload?.message || error.message || 'Analysis failed.';
-      setSyncMessage(errorMessage);
-      toast({
-        variant: "destructive",
-        title: "Analysis Failed",
-        description: errorMessage,
-      });
-    } finally {
-      setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
-    }
-  };
-
-  const runAdvancedAnalysis = async (walletList: string[]) => {
+  const runAnalysis = async (walletList: string[]) => {
     setSyncMessage('Submitting job to queue...');
     setJobProgress(0);
     
@@ -482,6 +330,7 @@ export default function AnalysisLabPage() {
       console.error('Error submitting job:', error);
       const errorMessage = error?.payload?.message || error.message || 'Failed to submit job.';
       setSyncMessage(errorMessage);
+      setError(errorMessage);
       toast({
         variant: "destructive",
         title: "Job Submission Failed",
@@ -502,59 +351,43 @@ export default function AnalysisLabPage() {
       attempts++;
       
       try {
-        const status = await fetcher(`/jobs/${jobId}`);
+        const jobStatus = await fetcher(`/jobs/${jobId}/status`);
         
-        if (status.status === 'completed') {
-          // Job completed via polling - handle result directly
-          try {
-            const result = await fetcher(`/jobs/${jobId}/result`);
-            
-            if (result?.result?.data) {
-              setAnalysisResult(result.result.data);
-              
-              if (result.result.data.walletBalances && analysisMethod === 'advanced') {
-                setJobStatuses(prev => ({ ...prev, enrichment: 'running' }));
-                // setEnrichedBalances(result.result.data.walletBalances); // This line is removed
-              }
-              
-              if (result.result.enrichmentJobId) {
-                setEnrichmentJobId(result.result.enrichmentJobId);
-              } else {
-                setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
-              }
-              
-              setCurrentJobId(null);
-              setSyncMessage('');
-              
-              toast({
-                title: "Analysis Complete",
-                description: "Results are ready!",
-              });
-            }
-          } catch (error: any) {
-            console.error('Error getting job result:', error);
-            setError(error.message);
-            setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
-          }
-          return;
-        } else if (status.status === 'failed') {
-          const errorMessage = status.data?.error || 'Job failed';
-          setError(errorMessage);
-          setSyncMessage(errorMessage);
+        if (jobStatus.status === 'completed') {
+          setJobProgress(100);
+          setSyncMessage('Analysis complete! Fetching results...');
+          
+          const result = await fetcher(`/jobs/${jobId}/result`);
+          setAnalysisResult(result.result.data);
+          setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
+          setCurrentJobId(null);
+          setSyncMessage('');
+          
+          toast({
+            title: "Analysis Complete",
+            description: "Results are ready to view.",
+          });
+        } else if (jobStatus.status === 'failed') {
+          setError(jobStatus.error || 'Job failed');
           setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
-          return;
-        } else {
-          const progress = status.progress || 0;
+          setCurrentJobId(null);
+          
+          toast({
+            variant: "destructive",
+            title: "Analysis Failed",
+            description: jobStatus.error || "Job failed.",
+          });
+        } else if (jobStatus.status === 'active') {
+          const progress = jobStatus.progress || 0;
           setJobProgress(progress);
-          setSyncMessage(`Job in progress... ${Math.round(progress)}%`);
+          setSyncMessage(`Processing... ${Math.round(progress)}%`);
+          setTimeout(poll, 2000);
+        } else {
+          setTimeout(poll, 2000);
         }
-        
-        setTimeout(poll, 3000);
-        
       } catch (error: any) {
-        console.error('Polling error:', error);
-        setError(error.message);
-        setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
+        console.error('Error polling job status:', error);
+        setTimeout(poll, 3000);
       }
     };
     
@@ -583,48 +416,12 @@ export default function AnalysisLabPage() {
           onWalletsChange={handleWalletsChange}
           onAnalyze={handleAnalyze}
           isRunning={isRunning}
-          analysisMethod={analysisMethod}
         />
         
         {syncMessage && <p className="mt-4 text-center text-sm text-muted-foreground">{syncMessage}</p>}
         
-        {/* Analysis Method Selection */}
-        <div className="mt-4 pt-4 border-t">
-          <h3 className="text-sm font-medium mb-3">Analysis Method</h3>
-          <RadioGroup value={analysisMethod} onValueChange={(value) => setAnalysisMethod(value as 'quick' | 'advanced')} className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <RadioGroupItem value="quick" id="quick" className="peer sr-only" />
-              <Label
-                htmlFor="quick"
-                className="flex items-center space-x-2 rounded-md border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
-              >
-                <Zap className="h-4 w-4" />
-                <div className="flex-1">
-                  <div className="font-medium">Quick Analysis</div>
-                  <div className="text-xs text-muted-foreground">Synchronous • ~30s</div>
-                </div>
-                <Badge variant="secondary">Classic</Badge>
-              </Label>
-            </div>
-            <div>
-              <RadioGroupItem value="advanced" id="advanced" className="peer sr-only" />
-              <Label
-                htmlFor="advanced"
-                className="flex items-center space-x-2 rounded-md border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
-              >
-                <Settings className="h-4 w-4" />
-                <div className="flex-1">
-                  <div className="font-medium">Advanced Analysis</div>
-                  <div className="text-xs text-muted-foreground">Smart • Job Queue • Real-time Updates</div>
-                </div>
-                <Badge variant="outline">Smart</Badge>
-              </Label>
-            </div>
-          </RadioGroup>
-        </div>
-        
-        {/* Job Progress (Advanced Method) */}
-        {analysisMethod === 'advanced' && jobStatuses.analysis === 'running' && (
+        {/* Job Progress */}
+        {jobStatuses.analysis === 'running' && (
           <Alert className="mt-4">
             <Clock className="h-4 w-4" />
             <AlertDescription>
@@ -653,12 +450,7 @@ export default function AnalysisLabPage() {
         </div>
       )}
 
-      <SyncConfirmationDialog
-        isOpen={isSyncDialogOpen}
-        onClose={() => setIsSyncDialogOpen(false)}
-        onConfirm={handleConfirmSync}
-        missingWallets={missingWallets}
-      />
+
     </div>
   );
 } 

@@ -10,10 +10,9 @@ interface WalletInputFormProps {
   onWalletsChange: (wallets: string[]) => void;
   onAnalyze: () => void;
   isRunning: boolean;
-  analysisMethod: 'quick' | 'advanced';
 }
 
-export function WalletInputForm({ onWalletsChange, onAnalyze, isRunning, analysisMethod }: WalletInputFormProps) {
+export function WalletInputForm({ onWalletsChange, onAnalyze, isRunning }: WalletInputFormProps) {
   const [inputValue, setInputValue] = useState('');
 
   const walletList = useMemo(() => {
@@ -41,9 +40,10 @@ export function WalletInputForm({ onWalletsChange, onAnalyze, isRunning, analysi
       <Textarea
         value={inputValue}
         onChange={(e) => setInputValue(e.target.value)}
-        placeholder="Enter wallet addresses, separated by commas, spaces, or new lines."
-        className="min-h-[70px] font-mono pr-24"
+        placeholder="Enter wallet addresses (one per line or separated by commas or spaces)..."
+        className="min-h-24 pr-24"
       />
+      
       <div className="absolute top-1/2 right-3 -translate-y-1/2 flex items-center space-x-2">
         <TooltipProvider>
           <Tooltip>
@@ -69,7 +69,7 @@ export function WalletInputForm({ onWalletsChange, onAnalyze, isRunning, analysi
                   ? "An analysis is already in progress."
                   : walletList.length < 2
                   ? "Enter at least two wallet addresses to begin."
-                  : `Run a ${analysisMethod} analysis on the provided wallets.`}
+                  : "Run analysis on the provided wallets."}
               </p>
             </TooltipContent>
           </Tooltip>

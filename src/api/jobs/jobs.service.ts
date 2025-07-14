@@ -30,7 +30,13 @@ export class JobsService {
     private readonly redisLockService: RedisLockService,
   ) {}
 
-  // === C2 Task: Job Submission Methods ===
+  // === DIRECT JOB SUBMISSION METHODS ===
+  // 
+  // ⚠️  NOTE: These methods are NOT currently used by the frontend!
+  // 
+  // These provide direct access to BullMQ queues for external integrations
+  // and future scaling scenarios. The frontend uses business logic endpoints
+  // in the /analyses module instead.
 
   async submitSyncWalletJob(dto: SyncWalletJobRequestDto): Promise<JobSubmissionResponseDto> {
     this.logger.log(`Submitting sync job for wallet: ${dto.walletAddress}`);

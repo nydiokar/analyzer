@@ -15,7 +15,7 @@ import { BehaviorService } from '../../api/wallets/behavior/behavior.service';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
 import { BalanceCacheService } from '../../api/balance-cache/balance-cache.service';
-import { PROCESSING_CONFIG } from '../../config/constants';
+import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
 import { BatchProcessor } from '../utils/batch-processor';
 import { WalletBalance } from '../../types/wallet';
 import { join } from 'path';
@@ -235,7 +235,7 @@ export class SimilarityOperationsProcessor {
           const syncOptions: SyncOptions = { 
             fetchAll: true, 
             smartFetch: true, 
-            maxSignatures: 2000,
+            maxSignatures: ANALYSIS_EXECUTION_CONFIG.SIMILARITY_LAB_MAX_SIGNATURES,
             limit: 100, // Respect Helius API's 100 transaction limit per request
             skipApi: false,
             fetchOlder: true,

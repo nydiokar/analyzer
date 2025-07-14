@@ -18,6 +18,7 @@ import { generateJobId } from '../../queues/utils/job-id-generator';
 import { JobsService } from '../jobs/jobs.service';
 import { EnrichmentStrategyService } from './enrichment-strategy.service';
 import { WalletBalance } from '@/types/wallet';
+import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -36,46 +37,6 @@ export class AnalysesController {
     private readonly jobsService: JobsService,
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
   ) {}
-
-  @Post('/similarity')
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ 
-    summary: 'Runs a similarity analysis on a given set of wallets.',
-    description: 'C3 Backwards Compatibility: Internally uses job queue but maintains synchronous interface for existing clients.'
-  })
-  @ApiBody({ type: SimilarityAnalysisRequestDto })
-  @ApiResponse({ status: 200, description: 'Similarity analysis completed successfully.'})
-  @ApiResponse({ status: 400, description: 'Invalid input, e.g., fewer than 2 wallets provided.' })
-  @ApiResponse({ status: 500, description: 'An internal error occurred during analysis.' })
-  async runSimilarityAnalysis(
-    @Body() dto: SimilarityAnalysisRequestDto,
-  ): Promise<any> {
-    this.logger.log(`[C3 Backwards Compatibility] Received request to run similarity analysis for ${dto.walletAddresses.length} wallets.`);
-    
-    try {
-      // **TRUE BACKWARDS COMPATIBILITY**: Use original similarity service directly
-      // This bypasses the job queue entirely for genuine pipeline comparison
-      this.logger.log(`[C3] Using original SimilarityApiService (bypassing job queue)...`);
-      const result = await this.similarityApiService.runAnalysis(dto, new Map<string, WalletBalance>());
-      this.logger.log(`[C3] Original similarity service completed successfully.`);
-      return result;
-
-    } catch (error) {
-      this.logger.error(`[C3] Error in backwards compatibility similarity analysis:`, error);
-      
-      // If it's already a known HTTP exception, re-throw it
-      if (error instanceof BadRequestException || 
-          error instanceof InternalServerErrorException || 
-          error instanceof ServiceUnavailableException) {
-        throw error;
-      }
-
-      // For unexpected errors, wrap in InternalServerErrorException
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[C3] Unexpected error: ${errorMessage}`);
-      throw new InternalServerErrorException(`Similarity analysis failed: ${errorMessage}`);
-    }
-  }
 
   @Post('/similarity/enrich-balances')
   @Throttle({ default: { limit: 20, ttl: 60000 } })
@@ -350,7 +311,7 @@ export class AnalysesController {
             fetchAll: true,
             skipApi: false,
             fetchOlder: true,
-            maxSignatures: 200,
+            maxSignatures: ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES,
             smartFetch: true,
           };
 

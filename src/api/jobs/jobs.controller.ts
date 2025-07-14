@@ -24,13 +24,28 @@ export class JobsController {
     private readonly deadLetterQueueService: DeadLetterQueueService,
   ) {}
 
-  // === C2 Task: Job Submission Endpoints ===
+  // === DIRECT JOB SUBMISSION ENDPOINTS ===
+  // 
+  // ⚠️  NOTE: These endpoints are NOT currently used by the frontend!
+  // 
+  // Purpose: Direct access to the BullMQ job system for:
+  // - External integrations
+  // - Bulk operations 
+  // - Custom workflows
+  // - Performance tuning
+  // 
+  // The frontend currently uses higher-level business logic endpoints:
+  // - /analyses/wallets/{id}/trigger-analysis (individual wallet analysis)
+  // - /analyses/similarity/queue (multi-wallet similarity analysis)
+  // - /analyses/similarity/enrich-balances (token enrichment)
+  // 
+  // These job endpoints provide low-level queue access for scaling scenarios.
 
   @Post('wallets/sync')
   @HttpCode(202)
   @ApiOperation({ 
-    summary: 'Submit wallet sync job',
-    description: 'Submits a job to sync wallet transaction data from Helius API.'
+    summary: '[UNUSED] Submit wallet sync job',
+    description: 'Direct access to wallet sync queue. Not used by frontend - use /analyses/wallets/{id}/trigger-analysis instead.'
   })
   @ApiBody({ type: SyncWalletJobRequestDto })
   @ApiResponse({ 
@@ -46,8 +61,8 @@ export class JobsController {
   @Post('wallets/analyze')
   @HttpCode(202)
   @ApiOperation({ 
-    summary: 'Submit wallet analysis job',
-    description: 'Submits jobs to perform PNL and/or behavior analysis on a wallet.'
+    summary: '[UNUSED] Submit wallet analysis job',
+    description: 'Direct access to analysis queue. Not used by frontend - use /analyses/wallets/{id}/trigger-analysis instead.'
   })
   @ApiBody({ type: AnalyzeWalletJobRequestDto })
   @ApiResponse({ 
@@ -63,8 +78,8 @@ export class JobsController {
   @Post('similarity/analyze')
   @HttpCode(202)
   @ApiOperation({ 
-    summary: 'Submit similarity analysis job',
-    description: 'Submits a job to perform similarity analysis on multiple wallets.'
+    summary: '[UNUSED] Submit similarity analysis job',
+    description: 'Direct access to similarity queue. Not used by frontend - use /analyses/similarity/queue instead.'
   })
   @ApiBody({ type: SimilarityAnalysisJobRequestDto })
   @ApiResponse({ 

@@ -8,6 +8,8 @@ import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { DatabaseService } from '../../api/database/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
+import { JobEventsBridgeService } from '../services/job-events-bridge.service';
+import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
 
 @Injectable()
 export class WalletOperationsProcessor {
@@ -116,7 +118,7 @@ export class WalletOperationsProcessor {
         fetchAll: syncOptions.fetchAll ?? true,
         skipApi: false,
         fetchOlder: syncOptions.fetchOlder ?? false,
-        maxSignatures: 200,
+        maxSignatures: ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES,
         smartFetch: true,
       };
 
