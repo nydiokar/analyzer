@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { HelpCircle, Info, Copy, ExternalLink } from "lucide-react";
+import { HelpCircle, Info, Copy, ExternalLink, Link as LinkIcon, Handshake, Scale, Users2, ArrowUpRightFromSquare, Ban, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -57,13 +57,13 @@ const getTokenMetadata = (mint: string, enrichedBalances: EnhancedKeyInsightsPro
 
 const getInsightIcon = (type: KeyInsight['type']) => {
   switch (type) {
-    case 'Sustained Alignment': return '🤝';
-    case 'Significant Asymmetry': return '⚖️';
-    case 'High Similarity': return '🔗';
-    case 'Behavioral Mirror': return '👯';
-    case 'Capital Divergence': return '💰';
-    case 'Shared Zero Holdings': return '🚫';
-    default: return '💡';
+    case 'Sustained Alignment': return <Handshake className="h-5 w-5" />;
+    case 'Significant Asymmetry': return <Scale className="h-5 w-5" />;
+    case 'High Similarity': return <LinkIcon className="h-5 w-5" />;
+    case 'Behavioral Mirror': return <Users2 className="h-5 w-5" />;
+    case 'Capital Divergence': return <ArrowUpRightFromSquare className="h-5 w-5" />;
+    case 'Shared Zero Holdings': return <Ban className="h-5 w-5" />;
+    default: return <Lightbulb className="h-5 w-5" />;
   }
 };
 
@@ -131,7 +131,7 @@ const InsightCard = memo(({ insight, pair, sortKey, results }: InsightCardProps)
     return (
         <li className="p-4 bg-muted/50 rounded-lg space-y-4">
             <div className="flex items-start w-full">
-                <span className="text-xl mr-4 mt-1">{getInsightIcon(insight.type)}</span>
+                <div className="mr-4 mt-1 text-primary">{getInsightIcon(insight.type)}</div>
                 <div className="flex-1">
                     <div className="flex items-center justify-between">
                         <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>{insight.type}</Badge>
