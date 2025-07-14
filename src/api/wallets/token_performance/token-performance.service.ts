@@ -5,6 +5,7 @@ import { TokenPerformanceQueryDto, SortOrder, TokenPerformanceSortBy, SpamFilter
 import { ApiProperty } from '@nestjs/swagger';
 import { TokenPerformanceDataDto } from './token-performance-data.dto';
 import { TokenInfoService } from '../../token-info/token-info.service';
+import { DexscreenerService } from '../../dexscreener/dexscreener.service';
 import { getWellKnownTokenMetadata, isWellKnownToken } from '../../../core/utils/token-metadata';
 
 export class PaginatedTokenPerformanceResponse {
@@ -37,6 +38,7 @@ export class TokenPerformanceService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly tokenInfoService: TokenInfoService,
+    private readonly dexscreenerService: DexscreenerService,
   ) {}
 
   async getPaginatedTokenPerformance(
@@ -205,6 +207,9 @@ export class TokenPerformanceService {
 
     const tokenAddresses = analysisResults.map(ar => ar.tokenAddress);
     const tokenInfoMap = await this.getTokenInfoMap(tokenAddresses);
+    
+    // Fetch SOL price once to avoid multiple API calls in synchronous operations
+    const estimatedSolPriceUsd = await this.dexscreenerService.getSolPrice();
 
     // Create the token performance data with calculated ROI and unrealized P&L
     let tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => {
@@ -221,6 +226,7 @@ export class TokenPerformanceService {
       const netSolProfitLoss = ar.netSolProfitLoss || 0;
       
       let currentHoldingsValueUsd: number | null = null;
+      let currentHoldingsValueSol: number | null = null;
       let unrealizedPnlUsd: number | null = null;
       let unrealizedPnlSol: number | null = null;
       let totalPnlSol: number | null = null;
@@ -229,13 +235,13 @@ export class TokenPerformanceService {
       const totalAmountOut = ar.totalAmountOut || 0;
       const solReceivedFromSales = ar.totalSolReceived || 0;
       const feesPaid = ar.totalFeesPaidInSol || 0;
-      const estimatedSolPriceUsd = 144; // TODO: Fetch real SOL price from DexScreener
+      // estimatedSolPriceUsd is already fetched from outer scope
       const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
       
       if (currentUiBalance > 0 && priceUsd && priceUsd > 0) {
         // We have current holdings AND price data - can calculate full P&L
         currentHoldingsValueUsd = currentUiBalance * priceUsd;
-        const currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
+        currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
         
         // Realized P&L: Only from tokens that were actually sold
         const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
@@ -244,7 +250,7 @@ export class TokenPerformanceService {
         // Unrealized P&L: Current value vs cost basis of remaining holdings
         const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
         unrealizedPnlUsd = currentHoldingsValueUsd - (costBasisForCurrentHoldings * estimatedSolPriceUsd);
-        unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
+        unrealizedPnlSol = (currentHoldingsValueSol || 0) - costBasisForCurrentHoldings;
         
         // Total P&L: Simple and clean calculation
         totalPnlSol = realizedPnlFromSales + (unrealizedPnlSol || 0);
@@ -304,6 +310,7 @@ export class TokenPerformanceService {
         dexscreenerUpdatedAt: tokenInfo?.dexscreenerUpdatedAt?.toISOString(),
         // Unrealized P&L calculations
         currentHoldingsValueUsd,
+        currentHoldingsValueSol,
         unrealizedPnlUsd,
         unrealizedPnlSol,
         totalPnlSol,
@@ -316,7 +323,7 @@ export class TokenPerformanceService {
       tokenPerformanceDataList = tokenPerformanceDataList.filter(token => {
         const currentBalance = token.currentUiBalance || 0;
         const currentValueUsd = token.currentHoldingsValueUsd || 0;
-        const estimatedSolPriceUsd = 144;
+        // estimatedSolPriceUsd is already fetched from outer scope
         
         // Must have a token balance
         if (currentBalance <= 0) return false;
@@ -324,7 +331,7 @@ export class TokenPerformanceService {
         // Must have price data (filter out "? SOL" positions)
         if (!currentValueUsd || currentValueUsd <= 0) return false;
         
-        // Only show positions worth > 0.01 SOL (approximately $1.44 at $144 SOL price)
+        // Only show positions worth > 0.01 SOL (minimum meaningful holding size)
         const currentValueSol = currentValueUsd / estimatedSolPriceUsd;
         const hasMinimumSolValue = currentValueSol >= 0.01;
         
@@ -388,7 +395,7 @@ export class TokenPerformanceService {
             break;
           case 'currentSolValue':
             // Sort by SOL value of current holdings
-            const estimatedSolPriceUsd = 144;
+            // estimatedSolPriceUsd is already fetched from outer scope
             valueA = a.currentHoldingsValueUsd ? a.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
             valueB = b.currentHoldingsValueUsd ? b.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
             break;

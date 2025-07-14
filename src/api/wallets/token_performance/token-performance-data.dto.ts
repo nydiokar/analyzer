@@ -101,6 +101,9 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Current value of holdings in USD (currentUiBalance * priceUsd)', type: Number, nullable: true, required: false })
   currentHoldingsValueUsd?: number | null;
 
+  @ApiProperty({ description: 'Current value of holdings in SOL (currentHoldingsValueUsd / realTimeSolPrice)', type: Number, nullable: true, required: false })
+  currentHoldingsValueSol?: number | null;
+
   @ApiProperty({ description: 'Unrealized profit/loss in USD for current holdings', type: Number, nullable: true, required: false })
   unrealizedPnlUsd?: number | null;
 

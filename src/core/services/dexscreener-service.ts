@@ -47,6 +47,8 @@ interface DexScreenerPair {
 export class DexscreenerService {
     private readonly baseUrl = 'https://api.dexscreener.com/latest';
     private httpService: HttpService;
+    private solPriceCache: { price: number; timestamp: number } | null = null;
+    private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
     constructor(
         private readonly databaseService: DatabaseService,
@@ -134,6 +136,40 @@ export class DexscreenerService {
             }
         }
         return prices;
+    }
+
+    async getSolPrice(): Promise<number> {
+        // Check if cached price is still valid
+        if (this.solPriceCache && Date.now() - this.solPriceCache.timestamp < this.CACHE_DURATION) {
+            logger.debug(`Using cached SOL price: $${this.solPriceCache.price}`);
+            return this.solPriceCache.price;
+        }
+
+        try {
+            // Use SOL/USDC pair from DexScreener - this is a reliable SOL price source
+            const url = `${this.baseUrl}/dex/pairs/solana/8sHUo6dSmb6xJcjSJkNMnbgWZMBcCjRfAJPEkJbfxMcb`;
+            const response = await firstValueFrom(this.httpService.get(url));
+            const pair = response.data?.pair;
+            
+            if (pair && pair.priceUsd) {
+                const solPrice = parseFloat(pair.priceUsd);
+                
+                // Cache the price
+                this.solPriceCache = {
+                    price: solPrice,
+                    timestamp: Date.now()
+                };
+                
+                logger.debug(`Fetched and cached SOL price: $${solPrice}`);
+                return solPrice;
+            } else {
+                logger.warn('No SOL price data found, using fallback price');
+                return 144; // Fallback to previous hardcoded value
+            }
+        } catch (error) {
+            logger.error('Failed to fetch SOL price from DexScreener', error);
+            return 144; // Fallback to previous hardcoded value
+        }
     }
 
     private transformPairsToTokenInfo(pairs: DexScreenerPair[], requestedAddresses: string[]): Prisma.TokenInfoCreateInput[] {

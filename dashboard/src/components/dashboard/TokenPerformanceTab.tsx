@@ -68,6 +68,7 @@ import {
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
+
 // Enhanced spam detection using DexScreener data and transaction patterns  
 // MOVED OUTSIDE COMPONENT TO PREVENT RE-CREATION ON EVERY RENDER
 const analyzeTokenSpamRisk = (token: TokenPerformanceDataDto): {
@@ -337,6 +338,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
   const [isEnriching, setIsEnriching] = useState<boolean>(false);
   const [enrichmentMessage, setEnrichmentMessage] = useState<string | null>(null);
+
 
   const apiUrlBase = walletAddress ? `/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
@@ -803,14 +805,13 @@ const TokenTableRow = memo(({
                       </TooltipProvider>
                     ) : null}
                     {(() => {
-                        // Optimize holding status calculation - use memoized values
+                        // Optimize holding status calculation - use backend-calculated values
                         const currentBalance = item.currentUiBalance ?? 0;
                         const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
-                        const estimatedSolPriceUsd = 144;
-                        const currentValueSol = currentValueUsd ? currentValueUsd / estimatedSolPriceUsd : 0;
                         
-                        // Must have token balance AND SOL value >= 0.01 SOL
-                        const isHeld = currentBalance > 0 && currentValueSol >= 0.01;
+                        // Must have token balance AND USD value >= $1.44 (equivalent to 0.01 SOL at ~$144)
+                        // Using USD threshold avoids need for real-time SOL price conversion on frontend
+                        const isHeld = currentBalance > 0 && currentValueUsd >= 1.44;
                         const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
                         const isExited = !isHeld && hadTrades;
                         if (isHeld) {
@@ -878,14 +879,14 @@ const TokenTableRow = memo(({
               ) : (
                 <div className="flex flex-col items-end">
                   {/* SOL Value First - Most Important */}
-                  {item.currentHoldingsValueUsd ? (
+                  {item.currentHoldingsValueSol ? (
                     <Text className={cn(
                       "text-sm font-mono",
-                      (item.currentHoldingsValueUsd / 144) >= 1 ? "text-orange-600 dark:text-orange-400 font-semibold" : // Significant position
-                      (item.currentHoldingsValueUsd / 144) >= 0.1 ? "text-slate-700 dark:text-slate-300" : // Medium position  
+                      item.currentHoldingsValueSol >= 1 ? "text-orange-600 dark:text-orange-400 font-semibold" : // Significant position
+                      item.currentHoldingsValueSol >= 0.1 ? "text-slate-700 dark:text-slate-300" : // Medium position  
                       "text-slate-500 dark:text-slate-400" // Small position
                     )}>
-                      {formatSolAmount((item.currentHoldingsValueUsd / 144))} SOL
+                      {formatSolAmount(item.currentHoldingsValueSol)} SOL
                     </Text>
                   ) : (
                     <Text className="text-sm text-slate-500 dark:text-slate-400 font-mono">

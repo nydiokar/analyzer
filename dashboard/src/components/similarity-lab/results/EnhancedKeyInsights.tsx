@@ -74,7 +74,7 @@ const ScoreBar = ({ score, label, textColor, bgColor }: { score: number, label: 
             <span className={`text-xs font-semibold ${textColor}`}>{score.toFixed(3)}</span>
         </div>
         <div className="w-full bg-muted rounded-full h-2.5">
-            <div className={`${bgColor} h-2.5 rounded-full`} style={{ width: `${score * 100}%` }}></div>
+            <div className={`${bgColor} h-2.5 rounded-full`} style={{ width: `${Math.min(score * 100, 100)}%` }}></div>
         </div>
     </div>
 );
@@ -94,19 +94,23 @@ const InsightCard = memo(({ insight, pair, sortKey, results }: InsightCardProps)
     const sharedBehavioralPctA = totalBinaryTokensA > 0 ? (binarySharedTokenCount / totalBinaryTokensA) * 100 : 0;
     const sharedBehavioralPctB = totalBinaryTokensB > 0 ? (binarySharedTokenCount / totalBinaryTokensB) * 100 : 0;
     
-    let capitalOverlapA = 0;
-    let capitalOverlapB = 0;
-    if (capitalAllocation) {
-        for (const token of sharedTokens) {
-            const allocation = capitalAllocation[token.mint];
-            if (allocation) {
-                capitalOverlapA += allocation.weightA;
-                capitalOverlapB += allocation.weightB;
+    const { capitalOverlapPctA, capitalOverlapPctB } = useMemo(() => {
+        let capitalOverlapA = 0;
+        let capitalOverlapB = 0;
+        if (capitalAllocation) {
+            for (const token of sharedTokens) {
+                const allocation = capitalAllocation[token.mint];
+                if (allocation) {
+                    capitalOverlapA += allocation.weightA;
+                    capitalOverlapB += allocation.weightB;
+                }
             }
         }
-    }
-    const capitalOverlapPctA = capitalOverlapA * 100;
-    const capitalOverlapPctB = capitalOverlapB * 100;
+        return {
+            capitalOverlapPctA: Math.min(capitalOverlapA * 100, 100),
+            capitalOverlapPctB: Math.min(capitalOverlapB * 100, 100)
+        };
+    }, [sharedTokens.length, capitalAllocation]);
 
     const isCapitalSort = sortKey === 'capitalScore';
 
@@ -134,7 +138,7 @@ const InsightCard = memo(({ insight, pair, sortKey, results }: InsightCardProps)
                          <div className="flex items-center gap-1">
                             <TooltipProvider>
                                 <Tooltip>
-                                    <TooltipTrigger asChild><Info className="h-4 w-4 text-muted-foreground cursor-help" /></TooltipTrigger>
+                                    <TooltipTrigger asChild><Info className="h-4 w-4 text-muted-foreground cursor-help" aria-label="Similarity score information" /></TooltipTrigger>
                                     <TooltipContent><p>Approximate similarity score between wallets, based of capital allocation or token overlap across their portfolio.</p></TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
@@ -217,10 +221,15 @@ InsightCard.displayName = 'InsightCard'; // Good practice for debugging
 export const EnhancedKeyInsights = memo(({ results }: EnhancedKeyInsightsProps) => {
   const [sortKey, setSortKey] = useState<SortKey>('binaryScore');
   
-  const walletLabels = useMemo(() => Object.keys(results.walletVectorsUsed).reduce((acc, address) => {
+  const walletLabels = useMemo(() => {
+    if (!results.walletVectorsUsed) {
+      return {} as Record<string, string>;
+    }
+    return Object.keys(results.walletVectorsUsed).reduce((acc, address) => {
       acc[address] = `${address.slice(0, 6)}...${address.slice(-4)}`;
       return acc;
-  }, {} as Record<string, string>), [results.walletVectorsUsed]);
+    }, {} as Record<string, string>);
+  }, [results.walletVectorsUsed]);
 
   const processedPairs = useMemo(() => {
     const insights = generateKeyInsights(results, walletLabels);
@@ -256,7 +265,7 @@ export const EnhancedKeyInsights = memo(({ results }: EnhancedKeyInsightsProps) 
   }, [processedPairs, sortKey]);
 
   return (
-    <Card className="h-full border">
+    <Card className="h-full border" aria-label="Key insights and pairwise analysis">
       <CardHeader>
         <CardTitle>Key Insights & Pairwise Deep Dive</CardTitle>
         <CardDescription>
@@ -264,10 +273,10 @@ export const EnhancedKeyInsights = memo(({ results }: EnhancedKeyInsightsProps) 
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-full mb-4">
-            <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="binaryScore">Sort by Behavioral</TabsTrigger>
-                <TabsTrigger value="capitalScore">Sort by Capital</TabsTrigger>
+        <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-full mb-4" aria-label="Sort similarity results">
+            <TabsList className="grid w-full grid-cols-2" aria-label="Sorting options">
+                <TabsTrigger value="binaryScore" aria-label="Sort by behavioral similarity score">Sort by Behavioral</TabsTrigger>
+                <TabsTrigger value="capitalScore" aria-label="Sort by capital similarity score">Sort by Capital</TabsTrigger>
             </TabsList>
         </Tabs>
         {processedPairs.length === 0 ? (
@@ -275,7 +284,7 @@ export const EnhancedKeyInsights = memo(({ results }: EnhancedKeyInsightsProps) 
             <p className="text-muted-foreground">No significant pairs identified based on the current thresholds (score &gt; 0.1).</p>
           </div>
         ) : (
-          <ScrollArea className="h-[700px] -mx-3">
+          <ScrollArea className="h-[60vh] lg:h-[700px] -mx-3" aria-label="Similarity results list">
              <ul className="space-y-4 px-3">
                 {sortedPairs.map(({ insight, pair }) => (
                     <InsightCard key={pair.walletA + '-' + pair.walletB} insight={insight} pair={pair} sortKey={sortKey} results={results} />

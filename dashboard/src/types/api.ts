@@ -169,6 +169,7 @@ export interface TokenPerformanceDataDto {
 
   // Unrealized P&L calculations for current holdings
   currentHoldingsValueUsd?: number | null;
+  currentHoldingsValueSol?: number | null;
   unrealizedPnlUsd?: number | null;
   unrealizedPnlSol?: number | null;
   totalPnlSol?: number | null;

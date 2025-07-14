@@ -32,4 +32,9 @@ export class DexscreenerService {
     }
     return this.coreDexscreenerService.getTokenPrices(tokenAddresses);
   }
+
+  async getSolPrice(): Promise<number> {
+    this.logger.debug('[NestWrapper] Fetching SOL price from DexScreener');
+    return this.coreDexscreenerService.getSolPrice();
+  }
 } 

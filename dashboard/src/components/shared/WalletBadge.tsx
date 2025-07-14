@@ -55,12 +55,15 @@ export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="outline" size="sm" className="flex-1 w-full" asChild>
-                            <Link href={`https://solscan.io/account/${address}`} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
-                                <ExternalLink className="h-3 w-3 mr-1" />
-                                Solscan
-                            </Link>
-                        </Button>
+                        <Link 
+                            href={`https://solscan.io/account/${address}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                        >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            Solscan
+                        </Link>
                     </TooltipTrigger>
                     <TooltipContent>
                         <p>View on Solscan block explorer</p>
@@ -70,12 +73,13 @@ export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                         <Button variant="outline" size="sm" className="flex-1 w-full" asChild>
-                            <Link href={`/wallets/${address}`} tabIndex={-1}>
-                                <Info className="h-3 w-3 mr-1" />
-                                Details
-                            </Link>
-                        </Button>
+                        <Link 
+                            href={`/wallets/${address}`}
+                            className="flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                        >
+                            <Info className="h-3 w-3 mr-1" />
+                            Details
+                        </Link>
                     </TooltipTrigger>
                     <TooltipContent>
                         <p>Open wallet profile page</p>
