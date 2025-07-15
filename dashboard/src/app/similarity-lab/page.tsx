@@ -12,12 +12,9 @@ import { useJobProgress } from '@/hooks/useJobProgress';
 import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { useApiKeyStore } from '@/store/api-key-store';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Progress } from '@/components/ui/progress';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Clock, Info, Sparkles } from 'lucide-react';
 
 
+// Removed TopProgressBar - progress now handled inline
 
 // Memoize the heavy SimilarityResultDisplay component to prevent unnecessary re-renders
 const MemoizedSimilarityResultDisplay = memo(SimilarityResultDisplay);
@@ -52,15 +49,15 @@ export default function AnalysisLabPage() {
     cleanup: cleanupWebSocket
   } = useJobProgress({
     onJobProgress: useCallback((data: JobProgressData) => {
-      // Only update the main progress bar for the main analysis job
-      if (data.jobId === currentJobId) {
-        console.log('📊 Main job progress:', data.jobId, data.progress);
+      // Only update the main progress bar for the main analysis job (not enrichment)
+      if (data.jobId === currentJobId && jobStatuses.analysis === 'running') {
+        console.log('📊 Main analysis progress:', data.jobId, data.progress);
         setJobProgress(data.progress);
-        setSyncMessage(`Job in progress... ${data.status || 'processing'} (${Math.round(data.progress)}%)`);
+        setSyncMessage(`Analyzing similarities... ${data.status || 'processing'}`);
       } else {
-        console.log('🎨 Ignoring progress for other job:', data.jobId);
+        console.log('🎨 Ignoring progress for job:', data.jobId, '(enrichment or completed analysis)');
       }
-    }, [currentJobId]),
+    }, [currentJobId, jobStatuses.analysis]),
     
     onJobCompleted: useCallback(async (data: any) => {
       console.log('✅ Job completed hook fired. Job ID:', data.jobId);
@@ -83,9 +80,11 @@ export default function AnalysisLabPage() {
             setEnrichmentJobId(resultData.enrichmentJobId);
           }
           
-          setCurrentJobId(null); // Clear the main job ID
+          // Clear main analysis tracking
+          setCurrentJobId(null);
+          setJobProgress(0);
           setSyncMessage('');
-          toast({ title: "Analysis Complete", description: "Results are ready to view." });
+          toast({ title: "Analysis Complete", description: "Results are ready to view. Token data is loading in the background." });
         } catch (error: any) {
           console.error('❌ Error fetching main job result:', error);
           setError(error.message || 'Failed to fetch job results.');
@@ -103,19 +102,20 @@ export default function AnalysisLabPage() {
       console.error('❌ Job failed:', data.jobId, data.error);
       if (data.jobId === currentJobId) {
         setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
+        setJobProgress(0);
+        setSyncMessage('');
+        setCurrentJobId(null);
+        toast({
+          variant: "destructive",
+          title: "Analysis Failed",
+          description: data.error,
+        });
       }
       if (data.jobId === enrichmentJobId) {
         setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
+        // Don't show toast for enrichment failures, they're non-critical
       }
       setError(data.error);
-      setSyncMessage(data.error);
-      setJobProgress(0);
-      setCurrentJobId(null);
-      toast({
-        variant: "destructive",
-        title: "Job Failed",
-        description: data.error,
-      });
     }, [toast, currentJobId, enrichmentJobId]),
     
     onEnrichmentComplete: useCallback(async (data: EnrichmentCompletionData) => {
@@ -147,7 +147,7 @@ export default function AnalysisLabPage() {
     }, [toast]),
   });
 
-  const isRunning = useMemo(() => jobStatuses.analysis === 'running' || jobStatuses.enrichment === 'running' || isRefreshing, [jobStatuses, isRefreshing]);
+  const isRunning = useMemo(() => jobStatuses.analysis === 'running', [jobStatuses.analysis]);
 
   // When enrichment is complete, no matter how it was triggered, stop the refreshing state.
   useEffect(() => {
@@ -271,22 +271,49 @@ export default function AnalysisLabPage() {
 
     if (walletList.length === 0) {
       setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
+      toast({
+        variant: "destructive",
+        title: "No Wallets Provided",
+        description: "Please enter at least two wallet addresses.",
+      });
+      return;
+    }
+
+    if (walletList.length < 2) {
+      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
+      toast({
+        variant: "destructive",
+        title: "Insufficient Wallets",
+        description: "Please enter at least two wallet addresses for comparison.",
+      });
       return;
     }
 
     const invalidWallets = walletList.filter(w => !isValidSolanaAddress(w.trim()));
     if (invalidWallets.length > 0) {
+      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
       toast({
         variant: "destructive",
         title: "Invalid Wallet Addresses",
-        description: `Please correct: ${invalidWallets.join(', ')}`,
+        description: `Found ${invalidWallets.length} invalid address(es). Please ensure all addresses are correctbefore proceeding.`,
       });
+      return;
+    }
+
+    // Final validation: ensure all wallets are valid
+    const validatedWallets = walletList.map(w => w.trim()).filter(w => isValidSolanaAddress(w));
+    if (validatedWallets.length !== walletList.length) {
       setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Some addresses failed validation. Please check all entries.",
+      });
       return;
     }
 
     // Skip status checking - let the similarity processor handle sync intelligently
-    await runAnalysis(walletList);
+    await runAnalysis(validatedWallets);
   };
 
 
@@ -416,28 +443,9 @@ export default function AnalysisLabPage() {
           onWalletsChange={handleWalletsChange}
           onAnalyze={handleAnalyze}
           isRunning={isRunning}
+          jobProgress={jobProgress}
+          progressMessage={syncMessage || ''}
         />
-        
-        {syncMessage && <p className="mt-4 text-center text-sm text-muted-foreground">{syncMessage}</p>}
-        
-        {/* Job Progress */}
-        {jobStatuses.analysis === 'running' && (
-          <Alert className="mt-4">
-            <Clock className="h-4 w-4" />
-            <AlertDescription>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span>Job Progress</span>
-                  <span className="text-sm font-mono">{Math.round(jobProgress)}%</span>
-                </div>
-                <Progress value={jobProgress} className="w-full" />
-                <div className="text-xs text-muted-foreground">
-                  Job ID: {currentJobId?.slice(0, 8)}...
-                </div>
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
       </div>
 
       {analysisResult && (
