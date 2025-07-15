@@ -40,12 +40,6 @@ export class SimilarityOperationsProcessor {
     private readonly balanceCacheService: BalanceCacheService,
     private readonly websocketGateway: JobProgressGateway,
   ) {
-    // Debug: Check if TokenInfoService is available
-    this.logger.log(`TokenInfoService available: ${!!this.tokenInfoService}`);
-    if (!this.tokenInfoService) {
-      this.logger.warn('TokenInfoService is not available in SimilarityOperationsProcessor constructor!');
-    }
-    
     // Initialize WalletBalanceService
     this.walletBalanceService = new WalletBalanceService(this.heliusApiClient);
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
@@ -110,15 +104,21 @@ export class SimilarityOperationsProcessor {
       await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
+      // Use all wallets initially - filtering for INVALID wallets happens after sync
+      const walletsToAnalyze = walletAddresses;
+      const walletsNeedingSyncFiltered = syncRequired ? walletsToAnalyze.filter(address => {
+        return walletsNeedingSync.includes(address);
+      }) : [];
+      
       // Fetch all balances ONCE using the new efficient batch method.
-      const walletBalances = await this.balanceCacheService.getManyBalances(walletAddresses);
+      const walletBalances = await this.balanceCacheService.getManyBalances(walletsToAnalyze);
       this.logger.log(`Fetched initial balances for ${Object.keys(walletBalances).length} wallets.`);
 
       // STEP 1: PARALLEL KICK-OFF OF LONG & SHORT TASKS
       this.logger.log('Kicking off deep sync and balance fetch in parallel.');
       
       const syncPromise = syncRequired 
-        ? this._orchestrateDeepSync(walletsNeedingSync, job)
+        ? this._orchestrateDeepSync(walletsNeedingSyncFiltered, job)
         : Promise.resolve();
 
       // STEP 2: Let enrichment job start if needed. Balances will be fetched inside the service.
@@ -182,7 +182,7 @@ export class SimilarityOperationsProcessor {
           requestedWallets: walletAddresses.length,
           processedWallets: walletAddresses.length,
           failedWallets: 0,
-          successRate: 1.0,
+          successRate: walletAddresses.length / walletAddresses.length,
           processingTimeMs: Date.now() - startTime
         }
       };

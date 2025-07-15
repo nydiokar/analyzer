@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { X } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 
 interface WalletSelectorProps {
   stagedWallets: string[];
@@ -14,16 +14,13 @@ interface WalletSelectorProps {
 
 export function WalletSelector({ stagedWallets, setStagedWallets }: WalletSelectorProps) {
   const [inputValue, setInputValue] = useState('');
-  const { toast } = useToast();
 
   const handleAddWallet = () => {
     const trimmedValue = inputValue.trim();
     if (trimmedValue && !stagedWallets.includes(trimmedValue)) {
       // Basic address validation could be added here
       if (trimmedValue.length < 32 || trimmedValue.length > 44) {
-          toast({
-            variant: "destructive",
-            title: "Invalid Address",
+          toast.error("Invalid Address", {
             description: "Please enter a valid Solana wallet address.",
           });
           return;
@@ -31,9 +28,7 @@ export function WalletSelector({ stagedWallets, setStagedWallets }: WalletSelect
       setStagedWallets([...stagedWallets, trimmedValue]);
       setInputValue('');
     } else if (stagedWallets.includes(trimmedValue)) {
-         toast({
-            variant: "default",
-            title: "Duplicate Wallet",
+         toast.info("Duplicate Wallet", {
             description: "This wallet is already in the list.",
           });
     }
@@ -52,20 +47,16 @@ export function WalletSelector({ stagedWallets, setStagedWallets }: WalletSelect
         
         if(uniqueNewWallets.length > 0) {
             setStagedWallets([...stagedWallets, ...uniqueNewWallets]);
-            toast({
-                title: "Wallets Pasted",
+            toast.info("Wallets Pasted", {
                 description: `${uniqueNewWallets.length} new wallets added from clipboard.`,
             });
         } else {
-             toast({
-                title: "No new wallets",
+             toast.info("No new wallets", {
                 description: `Clipboard content did not contain any new valid wallets.`,
             });
         }
     } catch (err) {
-        toast({
-            variant: "destructive",
-            title: "Paste Failed",
+        toast.error("Paste Failed", {
             description: "Could not read from clipboard. Please check browser permissions.",
         });
     }

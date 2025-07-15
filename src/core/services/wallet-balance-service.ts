@@ -53,10 +53,11 @@ export class WalletBalanceService {
     }
 
     logger.info(`Fetching RAW wallet balances for ${walletAddresses.length} addresses. Commitment: ${commitment || 'default'}`);
+
+    // Initialize WalletBalance for all requested addresses to ensure all are present in the map  
     const walletBalances = new Map<string, WalletBalance>();
     const fetchedAt = new Date();
-
-    // Initialize WalletBalance for all requested addresses to ensure all are present in the map
+    
     for (const address of walletAddresses) {
       walletBalances.set(address, {
         solBalance: 0, // Default to 0, will be updated
@@ -84,20 +85,14 @@ export class WalletBalanceService {
             const existingBalance = walletBalances.get(address);
             if (existingBalance) {
               existingBalance.solBalance = solBalance;
-            } else {
-              walletBalances.set(address, {
-                solBalance,
-                tokenBalances: [],
-                fetchedAt,
-              });
             }
           } else {
             logger.warn(`No SOL balance account info found for address: ${address} in batch.`);
           }
         });
       } catch (error: any) {
-        logger.error(`Error fetching SOL balances for batch (offset ${i}, ${batchAddresses.length} addresses): ${error.message || error}`);
-        // For addresses in this failed batch, SOL balance will remain 0 or its default.
+        logger.warn(`Error fetching SOL balances for batch (offset ${i}, ${batchAddresses.length} addresses):`, error);
+        // For addresses in this failed batch, SOL balance will remain 0 or its default
       }
     }
 
@@ -140,11 +135,7 @@ export class WalletBalanceService {
                     uiBalance: parsedInfo.tokenAmount.uiAmount,
                     uiBalanceString: formatLargeNumber(parsedInfo.tokenAmount.uiAmount),
                     });
-                } else {
-                    logger.warn(`Token account ${tokenAccount.pubkey} for owner ${address} has parsed data but missing tokenAmount or info.`);
                 }
-            } else {
-                logger.warn(`Token account ${tokenAccount.pubkey} for owner ${address} does not have jsonParsed data as expected. Encoding might have been incorrect or account is not a standard token account.`);
             }
           });
         }
@@ -152,17 +143,10 @@ export class WalletBalanceService {
         const existingBalance = walletBalances.get(address);
         if (existingBalance) {
           existingBalance.tokenBalances = tokenBalances;
-        } else {
-          logger.warn(`Wallet balance for ${address} was not pre-initialized for token balances. This is unexpected.`);
-          walletBalances.set(address, {
-            solBalance: 0, 
-            tokenBalances,
-            fetchedAt,
-          });
         }
       } catch (error: any) {
-        logger.error(`Error fetching token balances for address ${address}: ${error.message || error}`);
-        // Token balances for this address will remain empty or its default.
+        logger.warn(`Error fetching token balances for address ${address}:`, error);
+        // Token balances for this address will remain empty []
       }
     }
 

@@ -113,7 +113,7 @@ export class HeliusApiClient {
       
       if (timeSinceLastRequest < this.minRequestIntervalMs) {
         const waitTime = this.minRequestIntervalMs - timeSinceLastRequest;
-        logger.debug(`Global rate limiting: Waiting ${waitTime}ms for next request...`);
+        // logger.debug(`Global rate limiting: Waiting ${waitTime}ms for next request...`);
         await delay(waitTime);
       }
       
@@ -125,6 +125,33 @@ export class HeliusApiClient {
     }
     
     HeliusApiClient.processingQueue = false;
+  }
+
+  /**
+   * Determines if an error is retryable.
+   * 
+   * @param error The error to inspect.
+   * @returns `true` if the error is retryable, `false` otherwise.
+   */
+  private isRetryableError(error: any): boolean {
+    if (axios.isAxiosError(error)) {
+      // Retry on server errors (5xx) and rate limits (429)
+      if (error.response && ([429, 500, 502, 503, 504].includes(error.response.status))) {
+        return true;
+      }
+    }
+    // Check for specific non-retryable RPC error messages
+    const errorMessage = error?.message?.toLowerCase() || '';
+    if (errorMessage.includes('invalid param') || errorMessage.includes('wrongsize')) {
+      return false;
+    }
+    
+    // Default to retry for generic network errors, but not for client-side errors (4xx)
+    if (axios.isAxiosError(error) && error.response && error.response.status >= 400 && error.response.status < 500) {
+        return false;
+    }
+    
+    return true; // Assume other errors might be transient network issues
   }
 
   /**
@@ -180,6 +207,11 @@ export class HeliusApiClient {
                 throw new Error('Unexpected RPC response structure'); 
             }
         } catch (error) {
+            // Abort immediately on non-retryable errors (e.g. "Invalid param: WrongSize")
+            if (!this.isRetryableError(error)) {
+                // Re-throw so callers can handle appropriately and we skip all retries
+                throw error;
+            }
             const isAxiosError = axios.isAxiosError(error);
             const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
 
@@ -258,6 +290,10 @@ export class HeliusApiClient {
             return response.data; // Success
 
         } catch (error) {
+            // Abort immediately on non-retryable errors (e.g. "Invalid param: WrongSize")
+            if (!this.isRetryableError(error)) {
+                throw error;
+            }
             const isAxiosError = axios.isAxiosError(error);
             const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
             const attempt = retries + 1;
@@ -397,6 +433,10 @@ export class HeliusApiClient {
       logger.debug(`Finished Phase 1. Total signatures retrieved via RPC: ${allRpcSignaturesInfo.length}`);
 
     } catch (rpcError) {
+       if (!this.isRetryableError(rpcError)) {
+           // Propagate non-retryable errors so higher-level services can terminate the workflow
+           throw rpcError;
+       }
        logger.error('Failed during RPC signature fetching phase (Phase 1): Returning empty list.', { 
            error: this.sanitizeError(rpcError), 
            address, 
@@ -672,34 +712,32 @@ export class HeliusApiClient {
         });
 
         if (response.data.error) {
-          logger.error(
-            `RPC Error for method ${method}: ${response.data.error.message} (Code: ${response.data.error.code})`,
-            { params }
-          );
-          throw new Error(
-            `RPC Error for ${method}: ${response.data.error.message}`
-          );
+          const { code, message } = response.data.error;
+          const rpcError = new Error(`RPC Error for ${method}: ${message}`);
+          (rpcError as any).code = code;
+          throw rpcError;
         }
         this.lastRequestTime = Date.now(); // Update last request time on successful call
         return response.data.result;
-      } catch (error: any) {
+      } catch (error) {
         retries++;
         const sanitizedError = this.sanitizeError(error);
-        logger.warn(
-          `Attempt ${retries}/${MAX_RETRIES} failed for RPC method ${method}. Error: ${JSON.stringify(sanitizedError)}`,
-          { params, error: sanitizedError }
-        );
-        if (retries >= MAX_RETRIES) {
-          logger.error(
-            `All ${MAX_RETRIES} retries failed for RPC method ${method}.`,
+
+        if (!this.isRetryableError(error) || retries >= MAX_RETRIES) {
+           logger.error(
+            `All retries failed or non-retryable error for RPC method ${method}.`,
             { params, lastError: sanitizedError }
           );
           throw new Error(
-            `Failed to execute RPC method ${method} after ${MAX_RETRIES} retries: ${sanitizedError.message || 'Unknown RPC Error'}`
+            `Failed to execute RPC method ${method}: ${sanitizedError.message || 'Unknown RPC Error'}`
           );
         }
+        
         const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries - 1); // Exponential backoff
-        logger.debug(`Retrying RPC method ${method} in ${backoffTime}ms...`);
+        logger.warn(
+          `Attempt ${retries}/${MAX_RETRIES} failed for RPC method ${method}. Retrying in ${backoffTime}ms...`,
+          { params, error: sanitizedError }
+        );
         await delay(backoffTime);
       }
     }

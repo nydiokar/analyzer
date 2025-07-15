@@ -7,7 +7,7 @@ import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; /
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
 import { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
@@ -38,7 +38,7 @@ export default function AnalysisLabPage() {
   const [jobProgress, setJobProgress] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   
-  const { toast } = useToast();
+  // toast is now imported directly from sonner
   const apiKey = useApiKeyStore((state) => state.apiKey);
 
   // Simple WebSocket callbacks that DON'T depend on changing state
@@ -75,6 +75,21 @@ export default function AnalysisLabPage() {
           setAnalysisResult(resultData.data);
           setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
           
+          // Show user feedback about invalid wallets if any were filtered out
+          if (resultData.metadata?.invalidWallets && resultData.metadata.invalidWallets.length > 0) {
+            const invalidCount = resultData.metadata.invalidWallets.length;
+            const totalCount = resultData.metadata.requestedWallets;
+            const invalidWalletsList = resultData.metadata.invalidWallets
+              .map((addr: string) => `${addr.slice(0, 8)}...${addr.slice(-4)}`)
+              .join(', ');
+            
+            toast.success(`Analysis Complete (${invalidCount} Invalid Wallet${invalidCount > 1 ? 's' : ''} Skipped)`, {
+              description: `Successfully analyzed ${resultData.metadata.processedWallets}/${totalCount} wallets. Invalid: ${invalidWalletsList}`,
+            });
+          } else {
+            toast.success("Analysis Complete", { description: "Results are ready to view. Token data is loading in the background." });
+          }
+          
           // CRITICAL: Set the enrichmentJobId from the result payload
           if (resultData.enrichmentJobId) {
             setEnrichmentJobId(resultData.enrichmentJobId);
@@ -84,7 +99,6 @@ export default function AnalysisLabPage() {
           setCurrentJobId(null);
           setJobProgress(0);
           setSyncMessage('');
-          toast({ title: "Analysis Complete", description: "Results are ready to view. Token data is loading in the background." });
         } catch (error: any) {
           console.error('❌ Error fetching main job result:', error);
           setError(error.message || 'Failed to fetch job results.');
@@ -105,11 +119,33 @@ export default function AnalysisLabPage() {
         setJobProgress(0);
         setSyncMessage('');
         setCurrentJobId(null);
-        toast({
-          variant: "destructive",
-          title: "Analysis Failed",
-          description: data.error,
-        });
+        
+        // Check if this is the "insufficient valid wallets" error
+        const errorMessage = data.error;
+        if (errorMessage.includes('Insufficient valid wallets for similarity analysis')) {
+          toast.error("Analysis Failed: Invalid Wallets Detected", {
+            description: "One or more wallet addresses are invalid or have no transaction data. Please check the wallet addresses and try again.",
+          });
+        } else if (errorMessage.includes('wallet(s) were found to be invalid') && errorMessage.includes('Invalid wallets:')) {
+          // Extract invalid wallets from error message
+          const invalidWalletsMatch = errorMessage.match(/Invalid wallets: ([^.]+)/);
+          if (invalidWalletsMatch) {
+            const invalidWalletsList = invalidWalletsMatch[1];
+            const invalidCount = invalidWalletsList.split(', ').length;
+            
+            toast.error(`Analysis Failed - ${invalidCount} Invalid Wallet${invalidCount > 1 ? 's' : ''} Found`, {
+              description: `The following wallet address${invalidCount > 1 ? 'es are' : ' is'} invalid: ${invalidWalletsList}`,
+            });
+          } else {
+            toast.error("Analysis Failed - Invalid Wallets Found", {
+              description: errorMessage,
+            });
+          }
+        } else {
+          toast.error("Analysis Failed", {
+            description: errorMessage,
+          });
+        }
       }
       if (data.jobId === enrichmentJobId) {
         setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
@@ -136,11 +172,11 @@ export default function AnalysisLabPage() {
         });
 
         setJobStatuses(prev => ({ ...prev, enrichment: 'completed' }));
-        toast({ title: "Token Data Loaded", description: "Prices and metadata have been updated." });
+        toast.success("Token Data Loaded", { description: "Prices and metadata have been updated." });
       } catch (error: any) {
         console.error('❌ Error processing enrichment data:', error);
         // Non-critical error, just toast it.
-        toast({ variant: "destructive", title: "Enrichment Failed", description: error.message });
+        toast.error("Enrichment Failed", { description: error.message });
         setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
         setIsRefreshing(false);
       }
@@ -194,15 +230,13 @@ export default function AnalysisLabPage() {
 
   const handleRefreshPrices = useCallback(async () => {
     if (!analysisResult?.walletBalances) {
-      toast({
-        variant: 'destructive',
-        title: 'Cannot Refresh',
+      toast.error('Cannot Refresh', {
         description: 'There are no balances to refresh.',
       });
       return;
     }
     setIsRefreshing(true);
-    toast({ title: "Refreshing Prices...", description: "Fetching the latest token market data." });
+    toast.info("Refreshing Prices...", { description: "Fetching the latest token market data." });
     
     try {
       // Queue an enrichment job
@@ -221,9 +255,7 @@ export default function AnalysisLabPage() {
 
     } catch (error: any) {
       setIsRefreshing(false);
-      toast({
-        variant: 'destructive',
-        title: 'Refresh Failed',
+      toast.error('Refresh Failed', {
         description: error.message || "Could not start the price refresh job.",
       });
     }
@@ -243,8 +275,7 @@ export default function AnalysisLabPage() {
         setEnrichmentJobId(enrichmentJob.jobId);
         subscribeToJob(enrichmentJob.jobId);
         
-        toast({
-          title: "Enrichment Started",
+        toast.info("Enrichment Started", {
           description: "Fetching token prices and metadata...",
         });
       } else {
@@ -254,9 +285,7 @@ export default function AnalysisLabPage() {
       console.error('Error starting enrichment job:', error);
       setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
       
-      toast({
-        variant: 'destructive',
-        title: "Enrichment Failed",
+      toast.error("Enrichment Failed", {
         description: error.message || "Could not start token enrichment.",
       });
     }
@@ -271,9 +300,7 @@ export default function AnalysisLabPage() {
 
     if (walletList.length === 0) {
       setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast({
-        variant: "destructive",
-        title: "No Wallets Provided",
+      toast.error("No Wallets Provided", {
         description: "Please enter at least two wallet addresses.",
       });
       return;
@@ -281,9 +308,7 @@ export default function AnalysisLabPage() {
 
     if (walletList.length < 2) {
       setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast({
-        variant: "destructive",
-        title: "Insufficient Wallets",
+      toast.error("Insufficient Wallets", {
         description: "Please enter at least two wallet addresses for comparison.",
       });
       return;
@@ -292,9 +317,7 @@ export default function AnalysisLabPage() {
     const invalidWallets = walletList.filter(w => !isValidSolanaAddress(w.trim()));
     if (invalidWallets.length > 0) {
       setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast({
-        variant: "destructive",
-        title: "Invalid Wallet Addresses",
+      toast.error("Invalid Wallet Addresses", {
         description: `Found ${invalidWallets.length} invalid address(es). Please ensure all addresses are correctbefore proceeding.`,
       });
       return;
@@ -304,9 +327,7 @@ export default function AnalysisLabPage() {
     const validatedWallets = walletList.map(w => w.trim()).filter(w => isValidSolanaAddress(w));
     if (validatedWallets.length !== walletList.length) {
       setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast({
-        variant: "destructive",
-        title: "Validation Error",
+      toast.error("Validation Error", {
         description: "Some addresses failed validation. Please check all entries.",
       });
       return;
@@ -358,9 +379,7 @@ export default function AnalysisLabPage() {
       const errorMessage = error?.payload?.message || error.message || 'Failed to submit job.';
       setSyncMessage(errorMessage);
       setError(errorMessage);
-      toast({
-        variant: "destructive",
-        title: "Job Submission Failed",
+      toast.error("Job Submission Failed", {
         description: errorMessage,
       });
       setJobStatuses({ analysis: 'failed', enrichment: 'idle' });
@@ -385,25 +404,55 @@ export default function AnalysisLabPage() {
           setSyncMessage('Analysis complete! Fetching results...');
           
           const result = await fetcher(`/jobs/${jobId}/result`);
-          setAnalysisResult(result.result.data);
+          const resultData = result.result;
+          setAnalysisResult(resultData.data);
           setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
           setCurrentJobId(null);
           setSyncMessage('');
           
-          toast({
-            title: "Analysis Complete",
-            description: "Results are ready to view.",
-          });
+          // Show user feedback about invalid wallets if any were filtered out 
+          if (resultData.metadata?.invalidWallets && resultData.metadata.invalidWallets.length > 0) {
+            const invalidCount = resultData.metadata.invalidWallets.length;
+            const totalCount = resultData.metadata.requestedWallets;
+            const invalidWalletsList = resultData.metadata.invalidWallets
+              .map((addr: string) => `${addr.slice(0, 8)}...${addr.slice(-4)}`)
+              .join(', ');
+            
+            toast.success(`Analysis Complete (${invalidCount} Invalid Wallet${invalidCount > 1 ? 's' : ''} Skipped)`, {
+              description: `Successfully analyzed ${resultData.metadata.processedWallets}/${totalCount} wallets. Invalid: ${invalidWalletsList}`,
+            });
+          } else {
+            toast.success("Analysis Complete", {
+              description: "Results are ready to view.",
+            });
+          }
         } else if (jobStatus.status === 'failed') {
-          setError(jobStatus.error || 'Job failed');
+          const errorMessage = jobStatus.error || 'Job failed';
+          setError(errorMessage);
           setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
           setCurrentJobId(null);
           
-          toast({
-            variant: "destructive",
-            title: "Analysis Failed",
-            description: jobStatus.error || "Job failed.",
-          });
+          // Check if the error message contains invalid wallet information
+          if (errorMessage.includes('wallet(s) were found to be invalid') && errorMessage.includes('Invalid wallets:')) {
+            // Extract invalid wallets from error message
+            const invalidWalletsMatch = errorMessage.match(/Invalid wallets: ([^.]+)/);
+            if (invalidWalletsMatch) {
+              const invalidWalletsList = invalidWalletsMatch[1];
+              const invalidCount = invalidWalletsList.split(', ').length;
+              
+              toast.error(`Analysis Failed - ${invalidCount} Invalid Wallet${invalidCount > 1 ? 's' : ''} Found`, {
+                description: `The following wallet address${invalidCount > 1 ? 'es are' : ' is'} invalid: ${invalidWalletsList}`,
+              });
+            } else {
+              toast.error("Analysis Failed - Invalid Wallets Found", {
+                description: errorMessage,
+              });
+            }
+          } else {
+            toast.error("Analysis Failed", {
+              description: errorMessage,
+            });
+          }
         } else if (jobStatus.status === 'active') {
           const progress = jobStatus.progress || 0;
           setJobProgress(progress);

@@ -84,6 +84,18 @@ export class HeliusSyncService {
             return;
         }
 
+        // Early check: Skip wallets already marked as INVALID to avoid wasting resources
+        try {
+            const existingWallet = await this.databaseService.getWallet(walletAddress);
+            if (existingWallet?.classification === 'INVALID') {
+                logger.debug(`[Sync] Skipping sync for ${walletAddress} - already marked as INVALID`);
+                return;
+            }
+        } catch (error) {
+            // If we can't check, proceed with normal flow
+            logger.warn(`[Sync] Could not check wallet classification for ${walletAddress}, proceeding:`, error);
+        }
+
         // Ensure wallet exists in the DB before starting sync operations
         try {
             await this.databaseService.ensureWalletExists(walletAddress);
@@ -202,8 +214,20 @@ export class HeliusSyncService {
                await this.processAndSaveTransactions(walletAddress, newerTransactions, true, options);
            }
         } catch (fetchError) {
-           logger.error(`[Sync] SmartFetch Phase 1 (Newer): Failed to fetch/process newer transactions for ${walletAddress}:`, { fetchError });
-           // Decide if we should still attempt to fetch older ones or re-throw. For now, log and continue.
+           // Check if this is a WrongSize error - mark wallet as invalid and stop processing
+           if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
+               logger.warn(`[Sync] WrongSize error detected for ${walletAddress}. Marking wallet as invalid.`);
+               try {
+                   await this.databaseService.updateWallet(walletAddress, { 
+                       classification: 'INVALID'
+                   });
+               } catch (updateError) {
+                   logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+               }
+               throw fetchError; // Re-throw to stop further processing
+           }
+            logger.error(`[Sync] SmartFetch Phase 1 (Newer): Failed to fetch/process newer transactions for ${walletAddress}:`, { fetchError });
+            // Decide if we should still attempt to fetch older ones or re-throw. For now, log and continue.
         }
 
         // --- 2. Fetch Older Transactions if still needed (and if maxSignatures is valid) ---
@@ -236,6 +260,18 @@ export class HeliusSyncService {
                         await this.processAndSaveTransactions(walletAddress, olderTransactions, false, options);
                     }
                 } catch (fetchError) {
+                    // Check if this is a WrongSize error - mark wallet as invalid and stop processing
+                    if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
+                        logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Phase 2. Marking wallet as invalid.`);
+                        try {
+                            await this.databaseService.updateWallet(walletAddress, { 
+                                classification: 'INVALID'
+                            });
+                        } catch (updateError) {
+                            logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+                        }
+                        throw fetchError; // Re-throw to stop further processing
+                    }
                     logger.error(`[Sync] SmartFetch Phase 2 (Older): Failed to fetch/process older transactions for ${walletAddress}:`, { fetchError });
                 }
             } else {
@@ -306,8 +342,25 @@ export class HeliusSyncService {
                 await this.processAndSaveTransactions(walletAddress, transactions, isEffectivelyInitialFetch, options);
             }
         } catch (fetchError) {
-             logger.error(`[Sync] Standard Fetch: Failed to fetch/process transactions for ${walletAddress}:`, { fetchError });
-             throw fetchError; 
+            // Check if this is a WrongSize error - mark wallet as invalid and stop processing
+            if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
+                logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Standard Fetch. Marking wallet as invalid.`);
+                try {
+                    await this.databaseService.updateWallet(walletAddress, { 
+                        classification: 'INVALID'
+                    });
+                } catch (updateError) {
+                    logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+                }
+                throw fetchError; // Re-throw to stop further processing
+            }
+            if (fetchError instanceof Error && fetchError.message.includes('Non-retryable RPC Error')) {
+                logger.error(`[Sync] CRITICAL: Aborting sync for ${walletAddress} due to a non-retryable RPC error (e.g., invalid address).`, { error: fetchError.message });
+                // Do not re-throw, allowing the batch process to continue with other wallets
+            } else {
+                logger.error(`[Sync] Standard Fetch: Failed to fetch/process transactions for ${walletAddress}:`, { fetchError });
+                throw fetchError; 
+            }
         }
         logger.debug(`[Sync] Standard Fetch process completed for ${walletAddress}.`);
     }

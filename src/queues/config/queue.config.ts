@@ -85,7 +85,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
       defaultJobOptions: {
         removeOnComplete: 10,
         removeOnFail: 25,
-        attempts: 2,               // Similarity failures need investigation
+        attempts: 2,               // Standard retry attempts for similarity operations
         backoff: {
           type: JobTimeouts['calculate-similarity'].retryBackoff, 
           delay: 5000

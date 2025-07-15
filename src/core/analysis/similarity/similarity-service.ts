@@ -5,6 +5,7 @@ import { SingleSimilarityResult, TokenVector } from '@/types/similarity';
 import { TransactionData } from '@/types/correlation'; 
 import { createLogger } from 'core/utils/logger';
 import { WalletBalance } from '@/types/wallet';
+import { DEFAULT_EXCLUDED_MINTS } from '../../../config/constants';
 
 const logger = createLogger('SimilarityService');
 
@@ -348,7 +349,7 @@ export class SimilarityService {
                     
                     // NEW: Calculate FILTERED holdings similarity (only tokens actually traded)
                     try {
-                        logger// .debug('[Holdings Filtered] Starting filtered holdings similarity calculation...');
+                        logger.debug('[Holdings Filtered] Starting filtered holdings similarity calculation...');
                         
                         // Get tokens that each wallet has actually traded from AnalysisResult table
                         const tradedTokensByWallet = new Map<string, Set<string>>();
@@ -369,85 +370,42 @@ export class SimilarityService {
                             logger.debug(`[Holdings Filtered] Wallet ${walletAddr.slice(0,8)}...${walletAddr.slice(-4)}: ${analysisResults.length} total tokens in DB, ${activelyTradedTokens.size} actively traded (paid fees)`);
                         }
                         
-                        // Filter held tokens to only include those that were actually traded
-                        const filteredHeldTokensSet = new Set<string>();
-                        allUniqueHeldTokens.forEach(token => {
-                            // Include token only if at least one wallet both holds it AND has traded it
-                            const hasHolderWhoTraded = walletsWithHoldingsVectors.some(walletAddr => {
-                                const holdsToken = holdingsPresenceVectors[walletAddr][token] === 1;
-                                const tradedToken = tradedTokensByWallet.get(walletAddr)?.has(token) || false;
-                                return holdsToken && tradedToken;
-                            });
-                            
-                            if (hasHolderWhoTraded) {
-                                filteredHeldTokensSet.add(token);
-                            }
-                        });
-                        
-                        const filteredHeldTokens = Array.from(filteredHeldTokensSet).sort();
-                        logger.debug(`[Holdings Filtered] Filtered from ${allUniqueHeldTokens.length} to ${filteredHeldTokens.length} tokens (excluding spam/airdrops)`);
-                        
-                        if (filteredHeldTokens.length > 0) {
-                            // Create new vectors with only traded tokens
-                            const filteredHoldingsVectors: Record<string, TokenVector> = {};
-                            
-                            for (const walletAddr of walletsWithHoldingsVectors) {
-                                filteredHoldingsVectors[walletAddr] = {};
-                                const tradedTokens = tradedTokensByWallet.get(walletAddr);
-                                
-                                for (const token of filteredHeldTokens) {
-                                    const holdsToken = holdingsPresenceVectors[walletAddr][token] === 1;
-                                    const tradedToken = tradedTokens?.has(token) || false;
-                                    
-                                    // Only count as 1 if wallet both holds AND has traded this token
-                                    filteredHoldingsVectors[walletAddr][token] = (holdsToken && tradedToken) ? 1 : 0;
+                        const filteredSimilarityMatrix: Record<string, Record<string, number>> = {};
+                        const EXCLUDED_MINTS_SET = new Set(DEFAULT_EXCLUDED_MINTS);
+
+                        for (const walletA of walletsWithHoldingsVectors) {
+                            filteredSimilarityMatrix[walletA] = {};
+                            for (const walletB of walletsWithHoldingsVectors) {
+                                if (walletA === walletB) {
+                                    filteredSimilarityMatrix[walletA][walletB] = 1.0;
+                                    continue;
                                 }
-                                
-                                const filteredTokensHeld = Object.values(filteredHoldingsVectors[walletAddr]).filter(v => v === 1).length;
-                                logger.debug(`[Holdings Filtered] Wallet ${walletAddr.slice(0,8)}...${walletAddr.slice(-4)}: ${filteredTokensHeld} filtered tokens held out of ${filteredHeldTokens.length} total`);
-                            }
-                            
-                            // Calculate similarity on filtered vectors
-                            const filteredSimilarityMatrix = this.calculateGenericSimilarityMatrixInternal(
-                                filteredHoldingsVectors,
-                                walletsWithHoldingsVectors,
-                                this.similarityAnalyzer['calculateJaccardSimilarity']
-                            );
-                            
-                            // Store as additional field
-                            finalResult['holdingsPresenceFilteredJaccardMatrix'] = filteredSimilarityMatrix;
-                            
-                            // Log filtered similarity values
-                            for (const walletA of walletsWithHoldingsVectors) {
-                                for (const walletB of walletsWithHoldingsVectors) {
-                                    if (walletA < walletB) {
-                                        const filteredSimilarity = filteredSimilarityMatrix?.[walletA]?.[walletB];
-                                        const vectorA = filteredHoldingsVectors[walletA];
-                                        const vectorB = filteredHoldingsVectors[walletB];
-                                        
-                                        // Calculate intersection and union for filtered tokens
-                                        let intersection = 0;
-                                        let union = 0;
-                                        const allTokens = new Set([...Object.keys(vectorA), ...Object.keys(vectorB)]);
-                                        for (const token of allTokens) {
-                                            const valA = vectorA[token] || 0;
-                                            const valB = vectorB[token] || 0;
-                                            if (valA === 1 && valB === 1) {
-                                                intersection++;
-                                                union++;
-                                            } else if (valA === 1 || valB === 1) {
-                                                union++;
-                                            }
+
+                                const getFilteredHeldAndTradedTokens = (walletAddr: string): Set<string> => {
+                                    const tokens = new Set<string>();
+                                    const vector = holdingsPresenceVectors[walletAddr];
+                                    const traded = tradedTokensByWallet.get(walletAddr) || new Set();
+                                    for (const token in vector) {
+                                        if (vector[token] === 1 && traded.has(token) && !EXCLUDED_MINTS_SET.has(token)) {
+                                            tokens.add(token);
                                         }
-                                        
-                                        // logger.info(`[Holdings Similarity - Filtered] ${walletA.slice(0,8)}...${walletA.slice(-4)} ↔ ${walletB.slice(0,8)}...${walletB.slice(-4)}: ${(filteredSimilarity * 100).toFixed(1)}% (${intersection}/${union} actually traded tokens)`);
                                     }
-                                }
+                                    return tokens;
+                                };
+
+                                const tokensA = getFilteredHeldAndTradedTokens(walletA);
+                                const tokensB = getFilteredHeldAndTradedTokens(walletB);
+                                
+                                const intersection = new Set([...tokensA].filter(token => tokensB.has(token)));
+                                const union = new Set([...tokensA, ...tokensB]);
+                                
+                                const similarity = union.size === 0 ? 1 : intersection.size / union.size;
+                                filteredSimilarityMatrix[walletA][walletB] = similarity;
                             }
-                            
-                        } else {
-                            logger.warn('[Holdings Filtered] No tokens found that are both held and traded. Skipping filtered similarity.');
                         }
+                        
+                        // Store as additional field
+                        finalResult['holdingsPresenceFilteredJaccardMatrix'] = filteredSimilarityMatrix;
                         
                     } catch (error) {
                         logger.error('[Holdings Filtered] Error calculating filtered holdings similarity:', error);

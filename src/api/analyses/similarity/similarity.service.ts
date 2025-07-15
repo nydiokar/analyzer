@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, BadRequestException, Logger, UnprocessableEntityException } from '@nestjs/common';
 import { createLogger } from '@/core/utils/logger';
 import { DatabaseService } from '../../database/database.service';
 import { SimilarityService } from '@/core/analysis/similarity/similarity-service';
@@ -78,7 +78,7 @@ export class SimilarityApiService {
             const [binaryResults, capitalResults] = await analysisPromise;
             
             if (!binaryResults || !capitalResults) {
-                throw new InternalServerErrorException('No transaction or balance data available for similarity analysis.');
+                throw new UnprocessableEntityException('Insufficient valid wallets for similarity analysis. Some wallets may be invalid or have no transaction data.');
             }
 
             const combinedUniqueTokens: Record<string, { binary: number; capital: number }> = {};
@@ -135,7 +135,7 @@ export class SimilarityApiService {
         } catch (error) {
             logger.error(`Error running similarity analysis for wallets: ${dto.walletAddresses.join(', ')}`, { error });
             
-            if (error instanceof BadRequestException || error instanceof InternalServerErrorException) {
+            if (error instanceof BadRequestException || error instanceof InternalServerErrorException || error instanceof UnprocessableEntityException) {
                 throw error;
             }
             
