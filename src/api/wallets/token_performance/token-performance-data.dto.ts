@@ -113,5 +113,15 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Total P&L including both realized and unrealized (netSolProfitLoss + unrealizedPnlSol)', type: Number, nullable: true, required: false })
   totalPnlSol?: number | null;
 
+  // PNL breakdown and percentage indicators
+  @ApiProperty({ description: 'Realized profit/loss in SOL from tokens already sold', type: Number, nullable: true, required: false })
+  realizedPnlSol?: number | null;
+
+  @ApiProperty({ description: 'Realized P&L as percentage of total SOL invested (realizedPnlSol / totalSolSpent * 100)', type: Number, nullable: true, required: false })
+  realizedPnlPercentage?: number | null;
+
+  @ApiProperty({ description: 'Unrealized P&L as percentage of cost basis for current holdings', type: Number, nullable: true, required: false })
+  unrealizedPnlPercentage?: number | null;
+
   // Note: The 'id' field from AnalysisResult is typically not exposed in API responses unless specifically needed.
 } 

@@ -231,6 +231,9 @@ export class TokenPerformanceService {
       let unrealizedPnlUsd: number | null = null;
       let unrealizedPnlSol: number | null = null;
       let totalPnlSol: number | null = null;
+      let realizedPnlSol: number | null = null;
+      let realizedPnlPercentage: number | null = null;
+      let unrealizedPnlPercentage: number | null = null;
       
       // Get basic data for calculations
       const totalAmountOut = ar.totalAmountOut || 0;
@@ -246,34 +249,49 @@ export class TokenPerformanceService {
         
         // Realized P&L: Only from tokens that were actually sold
         const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
-        const realizedPnlFromSales = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
+        realizedPnlSol = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
         
         // Unrealized P&L: Current value vs cost basis of remaining holdings
         const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
         unrealizedPnlUsd = currentHoldingsValueUsd - (costBasisForCurrentHoldings * estimatedSolPriceUsd);
         unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
         
+        // Calculate percentages
+        // Realized PNL % = (Realized PNL / Total SOL Invested) × 100
+        realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
+        
+        // Unrealized PNL % = (Unrealized PNL / Cost Basis of Current Holdings) × 100  
+        unrealizedPnlPercentage = costBasisForCurrentHoldings > 0 ? (unrealizedPnlSol / costBasisForCurrentHoldings) * 100 : null;
+        
         // Total P&L: Simple and clean calculation
-        totalPnlSol = realizedPnlFromSales + unrealizedPnlSol;
+        totalPnlSol = realizedPnlSol + unrealizedPnlSol;
         
              } else if (currentUiBalance > 0) {
          // We have holdings but no price data - can't calculate unrealized P&L
          // Show realized P&L only and mark total as incomplete
          const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
-         const realizedPnlFromSales = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
+         realizedPnlSol = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
+        
+        // Calculate realized PNL percentage
+        realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
         
         // Can't calculate unrealized without price data
         unrealizedPnlUsd = null;
         unrealizedPnlSol = null;
+        unrealizedPnlPercentage = null;
         
         // Total P&L is incomplete without unrealized component
-        totalPnlSol = realizedPnlFromSales; // This will be incomplete but better than using netSolProfitLoss
+        totalPnlSol = realizedPnlSol; // This will be incomplete but better than using netSolProfitLoss
         
       } else {
         // No current holdings - everything is realized
+        realizedPnlSol = netSolProfitLoss;
+        realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
+        
         totalPnlSol = netSolProfitLoss;
         unrealizedPnlUsd = null;
         unrealizedPnlSol = null;
+        unrealizedPnlPercentage = null;
       }
       
       return {
@@ -315,6 +333,10 @@ export class TokenPerformanceService {
         unrealizedPnlUsd,
         unrealizedPnlSol,
         totalPnlSol,
+        // PNL percentage indicators
+        realizedPnlSol,
+        realizedPnlPercentage,
+        unrealizedPnlPercentage,
       };
     });
 

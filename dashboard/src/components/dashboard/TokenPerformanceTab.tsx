@@ -252,7 +252,7 @@ const COLUMN_DEFINITIONS = [
   {
     id: 'tokenAddress',
     name: 'Token',
-    className: 'sticky left-0 z-10 w-[250px] md:w-[300px] text-left',
+    className: 'sticky left-0 z-10 w-[240px] md:w-[280px] text-left pl-4 pr-3',
     cell: ({ row }: { row: { original: TokenPerformanceDataDto } }) => {
       const token = row.original;
       const tokenName = token.name || 'Unknown';
@@ -264,37 +264,37 @@ const COLUMN_DEFINITIONS = [
       };
 
       return (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
-              <div className="flex-grow flex items-center gap-3 cursor-pointer">
-                <Avatar className="h-8 w-8">
+              <div className="flex-grow flex items-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded p-1 -m-1 transition-colors">
+                <Avatar className="h-8 w-8 border border-slate-200 dark:border-slate-700">
                   <AvatarImage
                     src={token.imageUrl ?? undefined}
                     alt={tokenName}
                   />
-                  <AvatarFallback>
+                  <AvatarFallback className="text-xs font-semibold">
                     {tokenName.charAt(0)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="truncate">
-                  <div className="font-medium truncate text-tremor-content-strong dark:text-dark-tremor-content-strong">{tokenName}</div>
-                  <div className="text-tremor-content dark:text-dark-tremor-content">{tokenSymbol}</div>
+                  <div className="font-semibold truncate text-slate-900 dark:text-slate-100 text-sm">{tokenName}</div>
+                  <div className="text-slate-500 dark:text-slate-400 text-xs font-medium">{tokenSymbol}</div>
                 </div>
               </div>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-2" align="start">
-              <div className="space-y-2">
-                <div className="font-bold text-sm">{tokenName}</div>
-                <div className="text-xs text-muted-foreground break-all">{token.tokenAddress}</div>
-                <div className="flex items-center gap-1 pt-1">
-                  <UiButton variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={handleCopy}><Copy className="h-3 w-3 mr-1" />Copy</UiButton>
-                  <UiButton variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild>
+            <PopoverContent className="w-auto p-4" align="start">
+              <div className="space-y-3">
+                <div className="font-bold text-base">{tokenName}</div>
+                <div className="text-xs text-muted-foreground break-all font-mono bg-slate-100 dark:bg-slate-800 p-2 rounded">{token.tokenAddress}</div>
+                <div className="flex items-center gap-2 pt-1">
+                  <UiButton variant="outline" size="sm" className="h-auto px-3 py-2 text-xs" onClick={handleCopy}><Copy className="h-3 w-3 mr-1" />Copy</UiButton>
+                  <UiButton variant="outline" size="sm" className="h-auto px-3 py-2 text-xs" asChild>
                     <a href={`https://solscan.io/token/${token.tokenAddress}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3 w-3 mr-1" />Solscan</a>
                   </UiButton>
-                  {token.websiteUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={token.websiteUrl} target="_blank" rel="noopener noreferrer"><Globe className="h-4 w-4" /></a></UiButton>}
-                  {token.twitterUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={token.twitterUrl} target="_blank" rel="noopener noreferrer"><TwitterIcon className="h-4 w-4" /></a></UiButton>}
-                  {token.telegramUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={token.telegramUrl} target="_blank" rel="noopener noreferrer"><Send className="h-4 w-4" /></a></UiButton>}
+                  {token.websiteUrl && <UiButton variant="ghost" size="icon" className="h-8 w-8" asChild><a href={token.websiteUrl} target="_blank" rel="noopener noreferrer"><Globe className="h-4 w-4" /></a></UiButton>}
+                  {token.twitterUrl && <UiButton variant="ghost" size="icon" className="h-8 w-8" asChild><a href={token.twitterUrl} target="_blank" rel="noopener noreferrer"><TwitterIcon className="h-4 w-4" /></a></UiButton>}
+                  {token.telegramUrl && <UiButton variant="ghost" size="icon" className="h-8 w-8" asChild><a href={token.telegramUrl} target="_blank" rel="noopener noreferrer"><Send className="h-4 w-4" /></a></UiButton>}
                 </div>
               </div>
             </PopoverContent>
@@ -303,19 +303,19 @@ const COLUMN_DEFINITIONS = [
       );
     }
   },
-  // Prioritized order: Most important metrics first
-  { id: 'totalPnlSol', name: 'Total PNL (SOL)', isSortable: true, className: 'text-right', icon: DollarSignIcon },
-  { id: 'roi', name: 'ROI (%)', isSortable: true, className: 'text-right', icon: PercentIcon }, 
-  { id: 'totalSolSpent', name: 'SOL Spent', isSortable: true, className: 'text-right', icon: ArrowLeftCircleIcon },
-  { id: 'totalSolReceived', name: 'SOL Received', isSortable: true, className: 'text-right', icon: ArrowRightCircleIcon },
-  { id: 'currentBalanceDisplay', name: 'Current Balance', isSortable: true, className: 'text-right', icon: PackageIcon },
-  { id: 'netSolProfitLoss', name: 'Realized PNL (SOL)', isSortable: true, className: 'text-right', icon: DollarSignIcon },
-  { id: 'unrealizedPnlSol', name: 'Unrealized PNL (SOL)', isSortable: true, className: 'text-right', icon: TrendingUpIcon },
-  { id: 'marketCapDisplay', name: 'Market Cap', isSortable: false, className: 'text-right', icon: TrendingUpIcon },
-  { id: 'transferCountIn', name: 'In', isSortable: false, className: 'text-center text-right', icon: ArrowRightLeftIcon },
-  { id: 'transferCountOut', name: 'Out', isSortable: false, className: 'text-center text-right'},
-  { id: 'firstTransferTimestamp', name: 'First Trade', isSortable: false, className: 'text-center', icon: CalendarDaysIcon }, 
-  { id: 'lastTransferTimestamp', name: 'Last Trade', isSortable: true, className: 'text-center', icon: CalendarDaysIcon }, 
+  // Prioritized order with compact spacing and alignment
+  { id: 'totalPnlSol', name: 'Total PNL (SOL)', isSortable: true, className: 'text-right px-2 min-w-[120px]', icon: DollarSignIcon },
+  { id: 'roi', name: 'ROI (%)', isSortable: true, className: 'text-right px-2 min-w-[90px]', icon: PercentIcon }, 
+  { id: 'totalSolSpent', name: 'SOL Spent', isSortable: true, className: 'text-right px-2 min-w-[100px]', icon: ArrowLeftCircleIcon },
+  { id: 'totalSolReceived', name: 'SOL Received', isSortable: true, className: 'text-right px-2 min-w-[110px]', icon: ArrowRightCircleIcon },
+  { id: 'currentBalanceDisplay', name: 'Current Balance', isSortable: true, className: 'text-right px-2 min-w-[130px]', icon: PackageIcon },
+  { id: 'netSolProfitLoss', name: 'Realized PNL (SOL)', isSortable: true, className: 'text-right px-2 min-w-[140px]', icon: DollarSignIcon },
+  { id: 'unrealizedPnlSol', name: 'Unrealized PNL (SOL)', isSortable: true, className: 'text-right px-2 min-w-[150px]', icon: TrendingUpIcon },
+  { id: 'marketCapDisplay', name: 'Market Cap', isSortable: false, className: 'text-right px-2 min-w-[100px]', icon: TrendingUpIcon },
+  { id: 'transferCountIn', name: 'In', isSortable: false, className: 'text-center px-2 min-w-[50px]', icon: ArrowRightLeftIcon },
+  { id: 'transferCountOut', name: 'Out', isSortable: false, className: 'text-center px-2 min-w-[50px]'},
+  { id: 'firstTransferTimestamp', name: 'First Trade', isSortable: false, className: 'text-center px-2 min-w-[100px]', icon: CalendarDaysIcon }, 
+  { id: 'lastTransferTimestamp', name: 'Last Trade', isSortable: true, className: 'text-center px-2 min-w-[100px]', icon: CalendarDaysIcon }, 
 ];
 
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: TokenPerformanceTabProps) {
@@ -503,7 +503,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       <TableRow key={`skeleton-row-${rowIndex}`}>
         {COLUMN_DEFINITIONS.map((col, colIndex) => (
           <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn(col.className, col.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
-            <Skeleton className={cn("h-5", col.id === 'tokenAddress' ? "w-3/4" : "w-full", (col.className?.includes('text-right') || col.className?.includes('text-center')) && "mx-auto")} />
+            <Skeleton className={cn("h-5", col.id === 'tokenAddress' ? "w-3/4" : "w-full")} />
           </TableCell>
         ))}
       </TableRow>
@@ -581,10 +581,10 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   }
 
   return (
-    <Card className="p-0 md:p-0 mt-0 flex flex-col">
-      <div className="px-4 py-3 border-b">
-        <Flex flexDirection="row" alignItems="center" justifyContent="between" className="gap-2 flex-wrap">
-          <Flex flexDirection="row" alignItems="center" className="gap-2 flex-wrap">
+    <Card className="p-0 md:p-0 mt-0 flex flex-col border border-slate-200 dark:border-slate-700 shadow-sm">
+      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+        <Flex flexDirection="row" alignItems="center" justifyContent="between" className="gap-3 flex-wrap">
+          <Flex flexDirection="row" alignItems="center" className="gap-3 flex-wrap">
             <div className="space-y-4">
               <Input id="token-search" name="token-search" placeholder="Search address..." value={searchTerm} onChange={handleSearchTermChange} className="max-w-xs h-9" />
               {error && <p className="text-red-500">{error.message}</p>}
@@ -603,8 +603,32 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
               <SelectTrigger className="w-[160px] h-9"><SelectValue placeholder="Risk Level" /></SelectTrigger>
               <SelectContent>{SPAM_FILTER_OPTIONS.map(option => (<SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>))}</SelectContent>
             </Select>
-            <div className="flex items-center space-x-2"><Switch id="min-trades-toggle" checked={minTradesToggle} onCheckedChange={handleMinTradesToggleChange} /><Label htmlFor="min-trades-toggle">Min. 2 Trades</Label></div>
-            <div className="flex items-center space-x-2"><Switch id="holdings-only-toggle" checked={showHoldingsOnly} onCheckedChange={handleShowHoldingsToggleChange} /><Label htmlFor="holdings-only-toggle">Holding Only</Label></div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center space-x-2">
+                    <Switch id="min-trades-toggle" checked={minTradesToggle} onCheckedChange={handleMinTradesToggleChange} />
+                    <Label htmlFor="min-trades-toggle" className="cursor-pointer">Min. 2 Trades</Label>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Only show tokens with at least 2 transactions (buy + sell activity)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center space-x-2">
+                    <Switch id="holdings-only-toggle" checked={showHoldingsOnly} onCheckedChange={handleShowHoldingsToggleChange} />
+                    <Label htmlFor="holdings-only-toggle" className="cursor-pointer">Holding Only</Label>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Only show tokens that are currently held (have a balance &gt; 0)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <UiButton variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
               <RefreshCwIcon className={cn("mr-2 h-4 w-4", isRefreshing && "animate-spin")} />Refresh
             </UiButton>
@@ -612,12 +636,22 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
         </Flex>
       </div>
       
-      <div className="overflow-x-auto">
+      {/* Table */}
+      <div className="overflow-x-auto bg-white dark:bg-slate-900">
         <Table className="min-w-full">
-          <TableHeader>
-            <TableRow>
-              {COLUMN_DEFINITIONS.map((col) => (
-                <TableHead key={col.id} className={cn("py-3.5 px-4 text-left", col.className, col.isSortable ? 'cursor-pointer hover:bg-muted/50 transition-colors' : '', col.id === 'tokenAddress' && 'sticky left-0 z-20 bg-card dark:bg-dark-tremor-background-default')} onClick={() => col.isSortable && handleSort(col.id)}>
+          <TableHeader className="bg-slate-50 dark:bg-slate-800">
+            <TableRow className="border-b border-slate-200 dark:border-slate-700">
+              {COLUMN_DEFINITIONS.map(col => (
+                <TableHead 
+                  key={col.id} 
+                  className={cn(
+                    "font-semibold text-slate-700 dark:text-slate-300 text-sm h-10",
+                    col.className,
+                    col.id === 'tokenAddress' && 'sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-sm',
+                    col.isSortable && 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors'
+                  )}
+                  onClick={() => col.isSortable && handleSort(col.id)}
+                >
                   <Flex alignItems="center" justifyContent={col.className?.includes('text-right') ? 'end' : col.className?.includes('text-center') ? 'center' : 'start'} className="gap-1.5 h-full">
                     {col.icon && <col.icon className="h-4 w-4 text-muted-foreground" />}
                     <span className="text-sm font-semibold whitespace-nowrap text-tremor-content-strong dark:text-dark-tremor-content-strong">{col.name}</span>
@@ -686,56 +720,65 @@ const formatTokenDisplayValue = (value: number | null | undefined, uiString?: st
 };
 
 const formatPnl = (pnl: number | null | undefined) => {
-  if (pnl === null || pnl === undefined) return <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">N/A</Text>;
+  if (pnl === null || pnl === undefined) return <Text className="text-sm text-slate-400 dark:text-slate-500">N/A</Text>;
   const value = pnl;
-  const textColor = value > 0 ? 'text-green-500' : value < 0 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle';
-  const sign = value > 0 ? '▲' : value < 0 ? '▼' : '';
-  return <Text className={`font-mono ${textColor} text-sm`}><span className="text-sm mr-0.5 align-middle">{sign}</span>{Math.abs(value).toFixed(2)} SOL</Text>;
+  const textColor = value > 0 ? 'text-emerald-600 dark:text-emerald-400' : value < 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-500 dark:text-slate-400';
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+  return (
+    <Text className={`font-mono ${textColor} text-sm font-semibold`}>
+      <span className="text-sm mr-1 align-middle">{sign}</span>
+      {Math.abs(value).toFixed(2)} SOL
+    </Text>
+  );
 };
-
-const formatPercentagePnl = (percentage: number | null | undefined) => {
-  if (percentage === null || percentage === undefined || !isFinite(percentage)) return <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">N/A</Text>;
-  const value = percentage;
-  const textColor = value > 0 ? 'text-green-500' : value < 0 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle';
-  const sign = value > 0 ? '▲' : value < 0 ? '▼' : '';
-  return <Text className={`font-mono ${textColor} text-sm`}><span className="text-sm mr-0.5 align-middle">{sign}</span>{Math.abs(value).toFixed(1)}%</Text>;
-};
+  
+  const formatPercentage = (percentage: number | null | undefined) => {
+    if (percentage === null || percentage === undefined || !isFinite(percentage)) return null;
+    const value = percentage;
+    const isPositive = value > 0;
+    const bgColor = isPositive ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30';
+    const textColor = isPositive ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300';
+    const sign = isPositive ? '+' : '-';
+    
+    // Format large percentages: 1000+ becomes 1k%, etc.
+    const absValue = Math.abs(value);
+    let formattedValue: string;
+    
+    if (absValue >= 1000000) {
+      formattedValue = (absValue / 1000000).toFixed(1) + 'M';
+    } else if (absValue >= 1000) {
+      formattedValue = (absValue / 1000).toFixed(1) + 'k';
+    } else {
+      formattedValue = absValue.toFixed(1);
+    }
+    
+    // Return as a small, compact badge/chip
+    return (
+      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${bgColor} ${textColor} border border-current/20`}>
+        {sign}{formattedValue}%
+      </span>
+    );
+  };
 
 const formatSolAmount = (value: number | null | undefined) => {
-  if (typeof value !== 'number' || isNaN(value)) return 'N/A';
-  if (value === 0) return "0";
-  
-  const absValue = Math.abs(value);
-  
-  // Hide dust amounts (less than 0.01 SOL) - they're not meaningful
-  if (absValue < 0.01) return '-';
-  
-  const suffixes = ["", "K", "M", "B", "T"];
-  const magnitude = absValue >= 1 ? Math.min(Math.floor(Math.log10(absValue) / 3), suffixes.length - 1) : 0;
-  const scaledValue = absValue / Math.pow(1000, magnitude);
-  const precision = scaledValue < 10 ? 2 : scaledValue < 100 ? 1 : 0;
-  const numPart = parseFloat(scaledValue.toFixed(precision));
-  return (value < 0 ? "-" : "") + numPart.toLocaleString(undefined, {
-    minimumFractionDigits: precision,
-    maximumFractionDigits: precision,
-  }) + (suffixes[magnitude] || '');
+  if (typeof value === 'number' && !isNaN(value)) {
+    if (value === 0) return "0";
+    const absValue = Math.abs(value);
+    if (absValue < 0.01) return `< 0.01`;
+    if (absValue > 1e6) return `> 1M`;
+    return parseFloat(value.toFixed(2)).toLocaleString();
+  }
+  return 'N/A';
 };
 
 const formatMarketCap = (value: number | null | undefined) => {
-  if (typeof value !== 'number' || isNaN(value) || value === null || value === undefined) return 'N/A';
-  if (value === 0) return "$0";
-  
-  const absValue = Math.abs(value);
-  const suffixes = ["", "K", "M", "B", "T"];
-  const magnitude = Math.min(Math.floor(Math.log10(absValue) / 3), suffixes.length - 1);
-  const scaledValue = absValue / Math.pow(1000, magnitude);
-  const precision = scaledValue < 10 ? 1 : 0;
-  const numPart = parseFloat(scaledValue.toFixed(precision));
-  
-  return "$" + numPart.toLocaleString(undefined, {
-    minimumFractionDigits: precision,
-    maximumFractionDigits: precision,
-  }) + suffixes[magnitude];
+  if (typeof value === 'number' && !isNaN(value) && value > 0) {
+    if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+    if (value >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+    if (value >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
+    return `$${value.toFixed(0)}`;
+  }
+  return 'N/A';
 };
 
 // Memoized table row component for better performance
@@ -752,13 +795,24 @@ const TokenTableRow = memo(({
 }) => {
   const pnl = item.netSolProfitLoss ?? 0;
   const totalPnl = item.totalPnlSol ?? 0;
-  const pnlColor = pnl > 0 ? 'text-emerald-500' : pnl < 0 ? 'text-red-500' : 'text-muted-foreground';
+  const pnlColor = pnl > 0 ? 'text-emerald-600 dark:text-emerald-400' : pnl < 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-500 dark:text-slate-400';
   const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (totalPnl / item.totalSolSpent) * 100 : (totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0);
 
   return (
-    <TableRow key={item.tokenAddress + index}>
+    <TableRow 
+      key={item.tokenAddress + index}
+      className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors border-b border-slate-200/60 dark:border-slate-700/60"
+    >
       {columns.map(col => (
-        <TableCell key={col.id} className={cn("px-4 py-0.5 text-sm", col.className, col.id === 'tokenAddress' && 'sticky left-0 z-10 whitespace-nowrap bg-card dark:bg-dark-tremor-background-default', (col.id === 'netSolProfitLoss' || col.id === 'roi') && pnlColor)}>
+        <TableCell 
+          key={col.id} 
+          className={cn(
+            "py-2 text-sm", 
+            col.className, 
+            col.id === 'tokenAddress' && 'sticky left-0 z-10 whitespace-nowrap bg-white dark:bg-slate-900 shadow-sm', 
+            (col.id === 'netSolProfitLoss' || col.id === 'roi') && pnlColor
+          )}
+        >
           {col.id === 'tokenAddress' && (
              <Popover>
               <PopoverTrigger asChild>
@@ -866,46 +920,64 @@ const TokenTableRow = memo(({
               </PopoverContent>
             </Popover>
           )}
-          {col.id === 'netSolProfitLoss' && formatPnl(item.netSolProfitLoss)}
-          {col.id === 'unrealizedPnlSol' && formatPnl(item.unrealizedPnlSol)}
+          {col.id === 'netSolProfitLoss' && (
+            <div className="flex flex-col items-end space-y-0.5">
+              {formatPnl(item.netSolProfitLoss)}
+              {item.realizedPnlPercentage !== null && item.realizedPnlPercentage !== undefined && (
+                <div className="flex justify-end">
+                  {formatPercentage(item.realizedPnlPercentage)}
+                </div>
+              )}
+            </div>
+          )}
+          {col.id === 'unrealizedPnlSol' && (
+            <div className="flex flex-col items-end space-y-0.5">
+              {formatPnl(item.unrealizedPnlSol)}
+              {item.unrealizedPnlPercentage !== null && item.unrealizedPnlPercentage !== undefined && (
+                <div className="flex justify-end">
+                  {formatPercentage(item.unrealizedPnlPercentage)}
+                </div>
+              )}
+            </div>
+          )}
           {col.id === 'totalPnlSol' && formatPnl(item.totalPnlSol)}
-          {col.id === 'roi' && (roi === Infinity ? <span className="text-emerald-500">∞</span> : roi === -Infinity ? <span className="text-red-500">-∞</span> : formatPercentagePnl(roi))}
-          {col.id === 'totalSolSpent' && (<Text className={cn("text-sm", (item.totalSolSpent ?? 0) > 0 ? 'text-red-400 dark:text-red-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolSpent)}</Text>)}
-          {col.id === 'totalSolReceived' && (<Text className={cn("text-sm", (item.totalSolReceived ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{formatSolAmount(item.totalSolReceived)}</Text>)}
+          {col.id === 'roi' && (roi === Infinity ? <span className="text-emerald-600 dark:text-emerald-400 font-semibold">∞</span> : roi === -Infinity ? <span className="text-red-500 dark:text-red-400 font-semibold">-∞</span> : formatPercentage(roi))}
+          {col.id === 'totalSolSpent' && (<Text className={cn("text-sm font-mono font-medium", (item.totalSolSpent ?? 0) > 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-400 dark:text-slate-500')}>{formatSolAmount(item.totalSolSpent)}</Text>)}
+          {col.id === 'totalSolReceived' && (<Text className={cn("text-sm font-mono font-medium", (item.totalSolReceived ?? 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500')}>{formatSolAmount(item.totalSolReceived)}</Text>)}
           {col.id === 'currentBalanceDisplay' && (
             <div className="text-right">
               {item.currentUiBalance === 0 ? (
-                <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">-</Text>
+                <Text className="text-sm text-slate-400 dark:text-slate-500 font-medium">-</Text>
               ) : (
-                <div className="flex flex-col items-end">
+                <div className="flex flex-col items-end space-y-0.5">
                   {/* SOL Value First - Most Important */}
                   {item.currentHoldingsValueSol ? (
                     <Text className={cn(
-                      "text-sm font-mono",
-                      item.currentHoldingsValueSol >= 1 ? "text-orange-600 dark:text-orange-400 font-semibold" : // Significant position
+                      "text-sm font-mono font-semibold",
+                      item.currentHoldingsValueSol >= 1 ? "text-orange-600 dark:text-orange-400" : // Significant position
                       item.currentHoldingsValueSol >= 0.1 ? "text-slate-700 dark:text-slate-300" : // Medium position  
                       "text-slate-500 dark:text-slate-400" // Small position
                     )}>
                       {formatSolAmount(item.currentHoldingsValueSol)} SOL
                     </Text>
                   ) : (
-                    <Text className="text-sm text-slate-500 dark:text-slate-400 font-mono">
+                    <Text className="text-sm text-slate-500 dark:text-slate-400 font-mono font-medium">
                       ? SOL
                     </Text>
                   )}
                   {/* Token Amount Second - Less Important */}
-                  <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                  <Text className="text-xs text-slate-400 dark:text-slate-500 font-medium">
                     {formatTokenDisplayValue(item.currentUiBalance, item.currentUiBalanceString)} tokens
                   </Text>
                 </div>
               )}
             </div>
           )}
-          {col.id === 'marketCapDisplay' && <Text className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">{formatMarketCap((item as any).marketCapUsd)}</Text>}
-          {col.id === 'transferCountIn' && (<Text className={cn("text-sm", (item.transferCountIn ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountIn}</Text>)}
-          {col.id === 'transferCountOut' && (<Text className={cn("text-sm", (item.transferCountOut ?? 0) > 0 ? 'text-slate-600 dark:text-slate-400' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle')}>{item.transferCountOut}</Text>)}
-          {col.id === 'firstTransferTimestamp' && <Text className="text-sm">{formatDate(item.firstTransferTimestamp)}</Text>}
-          {col.id === 'lastTransferTimestamp' && <Text className="text-sm">{formatDate(item.lastTransferTimestamp)}</Text>}
+          {col.id === 'marketCapDisplay' && <Text className="text-sm font-medium text-slate-600 dark:text-slate-400">{formatMarketCap((item as any).marketCapUsd)}</Text>}
+          {col.id === 'transferCountIn' && (<Text className={cn("text-sm font-medium", (item.transferCountIn ?? 0) > 0 ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500')}>{item.transferCountIn}</Text>)}
+          {col.id === 'transferCountOut' && (<Text className={cn("text-sm font-medium", (item.transferCountOut ?? 0) > 0 ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500')}>{item.transferCountOut}</Text>)}
+          {col.id === 'firstTransferTimestamp' && <Text className="text-sm font-medium text-slate-600 dark:text-slate-400">{formatDate(item.firstTransferTimestamp)}</Text>}
+          {col.id === 'lastTransferTimestamp' && <Text className="text-sm font-medium text-slate-600 dark:text-slate-400">{formatDate(item.lastTransferTimestamp)}</Text>}
         </TableCell>
       ))}
     </TableRow>

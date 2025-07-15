@@ -174,6 +174,11 @@ export interface TokenPerformanceDataDto {
   unrealizedPnlUsd?: number | null;
   unrealizedPnlSol?: number | null;
   totalPnlSol?: number | null;
+
+  // PNL breakdown and percentage indicators
+  realizedPnlSol?: number | null;
+  realizedPnlPercentage?: number | null;
+  unrealizedPnlPercentage?: number | null;
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts
