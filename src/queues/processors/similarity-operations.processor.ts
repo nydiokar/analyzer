@@ -141,6 +141,32 @@ export class SimilarityOperationsProcessor {
         this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
       }
 
+      // STEP 3.5: Check for wallets marked as INVALID during sync and filter them out
+      const validWallets: string[] = [];
+      const invalidWallets: string[] = [];
+      
+      for (const address of walletAddresses) {
+        try {
+          const wallet = await this.databaseService.getWallet(address);
+          if (wallet && wallet.classification === 'INVALID') {
+            this.logger.warn(`Wallet ${address} was marked as INVALID during sync - filtering out`);
+            invalidWallets.push(address);
+          } else {
+            validWallets.push(address);
+          }
+        } catch (error) {
+          this.logger.warn(`Error checking wallet ${address} classification, including in analysis:`, error);
+          validWallets.push(address); // Default to including if we can't check
+        }
+      }
+      
+      this.logger.log(`Wallet filtering complete: ${validWallets.length} valid, ${invalidWallets.length} invalid`);
+      
+      // If we don't have enough valid wallets, fail with detailed error
+      if (validWallets.length < 2) {
+        throw new Error(`Insufficient valid wallets for similarity analysis. Only ${validWallets.length} of ${walletAddresses.length} wallets are valid. Invalid wallets: ${invalidWallets.join(', ')}`);
+      }
+
       // STEP 4: FINAL ANALYSIS (The service now uses the pre-fetched balances)
       this.logger.log('Starting final similarity calculation...');
       
@@ -154,7 +180,7 @@ export class SimilarityOperationsProcessor {
 
       const similarityResult = await this.similarityApiService.runAnalysis(
         {
-          walletAddresses: walletAddresses,
+          walletAddresses: validWallets, // Use only the valid wallets
           vectorType: similarityConfig?.vectorType || 'capital',
         },
         balancesMap,
@@ -180,9 +206,10 @@ export class SimilarityOperationsProcessor {
         enrichmentJobId: enrichmentJob?.id, // Include enrichment job ID for frontend subscription
         metadata: {
           requestedWallets: walletAddresses.length,
-          processedWallets: walletAddresses.length,
-          failedWallets: 0,
-          successRate: walletAddresses.length / walletAddresses.length,
+          processedWallets: validWallets.length,
+          failedWallets: invalidWallets.length,
+          invalidWallets: invalidWallets.length > 0 ? invalidWallets : undefined,
+          successRate: validWallets.length / walletAddresses.length,
           processingTimeMs: Date.now() - startTime
         }
       };

@@ -96,6 +96,7 @@ export interface SimilarityFlowResult extends JobResult {
     requestedWallets: number;
     processedWallets: number;
     failedWallets: number;
+    invalidWallets?: string[]; // List of wallet addresses that were marked as invalid
     successRate: number;
     processingTimeMs: number;
   };

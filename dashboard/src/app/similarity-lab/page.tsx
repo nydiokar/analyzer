@@ -113,7 +113,7 @@ export default function AnalysisLabPage() {
     }, [toast, currentJobId]),
     
     onJobFailed: useCallback((data: JobFailedData) => {
-      console.error('❌ Job failed:', data.jobId, data.error);
+      console.error('❌ Job failed (WebSocket):', data.jobId, data.error);
       if (data.jobId === currentJobId) {
         setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
         setJobProgress(0);
@@ -427,31 +427,35 @@ export default function AnalysisLabPage() {
             });
           }
         } else if (jobStatus.status === 'failed') {
+          console.error('❌ Job failed (Polling):', jobId, jobStatus.error);
           const errorMessage = jobStatus.error || 'Job failed';
           setError(errorMessage);
           setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
           setCurrentJobId(null);
           
-          // Check if the error message contains invalid wallet information
-          if (errorMessage.includes('wallet(s) were found to be invalid') && errorMessage.includes('Invalid wallets:')) {
-            // Extract invalid wallets from error message
-            const invalidWalletsMatch = errorMessage.match(/Invalid wallets: ([^.]+)/);
-            if (invalidWalletsMatch) {
-              const invalidWalletsList = invalidWalletsMatch[1];
-              const invalidCount = invalidWalletsList.split(', ').length;
-              
-              toast.error(`Analysis Failed - ${invalidCount} Invalid Wallet${invalidCount > 1 ? 's' : ''} Found`, {
-                description: `The following wallet address${invalidCount > 1 ? 'es are' : ' is'} invalid: ${invalidWalletsList}`,
-              });
+          // Only show toast if WebSocket is not connected (to avoid duplicate messages)
+          if (!wsConnected) {
+            // Check if the error message contains invalid wallet information
+            if (errorMessage.includes('wallet(s) were found to be invalid') && errorMessage.includes('Invalid wallets:')) {
+              // Extract invalid wallets from error message
+              const invalidWalletsMatch = errorMessage.match(/Invalid wallets: ([^.]+)/);
+              if (invalidWalletsMatch) {
+                const invalidWalletsList = invalidWalletsMatch[1];
+                const invalidCount = invalidWalletsList.split(', ').length;
+                
+                toast.error(`Analysis Failed - ${invalidCount} Invalid Wallet${invalidCount > 1 ? 's' : ''} Found`, {
+                  description: `The following wallet address${invalidCount > 1 ? 'es are' : ' is'} invalid: ${invalidWalletsList}`,
+                });
+              } else {
+                toast.error("Analysis Failed - Invalid Wallets Found", {
+                  description: errorMessage,
+                });
+              }
             } else {
-              toast.error("Analysis Failed - Invalid Wallets Found", {
+              toast.error("Analysis Failed", {
                 description: errorMessage,
               });
             }
-          } else {
-            toast.error("Analysis Failed", {
-              description: errorMessage,
-            });
           }
         } else if (jobStatus.status === 'active') {
           const progress = jobStatus.progress || 0;
