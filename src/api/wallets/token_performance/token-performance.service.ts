@@ -208,7 +208,8 @@ export class TokenPerformanceService {
     const tokenAddresses = analysisResults.map(ar => ar.tokenAddress);
     const tokenInfoMap = await this.getTokenInfoMap(tokenAddresses);
     
-    // Fetch SOL price once to avoid multiple API calls in synchronous operations
+    // Fetch SOL price once to avoid multiple API calls in synchronous operations  
+    // SOL is too liquid to not have price data - this should never fail
     const estimatedSolPriceUsd = await this.dexscreenerService.getSolPrice();
 
     // Create the token performance data with calculated ROI and unrealized P&L
@@ -250,10 +251,10 @@ export class TokenPerformanceService {
         // Unrealized P&L: Current value vs cost basis of remaining holdings
         const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
         unrealizedPnlUsd = currentHoldingsValueUsd - (costBasisForCurrentHoldings * estimatedSolPriceUsd);
-        unrealizedPnlSol = (currentHoldingsValueSol || 0) - costBasisForCurrentHoldings;
+        unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
         
         // Total P&L: Simple and clean calculation
-        totalPnlSol = realizedPnlFromSales + (unrealizedPnlSol || 0);
+        totalPnlSol = realizedPnlFromSales + unrealizedPnlSol;
         
              } else if (currentUiBalance > 0) {
          // We have holdings but no price data - can't calculate unrealized P&L
@@ -323,7 +324,6 @@ export class TokenPerformanceService {
       tokenPerformanceDataList = tokenPerformanceDataList.filter(token => {
         const currentBalance = token.currentUiBalance || 0;
         const currentValueUsd = token.currentHoldingsValueUsd || 0;
-        // estimatedSolPriceUsd is already fetched from outer scope
         
         // Must have a token balance
         if (currentBalance <= 0) return false;
@@ -395,7 +395,6 @@ export class TokenPerformanceService {
             break;
           case 'currentSolValue':
             // Sort by SOL value of current holdings
-            // estimatedSolPriceUsd is already fetched from outer scope
             valueA = a.currentHoldingsValueUsd ? a.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
             valueB = b.currentHoldingsValueUsd ? b.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
             break;

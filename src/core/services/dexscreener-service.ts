@@ -145,31 +145,64 @@ export class DexscreenerService {
             return this.solPriceCache.price;
         }
 
-        try {
-            // Use SOL/USDC pair from DexScreener - this is a reliable SOL price source
-            const url = `${this.baseUrl}/dex/pairs/solana/8sHUo6dSmb6xJcjSJkNMnbgWZMBcCjRfAJPEkJbfxMcb`;
-            const response = await firstValueFrom(this.httpService.get(url));
-            const pair = response.data?.pair;
-            
-            if (pair && pair.priceUsd) {
-                const solPrice = parseFloat(pair.priceUsd);
-                
-                // Cache the price
-                this.solPriceCache = {
-                    price: solPrice,
-                    timestamp: Date.now()
-                };
-                
-                logger.debug(`Fetched and cached SOL price: $${solPrice}`);
-                return solPrice;
-            } else {
-                logger.warn('No SOL price data found, using fallback price');
-                return 144; // Fallback to previous hardcoded value
+        // Multiple high-volume SOL pairs as backup sources - SOL is too liquid to not have price data
+        const solPairSources = [
+            {
+                name: 'Meteora SOL/USDC DLMM',
+                pairId: 'HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR',
+                volume: '$13M+' 
+            },
+            {
+                name: 'Raydium SOL/USDC CLMM', 
+                pairId: 'CYbD9RaToYMtWKA7QZyoLahnHdWq553Vm62Lh6qWtuxq',
+                volume: '$7M+'
+            },
+            {
+                name: 'Orca SOL/USDC Whirlpool',
+                pairId: '4HppGTweoGQ8ZZ6UcCgwJKfi5mJD9Dqwy6htCpnbfBLW', 
+                volume: '$5.5M+'
+            },
+            {
+                name: 'Meteora SOL/USDC Large Pool',
+                pairId: 'BGm1tav58oGcsQJehL9WXBFXf7D27vZsKefj4xJKD5Y',
+                volume: '$12M+'
             }
-        } catch (error) {
-            logger.error('Failed to fetch SOL price from DexScreener', error);
-            return 144; // Fallback to previous hardcoded value
+        ];
+
+        for (const source of solPairSources) {
+            try {
+                const url = `${this.baseUrl}/dex/pairs/solana/${source.pairId}`;
+                const response = await firstValueFrom(this.httpService.get(url));
+                const pair = response.data?.pair;
+                
+                if (pair && pair.priceUsd) {
+                    const solPrice = parseFloat(pair.priceUsd);
+                    
+                    // Sanity check: SOL price should be reasonable ($50-$500 range)
+                    if (solPrice >= 50 && solPrice <= 500) {
+                        // Cache the price
+                        this.solPriceCache = {
+                            price: solPrice,
+                            timestamp: Date.now()
+                        };
+                        
+                        logger.debug(`Successfully fetched SOL price from ${source.name}: $${solPrice}`);
+                        return solPrice;
+                    } else {
+                        logger.warn(`${source.name} returned unreasonable SOL price: $${solPrice}, trying next source`);
+                    }
+                } else {
+                    logger.warn(`${source.name} returned no price data, trying next source`);
+                }
+            } catch (error) {
+                logger.warn(`Failed to fetch SOL price from ${source.name}: ${error instanceof Error ? error.message : error}, trying next source`);
+            }
         }
+
+        // If all sources fail, this is a critical system error
+        const errorMsg = 'CRITICAL: All SOL price sources failed - this should never happen for such a liquid asset';
+        logger.error(errorMsg);
+        throw new Error(errorMsg);
     }
 
     private transformPairsToTokenInfo(pairs: DexScreenerPair[], requestedAddresses: string[]): Prisma.TokenInfoCreateInput[] {
