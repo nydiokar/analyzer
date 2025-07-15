@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, memo } from 'react'; // Import memo
+import { useMemo, memo, useState, useEffect } from 'react'; // Import memo
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -12,13 +12,47 @@ import { WalletBadge } from "@/components/shared/WalletBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { CombinedSimilarityResult, TokenInfo } from "./types";
 import { Button } from "@/components/ui/button";
-import { Copy, ExternalLink, Globe, X as Twitter, Send } from "lucide-react";
+import { Copy, ExternalLink, Globe, X as Twitter, Send, HelpCircle } from "lucide-react";
 import { TokenBadge } from "@/components/shared/TokenBadge";
 
 interface MostCommonTokensProps {
   results: CombinedSimilarityResult;
   enrichedBalances: Record<string, any> | null;
 }
+
+// Custom TokenBadge with timeout fallback
+const TokenBadgeWithFallback = ({ mint, metadata, size }: { mint: string; metadata: any; size: "sm" | "md" | "lg" | undefined }) => {
+  const [showFallback, setShowFallback] = useState(false);
+
+  useEffect(() => {
+    if (!metadata) {
+      const timer = setTimeout(() => {
+        setShowFallback(true);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [metadata]);
+
+  if (!metadata && showFallback) {
+    return (
+      <div className="flex items-center gap-2">
+        <Avatar className="h-6 w-6">
+          <AvatarFallback className="bg-muted">
+            <HelpCircle className="h-3 w-3 text-muted-foreground" />
+          </AvatarFallback>
+        </Avatar>
+        <div className="flex flex-col">
+          <span className="font-medium text-sm">Unknown Token</span>
+          <span className="text-xs text-muted-foreground font-mono">
+            {mint.slice(0, 4)}...{mint.slice(-4)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return <TokenBadge mint={mint} metadata={metadata} size={size} />;
+};
 
 // Function to build a lookup map for token metadata from enriched balances
 const buildTokenMetadataMap = (enrichedBalances: Record<string, any> | null) => {
@@ -91,7 +125,7 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
     }
     
     return (
-        <Card className="border">
+        <Card className="border w-full">
             <CardHeader>
               <div>
                 <CardTitle>Most Common Tokens</CardTitle>
@@ -103,10 +137,6 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
                     <ul className="space-y-3">
                         {commonTokens.map((token) => {
                             const metadata = tokenMetadataMap.get(token.mint);
-                            const tokenName = metadata?.name || 'Unknown Token';
-                            const tokenSymbol = metadata?.symbol ? `.${metadata.symbol}` : '';
-                            const shortAddress = `${token.mint.slice(0, 4)}...${token.mint.slice(-4)}`;
-                            const isLoading = !metadata && tokenName === 'Unknown Token';
 
                             return (
                                 <li key={token.mint} className="text-sm flex justify-between items-center border-b pb-2">
@@ -115,7 +145,7 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
                                                     <div className="flex-1 min-w-0">
-                                                        <TokenBadge 
+                                                        <TokenBadgeWithFallback 
                                                             mint={token.mint} 
                                                             metadata={metadata} 
                                                             size="lg" 

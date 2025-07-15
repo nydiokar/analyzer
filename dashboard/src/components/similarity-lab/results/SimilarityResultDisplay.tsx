@@ -3,10 +3,11 @@ import { EnhancedKeyInsights } from './EnhancedKeyInsights';
 import { CombinedSimilarityResult } from './types';
 import { GlobalMetricsCard } from './GlobalMetricsCard';
 import { ContextualHoldingsCard } from './ContextualHoldingsCard';
-import { OverlapHeatmap } from './OverlapHeatmap';
 import { HistoricalVsLiveComparison } from './HistoricalVsLiveComparison';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Sparkles, ArrowUp } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 interface SimilarityResultDisplayProps {
   results: CombinedSimilarityResult;
@@ -19,6 +20,21 @@ const EMPTY_BALANCES = {}; // Define a constant empty object
 export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing }: SimilarityResultDisplayProps) {
   const hasAdvancedMatrices = results.sharedTokenCountsMatrix || results.jaccardSimilarityMatrix;
   const enrichedBalances = results.walletBalances || EMPTY_BALANCES; // Use the constant
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  // Show back-to-top button when user scrolls down
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 200); // Lower threshold
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <div className="space-y-6">
@@ -31,14 +47,8 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
         />
       )}
       
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <EnhancedKeyInsights results={results} />
-        </div>
-        <div className="lg:col-span-1 space-y-6">
-          <MostCommonTokens results={results} enrichedBalances={enrichedBalances} />
-        </div>
-      </div>
+      {/* Key Insights - Full Width */}
+      <EnhancedKeyInsights results={results} />
 
       {/* Enhanced Analytics Banner */}
       {hasAdvancedMatrices && (
@@ -51,9 +61,9 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
         </Alert>
       )}
 
-      {/* New high-value matrix visualizations */}
+      {/* Most Common Tokens and Historical vs Live - Side by Side */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <OverlapHeatmap results={results} />
+        <MostCommonTokens results={results} enrichedBalances={enrichedBalances} />
         <HistoricalVsLiveComparison results={results} />
       </div>
 
@@ -63,6 +73,18 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
         onRefreshPrices={onRefreshPrices}
         isRefreshing={isRefreshing}
       />
+
+      {/* Back to Top Button */}
+      {showBackToTop && (
+        <Button
+          onClick={scrollToTop}
+          className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg z-50"
+          size="icon"
+          variant="default"
+        >
+          <ArrowUp className="h-4 w-4" />
+        </Button>
+      )}
     </div>
   );
 } 
