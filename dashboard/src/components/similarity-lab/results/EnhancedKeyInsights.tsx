@@ -80,7 +80,7 @@ const getInsightIcon = (type: KeyInsight['type']) => {
   switch (type) {
     case 'Sustained Alignment': return <Handshake className="h-4 w-4" />;
     case 'Significant Asymmetry': return <Scale className="h-4 w-4" />;
-    case 'High Similarity': return <LinkIcon className="h-4 w-4" />;
+    case 'High Similarity': return <Users2 className="h-4 w-4" />;
     case 'Behavioral Mirror': return <Users2 className="h-4 w-4" />;
     case 'Capital Divergence': return <ArrowUpRightFromSquare className="h-4 w-4" />;
     case 'Shared Zero Holdings': return <TrendingDown className="h-4 w-4" />;
@@ -385,12 +385,20 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
 
     const sorted = [...filtered];
     if (sortKey === 'capitalScore' && capitalAllocation) {
+      // Sort by total capital allocation (combined weight)
       sorted.sort((a, b) => {
         const allocA = capitalAllocation[a.mint];
         const allocB = capitalAllocation[b.mint];
         const scoreA = allocA ? allocA.weightA + allocA.weightB : 0;
         const scoreB = allocB ? allocB.weightA + allocB.weightB : 0;
         return scoreB - scoreA;
+      });
+    } else {
+      // Sort by alphabetical order for assets (consistent ordering)
+      sorted.sort((a, b) => {
+        const nameA = getTokenMetadata(a.mint, results.walletBalances)?.symbol || a.mint;
+        const nameB = getTokenMetadata(b.mint, results.walletBalances)?.symbol || b.mint;
+        return nameA.localeCompare(nameB);
       });
     }
     return sorted.slice(0, 10);
@@ -401,16 +409,11 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
       {/* Compact Header Section */}
       <Card className="p-4">
         <div className="flex items-start justify-between mb-3">
-          <div className="flex items-start gap-3">
-            <div className="p-1.5 rounded bg-muted/50">
-              {getInsightIcon(insight.type)}
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold mb-1">Pair Analysis</h2>
-              <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>
-                {insight.type}
-              </Badge>
-            </div>
+          <div>
+            <h2 className="text-lg font-semibold mb-2">Pair Analysis</h2>
+            <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>
+              {insight.type}
+            </Badge>
           </div>
           <div className="text-right">
             <div className="text-2xl font-bold">{(overallScore * 100).toFixed(0)}%</div>
@@ -437,9 +440,12 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
           <WalletBadge address={pair.walletB} className="text-xs" />
         </div>
         
-        {/* Prominent but compact insight */}
-        <div className="bg-muted/30 border border-border rounded p-3">
-          <p className="text-sm text-foreground font-medium leading-relaxed">{realisticInsight}</p>
+        {/* Clean prominent insight */}
+        <div className="bg-muted/30 border border-border rounded-lg p-4 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-blue-500 to-emerald-500 rounded-l-lg"></div>
+          <p className="text-base text-foreground font-semibold leading-relaxed pl-3">
+            {realisticInsight}
+          </p>
         </div>
       </Card>
 
@@ -476,7 +482,13 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className="cursor-help border-b border-dotted">
-                        Portfolio overlap: <span className="font-mono">{sharedBehavioralPctA.toFixed(1)}%</span> & <span className="font-mono">{sharedBehavioralPctB.toFixed(1)}%</span>
+                        Portfolio overlap: <span className={cn(
+                          "font-mono",
+                          sharedBehavioralPctA >= 60 ? "text-blue-300 font-bold" : ""
+                        )}>{sharedBehavioralPctA.toFixed(1)}%</span> & <span className={cn(
+                          "font-mono",
+                          sharedBehavioralPctB >= 60 ? "text-blue-300 font-bold" : ""
+                        )}>{sharedBehavioralPctB.toFixed(1)}%</span>
                       </span>
                     </TooltipTrigger>
                     <TooltipContent className="max-w-sm">
@@ -517,12 +529,8 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
               />
             </div>
             
-            <div className={cn(
-              "rounded-lg p-3 text-sm border-l-4",
-              // Highlight significant allocation ratios (like 69%/70% cases)
-              (capitalOverlapPctA >= 60 || capitalOverlapPctB >= 60) ? "bg-emerald-500/5 border-emerald-400 text-emerald-100 ring-1 ring-emerald-500/20" : "bg-muted/30 text-muted-foreground border-muted"
-            )}>
-              <div className={(capitalOverlapPctA >= 60 || capitalOverlapPctB >= 60) ? "text-emerald-200" : "text-muted-foreground"}>
+            <div className="bg-muted/30 rounded-lg p-3 text-sm">
+              <div className="text-muted-foreground">
                 <strong>{capitalSharedTokenCount}/{totalCapitalTokensA + totalCapitalTokensB}</strong> shared positions
                 <br />
                 <TooltipProvider>
@@ -536,7 +544,6 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                           "font-mono", 
                           capitalOverlapPctB >= 60 ? "text-emerald-200 font-bold" : ""
                         )}>{capitalOverlapPctB.toFixed(1)}%</span>
-                        {(capitalOverlapPctA >= 60 || capitalOverlapPctB >= 60) && <span className="ml-2 text-emerald-300">🎯</span>}
                       </span>
                     </TooltipTrigger>
                     <TooltipContent className="max-w-sm">
