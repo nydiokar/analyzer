@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Info, LinkIcon, Handshake, Scale, Users2, ArrowUpRightFromSquare, Ban, Lightbulb } from "lucide-react";
+import { Info, LinkIcon, Handshake, Scale, Users2, ArrowUpRightFromSquare, TrendingDown, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -31,13 +31,29 @@ interface ProcessedPair {
   pair: CombinedPairwiseSimilarity;
 }
 
+// Updated color system for dark theme integration
 const INSIGHT_COLORS: Record<InsightType, string> = {
-    [InsightType.HighSimilarity]: 'bg-red-100 text-red-800 border-red-200',
-    [InsightType.SustainedAlignment]: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    [InsightType.SignificantAsymmetry]: 'bg-purple-100 text-purple-800 border-purple-200',
-    [InsightType.BehavioralMirror]: 'bg-indigo-100 text-indigo-800 border-indigo-200',
-    [InsightType.CapitalDivergence]: 'bg-orange-100 text-orange-800 border-orange-200',
-    [InsightType.SharedZeroHoldings]: 'bg-gray-100 text-gray-800 border-gray-200',
+    [InsightType.HighSimilarity]: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    [InsightType.SustainedAlignment]: 'bg-blue-500/10 text-blue-400 border-blue-500/20', 
+    [InsightType.SignificantAsymmetry]: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    [InsightType.BehavioralMirror]: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    [InsightType.CapitalDivergence]: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+    [InsightType.SharedZeroHoldings]: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+};
+
+// Overall similarity score calculation
+const calculateOverallScore = (binaryScore: number, capitalScore: number): number => {
+  // Weighted average: behavioral 40%, capital 60% (capital is often more meaningful)
+  return (binaryScore * 0.4) + (capitalScore * 0.6);
+};
+
+// Score level indicators for dark theme
+const getScoreLevel = (score: number): { level: string; color: string; bgColor: string } => {
+  if (score >= 0.7) return { level: 'Very High', color: 'text-emerald-400', bgColor: 'bg-emerald-500' };
+  if (score >= 0.5) return { level: 'High', color: 'text-blue-400', bgColor: 'bg-blue-500' };
+  if (score >= 0.3) return { level: 'Moderate', color: 'text-amber-400', bgColor: 'bg-amber-500' };
+  if (score >= 0.15) return { level: 'Low', color: 'text-orange-400', bgColor: 'bg-orange-500' };
+  return { level: 'Very Low', color: 'text-gray-400', bgColor: 'bg-gray-500' };
 };
 
 // Helper function to extract token metadata from enriched balances
@@ -67,7 +83,7 @@ const getInsightIcon = (type: KeyInsight['type']) => {
     case 'High Similarity': return <LinkIcon className="h-4 w-4" />;
     case 'Behavioral Mirror': return <Users2 className="h-4 w-4" />;
     case 'Capital Divergence': return <ArrowUpRightFromSquare className="h-4 w-4" />;
-    case 'Shared Zero Holdings': return <Ban className="h-4 w-4" />;
+    case 'Shared Zero Holdings': return <TrendingDown className="h-4 w-4" />;
     default: return <Lightbulb className="h-4 w-4" />;
   }
 };
@@ -85,43 +101,75 @@ interface PairCardProps {
   onSelect: () => void;
 }
 
+// Fix insight generation for low similarity pairs
+const generateRealisticInsight = (pair: CombinedPairwiseSimilarity, overallScore: number): string => {
+  if (overallScore < 0.15) {
+    return "Minimal overlap detected. These wallets appear to operate independently with different strategies.";
+  } else if (overallScore < 0.3) {
+    return "Low similarity found. Some shared interests but largely different investment approaches.";
+  } else if (overallScore < 0.5) {
+    return "Moderate overlap in trading patterns and capital allocation strategies.";
+  } else if (overallScore < 0.7) {
+    return "High similarity in investment behavior and token preferences.";
+  } else {
+    return "Very high correlation in trading patterns and capital deployment strategies.";
+  }
+};
+
+// Simplified PairCard focusing on overall assessment
 const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect }: PairCardProps) => {
   const { insight, pair } = processedPair;
-  const primaryScore = sortKey === 'binaryScore' ? pair.binaryScore : pair.capitalScore;
-  const scoreLabel = sortKey === 'binaryScore' ? 'Behavioral' : 'Capital';
+  const overallScore = calculateOverallScore(pair.binaryScore, pair.capitalScore);
+  const scoreInfo = getScoreLevel(overallScore);
 
   return (
     <Card 
       className={cn(
-        "p-4 cursor-pointer transition-all hover:shadow-md",
-        isSelected ? "ring-2 ring-primary border-primary" : "border-muted"
+        "p-4 cursor-pointer transition-all duration-200 hover:bg-muted/30 border",
+        isSelected ? "ring-2 ring-blue-500 border-blue-500/50 bg-blue-500/5" : "border-border hover:border-border/70"
       )}
       onClick={onSelect}
     >
       <div className="space-y-3">
-        {/* Header with insight type */}
-        <div className="flex items-center justify-between">
+        {/* Header: Insight Type & Overall Assessment */}
+        <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
-            {getInsightIcon(insight.type)}
-            <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>
-              {insight.type}
-            </Badge>
+            <div className="p-1.5 rounded bg-muted/50">
+              {getInsightIcon(insight.type)}
+            </div>
+            <div>
+              <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>
+                {insight.type}
+              </Badge>
+              <div className={cn("text-xs mt-0.5 font-medium", scoreInfo.color)}>
+                {scoreInfo.level} Similarity
+              </div>
+            </div>
           </div>
-          <span className="text-sm font-semibold">{primaryScore.toFixed(3)}</span>
+          <div className="text-right">
+            <div className="text-2xl font-bold">{(overallScore * 100).toFixed(0)}%</div>
+            <div className="text-xs text-muted-foreground">Overall</div>
+          </div>
         </div>
 
-        {/* Wallet pair */}
-        <div className="text-sm">
-          <WalletBadge address={pair.walletA} /> ↔ <WalletBadge address={pair.walletB} />
+        {/* Wallet Pair */}
+        <div className="flex items-center justify-center gap-2 py-2 px-3 bg-muted/30 rounded">
+          <WalletBadge address={pair.walletA} className="text-xs" />
+          <div className="text-muted-foreground">↔</div>
+          <WalletBadge address={pair.walletB} className="text-xs" />
         </div>
 
-        {/* Score bar */}
+        {/* Overall Score Indicator */}
         <div className="space-y-1">
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">{scoreLabel}</span>
-            <span>{(primaryScore * 100).toFixed(1)}%</span>
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div 
+              className={cn("h-full transition-all duration-500", scoreInfo.bgColor)}
+              style={{ width: `${Math.min(overallScore * 100, 100)}%` }}
+            />
           </div>
-          <Progress value={Math.min(primaryScore * 100, 100)} className="h-2" />
+          <div className="text-xs text-center text-muted-foreground">
+            {pair.sharedTokens.length} shared tokens
+          </div>
         </div>
       </div>
     </Card>
@@ -264,24 +312,40 @@ interface PairDetailProps {
   results: CombinedSimilarityResult;
 }
 
-const PairDetail = memo(({ processedPair, results, isLoading }: PairDetailProps & { isLoading?: boolean }) => {
+// Enhanced PairDetail with context and tooltips
+const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoading }: PairDetailProps & { sortKey: SortKey; setSortKey: (key: SortKey) => void; isLoading?: boolean }) => {
   if (isLoading) {
     return <PairDetailSkeleton />;
   }
 
   if (!processedPair) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <p className="text-muted-foreground">Select a wallet pair to view detailed analysis</p>
+      <div className="flex flex-col items-center justify-center h-96 border-2 border-dashed border-border rounded-lg">
+        <div className="p-4 rounded-full bg-muted mb-4">
+          <Users2 className="h-8 w-8 text-muted-foreground" />
+        </div>
+        <h3 className="text-lg font-semibold mb-2">Select a Wallet Pair</h3>
+        <p className="text-muted-foreground text-center max-w-sm text-sm">
+          Choose a wallet pair from the list to view detailed similarity analysis and shared token breakdown.
+        </p>
       </div>
     );
   }
 
   const { insight, pair } = processedPair;
   const { binaryScore, capitalScore, sharedTokens, capitalAllocation, binarySharedTokenCount, capitalSharedTokenCount } = pair;
+  
+  const overallScore = calculateOverallScore(binaryScore, capitalScore);
+  const overallScoreInfo = getScoreLevel(overallScore);
+  const binaryScoreInfo = getScoreLevel(binaryScore);
+  const capitalScoreInfo = getScoreLevel(capitalScore);
 
+  // Get total token counts for context
   const totalBinaryTokensA = results.uniqueTokensPerWallet[pair.walletA]?.binary ?? 0;
   const totalBinaryTokensB = results.uniqueTokensPerWallet[pair.walletB]?.binary ?? 0;
+  const totalCapitalTokensA = results.uniqueTokensPerWallet[pair.walletA]?.capital ?? 0;
+  const totalCapitalTokensB = results.uniqueTokensPerWallet[pair.walletB]?.capital ?? 0;
+
   const sharedBehavioralPctA = totalBinaryTokensA > 0 ? (binarySharedTokenCount / totalBinaryTokensA) * 100 : 0;
   const sharedBehavioralPctB = totalBinaryTokensB > 0 ? (binarySharedTokenCount / totalBinaryTokensB) * 100 : 0;
   
@@ -303,9 +367,24 @@ const PairDetail = memo(({ processedPair, results, isLoading }: PairDetailProps 
     };
   }, [sharedTokens.length, capitalAllocation]);
 
-  const topSharedTokens = useMemo(() => {
-    const sorted = [...(sharedTokens || [])];
-    if (capitalAllocation) {
+  // Generate realistic insight text
+  const realisticInsight = generateRealisticInsight(pair, overallScore);
+
+  // Filter and sort tokens based on sortKey for the table - show only tokens with meaningful allocations
+  const sortedSharedTokens = useMemo(() => {
+    const filtered = (sharedTokens || []).filter(token => {
+      const allocation = capitalAllocation?.[token.mint];
+      if (sortKey === 'capitalScore') {
+        // For capital sort, show only tokens with actual capital allocation
+        return allocation && (allocation.weightA > 0.001 || allocation.weightB > 0.001);
+      } else {
+        // For asset sort, show all shared tokens
+        return true;
+      }
+    });
+
+    const sorted = [...filtered];
+    if (sortKey === 'capitalScore' && capitalAllocation) {
       sorted.sort((a, b) => {
         const allocA = capitalAllocation[a.mint];
         const allocB = capitalAllocation[b.mint];
@@ -315,96 +394,266 @@ const PairDetail = memo(({ processedPair, results, isLoading }: PairDetailProps 
       });
     }
     return sorted.slice(0, 10);
-  }, [sharedTokens, capitalAllocation]);
+  }, [sharedTokens, capitalAllocation, sortKey]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold mb-2">Pair Analysis</h3>
-        <div className="flex items-center gap-2 mb-3">
-          {getInsightIcon(insight.type)}
-          <Badge variant="outline" className={cn("text-sm", INSIGHT_COLORS[insight.type])}>
-            {insight.type}
-          </Badge>
+    <div className="space-y-4">
+      {/* Compact Header Section */}
+      <Card className="p-4">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-start gap-3">
+            <div className="p-1.5 rounded bg-muted/50">
+              {getInsightIcon(insight.type)}
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold mb-1">Pair Analysis</h2>
+              <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>
+                {insight.type}
+              </Badge>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold">{(overallScore * 100).toFixed(0)}%</div>
+            <div className={cn("text-sm", overallScoreInfo.color)}>{overallScoreInfo.level}</div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="text-xs text-muted-foreground mt-1 cursor-help border-b border-dotted">
+                    Overall Similarity
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>Weighted combination of assets (40%) and capital (60%) similarity scores. Higher percentages indicate more similar investment patterns.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
-        <div className="text-sm mb-2">
-          Between <WalletBadge address={pair.walletA} /> and <WalletBadge address={pair.walletB} />
+        
+        {/* Compact Wallet Pair */}
+        <div className="flex items-center gap-2 mb-3 text-sm">
+          <WalletBadge address={pair.walletA} className="text-xs" />
+          <div className="text-muted-foreground">↔</div>
+          <WalletBadge address={pair.walletB} className="text-xs" />
         </div>
-        <p className="text-sm text-muted-foreground">{insight.text}</p>
-      </div>
+        
+        {/* Prominent but compact insight */}
+        <div className="bg-muted/30 border border-border rounded p-3">
+          <p className="text-sm text-foreground font-medium leading-relaxed">{realisticInsight}</p>
+        </div>
+      </Card>
 
-      {/* Score breakdowns */}
-      <div className="space-y-4">
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-sm font-medium text-blue-600">Behavioral Score</span>
-            <span className="text-sm font-semibold">{binaryScore.toFixed(3)}</span>
+      {/* Enhanced Similarity Breakdown with Capital Color Coding */}
+      <Card className="p-6">
+        <h3 className="text-xl font-semibold mb-6">Similarity Breakdown</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Behavioral Score */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                <span className="text-base font-semibold">Behavioral</span>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-blue-400">{(binaryScore * 100).toFixed(0)}%</div>
+                <div className={cn("text-sm font-medium", binaryScoreInfo.color)}>{binaryScoreInfo.level}</div>
+              </div>
+            </div>
+            
+            <div className="h-3 bg-muted rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-blue-500 transition-all duration-300"
+                style={{ width: `${Math.min(binaryScore * 100, 100)}%` }}
+              />
+            </div>
+            
+            <div className="bg-muted/30 rounded-lg p-3 text-sm">
+              <div className="text-muted-foreground">
+                <strong>{binarySharedTokenCount}/{totalBinaryTokensA + totalBinaryTokensB}</strong> shared tokens
+                <br />
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="cursor-help border-b border-dotted">
+                        Portfolio overlap: <span className="font-mono">{sharedBehavioralPctA.toFixed(1)}%</span> & <span className="font-mono">{sharedBehavioralPctB.toFixed(1)}%</span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm">
+                      <p>
+                        Out of <strong>{totalBinaryTokensA}</strong> and <strong>{totalBinaryTokensB}</strong> total tokens respectively. 
+                        Shows what percentage of each wallet's portfolio consists of shared tokens.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            </div>
           </div>
-          <Progress value={Math.min(binaryScore * 100, 100)} className="h-3 mb-2" />
-          <div className="text-xs text-muted-foreground">
-            <span className="font-bold text-foreground">{binarySharedTokenCount}</span> common token(s). 
-            Allocation across tokens for Wallet <WalletBadge address={pair.walletA} />: <span className="font-bold text-foreground">{sharedBehavioralPctA.toFixed(1)}%</span>. 
-            and Wallet <WalletBadge address={pair.walletB} />: <span className="font-bold text-foreground">{sharedBehavioralPctB.toFixed(1)}%</span>.
-          </div>
-        </div>
 
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-sm font-medium text-emerald-600">Capital Score</span>
-            <span className="text-sm font-semibold">{capitalScore.toFixed(3)}</span>
-          </div>
-          <Progress value={Math.min(capitalScore * 100, 100)} className="h-3 mb-2" />
-          <div className="text-xs text-muted-foreground">
-            <span className="font-bold text-foreground">{capitalSharedTokenCount}</span> common token(s). 
-            Allocation across capital for Wallet <WalletBadge address={pair.walletA} />: <span className="font-bold text-foreground">{capitalOverlapPctA.toFixed(1)}%</span>. 
-            and Wallet <WalletBadge address={pair.walletB} />: <span className="font-bold text-foreground">{capitalOverlapPctB.toFixed(1)}%</span>.
+          {/* Enhanced Capital Score with Color Coding */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 bg-emerald-500 rounded-full"></div>
+                <span className="text-base font-semibold">Capital</span>
+              </div>
+              <div className="text-right">
+                <div className={cn(
+                  "text-2xl font-bold",
+                  capitalScore >= 0.6 ? "text-emerald-300" : "text-emerald-400"
+                )}>{(capitalScore * 100).toFixed(0)}%</div>
+                <div className={cn("text-sm font-medium", capitalScoreInfo.color)}>{capitalScoreInfo.level}</div>
+              </div>
+            </div>
+            
+            <div className="h-3 bg-muted rounded-full overflow-hidden">
+              <div 
+                className={cn(
+                  "h-full transition-all duration-300",
+                  capitalScore >= 0.6 ? "bg-emerald-400" : "bg-emerald-500"
+                )}
+                style={{ width: `${Math.min(capitalScore * 100, 100)}%` }}
+              />
+            </div>
+            
+            <div className={cn(
+              "rounded-lg p-3 text-sm border-l-4",
+              // Highlight significant allocation ratios (like 69%/70% cases)
+              (capitalOverlapPctA >= 60 || capitalOverlapPctB >= 60) ? "bg-emerald-500/5 border-emerald-400 text-emerald-100 ring-1 ring-emerald-500/20" : "bg-muted/30 text-muted-foreground border-muted"
+            )}>
+              <div className={(capitalOverlapPctA >= 60 || capitalOverlapPctB >= 60) ? "text-emerald-200" : "text-muted-foreground"}>
+                <strong>{capitalSharedTokenCount}/{totalCapitalTokensA + totalCapitalTokensB}</strong> shared positions
+                <br />
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="cursor-help border-b border-dotted">
+                        Capital overlap: <span className={cn(
+                          "font-mono",
+                          capitalOverlapPctA >= 60 ? "text-emerald-200 font-bold" : ""
+                        )}>{capitalOverlapPctA.toFixed(1)}%</span> & <span className={cn(
+                          "font-mono", 
+                          capitalOverlapPctB >= 60 ? "text-emerald-200 font-bold" : ""
+                        )}>{capitalOverlapPctB.toFixed(1)}%</span>
+                        {(capitalOverlapPctA >= 60 || capitalOverlapPctB >= 60) && <span className="ml-2 text-emerald-300">🎯</span>}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm">
+                      <p>
+                        Out of <strong>{totalCapitalTokensA}</strong> and <strong>{totalCapitalTokensB}</strong> tokens with capital allocation respectively. 
+                        Shows what percentage of each wallet's invested capital is in shared tokens.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </Card>
 
-      {/* Shared tokens table - always visible */}
-      {topSharedTokens.length > 0 && (
-        <div>
-          <h4 className="text-md font-semibold mb-3">Top 10 Shared Tokens</h4>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Token</TableHead>
-                <TableHead className="text-right"><WalletBadge address={pair.walletA} /></TableHead>
-                <TableHead className="text-right"><WalletBadge address={pair.walletB} /></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {topSharedTokens.map(token => {
-                const allocation = capitalAllocation?.[token.mint];
-                return (
-                  <TableRow key={token.mint}>
-                    <TableCell className="font-medium font-mono">
-                      <TokenBadge 
-                        mint={token.mint} 
-                        metadata={getTokenMetadata(token.mint, results.walletBalances)} 
-                        size="sm" 
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {allocation?.weightA !== undefined ? `${(allocation.weightA * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {allocation?.weightB !== undefined ? `${(allocation.weightB * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+      {/* Shared Tokens Table with Local Sort Controls */}
+      {sortedSharedTokens.length > 0 && (
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-4">
+              <h3 className="text-xl font-semibold">Top 10 Shared Tokens</h3>
+              {/* Local Sort Controls */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Sort by:</span>
+                <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-auto">
+                  <TabsList className="h-8 p-1 bg-muted/50">
+                    <TabsTrigger value="binaryScore" className="text-xs px-3 py-1">Assets</TabsTrigger>
+                    <TabsTrigger value="capitalScore" className="text-xs px-3 py-1">Capital</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {sharedTokens.length}/{Math.max(totalBinaryTokensA + totalBinaryTokensB, totalCapitalTokensA + totalCapitalTokensB)} tokens analyzed
+            </div>
+          </div>
+          
+          <div className="rounded-lg border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border">
+                  <TableHead className="text-sm font-semibold">Token</TableHead>
+                  <TableHead className="text-right text-sm font-semibold">
+                    <WalletBadge address={pair.walletA} />
+                  </TableHead>
+                  <TableHead className="text-right text-sm font-semibold">
+                    <WalletBadge address={pair.walletB} />
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedSharedTokens.map((token, index) => {
+                  const allocation = capitalAllocation?.[token.mint];
+                  return (
+                    <TableRow key={token.mint} className="border-border">
+                      <TableCell className="font-medium">
+                        <TokenBadge 
+                          mint={token.mint} 
+                          metadata={getTokenMetadata(token.mint, results.walletBalances)} 
+                          size="sm" 
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {allocation?.weightA !== undefined ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="font-mono text-xs text-emerald-400 cursor-help border-b border-dotted border-emerald-400/30">
+                                  {(allocation.weightA * 100).toFixed(2)}%
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Percentage of wallet's total capital allocated to this token</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          <span className="text-blue-400 text-xs px-2 py-1 bg-blue-500/10 rounded">
+                            Held
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {allocation?.weightB !== undefined ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="font-mono text-xs text-emerald-400 cursor-help border-b border-dotted border-emerald-400/30">
+                                  {(allocation.weightB * 100).toFixed(2)}%
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Percentage of wallet's total capital allocated to this token</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          <span className="text-blue-400 text-xs px-2 py-1 bg-blue-500/10 rounded">
+                            Held
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
       )}
     </div>
   );
 });
 PairDetail.displayName = 'PairDetail';
 
-// Main component with Grid + Detail layout
+// Updated main component to remove global sort controls and pass setSortKey
 export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsightsProps & { isLoading?: boolean }) => {
   const [sortKey, setSortKey] = useState<SortKey>('binaryScore');
   const [selectedPairId, setSelectedPairId] = useState<string | null>(null);
@@ -435,18 +684,28 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
 
     const combinedData = filteredPairs.map(pair => {
       const pairKey = [pair.walletA, pair.walletB].sort().join('|');
+      const overallScore = calculateOverallScore(pair.binaryScore, pair.capitalScore);
+      
+      // Generate more realistic insight based on actual scores
       const insight = insightMap.get(pairKey) || {
-          type: InsightType.HighSimilarity, 
+          type: overallScore >= 0.5 ? InsightType.HighSimilarity : 
+                overallScore >= 0.3 ? InsightType.SustainedAlignment :
+                overallScore >= 0.15 ? InsightType.SignificantAsymmetry :
+                InsightType.SharedZeroHoldings, 
           wallets: [walletLabels[pair.walletA], walletLabels[pair.walletB]],
-          score: Math.max(pair.binaryScore, pair.capitalScore),
-          text: `Significant overlap found in trading patterns or capital deployment.`,
+          score: overallScore,
+          text: generateRealisticInsight(pair, overallScore),
           data: { walletA: pair.walletA, walletB: pair.walletB }
       };
       return { insight, pair };
     });
     
-    return combinedData.sort((a, b) => b.pair[sortKey] - a.pair[sortKey]);
-  }, [results, walletLabels, sortKey]);
+    return combinedData.sort((a, b) => {
+      const scoreA = calculateOverallScore(a.pair.binaryScore, a.pair.capitalScore);
+      const scoreB = calculateOverallScore(b.pair.binaryScore, b.pair.capitalScore);
+      return scoreB - scoreA;
+    });
+  }, [results, walletLabels]);
 
   // Set initial selection to first pair
   useMemo(() => {
@@ -472,14 +731,7 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
           Automatically generated insights from the similarity analysis, with a detailed breakdown for each pair.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-full mb-4" aria-label="Sort similarity results">
-          <TabsList className="grid w-full grid-cols-2" aria-label="Sorting options">
-            <TabsTrigger value="binaryScore" aria-label="Sort by behavioral similarity score">Sort by Behavioral</TabsTrigger>
-            <TabsTrigger value="capitalScore" aria-label="Sort by capital similarity score">Sort by Capital</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        
+      <CardContent>        
         {isLoading ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-5">
@@ -511,6 +763,8 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
               <PairDetail 
                 processedPair={selectedPair} 
                 results={results} 
+                sortKey={sortKey}
+                setSortKey={setSortKey}
                 isLoading={false}
               />
             </div>
