@@ -8,17 +8,16 @@ import { generateKeyInsights } from '@/lib/similarity-report-parser';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { HelpCircle, Info, Copy, ExternalLink, Link as LinkIcon, Handshake, Scale, Users2, ArrowUpRightFromSquare, Ban, Lightbulb } from "lucide-react";
+import { Info, LinkIcon, Handshake, Scale, Users2, ArrowUpRightFromSquare, Ban, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { TokenBadge } from '@/components/shared/TokenBadge';
+import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface EnhancedKeyInsightsProps {
   results: CombinedSimilarityResult;
@@ -26,13 +25,19 @@ interface EnhancedKeyInsightsProps {
 
 type SortKey = 'binaryScore' | 'capitalScore';
 
+// Combined data type for processed pairs
+interface ProcessedPair {
+  insight: KeyInsight;
+  pair: CombinedPairwiseSimilarity;
+}
+
 const INSIGHT_COLORS: Record<InsightType, string> = {
-    [InsightType.HighSimilarity]: 'bg-red-500/20 text-red-700 border-red-500/30 hover:bg-red-500/30',
-    [InsightType.SustainedAlignment]: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30 hover:bg-emerald-500/30',
-    [InsightType.SignificantAsymmetry]: 'bg-purple-500/20 text-purple-700 border-purple-500/30 hover:bg-purple-500/30',
-    [InsightType.BehavioralMirror]: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30 hover:bg-indigo-500/30',
-    [InsightType.CapitalDivergence]: 'bg-orange-500/20 text-orange-700 border-orange-500/30 hover:bg-orange-500/30',
-    [InsightType.SharedZeroHoldings]: 'bg-gray-500/20 text-gray-700 border-gray-500/30 hover:bg-gray-500/30',
+    [InsightType.HighSimilarity]: 'bg-red-100 text-red-800 border-red-200',
+    [InsightType.SustainedAlignment]: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    [InsightType.SignificantAsymmetry]: 'bg-purple-100 text-purple-800 border-purple-200',
+    [InsightType.BehavioralMirror]: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    [InsightType.CapitalDivergence]: 'bg-orange-100 text-orange-800 border-orange-200',
+    [InsightType.SharedZeroHoldings]: 'bg-gray-100 text-gray-800 border-gray-200',
 };
 
 // Helper function to extract token metadata from enriched balances
@@ -57,169 +62,352 @@ const getTokenMetadata = (mint: string, enrichedBalances: EnhancedKeyInsightsPro
 
 const getInsightIcon = (type: KeyInsight['type']) => {
   switch (type) {
-    case 'Sustained Alignment': return <Handshake className="h-5 w-5" />;
-    case 'Significant Asymmetry': return <Scale className="h-5 w-5" />;
-    case 'High Similarity': return <LinkIcon className="h-5 w-5" />;
-    case 'Behavioral Mirror': return <Users2 className="h-5 w-5" />;
-    case 'Capital Divergence': return <ArrowUpRightFromSquare className="h-5 w-5" />;
-    case 'Shared Zero Holdings': return <Ban className="h-5 w-5" />;
-    default: return <Lightbulb className="h-5 w-5" />;
+    case 'Sustained Alignment': return <Handshake className="h-4 w-4" />;
+    case 'Significant Asymmetry': return <Scale className="h-4 w-4" />;
+    case 'High Similarity': return <LinkIcon className="h-4 w-4" />;
+    case 'Behavioral Mirror': return <Users2 className="h-4 w-4" />;
+    case 'Capital Divergence': return <ArrowUpRightFromSquare className="h-4 w-4" />;
+    case 'Shared Zero Holdings': return <Ban className="h-4 w-4" />;
+    default: return <Lightbulb className="h-4 w-4" />;
   }
 };
 
-const ScoreBar = ({ score, label, textColor, bgColor }: { score: number, label: string, textColor: string, bgColor: string }) => (
-    <div>
-        <div className="flex justify-between items-center mb-1">
-            <span className={`text-xs font-medium ${textColor}`}>{label}</span>
-            <span className={`text-xs font-semibold ${textColor}`}>{score.toFixed(3)}</span>
-        </div>
-        <div className="w-full bg-muted rounded-full h-2.5">
-            <div className={`${bgColor} h-2.5 rounded-full`} style={{ width: `${Math.min(score * 100, 100)}%` }}></div>
-        </div>
-    </div>
-);
+// Generate pair ID for state management
+const generatePairId = (walletA: string, walletB: string): string => {
+  return [walletA, walletB].sort().join('-');
+};
 
-interface InsightCardProps {
-    insight: KeyInsight;
-    pair: CombinedPairwiseSimilarity;
-    sortKey: SortKey;
-    results: CombinedSimilarityResult;
+// New PairCard component for the grid view
+interface PairCardProps {
+  processedPair: ProcessedPair;
+  sortKey: SortKey;
+  isSelected: boolean;
+  onSelect: () => void;
 }
 
-const InsightCard = memo(({ insight, pair, sortKey, results }: InsightCardProps) => {
-    const { binaryScore, capitalScore, sharedTokens, capitalAllocation, binarySharedTokenCount, capitalSharedTokenCount } = pair;
+const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect }: PairCardProps) => {
+  const { insight, pair } = processedPair;
+  const primaryScore = sortKey === 'binaryScore' ? pair.binaryScore : pair.capitalScore;
+  const scoreLabel = sortKey === 'binaryScore' ? 'Behavioral' : 'Capital';
 
-    const totalBinaryTokensA = results.uniqueTokensPerWallet[pair.walletA]?.binary ?? 0;
-    const totalBinaryTokensB = results.uniqueTokensPerWallet[pair.walletB]?.binary ?? 0;
-    const sharedBehavioralPctA = totalBinaryTokensA > 0 ? (binarySharedTokenCount / totalBinaryTokensA) * 100 : 0;
-    const sharedBehavioralPctB = totalBinaryTokensB > 0 ? (binarySharedTokenCount / totalBinaryTokensB) * 100 : 0;
-    
-    const { capitalOverlapPctA, capitalOverlapPctB } = useMemo(() => {
-        let capitalOverlapA = 0;
-        let capitalOverlapB = 0;
-        if (capitalAllocation) {
-            for (const token of sharedTokens) {
-                const allocation = capitalAllocation[token.mint];
-                if (allocation) {
-                    capitalOverlapA += allocation.weightA;
-                    capitalOverlapB += allocation.weightB;
-                }
-            }
-        }
-        return {
-            capitalOverlapPctA: Math.min(capitalOverlapA * 100, 100),
-            capitalOverlapPctB: Math.min(capitalOverlapB * 100, 100)
-        };
-    }, [sharedTokens.length, capitalAllocation]);
+  return (
+    <Card 
+      className={cn(
+        "p-4 cursor-pointer transition-all hover:shadow-md",
+        isSelected ? "ring-2 ring-primary border-primary" : "border-muted"
+      )}
+      onClick={onSelect}
+    >
+      <div className="space-y-3">
+        {/* Header with insight type */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {getInsightIcon(insight.type)}
+            <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>
+              {insight.type}
+            </Badge>
+          </div>
+          <span className="text-sm font-semibold">{primaryScore.toFixed(3)}</span>
+        </div>
 
-    const isCapitalSort = sortKey === 'capitalScore';
+        {/* Wallet pair */}
+        <div className="text-sm">
+          <WalletBadge address={pair.walletA} /> ↔ <WalletBadge address={pair.walletB} />
+        </div>
 
-    const topSharedTokens = useMemo(() => {
-        const sorted = [...(sharedTokens || [])];
-        if (isCapitalSort && capitalAllocation) {
-            sorted.sort((a, b) => {
-                const allocA = capitalAllocation[a.mint];
-                const allocB = capitalAllocation[b.mint];
-                const scoreA = allocA ? allocA.weightA + allocA.weightB : 0;
-                const scoreB = allocB ? allocB.weightA + allocB.weightB : 0;
-                return scoreB - scoreA;
-            });
-        }
-        return sorted.slice(0, 10);
-    }, [sharedTokens, capitalAllocation, isCapitalSort]);
-    
-    return (
-        <li className="p-4 bg-muted/50 rounded-lg space-y-4">
-            <div className="flex items-start w-full">
-                <div className="mr-4 mt-1 text-primary">{getInsightIcon(insight.type)}</div>
-                <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                        <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>{insight.type}</Badge>
-                         <div className="flex items-center gap-1">
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild><Info className="h-4 w-4 text-muted-foreground cursor-help" aria-label="Similarity score information" /></TooltipTrigger>
-                                    <TooltipContent><p>Approximate similarity score between wallets, based of capital allocation or token overlap across their portfolio.</p></TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                            <span className="font-semibold text-sm">Score: {insight.score.toFixed(3)}</span>
-                        </div>
-                    </div>
-                    <div className="text-sm mt-2">
-                        Between <WalletBadge address={pair.walletA} /> and <WalletBadge address={pair.walletB} />
-                    </div>
-                    <div className="text-sm mt-1">{insight.text}</div>
-                </div>
-            </div>
-
-            <div className="space-y-2">
-                <ScoreBar score={binaryScore} label="Behavioral" textColor="text-blue-500" bgColor="bg-blue-500" />
-                <div className="text-xs text-muted-foreground">
-                    <span className="font-bold text-foreground">{binarySharedTokenCount}</span> common token(s). 
-                    Allocation across tokens for Wallet <WalletBadge address={pair.walletA} />: <span className="font-bold text-foreground">{sharedBehavioralPctA.toFixed(1)}%</span>. 
-                    and Wallet <WalletBadge address={pair.walletB} />: <span className="font-bold text-foreground">{sharedBehavioralPctB.toFixed(1)}%</span>.
-                </div>
-            </div>
-
-            <div className="space-y-2">
-                <ScoreBar score={capitalScore} label="Capital" textColor="text-emerald-500" bgColor="bg-emerald-500" />
-                <div className="text-xs text-muted-foreground">
-                    <span className="font-bold text-foreground">{capitalSharedTokenCount}</span> common token(s). 
-                    Allocation across capital for Wallet <WalletBadge address={pair.walletA} />: <span className="font-bold text-foreground">{capitalOverlapPctA.toFixed(1)}%</span>. 
-                    and Wallet <WalletBadge address={pair.walletB} />: <span className="font-bold text-foreground">{capitalOverlapPctB.toFixed(1)}%</span>.
-                </div>
-            </div>
-
-            {topSharedTokens.length > 0 && (
-                 <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="item-1" className="border-none">
-                        <AccordionTrigger className="text-sm font-semibold hover:no-underline p-0">
-                            Top 10 Shared Tokens {isCapitalSort ? '(by Capital)' : '(by Interaction)'}
-                        </AccordionTrigger>
-                        <AccordionContent className="pt-2">
-                             <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Token</TableHead>
-                                        <TableHead className="text-right"><WalletBadge address={pair.walletA} /></TableHead>
-                                        <TableHead className="text-right"><WalletBadge address={pair.walletB} /></TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {topSharedTokens.map(token => {
-                                        const allocation = capitalAllocation?.[token.mint];
-                                        return (
-                                            <TableRow key={token.mint}>
-                                                <TableCell className="font-medium">
-                                                    <TokenBadge 
-                                                        mint={token.mint} 
-                                                        metadata={getTokenMetadata(token.mint, results.walletBalances)} 
-                                                        size="sm" 
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    {allocation?.weightA !== undefined ? `${(allocation.weightA * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    {allocation?.weightB !== undefined ? `${(allocation.weightB * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
-                        </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
-            )}
-        </li>
-    );
+        {/* Score bar */}
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">{scoreLabel}</span>
+            <span>{(primaryScore * 100).toFixed(1)}%</span>
+          </div>
+          <Progress value={Math.min(primaryScore * 100, 100)} className="h-2" />
+        </div>
+      </div>
+    </Card>
+  );
 });
-InsightCard.displayName = 'InsightCard'; // Good practice for debugging
+PairCard.displayName = 'PairCard';
 
-// Wrap the main component in React.memo
-export const EnhancedKeyInsights = memo(({ results }: EnhancedKeyInsightsProps) => {
+// New skeleton components for loading states
+const PairCardSkeleton = memo(() => (
+  <Card className="p-4">
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-4 w-4 rounded" />
+          <Skeleton className="h-5 w-20 rounded" />
+        </div>
+        <Skeleton className="h-4 w-12 rounded" />
+      </div>
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-5 w-16 rounded" />
+        <span className="text-muted-foreground">↔</span>
+        <Skeleton className="h-5 w-16 rounded" />
+      </div>
+      <div className="space-y-1">
+        <div className="flex justify-between">
+          <Skeleton className="h-3 w-16 rounded" />
+          <Skeleton className="h-3 w-8 rounded" />
+        </div>
+        <Skeleton className="h-2 w-full rounded-full" />
+      </div>
+    </div>
+  </Card>
+));
+PairCardSkeleton.displayName = 'PairCardSkeleton';
+
+const PairGridSkeleton = memo(() => (
+  <div className="space-y-2">
+    <Skeleton className="h-6 w-32 rounded" />
+    <div className="space-y-3">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <PairCardSkeleton key={i} />
+      ))}
+    </div>
+  </div>
+));
+PairGridSkeleton.displayName = 'PairGridSkeleton';
+
+const PairDetailSkeleton = memo(() => (
+  <div className="space-y-6">
+    <div>
+      <Skeleton className="h-6 w-32 rounded mb-2" />
+      <div className="flex items-center gap-2 mb-3">
+        <Skeleton className="h-4 w-4 rounded" />
+        <Skeleton className="h-5 w-24 rounded" />
+      </div>
+      <div className="flex items-center gap-2 mb-2">
+        <span>Between</span>
+        <Skeleton className="h-5 w-16 rounded" />
+        <span>and</span>
+        <Skeleton className="h-5 w-16 rounded" />
+      </div>
+      <Skeleton className="h-4 w-3/4 rounded" />
+    </div>
+
+    <div className="space-y-4">
+      <div>
+        <div className="flex justify-between items-center mb-2">
+          <Skeleton className="h-4 w-24 rounded" />
+          <Skeleton className="h-4 w-12 rounded" />
+        </div>
+        <Skeleton className="h-3 w-full rounded-full mb-2" />
+        <Skeleton className="h-3 w-5/6 rounded" />
+      </div>
+      <div>
+        <div className="flex justify-between items-center mb-2">
+          <Skeleton className="h-4 w-20 rounded" />
+          <Skeleton className="h-4 w-12 rounded" />
+        </div>
+        <Skeleton className="h-3 w-full rounded-full mb-2" />
+        <Skeleton className="h-3 w-4/5 rounded" />
+      </div>
+    </div>
+
+    <div>
+      <Skeleton className="h-5 w-40 rounded mb-3" />
+      <div className="space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex justify-between items-center">
+            <Skeleton className="h-4 w-24 rounded" />
+            <Skeleton className="h-4 w-12 rounded" />
+            <Skeleton className="h-4 w-12 rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+));
+PairDetailSkeleton.displayName = 'PairDetailSkeleton';
+
+// New PairGrid component for the master view
+interface PairGridProps {
+  processedPairs: ProcessedPair[];
+  sortKey: SortKey;
+  selectedPairId: string | null;
+  onSelectPair: (pairId: string) => void;
+}
+
+const PairGrid = memo(({ processedPairs, sortKey, selectedPairId, onSelectPair, isLoading }: PairGridProps & { isLoading?: boolean }) => {
+  if (isLoading) {
+    return <PairGridSkeleton />;
+  }
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-lg font-semibold">Wallet Pairs</h3>
+      <ScrollArea className="h-[60vh] lg:h-[600px]">
+        <div className="grid gap-3 pr-4">
+          {processedPairs.map((processedPair) => {
+            const pairId = generatePairId(processedPair.pair.walletA, processedPair.pair.walletB);
+            return (
+              <PairCard
+                key={pairId}
+                processedPair={processedPair}
+                sortKey={sortKey}
+                isSelected={selectedPairId === pairId}
+                onSelect={() => onSelectPair(pairId)}
+              />
+            );
+          })}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+});
+PairGrid.displayName = 'PairGrid';
+
+// New PairDetail component for the detail view
+interface PairDetailProps {
+  processedPair: ProcessedPair | null;
+  results: CombinedSimilarityResult;
+}
+
+const PairDetail = memo(({ processedPair, results, isLoading }: PairDetailProps & { isLoading?: boolean }) => {
+  if (isLoading) {
+    return <PairDetailSkeleton />;
+  }
+
+  if (!processedPair) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <p className="text-muted-foreground">Select a wallet pair to view detailed analysis</p>
+      </div>
+    );
+  }
+
+  const { insight, pair } = processedPair;
+  const { binaryScore, capitalScore, sharedTokens, capitalAllocation, binarySharedTokenCount, capitalSharedTokenCount } = pair;
+
+  const totalBinaryTokensA = results.uniqueTokensPerWallet[pair.walletA]?.binary ?? 0;
+  const totalBinaryTokensB = results.uniqueTokensPerWallet[pair.walletB]?.binary ?? 0;
+  const sharedBehavioralPctA = totalBinaryTokensA > 0 ? (binarySharedTokenCount / totalBinaryTokensA) * 100 : 0;
+  const sharedBehavioralPctB = totalBinaryTokensB > 0 ? (binarySharedTokenCount / totalBinaryTokensB) * 100 : 0;
+  
+  const { capitalOverlapPctA, capitalOverlapPctB } = useMemo(() => {
+    let capitalOverlapA = 0;
+    let capitalOverlapB = 0;
+    if (capitalAllocation) {
+      for (const token of sharedTokens) {
+        const allocation = capitalAllocation[token.mint];
+        if (allocation) {
+          capitalOverlapA += allocation.weightA;
+          capitalOverlapB += allocation.weightB;
+        }
+      }
+    }
+    return {
+      capitalOverlapPctA: Math.min(capitalOverlapA * 100, 100),
+      capitalOverlapPctB: Math.min(capitalOverlapB * 100, 100)
+    };
+  }, [sharedTokens.length, capitalAllocation]);
+
+  const topSharedTokens = useMemo(() => {
+    const sorted = [...(sharedTokens || [])];
+    if (capitalAllocation) {
+      sorted.sort((a, b) => {
+        const allocA = capitalAllocation[a.mint];
+        const allocB = capitalAllocation[b.mint];
+        const scoreA = allocA ? allocA.weightA + allocA.weightB : 0;
+        const scoreB = allocB ? allocB.weightA + allocB.weightB : 0;
+        return scoreB - scoreA;
+      });
+    }
+    return sorted.slice(0, 10);
+  }, [sharedTokens, capitalAllocation]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-semibold mb-2">Pair Analysis</h3>
+        <div className="flex items-center gap-2 mb-3">
+          {getInsightIcon(insight.type)}
+          <Badge variant="outline" className={cn("text-sm", INSIGHT_COLORS[insight.type])}>
+            {insight.type}
+          </Badge>
+        </div>
+        <div className="text-sm mb-2">
+          Between <WalletBadge address={pair.walletA} /> and <WalletBadge address={pair.walletB} />
+        </div>
+        <p className="text-sm text-muted-foreground">{insight.text}</p>
+      </div>
+
+      {/* Score breakdowns */}
+      <div className="space-y-4">
+        <div>
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm font-medium text-blue-600">Behavioral Score</span>
+            <span className="text-sm font-semibold">{binaryScore.toFixed(3)}</span>
+          </div>
+          <Progress value={Math.min(binaryScore * 100, 100)} className="h-3 mb-2" />
+          <div className="text-xs text-muted-foreground">
+            <span className="font-bold text-foreground">{binarySharedTokenCount}</span> common token(s). 
+            Allocation across tokens for Wallet <WalletBadge address={pair.walletA} />: <span className="font-bold text-foreground">{sharedBehavioralPctA.toFixed(1)}%</span>. 
+            and Wallet <WalletBadge address={pair.walletB} />: <span className="font-bold text-foreground">{sharedBehavioralPctB.toFixed(1)}%</span>.
+          </div>
+        </div>
+
+        <div>
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm font-medium text-emerald-600">Capital Score</span>
+            <span className="text-sm font-semibold">{capitalScore.toFixed(3)}</span>
+          </div>
+          <Progress value={Math.min(capitalScore * 100, 100)} className="h-3 mb-2" />
+          <div className="text-xs text-muted-foreground">
+            <span className="font-bold text-foreground">{capitalSharedTokenCount}</span> common token(s). 
+            Allocation across capital for Wallet <WalletBadge address={pair.walletA} />: <span className="font-bold text-foreground">{capitalOverlapPctA.toFixed(1)}%</span>. 
+            and Wallet <WalletBadge address={pair.walletB} />: <span className="font-bold text-foreground">{capitalOverlapPctB.toFixed(1)}%</span>.
+          </div>
+        </div>
+      </div>
+
+      {/* Shared tokens table - always visible */}
+      {topSharedTokens.length > 0 && (
+        <div>
+          <h4 className="text-md font-semibold mb-3">Top 10 Shared Tokens</h4>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Token</TableHead>
+                <TableHead className="text-right"><WalletBadge address={pair.walletA} /></TableHead>
+                <TableHead className="text-right"><WalletBadge address={pair.walletB} /></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {topSharedTokens.map(token => {
+                const allocation = capitalAllocation?.[token.mint];
+                return (
+                  <TableRow key={token.mint}>
+                    <TableCell className="font-medium font-mono">
+                      <TokenBadge 
+                        mint={token.mint} 
+                        metadata={getTokenMetadata(token.mint, results.walletBalances)} 
+                        size="sm" 
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {allocation?.weightA !== undefined ? `${(allocation.weightA * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {allocation?.weightB !== undefined ? `${(allocation.weightB * 100).toFixed(2)}%` : <span className="text-emerald-500">Interaction</span>}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+});
+PairDetail.displayName = 'PairDetail';
+
+// Main component with Grid + Detail layout
+export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsightsProps & { isLoading?: boolean }) => {
   const [sortKey, setSortKey] = useState<SortKey>('binaryScore');
+  const [selectedPairId, setSelectedPairId] = useState<string | null>(null);
   
   const walletLabels = useMemo(() => {
     if (!results.walletVectorsUsed) {
@@ -258,11 +446,23 @@ export const EnhancedKeyInsights = memo(({ results }: EnhancedKeyInsightsProps) 
     });
     
     return combinedData.sort((a, b) => b.pair[sortKey] - a.pair[sortKey]);
-  }, [results, walletLabels]);
+  }, [results, walletLabels, sortKey]);
 
-  const sortedPairs = useMemo(() => {
-    return processedPairs.sort((a, b) => b.pair[sortKey] - a.pair[sortKey]);
-  }, [processedPairs, sortKey]);
+  // Set initial selection to first pair
+  useMemo(() => {
+    if (processedPairs.length > 0 && !selectedPairId) {
+      const firstPairId = generatePairId(processedPairs[0].pair.walletA, processedPairs[0].pair.walletB);
+      setSelectedPairId(firstPairId);
+    }
+  }, [processedPairs.length, selectedPairId]);
+
+  // Find selected pair data
+  const selectedPair = useMemo(() => {
+    if (!selectedPairId) return null;
+    return processedPairs.find(p => 
+      generatePairId(p.pair.walletA, p.pair.walletB) === selectedPairId
+    ) || null;
+  }, [selectedPairId, processedPairs]);
 
   return (
     <Card className="h-full border" aria-label="Key insights and pairwise analysis">
@@ -274,27 +474,51 @@ export const EnhancedKeyInsights = memo(({ results }: EnhancedKeyInsightsProps) 
       </CardHeader>
       <CardContent>
         <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-full mb-4" aria-label="Sort similarity results">
-            <TabsList className="grid w-full grid-cols-2" aria-label="Sorting options">
-                <TabsTrigger value="binaryScore" aria-label="Sort by behavioral similarity score">Sort by Behavioral</TabsTrigger>
-                <TabsTrigger value="capitalScore" aria-label="Sort by capital similarity score">Sort by Capital</TabsTrigger>
-            </TabsList>
+          <TabsList className="grid w-full grid-cols-2" aria-label="Sorting options">
+            <TabsTrigger value="binaryScore" aria-label="Sort by behavioral similarity score">Sort by Behavioral</TabsTrigger>
+            <TabsTrigger value="capitalScore" aria-label="Sort by capital similarity score">Sort by Capital</TabsTrigger>
+          </TabsList>
         </Tabs>
-        {processedPairs.length === 0 ? (
+        
+        {isLoading ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-5">
+              <PairGridSkeleton />
+            </div>
+            <div className="lg:col-span-7">
+              <PairDetailSkeleton />
+            </div>
+          </div>
+        ) : processedPairs.length === 0 ? (
           <div className="flex items-center justify-center h-48">
             <p className="text-muted-foreground">No significant pairs identified based on the current thresholds (score &gt; 0.1).</p>
           </div>
         ) : (
-          <ScrollArea className="h-[60vh] lg:h-[700px] -mx-3" aria-label="Similarity results list">
-             <ul className="space-y-4 px-3">
-                {sortedPairs.map(({ insight, pair }) => (
-                    <InsightCard key={pair.walletA + '-' + pair.walletB} insight={insight} pair={pair} sortKey={sortKey} results={results} />
-                ))}
-            </ul>
-          </ScrollArea>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Master: Pair Grid */}
+            <div className="lg:col-span-5">
+              <PairGrid
+                processedPairs={processedPairs}
+                sortKey={sortKey}
+                selectedPairId={selectedPairId}
+                onSelectPair={setSelectedPairId}
+                isLoading={false}
+              />
+            </div>
+            
+            {/* Detail: Selected Pair Analysis */}
+            <div className="lg:col-span-7">
+              <PairDetail 
+                processedPair={selectedPair} 
+                results={results} 
+                isLoading={false}
+              />
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>
   );
 });
 
-EnhancedKeyInsights.displayName = 'EnhancedKeyInsights'; // Add display name 
+EnhancedKeyInsights.displayName = 'EnhancedKeyInsights'; 
