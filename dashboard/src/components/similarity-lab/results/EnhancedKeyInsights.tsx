@@ -407,7 +407,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
   return (
     <div className="space-y-4">
       {/* Compact Header Section */}
-      <Card className="p-4">
+      <Card className="p-4 border-2 border-slate-600">
         <div className="flex items-start justify-between mb-3">
           <div>
             <h2 className="text-lg font-semibold mb-2">Pair Analysis</h2>
@@ -441,7 +441,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
         </div>
         
         {/* Clean prominent insight */}
-        <div className="bg-muted/30 border border-border rounded-lg p-4 relative overflow-hidden">
+        <div className="bg-muted/30 border-2 border-slate-600 rounded-lg p-4 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-blue-500 to-emerald-500 rounded-l-lg"></div>
           <p className="text-base text-foreground font-semibold leading-relaxed pl-3">
             {realisticInsight}
@@ -450,7 +450,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
       </Card>
 
       {/* Enhanced Similarity Breakdown with Capital Color Coding */}
-      <Card className="p-6">
+      <Card className="p-6 border-2 border-slate-600">
         <h3 className="text-xl font-semibold mb-6">Similarity Breakdown</h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -562,7 +562,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
 
       {/* Shared Tokens Table with Local Sort Controls */}
       {sortedSharedTokens.length > 0 && (
-        <Card className="p-6">
+        <Card className="p-6 border-2 border-slate-600">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
               <h3 className="text-xl font-semibold">Top 10 Shared Tokens</h3>
