@@ -65,9 +65,21 @@ export const ANALYSIS_EXECUTION_CONFIG = {
 
 // Database configuration
 export const DB_CONFIG = {
-  batchSize: 100,
+  batchSize: 100, // General purpose batch size
+  analysisBatchSize: 50, // Optimized for AnalysisResult upserts
+  swapInputBatchSize: 250, // Larger batches for simple inserts
   maxRetries: 3,
-  retryDelayMs: 1000
+  retryDelayMs: 1000,
+  transactionTimeout: 30000, // 30 seconds for large transactions
+  // SQLite-specific optimizations
+  sqlite: {
+    pragmas: {
+      journal_mode: 'WAL', // Write-Ahead Logging for better concurrency
+      synchronous: 'NORMAL', // Balance between safety and performance
+      cache_size: 10000, // 10MB cache
+      temp_store: 'MEMORY', // Store temporary data in memory
+    }
+  }
 } as const;
 
 export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';

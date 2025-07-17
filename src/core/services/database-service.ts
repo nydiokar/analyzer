@@ -21,8 +21,9 @@ import { createLogger } from 'core/utils/logger'; // Assuming createLogger funct
 import zlib from 'zlib'; // Added zlib
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
-import { NotFoundException, InternalServerErrorException, Injectable, ConflictException } from '@nestjs/common';
+import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger } from '@nestjs/common';
 import { WalletAnalysisStatus } from '@/types/wallet';
+import { DB_CONFIG } from '../../config/constants';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -1752,6 +1753,54 @@ export class DatabaseService {
         } catch (error) {
             this.logger.error(`Error upserting WalletBehaviorProfile for wallet ${walletAddress}:`, { error });
             return null;
+        }
+    }
+
+    /**
+     * Efficiently batch upserts AnalysisResult records for better performance.
+     * Uses transactions to group operations and reduce database round trips.
+     * @param results Array of AnalysisResult data to upsert
+     * @returns Promise that resolves when all records are processed
+     */
+    async batchUpsertAnalysisResults(results: any[]): Promise<void> {
+        if (results.length === 0) {
+            this.logger.debug('No AnalysisResult records to upsert.');
+            return;
+        }
+
+        this.logger.debug(`Batch upserting ${results.length} AnalysisResult records...`);
+        
+        const batchSize = DB_CONFIG.analysisBatchSize; // Use the optimized batch size for analysis results
+        let totalProcessed = 0;
+
+        try {
+            for (let i = 0; i < results.length; i += batchSize) {
+                const batch = results.slice(i, i + batchSize);
+                
+                // Use transaction for batch processing
+                await this.prismaClient.$transaction(
+                    batch.map(record => 
+                        this.prismaClient.analysisResult.upsert({
+                            where: { 
+                                walletAddress_tokenAddress: { 
+                                    walletAddress: record.walletAddress, 
+                                    tokenAddress: record.tokenAddress 
+                                }
+                            },
+                            create: record,
+                            update: record,
+                        })
+                    )
+                );
+                
+                totalProcessed += batch.length;
+                this.logger.debug(`Processed batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(results.length / batchSize)} (${totalProcessed}/${results.length} records)`);
+            }
+            
+            this.logger.info(`Successfully batch upserted ${totalProcessed} AnalysisResult records.`);
+        } catch (error) {
+            this.logger.error(`Error during batch upsert of AnalysisResult records:`, { error, totalProcessed });
+            throw error;
         }
     }
 

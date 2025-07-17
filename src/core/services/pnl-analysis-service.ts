@@ -350,14 +350,10 @@ export class PnlAnalysisService {
                     balanceDecimals: r.balanceDecimals,
                     balanceFetchedAt: r.balanceFetchedAt,
                 }));
-                for (const record of resultsToUpsert) {
-                    await prisma.analysisResult.upsert({
-                        where: { walletAddress_tokenAddress: { walletAddress: record.walletAddress, tokenAddress: record.tokenAddress }},
-                        create: record,
-                        update: record,
-                    });
-                }
-                logger.info(`[PnlAnalysis] Upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
+
+                // Use the optimized batch upsert method for better performance
+                await this.databaseService.batchUpsertAnalysisResults(resultsToUpsert);
+                logger.info(`[PnlAnalysis] Batch upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
 
                 // DEACTIVATED: The enrichment process is now triggered from the frontend to decouple it from the main analysis pipeline.
                 // if (this.tokenInfoService) {
