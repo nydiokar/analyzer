@@ -349,6 +349,10 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
   const sharedBehavioralPctA = totalBinaryTokensA > 0 ? (binarySharedTokenCount / totalBinaryTokensA) * 100 : 0;
   const sharedBehavioralPctB = totalBinaryTokensB > 0 ? (binarySharedTokenCount / totalBinaryTokensB) * 100 : 0;
   
+  // Calculate total unique tokens (union) between both wallets
+  const totalUniqueBinaryTokens = totalBinaryTokensA + totalBinaryTokensB - binarySharedTokenCount;
+  const totalUniqueCapitalTokens = totalCapitalTokensA + totalCapitalTokensB - capitalSharedTokenCount;
+  
   const { capitalOverlapPctA, capitalOverlapPctB } = useMemo(() => {
     let capitalOverlapA = 0;
     let capitalOverlapB = 0;
@@ -476,7 +480,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
             
             <div className="bg-muted/30 rounded-lg p-3 text-sm">
               <div className="text-muted-foreground">
-                <strong>{binarySharedTokenCount}/{totalBinaryTokensA + totalBinaryTokensB}</strong> shared tokens
+                <strong>{binarySharedTokenCount} shared tokens / {totalUniqueBinaryTokens} unique tokens</strong> 
                 <br />
                 <TooltipProvider>
                   <Tooltip>
@@ -493,8 +497,8 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                     </TooltipTrigger>
                     <TooltipContent className="max-w-sm">
                       <p>
-                        Out of <strong>{totalBinaryTokensA}</strong> and <strong>{totalBinaryTokensB}</strong> total tokens respectively. 
-                        Shows what percentage of each wallet's portfolio consists of shared tokens.
+                        Portfolio overlap shows what percentage of each wallet's invested capital is in these shared tokens
+                        (<strong>{totalBinaryTokensA}</strong> and <strong>{totalBinaryTokensB}</strong> tokens respectively).
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -531,8 +535,8 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
             
             <div className="bg-muted/30 rounded-lg p-3 text-sm">
               <div className="text-muted-foreground">
-                <strong>{capitalSharedTokenCount}/{totalCapitalTokensA + totalCapitalTokensB}</strong> shared positions
-                <br />
+              <strong>{capitalSharedTokenCount} shared positions / {totalUniqueCapitalTokens} unique positions</strong> 
+              <br />
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -548,8 +552,8 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                     </TooltipTrigger>
                     <TooltipContent className="max-w-sm">
                       <p>
-                        Out of <strong>{totalCapitalTokensA}</strong> and <strong>{totalCapitalTokensB}</strong> tokens with capital allocation respectively. 
-                        Shows what percentage of each wallet's invested capital is in shared tokens.
+                        Capital overlap shows what percentage of each wallet's capital is allocated into these shared tokens
+                        (<strong>{totalCapitalTokensA}</strong> and <strong>{totalCapitalTokensB}</strong> tokens respectively).
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -578,7 +582,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
               </div>
             </div>
             <div className="text-sm text-muted-foreground">
-              {sharedTokens.length}/{Math.max(totalBinaryTokensA + totalBinaryTokensB, totalCapitalTokensA + totalCapitalTokensB)} tokens analyzed
+              {sharedTokens.length}/{Math.max(totalUniqueBinaryTokens, totalUniqueCapitalTokens)} tokens analyzed
             </div>
           </div>
           

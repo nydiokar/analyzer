@@ -234,7 +234,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                   </div>
                 }
                 icon={<TrendingUp className="h-6 w-6" strokeWidth={1.5} />} 
-                tooltipContent={`${topTokenName} makes up this much of the group's total capital.`}
+                tooltipContent={`'${topTokenName}' makes up this much of the group's current total capital.`}
               />
           </div>
           
