@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { SimilarityAnalysisConfig } from '@/types/analysis';   
-import { SimilarityMetrics } from '@/types/similarity';   
+import { SingleSimilarityResult } from '@/types/similarity';   
 import { DatabaseService } from 'core/services/database-service'; 
 import { SimilarityService } from 'core/analysis/similarity/similarity-service'; 
 import { ReportingService } from 'core/reporting/reportGenerator'; 
@@ -114,7 +114,7 @@ async function runSimilarityAnalysisScript(
     // ---- End Fetch Wallet Balances ----
 
     // 2. Run Analysis via Service
-    let analysisResults: SimilarityMetrics | null = null;
+    let analysisResults: SingleSimilarityResult | null = null;
     try {
         analysisResults = await similarityService.calculateWalletSimilarity(
             walletAddresses,

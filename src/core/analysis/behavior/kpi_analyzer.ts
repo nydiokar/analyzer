@@ -12,7 +12,7 @@ export class KPIComparisonAnalyzer {
 
     constructor() {
         this.logger = createLogger('KPIComparisonAnalyzer');
-        this.logger.info('KPIComparisonAnalyzer instantiated');
+        this.logger.debug('KPIComparisonAnalyzer instantiated');
     }
 
     /**

@@ -26,7 +26,7 @@ export class PnlAnalysisService {
       this.heliusApiClient, 
       this.tokenInfoService
     );
-    this.logger.log('CorePnlAnalysisService instantiated within NestJS PnlAnalysisService wrapper.');
+    this.logger.debug('CorePnlAnalysisService instantiated within NestJS PnlAnalysisService wrapper.');
   }
 
   // Expose methods from the core service

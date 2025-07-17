@@ -35,12 +35,22 @@ export class TokenInfoService implements ITokenInfoService {
     });
 
 
-    // This is a fire-and-forget call. We don't await it.
-    this.dexscreenerService.fetchAndSaveTokenInfo(newTokensToFetch);
+    // This is no longer fire-and-forget. We must await completion.
+    await this.dexscreenerService.fetchAndSaveTokenInfo(newTokensToFetch);
   }
 
   async findMany(tokenAddresses: string[]) {
     return this.db.findManyTokenInfo(tokenAddresses);
+  }
+
+  /**
+   * Finds multiple TokenInfo records but only returns a partial set of fields.
+   * This is optimized for the similarity lab's "skeleton" load and does not
+   * affect the ITokenInfoService interface.
+   */
+  async findManyPartial(tokenAddresses: string[]) {
+    // This method is not part of the ITokenInfoService interface
+    return this.db.findManyTokenInfoPartial(tokenAddresses);
   }
 
   async upsertMany(data: Prisma.TokenInfoCreateInput[]) {

@@ -47,6 +47,8 @@ interface DexScreenerPair {
 export class DexscreenerService {
     private readonly baseUrl = 'https://api.dexscreener.com/latest';
     private httpService: HttpService;
+    private solPriceCache: { price: number; timestamp: number } | null = null;
+    private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
     constructor(
         private readonly databaseService: DatabaseService,
@@ -68,28 +70,30 @@ export class DexscreenerService {
                 const response = await firstValueFrom(this.httpService.get(url));
                 const pairs: DexScreenerPair[] = response.data?.pairs || [];
 
-
                 const tokenInfoFromPairs = this.transformPairsToTokenInfo(pairs, chunk);
-                const foundAddresses = new Set(tokenInfoFromPairs.map(t => t.tokenAddress));
                 
-                const notFoundAddresses = chunk.filter(addr => !foundAddresses.has(addr));
+                // --- OPTIMIZATION: Bulk Upsert and Placeholder Creation ---
 
-                const finalUpserts: Prisma.TokenInfoCreateInput[] = [...tokenInfoFromPairs];
-
-                if (notFoundAddresses.length > 0) {
-                    logger.warn(`Chunk ${index + 1}: Could not find metadata for ${notFoundAddresses.length} tokens. Creating placeholders to prevent re-fetching.`);
-                    for (const addr of notFoundAddresses) {
-                        finalUpserts.push({
-                            tokenAddress: addr,
-                            name: 'Unknown Token',
-                            symbol: addr.slice(0, 4) + '...' + addr.slice(-4),
-                        });
-                    }
+                // 1. Upsert all found tokens. This updates existing ones and creates new ones found via API.
+                if (tokenInfoFromPairs.length > 0) {
+                    await this.databaseService.upsertManyTokenInfo(tokenInfoFromPairs);
+                    logger.info(`Saved/updated ${tokenInfoFromPairs.length} token records from API for chunk ${index + 1}.`);
                 }
 
-                if (finalUpserts.length > 0) {
-                    await this.databaseService.upsertManyTokenInfo(finalUpserts);
-                    logger.info(`Saved/updated ${finalUpserts.length} token records for chunk ${index + 1}.`);
+                // 2. Efficiently create placeholders for any tokens not found by the API.
+                const foundAddresses = new Set(tokenInfoFromPairs.map(t => t.tokenAddress));
+                const notFoundAddresses = chunk.filter(addr => !foundAddresses.has(addr));
+
+                if (notFoundAddresses.length > 0) {
+                    logger.warn(`Chunk ${index + 1}: ${notFoundAddresses.length} tokens not found via API. Creating placeholders.`);
+                    const placeholderData = notFoundAddresses.map(addr => ({
+                        tokenAddress: addr,
+                        name: 'Unknown Token',
+                        symbol: addr.slice(0, 4) + '...' + addr.slice(-4),
+                        dexscreenerUpdatedAt: new Date(), // Mark as checked
+                    }));
+                    // Use the existing, robust upsertMany method for placeholders.
+                    await this.databaseService.upsertManyTokenInfo(placeholderData);
                 }
                 
                 processedCount += chunk.length;
@@ -100,11 +104,105 @@ export class DexscreenerService {
                     logger.error('An unknown error occurred while fetching token data for chunk.', error);
                 }
             } finally {
-                // Wait for 200ms after each request to stay within the 300 requests/minute limit
-                await sleep(200);
+                // Wait for 1000ms after each request to stay within the 300 requests/minute limit
+                await sleep(1000);
             }
         }
         logger.info(`Finished DexScreener enrichment job. Processed approximately ${processedCount} out of ${tokenAddresses.length} requested tokens.`);
+    }
+
+    async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
+        if (tokenAddresses.length === 0) {
+            return new Map();
+        }
+        const prices = new Map<string, number>();
+        const chunks = this.chunkArray(tokenAddresses, 30);
+
+        for (const chunk of chunks) {
+            try {
+                const url = `${this.baseUrl}/dex/tokens/${chunk.join(',')}`;
+                const response = await firstValueFrom(this.httpService.get(url));
+                const pairs: DexScreenerPair[] = response.data?.pairs || [];
+
+                for (const pair of pairs) {
+                    if (pair.priceUsd && pair.baseToken.address && !prices.has(pair.baseToken.address)) {
+                        prices.set(pair.baseToken.address, parseFloat(pair.priceUsd));
+                    }
+                }
+            } catch (error) {
+                logger.error('Failed to fetch token prices for chunk.', error);
+            } finally {
+                await sleep(1000);
+            }
+        }
+        return prices;
+    }
+
+    async getSolPrice(): Promise<number> {
+        // Check if cached price is still valid
+        if (this.solPriceCache && Date.now() - this.solPriceCache.timestamp < this.CACHE_DURATION) {
+            logger.debug(`Using cached SOL price: $${this.solPriceCache.price}`);
+            return this.solPriceCache.price;
+        }
+
+        // Multiple high-volume SOL pairs as backup sources - SOL is too liquid to not have price data
+        const solPairSources = [
+            {
+                name: 'Meteora SOL/USDC DLMM',
+                pairId: 'HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR',
+                volume: '$13M+' 
+            },
+            {
+                name: 'Raydium SOL/USDC CLMM', 
+                pairId: 'CYbD9RaToYMtWKA7QZyoLahnHdWq553Vm62Lh6qWtuxq',
+                volume: '$7M+'
+            },
+            {
+                name: 'Orca SOL/USDC Whirlpool',
+                pairId: '4HppGTweoGQ8ZZ6UcCgwJKfi5mJD9Dqwy6htCpnbfBLW', 
+                volume: '$5.5M+'
+            },
+            {
+                name: 'Meteora SOL/USDC Large Pool',
+                pairId: 'BGm1tav58oGcsQJehL9WXBFXf7D27vZsKefj4xJKD5Y',
+                volume: '$12M+'
+            }
+        ];
+
+        for (const source of solPairSources) {
+            try {
+                const url = `${this.baseUrl}/dex/pairs/solana/${source.pairId}`;
+                const response = await firstValueFrom(this.httpService.get(url));
+                const pair = response.data?.pair;
+                
+                if (pair && pair.priceUsd) {
+                    const solPrice = parseFloat(pair.priceUsd);
+                    
+                    // Sanity check: SOL price should be reasonable ($50-$500 range)
+                    if (solPrice >= 50 && solPrice <= 500) {
+                        // Cache the price
+                        this.solPriceCache = {
+                            price: solPrice,
+                            timestamp: Date.now()
+                        };
+                        
+                        logger.debug(`Successfully fetched SOL price from ${source.name}: $${solPrice}`);
+                        return solPrice;
+                    } else {
+                        logger.warn(`${source.name} returned unreasonable SOL price: $${solPrice}, trying next source`);
+                    }
+                } else {
+                    logger.warn(`${source.name} returned no price data, trying next source`);
+                }
+            } catch (error) {
+                logger.warn(`Failed to fetch SOL price from ${source.name}: ${error instanceof Error ? error.message : error}, trying next source`);
+            }
+        }
+
+        // If all sources fail, this is a critical system error
+        const errorMsg = 'CRITICAL: All SOL price sources failed - this should never happen for such a liquid asset';
+        logger.error(errorMsg);
+        throw new Error(errorMsg);
     }
 
     private transformPairsToTokenInfo(pairs: DexScreenerPair[], requestedAddresses: string[]): Prisma.TokenInfoCreateInput[] {

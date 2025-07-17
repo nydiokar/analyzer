@@ -23,6 +23,25 @@ export const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxAP
 
 export const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 
+// Transaction mapping configuration
+export const TRANSACTION_MAPPING_CONFIG = {
+  // Jito MEV protection filtering
+  ENABLE_JITO_FILTERING: true, // Set to false to include bot transactions without Jito protection
+  JITO_PROGRAM_PREFIX: 'jitodontfront',
+  
+  // Bot transaction handling
+  BOT_DETECTION_ENABLED: true,
+  BOT_TRANSACTION_HANDLING: 'include' as 'include' | 'exclude' | 'mark', // How to handle suspected bot transactions
+  
+  // Dust filtering thresholds
+  NATIVE_SOL_LAMPORT_THRESHOLD: 100000, // 0.0001 SOL
+  SOL_DUST_TRANSFER_THRESHOLD: 0.001, // 0.001 SOL
+  
+  // Bot activity thresholds
+  HIGH_FREQUENCY_THRESHOLD: 10, // transactions
+  MICRO_TRANSACTION_SOL_THRESHOLD: 0.1, // SOL value
+} as const;
+
 // Analysis configuration
 export const CLUSTERING_CONFIG = {
   excludedMints: DEFAULT_EXCLUDED_MINTS,
@@ -39,11 +58,32 @@ export const CLUSTERING_CONFIG = {
   MAX_DAILY_TOKENS_FOR_FILTER: 50 // From activityCorrelator.ts for bot filtering
 } as const;
 
+export const ANALYSIS_EXECUTION_CONFIG = {
+  SIMILARITY_LAB_MAX_SIGNATURES: 200,
+  DASHBOARD_MAX_SIGNATURES: 2000,
+} as const;
+
 // Database configuration
 export const DB_CONFIG = {
   batchSize: 100,
   maxRetries: 3,
   retryDelayMs: 1000
-} as const; 
+} as const;
 
 export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+// Performance configuration for Helius API
+export const HELIUS_CONFIG = {
+  DEFAULT_RPS: 25, // Requests per second (adjust based on your Helius plan)
+  INTERNAL_CONCURRENCY: 5, // Concurrent batches for transaction detail fetching (reduced from 5)
+  BATCH_SIZE: 100, // Signatures per batch request
+} as const;
+
+// Queue and processing configuration
+export const PROCESSING_CONFIG = {
+  WALLET_SYNC_CONCURRENCY: 3, // Number of wallets that can sync simultaneously
+  BATCH_PROCESSING_TIMEOUT_MS: 30 * 60 * 1000, // 30 minutes
+  FAILURE_THRESHOLD: 0.8, // 80% success rate required
+  RETRY_ATTEMPTS: 1,
+  RETRY_DELAY_MS: 2000
+} as const;

@@ -1,19 +1,20 @@
 import { createLogger } from '@/core/utils/logger';
 import { Prisma } from '@prisma/client';
 import { HeliusTransaction, TokenTransfer } from '@/types/helius-api';
+import { TRANSACTION_MAPPING_CONFIG } from '../../config/constants';
 
 const logger = createLogger('HeliusTransactionMapper');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const LAMPORTS_PER_SOL = 1e9;
-const NATIVE_SOL_LAMPORT_THRESHOLD = 100000; // Filter out dust native SOL transfers (0.0001 SOL)
+const NATIVE_SOL_LAMPORT_THRESHOLD = TRANSACTION_MAPPING_CONFIG.NATIVE_SOL_LAMPORT_THRESHOLD;
 const FEE_PRECISION_THRESHOLD = 0.000000001; // Avoid assigning near-zero fees
 const FEE_TRANSFER_THRESHOLD_SOL = 0.1; // Heuristic: Native transfers OUT below this are considered fees/tips
 // const TOKEN_FEE_AMOUNT_MATCH_TOLERANCE = 0.001; // 0.1% tolerance for matching token fee amounts (commented out as we are trying a new heuristic)
 const TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD = 0.05; // 5% - Heuristic for mapper-level fee identification
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL = 0.1; // Min SOL value for fee-payer heuristic
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC = 1.0; // Min USDC value for fee-payer heuristic
-const SOL_DUST_TRANSFER_THRESHOLD = 0.001; // Standalone SOL transfers below this will be filtered from final output
+const SOL_DUST_TRANSFER_THRESHOLD = TRANSACTION_MAPPING_CONFIG.SOL_DUST_TRANSFER_THRESHOLD;
 
 // --- Add MappingStats Interface ---
 /**
@@ -341,23 +342,25 @@ export function mapHeliusTransactionsToIntermediateRecords(
       continue;
     }
 
-    // --- Jito MEV Protection Heuristic ---
+    // --- Jito MEV Protection Heuristic (Configurable) ---
     // If a transaction is of type UNKNOWN, we apply a heuristic to check if it's a real swap.
     // Legitimate swaps, especially those trying to avoid front-running, often use MEV protection
     // like Jito. Liquidity add/remove operations typically do not.
-    const interactionTypeForCheck = tx.type?.toUpperCase() || 'UNKNOWN';
-    if (interactionTypeForCheck === 'UNKNOWN') {
-      const JITO_PROGRAM_PREFIX = 'jitodontfront';
-      const isJitoInteraction = (tx.instructions || []).some(
-        (instruction) =>
-          instruction.programId.startsWith(JITO_PROGRAM_PREFIX) ||
-          (instruction.accounts || []).some((acc) => acc.startsWith(JITO_PROGRAM_PREFIX)),
-      );
+    // like Jito. However, legitimate bot/arbitrage activity might not use Jito protection.
+    if (TRANSACTION_MAPPING_CONFIG.ENABLE_JITO_FILTERING) {
+      const interactionTypeForCheck = tx.type?.toUpperCase() || 'UNKNOWN';
+      if (interactionTypeForCheck === 'UNKNOWN') {
+        const isJitoInteraction = (tx.instructions || []).some(
+          (instruction) =>
+            instruction.programId.startsWith(TRANSACTION_MAPPING_CONFIG.JITO_PROGRAM_PREFIX) ||
+            (instruction.accounts || []).some((acc) => acc.startsWith(TRANSACTION_MAPPING_CONFIG.JITO_PROGRAM_PREFIX)),
+        );
 
-      if (!isJitoInteraction) {
-        // logger.info(`Skipping UNKNOWN tx ${tx.signature} due to no Jito interaction, likely liquidity op.`);
-        mappingStats.unknownTxSkippedNoJito++;
-        continue; // Skip this transaction entirely.
+        if (!isJitoInteraction) {
+          logger.debug(`Skipping UNKNOWN tx ${tx.signature} due to no Jito interaction (filtering enabled)`);
+          mappingStats.unknownTxSkippedNoJito++;
+          continue; // Skip this transaction entirely.
+        }
       }
     }
     // --- End Jito MEV Protection Heuristic ---

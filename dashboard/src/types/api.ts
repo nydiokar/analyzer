@@ -27,6 +27,7 @@ export interface WalletSummaryData {
   latestPnl?: number | null; // Moved from keyPerformanceIndicators
   tokenWinRate?: number | null; // Moved from keyPerformanceIndicators
   behaviorClassification: string | null; // High-level classification from BehaviorService
+  classification?: string | null; // Wallet classification: 'normal', 'high_frequency', 'unknown'
   rawAdvancedStats?: AdvancedStatsResult; // Full raw object for more detail if needed by client
   rawBehaviorMetrics?: BehaviorMetrics; // Full raw object for more detail if needed by client
   currentSolBalance?: number | null;
@@ -169,9 +170,15 @@ export interface TokenPerformanceDataDto {
 
   // Unrealized P&L calculations for current holdings
   currentHoldingsValueUsd?: number | null;
+  currentHoldingsValueSol?: number | null;
   unrealizedPnlUsd?: number | null;
   unrealizedPnlSol?: number | null;
   totalPnlSol?: number | null;
+
+  // PNL breakdown and percentage indicators
+  realizedPnlSol?: number | null;
+  realizedPnlPercentage?: number | null;
+  unrealizedPnlPercentage?: number | null;
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts
@@ -214,4 +221,23 @@ export interface FavoriteWallet {
   walletAddress: string;
   tag: string | null;
   createdAt: string;
-} 
+}
+
+// --- Job Status Types ---
+// Based on src/api/jobs/dto/job-status.dto.ts
+export interface JobStatusResponseDto {
+  id: string;
+  name: string;
+  queue: string;
+  status: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed' | 'paused';
+  progress: number | object;
+  data: any;
+  result?: any;
+  error?: string;
+  createdAt: string; // ISO Date string
+  processedAt?: string; // ISO Date string
+  finishedAt?: string; // ISO Date string
+  attempts: number;
+  maxAttempts: number;
+  remainingTime?: number;
+}

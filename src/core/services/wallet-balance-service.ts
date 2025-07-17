@@ -1,41 +1,50 @@
-import { HeliusApiClient } from 'core/services/helius-api-client';
+import { HeliusApiClient } from './helius-api-client';
 import { TokenBalanceDetails, WalletBalance } from '@/types/wallet';
 import { GetMultipleAccountsResult, GetTokenAccountsByOwnerResult, TokenAccount } from '@/types/helius-api';
 import { createLogger } from 'core/utils/logger';
 import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 import { formatLargeNumber } from 'core/utils/number-formatting';
+import { TokenInfoService } from '../../api/token-info/token-info.service';
+import { TokenInfo } from '@prisma/client';
 
 const logger = createLogger('WalletBalanceService');
 const SOL_DECIMALS = 9;
 
 /**
- * Service responsible for fetching SOL and SPL token balances for wallet addresses.
- * It uses the HeliusApiClient to interact with the Solana RPC.
+ * Service for fetching LIVE, on-chain SOL and SPL token balances.
+ * This is the primary tool for any feature needing an immediate, real-time
+ * snapshot of a wallet's current holdings.
  */
 export class WalletBalanceService {
   private heliusClient: HeliusApiClient;
+  private tokenInfoService?: TokenInfoService;
 
   /**
    * Constructs an instance of the WalletBalanceService.
    *
    * @param heliusClient An instance of HeliusApiClient to use for RPC calls.
+   * @param tokenInfoService An instance of TokenInfoService to fetch token metadata.
    */
-  constructor(heliusClient: HeliusApiClient) {
+  constructor(
+    heliusClient: HeliusApiClient,
+    tokenInfoService?: TokenInfoService
+  ) {
     this.heliusClient = heliusClient;
+    this.tokenInfoService = tokenInfoService;
   }
 
   /**
-   * Fetches the SOL and SPL token balances for a list of wallet addresses.
-   * Batches requests to `getMultipleAccounts` for SOL balances if more than 100 wallet addresses are provided.
-   * Fetches SPL token balances for each wallet sequentially using `getTokenAccountsByOwner`.
+   * Fetches the SOL and SPL token balances for a list of wallet addresses WITHOUT token metadata.
+   * This is optimized for speed and should be used when you need raw balances quickly.
+   * Use enrichWalletBalancesWithMetadata() separately if you need token metadata.
    *
    * @param walletAddresses An array of public key strings for the wallets.
    * @param commitment Optional. The commitment level to use for RPC calls (e.g., "finalized", "confirmed").
    * @returns A Promise resolving to a Map where keys are wallet addresses (string) and values are `WalletBalance` objects.
-   *          Each `WalletBalance` object contains the SOL balance, an array of token balances, and the timestamp when balances were fetched.
+   *          Each `WalletBalance` object contains the SOL balance, an array of token balances (without metadata), and the timestamp when balances were fetched.
    *          If a wallet address cannot be processed, its entry might have default/zero balances.
    */
-  public async fetchWalletBalances(
+  public async fetchWalletBalancesRaw(
     walletAddresses: string[],
     commitment?: string
   ): Promise<Map<string, WalletBalance>> {
@@ -43,11 +52,12 @@ export class WalletBalanceService {
       return new Map();
     }
 
-    logger.info(`Fetching wallet balances for ${walletAddresses.length} addresses. Commitment: ${commitment || 'default'}`);
+    logger.info(`Fetching RAW wallet balances for ${walletAddresses.length} addresses. Commitment: ${commitment || 'default'}`);
+
+    // Initialize WalletBalance for all requested addresses to ensure all are present in the map  
     const walletBalances = new Map<string, WalletBalance>();
     const fetchedAt = new Date();
-
-    // Initialize WalletBalance for all requested addresses to ensure all are present in the map
+    
     for (const address of walletAddresses) {
       walletBalances.set(address, {
         solBalance: 0, // Default to 0, will be updated
@@ -75,20 +85,14 @@ export class WalletBalanceService {
             const existingBalance = walletBalances.get(address);
             if (existingBalance) {
               existingBalance.solBalance = solBalance;
-            } else {
-              walletBalances.set(address, {
-                solBalance,
-                tokenBalances: [],
-                fetchedAt,
-              });
             }
           } else {
             logger.warn(`No SOL balance account info found for address: ${address} in batch.`);
           }
         });
       } catch (error: any) {
-        logger.error(`Error fetching SOL balances for batch (offset ${i}, ${batchAddresses.length} addresses): ${error.message || error}`);
-        // For addresses in this failed batch, SOL balance will remain 0 or its default.
+        logger.warn(`Error fetching SOL balances for batch (offset ${i}, ${batchAddresses.length} addresses):`, error);
+        // For addresses in this failed batch, SOL balance will remain 0 or its default
       }
     }
 
@@ -131,11 +135,7 @@ export class WalletBalanceService {
                     uiBalance: parsedInfo.tokenAmount.uiAmount,
                     uiBalanceString: formatLargeNumber(parsedInfo.tokenAmount.uiAmount),
                     });
-                } else {
-                    logger.warn(`Token account ${tokenAccount.pubkey} for owner ${address} has parsed data but missing tokenAmount or info.`);
                 }
-            } else {
-                logger.warn(`Token account ${tokenAccount.pubkey} for owner ${address} does not have jsonParsed data as expected. Encoding might have been incorrect or account is not a standard token account.`);
             }
           });
         }
@@ -143,21 +143,85 @@ export class WalletBalanceService {
         const existingBalance = walletBalances.get(address);
         if (existingBalance) {
           existingBalance.tokenBalances = tokenBalances;
-        } else {
-          logger.warn(`Wallet balance for ${address} was not pre-initialized for token balances. This is unexpected.`);
-          walletBalances.set(address, {
-            solBalance: 0, 
-            tokenBalances,
-            fetchedAt,
-          });
         }
       } catch (error: any) {
-        logger.error(`Error fetching token balances for address ${address}: ${error.message || error}`);
-        // Token balances for this address will remain empty or its default.
+        logger.warn(`Error fetching token balances for address ${address}:`, error);
+        // Token balances for this address will remain empty []
       }
     }
 
-    logger.info(`Successfully processed wallet balance fetching for ${walletAddresses.length} addresses.`);
+    logger.info(`Successfully processed RAW wallet balance fetching for ${walletAddresses.length} addresses (no metadata).`);
     return walletBalances;
+  }
+
+  /**
+   * Enriches existing wallet balances with token metadata.
+   * This method takes raw balances and adds name, symbol, and imageUrl metadata.
+   * 
+   * @param walletBalances The raw wallet balances to enrich
+   * @returns The enriched wallet balances with metadata
+   */
+  public async enrichWalletBalancesWithMetadata(
+    walletBalances: Map<string, WalletBalance>
+  ): Promise<Map<string, WalletBalance>> {
+    if (!this.tokenInfoService) {
+      logger.warn('TokenInfoService not available, returning balances without metadata enrichment');
+      return walletBalances;
+    }
+
+    const allMints = Array.from(walletBalances.values()).flatMap(data => data.tokenBalances.map(t => t.mint));
+    const uniqueMints = [...new Set(allMints)];
+    
+    if (uniqueMints.length === 0) {
+      logger.debug('No tokens found to enrich with metadata');
+      return walletBalances;
+    }
+
+    logger.info(`Enriching ${uniqueMints.length} unique tokens with metadata`);
+    
+    const tokenInfos = await this.tokenInfoService.findMany(uniqueMints);
+    const tokenInfoMap = new Map(tokenInfos.map(info => [info.tokenAddress, info]));
+
+    const enrichedBalances = new Map<string, WalletBalance>();
+    
+    for (const [address, data] of walletBalances.entries()) {
+      const tokenBalancesWithMetadata = data.tokenBalances.map(token => {
+        const metadata = tokenInfoMap.get(token.mint);
+        return {
+          ...token,
+          name: metadata?.name,
+          symbol: metadata?.symbol,
+          imageUrl: metadata?.imageUrl,
+        };
+      });
+
+      enrichedBalances.set(address, {
+        solBalance: data.solBalance,
+        tokenBalances: tokenBalancesWithMetadata,
+        fetchedAt: new Date(),
+      });
+    }
+
+    logger.info(`Successfully enriched wallet balances with metadata for ${enrichedBalances.size} wallets`);
+    return enrichedBalances;
+  }
+
+  /**
+   * Fetches the SOL and SPL token balances for a list of wallet addresses WITH token metadata.
+   * This method combines fetchWalletBalancesRaw() + enrichWalletBalancesWithMetadata().
+   * Use fetchWalletBalancesRaw() for faster initial results, then enrich separately if needed.
+   *
+   * @param walletAddresses An array of public key strings for the wallets.
+   * @param commitment Optional. The commitment level to use for RPC calls (e.g., "finalized", "confirmed").
+   * @returns A Promise resolving to a Map where keys are wallet addresses (string) and values are `WalletBalance` objects.
+   *          Each `WalletBalance` object contains the SOL balance, an array of token balances, and the timestamp when balances were fetched.
+   *          If a wallet address cannot be processed, its entry might have default/zero balances.
+   */
+  public async fetchWalletBalances(
+    walletAddresses: string[],
+    commitment?: string
+  ): Promise<Map<string, WalletBalance>> {
+    const rawBalances = await this.fetchWalletBalancesRaw(walletAddresses, commitment);
+    return await this.enrichWalletBalancesWithMetadata(rawBalances);
   }
 } 

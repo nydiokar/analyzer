@@ -1,11 +1,10 @@
 import { SimilarityAnalysisConfig } from '@/types/analysis';
-import { TokenVector, WalletSimilarity, SimilarityMetrics } from '@/types/similarity';
-import { TransactionData } from '@/types/correlation'; // Import the shared type
+import { TokenVector, SingleSimilarityResult, CorePairwiseResult } from '@/types/similarity';
+import { TransactionData } from '@/types/correlation';
 import { createLogger } from 'core/utils/logger';
-import cosineSimilarity from 'compute-cosine-similarity'; // External dependency
+import cosineSimilarity from 'compute-cosine-similarity';
 
 const logger = createLogger('SimilarityAnalyzer');
-
 
 export class SimilarityAnalyzer {
   private config: SimilarityAnalysisConfig;
@@ -14,97 +13,88 @@ export class SimilarityAnalyzer {
     this.config = config;
   }
 
-  /**
-   * Calculates similarity metrics based on provided transaction data.
-   * This orchestrates vector creation and similarity calculation.
-   * @param walletTransactions - A record mapping wallet addresses to their transaction data.
-   * @param vectorType - The type of vector to create ('capital' or 'binary').
-   * @returns A promise resolving to a SimilarityMetrics object.
-   */
   async calculateSimilarity(
-    walletTransactions: Record<string, TransactionData[]>, // Use imported type    
-    vectorType: 'capital' | 'binary' = 'capital' // Default to capital allocation
-  ): Promise<SimilarityMetrics> {
+    walletTransactions: Record<string, TransactionData[]>,
+    vectorType: 'capital' | 'binary' = 'capital'
+  ): Promise<SingleSimilarityResult> {
     const walletAddresses = Object.keys(walletTransactions).sort();
     logger.info(`Starting similarity analysis for ${walletAddresses.length} wallets using ${vectorType} vectors.`);
 
     if (walletAddresses.length < 2) {
         logger.warn('Less than 2 wallets provided, skipping similarity calculation.');
-        return this.getEmptyMetrics();
+        return this.getEmptyMetrics(vectorType);
     }
 
-    // Determine unique tokens based on the vector type
     const allRelevantMints = this.getAllRelevantMints(walletTransactions, vectorType);
 
     if (allRelevantMints.length === 0) {
         logger.warn(`No relevant tokens found for vector type ${vectorType}. Skipping similarity.`);
-        return this.getEmptyMetrics();
+        return this.getEmptyMetrics(vectorType);
     }
 
-    // 1. Create Vectors
     let walletVectors: Record<string, TokenVector> = {};
     if (vectorType === 'capital') {
         walletVectors = this.createCapitalAllocationVectors(walletTransactions, allRelevantMints);
-    } else { // binary
+    } else {
         walletVectors = this.createBinaryTokenVectors(walletTransactions, allRelevantMints);
     }
 
-    // Filter out wallets that ended up with no vector data
     const walletsWithData = walletAddresses.filter(addr => walletVectors[addr]);
     if (walletsWithData.length < 2) {
         logger.warn('Less than 2 wallets have valid vector data after creation. Skipping similarity matrix calculation.');
-        return this.getEmptyMetrics(walletVectors); // Pass vectors for potential partial metrics
+        return this.getEmptyMetrics(vectorType, walletVectors);
     }
 
-    // 2. Calculate Pairwise Similarity Matrix
     const similarityMatrix = this.calculateCosineSimilarityMatrix(walletVectors, walletsWithData);
-
-    // 3. Aggregate Metrics
-    const metrics = this.aggregateSimilarityMetrics(similarityMatrix, walletVectors, walletsWithData);
+    const uniqueTokensPerWallet = this.calculateUniqueTokensPerWallet(walletVectors);
+    const aggregatedMetrics = this.aggregateSimilarityMetrics(similarityMatrix, walletVectors, walletsWithData, uniqueTokensPerWallet, vectorType);
 
     logger.info('Similarity analysis completed.');
-    return metrics;
+    return {
+        ...aggregatedMetrics,
+        walletVectorsUsed: walletVectors,
+        uniqueTokensPerWallet: uniqueTokensPerWallet,
+        vectorTypeUsed: vectorType,
+    };
   }
 
-  // --- Private Helper Methods (Extracted Logic) ---
-
-  private getEmptyMetrics(vectors?: Record<string, TokenVector>): SimilarityMetrics {
+  private getEmptyMetrics(vectorType: 'capital' | 'binary', vectors: Record<string, TokenVector> = {}): SingleSimilarityResult {
       return {
           pairwiseSimilarities: [],
-          clusters: [], // Clustering logic not implemented here yet
+          clusters: [],
           globalMetrics: {
               averageSimilarity: 0,
               mostSimilarPairs: [],
-              // Add vector count if vectors are provided?
           },
-          // Could add metadata about skipped calculations
+          walletVectorsUsed: vectors,
+          uniqueTokensPerWallet: this.calculateUniqueTokensPerWallet(vectors),
+          vectorTypeUsed: vectorType,
       };
   }
 
-  private getAllRelevantMints(walletTransactions: Record<string, TransactionData[]>, vectorType: 'capital' | 'binary'): string[] { // Use imported type
+  private getAllRelevantMints(walletTransactions: Record<string, TransactionData[]>, vectorType: 'capital' | 'binary'): string[] {
       const mintsSet = new Set<string>();
+      const excluded = new Set(this.config.excludedMints || []);
+
       for (const address in walletTransactions) {
           const txs = walletTransactions[address] || [];
           for (const tx of txs) {
-              // For capital, only consider 'in' transactions for the dimension set
+              if (excluded.has(tx.mint)) {
+                  continue;
+              }
               if (vectorType === 'capital' && tx.direction !== 'in') {
                   continue;
               }
-              // Add mint if it's relevant to the chosen vector type
               mintsSet.add(tx.mint);
           }
       }
       return Array.from(mintsSet).sort();
   }
 
-  /**
-   * Creates token vectors based on the percentage of capital allocated to each token.
-   * Capital allocation is determined by the SOL value of 'buy' (in) transactions.
-   */
   private createCapitalAllocationVectors(
       walletData: Record<string, TransactionData[]>,
-      allUniqueBoughtTokens: string[] // Should only contain tokens that were actually bought by at least one wallet
-  ): Record<string, TokenVector> { // Use imported type
+      allUniqueBoughtTokens: string[]
+  ): Record<string, TokenVector> {
       const vectors: Record<string, TokenVector> = {};
       logger.debug('[createCapitalAllocationVectors] Creating vectors based on % capital allocation...');
 
@@ -115,7 +105,6 @@ export class SimilarityAnalyzer {
           let totalSolInvestedByWallet = 0;
           const solInvestedPerToken: Record<string, number> = {};
 
-          // Initialize vector dimensions
           for (const token of allUniqueBoughtTokens) {
               vectors[walletAddress][token] = 0;
               solInvestedPerToken[token] = 0;
@@ -123,18 +112,16 @@ export class SimilarityAnalyzer {
 
           if (buysForWallet.length === 0) {
               logger.debug(`- Wallet ${walletAddress}: No 'in' transactions for capital allocation vector.`);
-              continue; // Vector remains all zeros
+              continue;
           }
 
-          // Calculate SOL invested per token and total SOL invested for this wallet
           for (const tx of buysForWallet) {
-              if (allUniqueBoughtTokens.includes(tx.mint)) { // Ensure token is part of our defined dimensions
+              if (allUniqueBoughtTokens.includes(tx.mint)) {
                   solInvestedPerToken[tx.mint] = (solInvestedPerToken[tx.mint] || 0) + tx.associatedSolValue;
                   totalSolInvestedByWallet += tx.associatedSolValue;
               }
           }
           
-          // Calculate percentages
           if (totalSolInvestedByWallet > 0) {
               for (const token of allUniqueBoughtTokens) {
                   if (solInvestedPerToken[token] > 0) {
@@ -148,13 +135,10 @@ export class SimilarityAnalyzer {
       return vectors;
   }
 
-  /**
-   * Creates binary token vectors indicating token presence (1 if traded, 0 otherwise).
-   */
   private createBinaryTokenVectors(
       walletData: Record<string, TransactionData[]>,
-      allUniqueTradedTokens: string[] 
-  ): Record<string, TokenVector> { // Use imported type
+      allUniqueTradedTokens: string[]
+  ): Record<string, TokenVector> {
       const vectors: Record<string, TokenVector> = {};
       logger.debug('[createBinaryTokenVectors] Creating vectors based on token presence (1/0)...');
 
@@ -169,21 +153,17 @@ export class SimilarityAnalyzer {
       return vectors;
   }
 
-  /**
-   * Calculates a cosine similarity matrix between wallets based on their token vectors.
-   */
   private calculateCosineSimilarityMatrix(
       walletVectors: Record<string, TokenVector>,
-      walletOrder: string[] // Addresses of wallets with vectors
+      walletOrder: string[]
   ): Record<string, Record<string, number>> {
       const similarityMatrix: Record<string, Record<string, number>> = {};
-      const allTokensInDimension = Object.keys(walletVectors[walletOrder[0]] || {}); // Get dimensions from first vector
+      const allTokensInDimension = Object.keys(walletVectors[walletOrder[0]] || {});
 
       if (allTokensInDimension.length === 0) {
           logger.warn('Cannot calculate cosine similarity matrix with zero dimensions.');
-          // Return empty matrix structure
-           for (const addr of walletOrder) { similarityMatrix[addr] = {}; }
-           return similarityMatrix;
+          for (const addr of walletOrder) { similarityMatrix[addr] = {}; }
+          return similarityMatrix;
       }
 
       for (let i = 0; i < walletOrder.length; i++) {
@@ -200,7 +180,6 @@ export class SimilarityAnalyzer {
               
               const vectorB_raw = walletVectors[walletB_address];
 
-              // Ensure vectors have the same dimensions
               const vectorA: number[] = [];
               const vectorB: number[] = [];
               for (const token of allTokensInDimension) {
@@ -213,10 +192,8 @@ export class SimilarityAnalyzer {
 
               if (isVectorANotZero && isVectorBNotZero) {
                   const sim = cosineSimilarity(vectorA, vectorB);
-                  // Handle potential null/NaN from library
                   similarityMatrix[walletA_address][walletB_address] = sim === null || isNaN(sim) ? 0 : sim;
               } else {
-                  // If one or both vectors are all zeros, similarity is 0
                   similarityMatrix[walletA_address][walletB_address] = 0;
               }
           }
@@ -224,9 +201,6 @@ export class SimilarityAnalyzer {
       return similarityMatrix;
   }
 
-  /**
-   * Calculates Jaccard Similarity between two binary token vectors.
-   */
   private calculateJaccardSimilarity(vectorA: TokenVector, vectorB: TokenVector): number {
     let intersectionSize = 0;
     let unionSize = 0;
@@ -246,74 +220,88 @@ export class SimilarityAnalyzer {
     return unionSize === 0 ? 1 : intersectionSize / unionSize; 
   }
 
-  /**
-   * Aggregates pairwise similarities into the final SimilarityMetrics structure.
-   */
+  private calculateUniqueTokensPerWallet(walletVectors: Record<string, TokenVector>): Record<string, number> {
+    const uniqueTokens: Record<string, number> = {};
+    for (const walletAddress in walletVectors) {
+        const vector = walletVectors[walletAddress];
+        if (vector) {
+            uniqueTokens[walletAddress] = Object.values(vector).filter(v => v > 0).length;
+        } else {
+            uniqueTokens[walletAddress] = 0;
+        }
+    }
+    return uniqueTokens;
+  }
+
   private aggregateSimilarityMetrics(
       similarityMatrix: Record<string, Record<string, number>>,
       walletVectors: Record<string, TokenVector>,
-      walletOrder: string[] // Addresses of wallets included in the matrix
-  ): SimilarityMetrics {
-      const pairwiseSimilarities: WalletSimilarity[] = [];
-      let totalSimilaritySum = 0;
+      walletOrder: string[],
+      uniqueTokensPerWallet: Record<string, number>,
+      vectorType: 'capital' | 'binary'
+  ): Pick<SingleSimilarityResult, 'pairwiseSimilarities' | 'globalMetrics' | 'clusters'> {
+      const pairwiseSimilarities: CorePairwiseResult[] = [];
+      let totalSimilarity = 0;
       let pairCount = 0;
 
       for (let i = 0; i < walletOrder.length; i++) {
-          const walletA = walletOrder[i];
           for (let j = i + 1; j < walletOrder.length; j++) {
+              const walletA = walletOrder[i];
               const walletB = walletOrder[j];
-              const similarityScore = similarityMatrix[walletA]?.[walletB] ?? 0;
+              const score = similarityMatrix[walletA]?.[walletB] ?? 0;
+              
+              const vectorA = walletVectors[walletA];
+              const vectorB = walletVectors[walletB];
 
-              // Extract shared tokens/weights (example for capital allocation)
-              // This part might need adjustment depending on how sharedTokens should be defined
-              const sharedTokens: WalletSimilarity['sharedTokens'] = [];
-              const vectorA = walletVectors[walletA] || {};
-              const vectorB = walletVectors[walletB] || {};
-              const allTokens = new Set([...Object.keys(vectorA), ...Object.keys(vectorB)]);
-              for(const token of allTokens) {
-                  const weightA = vectorA[token] || 0;
-                  const weightB = vectorB[token] || 0;
-                  // Include token if present in either vector (adjust threshold if needed)
-                  if (weightA > 0 || weightB > 0) { 
-                      sharedTokens.push({ mint: token, weightA, weightB });
-                  }
-              }
-              sharedTokens.sort((a, b) => (b.weightA + b.weightB) - (a.weightA + a.weightB)); // Sort by combined weight
+              if (!vectorA || !vectorB) continue;
+
+              const sharedTokensForPair = this.getSharedTokensForPair(vectorA, vectorB);
 
               pairwiseSimilarities.push({
                   walletA,
                   walletB,
-                  similarityScore,
-                  sharedTokens: sharedTokens.slice(0, 10) // Limit displayed shared tokens for brevity?
+                  similarityScore: score,
+                  sharedTokens: sharedTokensForPair,
+                  uniqueTokenCountA: uniqueTokensPerWallet[walletA] || 0,
+                  uniqueTokenCountB: uniqueTokensPerWallet[walletB] || 0,
+                  sharedTokenCount: sharedTokensForPair.length,
               });
-
-              totalSimilaritySum += similarityScore;
+              totalSimilarity += score;
               pairCount++;
           }
       }
 
       pairwiseSimilarities.sort((a, b) => b.similarityScore - a.similarityScore);
 
-      const averageSimilarity = pairCount > 0 ? totalSimilaritySum / pairCount : 0;
-      const mostSimilarPairs = pairwiseSimilarities.slice(0, 10); // Top 10 most similar
+      const averageSimilarity = pairCount > 0 ? totalSimilarity / pairCount : 0;
+      const mostSimilarPairs = pairwiseSimilarities.slice(0, 5);
 
       return {
           pairwiseSimilarities,
-          clusters: [], // Clustering is a separate step
           globalMetrics: {
               averageSimilarity,
               mostSimilarPairs,
-          }
+          },
+          clusters: [],
       };
   }
 
-  // ---- NEW: Method for Current Holdings Presence Vectors ----
-  /**
-   * Creates binary token vectors based on current holdings (1 if token is held with uiBalance > 0, 0 otherwise).
-   * @param walletBalances - A map where keys are wallet addresses and values are their WalletBalance data.
-   * @param allUniqueHeldTokens - An array of all unique token mints currently held across all provided wallets.
-   * @returns A record mapping wallet addresses to their holdings presence TokenVector.
-   */
+  private getSharedTokensForPair(
+      vectorA: TokenVector,
+      vectorB: TokenVector
+  ): { mint: string; weightA: number; weightB: number }[] {
+      const shared = [];
+      const allTokens = new Set([...Object.keys(vectorA), ...Object.keys(vectorB)]);
+      for (const token of allTokens) {
+          const weightA = vectorA[token] || 0;
+          const weightB = vectorB[token] || 0;
+          if (weightA > 0 && weightB > 0) {
+              shared.push({ mint: token, weightA, weightB });
+          }
+      }
+      return shared;
+  }
+
   public createHoldingsPresenceVectors(
     walletBalances: Map<string, import('@/types/wallet').WalletBalance>,
     allUniqueHeldTokens: string[]

@@ -15,8 +15,8 @@ const getDefaultEndDate = () => endOfDay(new Date());
 const getDefaultStartDate = (daysToSubtract: number) => startOfDay(subDays(new Date(), daysToSubtract));
 
 export const useTimeRangeStore = create<TimeRangeState>((set) => ({
-  preset: '1m', // Default to last 1 month
-  startDate: getDefaultStartDate(30),
+  preset: 'all', // Default to all time to show historical data
+  startDate: new Date(2000, 0, 1), // Very early date for 'all' 
   endDate: getDefaultEndDate(),
 
   setPreset: (preset) => {

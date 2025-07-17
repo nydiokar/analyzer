@@ -13,13 +13,14 @@ import { TokenInfoModule } from '../token-info/token-info.module';
 @Module({
   imports: [
     DatabaseModule, // For WalletsController direct use
-    TokenPerformanceModule,
-    BehaviorModule,
-    // Removed: AggregatedMetricsModule,
     PnlOverviewModule,
+    BehaviorModule,
+    TokenPerformanceModule,
+    // Removed: AggregatedMetricsModule,
     TokenInfoModule,
   ],
   controllers: [WalletsController],
+  providers: [],
   // Services are provided within their respective feature modules (TokenPerformanceService, BehaviorService)
   // and made available through exports if needed, or used by the controller via DI.
 }) 

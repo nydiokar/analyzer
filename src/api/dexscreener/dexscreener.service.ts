@@ -21,7 +21,20 @@ export class DexscreenerService {
     if (tokenAddresses.length === 0) {
       return;
     }
-    // Fire-and-forget
-    this.coreDexscreenerService.fetchAndSaveTokenInfo(tokenAddresses);
+    // Await the core service to ensure completion.
+    await this.coreDexscreenerService.fetchAndSaveTokenInfo(tokenAddresses);
+  }
+
+  async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
+    this.logger.debug(`[NestWrapper] Passing ${tokenAddresses.length} tokens to core service for price fetching.`);
+    if (tokenAddresses.length === 0) {
+      return new Map();
+    }
+    return this.coreDexscreenerService.getTokenPrices(tokenAddresses);
+  }
+
+  async getSolPrice(): Promise<number> {
+    this.logger.debug('[NestWrapper] Fetching SOL price from DexScreener');
+    return this.coreDexscreenerService.getSolPrice();
   }
 } 

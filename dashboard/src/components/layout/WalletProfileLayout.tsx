@@ -18,7 +18,8 @@ import {
   Users,           // Behavioral Patterns (could also be Zap or ActivitySquare)
   FileText,        // Notes
   RefreshCw,     // Added for the refresh button
-  Star           // Added Star icon for favorites
+  Star,          // Added Star icon for favorites
+  Bot            // Added for high-frequency indicator
 } from 'lucide-react' 
 import { toast } from 'sonner';
 import {
@@ -85,6 +86,10 @@ export default function WalletProfileLayout({
       refreshInterval: isPolling ? 5000 : 0, // Poll every 5s when isPolling is true
     }
   );
+
+  // CRITICAL FIX: Add validation to prevent stale SWR data from causing errors.
+  // This ensures that the rendered data actually belongs to the wallet address in the URL.
+  const isValidData = walletSummary && walletSummary.walletAddress === walletAddress;
 
   useEffect(() => {
     // This effect handles the completion of polling
@@ -213,8 +218,9 @@ export default function WalletProfileLayout({
     });
 
     try {
-      await fetcher(`/analyses/wallets/${walletAddress}/trigger-analysis`, {
+      await fetcher('/analyses/wallets/trigger-analysis', {
         method: 'POST',
+        body: JSON.stringify({ walletAddresses: [walletAddress] }),
       });
       
       setIsPolling(true); // Start polling for summary updates
@@ -321,8 +327,34 @@ export default function WalletProfileLayout({
     </div>
   );
 
+  // Render based on error state
+  if (summaryError) {
+    return (
+        <div className="flex items-center justify-center h-screen">
+            <div className="text-center p-8 bg-card rounded-lg shadow-lg">
+                <h1 className="text-2xl font-bold text-destructive mb-2">Error Loading Wallet</h1>
+                <p className="text-muted-foreground">Could not load data for {truncateWalletAddress(walletAddress)}.</p>
+                <p className="text-xs mt-4 text-muted-foreground/50">Details: {summaryError.message}</p>
+            </div>
+        </div>
+    );
+  }
+
+  // If we have no data yet (but not in an error state), show a loading screen.
+  // This also handles the initial state before the first fetch completes.
+  if (!walletSummary) {
+      return (
+          <div className="flex items-center justify-center h-screen">
+              <div className="flex flex-col items-center gap-4">
+                  <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                  <p className="text-muted-foreground">Loading wallet data for {truncateWalletAddress(walletAddress)}...</p>
+              </div>
+          </div>
+      );
+  }
+
   return (
-    <Tabs defaultValue="token-performance" className="flex flex-col w-full h-full bg-muted/40">
+    <Tabs defaultValue="token-performance" className="flex flex-col w-full bg-muted/40">
       <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
         <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
           
@@ -361,6 +393,21 @@ export default function WalletProfileLayout({
                       </Tooltip>
                     </TooltipProvider>
                   )}
+                  {/* High-frequency wallet indicator */}
+                  {isValidData && walletSummary?.classification === 'high_frequency' && (
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="h-7 w-7 md:h-8 md:w-8 flex items-center justify-center">
+                            <Bot className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-500" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>High-frequency wallet - possible bot actviity. Analysis limited.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                 </div>
                 <ExpandedAnalysisControl />
               </>
@@ -391,6 +438,21 @@ export default function WalletProfileLayout({
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent side="bottom"><p>{isCurrentWalletFavorite ? 'Remove' : 'Add'} Favorite</p></TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                  {/* High-frequency wallet indicator (collapsed) */}
+                  {isValidData && walletSummary?.classification === 'high_frequency' && (
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="h-6 w-6 flex items-center justify-center">
+                            <Bot className="h-3 w-3 text-orange-500" />
+                          </div>  
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>High-frequency wallet</p>
+                        </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   )}
@@ -545,7 +607,7 @@ export default function WalletProfileLayout({
       </header>
 
       <main className="flex-1 overflow-y-auto p-0">
-        <div className="w-full h-full">
+        <div className="w-full h-full flex flex-col">
           <TabsContent value="overview" className="mt-4">
             <div>
               {children}
@@ -556,11 +618,11 @@ export default function WalletProfileLayout({
             </div>
           </TabsContent>
 
-          <TabsContent value="token-performance">
+          <TabsContent value="token-performance" className="mt-0 p-0 flex flex-col">
             <TokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} />
           </TabsContent>
 
-          <TabsContent value="account-stats">
+          <TabsContent value="account-stats" className="mt-0 p-0">
             <AccountStatsPnlTab 
               walletAddress={walletAddress} 
               triggerAnalysisGlobal={handleTriggerAnalysis} 
@@ -569,11 +631,11 @@ export default function WalletProfileLayout({
             />
           </TabsContent>
 
-          <TabsContent value="behavioral-patterns">
+          <TabsContent value="behavioral-patterns" className="mt-0 p-0">
             <BehavioralPatternsTab walletAddress={walletAddress} />
           </TabsContent>
 
-          <TabsContent value="notes">
+          <TabsContent value="notes" className="mt-0 p-0">
             <ReviewerLogTab walletAddress={walletAddress} />
           </TabsContent>
         </div>

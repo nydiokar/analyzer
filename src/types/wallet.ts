@@ -29,12 +29,25 @@ export interface TokenBalanceDetails {
   decimals: number;
   uiBalance: number; // User-friendly balance, already divided by 10^decimals
   uiBalanceString: string; // User-friendly balance as a string
+  // Optional fields for enriched data
+  name?: string;
+  symbol?: string;
+  imageUrl?: string;
+  priceUsd?: number;
+  valueUsd?: number;
 }
 
 export interface WalletBalance {
   solBalance: number; // Balance in SOL (not lamports)
   tokenBalances: TokenBalanceDetails[];
   fetchedAt: Date; // Timestamp of when the data was fetched
+}
+
+export enum WalletAnalysisStatus {
+  READY = 'READY',
+  STALE = 'STALE',
+  MISSING = 'MISSING',
+  IN_PROGRESS = 'IN_PROGRESS',
 }
 
 // Additional types for more detailed wallet information, if needed in the future

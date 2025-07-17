@@ -1,19 +1,38 @@
 import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ForbiddenExceptionFilter } from './api/common/filters/forbidden-exception.filter';
-import { Logger } from '@nestjs/common';
+import { Logger, LogLevel } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as dotenv from 'dotenv';
-import { ApiKeyAuthGuard } from './api/auth/api-key-auth.guard';
-import { DatabaseService } from './api/database/database.service';
+import { json } from 'express';
 
 dotenv.config();
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Configure logging levels based on environment
+  const isDev = process.env.NODE_ENV !== 'production';
+  const isQuietMode = process.env.QUIET_MODE === 'true';
+  
+  let logLevels: LogLevel[];
+  if (isQuietMode) {
+    logLevels = ['error', 'warn']; // Minimal logging
+  } else if (isDev) {
+    logLevels = ['error', 'warn', 'log']; // Reduced verbosity for development
+  } else {
+    logLevels = ['error', 'warn', 'log', 'debug', 'verbose']; // Full logging for production
+  }
+
+  const app = await NestFactory.create(AppModule, {
+    logger: logLevels,
+  });
   const port = process.env.PORT || 3001;
 
   app.setGlobalPrefix('api/v1');
+
+  app.use(json({ limit: '5mb' }));
+
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // Secure CORS setup for production
   const frontendUrl = process.env.FRONTEND_URL;
@@ -48,5 +67,6 @@ async function bootstrap() {
   await app.listen(port, '::');
   Logger.log(`🚀 Application is running on: http://localhost:${port}/api/v1`, 'Bootstrap');
   Logger.log(`📚 API Documentation available at: http://localhost:${port}/api-docs`, 'Bootstrap');
+  Logger.log(`🔌 WebSocket server enabled at: ws://localhost:${port}/job-progress`, 'Bootstrap');
 }
 bootstrap();

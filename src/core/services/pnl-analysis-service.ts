@@ -8,7 +8,7 @@ import { HeliusApiClient } from './helius-api-client';
 import { WalletBalanceService } from './wallet-balance-service';
 import { WalletBalance } from '@/types/wallet';
 import { Injectable } from '@nestjs/common';
-import { ITokenInfoService } from '../../types/token-info-service.interface';
+import { TokenInfoService } from '../../api/token-info/token-info.service';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -23,7 +23,7 @@ export class PnlAnalysisService {
     private advancedStatsAnalyzer: AdvancedStatsAnalyzer;
     private walletBalanceService: WalletBalanceService | null;
     private heliusApiClient: HeliusApiClient | null;
-    private tokenInfoService: ITokenInfoService | null;
+    private tokenInfoService: TokenInfoService | null;
 
     /**
      * Constructs an instance of the PnlAnalysisService.
@@ -35,7 +35,7 @@ export class PnlAnalysisService {
     constructor(
         private databaseService: DatabaseService,
         heliusApiClient: HeliusApiClient | null,
-        tokenInfoService: ITokenInfoService | null,
+        tokenInfoService: TokenInfoService | null,
     ) {
         this.swapAnalyzer = new SwapAnalyzer();
         this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
@@ -43,16 +43,11 @@ export class PnlAnalysisService {
         this.tokenInfoService = tokenInfoService;
 
         if (this.heliusApiClient) {
-            this.walletBalanceService = new WalletBalanceService(this.heliusApiClient);
-            logger.info('PnlAnalysisService instantiated with HeliusApiClient. WalletBalanceService active.');
+            this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
+            logger.info('PnlAnalysisService instantiated with HeliusApiClient and TokenInfoService. WalletBalanceService active.');
         } else {
             this.walletBalanceService = null;
             logger.info('PnlAnalysisService instantiated without HeliusApiClient. WalletBalanceService inactive.');
-        }
-        if (this.tokenInfoService) {
-            logger.info('PnlAnalysisService instantiated with TokenInfoService. Token info enrichment active.');
-        } else {
-            logger.info('PnlAnalysisService instantiated without TokenInfoService. Token info enrichment inactive.');
         }
     }
 
@@ -305,7 +300,6 @@ export class PnlAnalysisService {
                             },
                         },
                     });
-                    logger.info(`[PnlAnalysis] Upserted WalletPnlSummary and AdvancedTradeStats for ${walletAddress}.`);
                 } else {
                     await prisma.walletPnlSummary.upsert({
                         where: { walletAddress: walletAddress },
@@ -316,18 +310,21 @@ export class PnlAnalysisService {
                 }
                 
                 // Update the analyzed timestamp range for the wallet
-                if (summary.overallFirstTimestamp !== undefined && summary.overallLastTimestamp !== undefined) {
+                const nowInSeconds = Math.floor(Date.now() / 1000);
+                const startTs = summary.overallFirstTimestamp !== undefined && summary.overallFirstTimestamp !== 0 ? summary.overallFirstTimestamp : nowInSeconds;
+                const endTs = nowInSeconds; // Always use current time for when analysis was completed
+
+                    
                     await prisma.wallet.update({
                         where: { address: walletAddress },
-                        data: { 
-                            analyzedTimestampStart: summary.overallFirstTimestamp,
-                            analyzedTimestampEnd: summary.overallLastTimestamp
+                        data: {
+                            analyzedTimestampStart: startTs,
+                            analyzedTimestampEnd: endTs,
+                            lastSuccessfulFetchTimestamp: new Date(),
                         },
+                        select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true }
                     });
-                    logger.info(`[PnlAnalysis] Updated Wallet analyzed range for ${walletAddress} to: ${summary.overallFirstTimestamp} - ${summary.overallLastTimestamp}.`);
-                } else {
-                    logger.warn(`[PnlAnalysis] Wallet analyzed range for ${walletAddress} not updated because overall timestamps were undefined in the summary.`);
-                }
+                                    
 
                 // Upsert AnalysisResult records with token balances
                 const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
@@ -384,7 +381,7 @@ export class PnlAnalysisService {
                 logger.info(`[PnlAnalysis] Successfully marked AnalysisRun ${runId} as COMPLETED.`);
             }
 
-            logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summary.netPnl} SOL`);
+            // logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summary.netPnl} SOL`);
             return { ...summary, runId: isViewOnlyMode ? undefined : runId };
 
         } catch (error: any) {

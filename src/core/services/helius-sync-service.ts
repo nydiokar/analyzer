@@ -8,6 +8,8 @@ import {
 import { HeliusTransaction } from '@/types/helius-api';
 import { Prisma, Wallet } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
+import { HELIUS_CONFIG } from '../../config/constants';
+import { SmartFetchService } from './smart-fetch-service';
 
 const logger = createLogger('HeliusSyncService');
 
@@ -44,23 +46,28 @@ export interface SyncOptions {
 export class HeliusSyncService {
     private heliusClient: HeliusApiClient;
 
+    private smartFetchService: SmartFetchService;
+
     /**
      * Constructs an instance of the HeliusSyncService.
      *
      * @param databaseService Instance of DatabaseService for database interactions.
      * @param heliusApiClient Instance of HeliusApiClient for Helius API interactions.
+     * @param smartFetchService Optional SmartFetchService. If not provided, creates new instance.
      * @throws Error if heliusApiClient is not provided.
      */
     constructor(
         private databaseService: DatabaseService,
-        heliusApiClient: HeliusApiClient // Changed from heliusApiKey: string
+        heliusApiClient: HeliusApiClient, // Changed from heliusApiKey: string
+        smartFetchService?: SmartFetchService
     ) {
         if (!heliusApiClient) {
             // Service requires an API client instance
             throw new Error('HeliusSyncService requires a valid HeliusApiClient instance.');
         }
         this.heliusClient = heliusApiClient; // Use the provided instance
-        logger.info('HeliusSyncService instantiated with provided HeliusApiClient.');
+        this.smartFetchService = smartFetchService || new SmartFetchService();
+        logger.info('HeliusSyncService instantiated with provided HeliusApiClient and SmartFetchService.');
     }
 
     /**
@@ -73,8 +80,20 @@ export class HeliusSyncService {
      */
     async syncWalletData(walletAddress: string, options: SyncOptions): Promise<void> {
         if (options.skipApi) {
-            logger.info(`[Sync] Skipping API fetch for ${walletAddress} (--skipApi).`);
+            logger.debug(`[Sync] Skipping API fetch for ${walletAddress} (--skipApi).`);
             return;
+        }
+
+        // Early check: Skip wallets already marked as INVALID to avoid wasting resources
+        try {
+            const existingWallet = await this.databaseService.getWallet(walletAddress);
+            if (existingWallet?.classification === 'INVALID') {
+                logger.debug(`[Sync] Skipping sync for ${walletAddress} - already marked as INVALID`);
+                return;
+            }
+        } catch (error) {
+            // If we can't check, proceed with normal flow
+            logger.warn(`[Sync] Could not check wallet classification for ${walletAddress}, proceeding:`, error);
         }
 
         // Ensure wallet exists in the DB before starting sync operations
@@ -87,9 +106,9 @@ export class HeliusSyncService {
             throw error; // Re-throw to make it visible to the caller (e.g., AnalysesController)
         }
 
-        logger.info(`[Sync] Starting data synchronization for wallet: ${walletAddress}`);
+        logger.debug(`[Sync] Starting data synchronization for wallet: ${walletAddress}`);
         logger.debug('[Sync] Options:', options); // Log the sync options
-
+        
         // Implementation Notes:
         // 1. Get current wallet state (newest/oldest sig/ts) from databaseService.getWallet()
         // 2. Determine fetch parameters (untilSig, untilTs, beforeSig, beforeTs, limit) based on options and state.
@@ -105,22 +124,42 @@ export class HeliusSyncService {
         //    - Process/save fetched transactions.
         // 5. Use processAndSaveTransactions helper (extracted below).
 
-        // --- START OF LOGIC TO BE MOVED/ADAPTED FROM helius-analyzer.ts --- 
-        
-        // Example structure (needs full implementation using helius-analyzer logic)
+        // ✅ SMART FETCH INTEGRATION - Check if wallet should have limited fetching
+        let adjustedOptions = { ...options };
         try {
-            if (options.smartFetch && options.maxSignatures) {
-                 await this.executeSmartFetch(walletAddress, options);
+            const fetchRecommendation = await this.smartFetchService.getSmartFetchRecommendation(walletAddress);
+            
+            if (fetchRecommendation.shouldLimitFetch) {
+                // Override maxSignatures to prevent constant 10k+ fetches
+                const originalMax = adjustedOptions.maxSignatures;
+                adjustedOptions.maxSignatures = fetchRecommendation.maxSignatures;
+                
+                logger.info(`🚨 [SmartFetch] Limiting fetch for ${walletAddress}: ${originalMax} → ${fetchRecommendation.maxSignatures} signatures`);
+                logger.info(`📊 [SmartFetch] Reason: ${fetchRecommendation.reason}`);
+                
+                // Update wallet classification
+                await this.smartFetchService.updateWalletClassificationIfNeeded(walletAddress);
             } else {
-                 await this.executeStandardFetch(walletAddress, options);
+                logger.debug(`✅ [SmartFetch] Normal fetch recommended for ${walletAddress}: ${fetchRecommendation.reason}`);
             }
-             logger.info(`[Sync] Synchronization complete for wallet: ${walletAddress}`);
+        } catch (error) {
+            logger.warn(`[SmartFetch] Failed to get smart fetch recommendation for ${walletAddress}, using original options:`, error);
+            // Continue with original options if smart fetch fails
+        }
+
+        // Execute sync with (potentially adjusted) options
+        try {
+            if (adjustedOptions.smartFetch && adjustedOptions.maxSignatures) {
+                 await this.executeSmartFetch(walletAddress, adjustedOptions);
+            } else {
+                 await this.executeStandardFetch(walletAddress, adjustedOptions);
+            }
+             logger.debug(`[Sync] Synchronization complete for wallet: ${walletAddress}`);
         } catch (error) {
              logger.error(`[Sync] Error during synchronization for ${walletAddress}:`, { error });
              // Decide if error should be re-thrown or just logged
              // throw error; // Re-throw if caller needs to handle it
         }
-        // --- END OF LOGIC TO BE MOVED/ADAPTED --- 
     }
 
     // --- Private Helper Methods (Extracted/Adapted from helius-analyzer.ts) ---
@@ -136,7 +175,7 @@ export class HeliusSyncService {
      * @returns A promise that resolves when the smart fetch process is complete.
      */
     private async executeSmartFetch(walletAddress: string, options: SyncOptions): Promise<void> {
-        logger.info(`[Sync] Executing SmartFetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures in DB.`);
+        logger.debug(`[Sync] Executing SmartFetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures in DB.`);
         
         if (!options.maxSignatures || options.maxSignatures <= 0) {
             logger.warn(`[Sync] SmartFetch called for ${walletAddress} without a valid positive options.maxSignatures. Proceeding with only fetching newer transactions.`);
@@ -157,7 +196,7 @@ export class HeliusSyncService {
         // For this phase, we primarily want to get anything NEW.
         const capForNewerFetch = options.maxSignatures && options.maxSignatures > 0 ? options.maxSignatures : undefined;
 
-        logger.info(`[Sync] SmartFetch Phase 1 (Newer): Fetching for ${walletAddress} since sig: ${stopAtSignatureForNewer}, ts: ${newestProcessedTimestampForNewer}. API client call will be capped by ${capForNewerFetch ?? 'Helius default/internal cap'}.`);
+        logger.debug(`[Sync] SmartFetch Phase 1 (Newer): Fetching for ${walletAddress} since sig: ${stopAtSignatureForNewer}, ts: ${newestProcessedTimestampForNewer}. API client call will be capped by ${capForNewerFetch ?? 'Helius default/internal cap'}.`);
         try {
             const newerTransactions = await this.heliusClient.getAllTransactionsForAddress(
                walletAddress, 
@@ -166,32 +205,45 @@ export class HeliusSyncService {
                stopAtSignatureForNewer, 
                newestProcessedTimestampForNewer, 
                true, 
-               undefined 
+               undefined,
+               HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
            ); 
            newerTransactionsFetchedCount = newerTransactions.length;
-           logger.info(`[Sync] SmartFetch Phase 1 (Newer): Fetched ${newerTransactionsFetchedCount} potentially newer transactions from API for ${walletAddress}.`);
+           logger.debug(`[Sync] SmartFetch Phase 1 (Newer): Fetched ${newerTransactionsFetchedCount} potentially newer transactions from API for ${walletAddress}.`);
            if (newerTransactionsFetchedCount > 0) {
                await this.processAndSaveTransactions(walletAddress, newerTransactions, true, options);
            }
         } catch (fetchError) {
-           logger.error(`[Sync] SmartFetch Phase 1 (Newer): Failed to fetch/process newer transactions for ${walletAddress}:`, { fetchError });
-           // Decide if we should still attempt to fetch older ones or re-throw. For now, log and continue.
+           // Check if this is a WrongSize error - mark wallet as invalid and stop processing
+           if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
+               logger.warn(`[Sync] WrongSize error detected for ${walletAddress}. Marking wallet as invalid.`);
+               try {
+                   await this.databaseService.updateWallet(walletAddress, { 
+                       classification: 'INVALID'
+                   });
+               } catch (updateError) {
+                   logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+               }
+               throw fetchError; // Re-throw to stop further processing
+           }
+            logger.error(`[Sync] SmartFetch Phase 1 (Newer): Failed to fetch/process newer transactions for ${walletAddress}:`, { fetchError });
+            // Decide if we should still attempt to fetch older ones or re-throw. For now, log and continue.
         }
 
         // --- 2. Fetch Older Transactions if still needed (and if maxSignatures is valid) ---
         if (options.maxSignatures && options.maxSignatures > 0) {
             const countAfterNewerFetch = await this.getDbTransactionCount(walletAddress);
-            logger.info(`[Sync] SmartFetch: DB count for ${walletAddress} after fetching newer is ${countAfterNewerFetch}. Target is ${options.maxSignatures}.`);
+            logger.debug(`[Sync] SmartFetch: DB count for ${walletAddress} after fetching newer is ${countAfterNewerFetch}. Target is ${options.maxSignatures}.`);
 
             if (countAfterNewerFetch < options.maxSignatures) {
                 const remainingSignaturesToFetchForOlder = options.maxSignatures - countAfterNewerFetch;
-                logger.info(`[Sync] SmartFetch Phase 2 (Older): Current count ${countAfterNewerFetch} is less than target ${options.maxSignatures}. Still need ${remainingSignaturesToFetchForOlder} older transactions.`);
+                logger.debug(`[Sync] SmartFetch Phase 2 (Older): Current count ${countAfterNewerFetch} is less than target ${options.maxSignatures}. Still need ${remainingSignaturesToFetchForOlder} older transactions.`);
                 
                 // Re-fetch wallet state to get the most up-to-date oldestProcessedTimestamp after Phase 1
                 const updatedWalletStateAfterPhase1 = await this.databaseService.getWallet(walletAddress);
                 const oldestProcessedTimestamp = updatedWalletStateAfterPhase1?.firstProcessedTimestamp ?? undefined;
                 
-                logger.info(`[Sync] SmartFetch Phase 2 (Older): Attempting to fetch ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress}, older than ts: ${oldestProcessedTimestamp}.`);
+                logger.debug(`[Sync] SmartFetch Phase 2 (Older): Attempting to fetch ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress}, older than ts: ${oldestProcessedTimestamp}.`);
                 try {
                     const olderTransactions = await this.heliusClient.getAllTransactionsForAddress(
                         walletAddress, 
@@ -200,22 +252,35 @@ export class HeliusSyncService {
                         undefined,
                         undefined,
                         true, 
-                        oldestProcessedTimestamp
+                        oldestProcessedTimestamp,
+                        HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
                     );
-                    logger.info(`[Sync] SmartFetch Phase 2 (Older): Fetched ${olderTransactions.length} potentially older transactions from API for ${walletAddress}.`);
+                    logger.debug(`[Sync] SmartFetch Phase 2 (Older): Fetched ${olderTransactions.length} potentially older transactions from API for ${walletAddress}.`);
                     if (olderTransactions.length > 0) {
                         await this.processAndSaveTransactions(walletAddress, olderTransactions, false, options);
                     }
                 } catch (fetchError) {
+                    // Check if this is a WrongSize error - mark wallet as invalid and stop processing
+                    if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
+                        logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Phase 2. Marking wallet as invalid.`);
+                        try {
+                            await this.databaseService.updateWallet(walletAddress, { 
+                                classification: 'INVALID'
+                            });
+                        } catch (updateError) {
+                            logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+                        }
+                        throw fetchError; // Re-throw to stop further processing
+                    }
                     logger.error(`[Sync] SmartFetch Phase 2 (Older): Failed to fetch/process older transactions for ${walletAddress}:`, { fetchError });
                 }
             } else {
-               logger.info(`[Sync] SmartFetch Phase 2 (Older): DB count (${countAfterNewerFetch}) already meets or exceeds target ${options.maxSignatures}. Skipping older fetch for ${walletAddress}.`);
+               logger.debug(`[Sync] SmartFetch Phase 2 (Older): DB count (${countAfterNewerFetch}) already meets or exceeds target ${options.maxSignatures}. Skipping older fetch for ${walletAddress}.`);
             }
         } else {
-            logger.info(`[Sync] SmartFetch: Skipping Phase 2 (Older) because options.maxSignatures is not valid or not set. Only newer transactions were fetched if available.`);
+            logger.debug(`[Sync] SmartFetch: Skipping Phase 2 (Older) because options.maxSignatures is not valid or not set. Only newer transactions were fetched if available.`);
         }
-        logger.info(`[Sync] SmartFetch process completed for ${walletAddress}.`);
+        logger.debug(`[Sync] SmartFetch process completed for ${walletAddress}.`);
     }
 
     /**
@@ -232,7 +297,7 @@ export class HeliusSyncService {
      * @throws Throws an error if the underlying Helius API client call fails critically.
      */
     private async executeStandardFetch(walletAddress: string, options: SyncOptions): Promise<void> {
-        logger.info(`[Sync] Executing Standard Fetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures.`);
+        logger.debug(`[Sync] Executing Standard Fetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures.`);
 
         if (!options.maxSignatures || options.maxSignatures <= 0) {
             logger.warn(`[Sync] StandardFetch called for ${walletAddress} without a valid positive options.maxSignatures. Aborting StandardFetch.`);
@@ -247,12 +312,12 @@ export class HeliusSyncService {
         let untilTimestampForStd: number | undefined = undefined; 
         
         if (isEffectivelyInitialFetch) {
-            logger.info(`[Sync] Standard Fetch (Initial/FetchOlder): Fetching for ${walletAddress} from beginning, up to ${options.maxSignatures} total transactions.`);
+            logger.debug(`[Sync] Standard Fetch (Initial/FetchOlder): Fetching for ${walletAddress} from beginning, up to ${options.maxSignatures} total transactions.`);
             // For initial/fetchOlder, HeliusApiClient will fetch newest first up to options.maxSignatures if no specific start/end timestamps are given.
             // To fetch truly oldest first, specific parameters would be needed for HeliusApiClient.
             // Current HeliusApiClient.getAllTransactionsForAddress defaults to fetching newest if only maxSignatures is provided.
         } else { // Incremental fetch for newer transactions
-            logger.info(`[Sync] Standard Fetch (Incremental Newer): Fetching for ${walletAddress}.`);
+            logger.debug(`[Sync] Standard Fetch (Incremental Newer): Fetching for ${walletAddress}.`);
             stopAtSignatureForStd = walletState!.newestProcessedSignature ?? undefined;
             newestProcessedTimestampForStd = walletState!.newestProcessedTimestamp ?? undefined;
         }
@@ -260,13 +325,7 @@ export class HeliusSyncService {
         const includeCached = true; // For standard fetch, always include cached results. API client handles de-duplication of fetch.
         
         try {
-            logger.info(`[Sync] Standard Fetch: Calling HeliusApiClient for ${walletAddress} with:
-                       maxSignatures: ${options.maxSignatures}, 
-                       limit (page size): ${options.limit},
-                       stopAtSig: ${stopAtSignatureForStd}, 
-                       newestTs: ${newestProcessedTimestampForStd}, 
-                       includeCached: ${includeCached},
-                       untilTs (for older): ${untilTimestampForStd}`);
+            logger.debug(`[Sync] Standard Fetch: Calling HeliusApiClient for ${walletAddress} with maxSignatures: ${options.maxSignatures}, limit: ${options.limit}`);
             
             const transactions = await this.heliusClient.getAllTransactionsForAddress(
                 walletAddress, 
@@ -275,17 +334,35 @@ export class HeliusSyncService {
                 stopAtSignatureForStd, 
                 newestProcessedTimestampForStd, 
                 includeCached,
-                untilTimestampForStd 
+                untilTimestampForStd,
+                HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
             );
-            logger.info(`[Sync] Standard Fetch: Fetched ${transactions.length} transactions from HeliusApiClient for ${walletAddress}.`);
+            logger.debug(`[Sync] Standard Fetch: Fetched ${transactions.length} transactions from HeliusApiClient for ${walletAddress}.`);
             if (transactions.length > 0) {
                 await this.processAndSaveTransactions(walletAddress, transactions, isEffectivelyInitialFetch, options);
             }
         } catch (fetchError) {
-             logger.error(`[Sync] Standard Fetch: Failed to fetch/process transactions for ${walletAddress}:`, { fetchError });
-             throw fetchError; 
+            // Check if this is a WrongSize error - mark wallet as invalid and stop processing
+            if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
+                logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Standard Fetch. Marking wallet as invalid.`);
+                try {
+                    await this.databaseService.updateWallet(walletAddress, { 
+                        classification: 'INVALID'
+                    });
+                } catch (updateError) {
+                    logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+                }
+                throw fetchError; // Re-throw to stop further processing
+            }
+            if (fetchError instanceof Error && fetchError.message.includes('Non-retryable RPC Error')) {
+                logger.error(`[Sync] CRITICAL: Aborting sync for ${walletAddress} due to a non-retryable RPC error (e.g., invalid address).`, { error: fetchError.message });
+                // Do not re-throw, allowing the batch process to continue with other wallets
+            } else {
+                logger.error(`[Sync] Standard Fetch: Failed to fetch/process transactions for ${walletAddress}:`, { fetchError });
+                throw fetchError; 
+            }
         }
-        logger.info(`[Sync] Standard Fetch process completed for ${walletAddress}.`);
+        logger.debug(`[Sync] Standard Fetch process completed for ${walletAddress}.`);
     }
 
     /**
@@ -304,7 +381,7 @@ export class HeliusSyncService {
       isNewerFetchOrInitial: boolean, 
       options: SyncOptions
     ): Promise<void> {
-      logger.info(`[Sync] Processing ${transactions.length} transactions for wallet ${walletAddress}...`);
+      logger.debug(`[Sync] Processing ${transactions.length} transactions for wallet ${walletAddress}...`);
       
       const mappingResult: MappingResult = mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
       const analysisInputsToSave = mappingResult.analysisInputs;
@@ -313,18 +390,18 @@ export class HeliusSyncService {
       if (mappingStats) {
           try {
               await this.databaseService.saveMappingActivityLog(walletAddress, mappingStats);
-              logger.info(`[Sync] Successfully saved mapping activity log for ${walletAddress}`);
+              logger.debug(`[Sync] Successfully saved mapping activity log for ${walletAddress}`);
           } catch (error) {
               logger.error(`[Sync] Failed to save mapping activity log for ${walletAddress}`, { error });
           }
       }
 
       if (analysisInputsToSave.length === 0) {
-        logger.info(`[Sync] No analysis input records to save for ${walletAddress} from this batch.`);
+        logger.debug(`[Sync] No analysis input records to save for ${walletAddress} from this batch.`);
       } else {
-        logger.info(`[Sync] Saving ${analysisInputsToSave.length} analysis input records for ${walletAddress}...`);
+        logger.debug(`[Sync] Saving ${analysisInputsToSave.length} analysis input records for ${walletAddress}...`);
         await this.databaseService.saveSwapAnalysisInputs(analysisInputsToSave);
-        logger.info(`[Sync] Successfully saved ${analysisInputsToSave.length} new analysis input records for ${walletAddress}.`);
+        logger.info(`[Sync] SmartFetch completed for ${walletAddress} (${analysisInputsToSave.length} records)`);
       }
     
       if (transactions.length > 0) {
@@ -395,9 +472,9 @@ export class HeliusSyncService {
              logger.debug(`[Sync] Wallet lastSuccessfulFetchTimestamp updated for ${walletAddress}.`, updateData);
         }
       } else {
-        logger.info(`[Sync] No transactions in this batch to update wallet state for ${walletAddress}.`);
+        logger.debug(`[Sync] No transactions in this batch to update wallet state for ${walletAddress}.`);
       }
-      logger.info(`[Sync] Finished processing batch of ${transactions.length} transactions for ${walletAddress}.`);
+      logger.debug(`[Sync] Finished processing batch of ${transactions.length} transactions for ${walletAddress}.`);
     }
 
     /** Helper to get DB count (example) 
