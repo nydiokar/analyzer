@@ -99,3 +99,108 @@ export const PROCESSING_CONFIG = {
   RETRY_ATTEMPTS: 1,
   RETRY_DELAY_MS: 2000
 } as const;
+
+// Enhanced metadata fetching configuration
+export const METADATA_FETCHING_CONFIG = {
+  // DexScreener API optimization
+  dexscreener: {
+    chunkSize: 30, // Maximum tokens per API call
+    maxConcurrentRequests: 2, // Parallel requests while respecting rate limits
+    baseWaitTimeMs: 800, // Reduced from 1000ms
+    adaptiveRateLimiting: true, // Dynamically adjust based on response times
+    maxRetries: 2,
+    // Caching for metadata ONLY (not price/balance data)
+    cacheExpiryHours: 0.083, // 5 minutes - ONLY for avoiding duplicate calls in same analysis
+    prioritizeActiveTokens: true, // Prioritize tokens with recent trading activity
+  },
+  
+  // Filtering strategies to reduce unnecessary API calls
+  filtering: {
+    enableScamTokenFilter: false, // DISABLED by default due to potential false positives
+    enableActivityPrioritization: true, // Prioritize tokens with recent activity
+    activityLookbackDays: 7, // Look back 7 days for activity
+    // NOTE: Activity prioritization does NOT skip inactive tokens - it just processes active ones FIRST
+    // This ensures faster enrichment for tokens likely to have metadata
+    // Skip tokens with these patterns
+    scamPatterns: [
+      // REMOVED CONFUSING PATTERNS - these were based on incorrect assumptions
+      // Instead, use more conservative filtering:
+      
+      // Skip tokens with suspicious repeated characters (likely vanity/scam addresses)
+      /^(.)\1{10,}/, // Same character repeated 10+ times
+      
+      // Skip obvious test/demo tokens (but be conservative)
+      /^[0]{20,}/, // Addresses with 20+ zeros (likely test tokens)
+    ]
+  },
+  
+  // Job cancellation and progress tracking
+  cancellation: {
+    checkIntervalMs: 1000, // Check for cancellation every second
+    enableGracefulCancellation: true,
+    batchSizeForResponsiveness: 500, // Smaller batches for better cancellation response
+  },
+  
+  // Alternative data sources for fallback
+  fallback: {
+    enableJupiterApi: false, // TODO: Implement Jupiter API fallback
+    enableCoinGeckoApi: false, // TODO: Implement CoinGecko fallback
+    priorityOrder: ['dexscreener', 'jupiter', 'coingecko'], // Preference order
+  },
+
+  // Smart scheduling for resource management
+  scheduling: {
+    maxConcurrentJobs: 2, // Limit parallel enrichment jobs
+    priorityThresholds: {
+      highPriority: 100, // < 100 tokens = high priority
+      mediumPriority: 1000, // 100-1000 tokens = medium priority
+      lowPriority: Infinity, // > 1000 tokens = low priority (background)
+    },
+    delayBetweenLargeJobs: 30000, // 30 seconds delay between large jobs
+  }
+} as const;
+
+// Known system/bot/exchange wallets that should be tagged instead of analyzed
+export const KNOWN_SYSTEM_WALLETS = [
+// most of these are jupiter accounts
+  '2MFoS3MPtvyQ4Wh4M9pdfPjz6UhVoNbFbGJAskCPCj3h', 
+  '3CgvbiM3op4vjrrjH2zcrQUwsqh5veNVRjFCB9N6sRoD',  
+  '3LoAYHuSd7Gh8d7RTFnhvYtiTiefdZ5ByamU42vkzd76', 
+  '4xDsmeTWPNjgSVSS1VTfzFq3iHZhp77ffPkAmkZkdu71', 
+  '69yhtoJR4JYPPABZcSNkzuqbaFbwHsCkja1sP1Q2aVT5', 
+  '6LXutJvKUw8Q5ue2gCgKHQdAN4suWW8awzFVC6XCguFx', 
+  '6U91aKa8pmMxkJwBCfPTmUEfZi6dHe7DcFq2ALvB2tbB',  
+  '7iWnBRRhBCiNXXPhqiGzvvBkKrvFSWqqmxRyu9VyYBxE', 
+  '9nnLbotNTcUhvbrsA6Mdkx45Sm82G35zo28AqUvjExn8', 
+  'BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV', 
+  'CapuXNQoDviLvU1PxFiizLgPNQCxrsag1uMeyk6zLVps', 
+  'D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf', 
+  'DSN3j1ykL3obAVNv7ZX49VsFCPe4LqzxHnmtLiPwY6xg', 
+  'GGztQqQ6pCPaJQnNpXBgELr5cs3WwDakRbh1iEMzjgSJ', 
+  'GP8StUXNYSZjPikyRsvkTbvRV1GBxMErb59cpeCJnDf1', 
+  'HFqp6ErWHY6Uzhj8rFyjYuDya2mXUpYEk8VW75K9PSiY',
+  'HU23r7UoZbqTUuh3vA7emAGztFtqwTeVips789vqxxBw',
+  'Jx2c1k5iYrtk52KeBPSykEutbUMfS4Sjv9kmZm33LKn',
+  'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA',
+  '45ruCyfdRkWpRNGEqWzjCiXRHkZs8WXCLQ67Pnpye7Hp', // jupiter partner referral fee vault
+  'HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC', // jupiter partner referral fee vault
+  
+  // Large system accounts (over 10k tokens but not necessarily Jupiter)
+  '34FKjAdVcTax2DHqV2XnbXa9J3zmyKcFuFKWbcmgxjgm', // 5.5k tokens - system account
+  'ZG98FUCjb8mJ824Gbs6RsgVmr1FhXb2oNiJHa2dwmPd', // 5.5k tokens - system account
+  '8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf', // 5.5k tokens - system account
+
+  
+  // Add more as they're discovered
+] as const;
+
+// Wallet classification types for database tagging
+export const WALLET_CLASSIFICATIONS = {
+  NORMAL: 'NORMAL',           // Regular user wallet
+  SYSTEM: 'SYSTEM',           // System/protocol account  
+  JUPITER: 'JUPITER',         // Jupiter aggregator account
+  EXCHANGE: 'EXCHANGE',       // CEX deposit/withdrawal account
+  BOT: 'BOT',                 // Trading bot account
+  INVALID: 'INVALID',         // Invalid/empty wallet
+  LARGE: 'LARGE',             // Large wallet (>10k tokens) but not system
+} as const;

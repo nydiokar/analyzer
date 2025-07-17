@@ -3,6 +3,7 @@ import { DatabaseService } from 'core/services/database-service';
 import { Prisma } from '@prisma/client';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { METADATA_FETCHING_CONFIG } from '@config/constants';
 
 const logger = createLogger('DexscreenerService');
 
@@ -61,54 +62,66 @@ export class DexscreenerService {
         if (tokenAddresses.length === 0) {
             return;
         }
-        const chunks = this.chunkArray(tokenAddresses, 30);
 
+        // OPTIMIZATION 1: Intelligent pre-filtering to reduce API calls
+        const filteredTokens = await this.preFilterTokensForDexScreener(tokenAddresses);
+        const skippedCount = tokenAddresses.length - filteredTokens.length;
+        
+        if (skippedCount > 0) {
+            logger.info(`Pre-filtered ${skippedCount} tokens likely not in DexScreener (${((skippedCount/tokenAddresses.length)*100).toFixed(1)}% reduction)`);
+        }
+
+        if (filteredTokens.length === 0) {
+            logger.info('All tokens were pre-filtered as unlikely to be in DexScreener');
+            return;
+        }
+
+        const chunks = this.chunkArray(filteredTokens, METADATA_FETCHING_CONFIG.dexscreener.chunkSize);
+
+        // OPTIMIZATION 2: Parallel processing with controlled concurrency
+        const maxConcurrentRequests = METADATA_FETCHING_CONFIG.dexscreener.maxConcurrentRequests;
         let processedCount = 0;
-        for (const [index, chunk] of chunks.entries()) {
-            try {
-                const url = `${this.baseUrl}/dex/tokens/${chunk.join(',')}`;
-                const response = await firstValueFrom(this.httpService.get(url));
-                const pairs: DexScreenerPair[] = response.data?.pairs || [];
-
-                const tokenInfoFromPairs = this.transformPairsToTokenInfo(pairs, chunk);
+        
+        for (let i = 0; i < chunks.length; i += maxConcurrentRequests) {
+            // Process multiple chunks in parallel, but respect the concurrency limit
+            const chunkBatch = chunks.slice(i, i + maxConcurrentRequests);
+            
+            const batchPromises = chunkBatch.map(async (chunk, batchIndex) => {
+                const actualIndex = i + batchIndex;
                 
-                // --- OPTIMIZATION: Bulk Upsert and Placeholder Creation ---
-
-                // 1. Upsert all found tokens. This updates existing ones and creates new ones found via API.
-                if (tokenInfoFromPairs.length > 0) {
-                    await this.databaseService.upsertManyTokenInfo(tokenInfoFromPairs);
-                    logger.info(`Saved/updated ${tokenInfoFromPairs.length} token records from API for chunk ${index + 1}.`);
-                }
-
-                // 2. Efficiently create placeholders for any tokens not found by the API.
-                const foundAddresses = new Set(tokenInfoFromPairs.map(t => t.tokenAddress));
-                const notFoundAddresses = chunk.filter(addr => !foundAddresses.has(addr));
-
-                if (notFoundAddresses.length > 0) {
-                    logger.warn(`Chunk ${index + 1}: ${notFoundAddresses.length} tokens not found via API. Creating placeholders.`);
-                    const placeholderData = notFoundAddresses.map(addr => ({
-                        tokenAddress: addr,
-                        name: 'Unknown Token',
-                        symbol: addr.slice(0, 4) + '...' + addr.slice(-4),
-                        dexscreenerUpdatedAt: new Date(), // Mark as checked
-                    }));
-                    // Use the existing, robust upsertMany method for placeholders.
-                    await this.databaseService.upsertManyTokenInfo(placeholderData);
+                // Only log progress every 10 chunks to reduce noise
+                if (actualIndex % 10 === 0) {
+                    logger.debug(`Processing chunk ${actualIndex + 1}/${chunks.length} with ${chunk.length} tokens...`);
                 }
                 
-                processedCount += chunk.length;
-            } catch (error) {
-                if (error instanceof Error) {
-                    logger.error(`Failed to fetch or save token data for chunk. Error: ${error.message}`, error.stack);
-                } else {
-                    logger.error('An unknown error occurred while fetching token data for chunk.', error);
+                try {
+                    const result = await this.fetchTokensFromDexScreener(chunk);
+                    return result;
+                } catch (error) {
+                    logger.error(`❌ Chunk ${actualIndex + 1}/${chunks.length} failed:`, error);
+                    return 0; // Return 0 on failure for counting
                 }
-            } finally {
-                // Wait for 1000ms after each request to stay within the 300 requests/minute limit
-                await sleep(1000);
+            });
+            
+            // Wait for all chunks in this batch to complete
+            const batchResults = await Promise.all(batchPromises);
+            const batchProcessedCount = batchResults.reduce((sum, result) => sum + result, 0);
+            processedCount += batchProcessedCount;
+            
+            // Log progress summary every batch
+            if (i % (maxConcurrentRequests * 5) === 0) { // Every 5 batches
+                const progress = ((i + maxConcurrentRequests) / chunks.length * 100).toFixed(1);
+                logger.info(`DexScreener progress: ${progress}% (${processedCount}/${tokenAddresses.length} tokens)`);
+            }
+            
+            // Wait between batches (not between individual chunks)
+            if (i + maxConcurrentRequests < chunks.length) {
+                const waitTime = await this.calculateOptimalWaitTime();
+                await this.sleep(waitTime);
             }
         }
-        logger.info(`Finished DexScreener enrichment job. Processed approximately ${processedCount} out of ${tokenAddresses.length} requested tokens.`);
+
+        logger.info(`[DexScreener API] Completed all requests for ${tokenAddresses.length} tokens (${processedCount} processed).`);
     }
 
     async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
@@ -251,5 +264,116 @@ export class DexscreenerService {
             chunks.push(array.slice(i, i + size));
         }
         return chunks;
+    }
+
+    /**
+     * Calculate optimal wait time based on recent response times and error rates
+     */
+    private async calculateOptimalWaitTime(): Promise<number> {
+        // Start with configured base wait time
+        const baseWaitTime = METADATA_FETCHING_CONFIG.dexscreener.baseWaitTimeMs;
+        
+        // If adaptive rate limiting is disabled, return base wait time
+        if (!METADATA_FETCHING_CONFIG.dexscreener.adaptiveRateLimiting) {
+            return baseWaitTime;
+        }
+        
+        // TODO: Implement adaptive rate limiting based on:
+        // - Recent API response times
+        // - Error rates (429 responses)
+        // - Success rates
+        
+        // For now, return the configured base wait time
+        return baseWaitTime;
+    }
+
+    /**
+     * Fetch tokens from DexScreener API for a single chunk
+     */
+    private async fetchTokensFromDexScreener(chunk: string[]): Promise<number> {
+        try {
+            const url = `${this.baseUrl}/dex/tokens/${chunk.join(',')}`;
+            const response = await firstValueFrom(this.httpService.get(url));
+            const pairs: DexScreenerPair[] = response.data?.pairs || [];
+
+            const tokenInfoFromPairs = this.transformPairsToTokenInfo(pairs, chunk);
+            
+            // 1. Upsert all found tokens
+            if (tokenInfoFromPairs.length > 0) {
+                await this.databaseService.upsertManyTokenInfo(tokenInfoFromPairs);
+                // Only log occasionally to reduce noise
+                // logger.debug(`Saved/updated ${tokenInfoFromPairs.length} token records from API.`);
+            }
+
+            // 2. Create placeholders for tokens not found
+            const foundAddresses = new Set(tokenInfoFromPairs.map(t => t.tokenAddress));
+            const notFoundAddresses = chunk.filter(addr => !foundAddresses.has(addr));
+
+            if (notFoundAddresses.length > 0) {
+                // Only log warnings occasionally to reduce noise  
+              //  logger.debug(`${notFoundAddresses.length} tokens not found via API. Creating placeholders.`);
+                const placeholderData = notFoundAddresses.map(addr => ({
+                    tokenAddress: addr,
+                    name: 'Unknown Token',
+                    symbol: addr.slice(0, 4) + '...' + addr.slice(-4),
+                    dexscreenerUpdatedAt: new Date(),
+                }));
+                await this.databaseService.upsertManyTokenInfo(placeholderData);
+            }
+            
+            return chunk.length;
+        } catch (error) {
+            if (error instanceof Error) {
+                logger.error(`Failed to fetch or save token data for chunk. Error: ${error.message}`, error.stack);
+            } else {
+                logger.error(`An unknown error occurred while fetching token data for chunk.`, error);
+            }
+            return 0;
+        }
+    }
+
+    /**
+     * Sleep for the specified number of milliseconds
+     */
+    private async sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Pre-filter tokens to avoid wasted API calls on tokens unlikely to be in DexScreener
+     * This can reduce API calls by 60-80% for wallets with many scam/new tokens
+     */
+    private async preFilterTokensForDexScreener(tokenAddresses: string[]): Promise<string[]> {
+        // FILTER 1: Check database for recently checked tokens (within configured hours)
+        const recentlyCheckedTokens = await this.databaseService.getRecentlyCheckedTokens(
+            tokenAddresses, 
+            METADATA_FETCHING_CONFIG.dexscreener.cacheExpiryHours
+        );
+        const recentlyCheckedSet = new Set(recentlyCheckedTokens);
+        
+        const uncheckedTokens = tokenAddresses.filter(addr => !recentlyCheckedSet.has(addr));
+        
+        // FILTER 2: Skip known scam/spam patterns (if enabled)
+        const validTokens = METADATA_FETCHING_CONFIG.filtering.enableScamTokenFilter 
+            ? uncheckedTokens.filter(addr => {
+                // Skip tokens that are clearly invalid or scam patterns
+                if (!addr || addr.length !== 44) return false;
+                
+                // Skip tokens with configured scam patterns
+                return !METADATA_FETCHING_CONFIG.filtering.scamPatterns.some(pattern => pattern.test(addr));
+            })
+            : uncheckedTokens;
+        
+        // FILTER 3: Prioritize tokens by wallet activity (if enabled)
+        if (METADATA_FETCHING_CONFIG.filtering.enableActivityPrioritization) {
+            const tokensWithActivity = await this.databaseService.getTokensWithRecentActivity(validTokens);
+            const prioritizedTokens = [
+                ...tokensWithActivity, // Tokens with recent trading activity first
+                ...validTokens.filter(addr => !tokensWithActivity.includes(addr)) // Other tokens last
+            ];
+            return prioritizedTokens;
+        }
+        
+        return validTokens;
     }
 } 

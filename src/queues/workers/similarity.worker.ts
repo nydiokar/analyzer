@@ -28,10 +28,15 @@ async function run(job: Job<ComprehensiveSimilarityFlowData>): Promise<Similarit
     console.error('Similarity worker error:', error);
     
     // Give time for failure events to be published before shutting down
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 200));
     
     throw error;
   } finally {
+    // CRITICAL: Give time for WebSocket completion events to be sent before cleanup
+    // The race condition was: job completes → app.close() → WebSocket shuts down → no completion event sent
+    // This delay ensures BullMQ completion events reach the frontend via WebSocket before worker cleanup
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Increased delay to ensure events are sent
+    
     // Always clean up the NestJS app context to prevent memory leaks
     if (app) {
       try {
@@ -43,5 +48,5 @@ async function run(job: Job<ComprehensiveSimilarityFlowData>): Promise<Similarit
   }
 }
 
-// BullMQ expects a default export from the worker file
+// Export the run function for BullMQ
 export default run; 

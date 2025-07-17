@@ -33,8 +33,8 @@ export const JobTimeouts = {
   },
 
   'enrich-token-balances': {
-    timeout: 10 * 60 * 1000,        // 10 minutes max (sophisticated enrichment)
-    staleAfter: 15 * 60 * 1000,     // 15 minutes = stale
+    timeout: 20 * 60 * 1000,        // 20 minutes max (reasonable for enrichment)
+    staleAfter: 30 * 60 * 1000,     // 30 minutes = stale
     retryBackoff: 'fixed' as const
   }
 };
@@ -94,7 +94,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 1,              // Memory intensive, complex multi-wallet operations
+      concurrency: 2,              // Memory intensive, complex multi-wallet operations
     }
   },
   

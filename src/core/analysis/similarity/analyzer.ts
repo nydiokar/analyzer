@@ -243,6 +243,7 @@ export class SimilarityAnalyzer {
       const pairwiseSimilarities: CorePairwiseResult[] = [];
       let totalSimilarity = 0;
       let pairCount = 0;
+      const allScores: number[] = [];
 
       for (let i = 0; i < walletOrder.length; i++) {
           for (let j = i + 1; j < walletOrder.length; j++) {
@@ -268,18 +269,29 @@ export class SimilarityAnalyzer {
               });
               totalSimilarity += score;
               pairCount++;
+              allScores.push(score);
           }
       }
 
       pairwiseSimilarities.sort((a, b) => b.similarityScore - a.similarityScore);
 
+      // Calculate both mean and median for better representation
       const averageSimilarity = pairCount > 0 ? totalSimilarity / pairCount : 0;
+      
+      // Calculate median (more representative when there are outliers)
+      allScores.sort((a, b) => a - b);
+      const medianSimilarity = allScores.length > 0 
+        ? allScores.length % 2 === 0 
+          ? (allScores[allScores.length / 2 - 1] + allScores[allScores.length / 2]) / 2
+          : allScores[Math.floor(allScores.length / 2)]
+        : 0;
+
       const mostSimilarPairs = pairwiseSimilarities.slice(0, 5);
 
       return {
           pairwiseSimilarities,
           globalMetrics: {
-              averageSimilarity,
+              averageSimilarity: medianSimilarity, // Use median instead of mean for better representation
               mostSimilarPairs,
           },
           clusters: [],

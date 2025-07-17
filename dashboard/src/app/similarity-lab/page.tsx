@@ -70,12 +70,23 @@ export default function AnalysisLabPage() {
       if (data.jobId === currentJobId) {
         console.log('✅ Processing completion for MAIN job:', data.jobId);
         setJobProgress(100);
-        setSyncMessage('Analysis complete! Fetching results...');
+        setSyncMessage('Analysis complete! Processing results...');
         try {
-          const result = await fetcher(`/jobs/${data.jobId}/result`);
-          if (!result || !result.result || !result.result.data) throw new Error("Job completed but returned no data.");
+          // Use WebSocket result data directly instead of HTTP fetch to avoid race conditions
+          if (!data.result || !data.result.data) {
+            console.warn('⚠️ No result in WebSocket event, falling back to HTTP fetch');
+            const result = await fetcher(`/jobs/${data.jobId}/result`);
+            if (!result || !result.result || !result.result.data) throw new Error("Job completed but returned no data.");
+            data.result = result.result;
+          }
           
-          const resultData = result.result;
+          const resultData = data.result;
+          console.log('✅ Using similarity result data from WebSocket:', { 
+            pairs: resultData.data?.pairwiseSimilarities?.length,
+            wallets: resultData.data?.globalMetrics?.analyzedWallets,
+            hasEnrichmentJob: !!resultData.enrichmentJobId
+          });
+          
           setAnalysisResult(resultData.data);
           setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
           
@@ -104,8 +115,8 @@ export default function AnalysisLabPage() {
           setJobProgress(0);
           setSyncMessage('');
         } catch (error: any) {
-          console.error('❌ Error fetching main job result:', error);
-          setError(error.message || 'Failed to fetch job results.');
+          console.error('❌ Error processing main job result:', error);
+          setError(error.message || 'Failed to process job results.');
           setJobStatuses(prev => ({ ...prev, analysis: 'failed' }));
           setCurrentJobId(null);
         }

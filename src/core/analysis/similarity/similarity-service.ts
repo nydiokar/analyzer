@@ -86,21 +86,23 @@ export class SimilarityService {
     let primaryVectors: Record<string, TokenVector> = {};
     let cosineSimilarityMatrix: Record<string, Record<string, number>> = {};
     
-    // ENHANCED: Apply fee-based filtering to primary similarity calculations
-    // Get actively traded tokens for each wallet (same logic as historical filtering)
+    // 🚀 PERFORMANCE FIX: Batch database queries instead of individual calls
     const activelyTradedTokensByWalletPrimary = new Map<string, Set<string>>();
     
+    // Single batch query for all wallets 
+    const batchAnalysisResults = await this.databaseService.getAnalysisResults({
+        where: { 
+            walletAddress: { in: walletsWithFetchedData },
+            totalFeesPaidInSol: { gt: 0 } // Only tokens where wallet paid fees
+        }
+    });
+    
+    // Group results by wallet address
     for (const walletAddr of walletsWithFetchedData) {
-        const analysisResults = await this.databaseService.getAnalysisResults({
-            where: { 
-                walletAddress: walletAddr,
-                totalFeesPaidInSol: { gt: 0 } // Only tokens where wallet paid fees
-            }
-        });
-        
-        const activeTokens = new Set(analysisResults.map(result => result.tokenAddress));
+        const walletResults = batchAnalysisResults.filter(result => result.walletAddress === walletAddr);
+        const activeTokens = new Set(walletResults.map(result => result.tokenAddress));
         activelyTradedTokensByWalletPrimary.set(walletAddr, activeTokens);
-        logger.debug(`[Primary Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${analysisResults.length} actively traded tokens (paid fees)`);
+        logger.debug(`[Primary Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${walletResults.length} actively traded tokens (paid fees)`);
     }
     
     // Filter primaryRelevantMints to only include tokens actively traded by at least one wallet
@@ -164,21 +166,15 @@ export class SimilarityService {
         const binaryVectors = this.similarityAnalyzer['createBinaryTokenVectors'](transactionData, binaryRelevantMints);
         const walletsWithBinaryVectors = walletsWithFetchedData.filter(addr => binaryVectors[addr]);
         
-        // ENHANCED: Apply same fee-based filter to historical data
-        // Only include tokens where wallets actively paid fees to trade them
+        // 🚀 PERFORMANCE FIX: Reuse batch results from primary query (avoid duplicate DB calls)
         const activelyTradedTokensByWallet = new Map<string, Set<string>>();
         
         for (const walletAddr of walletsWithBinaryVectors) {
-            const analysisResults = await this.databaseService.getAnalysisResults({
-                where: { 
-                    walletAddress: walletAddr,
-                    totalFeesPaidInSol: { gt: 0 } // Only tokens where wallet paid fees
-                }
-            });
-            
-            const activeTokens = new Set(analysisResults.map(result => result.tokenAddress));
+            // Reuse the already-fetched batch results instead of querying again
+            const walletResults = batchAnalysisResults.filter(result => result.walletAddress === walletAddr);
+            const activeTokens = new Set(walletResults.map(result => result.tokenAddress));
             activelyTradedTokensByWallet.set(walletAddr, activeTokens);
-            // logger.debug(`[Historical Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${analysisResults.length} actively traded tokens (paid fees)`);
+            // logger.debug(`[Historical Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${walletResults.length} actively traded tokens (paid fees)`);
         }
         
         // Filter binaryRelevantMints to only include tokens actively traded by at least one wallet
@@ -351,23 +347,22 @@ export class SimilarityService {
                     try {
                         logger.debug('[Holdings Filtered] Starting filtered holdings similarity calculation...');
                         
-                        // Get tokens that each wallet has actually traded from AnalysisResult table
+                        // 🚀 PERFORMANCE FIX: Reuse batch results (final optimization)
                         const tradedTokensByWallet = new Map<string, Set<string>>();
                         
                         for (const walletAddr of walletsWithHoldingsVectors) {
-                            const analysisResults = await this.databaseService.getAnalysisResults({
-                                where: { walletAddress: walletAddr }
-                            });
+                            // Reuse the batch results from the primary query
+                            const walletResults = batchAnalysisResults.filter(result => result.walletAddress === walletAddr);
                             
                             // ENHANCED FILTER: Only include tokens where wallet paid fees (actively traded, not just received)
                             const activelyTradedTokens = new Set(
-                                analysisResults
+                                walletResults
                                     .filter(ar => ar.totalFeesPaidInSol > 0) // Only tokens where wallet paid trading fees
                                     .map(ar => ar.tokenAddress)
                             );
                             
                             tradedTokensByWallet.set(walletAddr, activelyTradedTokens);
-                            logger.debug(`[Holdings Filtered] Wallet ${walletAddr.slice(0,8)}...${walletAddr.slice(-4)}: ${analysisResults.length} total tokens in DB, ${activelyTradedTokens.size} actively traded (paid fees)`);
+                            logger.debug(`[Holdings Filtered] Wallet ${walletAddr.slice(0,8)}...${walletAddr.slice(-4)}: ${walletResults.length} total tokens in DB, ${activelyTradedTokens.size} actively traded (paid fees)`);
                         }
                         
                         const filteredSimilarityMatrix: Record<string, Record<string, number>> = {};

@@ -211,7 +211,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                 }
                 icon={<Users className="h-6 w-6" strokeWidth={1.5} />} 
                 details={<>Median: {percentFormatter.format(medianScore)}<br/>Min: {percentFormatter.format(minScore)}, Max: {percentFormatter.format(maxScore)}</>}
-                tooltipContent="Average capital similarity score across all pairs."
+                tooltipContent="Average capital similarity score across all pairs. Higher value indicates majority is   "
               />
               <StatCard 
                 title="Total Value Holdings" 

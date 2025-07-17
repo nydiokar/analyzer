@@ -1,23 +1,21 @@
 'use client';
 
-import { memo } from 'react'; // Import memo
+import { memo, useState } from 'react'; // Import memo and useState
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { CombinedSimilarityResult, TokenInfo } from './types';
+import { CombinedSimilarityResult } from './types';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { Copy, ExternalLink, RefreshCw } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import Link from 'next/link';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMemo, useCallback } from 'react';
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { TokenHoldingRow } from './TokenHoldingRow'; // Import the new component
+
+// Performance configuration
+const TOKENS_PER_WALLET_DEFAULT = 10;
+const TOKENS_PER_WALLET_EXPANDED = 50;
 
 // This type is now provided directly in CombinedSimilarityResult
 // interface EnrichedTokenBalance {
@@ -54,8 +52,23 @@ const formatUsdValue = (value: number | null | undefined) => {
 // Wrap the entire component with React.memo
 export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefreshPrices, isRefreshing }: ContextualHoldingsCardProps) => {
   const balancesSource = enrichedBalances || results.walletBalances;
-  const { walletBalances, uniqueTokensPerWallet } = results;
-  const { toast } = useToast();
+  const { uniqueTokensPerWallet } = results;
+  
+  // Simplified state management - always show top 10, allow expansion
+  const [expandedWallets, setExpandedWallets] = useState<Set<string>>(new Set());
+  
+  // Toggle wallet expansion
+  const toggleWalletExpansion = (walletAddress: string) => {
+    setExpandedWallets(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(walletAddress)) {
+        newSet.delete(walletAddress);
+      } else {
+        newSet.add(walletAddress);
+      }
+      return newSet;
+    });
+  };
 
   // No more loading state or client-side fetching is needed.
   // const [tokenMetadata, setTokenMetadata] = useState<Record<string, TokenInfo>>({});
@@ -128,32 +141,69 @@ export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefre
                     const sortedBalances = [...(balanceInfo.tokenBalances || [])].sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1));
                     const hasNoHoldings = sortedBalances.length === 0;
 
+                    // Performance optimization: limit tokens per wallet
+                    const isExpanded = expandedWallets.has(walletAddress);
+                    const tokenLimit = isExpanded ? TOKENS_PER_WALLET_EXPANDED : TOKENS_PER_WALLET_DEFAULT;
+                    const displayedTokens = sortedBalances.slice(0, tokenLimit);
+                    const hasMoreTokens = sortedBalances.length > tokenLimit;
+
                     return (
                         <div key={walletAddress} className="border rounded-lg p-3 space-y-2 flex flex-col">
                             <div className="flex justify-between items-center">
                                 <WalletBadge address={walletAddress} />
-                                <Badge variant="outline">
-                                    {uniqueCounts.capital} Tokens
-                                </Badge>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline">
+                                      {uniqueCounts.capital} Tokens
+                                  </Badge>
+                                  {hasMoreTokens && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => toggleWalletExpansion(walletAddress)}
+                                      className="h-6 px-2 text-xs"
+                                    >
+                                      {isExpanded ? (
+                                        <>
+                                          <ChevronUp className="h-3 w-3 mr-1" />
+                                          Less
+                                        </>
+                                      ) : (
+                                        <>
+                                          <ChevronDown className="h-3 w-3 mr-1" />
+                                          +{sortedBalances.length - tokenLimit}
+                                        </>
+                                      )}
+                                    </Button>
+                                  )}
+                                </div>
                             </div>
                             <Separator />
                             <div className="flex-grow">
                             {hasNoHoldings ? (
                                 <p className="text-xs text-muted-foreground text-center py-4">No token holdings found.</p>
                             ) : (
-                                <ScrollArea className="h-[200px] pr-3">
-                                    <div className="space-y-1.5">
-                                        {sortedBalances.map((token, index) => (
-                                          <TokenHoldingRow
-                                            key={`${walletAddress}-${token.mint}-${index}`}
-                                            token={token}
-                                            walletAddress={walletAddress}
-                                            formatUsdValue={memoizedFormatUsdValue}
-                                            truncateAddress={memoizedTruncateAddress}
-                                          />
-                                        ))}
+                                <>
+                                  <ScrollArea className="h-[200px] pr-3">
+                                      <div className="space-y-1.5">
+                                          {displayedTokens.map((token, index) => (
+                                            <TokenHoldingRow
+                                              key={`${walletAddress}-${token.mint}-${index}`}
+                                              token={token}
+                                              walletAddress={walletAddress}
+                                              formatUsdValue={memoizedFormatUsdValue}
+                                              truncateAddress={memoizedTruncateAddress}
+                                            />
+                                          ))}
+                                      </div>
+                                  </ScrollArea>
+                                  {hasMoreTokens && (
+                                    <div className="text-center pt-2">
+                                      <p className="text-xs text-muted-foreground">
+                                        Showing {displayedTokens.length} of {sortedBalances.length} tokens
+                                      </p>
                                     </div>
-                                </ScrollArea>
+                                  )}
+                                </>
                             )}
                             </div>
                         </div>

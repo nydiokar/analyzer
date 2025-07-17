@@ -327,9 +327,13 @@ export class DatabaseService {
             updateData.isVerifiedBot = classificationData.isVerifiedBot;
         }
 
-        return await this.prismaClient.wallet.update({
+        return await this.prismaClient.wallet.upsert({
             where: { address: walletAddress },
-            data: updateData,
+            create: {
+                address: walletAddress,
+                ...updateData,
+            },
+            update: updateData,
         });
     }
 
@@ -1588,7 +1592,7 @@ export class DatabaseService {
      * Fetches the latest AdvancedStatsResult for a given wallet address.
      * It orders by the AnalysisRun's runTimestamp in descending order to find the latest.
      * @param walletAddress The public key of the wallet.
-     * @returns The latest AdvancedStatsResult object if found, otherwise null.
+     * @returns The latest AdvancedTradeStats object if found, otherwise null.
      */
     async getLatestAdvancedStatsByWallet(walletAddress: string): Promise<AdvancedTradeStats | null> {
       this.logger.debug(`Fetching latest advanced stats for wallet: ${walletAddress}`);
@@ -1801,6 +1805,66 @@ export class DatabaseService {
         } catch (error) {
             this.logger.error(`Error during batch upsert of AnalysisResult records:`, { error, totalProcessed });
             throw error;
+        }
+    }
+
+    /**
+     * Get tokens that have been recently checked in DexScreener to avoid redundant API calls
+     * @param tokenAddresses Array of token addresses to check
+     * @param hoursAgo How many hours ago to consider "recent"
+     * @returns Array of token addresses that were recently checked
+     */
+    async getRecentlyCheckedTokens(tokenAddresses: string[], hoursAgo: number): Promise<string[]> {
+        if (tokenAddresses.length === 0) {
+            return [];
+        }
+
+        const cutoffDate = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+        
+        try {
+            const recentTokens = await this.prismaClient.tokenInfo.findMany({
+                where: {
+                    tokenAddress: { in: tokenAddresses },
+                    dexscreenerUpdatedAt: { gte: cutoffDate }
+                },
+                select: { tokenAddress: true }
+            });
+
+            return recentTokens.map(t => t.tokenAddress);
+        } catch (error) {
+            this.logger.error('Error fetching recently checked tokens:', { error });
+            return []; // Fail gracefully, fetch all tokens if error
+        }
+    }
+
+    /**
+     * Get tokens that have recent trading activity to prioritize them for metadata fetching
+     * @param tokenAddresses Array of token addresses to check
+     * @returns Array of token addresses with recent activity (prioritized)
+     */
+    async getTokensWithRecentActivity(tokenAddresses: string[]): Promise<string[]> {
+        if (tokenAddresses.length === 0) {
+            return [];
+        }
+
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        
+        try {
+            // Find tokens that have recent swap analysis input records (trading activity)
+            const activeTokens = await this.prismaClient.swapAnalysisInput.findMany({
+                where: {
+                    mint: { in: tokenAddresses },
+                    timestamp: { gte: Math.floor(sevenDaysAgo.getTime() / 1000) }
+                },
+                select: { mint: true },
+                distinct: ['mint'],
+                orderBy: { timestamp: 'desc' }
+            });
+
+            return activeTokens.map(t => t.mint);
+        } catch (error) {
+            this.logger.error('Error fetching tokens with recent activity:', { error });
+            return []; // Fail gracefully, no prioritization if error
         }
     }
 
@@ -2057,7 +2121,7 @@ export class DatabaseService {
         try {
             // Execute all upsert operations in a transaction
             await this.prismaClient.$transaction(operations);
-            this.logger.info(`Successfully upserted ${data.length} token info records.`);
+            this.logger.debug(`Successfully upserted ${data.length} token info records.`);
         } catch (error) {
             this.logger.error('Error in upsertManyTokenInfo transaction', { error });
             // Depending on requirements, you might want to re-throw or handle differently

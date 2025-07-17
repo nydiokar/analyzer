@@ -1,8 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Job, Worker, QueueEvents } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { ComprehensiveSimilarityFlowData, SimilarityFlowResult } from '../jobs/types';
-import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { SimilarityApiService } from '../../api/analyses/similarity/similarity.service';
 import { DatabaseService } from '../../api/database/database.service';
@@ -13,16 +12,18 @@ import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-
 import { PnlAnalysisService } from '../../api/pnl_analysis/pnl-analysis.service';
 import { BehaviorService } from '../../api/wallets/behavior/behavior.service';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
-import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
 import { BalanceCacheService } from '../../api/balance-cache/balance-cache.service';
-import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
-import { BatchProcessor } from '../utils/batch-processor';
+import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
+import { generateJobId } from '../utils/job-id-generator';
 import { WalletBalance } from '../../types/wallet';
+import { BatchProcessor } from '../utils/batch-processor';
+import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
+import { KNOWN_SYSTEM_WALLETS, WALLET_CLASSIFICATIONS } from '../../config/constants';
 
 @Injectable()
-export class SimilarityOperationsProcessor {
+export class SimilarityOperationsProcessor implements OnModuleDestroy {
   private readonly logger = new Logger(SimilarityOperationsProcessor.name);
   private readonly worker: Worker;
   private readonly walletBalanceService: WalletBalanceService;
@@ -44,7 +45,8 @@ export class SimilarityOperationsProcessor {
     this.walletBalanceService = new WalletBalanceService(this.heliusApiClient);
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
     
-    // The worker now runs the logic from a separate file in a sandboxed process.
+    // RESTORED: Use proper worker architecture for production scalability
+    // The worker runs the logic from a separate file in a sandboxed process.
     // We must convert the file path to a URL for ESM compatibility on Windows.
     const workerPath = join(__dirname, '..', 'workers', 'similarity.worker.js');
     const workerUrl = pathToFileURL(workerPath);
@@ -54,7 +56,7 @@ export class SimilarityOperationsProcessor {
       workerUrl,
       {
         ...config.workerOptions,
-        concurrency: 2, // Example: align with resource allocation plan
+        concurrency: 2, // Production concurrency
       }
     );
 
@@ -98,50 +100,19 @@ export class SimilarityOperationsProcessor {
       throw new Error(`Similarity analysis already in progress for request: ${requestId}`);
     }
 
+    // Declare enrichmentJob outside try block so it's accessible in catch block
+    let enrichmentJob: Job | undefined;
+
     try {
       this.logger.log(`Starting ADVANCED similarity analysis for ${walletAddresses.length} wallets.`);
       await job.updateProgress(5);
       await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
-      // Use all wallets initially - filtering for INVALID wallets happens after sync
-      const walletsToAnalyze = walletAddresses;
-      const walletsNeedingSyncFiltered = syncRequired ? walletsToAnalyze.filter(address => {
-        return walletsNeedingSync.includes(address);
-      }) : [];
+      // 🏷️ PRE-FILTER: Tag known system wallets before processing
+      await this.filterAndTagSystemWallets(walletAddresses);
       
-      // Fetch all balances ONCE using the new efficient batch method.
-      const walletBalances = await this.balanceCacheService.getManyBalances(walletsToAnalyze);
-      this.logger.log(`Fetched initial balances for ${Object.keys(walletBalances).length} wallets.`);
-
-      // STEP 1: PARALLEL KICK-OFF OF LONG & SHORT TASKS
-      this.logger.log('Kicking off deep sync and balance fetch in parallel.');
-      
-      const syncPromise = syncRequired 
-        ? this._orchestrateDeepSync(walletsNeedingSyncFiltered, job)
-        : Promise.resolve();
-
-      // STEP 2: Let enrichment job start if needed. Balances will be fetched inside the service.
-      let enrichmentJob: Job | undefined;
-      if (enrichMetadata) {
-        this.logger.log(`Triggering parallel enrichment job for request: ${requestId}.`);
-        enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
-          walletBalances,
-          requestId,
-        });
-        this.logger.log(`Parallel enrichment job has been queued for request: ${requestId}.`);
-      }
-
-      // STEP 3: AWAIT DEEP SYNC COMPLETION (if needed)
-      if (syncRequired) {
-        this.logger.log('Awaiting deep sync and analysis to complete...');
-        await syncPromise;
-        await job.updateProgress(60);
-        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60);
-        this.checkTimeout(startTime, timeoutMs, 'Data sync and balance fetch');
-      }
-
-      // STEP 3.5: Check for wallets marked as INVALID during sync and filter them out
+      // 🚨 CRITICAL: Filter out INVALID wallets BEFORE processing (prevents 270k+ token crashes)
       const validWallets: string[] = [];
       const invalidWallets: string[] = [];
       
@@ -149,7 +120,7 @@ export class SimilarityOperationsProcessor {
         try {
           const wallet = await this.databaseService.getWallet(address);
           if (wallet && wallet.classification === 'INVALID') {
-            this.logger.warn(`Wallet ${address} was marked as INVALID during sync - filtering out`);
+            this.logger.warn(`Wallet ${address} is tagged as INVALID - skipping processing entirely`);
             invalidWallets.push(address);
           } else {
             validWallets.push(address);
@@ -160,21 +131,80 @@ export class SimilarityOperationsProcessor {
         }
       }
       
-      this.logger.log(`Wallet filtering complete: ${validWallets.length} valid, ${invalidWallets.length} invalid`);
+      this.logger.log(`Pre-filtering complete: ${validWallets.length} valid, ${invalidWallets.length} invalid (INVALID wallets skipped)`);
       
-      // If we don't have enough valid wallets, fail with detailed error
+      // If we don't have enough valid wallets, fail early
       if (validWallets.length < 2) {
         throw new Error(`Insufficient valid wallets for similarity analysis. Only ${validWallets.length} of ${walletAddresses.length} wallets are valid. Invalid wallets: ${invalidWallets.join(', ')}`);
       }
+      
+      // Use ONLY valid wallets for processing (no more 270k+ token crashes!)
+      const walletsToAnalyze = validWallets;
+      const walletsNeedingSyncFiltered = syncRequired ? walletsToAnalyze.filter(address => {
+        return walletsNeedingSync.includes(address);
+      }) : [];
+      
+      // ⚡ STEP 1: START BOTH OPERATIONS IN PARALLEL (NO BLOCKING) - ONLY FOR VALID WALLETS
+      this.logger.log('🚀 Starting sync and balance fetch in TRUE PARALLEL...');
+      
+      // Start sync immediately (if needed) - DON'T await yet - ONLY for valid wallets
+      const syncPromise = syncRequired 
+        ? this._orchestrateDeepSync(walletsNeedingSyncFiltered, job)
+        : Promise.resolve();
+
+      // Start balance fetching in parallel - DON'T await yet - ONLY for valid wallets 
+      const balancePromise = this.balanceCacheService.getManyBalances(walletsToAnalyze);
+      
+      // Log progress but don't block
+      await job.updateProgress(10);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 10);
+
+      // ⚡ STEP 2: WAIT FOR BOTH TO COMPLETE
+      this.logger.log('⏳ Waiting for BOTH sync and balance fetch to complete...');
+      const [syncResult, balanceResult] = await Promise.allSettled([syncPromise, balancePromise]);
+      
+      // Handle results
+      if (syncResult.status === 'rejected') {
+        throw new Error(`Sync failed: ${syncResult.reason}`);
+      }
+      if (balanceResult.status === 'rejected') {
+        throw new Error(`Balance fetch failed: ${balanceResult.reason}`);
+      }
+      
+      const actualWalletBalances = balanceResult.value;
+      this.logger.log(`✅ PARALLEL COMPLETION: Sync done, balances for ${Object.keys(actualWalletBalances).length} wallets fetched`);
+
+      // STEP 3: Start enrichment job with pre-fetched balances (fire-and-forget)
+      if (enrichMetadata && process.env.DISABLE_ENRICHMENT !== 'true') {
+        this.logger.log(`Triggering background enrichment job for request: ${requestId}.`);
+        try {
+          enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
+            walletBalances: actualWalletBalances,
+            requestId,
+          });
+          this.logger.log(`Background enrichment job queued: ${enrichmentJob?.id} for request: ${requestId}.`);
+        } catch (error) {
+          this.logger.warn(`Failed to queue enrichment job, continuing without enrichment:`, error);
+        }
+      } else if (process.env.DISABLE_ENRICHMENT === 'true') {
+        this.logger.log(`Enrichment disabled by DISABLE_ENRICHMENT environment variable`);
+      }
+
+      await job.updateProgress(60);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60);
+      this.checkTimeout(startTime, timeoutMs, 'Parallel operations completed');
+
+      // STEP 3.5: Wallets already filtered - validWallets contains only valid wallets
+      this.logger.log(`Using pre-filtered valid wallets for similarity calculation: ${validWallets.length} wallets`);
 
       // STEP 4: FINAL ANALYSIS (The service now uses the pre-fetched balances)
       this.logger.log('Starting final similarity calculation...');
       
       // Convert the balances object to a Map as expected by the service
       const balancesMap = new Map<string, WalletBalance>();
-      for (const address in walletBalances) {
-        if (walletBalances[address]) {
-          balancesMap.set(address, walletBalances[address] as WalletBalance);
+      for (const address in actualWalletBalances) {
+        if (actualWalletBalances[address]) {
+          balancesMap.set(address, actualWalletBalances[address] as WalletBalance);
         }
       }
 
@@ -221,6 +251,17 @@ export class SimilarityOperationsProcessor {
 
     } catch (error) {
       this.logger.error(`Similarity analysis failed for requestId ${requestId}:`, error);
+      
+      // Cancel any running enrichment job to prevent orphaned processes
+      if (enrichmentJob) {
+        try {
+          this.logger.log(`Cancelling enrichment job ${enrichmentJob.id} due to similarity analysis failure`);
+          await enrichmentJob.remove();
+        } catch (cancelError) {
+          this.logger.warn(`Failed to cancel enrichment job ${enrichmentJob.id}:`, cancelError);
+        }
+      }
+      
       throw error;
     } finally {
       // Always release the Redis lock
@@ -332,6 +373,44 @@ export class SimilarityOperationsProcessor {
   private checkTimeout(startTime: number, timeoutMs: number, operation: string): void {
     if (Date.now() - startTime > timeoutMs) {
       throw new Error(`${operation} timeout after ${timeoutMs / 1000}s`);
+    }
+  }
+
+  /**
+   * Filters out and tags known system wallets from the provided list of wallet addresses.
+   * This ensures that these wallets are not included in the similarity analysis.
+   */
+  private async filterAndTagSystemWallets(walletAddresses: string[]): Promise<void> {
+    const systemWalletsArray = [...KNOWN_SYSTEM_WALLETS] as string[]; // Convert readonly to mutable array
+    const systemWalletsSet = new Set(systemWalletsArray);
+    const taggedWallets: string[] = [];
+    const invalidWallets: string[] = [];
+
+    for (const address of walletAddresses) {
+      if (systemWalletsSet.has(address)) {
+        this.logger.warn(`Wallet ${address} is a known system wallet - tagging as INVALID.`);
+        // Tag as INVALID using the correct method parameters
+        await this.databaseService.updateWalletClassification(address, {
+          classification: WALLET_CLASSIFICATIONS.INVALID,
+          classificationMethod: 'system_wallet_filter',
+          classificationUpdatedAt: new Date(),
+        });
+        invalidWallets.push(address);
+      } else {
+        taggedWallets.push(address);
+      }
+    }
+
+    // this.logger.log(`System wallet filtering complete: ${taggedWallets.length} valid, ${invalidWallets.length} invalid`);
+  }
+
+  /**
+   * Cleanup worker when module is destroyed
+   */
+  async onModuleDestroy() {
+    this.logger.log('Shutting down SimilarityOperationsProcessor...');
+    if (this.worker) {
+      await this.worker.close();
     }
   }
 
