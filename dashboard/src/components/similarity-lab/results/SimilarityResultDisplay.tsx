@@ -5,9 +5,7 @@ import { GlobalMetricsCard } from './GlobalMetricsCard';
 import { ContextualHoldingsCard } from './ContextualHoldingsCard';
 import { HistoricalVsLiveComparison } from './HistoricalVsLiveComparison';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { Sparkles, ArrowUp } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Sparkles } from 'lucide-react';
 
 interface SimilarityResultDisplayProps {
   results: CombinedSimilarityResult;
@@ -20,21 +18,6 @@ const EMPTY_BALANCES = {}; // Define a constant empty object
 export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing }: SimilarityResultDisplayProps) {
   const hasAdvancedMatrices = results.sharedTokenCountsMatrix || results.jaccardSimilarityMatrix;
   const enrichedBalances = results.walletBalances || EMPTY_BALANCES; // Use the constant
-  const [showBackToTop, setShowBackToTop] = useState(false);
-
-  // Show back-to-top button when user scrolls down
-  useEffect(() => {
-    const handleScroll = () => {
-      setShowBackToTop(window.scrollY > 200); // Lower threshold
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   return (
     <div className="space-y-6">
@@ -73,18 +56,6 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
         onRefreshPrices={onRefreshPrices}
         isRefreshing={isRefreshing}
       />
-
-      {/* Back to Top Button */}
-      {showBackToTop && (
-        <Button
-          onClick={scrollToTop}
-          className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg z-50"
-          size="icon"
-          variant="default"
-        >
-          <ArrowUp className="h-4 w-4" />
-        </Button>
-      )}
     </div>
   );
 } 

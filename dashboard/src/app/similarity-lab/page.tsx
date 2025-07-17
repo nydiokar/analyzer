@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; // Import the new form
+import { ArrowUp } from 'lucide-react';
 
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
 import { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
@@ -37,6 +38,9 @@ export default function AnalysisLabPage() {
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  
+  // Back to top button state
+  const [showBackToTop, setShowBackToTop] = useState(false);
   
   // toast is now imported directly from sonner
   const apiKey = useApiKeyStore((state) => state.apiKey);
@@ -227,6 +231,30 @@ export default function AnalysisLabPage() {
   const handleWalletsChange = useCallback((wallets: string[]) => {
     setWalletList(wallets);
   }, []);
+
+  // Back to top functionality - listen to the main container scroll
+  useEffect(() => {
+    const handleScroll = () => {
+      // Find the main scrollable container
+      const mainElement = document.querySelector('main');
+      if (mainElement) {
+        setShowBackToTop(mainElement.scrollTop > 100);
+      }
+    };
+
+    const mainElement = document.querySelector('main');
+    if (mainElement) {
+      mainElement.addEventListener('scroll', handleScroll);
+      return () => mainElement.removeEventListener('scroll', handleScroll);
+    }
+  }, []);
+
+  const scrollToTop = () => {
+    const mainElement = document.querySelector('main');
+    if (mainElement) {
+      mainElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   const handleRefreshPrices = useCallback(async () => {
     if (!analysisResult?.walletBalances) {
@@ -511,6 +539,16 @@ export default function AnalysisLabPage() {
         </div>
       )}
 
+      {/* Back to Top Button - Enhanced Visibility */}
+      {showBackToTop && (
+        <Button
+          onClick={scrollToTop}
+          className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-2xl z-[100] bg-blue-600 hover:bg-blue-700 border-2 border-white/20 backdrop-blur-sm"
+          size="icon"
+        >
+          <ArrowUp className="h-5 w-5 text-white" />
+        </Button>
+      )}
 
     </div>
   );
