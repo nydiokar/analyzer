@@ -218,6 +218,7 @@ export class EnrichmentOperationsProcessor {
 
   /**
    * Enhanced enrichment logic with cancellation support and better progress tracking
+   * Uses proper database-first approach to avoid creating "Unknown Token" placeholders
    */
   private async enrichBalancesWithSophisticatedLogic(
     walletBalances: Record<string, any>, 
@@ -229,43 +230,106 @@ export class EnrichmentOperationsProcessor {
     
     this.logger.log(`Starting enrichment for ${uniqueTokens.length} unique tokens`);
     
-    // Process tokens in batches with cancellation checks
-    const batchSize = 500; // Smaller batches for better cancellation responsiveness
-    let processedTokens = 0;
+    // STEP 1: Get existing tokens from database (database-first approach)
+    const existingTokens = await this.tokenInfoService.findMany(uniqueTokens);
+    const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
+    
+    // STEP 2: Filter to only fetch tokens that don't exist or are stale (5 minutes)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const tokensToFetch = uniqueTokens.filter(address => {
+      const existingToken = existingTokenMap.get(address);
+      return !existingToken || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
+    });
+    
+    this.logger.log(`Found ${existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
+    
     let newTokensFetched = 0;
     
-    for (let i = 0; i < uniqueTokens.length; i += batchSize) {
-      // Check for cancellation before each batch
-      await this.checkJobCancellation(job);
-      
-      const batch = uniqueTokens.slice(i, i + batchSize);
-      
-      try {
-        // Process this batch
-        await this.dexscreenerService.fetchAndSaveTokenInfo(batch);
-        processedTokens += batch.length;
-        newTokensFetched += batch.length; // Simplified for now
-        
-        // Update progress
-        const progress = Math.min(90, Math.floor((processedTokens / uniqueTokens.length) * 90));
-        await job.updateProgress(progress);
-        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
-        
-        this.logger.log(`Enriched batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(uniqueTokens.length / batchSize)} (${processedTokens}/${uniqueTokens.length} tokens)`);
-        
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('cancelled')) {
-          throw error; // Re-throw cancellation errors
+            // STEP 3: Only fetch new/stale tokens from DexScreener
+        if (tokensToFetch.length > 0) {
+          // Process tokens in batches with cancellation checks
+          const batchSize = 500; // Smaller batches for better cancellation responsiveness
+          let processedTokens = 0;
+          
+          for (let i = 0; i < tokensToFetch.length; i += batchSize) {
+            // Check for cancellation before each batch
+            await this.checkJobCancellation(job);
+            
+            const batch = tokensToFetch.slice(i, i + batchSize);
+            
+            try {
+              // Process this batch using TokenInfoService (which has proper database logic)
+              await this.tokenInfoService.triggerTokenInfoEnrichment(batch, 'system-enrichment-job');
+              processedTokens += batch.length;
+              newTokensFetched += batch.length;
+          
+          // Update progress
+          const progress = Math.min(90, Math.floor((processedTokens / tokensToFetch.length) * 90));
+          await job.updateProgress(progress);
+          await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
+          
+          this.logger.log(`Enriched batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(tokensToFetch.length / batchSize)} (${processedTokens}/${tokensToFetch.length} tokens)`);
+          
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('cancelled')) {
+            throw error; // Re-throw cancellation errors
+          }
+          
+          this.logger.warn(`Failed to enrich batch starting at index ${i}:`, error);
+          // Continue with other batches instead of failing the entire job
         }
-        
-        this.logger.warn(`Failed to enrich batch starting at index ${i}:`, error);
-        // Continue with other batches instead of failing the entire job
+      }
+    } else {
+      this.logger.log('All tokens already have recent metadata, no API calls needed');
+      await job.updateProgress(90);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
+    }
+    
+    // STEP 4: Return enriched balances with metadata from database
+    const finalTokenInfos = await this.tokenInfoService.findMany(uniqueTokens);
+    const finalTokenMap = new Map(finalTokenInfos.map(t => [t.tokenAddress, t]));
+    
+    // Enrich the wallet balances with the final metadata and USD values
+    const enrichedBalances = { ...walletBalances };
+    for (const [walletAddress, balance] of Object.entries(enrichedBalances)) {
+      if (balance.tokenBalances) {
+        balance.tokenBalances = balance.tokenBalances.map(token => {
+          const metadata = finalTokenMap.get(token.mint);
+          
+          // Calculate USD value if we have price data
+          let priceUsd: number | null = null;
+          let valueUsd: number | null = null;
+          
+          if (metadata?.priceUsd) {
+            try {
+              priceUsd = parseFloat(metadata.priceUsd);
+              // Calculate USD value: balance * price
+              const rawBalance = BigInt(token.balance || '0');
+              const divisor = BigInt(10 ** (token.decimals || 0));
+              const numericBalance = Number(rawBalance) / Number(divisor);
+              valueUsd = numericBalance * priceUsd;
+            } catch (error) {
+              this.logger.warn(`Failed to calculate USD value for token ${token.mint}:`, error);
+            }
+          }
+          
+          return {
+            ...token,
+            name: metadata?.name,
+            symbol: metadata?.symbol,
+            imageUrl: metadata?.imageUrl,
+            websiteUrl: metadata?.websiteUrl,
+            twitterUrl: metadata?.twitterUrl,
+            telegramUrl: metadata?.telegramUrl,
+            priceUsd,
+            valueUsd,
+          };
+        });
       }
     }
     
-    // Return the enriched balances (simplified for this example)
     return {
-      enrichedBalances: walletBalances, // In reality, this would be enriched with metadata
+      enrichedBalances,
       summary: { newTokensFetched }
     };
   }

@@ -183,6 +183,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
             requestId,
           });
           this.logger.log(`Background enrichment job queued: ${enrichmentJob?.id} for request: ${requestId}.`);
+          // DON'T wait for enrichment - keep it truly parallel!
         } catch (error) {
           this.logger.warn(`Failed to queue enrichment job, continuing without enrichment:`, error);
         }

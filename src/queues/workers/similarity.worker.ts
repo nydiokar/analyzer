@@ -32,10 +32,9 @@ async function run(job: Job<ComprehensiveSimilarityFlowData>): Promise<Similarit
     
     throw error;
   } finally {
-    // CRITICAL: Give time for WebSocket completion events to be sent before cleanup
     // The race condition was: job completes → app.close() → WebSocket shuts down → no completion event sent
-    // This delay ensures BullMQ completion events reach the frontend via WebSocket before worker cleanup
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Increased delay to ensure events are sent
+    // Reduced to 5 seconds since we now properly wait for enrichment jobs to complete
+    await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay to ensure events are sent
     
     // Always clean up the NestJS app context to prevent memory leaks
     if (app) {
