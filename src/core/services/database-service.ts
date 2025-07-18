@@ -917,20 +917,51 @@ export class DatabaseService {
     // --- Wallet Methods ---
 
     /**
-     * Fetches multiple wallet records (addresses only).
-     * @param walletAddresses An array of public keys for the wallets.
-     * @returns An array of objects containing wallet addresses.
+     * Fetches multiple wallet records with configurable data depth.
+     * 
+     * This method provides two modes of operation to optimize performance and memory usage:
+     * 
+     * 1. **Addresses-only mode** (default): Returns minimal data for basic operations
+     * 2. **Full data mode**: Returns complete wallet objects for detailed analysis
+     * 
+     * @param walletAddresses An array of public keys for the wallets to fetch.
+     * @param includeFullData 
+     *   - `false` (default): Returns only wallet addresses for fast, lightweight operations
+     *   - `true`: Returns complete wallet objects including classification, timestamps, etc.
+     * 
+     * @returns 
+     *   - When `includeFullData = false`: Array of `{ address: string }[]` objects
+     *   - When `includeFullData = true`: Array of complete `Wallet[]` objects
+     * 
+     * @example
+     * ```typescript
+     * // Fast address validation (addresses only)
+     * const addresses = await this.databaseService.getWallets(walletAddresses);
+     * // Returns: [{ address: "..." }, { address: "..." }]
+     * 
+     * // Similarity analysis (needs classification field)
+     * const wallets = await this.databaseService.getWallets(walletAddresses, true);
+     * // Returns: [{ address: "...", classification: "...", ... }, ...]
+     * ```
+     * 
+     * @performance
+     * - **Addresses-only**: Optimized for speed and low memory usage
+     * - **Full data**: Higher memory usage but provides complete wallet information
+     * 
+     * @usage
+     * - Use default (false) for: address validation, existence checks, basic operations
+     * - Use true for: similarity analysis, classification checks, detailed wallet processing
      */
-    async getWallets(walletAddresses: string[]): Promise<{ address: string }[]> { // Return address only
-        this.logger.debug(`Fetching wallet info for ${walletAddresses.length} addresses.`);
+    async getWallets(walletAddresses: string[], includeFullData: boolean = false): Promise<Wallet[] | { address: string }[]> {
+        this.logger.debug(`Fetching wallet info for ${walletAddresses.length} addresses (full data: ${includeFullData}).`);
         try {
             const wallets = await this.prismaClient.wallet.findMany({
                 where: {
                     address: { in: walletAddresses },
                 },
-                select: { address: true } // Select only address
+                select: includeFullData ? undefined : { address: true } // Select only address unless full data requested
             });
-            this.logger.debug(`Found ${wallets.length} wallet records.`);
+            this.logger.debug(`Found ${walletAddresses.length} wallet records.`);
             return wallets; // Return the result directly
         } catch (error) {
             this.logger.error(`Error fetching wallets`, { error });

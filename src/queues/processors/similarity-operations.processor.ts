@@ -16,6 +16,7 @@ import { BalanceCacheService } from '../../api/balance-cache/balance-cache.servi
 import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
 import { generateJobId } from '../utils/job-id-generator';
 import { WalletBalance } from '../../types/wallet';
+import { Wallet } from '@prisma/client';
 import { BatchProcessor } from '../utils/batch-processor';
 import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
 import { join } from 'path';
@@ -113,22 +114,28 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       await this.filterAndTagSystemWallets(walletAddresses);
       
       // 🚨 CRITICAL: Filter out INVALID wallets BEFORE processing (prevents 270k+ token crashes)
+      // ✅ FIXED: Use batch query instead of N+1 pattern
       const validWallets: string[] = [];
       const invalidWallets: string[] = [];
       
-      for (const address of walletAddresses) {
-        try {
-          const wallet = await this.databaseService.getWallet(address);
+      try {
+        // Single batch query for all wallets
+        const wallets = await this.databaseService.getWallets(walletAddresses, true) as Wallet[];
+        const walletMap = new Map(wallets.map(w => [w.address, w]));
+        
+        for (const address of walletAddresses) {
+          const wallet = walletMap.get(address);
           if (wallet && wallet.classification === 'INVALID') {
             this.logger.warn(`Wallet ${address} is tagged as INVALID - skipping processing entirely`);
             invalidWallets.push(address);
           } else {
             validWallets.push(address);
           }
-        } catch (error) {
-          this.logger.warn(`Error checking wallet ${address} classification, including in analysis:`, error);
-          validWallets.push(address); // Default to including if we can't check
         }
+      } catch (error) {
+        this.logger.warn(`Error in batch wallet validation, including all wallets in analysis:`, error);
+        // Fallback: include all wallets if batch query fails
+        validWallets.push(...walletAddresses);
       }
       
       this.logger.log(`Pre-filtering complete: ${validWallets.length} valid, ${invalidWallets.length} invalid (INVALID wallets skipped)`);
