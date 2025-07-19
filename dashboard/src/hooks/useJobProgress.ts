@@ -74,6 +74,13 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   }, [callbacksRef]);
 
   useEffect(() => {
+    console.log('🔍 DEBUG: WebSocket URL =', process.env.NEXT_PUBLIC_WEBSOCKET_URL);
+    console.log('🔍 DEBUG: Full connection URL =', `${process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001'}/job-progress`);
+    console.log('🔍 DEBUG: Environment variables =', {
+      NEXT_PUBLIC_WEBSOCKET_URL: process.env.NEXT_PUBLIC_WEBSOCKET_URL,
+      NODE_ENV: process.env.NODE_ENV
+    });
+    
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001';
     const newSocket = io(`${baseUrl}/job-progress`, {
       autoConnect: true,
