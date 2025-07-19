@@ -55,3 +55,14 @@ The following endpoints in `analyses.controller.ts` support the Similarity Lab f
     -   **Request Body**: `{ walletAddresses: string[] }`
     -   **Response Body**: `CombinedSimilarityResult` (structure defined in frontend types)
     -   **Purpose**: Executes the final similarity analysis on a set of wallets that are confirmed to exist in the database and returns the detailed results. 
+
+
+    User Input → Validation → Early System Detection → Parallel Processing
+                                    ├── Branch A: Core Analysis (VALID WALLETS ONLY)
+                                    │   ├── Transaction Sync
+                                    │   ├── PnL Analysis  
+                                    │   └── Similarity Calculation
+                                    └── Branch B: Enrichment (VALID WALLETS ONLY)
+                                        ├── Balance Fetching
+                                        ├── Metadata Enrichment
+                                        └── Price Aggregation

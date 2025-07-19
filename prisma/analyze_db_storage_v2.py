@@ -10,19 +10,119 @@ import sys
 # Assuming the script is in the prisma directory with dev.db
 DB_PATH: str = "dev.db"
 
-# Schema information for size estimation
-# HeliusTransactionCache.rawData is Json
-# SwapAnalysisInput has several String and Float fields
+# Schema information for size estimation based on current Prisma schema
 TABLE_CONFIG: dict[str, dict] = {
     "HeliusTransactionCache": {
-        "json_fields": ["rawData"],
-        "fixed_fields_estimate_bytes": 0 # Other fields like signature, timestamp, fetchedAt are considered separately or minor
+        "bytes_fields": ["rawData"],  # Changed from json_fields to bytes_fields
+        "string_fields": ["signature"],
+        "int_fields": ["timestamp"],
+        "datetime_fields": ["fetchedAt"],
+        "fixed_fields_estimate_bytes": 0  # Other fields are handled separately
     },
     "SwapAnalysisInput": {
         "string_fields": ["walletAddress", "signature", "mint", "direction", "interactionType"],
-        # id (INT PK ~8), timestamp (INT ~4), amount (FLOAT ~8), associatedSolValue (FLOAT ~8),
-        # associatedUsdcValue (FLOAT? ~8), feeAmount (FLOAT? ~8), feePercentage (FLOAT? ~8)
-        "fixed_fields_estimate_bytes": 8 + 4 + (8 * 5), # 52 bytes
+        "float_fields": ["amount", "associatedSolValue", "associatedUsdcValue", "feeAmount", "feePercentage"],
+        "int_fields": ["id", "timestamp"],
+        "fixed_fields_estimate_bytes": 0  # All fields are handled separately
+    },
+    "Wallet": {
+        "string_fields": ["address", "newestProcessedSignature", "classification", "classificationMethod", "botType"],
+        "int_fields": ["firstProcessedTimestamp", "newestProcessedTimestamp", "analyzedTimestampStart", "analyzedTimestampEnd"],
+        "float_fields": ["classificationConfidence"],
+        "boolean_fields": ["isVerifiedBot"],
+        "datetime_fields": ["lastSuccessfulFetchTimestamp", "classificationUpdatedAt"],
+        "json_fields": ["botPatternTags"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "AnalysisResult": {
+        "string_fields": ["walletAddress", "tokenAddress", "currentRawBalance", "currentUiBalanceString", "preservationType"],
+        "float_fields": ["totalAmountIn", "totalAmountOut", "netAmountChange", "totalSolSpent", "totalSolReceived", 
+                        "totalFeesPaidInSol", "netSolProfitLoss", "estimatedPreservedValue", "currentUiBalance"],
+        "int_fields": ["id", "transferCountIn", "transferCountOut", "firstTransferTimestamp", "lastTransferTimestamp", 
+                      "balanceDecimals"],
+        "boolean_fields": ["isValuePreservation"],
+        "datetime_fields": ["balanceFetchedAt", "updatedAt"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "WalletPnlSummary": {
+        "string_fields": ["walletAddress"],
+        "float_fields": ["totalVolume", "totalFees", "realizedPnl", "unrealizedPnl", "netPnl", "stablecoinNetFlow",
+                        "averageSwapSize", "averageRealizedPnlPerExecutedSwap", "realizedPnlToTotalVolumeRatio",
+                        "currentSolBalance"],
+        "int_fields": ["id", "profitableTokensCount", "unprofitableTokensCount", "totalExecutedSwapsCount",
+                      "totalSignaturesProcessed", "overallFirstTimestamp", "overallLastTimestamp"],
+        "datetime_fields": ["solBalanceFetchedAt", "updatedAt"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "AdvancedTradeStats": {
+        "float_fields": ["medianPnlPerToken", "trimmedMeanPnlPerToken", "tokenWinRatePercent", "standardDeviationPnl",
+                        "profitConsistencyIndex", "weightedEfficiencyScore", "averagePnlPerDayActiveApprox"],
+        "int_fields": ["id", "walletPnlSummaryId", "firstTransactionTimestamp", "lastTransactionTimestamp"],
+        "datetime_fields": ["updatedAt"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "WalletBehaviorProfile": {
+        "string_fields": ["walletAddress", "tradingStyle"],
+        "float_fields": ["buySellRatio", "buySellSymmetry", "averageFlipDurationHours", "medianHoldTime",
+                        "sequenceConsistency", "flipperScore", "averageTradesPerToken", "percentTradesUnder1Hour",
+                        "percentTradesUnder4Hours", "confidenceScore", "reentryRate", "percentageOfUnpairedTokens",
+                        "avgTradesPerSession", "averageSessionStartHour", "averageSessionDurationMinutes"],
+        "int_fields": ["id", "uniqueTokensTraded", "tokensWithBothBuyAndSell", "totalTradeCount", "totalBuyCount",
+                      "totalSellCount", "completePairsCount", "sessionCount", "firstTransactionTimestamp", "lastTransactionTimestamp"],
+        "json_fields": ["tradingTimeDistribution", "tradingFrequency", "tokenPreferences", "riskMetrics", "activeTradingPeriods"],
+        "datetime_fields": ["updatedAt"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "AnalysisRun": {
+        "string_fields": ["walletAddress", "serviceInvoked", "status", "errorMessage", "notes"],
+        "int_fields": ["id", "inputDataStartTs", "inputDataEndTs", "signaturesConsidered", "durationMs"],
+        "datetime_fields": ["runTimestamp"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "User": {
+        "string_fields": ["id", "apiKey", "description"],
+        "boolean_fields": ["isDemo", "isActive"],
+        "datetime_fields": ["createdAt", "lastSeenAt"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "ActivityLog": {
+        "string_fields": ["id", "userId", "actionType", "requestParameters", "status", "errorMessage", "sourceIp", "walletAddress"],
+        "int_fields": ["durationMs"],
+        "datetime_fields": ["timestamp"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "MappingActivityLog": {
+        "string_fields": ["id", "walletAddress"],
+        "int_fields": ["totalTransactionsReceived", "transactionsSkippedError", "transactionsSuccessfullyProcessed",
+                      "analysisInputsGenerated", "nativeSolTransfersProcessed", "tokenTransfersProcessed",
+                      "wsolTransfersProcessed", "usdcTransfersProcessed", "otherTokenTransfersProcessed",
+                      "feePayerHeuristicApplied", "feesCalculated", "eventMatcherAttempts",
+                      "eventMatcherPrimaryMintsIdentified", "eventMatcherConsistentSolFound",
+                      "eventMatcherConsistentUsdcFound", "eventMatcherAmbiguous", "eventMatcherNoConsistentValue",
+                      "splToSplSwapDetections", "associatedValueFromSplToSpl", "associatedValueFromEventMatcher",
+                      "associatedValueFromTotalMovement", "associatedValueFromNetChange", "smallOutgoingHeuristicApplied",
+                      "skippedDuplicateRecordKey", "unknownTxSkippedNoJito"],
+        "json_fields": ["countByInteractionType"],
+        "datetime_fields": ["timestamp"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "WalletNote": {
+        "string_fields": ["id", "content", "walletAddress", "userId"],
+        "datetime_fields": ["createdAt", "updatedAt"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "UserFavoriteWallet": {
+        "string_fields": ["userId", "walletAddress", "nickname", "tags", "collections"],
+        "json_fields": ["metadata"],
+        "datetime_fields": ["createdAt", "lastViewedAt"],
+        "fixed_fields_estimate_bytes": 0
+    },
+    "TokenInfo": {
+        "string_fields": ["tokenAddress", "name", "symbol", "imageUrl", "websiteUrl", "twitterUrl", "telegramUrl", "priceUsd"],
+        "float_fields": ["marketCapUsd", "liquidityUsd", "fdv", "volume24h"],
+        "bigint_fields": ["pairCreatedAt"],
+        "datetime_fields": ["dexscreenerUpdatedAt", "fetchedAt", "updatedAt"],
+        "fixed_fields_estimate_bytes": 0
     }
 }
 
@@ -109,11 +209,25 @@ def estimate_table_sizes_fallback(conn: sqlite3.Connection) -> list[tuple[str, i
                 config = TABLE_CONFIG[table_name]
                 current_table_data_size: int = 0
 
+                # Estimate Bytes field sizes (for rawData in HeliusTransactionCache)
+                if "bytes_fields" in config:
+                    for field in config["bytes_fields"]:
+                        cursor.execute(f"PRAGMA table_info('{table_name}');")
+                        columns_info = {info[1]: info for info in cursor.fetchall()}
+                        if field not in columns_info:
+                            print(f"Warning: Bytes field '{field}' not found in table '{table_name}'. Skipping its size calculation.", file=sys.stderr)
+                            continue
+                        
+                        bytes_size_query = f'SELECT SUM(LENGTH("{field}")) FROM "{table_name}";'
+                        cursor.execute(bytes_size_query)
+                        size_result = cursor.fetchone()
+                        if size_result and size_result[0] is not None:
+                            current_table_data_size += int(size_result[0])
+                            notes += f"; {field} (Bytes) total: {format_bytes(int(size_result[0]))}"
+                
                 # Estimate JSON field sizes
                 if "json_fields" in config:
                     for field in config["json_fields"]:
-                        # Sum the length of the JSON data stored as text
-                        # Ensure column exists before querying
                         cursor.execute(f"PRAGMA table_info('{table_name}');")
                         columns_info = {info[1]: info for info in cursor.fetchall()}
                         if field not in columns_info:
@@ -130,7 +244,6 @@ def estimate_table_sizes_fallback(conn: sqlite3.Connection) -> list[tuple[str, i
                 # Estimate String field sizes
                 if "string_fields" in config:
                     str_fields_query_parts = [f'LENGTH("{field}")' for field in config["string_fields"]]
-                    # Validate string fields exist
                     valid_str_fields_query_parts = []
                     cursor.execute(f"PRAGMA table_info('{table_name}');")
                     columns_info = {info[1]: info for info in cursor.fetchall()}
@@ -146,6 +259,42 @@ def estimate_table_sizes_fallback(conn: sqlite3.Connection) -> list[tuple[str, i
                         size_result = cursor.fetchone()
                         if size_result and size_result[0] is not None:
                             current_table_data_size += int(size_result[0])
+                            notes += f"; String fields total: {format_bytes(int(size_result[0]))}"
+                
+                # Estimate Float field sizes (8 bytes each)
+                if "float_fields" in config:
+                    float_count = len(config["float_fields"])
+                    float_size_bytes = float_count * 8 * row_count
+                    current_table_data_size += float_size_bytes
+                    notes += f"; Float fields ({float_count} fields): {format_bytes(float_size_bytes)}"
+                
+                # Estimate Int field sizes (4 bytes each for regular ints, 8 for bigint)
+                if "int_fields" in config:
+                    int_count = len(config["int_fields"])
+                    int_size_bytes = int_count * 4 * row_count
+                    current_table_data_size += int_size_bytes
+                    notes += f"; Int fields ({int_count} fields): {format_bytes(int_size_bytes)}"
+                
+                # Estimate BigInt field sizes (8 bytes each)
+                if "bigint_fields" in config:
+                    bigint_count = len(config["bigint_fields"])
+                    bigint_size_bytes = bigint_count * 8 * row_count
+                    current_table_data_size += bigint_size_bytes
+                    notes += f"; BigInt fields ({bigint_count} fields): {format_bytes(bigint_size_bytes)}"
+                
+                # Estimate Boolean field sizes (1 byte each)
+                if "boolean_fields" in config:
+                    boolean_count = len(config["boolean_fields"])
+                    boolean_size_bytes = boolean_count * 1 * row_count
+                    current_table_data_size += boolean_size_bytes
+                    notes += f"; Boolean fields ({boolean_count} fields): {format_bytes(boolean_size_bytes)}"
+                
+                # Estimate DateTime field sizes (8 bytes each in SQLite)
+                if "datetime_fields" in config:
+                    datetime_count = len(config["datetime_fields"])
+                    datetime_size_bytes = datetime_count * 8 * row_count
+                    current_table_data_size += datetime_size_bytes
+                    notes += f"; DateTime fields ({datetime_count} fields): {format_bytes(datetime_size_bytes)}"
                 
                 # Add fixed field estimates
                 if "fixed_fields_estimate_bytes" in config:
@@ -201,9 +350,17 @@ def main() -> None:
 
         print("\n--- Potential High Storage Candidates (from schema knowledge) ---")
         if "HeliusTransactionCache" in TABLE_CONFIG:
-             print(f"- Table 'HeliusTransactionCache' with its '{TABLE_CONFIG['HeliusTransactionCache']['json_fields'][0]}' Json field is a primary suspect for high storage.")
+             print(f"- Table 'HeliusTransactionCache' with its '{TABLE_CONFIG['HeliusTransactionCache']['bytes_fields'][0]}' Bytes field is a primary suspect for high storage.")
         if "SwapAnalysisInput" in TABLE_CONFIG:
-             print(f"- Table 'SwapAnalysisInput' can also be large due to high row counts and multiple string/float fields.")
+             print(f"- Table 'SwapAnalysisInput' can be large due to high row counts and multiple string/float fields.")
+        if "WalletBehaviorProfile" in TABLE_CONFIG:
+             print(f"- Table 'WalletBehaviorProfile' contains multiple JSON fields for behavioral analysis which can be large.")
+        if "MappingActivityLog" in TABLE_CONFIG:
+             print(f"- Table 'MappingActivityLog' has many integer fields and can accumulate large amounts of logging data.")
+        if "ActivityLog" in TABLE_CONFIG:
+             print(f"- Table 'ActivityLog' stores user activity data and can grow significantly with usage.")
+        if "AnalysisResult" in TABLE_CONFIG:
+             print(f"- Table 'AnalysisResult' stores per-token analysis data and can be large with many wallets and tokens.")
         
         print("\nAnalysis complete.")
 

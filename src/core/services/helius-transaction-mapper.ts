@@ -976,7 +976,12 @@ export function mapHeliusTransactionsToIntermediateRecords(
   }
 
   // --- Log Final Stats ---
-  logger.info(`Finished mapping ${transactions.length} transactions for ${walletAddress}. Mapping statistics:`, mappingStats);
+
+  // THIS LOGGER IS VERY USERFUL FOR DEBUGGING -> IT SHOWS ALL STATISTICS FOR THE BATCH MAPPED:
+  // (SUCCESS,TOKEN TRANSFERR, FEEPAYER HEURISTICS, TYPE OF INTERACTIONS, ASSOCIATED SOL VALUE, ETC)
+  // uncomment to see the stats
+  // logger.info(`Finished mapping ${transactions.length} transactions for ${walletAddress}. Mapping statistics:`, mappingStats);
+  logger.info(`Finished mapping ${transactions.length} transactions for ${walletAddress}.`);
   // --- End Log Final Stats ---
 
   // NEW: Definitive filtering. If a transaction involves any non-SOL/USDC token,

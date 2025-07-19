@@ -145,7 +145,17 @@ export class WalletBalanceService {
           existingBalance.tokenBalances = tokenBalances;
         }
       } catch (error: any) {
-        logger.warn(`Error fetching token balances for address ${address}:`, error);
+        const errorMessage = error.message || 'Unknown error';
+        
+        // Check for specific error types that indicate system wallets
+        if (errorMessage.includes('Maximum call stack size exceeded') || 
+            errorMessage.includes('stack overflow') ||
+            errorMessage.includes('memory')) {
+          logger.warn(`🚨 SYSTEM WALLET DETECTED: ${address} caused ${errorMessage} - likely has excessive tokens`);
+          // Keep empty token balances for this wallet
+        } else {
+          logger.warn(`Error fetching token balances for address ${address}:`, error);
+        }
         // Token balances for this address will remain empty []
       }
     }
@@ -224,4 +234,6 @@ export class WalletBalanceService {
     const rawBalances = await this.fetchWalletBalancesRaw(walletAddresses, commitment);
     return await this.enrichWalletBalancesWithMetadata(rawBalances);
   }
+
+
 } 

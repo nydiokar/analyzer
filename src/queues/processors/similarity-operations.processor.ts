@@ -21,7 +21,7 @@ import { BatchProcessor } from '../utils/batch-processor';
 import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { KNOWN_SYSTEM_WALLETS, WALLET_CLASSIFICATIONS } from '../../config/constants';
+import { KNOWN_SYSTEM_WALLETS, WALLET_CLASSIFICATIONS, SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 
 @Injectable()
 export class SimilarityOperationsProcessor implements OnModuleDestroy {
@@ -151,16 +151,19 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         return walletsNeedingSync.includes(address);
       }) : [];
       
-      // ⚡ STEP 1: START BOTH OPERATIONS IN PARALLEL (NO BLOCKING) - ONLY FOR VALID WALLETS
+      // ⚡ STEP 1: START BOTH OPERATIONS IN PARALLEL (NO BLOCKING)
       this.logger.log('🚀 Starting sync and balance fetch in TRUE PARALLEL...');
       
-      // Start sync immediately (if needed) - DON'T await yet - ONLY for valid wallets
+      // Start sync immediately (if needed) - DON'T await yet
       const syncPromise = syncRequired 
         ? this._orchestrateDeepSync(walletsNeedingSyncFiltered, job)
         : Promise.resolve();
 
-      // Start balance fetching in parallel - DON'T await yet - ONLY for valid wallets 
-      const balancePromise = this.balanceCacheService.getManyBalances(walletsToAnalyze);
+      // Start balance fetching in parallel - DON'T await yet
+      const balancePromise = this.detectSystemWalletsEarly(walletsToAnalyze).then(result => {
+        // After early detection, fetch balances for valid wallets only
+        return this.balanceCacheService.getManyBalances(result.validWallets);
+      });
       
       // Log progress but don't block
       await job.updateProgress(10);
@@ -181,12 +184,23 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       const actualWalletBalances = balanceResult.value;
       this.logger.log(`✅ PARALLEL COMPLETION: Sync done, balances for ${Object.keys(actualWalletBalances).length} wallets fetched`);
 
-      // STEP 3: Start enrichment job with pre-fetched balances (fire-and-forget)
+      // Use all wallets for analysis (system wallet detection removed as it was ineffective)
+      const finalWalletsToAnalyze = validWallets;
+
+      // STEP 3: Start enrichment job with pre-fetched balances (fire-and-forget) - ONLY for valid wallets
       if (enrichMetadata && process.env.DISABLE_ENRICHMENT !== 'true') {
         this.logger.log(`Triggering background enrichment job for request: ${requestId}.`);
         try {
+          // Use all wallet balances for enrichment
+          const validWalletBalances: Record<string, any> = {};
+          for (const walletAddr of finalWalletsToAnalyze) {
+            if (actualWalletBalances[walletAddr]) {
+              validWalletBalances[walletAddr] = actualWalletBalances[walletAddr];
+            }
+          }
+          
           enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
-            walletBalances: actualWalletBalances,
+            walletBalances: validWalletBalances,
             requestId,
           });
           this.logger.log(`Background enrichment job queued: ${enrichmentJob?.id} for request: ${requestId}.`);
@@ -202,15 +216,15 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60);
       this.checkTimeout(startTime, timeoutMs, 'Parallel operations completed');
 
-      // STEP 3.5: Wallets already filtered - validWallets contains only valid wallets
-      this.logger.log(`Using pre-filtered valid wallets for similarity calculation: ${validWallets.length} wallets`);
+      // STEP 3.5: Use all wallets for similarity calculation
+      this.logger.log(`Using all wallets for similarity calculation: ${finalWalletsToAnalyze.length} wallets`);
 
       // STEP 4: FINAL ANALYSIS (The service now uses the pre-fetched balances)
       this.logger.log('Starting final similarity calculation...');
       
       // Convert the balances object to a Map as expected by the service
       const balancesMap = new Map<string, WalletBalance>();
-      for (const address in actualWalletBalances) {
+      for (const address of finalWalletsToAnalyze) {
         if (actualWalletBalances[address]) {
           balancesMap.set(address, actualWalletBalances[address] as WalletBalance);
         }
@@ -218,7 +232,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
 
       const similarityResult = await this.similarityApiService.runAnalysis(
         {
-          walletAddresses: validWallets, // Use only the valid wallets
+          walletAddresses: finalWalletsToAnalyze, // Use all wallets
           vectorType: similarityConfig?.vectorType || 'capital',
         },
         balancesMap,
@@ -244,10 +258,11 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         enrichmentJobId: enrichmentJob?.id, // Include enrichment job ID for frontend subscription
         metadata: {
           requestedWallets: walletAddresses.length,
-          processedWallets: validWallets.length,
+          processedWallets: finalWalletsToAnalyze.length,
           failedWallets: invalidWallets.length,
           invalidWallets: invalidWallets.length > 0 ? invalidWallets : undefined,
-          successRate: validWallets.length / walletAddresses.length,
+          systemWallets: undefined,
+          successRate: finalWalletsToAnalyze.length / walletAddresses.length,
           processingTimeMs: Date.now() - startTime
         }
       };
@@ -412,6 +427,124 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     // this.logger.log(`System wallet filtering complete: ${taggedWallets.length} valid, ${invalidWallets.length} invalid`);
   }
 
+
+
+  /**
+   * Detects and returns wallets with excessive token counts early in the process.
+   * This helps prevent processing wallets that are likely system wallets or have
+   * an unusually high number of tokens, which can cause performance issues.
+   * 
+   * Uses dynamic detection by checking actual token counts, not just hardcoded lists.
+   */
+  private async detectSystemWalletsEarly(walletAddresses: string[]): Promise<{ validWallets: string[], systemWallets: string[], tokenCounts: Record<string, number> }> {
+    const validWallets: string[] = [];
+    const systemWallets: string[] = [];
+    const tokenCounts: Record<string, number> = {};
+    const SYSTEM_WALLET_THRESHOLD = 10000; // 10k+ tokens = system wallet
+
+    this.logger.log(`🔍 Dynamic system wallet detection: Checking ${walletAddresses.length} wallets for excessive token counts...`);
+
+    // Check database first for existing INVALID classifications
+    const walletsNeedingRpcCheck: string[] = [];
+    try {
+      const existingWallets = await this.databaseService.getWallets(walletAddresses, true) as any[];
+      const walletMap = new Map(existingWallets.map(w => [w.address, w]));
+
+      for (const address of walletAddresses) {
+        const wallet = walletMap.get(address);
+        if (wallet && wallet.classification === 'INVALID') {
+          this.logger.debug(`Skipping ${address} - already tagged as INVALID in database`);
+          systemWallets.push(address);
+          tokenCounts[address] = -1; // Mark as already processed
+        } else {
+          walletsNeedingRpcCheck.push(address);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Database check failed, proceeding with all wallets:`, error);
+      walletsNeedingRpcCheck.push(...walletAddresses);
+    }
+
+    // Now check the remaining wallets that need RPC verification
+    for (const address of walletsNeedingRpcCheck) {
+      try {
+        // Check if it's already in our known system wallets list
+        if (KNOWN_SYSTEM_WALLETS.includes(address as any)) {
+          systemWallets.push(address);
+          this.logger.debug(`Known system wallet detected: ${address}`);
+          continue;
+        }
+
+        // Dynamic detection: Check actual token count
+        const tokenAccountsResult = await this.heliusApiClient.getTokenAccountsByOwner(
+          address,
+          undefined, // No specific mint
+          SPL_TOKEN_PROGRAM_ID,
+          undefined, // Default commitment
+          'base64', // Use base64 for lightweight response
+          { offset: 0, length: 0 } // dataSlice to get count only, no actual data
+        );
+
+        const tokenCount = tokenAccountsResult.value.length;
+        
+        if (tokenCount >= SYSTEM_WALLET_THRESHOLD) {
+          systemWallets.push(address);
+          this.logger.warn(`🚨 DYNAMIC SYSTEM WALLET DETECTED: ${address} has ${tokenCount} tokens (threshold: ${SYSTEM_WALLET_THRESHOLD})`);
+          
+          // Auto-tag the wallet as SYSTEM in database
+          try {
+            await this.databaseService.updateWalletClassification(address, {
+              classification: WALLET_CLASSIFICATIONS.INVALID,
+              classificationMethod: 'dynamic_token_count_detection',
+              classificationUpdatedAt: new Date(),
+            });
+            this.logger.log(`✅ Auto-tagged wallet ${address} as INVALID in database`);
+          } catch (tagError) {
+            this.logger.warn(`Failed to auto-tag wallet ${address} as INVALID:`, tagError);
+          }
+        } else {
+          validWallets.push(address);
+          this.logger.debug(`Valid wallet: ${address} has ${tokenCount} tokens`);
+        }
+        tokenCounts[address] = tokenCount; // Store token count for balance fetch
+      } catch (error: any) {
+        const errorMessage = error.message || 'Unknown error';
+        
+        // Check for specific error types that indicate system wallets
+        if (errorMessage.includes('Maximum call stack size exceeded') || 
+            errorMessage.includes('stack overflow') ||
+            errorMessage.includes('memory') ||
+            errorMessage.includes('timeout')) {
+          this.logger.warn(`🚨 SYSTEM WALLET DETECTED (ERROR): ${address} caused ${errorMessage} - likely has excessive tokens`);
+          
+          // Auto-tag as INVALID in database
+          try {
+            await this.databaseService.updateWalletClassification(address, {
+              classification: WALLET_CLASSIFICATIONS.INVALID,
+              classificationMethod: 'error_detection',
+              classificationUpdatedAt: new Date(),
+            });
+            this.logger.log(`✅ Auto-tagged wallet ${address} as INVALID due to error during early detection`);
+          } catch (tagError) {
+            this.logger.warn(`Failed to auto-tag wallet ${address} as INVALID:`, tagError);
+          }
+          
+          systemWallets.push(address);
+          tokenCounts[address] = -1; // Mark as error
+        } else {
+          // If the lightweight check fails for other reasons, include the wallet in valid wallets
+          // This ensures we don't accidentally exclude wallets due to API issues
+          this.logger.warn(`Dynamic system wallet detection failed for ${address}, including in valid wallets:`, error);
+          validWallets.push(address);
+          tokenCounts[address] = 0; // Ensure token count is 0 for invalid wallets
+        }
+      }
+    }
+
+    this.logger.log(`Dynamic system wallet detection complete: ${validWallets.length} valid wallets, ${systemWallets.length} system wallets detected`);
+    return { validWallets, systemWallets, tokenCounts };
+  }
+
   /**
    * Cleanup worker when module is destroyed
    */
@@ -429,4 +562,6 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     this.logger.log('Shutting down SimilarityOperationsProcessor...');
     await this.worker.close();
   }
+
+
 } 

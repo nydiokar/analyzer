@@ -816,6 +816,7 @@ export class HeliusApiClient {
    *                  Crucially, use `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` for standard SPL tokens.
    * @param commitment Optional commitment level (e.g., "finalized", "confirmed", "processed").
    * @param encoding Optional encoding for account data. **Highly recommended to use `jsonParsed`** for structured token data.
+   * @param dataSlice Optional data slice to limit the amount of account data returned (useful for lightweight checks).
    * @returns A promise resolving to the `GetTokenAccountsByOwnerResult` structure, containing token account details.
    * @throws Throws an error if the RPC call fails, if `ownerPubkey` is not provided, or for other issues.
    */
@@ -824,10 +825,11 @@ export class HeliusApiClient {
     mintPubkey?: string, // Optional: if you only want accounts for a specific mint
     programId: string = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL Token Program ID
     commitment?: string,
-    encoding: string = 'jsonParsed' // Default and recommended for token accounts
+    encoding: string = 'jsonParsed', // Default and recommended for token accounts
+    dataSlice?: { offset: number; length: number } // Optional: for lightweight checks
   ): Promise<GetTokenAccountsByOwnerResult> {
     if (!ownerPubkey) {
-      throw new Error('ownerPubkey is required for getTokenAccountsByOwner.');
+      throw new Error('ownerPubkey is required for get.TokenAccountsByOwner.');
     }
 
     const programFilter = mintPubkey ? { mint: mintPubkey } : { programId };
@@ -838,7 +840,9 @@ export class HeliusApiClient {
       options.commitment = commitment;
     }
     options.encoding = encoding; // Always include encoding, defaults to jsonParsed
-    // dataSlice is typically not needed with jsonParsed for token accounts unless accounts are unusually large
+    if (dataSlice) {
+      options.dataSlice = dataSlice; // Include dataSlice if provided for lightweight checks
+    }
 
     params.push(options);
 
