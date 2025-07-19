@@ -178,11 +178,34 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       if (syncResult.status === 'rejected') {
         throw new Error(`Sync failed: ${syncResult.reason}`);
       }
-      if (balanceResult.status === 'rejected') {
-        throw new Error(`Balance fetch failed: ${balanceResult.reason}`);
-      }
       
-      const actualWalletBalances = balanceResult.value;
+      let actualWalletBalances: Record<string, WalletBalance>;
+      if (balanceResult.status === 'rejected') {
+        // Check if this is due to system wallet detection - if so, we might still have valid wallets
+        this.logger.warn(`Balance fetch failed, but this might be due to system wallet detection: ${balanceResult.reason}`);
+        
+        // Try to get any valid wallets that were processed before the error
+        // This is a fallback for when system wallet detection causes the promise to reject
+        try {
+          const fallbackResult = await this.detectSystemWalletsEarly(walletAddresses);
+          const fallbackBalances = await this.balanceCacheService.getManyBalances(
+            fallbackResult.validWallets, 
+            fallbackResult.tokenCounts, 
+            fallbackResult.tokenData
+          );
+          
+          if (Object.keys(fallbackBalances).length >= 2) {
+            this.logger.log(`✅ Recovered ${Object.keys(fallbackBalances).length} valid wallets after system wallet detection error`);
+            actualWalletBalances = fallbackBalances;
+          } else {
+            throw new Error(`Balance fetch failed and insufficient valid wallets recovered: ${balanceResult.reason}`);
+          }
+        } catch (fallbackError: any) {
+          throw new Error(`Balance fetch failed and recovery failed: ${balanceResult.reason}. Recovery error: ${fallbackError.message || 'Unknown error'}`);
+        }
+      } else {
+        actualWalletBalances = balanceResult.value;
+      }
       this.logger.log(`✅ PARALLEL COMPLETION: Sync done, balances for ${Object.keys(actualWalletBalances).length} wallets fetched`);
 
       // Use all wallets for analysis (system wallet detection removed as it was ineffective)
@@ -217,23 +240,39 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60);
       this.checkTimeout(startTime, timeoutMs, 'Parallel operations completed');
 
-      // STEP 3.5: Use all wallets for similarity calculation
-      this.logger.log(`Using all wallets for similarity calculation: ${finalWalletsToAnalyze.length} wallets`);
+      // STEP 3.5: Use only valid wallets that have balances for similarity calculation
+      const validWalletsWithBalances = finalWalletsToAnalyze.filter(address => actualWalletBalances[address]);
+      this.logger.log(`Using valid wallets for similarity calculation: ${validWalletsWithBalances.length} wallets`);
+
+      // STEP 3.6: Verify all wallets have transaction data before similarity analysis
+      if (validWalletsWithBalances.length >= 2) {
+        try {
+          const transactionData = await this.databaseService.getTransactionsForAnalysis(validWalletsWithBalances, { excludedMints: [] });
+          const walletsWithData = Object.keys(transactionData).filter(addr => transactionData[addr]?.length > 0);
+          if (walletsWithData.length < 2) {
+            throw new Error(`Insufficient valid wallets for similarity analysis. Only ${walletsWithData.length} wallets have transaction data out of ${validWalletsWithBalances.length} wallets with balances.`);
+          }
+          this.logger.log(`Verified ${walletsWithData.length} wallets have transaction data for similarity analysis`);
+        } catch (error: any) {
+          this.logger.error(`Error verifying transaction data:`, error);
+          throw new Error(`Failed to verify transaction data for similarity analysis: ${error.message || 'Unknown error'}`);
+        }
+      } else {
+        throw new Error(`Insufficient valid wallets for similarity analysis. Need at least 2 wallets, got ${validWalletsWithBalances.length}.`);
+      }
 
       // STEP 4: FINAL ANALYSIS (The service now uses the pre-fetched balances)
       this.logger.log('Starting final similarity calculation...');
       
       // Convert the balances object to a Map as expected by the service
       const balancesMap = new Map<string, WalletBalance>();
-      for (const address of finalWalletsToAnalyze) {
-        if (actualWalletBalances[address]) {
-          balancesMap.set(address, actualWalletBalances[address] as WalletBalance);
-        }
+      for (const address of validWalletsWithBalances) {
+        balancesMap.set(address, actualWalletBalances[address] as WalletBalance);
       }
 
       const similarityResult = await this.similarityApiService.runAnalysis(
         {
-          walletAddresses: finalWalletsToAnalyze, // Use all wallets
+          walletAddresses: validWalletsWithBalances, // Use only valid wallets with balances
           vectorType: similarityConfig?.vectorType || 'capital',
         },
         balancesMap,
@@ -259,11 +298,11 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         enrichmentJobId: enrichmentJob?.id, // Include enrichment job ID for frontend subscription
         metadata: {
           requestedWallets: walletAddresses.length,
-          processedWallets: finalWalletsToAnalyze.length,
+          processedWallets: validWalletsWithBalances.length,
           failedWallets: invalidWallets.length,
           invalidWallets: invalidWallets.length > 0 ? invalidWallets : undefined,
           systemWallets: undefined,
-          successRate: finalWalletsToAnalyze.length / walletAddresses.length,
+          successRate: validWalletsWithBalances.length / walletAddresses.length,
           processingTimeMs: Date.now() - startTime
         }
       };

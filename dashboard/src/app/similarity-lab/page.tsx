@@ -83,11 +83,21 @@ export default function AnalysisLabPage() {
           const resultData = data.result;
           console.log('✅ Using similarity result data from WebSocket:', { 
             pairs: resultData.data?.pairwiseSimilarities?.length,
-            wallets: resultData.data?.globalMetrics?.analyzedWallets,
+            wallets: resultData.data?.globalMetrics?.analyzedWallets || 'undefined (using walletBalances keys)',
             hasEnrichmentJob: !!resultData.enrichmentJobId
           });
           
-          setAnalysisResult(resultData.data);
+          // Ensure we have valid data before setting the result
+          if (resultData.data?.pairwiseSimilarities?.length > 0) {
+            console.log('✅ Setting analysis result with data:', {
+              pairwiseCount: resultData.data.pairwiseSimilarities.length,
+              hasGlobalMetrics: !!resultData.data.globalMetrics,
+              hasWalletBalances: !!resultData.data.walletBalances
+            });
+            setAnalysisResult(resultData.data);
+          } else {
+            throw new Error('Invalid result data: no pairwise similarities found');
+          }
           setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
           
           // Show user feedback about invalid wallets if any were filtered out
@@ -226,7 +236,12 @@ export default function AnalysisLabPage() {
   }, []);
 
   useEffect(() => {
-    // This effect is no longer needed as we merge the state
+    console.log('🔄 analysisResult state changed:', {
+      exists: !!analysisResult,
+      type: typeof analysisResult,
+      keys: analysisResult ? Object.keys(analysisResult) : [],
+      pairwiseCount: analysisResult?.pairwiseSimilarities?.length || 0
+    });
   }, [analysisResult]);
 
   // Subscribe to enrichment job when ID is set
@@ -547,6 +562,24 @@ export default function AnalysisLabPage() {
             onRefreshPrices={handleRefreshPrices}
             isRefreshing={isRefreshing}
           />
+        </div>
+      )}
+      {!analysisResult && jobStatuses.analysis === 'completed' && (
+        <div className="mt-6 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
+          <p>⚠️ Analysis completed but no results to display. This might be a data issue.</p>
+          <p>Debug info: analysisResult is {analysisResult ? 'truthy' : 'falsy'}</p>
+          <p>Job status: {jobStatuses.analysis}</p>
+          <p>Current job ID: {currentJobId || 'none'}</p>
+        </div>
+      )}
+      {/* Always show debug info when analysis is completed */}
+      {jobStatuses.analysis === 'completed' && (
+        <div className="mt-6 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
+          <p>🔍 Debug: Analysis completed</p>
+          <p>analysisResult exists: {analysisResult ? 'YES' : 'NO'}</p>
+          <p>analysisResult type: {typeof analysisResult}</p>
+          <p>analysisResult keys: {analysisResult ? Object.keys(analysisResult).join(', ') : 'none'}</p>
+          <p>pairwiseSimilarities count: {analysisResult?.pairwiseSimilarities?.length || 0}</p>
         </div>
       )}
 
