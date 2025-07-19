@@ -80,7 +80,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       NEXT_PUBLIC_WEBSOCKET_URL: process.env.NEXT_PUBLIC_WEBSOCKET_URL,
       NODE_ENV: process.env.NODE_ENV
     });
-    
+
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001';
     const newSocket = io(`${baseUrl}/job-progress`, {
       autoConnect: true,
