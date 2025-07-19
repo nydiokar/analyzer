@@ -64,8 +64,10 @@ export class BalanceCacheService {
 
   /**
    * Get balances for multiple wallets, efficiently using Redis `mget` and a single backend fetch for misses.
+   * @param walletAddresses Array of wallet addresses to fetch balances for
+   * @param preFetchedTokenCounts Optional pre-fetched token counts to avoid double RPC calls
    */
-  async getManyBalances(walletAddresses: string[]): Promise<Record<string, WalletBalance | null>> {
+  async getManyBalances(walletAddresses: string[], preFetchedTokenCounts?: Record<string, number>, preFetchedTokenData?: Record<string, any[]>): Promise<Record<string, WalletBalance | null>> {
     if (walletAddresses.length === 0) {
       return {};
     }
@@ -89,7 +91,7 @@ export class BalanceCacheService {
 
     if (missedAddresses.length > 0) {
       try {
-        const fetchedBalancesMap = await this.walletBalanceService.fetchWalletBalancesRaw(missedAddresses);
+        const fetchedBalancesMap = await this.walletBalanceService.fetchWalletBalancesRaw(missedAddresses, undefined, preFetchedTokenCounts, preFetchedTokenData);
         
         const cachePipeline = this.redis.pipeline();
         

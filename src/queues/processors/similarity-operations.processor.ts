@@ -162,7 +162,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       // Start balance fetching in parallel - DON'T await yet
       const balancePromise = this.detectSystemWalletsEarly(walletsToAnalyze).then(result => {
         // After early detection, fetch balances for valid wallets only
-        return this.balanceCacheService.getManyBalances(result.validWallets);
+        // Pass token data to avoid double RPC calls
+        return this.balanceCacheService.getManyBalances(result.validWallets, result.tokenCounts, result.tokenData);
       });
       
       // Log progress but don't block
@@ -436,10 +437,16 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
    * 
    * Uses dynamic detection by checking actual token counts, not just hardcoded lists.
    */
-  private async detectSystemWalletsEarly(walletAddresses: string[]): Promise<{ validWallets: string[], systemWallets: string[], tokenCounts: Record<string, number> }> {
+  private async detectSystemWalletsEarly(walletAddresses: string[]): Promise<{ 
+    validWallets: string[], 
+    systemWallets: string[], 
+    tokenCounts: Record<string, number>,
+    tokenData: Record<string, any[]> // Store actual token data for reuse
+  }> {
     const validWallets: string[] = [];
     const systemWallets: string[] = [];
     const tokenCounts: Record<string, number> = {};
+    const tokenData: Record<string, any[]> = {};
     const SYSTEM_WALLET_THRESHOLD = 10000; // 10k+ tokens = system wallet
 
     this.logger.log(`🔍 Dynamic system wallet detection: Checking ${walletAddresses.length} wallets for excessive token counts...`);
@@ -475,17 +482,19 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           continue;
         }
 
-        // Dynamic detection: Check actual token count
+        // Dynamic detection: Check actual token count and get full data
         const tokenAccountsResult = await this.heliusApiClient.getTokenAccountsByOwner(
           address,
           undefined, // No specific mint
           SPL_TOKEN_PROGRAM_ID,
           undefined, // Default commitment
-          'base64', // Use base64 for lightweight response
-          { offset: 0, length: 0 } // dataSlice to get count only, no actual data
+          'jsonParsed' // Get full parsed data for reuse
         );
 
         const tokenCount = tokenAccountsResult.value.length;
+        
+        // Store token data for reuse in balance fetching
+        tokenData[address] = tokenAccountsResult.value;
         
         if (tokenCount >= SYSTEM_WALLET_THRESHOLD) {
           systemWallets.push(address);
@@ -542,7 +551,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     }
 
     this.logger.log(`Dynamic system wallet detection complete: ${validWallets.length} valid wallets, ${systemWallets.length} system wallets detected`);
-    return { validWallets, systemWallets, tokenCounts };
+    return { validWallets, systemWallets, tokenCounts, tokenData };
   }
 
   /**

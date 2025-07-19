@@ -40,13 +40,16 @@ export class WalletBalanceService {
    *
    * @param walletAddresses An array of public key strings for the wallets.
    * @param commitment Optional. The commitment level to use for RPC calls (e.g., "finalized", "confirmed").
+   * @param preFetchedTokenCounts Optional. Pre-fetched token counts to avoid double RPC calls.
    * @returns A Promise resolving to a Map where keys are wallet addresses (string) and values are `WalletBalance` objects.
    *          Each `WalletBalance` object contains the SOL balance, an array of token balances (without metadata), and the timestamp when balances were fetched.
    *          If a wallet address cannot be processed, its entry might have default/zero balances.
    */
   public async fetchWalletBalancesRaw(
     walletAddresses: string[],
-    commitment?: string
+    commitment?: string,
+    preFetchedTokenCounts?: Record<string, number>,
+    preFetchedTokenData?: Record<string, any[]>
   ): Promise<Map<string, WalletBalance>> {
     if (!walletAddresses || walletAddresses.length === 0) {
       return new Map();
@@ -101,20 +104,30 @@ export class WalletBalanceService {
     // HeliusApiClient handles internal rate limiting for its methods.
     for (const address of walletAddresses) {
       try {
-        // logger.debug(`Fetching token balances for address: ${address} for SPL Token program.`);
-        
-        // Fetch for standard SPL Token Program
-        const splTokenAccountsResult: GetTokenAccountsByOwnerResult = await this.heliusClient.getTokenAccountsByOwner(
-          address,
-          undefined, // No specific mint, fetch all tokens
-          SPL_TOKEN_PROGRAM_ID, // Standard SPL Token Program ID
-          commitment,
-          'jsonParsed' // Crucial for getting structured token data
-        );
+        let currentTokenAccounts: TokenAccount[] = [];
 
-        const currentTokenAccounts: TokenAccount[] = [];
-        if (splTokenAccountsResult && splTokenAccountsResult.value) {
-          currentTokenAccounts.push(...splTokenAccountsResult.value);
+        // Check if we have pre-fetched token data
+        if (preFetchedTokenData && preFetchedTokenData[address]) {
+          logger.debug(`Address ${address}: Using pre-fetched token data (${preFetchedTokenData[address].length} tokens)`);
+          currentTokenAccounts = preFetchedTokenData[address];
+        } else if (preFetchedTokenCounts && preFetchedTokenCounts[address] === 0) {
+          logger.debug(`Address ${address}: Skipping token fetch - pre-fetched count is 0`);
+          continue; // Skip RPC call for wallets with no tokens
+        } else {
+          // logger.debug(`Fetching token balances for address: ${address} for SPL Token program.`);
+          
+          // Fetch for standard SPL Token Program
+          const splTokenAccountsResult: GetTokenAccountsByOwnerResult = await this.heliusClient.getTokenAccountsByOwner(
+            address,
+            undefined, // No specific mint, fetch all tokens
+            SPL_TOKEN_PROGRAM_ID, // Standard SPL Token Program ID
+            commitment,
+            'jsonParsed' // Crucial for getting structured token data
+          );
+
+          if (splTokenAccountsResult && splTokenAccountsResult.value) {
+            currentTokenAccounts.push(...splTokenAccountsResult.value);
+          }
         }
         
         logger.debug(`Address ${address}: Found ${currentTokenAccounts.length} SPL accounts.`);
