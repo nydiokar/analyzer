@@ -14,7 +14,7 @@ export interface JobProgressData {
 
 export interface JobCompletionData {
   jobId: string;
-  result: any;
+  result: JobResult;  // The complete job result wrapper
   timestamp: number;
   queue: string;
   processingTime: number;
@@ -23,12 +23,35 @@ export interface JobCompletionData {
 
 export interface JobFailedData {
   jobId: string;
-  error: string;
-  failedReason?: string;
-  timestamp: number;
+  failedReason: string;
   queue: string;
-  attempts?: number;
+  error: string;
+  timestamp: number;
+  attemptsMade?: number;
   maxAttempts?: number;
+}
+
+/**
+ * Unified job result structure.
+ * This is the standard structure returned by all job processors.
+ * The actual analysis data is in the `data` property.
+ */
+export interface JobResult {
+  success: boolean;
+  data: any;  // The actual analysis data (e.g., SimilarityAnalysisResult)
+  requestId?: string;
+  timestamp: number;
+  processingTimeMs?: number;
+  enrichmentJobId?: string;
+  metadata?: {
+    requestedWallets?: number;
+    processedWallets?: number;
+    failedWallets?: number;
+    invalidWallets?: string[];
+    systemWallets?: string[];
+    successRate?: number;
+    processingTimeMs?: number;
+  };
 }
 
 /**
@@ -38,5 +61,14 @@ export interface JobFailedData {
 export interface EnrichmentCompletionData {
   requestId: string;
   enrichedBalances: Record<string, any>;
+  timestamp: number;
+}
+
+/**
+ * Enrichment error event structure
+ */
+export interface EnrichmentErrorData {
+  requestId: string;
+  error: string;
   timestamp: number;
 } 

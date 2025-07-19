@@ -86,7 +86,7 @@ export class EnrichmentOperationsProcessor {
         await this.websocketGateway.publishCompletedEvent(
           job.id!,
           'enrichment',
-          enrichedBalances,
+          { enrichedBalances },
           Date.now() - startTime
         );
         this.logger.log(`Parallel enrichment completed for requestId: ${requestId} (no-op).`);
@@ -107,7 +107,7 @@ export class EnrichmentOperationsProcessor {
       await this.websocketGateway.publishCompletedEvent(
         job.id!,
         'enrichment',
-        enrichedBalances,
+        { enrichedBalances },
         Date.now() - startTime
       );
       

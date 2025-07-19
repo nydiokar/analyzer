@@ -110,23 +110,34 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
-      // 🏷️ PRE-FILTER: Tag known system wallets before processing
+      // 🏷️ UNIFIED SYSTEM WALLET HANDLING: Handle both pre-tagged and dynamic detection
+      // First, tag known system wallets
       await this.filterAndTagSystemWallets(walletAddresses);
       
-      // 🚨 CRITICAL: Filter out INVALID wallets BEFORE processing (prevents 270k+ token crashes)
-      // ✅ FIXED: Use batch query instead of N+1 pattern
+      // Then run dynamic detection on ALL wallets (including those that might be pre-tagged)
+      const dynamicDetectionResult = await this.detectSystemWalletsEarly(walletAddresses);
+      
+      // Combine results: any wallet that's either pre-tagged or dynamically detected is invalid
       const validWallets: string[] = [];
       const invalidWallets: string[] = [];
       
+      // Add dynamically detected system wallets to invalid list
+      invalidWallets.push(...dynamicDetectionResult.systemWallets);
+      
+      // Check database for any remaining pre-tagged wallets
       try {
-        // Single batch query for all wallets
         const wallets = await this.databaseService.getWallets(walletAddresses, true) as Wallet[];
         const walletMap = new Map(wallets.map(w => [w.address, w]));
         
         for (const address of walletAddresses) {
+          // Skip if already in invalid list from dynamic detection
+          if (invalidWallets.includes(address)) {
+            continue;
+          }
+          
           const wallet = walletMap.get(address);
           if (wallet && wallet.classification === 'INVALID') {
-            this.logger.warn(`Wallet ${address} is tagged as INVALID - skipping processing entirely`);
+            this.logger.warn(`Wallet ${address} is pre-tagged as INVALID - skipping processing entirely`);
             invalidWallets.push(address);
           } else {
             validWallets.push(address);
@@ -135,10 +146,10 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       } catch (error) {
         this.logger.warn(`Error in batch wallet validation, including all wallets in analysis:`, error);
         // Fallback: include all wallets if batch query fails
-        validWallets.push(...walletAddresses);
+        validWallets.push(...walletAddresses.filter(addr => !invalidWallets.includes(addr)));
       }
       
-      this.logger.log(`Pre-filtering complete: ${validWallets.length} valid, ${invalidWallets.length} invalid (INVALID wallets skipped)`);
+      this.logger.log(`Unified system wallet handling complete: ${validWallets.length} valid, ${invalidWallets.length} invalid (system wallets skipped)`);
       
       // If we don't have enough valid wallets, fail early
       if (validWallets.length < 2) {
@@ -160,11 +171,11 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         : Promise.resolve();
 
       // Start balance fetching in parallel - DON'T await yet
-      const balancePromise = this.detectSystemWalletsEarly(walletsToAnalyze).then(result => {
-        // After early detection, fetch balances for valid wallets only
-        // Pass token data to avoid double RPC calls
-        return this.balanceCacheService.getManyBalances(result.validWallets, result.tokenCounts, result.tokenData);
-      });
+      const balancePromise = this.balanceCacheService.getManyBalances(
+        dynamicDetectionResult.validWallets, 
+        dynamicDetectionResult.tokenCounts, 
+        dynamicDetectionResult.tokenData
+      );
       
       // Log progress but don't block
       await job.updateProgress(10);

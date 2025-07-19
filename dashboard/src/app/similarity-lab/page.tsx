@@ -72,12 +72,10 @@ export default function AnalysisLabPage() {
         setJobProgress(100);
         setSyncMessage('Analysis complete! Processing results...');
         try {
-          // Use WebSocket result data directly instead of HTTP fetch to avoid race conditions
+          // WebSocket should always contain the complete result data from the job processor
+          // No HTTP fallback needed - the job-events-bridge ensures complete data delivery
           if (!data.result || !data.result.data) {
-            console.warn('⚠️ No result in WebSocket event, falling back to HTTP fetch');
-            const result = await fetcher(`/jobs/${data.jobId}/result`);
-            if (!result || !result.result || !result.result.data) throw new Error("Job completed but returned no data.");
-            data.result = result.result;
+            throw new Error("WebSocket completion event missing result data - this should not happen");
           }
           
           const resultData = data.result;
@@ -87,16 +85,13 @@ export default function AnalysisLabPage() {
             hasEnrichmentJob: !!resultData.enrichmentJobId
           });
           
-          // Ensure we have valid data before setting the result
-          if (resultData.data?.pairwiseSimilarities?.length > 0) {
-            console.log('✅ Setting analysis result with data:', {
-              pairwiseCount: resultData.data.pairwiseSimilarities.length,
-              hasGlobalMetrics: !!resultData.data.globalMetrics,
-              hasWalletBalances: !!resultData.data.walletBalances
-            });
-            setAnalysisResult(resultData.data);
+          // The correct data structure is: resultData.data (the actual analysis data)
+          // resultData is the SimilarityFlowResult wrapper, resultData.data is the analysis data
+          const analysisData = resultData.data;
+          
+          if (analysisData?.pairwiseSimilarities?.length > 0) {
+            setAnalysisResult(analysisData);
           } else {
-            throw new Error('Invalid result data: no pairwise similarities found');
           }
           setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
           
@@ -208,7 +203,9 @@ export default function AnalysisLabPage() {
     }, [toast]),
   });
 
-  const isRunning = useMemo(() => jobStatuses.analysis === 'running', [jobStatuses.analysis]);
+  const isRunning = useMemo(() => {
+    return jobStatuses.analysis === 'running';
+  }, [jobStatuses.analysis]);
 
   // When enrichment is complete, no matter how it was triggered, stop the refreshing state.
   useEffect(() => {
@@ -235,14 +232,7 @@ export default function AnalysisLabPage() {
     }
   }, []);
 
-  useEffect(() => {
-    console.log('🔄 analysisResult state changed:', {
-      exists: !!analysisResult,
-      type: typeof analysisResult,
-      keys: analysisResult ? Object.keys(analysisResult) : [],
-      pairwiseCount: analysisResult?.pairwiseSimilarities?.length || 0
-    });
-  }, [analysisResult]);
+
 
   // Subscribe to enrichment job when ID is set
   useEffect(() => {
@@ -346,8 +336,17 @@ export default function AnalysisLabPage() {
   };
 
   const handleAnalyze = async () => {
+    // Prevent multiple simultaneous analyses
+    if (jobStatuses.analysis === 'running') {
+      console.log('⚠️ Analysis already running, ignoring duplicate request');
+      return;
+    }
+    
     setJobStatuses({ analysis: 'running', enrichment: 'idle' });
-    setAnalysisResult(null);
+    // Only clear result if we're starting a new analysis (not if one just completed)
+    if (jobStatuses.analysis !== 'completed') {
+      setAnalysisResult(null);
+    }
     setSyncMessage('');
     setCurrentJobId(null);
     setJobProgress(0);
@@ -415,14 +414,6 @@ export default function AnalysisLabPage() {
       if (wsConnected) {
         console.log('🔌 Using WebSocket for job updates');
         subscribeToJob(jobResponse.jobId);
-        
-        // Fallback to polling if no progress
-        setTimeout(() => {
-          if (jobProgress === 0 && jobStatuses.analysis === 'running') {
-            console.log('⚠️ No WebSocket progress - falling back to polling');
-            pollJobStatus(jobResponse.jobId);
-          }
-        }, 5000);
       } else {
         console.log('📊 WebSocket not connected - using polling');
         await pollJobStatus(jobResponse.jobId);
@@ -572,16 +563,7 @@ export default function AnalysisLabPage() {
           <p>Current job ID: {currentJobId || 'none'}</p>
         </div>
       )}
-      {/* Always show debug info when analysis is completed */}
-      {jobStatuses.analysis === 'completed' && (
-        <div className="mt-6 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
-          <p>🔍 Debug: Analysis completed</p>
-          <p>analysisResult exists: {analysisResult ? 'YES' : 'NO'}</p>
-          <p>analysisResult type: {typeof analysisResult}</p>
-          <p>analysisResult keys: {analysisResult ? Object.keys(analysisResult).join(', ') : 'none'}</p>
-          <p>pairwiseSimilarities count: {analysisResult?.pairwiseSimilarities?.length || 0}</p>
-        </div>
-      )}
+
 
       {/* Back to Top Button - Enhanced Visibility */}
       {showBackToTop && (

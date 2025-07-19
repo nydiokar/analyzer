@@ -44,7 +44,13 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     if (job.queue === 'enrichment-operations' && job.result) {
-      callbacksRef.current.onEnrichmentComplete?.(job.result);
+      // Transform JobResult to EnrichmentCompletionData
+      const enrichmentData: EnrichmentCompletionData = {
+        requestId: job.id,
+        enrichedBalances: (job.result as any).enrichedBalances || job.result.data,
+        timestamp: job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now(),
+      };
+      callbacksRef.current.onEnrichmentComplete?.(enrichmentData);
     } else {
       callbacksRef.current.onJobCompleted?.(completionData);
     }
@@ -97,7 +103,13 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const handleJobCompleted = (data: JobCompletionData) => {
       console.log('📢 Job completed (WebSocket) - JobId:', data.jobId);
       if (data.queue === 'enrichment-operations' && data.result) {
-        callbacksRef.current.onEnrichmentComplete?.(data.result);
+        // Transform JobResult to EnrichmentCompletionData
+        const enrichmentData: EnrichmentCompletionData = {
+          requestId: data.jobId,
+          enrichedBalances: (data.result as any).enrichedBalances || data.result.data,
+          timestamp: data.timestamp,
+        };
+        callbacksRef.current.onEnrichmentComplete?.(enrichmentData);
       } else {
         callbacksRef.current.onJobCompleted?.(data);
       }
