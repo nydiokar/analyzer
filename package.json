@@ -111,6 +111,9 @@
   },
   "overrides": {
     "glob": "^11.0.0",
-    "multer": "2.0.1"
+    "multer": "2.0.1",
+    "@nestjs/platform-express": {
+      "multer": "2.0.1"
+    }
   }
 }

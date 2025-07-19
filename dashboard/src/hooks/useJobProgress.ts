@@ -74,7 +74,8 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   }, [callbacksRef]);
 
   useEffect(() => {
-    const newSocket = io(process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001/job-progress', {
+    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001';
+    const newSocket = io(`${baseUrl}/job-progress`, {
       autoConnect: true,
       transports: ['websocket'],
       reconnectionAttempts: 5,
