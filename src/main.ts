@@ -38,12 +38,12 @@ async function bootstrap() {
   const frontendUrl = process.env.FRONTEND_URL;
   if (frontendUrl) {
     app.enableCors({
-      origin: [frontendUrl, 'https://sova-taupe.vercel.app'], // Allow both configured and Vercel
+      origin: [frontendUrl], // Allow both configured and Vercel
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
     });
-    Logger.log(`CORS enabled for origins: ${frontendUrl}, https://sova-taupe.vercel.app`, 'Bootstrap');
+    Logger.log(`CORS enabled for origins: ${frontendUrl}`, 'Bootstrap');
   } else {
     // Fallback for local development
     app.enableCors({
