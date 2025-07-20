@@ -83,8 +83,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
     // Use the backend URL directly - no proxy needed
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001';
-    const newSocket = io(`${baseUrl}/job-progress`, {
-      path: '/socket.io',
+    const newSocket = io(`${baseUrl}`, {
       autoConnect: true,
       transports: ['websocket'], // Try both WebSocket and polling
       reconnectionAttempts: 5,

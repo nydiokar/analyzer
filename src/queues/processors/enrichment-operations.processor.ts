@@ -41,7 +41,7 @@ export class EnrichmentOperationsProcessor {
       this.logger.error('Worker error:', err);
     });
 
-    this.logger.log('EnrichmentOperationsProcessor initialized with worker');
+    this.logger.debug('EnrichmentOperationsProcessor initialized with worker');
   }
 
   private async processJob(job: Job): Promise<any> {

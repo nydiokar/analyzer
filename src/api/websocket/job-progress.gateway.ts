@@ -43,8 +43,6 @@ interface ClientSubscription {
 }
 
 @WebSocketGateway({
-  namespace: '/job-progress',
-  path: '/socket.io',
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
@@ -68,7 +66,9 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   }
 
   afterInit(server: Server) {
+    this.server = server;
     this.logger.log('WebSocket Gateway initialized');
+    
     setImmediate(() => this.setupRedisSubscriptions());
   }
 
