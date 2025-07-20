@@ -74,9 +74,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   }, [callbacksRef]);
 
   useEffect(() => {
-    console.log('🔍 DEBUG: WebSocket URL =', process.env.NEXT_PUBLIC_WEBSOCKET_URL);
-    console.log('🔍 DEBUG: Full connection URL =', `${process.env.NEXT_PUBLIC_WEBSOCKET_URL}`);
-    console.log('🔍 DEBUG: Environment variables =', {
+    console.log('🔍 DEBUG_0: WebSocket URL =', process.env.NEXT_PUBLIC_WEBSOCKET_URL);
+    console.log('🔍 DEBUG_1: Full connection URL =', `${process.env.NEXT_PUBLIC_WEBSOCKET_URL}`);
+    console.log('🔍 DEBUG_2: Environment variables =', {
       NEXT_PUBLIC_WEBSOCKET_URL: process.env.NEXT_PUBLIC_WEBSOCKET_URL,
       NODE_ENV: process.env.NODE_ENV
     });
@@ -85,6 +85,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001';
     const newSocket = io(`${baseUrl}`, {
       autoConnect: true,
+      path: "/socket.io/",
       transports: ['websocket'], // Try both WebSocket and polling
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,

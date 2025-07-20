@@ -49,6 +49,7 @@ interface ClientSubscription {
     credentials: true,
   },
   transports: ['websocket'],
+  path: "/socket.io/",
 })
 export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
