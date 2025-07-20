@@ -43,13 +43,16 @@ interface ClientSubscription {
 }
 
 @WebSocketGateway({
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
   namespace: '/job-progress',
+  cors: {
+    origin: '*', // or restrict to frontend domain(s)
+    credentials: true,
+    methods: ['GET', 'POST'],
+  },
+  transports: ['websocket'],
+  path: '/job-progress', // important for strict path match
 })
+
 export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;

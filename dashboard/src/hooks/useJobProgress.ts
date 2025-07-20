@@ -81,16 +81,19 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       NODE_ENV: process.env.NODE_ENV
     });
 
+    // Use the backend URL directly - no proxy needed
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001';
     const newSocket = io(`${baseUrl}/job-progress`, {
       autoConnect: true,
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'], // Try both WebSocket and polling
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      timeout: 20000, // 20 second timeout
+      forceNew: true, // Force new connection
     });
 
     const handleConnect = () => {
-      console.log('✅ WebSocket connected');
+      console.log('✅ WebSocket connected to:', baseUrl);
       setIsConnected(true);
       setError(null);
       callbacksRef.current.onConnectionChange?.(true);
@@ -105,6 +108,11 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const handleError = (error: any) => {
       console.error('🔌 WebSocket error:', error);
       setError(error.message || 'WebSocket error');
+    };
+
+    const handleConnectError = (error: any) => {
+      console.error('🔌 WebSocket connection error:', error);
+      setError(`Connection failed: ${error.message || 'Unknown error'}`);
     };
 
     // This handler processes job completion events from the live WebSocket connection.
@@ -138,7 +146,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
     newSocket.on('connect', handleConnect);
     newSocket.on('disconnect', handleDisconnect);
-    newSocket.on('connect_error', handleError);
+    newSocket.on('connect_error', handleConnectError);
     newSocket.on('job-progress', handleJobProgress);
     newSocket.on('job-completed', handleJobCompleted);
     newSocket.on('job-failed', handleJobFailed);
@@ -148,7 +156,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     return () => {
       newSocket.off('connect', handleConnect);
       newSocket.off('disconnect', handleDisconnect);
-      newSocket.off('connect_error', handleError);
+      newSocket.off('connect_error', handleConnectError);
       newSocket.off('job-progress', handleJobProgress);
       newSocket.off('job-completed', handleJobCompleted);
       newSocket.off('job-failed', handleJobFailed);
