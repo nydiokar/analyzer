@@ -86,7 +86,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const newSocket = io(`${baseUrl}`, {
       autoConnect: true,
       path: "/socket.io/",
-      transports: ['websocket'], // Try both WebSocket and polling
+      transports: ['websocket', 'polling'], // Try both WebSocket and polling
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       timeout: 20000, // 20 second timeout
