@@ -44,11 +44,13 @@ interface ClientSubscription {
 
 @WebSocketGateway({
   namespace: '/job-progress',
+  path: '/socket.io',
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
     credentials: true,
   },
+  transports: ['websocket'],
 })
 export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
