@@ -65,7 +65,7 @@ export class UserFavoritesController {
   ): Promise<void> {
     const userId = req.user!.id;
     await this.userFavoritesService.updateFavorite(userId, walletAddress, updateFavoriteWalletDto);
-    res.status(HttpStatus.OK).end();
+    res.status(HttpStatus.OK).set('Content-Length', '0').end();
   }
 
   @Post(':walletAddress/viewed')

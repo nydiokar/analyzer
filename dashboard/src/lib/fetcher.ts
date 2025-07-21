@@ -70,22 +70,9 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         });
     }
     
-    // Debug: Check if condition should trigger
-    const shouldReturnNull = res.status === 204 || res.status === 201 || (contentLength && parseInt(contentLength, 10) === 0);
-    if (res.status === 200 && contentLength === '0') {
-        console.log('🔍 Debug: Should return null?', {
-            url: absoluteUrl,
-            shouldReturnNull,
-            condition1: false, // res.status === 204 is always false for 200
-            condition2: false, // res.status === 201 is always false for 200
-            condition3: (contentLength && parseInt(contentLength, 10) === 0),
-            contentLength,
-            contentLengthParsed: parseInt(contentLength, 10)
-        });
-    }
-    
-    if (shouldReturnNull) {
-        console.log('🔍 Debug: Returning null for:', absoluteUrl);
+    // Handle responses that are successful but have no content body.
+    // This is common for DELETE (204) or sometimes POST (201) requests.
+    if (res.status === 204 || res.status === 201 || (contentLength && parseInt(contentLength, 10) === 0)) {
         return null;
     }
 
