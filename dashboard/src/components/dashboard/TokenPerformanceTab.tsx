@@ -20,8 +20,6 @@ import {
   InfoIcon,
   ArrowUpRight,
   ArrowDownRight,
-  Copy as CopyIcon,
-  ExternalLink as ExternalLinkIcon,
   HelpCircle as HelpCircleIcon,
   DollarSign as DollarSignIcon,
   Percent as PercentIcon,
@@ -30,24 +28,17 @@ import {
   Package as PackageIcon,
   ArrowRightLeft as ArrowRightLeftIcon,
   CalendarDays as CalendarDaysIcon,
-  Repeat as RepeatIcon,
   ChevronsLeft,
   ChevronsRight,
   Loader2,
-  X as TwitterIcon, 
-  Send as TelegramIcon,
   RefreshCwIcon,
   BarChartBig,
   AlertTriangle,
-  Shield,
-  Circle,
-  ArrowRightLeft,
   Lock,
   LogOut,
   TrendingUpIcon,
 } from 'lucide-react';
 import { PaginatedTokenPerformanceResponse, TokenPerformanceDataDto } from '@/types/api'; 
-import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import EmptyState from '@/components/shared/EmptyState';
 import { Skeleton } from "@/components/ui/skeleton";
@@ -55,18 +46,7 @@ import { cn } from "@/lib/utils";
 import { Button as UiButton } from "@/components/ui/button";
 import { useApiKeyStore } from '@/store/api-key-store';
 import { fetcher } from '@/lib/fetcher';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-  Copy,
-  ExternalLink,
-  Globe,
-  Send,
-} from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { TokenBadge } from "@/components/shared/TokenBadge";
 
 
 // Enhanced spam detection using DexScreener data and transaction patterns  
@@ -248,60 +228,21 @@ const BACKEND_SORTABLE_IDS = [
 ];
 
 // This definition should be outside the component to prevent re-creation on every render.
+// TODO: FUTURE MODERNIZATION - Consider migrating to TanStack Table (React Table v8)
+// Current implementation uses custom table rendering which works but lacks modern features:
+// - No built-in virtualization (performance issue with large datasets)
+// - Manual sorting/filtering implementation
+// - No built-in column resizing, reordering
+// - More maintenance overhead
+// 
+// Modern approach would use:
+// import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table'
+// with proper column definitions and built-in features
 const COLUMN_DEFINITIONS = [
   {
     id: 'tokenAddress',
     name: 'Token',
     className: 'sticky left-0 z-10 w-[240px] md:w-[280px] text-left pl-4 pr-3',
-    cell: ({ row }: { row: { original: TokenPerformanceDataDto } }) => {
-      const token = row.original;
-      const tokenName = token.name || 'Unknown';
-      const tokenSymbol = token.symbol || token.tokenAddress.slice(0, 4) + '...';
-
-      const handleCopy = () => {
-        navigator.clipboard.writeText(token.tokenAddress);
-        toast.success("Token address copied to clipboard!");
-      };
-
-      return (
-        <div className="flex items-center gap-2">
-          <Popover>
-            <PopoverTrigger asChild>
-              <div className="flex-grow flex items-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded p-1 -m-1 transition-colors">
-                <Avatar className="h-8 w-8 border border-slate-200 dark:border-slate-700">
-                  <AvatarImage
-                    src={token.imageUrl ?? undefined}
-                    alt={tokenName}
-                  />
-                  <AvatarFallback className="text-xs font-semibold">
-                    {tokenName.charAt(0)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="truncate">
-                  <div className="font-semibold truncate text-slate-900 dark:text-slate-100 text-sm">{tokenName}</div>
-                  <div className="text-slate-500 dark:text-slate-400 text-xs font-medium">{tokenSymbol}</div>
-                </div>
-              </div>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-4" align="start">
-              <div className="space-y-3">
-                <div className="font-bold text-base">{tokenName}</div>
-                <div className="text-xs text-muted-foreground break-all font-mono bg-slate-100 dark:bg-slate-800 p-2 rounded">{token.tokenAddress}</div>
-                <div className="flex items-center gap-2 pt-1">
-                  <UiButton variant="outline" size="sm" className="h-auto px-3 py-2 text-xs" onClick={handleCopy}><Copy className="h-3 w-3 mr-1" />Copy</UiButton>
-                  <UiButton variant="outline" size="sm" className="h-auto px-3 py-2 text-xs" asChild>
-                    <a href={`https://solscan.io/token/${token.tokenAddress}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3 w-3 mr-1" />Solscan</a>
-                  </UiButton>
-                  {token.websiteUrl && <UiButton variant="ghost" size="icon" className="h-8 w-8" asChild><a href={token.websiteUrl} target="_blank" rel="noopener noreferrer"><Globe className="h-4 w-4" /></a></UiButton>}
-                  {token.twitterUrl && <UiButton variant="ghost" size="icon" className="h-8 w-8" asChild><a href={token.twitterUrl} target="_blank" rel="noopener noreferrer"><TwitterIcon className="h-4 w-4" /></a></UiButton>}
-                  {token.telegramUrl && <UiButton variant="ghost" size="icon" className="h-8 w-8" asChild><a href={token.telegramUrl} target="_blank" rel="noopener noreferrer"><Send className="h-4 w-4" /></a></UiButton>}
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-      );
-    }
   },
   // Prioritized order with compact spacing and alignment
   { id: 'totalPnlSol', name: 'Total PNL (SOL)', isSortable: true, className: 'text-right px-2 min-w-[120px]', icon: DollarSignIcon },
@@ -814,73 +755,74 @@ const TokenTableRow = memo(({
           )}
         >
           {col.id === 'tokenAddress' && (
-             <Popover>
-              <PopoverTrigger asChild>
-                <div className="flex items-center gap-3 cursor-pointer">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={item.imageUrl ?? undefined} alt={item.name || 'Token'} />
-                    <AvatarFallback>{(item.name || '?').charAt(0)}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-col">
-                    <Text className="font-medium truncate max-w-[120px] sm:max-w-[150px]">
-                      {item.name || (item.tokenAddress.substring(0, 6) + '...' + item.tokenAddress.substring(item.tokenAddress.length - 4))}
-                    </Text>
-                    <Text className="text-muted-foreground text-sm">{item.symbol || 'Unknown'}</Text>
-                  </div>
-                  <div className="ml-auto flex items-center gap-1">
-                    {spamAnalysis.riskLevel === 'high-risk' ? (
-                      <TooltipProvider delayDuration={300}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
-                              <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                            <div className="space-y-1">
-                              <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({spamAnalysis.riskScore}%)</p>
-                              <p>{spamAnalysis.primaryReason}</p>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    ) : (!item.name || !item.symbol || item.name === 'Unknown Token') && spamAnalysis.riskLevel === 'safe' ? (
-                      <TooltipProvider delayDuration={300}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
-                              <HelpCircleIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                            <p>Unknown token</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    ) : null}
-                    {(() => {
-                        // Optimize holding status calculation - use backend-calculated values
-                        const currentBalance = item.currentUiBalance ?? 0;
-                        const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
-                        
-                        // Must have token balance AND USD value >= $1.44 (equivalent to 0.01 SOL at ~$144)
-                        // Using USD threshold avoids need for real-time SOL price conversion on frontend
-                        const isHeld = currentBalance > 0 && currentValueUsd >= 1.44;
-                        const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
-                        const isExited = !isHeld && hadTrades;
-                        if (isHeld) {
-                          return (
-                            <TooltipProvider delayDuration={300}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
-                                    <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" />
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                                  <p>Currently held</p>
-                                </TooltipContent>
-                              </Tooltip>
+            <div className="flex items-center gap-3">
+              <TokenBadge 
+                mint={item.tokenAddress}
+                metadata={{
+                  name: item.name || undefined,
+                  symbol: item.symbol || undefined,
+                  imageUrl: item.imageUrl || undefined,
+                  websiteUrl: item.websiteUrl || undefined,
+                  twitterUrl: item.twitterUrl || undefined,
+                  telegramUrl: item.telegramUrl || undefined,
+                }}
+                size="lg"
+                className="flex-1"
+              />
+              <div className="flex items-center gap-1">
+                {spamAnalysis.riskLevel === 'high-risk' ? (
+                  <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
+                          <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                        <div className="space-y-1">
+                          <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({spamAnalysis.riskScore}%)</p>
+                          <p>{spamAnalysis.primaryReason}</p>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ) : (!item.name || !item.symbol || item.name === 'Unknown Token') && spamAnalysis.riskLevel === 'safe' ? (
+                  <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
+                          <HelpCircleIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                        <p>Unknown token</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ) : null}
+                {(() => {
+                    // Optimize holding status calculation - use backend-calculated values
+                    const currentBalance = item.currentUiBalance ?? 0;
+                    const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
+                    
+                    // Must have token balance AND USD value >= $1.44 (equivalent to 0.01 SOL at ~$144)
+                    // Using USD threshold avoids need for real-time SOL price conversion on frontend
+                    const isHeld = currentBalance > 0 && currentValueUsd >= 1.44;
+                    const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
+                    const isExited = !isHeld && hadTrades;
+                    if (isHeld) {
+                      return (
+                        <TooltipProvider delayDuration={300}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
+                                <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                              <p>Currently held</p>
+                            </TooltipContent>
+                          </Tooltip>
                             </TooltipProvider>
                           );
                         }
@@ -904,21 +846,6 @@ const TokenTableRow = memo(({
                     })()}
                   </div>
                 </div>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-2" align="start">
-                <div className="space-y-2">
-                  <div className="font-bold text-sm">{item.name || 'Unknown Token'}</div>
-                  <div className="text-xs text-muted-foreground break-all">{item.tokenAddress}</div>
-                  <div className="flex items-center gap-1 pt-1">
-                    <UiButton variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => navigator.clipboard.writeText(item.tokenAddress)}><CopyIcon className="h-3 w-3 mr-1"/> Copy</UiButton>
-                    <UiButton variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild><a href={`https://solscan.io/token/${item.tokenAddress}`} target="_blank" rel="noopener noreferrer"><ExternalLinkIcon className="h-3 w-3 mr-1"/> Solscan</a></UiButton>
-                    {item.websiteUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={item.websiteUrl} target="_blank" rel="noopener noreferrer"><Globe className="h-4 w-4" /></a></UiButton>}
-                    {item.twitterUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={item.twitterUrl} target="_blank" rel="noopener noreferrer"><TwitterIcon className="h-4 w-4" /></a></UiButton>}
-                    {item.telegramUrl && <UiButton variant="ghost" size="icon" className="h-7 w-7" asChild><a href={item.telegramUrl} target="_blank" rel="noopener noreferrer"><Send className="h-4 w-4" /></a></UiButton>}
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
           )}
           {col.id === 'netSolProfitLoss' && (
             <div className="flex flex-col items-end space-y-0.5">
