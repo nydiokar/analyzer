@@ -17,8 +17,16 @@ export default [
         ...globals.browser,
       },
       parserOptions: {
-        project: true,
-        tsconfigRootDir: import.meta.dirname,
+        ecmaVersion: "latest",
+        sourceType: "module",
+        ecmaFeatures: {
+          jsx: true,
+        },
+      },
+    },
+    settings: {
+      react: {
+        version: "detect",
       },
     },
     rules: {
@@ -27,6 +35,10 @@ export default [
         ...nextPlugin.configs['core-web-vitals'].rules,
         "react/react-in-jsx-scope": "off",
         "react/prop-types": "off",
+        "@typescript-eslint/no-unused-vars": "warn",
+        "@typescript-eslint/no-explicit-any": "warn",
+        "react/no-unescaped-entities": "warn",
+        "prefer-const": "warn",
     },
   },
 ]; 

@@ -84,7 +84,7 @@ export default function Home() {
             Analyze wallet behavior. Decode strategies. Profit smarter.
           </p>
           <p className="max-w-2xl mx-auto text-slate-400/80 mb-10">
-            Our platform provides institutional-grade tools to analyze any Solana wallet. Track profit and loss, uncover behavioral patterns, and get a historical view of any trader's activity to inform your own strategy.
+            Institutional-grade tools to analyze any Solana wallet. Track PNL, uncover patterns, and get historical insights.
           </p>
 
           {isInitialized && !apiKey && (
@@ -211,8 +211,11 @@ export default function Home() {
                   alt="Dashboard Preview" 
                   width={1024}
                   height={576}
-                  className="rounded-md shadow-xl relative"
+                  className="rounded-md shadow-xl relative w-full h-auto"
                   priority
+                  quality={85}
+                  placeholder="blur"
+                  blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
                 />
               </div>
           </section>

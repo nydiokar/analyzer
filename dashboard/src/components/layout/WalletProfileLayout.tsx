@@ -23,7 +23,8 @@ import {
   X,
   Tags,
   FolderOpen,
-  Edit2          // Edit icon for wallet data
+  Edit2,
+  Bot          // Edit icon for wallet data
 } from 'lucide-react' 
 import { toast } from 'sonner';
 import {

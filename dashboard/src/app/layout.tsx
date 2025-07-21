@@ -7,7 +7,11 @@ import LayoutClientShell from "@/components/layout/LayoutClientShell";
 
 const geistSans = GeistSans;
 const geistMono = GeistMono;
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ 
+  subsets: ["latin"],
+  display: 'swap',
+  preload: true,
+});
 
 export const metadata: Metadata = {
   title: "Sova Intel - Solana Wallet Analyzer",
@@ -19,13 +23,20 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body className={inter.className}>
-        <LayoutClientShell>{children}</LayoutClientShell>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="preload" href="/preview/dashboard-preview.png" as="image" type="image/png" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      </head>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${inter.className}`}>
+        <LayoutClientShell>
+          {children}
+        </LayoutClientShell>
       </body>
     </html>
   );
