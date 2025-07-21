@@ -55,19 +55,37 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     }
 
     // Handle responses that are successful but have no content body.
-    // This is common for DELETE (204), POST (201), or PUT (200) requests.
+    // This is common for DELETE (204) or sometimes POST (201) requests.
     const contentLength = res.headers.get('content-length');
-    const contentType = res.headers.get('content-type');
     
-    // Only treat as empty if:
-    // 1. Status is 204 (No Content)
-    // 2. Status is 201 (Created) with no content
-    // 3. Content-Length is 0 or missing
-    // 4. Content-Type is not application/json (indicating no JSON response expected)
-    if (res.status === 204 || 
-        (res.status === 201 && (!contentLength || parseInt(contentLength, 10) === 0)) ||
-        (contentLength && parseInt(contentLength, 10) === 0) ||
-        (contentType && !contentType.includes('application/json'))) {
+    // Debug: Log the actual contentLength value
+    if (res.status === 200) {
+        console.log('🔍 Debug: Response details:', {
+            url: absoluteUrl,
+            status: res.status,
+            contentLength,
+            contentLengthType: typeof contentLength,
+            contentLengthParsed: contentLength ? parseInt(contentLength, 10) : null,
+            method: options?.method || 'GET'
+        });
+    }
+    
+    // Debug: Check if condition should trigger
+    const shouldReturnNull = res.status === 204 || res.status === 201 || (contentLength && parseInt(contentLength, 10) === 0);
+    if (res.status === 200 && contentLength === '0') {
+        console.log('🔍 Debug: Should return null?', {
+            url: absoluteUrl,
+            shouldReturnNull,
+            condition1: false, // res.status === 204 is always false for 200
+            condition2: false, // res.status === 201 is always false for 200
+            condition3: (contentLength && parseInt(contentLength, 10) === 0),
+            contentLength,
+            contentLengthParsed: parseInt(contentLength, 10)
+        });
+    }
+    
+    if (shouldReturnNull) {
+        console.log('🔍 Debug: Returning null for:', absoluteUrl);
         return null;
     }
 
