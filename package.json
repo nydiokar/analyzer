@@ -1,8 +1,11 @@
 {
   "name": "Sova Intel",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=22.0.0 <23.0.0"
+  },
   "scripts": {
     "start": "ts-node -r tsconfig-paths/register src/main.ts",
     "build": "tsc",
