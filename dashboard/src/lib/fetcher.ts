@@ -57,7 +57,7 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     // Handle responses that are successful but have no content body.
     // This is common for DELETE (204) or sometimes POST (201) requests.
     const contentLength = res.headers.get('content-length');
-    if (res.status === 204 || (contentLength && parseInt(contentLength, 10) === 0)) {
+    if (res.status === 204 || res.status === 201 || (contentLength && parseInt(contentLength, 10) === 0)) {
         return null;
     }
 
