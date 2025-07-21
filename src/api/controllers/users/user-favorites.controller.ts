@@ -1,13 +1,9 @@
-import { Controller, Post, Delete, Get, Param, Body, Req, HttpCode, HttpStatus, UseGuards, Put } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiParam, ApiBody, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { AddFavoriteWalletDto, FavoriteWalletDetailDto, UpdateFavoriteWalletDto } from '../../users/favorite-wallet-detail.dto';
-import { UserFavoritesService } from '../../users/user-favorites.service';
+import { Controller, Post, Delete, Put, Get, Body, Param, Req, HttpCode, HttpStatus, Res } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
+import { Response } from 'express';
 import { User } from '@prisma/client';
-import { ApiKeyAuthGuard } from '../../auth/api-key-auth.guard';
-import { Request } from 'express';
-
-// Define the authenticated request interface
-// The global ApiKeyAuthGuard protects all routes and populates req.user.
+import { UserFavoritesService } from '../../users/user-favorites.service';
+import { AddFavoriteWalletDto, FavoriteWalletDetailDto, UpdateFavoriteWalletDto } from '../../users/favorite-wallet-detail.dto';
 
 interface AuthenticatedRequest extends Request {
   user?: User;
@@ -30,10 +26,12 @@ export class UserFavoritesController {
   @HttpCode(HttpStatus.CREATED)
   async addFavorite(
     @Body() addFavoriteWalletDto: AddFavoriteWalletDto,
-    @Req() req: AuthenticatedRequest, 
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
   ): Promise<void> {
     const userId = req.user!.id;
-    return this.userFavoritesService.addFavorite(userId, addFavoriteWalletDto);
+    await this.userFavoritesService.addFavorite(userId, addFavoriteWalletDto);
+    res.status(HttpStatus.CREATED).end();
   }
 
   @Delete(':walletAddress')
@@ -46,9 +44,11 @@ export class UserFavoritesController {
   async removeFavorite(
     @Param('walletAddress') walletAddress: string,
     @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
   ): Promise<void> {
     const userId = req.user!.id;
-    return this.userFavoritesService.removeFavorite(userId, walletAddress);
+    await this.userFavoritesService.removeFavorite(userId, walletAddress);
+    res.status(HttpStatus.NO_CONTENT).end();
   }
 
   @Put(':walletAddress')
@@ -61,9 +61,11 @@ export class UserFavoritesController {
     @Param('walletAddress') walletAddress: string,
     @Body() updateFavoriteWalletDto: UpdateFavoriteWalletDto,
     @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
   ): Promise<void> {
     const userId = req.user!.id;
-    return this.userFavoritesService.updateFavorite(userId, walletAddress, updateFavoriteWalletDto);
+    await this.userFavoritesService.updateFavorite(userId, walletAddress, updateFavoriteWalletDto);
+    res.status(HttpStatus.OK).end();
   }
 
   @Post(':walletAddress/viewed')
@@ -74,9 +76,11 @@ export class UserFavoritesController {
   async markAsViewed(
     @Param('walletAddress') walletAddress: string,
     @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
   ): Promise<void> {
     const userId = req.user!.id;
-    return this.userFavoritesService.updateLastViewed(userId, walletAddress);
+    await this.userFavoritesService.updateLastViewed(userId, walletAddress);
+    res.status(HttpStatus.OK).end();
   }
 
   @Get()
