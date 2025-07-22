@@ -16,6 +16,14 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getFilteredRowModel,
+  flexRender,
+  ColumnDef,
+  ColumnFiltersState,
+} from '@tanstack/react-table';
 import { 
   InfoIcon,
   ArrowUpRight,
@@ -228,44 +236,256 @@ const BACKEND_SORTABLE_IDS = [
 ];
 
 // This definition should be outside the component to prevent re-creation on every render.
-// TODO: FUTURE MODERNIZATION - Consider migrating to TanStack Table (React Table v8)
-// Current implementation uses custom table rendering which works but lacks modern features:
-// - No built-in virtualization (performance issue with large datasets)
-// - Manual sorting/filtering implementation
-// - No built-in column resizing, reordering
-// - More maintenance overhead
-// 
-// Modern approach would use:
-// import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table'
-// with proper column definitions and built-in features
-const COLUMN_DEFINITIONS = [
+// TanStack Table Column Definitions
+const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyzeTokenSpamRisk>>): ColumnDef<TokenPerformanceDataDto>[] => [
   {
-    id: 'tokenAddress',
-    name: 'Token',
-    className: 'sticky left-0 z-10 w-[240px] md:w-[280px] text-left pl-4 pr-3',
+    accessorKey: 'tokenAddress',
+    header: 'Token',
+    cell: ({ row }) => {
+      const item = row.original;
+      const spamAnalysis = spamAnalysisResults.get(item.tokenAddress);
+      if (!spamAnalysis) return null;
+      
+      const pnl = item.netSolProfitLoss ?? 0;
+      const totalPnl = item.totalPnlSol ?? 0;
+      const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (totalPnl / item.totalSolSpent) * 100 : (totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0);
+      
+      return (
+        <div className="flex items-center gap-3">
+          <TokenBadge 
+            mint={item.tokenAddress}
+            metadata={{
+              name: item.name || undefined,
+              symbol: item.symbol || undefined,
+              imageUrl: item.imageUrl || undefined,
+              websiteUrl: item.websiteUrl || undefined,
+              twitterUrl: item.twitterUrl || undefined,
+              telegramUrl: item.telegramUrl || undefined,
+            }}
+            size="lg"
+            className="flex-1"
+          />
+          <div className="flex items-center gap-1">
+            {spamAnalysis.riskLevel === 'high-risk' ? (
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
+                      <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                    <div className="space-y-1">
+                      <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({spamAnalysis.riskScore}%)</p>
+                      <p>{spamAnalysis.primaryReason}</p>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (!item.name || !item.symbol || item.name === 'Unknown Token') && spamAnalysis.riskLevel === 'safe' ? (
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
+                      <HelpCircleIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                    <p>Unknown token</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : null}
+            {(() => {
+                // Optimize holding status calculation - use backend-calculated values
+                const currentBalance = item.currentUiBalance ?? 0;
+                const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
+                
+                // Must have token balance AND USD value >= $1.44 (equivalent to 0.01 SOL at ~$144)
+                // Using USD threshold avoids need for real-time SOL price conversion on frontend
+                const isHeld = currentBalance > 0 && currentValueUsd >= 1.44;
+                const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
+                const isExited = !isHeld && hadTrades;
+                if (isHeld) {
+                  return (
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
+                            <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                          <p>Currently held</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  );
+                }
+                if (isExited) {
+                  return (
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+                            <LogOut className="h-3 w-3 text-slate-500 dark:text-slate-400" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
+                          <p>Position exited</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  );
+                }
+                return null; // No icon when no trades and no balance
+            })()}
+          </div>
+        </div>
+      );
+    },
+    meta: { className: 'sticky left-0 z-10 w-[240px] md:w-[280px] text-left pl-4 pr-3' },
   },
-  // Prioritized order with compact spacing and alignment
-  { id: 'totalPnlSol', name: 'Total PNL (SOL)', isSortable: true, className: 'text-right px-2 min-w-[120px]', icon: DollarSignIcon },
-  { id: 'roi', name: 'ROI (%)', isSortable: true, className: 'text-right px-2 min-w-[90px]', icon: PercentIcon }, 
-  { id: 'totalSolSpent', name: 'SOL Spent', isSortable: true, className: 'text-right px-2 min-w-[100px]', icon: ArrowLeftCircleIcon },
-  { id: 'totalSolReceived', name: 'SOL Received', isSortable: true, className: 'text-right px-2 min-w-[110px]', icon: ArrowRightCircleIcon },
-  { id: 'currentBalanceDisplay', name: 'Current Balance', isSortable: true, className: 'text-right px-2 min-w-[130px]', icon: PackageIcon },
-  { id: 'netSolProfitLoss', name: 'Realized PNL (SOL)', isSortable: true, className: 'text-right px-2 min-w-[140px]', icon: DollarSignIcon },
-  { id: 'unrealizedPnlSol', name: 'Unrealized PNL (SOL)', isSortable: true, className: 'text-right px-2 min-w-[150px]', icon: TrendingUpIcon },
-  { id: 'marketCapDisplay', name: 'Market Cap', isSortable: false, className: 'text-right px-2 min-w-[100px]', icon: TrendingUpIcon },
-  { id: 'transferCountIn', name: 'In', isSortable: false, className: 'text-center px-2 min-w-[50px]', icon: ArrowRightLeftIcon },
-  { id: 'transferCountOut', name: 'Out', isSortable: false, className: 'text-center px-2 min-w-[50px]'},
-  { id: 'firstTransferTimestamp', name: 'First Trade', isSortable: false, className: 'text-center px-2 min-w-[100px]', icon: CalendarDaysIcon }, 
-  { id: 'lastTransferTimestamp', name: 'Last Trade', isSortable: true, className: 'text-center px-2 min-w-[100px]', icon: CalendarDaysIcon }, 
+  {
+    accessorKey: 'totalPnlSol',
+    header: 'Total PNL (SOL)',
+    cell: ({ row }) => formatPnl(row.original.totalPnlSol),
+    meta: { className: 'text-right px-2 min-w-[120px]' },
+  },
+  {
+    accessorFn: (row) => {
+      const totalPnl = row.totalPnlSol ?? 0;
+      const totalSpent = row.totalSolSpent ?? 0;
+      return totalSpent !== 0 ? (totalPnl / totalSpent) * 100 : 0;
+    },
+    id: 'roi',
+    header: 'ROI (%)',
+    cell: ({ row }) => {
+      const item = row.original;
+      const totalPnl = item.totalPnlSol ?? 0;
+      const totalSpent = item.totalSolSpent ?? 0;
+      const roi = totalSpent !== 0 ? (totalPnl / totalSpent) * 100 : 0;
+      return roi === Infinity ? <span className="text-emerald-600 dark:text-emerald-400 font-semibold">∞</span> : roi === -Infinity ? <span className="text-red-500 dark:text-red-400 font-semibold">-∞</span> : formatPercentage(roi);
+    },
+    meta: { className: 'text-right px-2 min-w-[90px]' },
+  },
+  {
+    accessorKey: 'totalSolSpent',
+    header: 'SOL Spent',
+    cell: ({ row }) => <Text className={cn("text-sm font-mono font-medium", (row.original.totalSolSpent ?? 0) > 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-400 dark:text-slate-500')}>{formatSolAmount(row.original.totalSolSpent)}</Text>,
+    meta: { className: 'text-right px-2 min-w-[100px]' },
+  },
+  {
+    accessorKey: 'totalSolReceived',
+    header: 'SOL Received',
+    cell: ({ row }) => <Text className={cn("text-sm font-mono font-medium", (row.original.totalSolReceived ?? 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500')}>{formatSolAmount(row.original.totalSolReceived)}</Text>,
+    meta: { className: 'text-right px-2 min-w-[110px]' },
+  },
+  {
+    accessorKey: 'currentBalanceDisplay',
+    header: 'Current Balance',
+    cell: ({ row }) => {
+      const item = row.original;
+      if (item.currentUiBalance === 0) {
+        return <Text className="text-sm text-slate-400 dark:text-slate-500 font-medium">-</Text>;
+      }
+      return (
+        <div className="text-right">
+          <div className="flex flex-col items-end space-y-0.5">
+            {item.currentHoldingsValueSol ? (
+              <Text className={cn(
+                "text-sm font-mono font-semibold",
+                item.currentHoldingsValueSol >= 1 ? "text-orange-600 dark:text-orange-400" : // Significant position
+                item.currentHoldingsValueSol >= 0.1 ? "text-slate-700 dark:text-slate-300" : // Medium position  
+                "text-slate-500 dark:text-slate-400" // Small position
+              )}>
+                {formatSolAmount(item.currentHoldingsValueSol)} SOL
+              </Text>
+            ) : (
+              <Text className="text-sm text-slate-400 dark:text-slate-500 font-medium">? SOL</Text>
+            )}
+            <Text className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+              {item.currentUiBalance ? formatTokenDisplayValue(item.currentUiBalance, null) : 'N/A tokens'}
+            </Text>
+          </div>
+        </div>
+      );
+    },
+    meta: { className: 'text-right px-2 min-w-[130px]' },
+  },
+  {
+    accessorKey: 'netSolProfitLoss',
+    header: 'Realized PNL (SOL)',
+    cell: ({ row }) => {
+      const item = row.original;
+      return (
+        <div className="flex flex-col items-end space-y-0.5">
+          {formatPnl(item.netSolProfitLoss)}
+          {item.realizedPnlPercentage !== null && item.realizedPnlPercentage !== undefined && (
+            <div className="flex justify-end">
+              {formatPercentage(item.realizedPnlPercentage)}
+            </div>
+          )}
+        </div>
+      );
+    },
+    meta: { className: 'text-right px-2 min-w-[140px]' },
+  },
+  {
+    accessorKey: 'unrealizedPnlSol',
+    header: 'Unrealized PNL (SOL)',
+    cell: ({ row }) => {
+      const item = row.original;
+      return (
+        <div className="flex flex-col items-end space-y-0.5">
+          {formatPnl(item.unrealizedPnlSol)}
+          {item.unrealizedPnlPercentage !== null && item.unrealizedPnlPercentage !== undefined && (
+            <div className="flex justify-end">
+              {formatPercentage(item.unrealizedPnlPercentage)}
+            </div>
+          )}
+        </div>
+      );
+    },
+    meta: { className: 'text-right px-2 min-w-[150px]' },
+  },
+  {
+    accessorKey: 'marketCapDisplay',
+    header: 'Market Cap',
+    cell: ({ row }) => formatMarketCap(row.original.marketCapUsd),
+    meta: { className: 'text-right px-2 min-w-[100px]' },
+  },
+  {
+    accessorKey: 'transferCountIn',
+    header: 'In',
+    cell: ({ row }) => <Text className="text-sm text-center">{row.original.transferCountIn || 0}</Text>,
+    meta: { className: 'text-center px-2 min-w-[50px]' },
+  },
+  {
+    accessorKey: 'transferCountOut',
+    header: 'Out',
+    cell: ({ row }) => <Text className="text-sm text-center">{row.original.transferCountOut || 0}</Text>,
+    meta: { className: 'text-center px-2 min-w-[50px]' },
+  },
+  {
+    accessorKey: 'firstTransferTimestamp',
+    header: 'First Trade',
+    cell: ({ row }) => <Text className="text-sm text-center">{formatDate(row.original.firstTransferTimestamp)}</Text>,
+    meta: { className: 'text-center px-2 min-w-[100px]' },
+  },
+  {
+    accessorKey: 'lastTransferTimestamp',
+    header: 'Last Trade',
+    cell: ({ row }) => <Text className="text-sm text-center">{formatDate(row.original.lastTransferTimestamp)}</Text>,
+    meta: { className: 'text-center px-2 min-w-[100px]' },
+  },
 ];
 
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const { apiKey, isInitialized } = useApiKeyStore();
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20); // Initial page size
-  const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
-  const [sortOrder, setSortOrder] = useState('DESC');
+  const [pageSize, setPageSize] = useState(20);
   const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
@@ -280,6 +500,10 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const [isEnriching, setIsEnriching] = useState<boolean>(false);
   const [enrichmentMessage, setEnrichmentMessage] = useState<string | null>(null);
 
+  // TanStack Table state - RESTORED BACKEND SORTING
+  const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
+  const [sortOrder, setSortOrder] = useState('DESC');
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
   const apiUrlBase = walletAddress ? `/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
@@ -288,6 +512,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     const params = new URLSearchParams();
     params.append('page', page.toString());
     params.append('pageSize', pageSize.toString());
+    // RESTORED: Backend sorting for global accuracy
     if (BACKEND_SORTABLE_IDS.includes(sortBy)) {
         params.append('sortBy', sortBy);
         params.append('sortOrder', sortOrder);
@@ -335,6 +560,26 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     });
     return results;
   }, [tableData]);
+
+  // Create columns with spam analysis results
+  const columns = useMemo(() => createColumns(spamAnalysisResults), [spamAnalysisResults]);
+
+  // TanStack Table instance - SYNCED WITH BACKEND SORTING
+  const table = useReactTable({
+    data: tableData,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    // REMOVED: getSortedRowModel - backend handles sorting
+    getFilteredRowModel: getFilteredRowModel(),
+    // REMOVED: getPaginationRowModel - backend handles pagination
+    // REMOVED: onSortingChange - we handle sorting manually
+    onColumnFiltersChange: setColumnFilters,
+    state: {
+      columnFilters,
+    },
+    // Disable client-side sorting since backend handles it
+    enableSorting: false,
+  });
 
   const triggerEnrichment = useCallback(() => {
     if (!walletAddress || !apiKey) return;
@@ -386,6 +631,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     });
   };
 
+  // RESTORED: handleSort function to sync TanStack Table with backend sorting
   const handleSort = (columnId: string) => {
     // Map frontend column IDs to backend field names
     const fieldMapping: Record<string, string> = {
@@ -440,11 +686,11 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   };
 
   const renderSkeletonTableRows = () => {
-    return Array.from({ length: 3 }).map((_, rowIndex) => ( // Reduced skeleton rows for faster initial render
+    return Array.from({ length: 3 }).map((_, rowIndex) => (
       <TableRow key={`skeleton-row-${rowIndex}`}>
-        {COLUMN_DEFINITIONS.map((col, colIndex) => (
-          <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn(col.className, col.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
-            <Skeleton className={cn("h-5", col.id === 'tokenAddress' ? "w-3/4" : "w-full")} />
+        {table.getAllColumns().map((column, colIndex) => (
+          <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn((column.columnDef.meta as any)?.className, column.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
+            <Skeleton className={cn("h-5", column.id === 'tokenAddress' ? "w-3/4" : "w-full")} />
           </TableCell>
         ))}
       </TableRow>
@@ -459,12 +705,12 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
     // If we have an error, show the error state.
     if (error) {
-      return <TableBody><TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length}><EmptyState variant="error" title="Error Loading Data" description={error.message} /></TableCell></TableRow></TableBody>;
+      return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="error" title="Error Loading Data" description={error.message} /></TableCell></TableRow></TableBody>;
     }
     
     // If the parent component is analyzing, show a specific state.
     if (isAnalyzingGlobal && !tableData.length) {
-      return <TableBody><TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length}><EmptyState variant="default" icon={Loader2} title="Analyzing Wallet..." description="Please wait while the wallet analysis is in progress. Token performance data will update shortly." className="my-8" /></TableCell></TableRow></TableBody>;
+      return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={Loader2} title="Analyzing Wallet..." description="Please wait while the wallet analysis is in progress. Token performance data will update shortly." className="my-8" /></TableCell></TableRow></TableBody>;
     }
 
     // If there's no data, check if we're enriching before declaring "No Token Data".
@@ -479,26 +725,21 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
         ? "No token activity detected for the selected time period. Try expanding the date range or selecting 'All' to see historical data."
         : "No token activity detected for the selected filters.";
       
-      return <TableBody><TableRow><TableCell colSpan={COLUMN_DEFINITIONS.length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
+      return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
     }
 
-    // If we have data, render it.
+    // If we have data, render it with TanStack Table.
     return (
       <TableBody>
-        {tableData.map((item: TokenPerformanceDataDto, index: number) => {
-          const spamAnalysis = spamAnalysisResults.get(item.tokenAddress);
-          if (!spamAnalysis) return null;
-          
-          return (
-            <TokenTableRow
-              key={item.tokenAddress}
-              item={item}
-              index={index}
-              spamAnalysis={spamAnalysis}
-              columns={COLUMN_DEFINITIONS}
-            />
-          );
-        })}
+        {table.getRowModel().rows.map((row) => (
+          <TableRow key={row.id}>
+            {row.getVisibleCells().map((cell) => (
+              <TableCell key={cell.id} className={(cell.column.columnDef.meta as any)?.className}>
+                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
       </TableBody>
     );
   };
@@ -581,26 +822,32 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       <div className="overflow-x-auto bg-white dark:bg-slate-900">
         <Table className="min-w-full">
           <TableHeader className="bg-slate-50 dark:bg-slate-800">
-            <TableRow className="border-b border-slate-200 dark:border-slate-700">
-              {COLUMN_DEFINITIONS.map(col => (
-                <TableHead 
-                  key={col.id} 
-                  className={cn(
-                    "font-semibold text-slate-700 dark:text-slate-300 text-sm h-10",
-                    col.className,
-                    col.id === 'tokenAddress' && 'sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-sm',
-                    col.isSortable && 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors'
-                  )}
-                  onClick={() => col.isSortable && handleSort(col.id)}
-                >
-                  <Flex alignItems="center" justifyContent={col.className?.includes('text-right') ? 'end' : col.className?.includes('text-center') ? 'center' : 'start'} className="gap-1.5 h-full">
-                    {col.icon && <col.icon className="h-4 w-4 text-muted-foreground" />}
-                    <span className="text-sm font-semibold whitespace-nowrap text-tremor-content-strong dark:text-dark-tremor-content-strong">{col.name}</span>
-                    {col.isSortable && sortBy === col.id && (sortOrder === 'ASC' ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />)}
-                  </Flex>
-                </TableHead>
-              ))}
-            </TableRow>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id} className="border-b border-slate-200 dark:border-slate-700">
+                {headerGroup.headers.map((header) => (
+                  <TableHead 
+                    key={header.id} 
+                    className={cn(
+                      "font-semibold text-slate-700 dark:text-slate-300 text-sm h-10",
+                      (header.column.columnDef.meta as any)?.className,
+                      header.column.id === 'tokenAddress' && 'sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-sm',
+                      BACKEND_SORTABLE_IDS.includes(header.column.id) && 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors'
+                    )}
+                    onClick={() => BACKEND_SORTABLE_IDS.includes(header.column.id) && handleSort(header.column.id)}
+                  >
+                    <Flex alignItems="center" justifyContent={(header.column.columnDef.meta as any)?.className?.includes('text-right') ? 'end' : (header.column.columnDef.meta as any)?.className?.includes('text-center') ? 'center' : 'start'} className="gap-1.5 h-full">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {BACKEND_SORTABLE_IDS.includes(header.column.id) && (
+                        <span>
+                          {sortBy === header.column.id && sortOrder === 'asc' ? <ArrowUpRight className="h-4 w-4" /> : 
+                           sortBy === header.column.id && sortOrder === 'desc' ? <ArrowDownRight className="h-4 w-4" /> : null}
+                        </span>
+                      )}
+                    </Flex>
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
           </TableHeader>
           {renderTableContent()}
         </Table>
@@ -722,196 +969,7 @@ const formatMarketCap = (value: number | null | undefined) => {
   return 'N/A';
 };
 
-// Memoized table row component for better performance
-const TokenTableRow = memo(({ 
-  item, 
-  index, 
-  spamAnalysis,
-  columns 
-}: {
-  item: TokenPerformanceDataDto;
-  index: number;
-  spamAnalysis: ReturnType<typeof analyzeTokenSpamRisk>;
-  columns: typeof COLUMN_DEFINITIONS;
-}) => {
-  const pnl = item.netSolProfitLoss ?? 0;
-  const totalPnl = item.totalPnlSol ?? 0;
-  const pnlColor = pnl > 0 ? 'text-emerald-600 dark:text-emerald-400' : pnl < 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-500 dark:text-slate-400';
-  const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (totalPnl / item.totalSolSpent) * 100 : (totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0);
 
-  return (
-    <TableRow 
-      key={item.tokenAddress + index}
-      className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors border-b border-slate-200/60 dark:border-slate-700/60"
-    >
-      {columns.map(col => (
-        <TableCell 
-          key={col.id} 
-          className={cn(
-            "py-2 text-sm", 
-            col.className, 
-            col.id === 'tokenAddress' && 'sticky left-0 z-10 whitespace-nowrap bg-white dark:bg-slate-900 shadow-sm', 
-            (col.id === 'netSolProfitLoss' || col.id === 'roi') && pnlColor
-          )}
-        >
-          {col.id === 'tokenAddress' && (
-            <div className="flex items-center gap-3">
-              <TokenBadge 
-                mint={item.tokenAddress}
-                metadata={{
-                  name: item.name || undefined,
-                  symbol: item.symbol || undefined,
-                  imageUrl: item.imageUrl || undefined,
-                  websiteUrl: item.websiteUrl || undefined,
-                  twitterUrl: item.twitterUrl || undefined,
-                  telegramUrl: item.telegramUrl || undefined,
-                }}
-                size="lg"
-                className="flex-1"
-              />
-              <div className="flex items-center gap-1">
-                {spamAnalysis.riskLevel === 'high-risk' ? (
-                  <TooltipProvider delayDuration={300}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
-                          <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                        <div className="space-y-1">
-                          <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({spamAnalysis.riskScore}%)</p>
-                          <p>{spamAnalysis.primaryReason}</p>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ) : (!item.name || !item.symbol || item.name === 'Unknown Token') && spamAnalysis.riskLevel === 'safe' ? (
-                  <TooltipProvider delayDuration={300}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
-                          <HelpCircleIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                        <p>Unknown token</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ) : null}
-                {(() => {
-                    // Optimize holding status calculation - use backend-calculated values
-                    const currentBalance = item.currentUiBalance ?? 0;
-                    const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
-                    
-                    // Must have token balance AND USD value >= $1.44 (equivalent to 0.01 SOL at ~$144)
-                    // Using USD threshold avoids need for real-time SOL price conversion on frontend
-                    const isHeld = currentBalance > 0 && currentValueUsd >= 1.44;
-                    const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
-                    const isExited = !isHeld && hadTrades;
-                    if (isHeld) {
-                      return (
-                        <TooltipProvider delayDuration={300}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
-                                <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" />
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                              <p>Currently held</p>
-                            </TooltipContent>
-                          </Tooltip>
-                            </TooltipProvider>
-                          );
-                        }
-                        if (isExited) {
-                          return (
-                            <TooltipProvider delayDuration={300}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
-                                    <LogOut className="h-3 w-3 text-slate-500 dark:text-slate-400" />
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                                  <p>Position exited</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          );
-                        }
-                        return null; // No icon when no trades and no balance
-                    })()}
-                  </div>
-                </div>
-          )}
-          {col.id === 'netSolProfitLoss' && (
-            <div className="flex flex-col items-end space-y-0.5">
-              {formatPnl(item.netSolProfitLoss)}
-              {item.realizedPnlPercentage !== null && item.realizedPnlPercentage !== undefined && (
-                <div className="flex justify-end">
-                  {formatPercentage(item.realizedPnlPercentage)}
-                </div>
-              )}
-            </div>
-          )}
-          {col.id === 'unrealizedPnlSol' && (
-            <div className="flex flex-col items-end space-y-0.5">
-              {formatPnl(item.unrealizedPnlSol)}
-              {item.unrealizedPnlPercentage !== null && item.unrealizedPnlPercentage !== undefined && (
-                <div className="flex justify-end">
-                  {formatPercentage(item.unrealizedPnlPercentage)}
-                </div>
-              )}
-            </div>
-          )}
-          {col.id === 'totalPnlSol' && formatPnl(item.totalPnlSol)}
-          {col.id === 'roi' && (roi === Infinity ? <span className="text-emerald-600 dark:text-emerald-400 font-semibold">∞</span> : roi === -Infinity ? <span className="text-red-500 dark:text-red-400 font-semibold">-∞</span> : formatPercentage(roi))}
-          {col.id === 'totalSolSpent' && (<Text className={cn("text-sm font-mono font-medium", (item.totalSolSpent ?? 0) > 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-400 dark:text-slate-500')}>{formatSolAmount(item.totalSolSpent)}</Text>)}
-          {col.id === 'totalSolReceived' && (<Text className={cn("text-sm font-mono font-medium", (item.totalSolReceived ?? 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500')}>{formatSolAmount(item.totalSolReceived)}</Text>)}
-          {col.id === 'currentBalanceDisplay' && (
-            <div className="text-right">
-              {item.currentUiBalance === 0 ? (
-                <Text className="text-sm text-slate-400 dark:text-slate-500 font-medium">-</Text>
-              ) : (
-                <div className="flex flex-col items-end space-y-0.5">
-                  {/* SOL Value First - Most Important */}
-                  {item.currentHoldingsValueSol ? (
-                    <Text className={cn(
-                      "text-sm font-mono font-semibold",
-                      item.currentHoldingsValueSol >= 1 ? "text-orange-600 dark:text-orange-400" : // Significant position
-                      item.currentHoldingsValueSol >= 0.1 ? "text-slate-700 dark:text-slate-300" : // Medium position  
-                      "text-slate-500 dark:text-slate-400" // Small position
-                    )}>
-                      {formatSolAmount(item.currentHoldingsValueSol)} SOL
-                    </Text>
-                  ) : (
-                    <Text className="text-sm text-slate-500 dark:text-slate-400 font-mono font-medium">
-                      ? SOL
-                    </Text>
-                  )}
-                  {/* Token Amount Second - Less Important */}
-                  <Text className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                    {formatTokenDisplayValue(item.currentUiBalance, item.currentUiBalanceString)} tokens
-                  </Text>
-                </div>
-              )}
-            </div>
-          )}
-          {col.id === 'marketCapDisplay' && <Text className="text-sm font-medium text-slate-600 dark:text-slate-400">{formatMarketCap((item as any).marketCapUsd)}</Text>}
-          {col.id === 'transferCountIn' && (<Text className={cn("text-sm font-medium", (item.transferCountIn ?? 0) > 0 ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500')}>{item.transferCountIn}</Text>)}
-          {col.id === 'transferCountOut' && (<Text className={cn("text-sm font-medium", (item.transferCountOut ?? 0) > 0 ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500')}>{item.transferCountOut}</Text>)}
-          {col.id === 'firstTransferTimestamp' && <Text className="text-sm font-medium text-slate-600 dark:text-slate-400">{formatDate(item.firstTransferTimestamp)}</Text>}
-          {col.id === 'lastTransferTimestamp' && <Text className="text-sm font-medium text-slate-600 dark:text-slate-400">{formatDate(item.lastTransferTimestamp)}</Text>}
-        </TableCell>
-      ))}
-    </TableRow>
-  );
-});
-
-TokenTableRow.displayName = 'TokenTableRow';
 
 // Memoize the component to prevent unnecessary re-renders
 export default memo(TokenPerformanceTab);
