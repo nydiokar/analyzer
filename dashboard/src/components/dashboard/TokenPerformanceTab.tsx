@@ -233,6 +233,7 @@ const BACKEND_SORTABLE_IDS = [
   'currentSolValue',
   'netAmountChange',
   'lastTransferTimestamp',
+  // REMOVED: 'marketCapUsd' - not supported by backend
 ];
 
 // This definition should be outside the component to prevent re-creation on every render.
@@ -419,14 +420,30 @@ const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyz
     cell: ({ row }) => {
       const item = row.original;
       return (
-        <div className="flex flex-col items-end space-y-0.5">
-          {formatPnl(item.netSolProfitLoss)}
-          {item.realizedPnlPercentage !== null && item.realizedPnlPercentage !== undefined && (
-            <div className="flex justify-end">
-              {formatPercentage(item.realizedPnlPercentage)}
-            </div>
-          )}
-        </div>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex flex-col items-end space-y-0.5 cursor-help">
+                {formatPnl(item.netSolProfitLoss)}
+                {item.realizedPnlPercentage !== null && item.realizedPnlPercentage !== undefined && (
+                  <div className="flex justify-end">
+                    {formatPercentage(item.realizedPnlPercentage)}
+                  </div>
+                )}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-xs">
+              <div className="text-sm">
+                <p className="font-semibold mb-1">Realized P&L Explanation:</p>
+                <p>• <strong>Amount:</strong> SOL received from sales - Cost basis of sold tokens - Fees</p>
+                <p>• <strong>Percentage:</strong> Based on total SOL invested</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  This is your actual profit/loss from completed trades
+                </p>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       );
     },
     meta: { className: 'text-right px-2 min-w-[140px]' },
@@ -436,15 +453,41 @@ const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyz
     header: 'Unrealized PNL (SOL)',
     cell: ({ row }) => {
       const item = row.original;
+      const hasCurrentHoldings = (item.currentUiBalance ?? 0) > 0;
+      const unrealizedPnl = item.unrealizedPnlSol ?? 0;
+      const unrealizedPercentage = item.unrealizedPnlPercentage ?? 0;
+      
       return (
-        <div className="flex flex-col items-end space-y-0.5">
-          {formatPnl(item.unrealizedPnlSol)}
-          {item.unrealizedPnlPercentage !== null && item.unrealizedPnlPercentage !== undefined && (
-            <div className="flex justify-end">
-              {formatPercentage(item.unrealizedPnlPercentage)}
-            </div>
-          )}
-        </div>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex flex-col items-end space-y-0.5 cursor-help">
+                {formatPnl(unrealizedPnl)}
+                {item.unrealizedPnlPercentage !== null && item.unrealizedPnlPercentage !== undefined && (
+                  <div className="flex justify-end">
+                    {formatPercentage(unrealizedPercentage)}
+                  </div>
+                )}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-xs">
+              <div className="text-sm">
+                <p className="font-semibold mb-1">Unrealized P&L Explanation:</p>
+                {hasCurrentHoldings ? (
+                  <>
+                    <p>• <strong>Amount:</strong> Current value - Cost basis of remaining holdings</p>
+                    <p>• <strong>Percentage:</strong> Based on cost basis of current holdings only</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Small holdings can show large % changes on tiny amounts
+                    </p>
+                  </>
+                ) : (
+                  <p>No current holdings - all P&L is realized</p>
+                )}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       );
     },
     meta: { className: 'text-right px-2 min-w-[150px]' },
@@ -636,6 +679,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     // Map frontend column IDs to backend field names
     const fieldMapping: Record<string, string> = {
       'currentBalanceDisplay': 'currentSolValue'  // Sort by SOL value, not token amount
+      // REMOVED: 'marketCapDisplay': 'marketCapUsd' - not supported by backend
     };
     
     const backendField = fieldMapping[columnId] || columnId;
@@ -831,18 +875,46 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
                       "font-semibold text-slate-700 dark:text-slate-300 text-sm h-10",
                       (header.column.columnDef.meta as any)?.className,
                       header.column.id === 'tokenAddress' && 'sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-sm',
-                      BACKEND_SORTABLE_IDS.includes(header.column.id) && 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors'
+                      (() => {
+                        const columnId = header.column.id;
+                        const fieldMapping: Record<string, string> = {
+                          'currentBalanceDisplay': 'currentSolValue'
+                          // REMOVED: 'marketCapDisplay': 'marketCapUsd' - not supported by backend
+                        };
+                        const backendField = fieldMapping[columnId] || columnId;
+                        return BACKEND_SORTABLE_IDS.includes(backendField) && 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors';
+                      })()
                     )}
-                    onClick={() => BACKEND_SORTABLE_IDS.includes(header.column.id) && handleSort(header.column.id)}
+                    onClick={() => {
+                      const columnId = header.column.id;
+                      const fieldMapping: Record<string, string> = {
+                        'currentBalanceDisplay': 'currentSolValue'
+                        // REMOVED: 'marketCapDisplay': 'marketCapUsd' - not supported by backend
+                      };
+                      const backendField = fieldMapping[columnId] || columnId;
+                      if (BACKEND_SORTABLE_IDS.includes(backendField)) {
+                        handleSort(columnId);
+                      }
+                    }}
                   >
                     <Flex alignItems="center" justifyContent={(header.column.columnDef.meta as any)?.className?.includes('text-right') ? 'end' : (header.column.columnDef.meta as any)?.className?.includes('text-center') ? 'center' : 'start'} className="gap-1.5 h-full">
                       {flexRender(header.column.columnDef.header, header.getContext())}
-                      {BACKEND_SORTABLE_IDS.includes(header.column.id) && (
-                        <span>
-                          {sortBy === header.column.id && sortOrder === 'asc' ? <ArrowUpRight className="h-4 w-4" /> : 
-                           sortBy === header.column.id && sortOrder === 'desc' ? <ArrowDownRight className="h-4 w-4" /> : null}
-                        </span>
-                      )}
+                      {(() => {
+                        const columnId = header.column.id;
+                        const fieldMapping: Record<string, string> = {
+                          'currentBalanceDisplay': 'currentSolValue'
+                          // REMOVED: 'marketCapDisplay': 'marketCapUsd' - not supported by backend
+                        };
+                        const backendField = fieldMapping[columnId] || columnId;
+                        if (!BACKEND_SORTABLE_IDS.includes(backendField)) return null;
+                        
+                        return (
+                          <span>
+                            {sortBy === backendField && sortOrder === 'ASC' ? <ArrowUpRight className="h-4 w-4" /> : 
+                             sortBy === backendField && sortOrder === 'DESC' ? <ArrowDownRight className="h-4 w-4" /> : null}
+                          </span>
+                        );
+                      })()}
                     </Flex>
                   </TableHead>
                 ))}
