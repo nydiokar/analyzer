@@ -73,8 +73,12 @@ interface MappingStats {
   skippedDuplicateRecordKey: number;
   /** A count of transactions categorized by their Helius `type` (e.g., SWAP, TRANSFER). */
   countByInteractionType: { [type: string]: number };
-  /** Number of UNKNOWN transactions skipped because they were detected as liquidity operations. */
-  unknownTxSkippedLiquidityOperation: number;
+  /** 
+   * Number of UNKNOWN transactions skipped because they were detected as liquidity operations.
+   * NOTE: Variable name kept as 'unknownTxSkippedNoJito' to match database schema.
+   * The logic now filters based on token flow direction, not Jito protection.
+   */
+  unknownTxSkippedNoJito: number;
   // --- End New Counters ---
 }
 // --- End MappingStats Interface ---
@@ -331,7 +335,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
     smallOutgoingHeuristicApplied: 0,
     skippedDuplicateRecordKey: 0,
     countByInteractionType: {},
-    unknownTxSkippedLiquidityOperation: 0,
+    unknownTxSkippedNoJito: 0,
     // --- End Initialize New Counters ---
   };
 
@@ -365,7 +369,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
         // Skip if no user token activity (not a DeFi transaction)
         if (userTokenTransfers.length === 0) {
           logger.debug(`Skipping UNKNOWN tx ${tx.signature} - no user token activity`);
-          mappingStats.unknownTxSkippedLiquidityOperation++;
+          mappingStats.unknownTxSkippedNoJito++; // for now unknownTxSkippedNoJito is misleading, it should be unknownTxSkippedLiquidityOperation but we need to change the database schema first
           continue;
         }
 
@@ -404,7 +408,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
           if (allPositive || allNegative) {
             // User received both tokens OR sent both tokens = liquidity operation
             logger.debug(`Skipping UNKNOWN tx ${tx.signature} - detected as liquidity operation (user ${allPositive ? 'received' : 'sent'} both tokens)`);
-            mappingStats.unknownTxSkippedLiquidityOperation++;
+            mappingStats.unknownTxSkippedNoJito++; // for now unknownTxSkippedNoJito is misleading, it should be unknownTxSkippedLiquidityOperation but we need to change the database schema first
             continue;
           }
           // Mixed directions = swap operation, allow through
