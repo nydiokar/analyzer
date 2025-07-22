@@ -73,8 +73,8 @@ interface MappingStats {
   skippedDuplicateRecordKey: number;
   /** A count of transactions categorized by their Helius `type` (e.g., SWAP, TRANSFER). */
   countByInteractionType: { [type: string]: number };
-  /** Number of UNKNOWN transactions skipped because they did not interact with a Jito MEV protection program. */
-  unknownTxSkippedNoJito: number;
+  /** Number of UNKNOWN transactions skipped because they were detected as liquidity operations. */
+  unknownTxSkippedLiquidityOperation: number;
   // --- End New Counters ---
 }
 // --- End MappingStats Interface ---
@@ -331,7 +331,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
     smallOutgoingHeuristicApplied: 0,
     skippedDuplicateRecordKey: 0,
     countByInteractionType: {},
-    unknownTxSkippedNoJito: 0,
+    unknownTxSkippedLiquidityOperation: 0,
     // --- End Initialize New Counters ---
   };
 
@@ -342,28 +342,77 @@ export function mapHeliusTransactionsToIntermediateRecords(
       continue;
     }
 
-    // --- Jito MEV Protection Heuristic (Configurable) ---
-    // If a transaction is of type UNKNOWN, we apply a heuristic to check if it's a real swap.
-    // Legitimate swaps, especially those trying to avoid front-running, often use MEV protection
-    // like Jito. Liquidity add/remove operations typically do not.
-    // like Jito. However, legitimate bot/arbitrage activity might not use Jito protection.
-    if (TRANSACTION_MAPPING_CONFIG.ENABLE_JITO_FILTERING) {
+    // --- Liquidity Operation Detection Heuristic (Configurable) ---
+    // This heuristic filters out UNKNOWN transactions that are likely liquidity add/remove operations
+    // rather than actual swaps. This prevents inflation of swap analysis data with non-trading activity.
+    //
+    // Detection Logic:
+    // 1. Only applies to UNKNOWN transaction types (Helius doesn't classify them as SWAP)
+    // 2. Analyzes user's token flow pattern in the transaction
+    // 3. Liquidity operations: User provides/removes both tokens in same direction (both in OR both out)
+    // 4. Swaps: User sends one token and receives another (opposite directions)
+    // 5. Conservative approach: Only filters when pattern is clearly liquidity, allows ambiguous cases through
+    if (TRANSACTION_MAPPING_CONFIG.ENABLE_LIQUIDITY_FILTERING) {
       const interactionTypeForCheck = tx.type?.toUpperCase() || 'UNKNOWN';
       if (interactionTypeForCheck === 'UNKNOWN') {
-        const isJitoInteraction = (tx.instructions || []).some(
-          (instruction) =>
-            instruction.programId.startsWith(TRANSACTION_MAPPING_CONFIG.JITO_PROGRAM_PREFIX) ||
-            (instruction.accounts || []).some((acc) => acc.startsWith(TRANSACTION_MAPPING_CONFIG.JITO_PROGRAM_PREFIX)),
+        // Get user's token transfers for this transaction
+        const userTokenTransfers = (tx.tokenTransfers || []).filter(
+          (transfer) => 
+            transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress ||
+            transfer.toUserAccount?.toLowerCase() === lowerWalletAddress
         );
 
-        if (!isJitoInteraction) {
-          logger.debug(`Skipping UNKNOWN tx ${tx.signature} due to no Jito interaction (filtering enabled)`);
-          mappingStats.unknownTxSkippedNoJito++;
-          continue; // Skip this transaction entirely.
+        // Skip if no user token activity (not a DeFi transaction)
+        if (userTokenTransfers.length === 0) {
+          logger.debug(`Skipping UNKNOWN tx ${tx.signature} - no user token activity`);
+          mappingStats.unknownTxSkippedLiquidityOperation++;
+          continue;
         }
+
+        // Analyze token flow directions for the user
+        const userTokenFlow = new Map<string, number>(); // mint -> net flow (positive = received, negative = sent)
+        
+        for (const transfer of userTokenTransfers) {
+          const mint = transfer.mint;
+          if (!mint) continue;
+          
+          const amount = safeParseAmount(transfer);
+          const isFromUser = transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress;
+          const isToUser = transfer.toUserAccount?.toLowerCase() === lowerWalletAddress;
+          
+          if (isFromUser && !isToUser) {
+            // User sent this token
+            userTokenFlow.set(mint, (userTokenFlow.get(mint) || 0) - Math.abs(amount));
+          } else if (isToUser && !isFromUser) {
+            // User received this token
+            userTokenFlow.set(mint, (userTokenFlow.get(mint) || 0) + Math.abs(amount));
+          }
+          // Self-transfers (isFromUser && isToUser) are ignored as they don't change net position
+        }
+
+        // Determine if this is a liquidity operation
+        // Liquidity: User's tokens flow in the same direction (both positive or both negative)
+        // Swap: User's tokens flow in opposite directions (one positive, one negative)
+        const tokenFlows = Array.from(userTokenFlow.values()).filter(flow => Math.abs(flow) > 0.000001); // Filter out dust
+        
+
+        
+        if (tokenFlows.length >= 2) {
+          const allPositive = tokenFlows.every(flow => flow > 0);
+          const allNegative = tokenFlows.every(flow => flow < 0);
+          
+          if (allPositive || allNegative) {
+            // User received both tokens OR sent both tokens = liquidity operation
+            logger.debug(`Skipping UNKNOWN tx ${tx.signature} - detected as liquidity operation (user ${allPositive ? 'received' : 'sent'} both tokens)`);
+            mappingStats.unknownTxSkippedLiquidityOperation++;
+            continue;
+          }
+          // Mixed directions = swap operation, allow through
+        }
+        // Single token flow or no significant flows = allow through (could be fee payments, etc.)
       }
     }
-    // --- End Jito MEV Protection Heuristic ---
+    // --- End Liquidity Operation Detection Heuristic ---
 
     let inputsGeneratedThisTransaction = 0; // Track inputs for current transaction
 

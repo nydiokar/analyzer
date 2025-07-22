@@ -26,7 +26,7 @@ export const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTN
 // Transaction mapping configuration
 export const TRANSACTION_MAPPING_CONFIG = {
   // Jito MEV protection filtering
-  ENABLE_JITO_FILTERING: true, // Set to false to include bot transactions without Jito protection
+  ENABLE_LIQUIDITY_FILTERING: true, // Set to false to include liquidity add/remove operations in swap analysis
   JITO_PROGRAM_PREFIX: 'jitodontfront',
   
   // Bot transaction handling

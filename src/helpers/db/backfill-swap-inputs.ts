@@ -1,4 +1,39 @@
 #!/usr/bin/env node
+/**
+ * BACKFILL SWAP INPUTS SCRIPT
+ * 
+ * PURPOSE:
+ * Reprocesses existing cached transactions through the mapper to update SwapAnalysisInput
+ * records with new logic (like fee calculations, improved filtering). This script works
+ * with ALREADY CACHED transactions and doesn't fetch new data from Helius.
+ * 
+ * WHEN TO USE:
+ * ✅ After deploying mapper changes to update existing data with new logic
+ * ✅ When you want to add fee data to existing records
+ * ✅ When you want to apply new filtering logic to existing transactions
+ * ✅ Debugging specific transactions (using --signature mode)
+ * 
+ * WHAT IT DOES:
+ * 1. Reads transactions from HeliusTransactionCache (already fetched data)
+ * 2. Reprocesses them through the mapper with latest logic
+ * 3. Updates existing SwapAnalysisInput records (UPSERT)
+ * 4. Preserves existing data while adding new fields/calculations
+ * 
+ * DIFFERENCE FROM BULK DATA FETCHER:
+ * - Bulk Data Fetcher: Fetches NEW data from Helius API
+ * - Backfill Script: Reprocesses EXISTING cached data with new logic
+ * 
+ * EXAMPLES:
+ * # Reprocess all cached transactions for a wallet
+ * npx ts-node backfill-swap-inputs.ts --address WALLET_ADDRESS --batchSize 200
+ * 
+ * # Debug a specific transaction
+ * npx ts-node backfill-swap-inputs.ts --address WALLET_ADDRESS --signature TX_SIGNATURE
+ * 
+ * # Process in smaller batches (useful for large wallets)
+ * npx ts-node backfill-swap-inputs.ts --address WALLET_ADDRESS --batchSize 50
+ */
+
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';

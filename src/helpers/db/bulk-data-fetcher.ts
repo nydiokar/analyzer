@@ -1,4 +1,40 @@
 #!/usr/bin/env node
+/**
+ * BULK DATA FETCHER SCRIPT
+ * 
+ * PURPOSE:
+ * Fetches fresh transaction data from Helius API and processes it through the mapper
+ * to create/update SwapAnalysisInput records. This is the PRIMARY script for getting
+ * new transaction data into the system.
+ * 
+ * WHEN TO USE:
+ * ✅ Initial data fetch for a new wallet
+ * ✅ Fetching new transactions for existing wallets (incremental updates)
+ * ✅ After deploying mapper changes to get fresh data with new logic
+ * ✅ When you want to ensure you have the latest transaction data from Helius
+ * 
+ * WHAT IT DOES:
+ * 1. Fetches transaction signatures from Solana RPC
+ * 2. Gets full transaction details from Helius API (or uses cache)
+ * 3. Processes transactions through the mapper with latest filtering logic
+ * 4. Saves SwapAnalysisInput records to database
+ * 5. Updates wallet state (newest/oldest processed timestamps)
+ * 
+ * SMART FETCH MODE:
+ * - When enabled: Only fetches transactions newer than what's already processed
+ * - When disabled: Fetches all available transactions (useful for fresh starts)
+ * 
+ * EXAMPLES:
+ * # Initial fetch for a wallet (all transactions)
+ * npx ts-node bulk-data-fetcher.ts --addresses WALLET_ADDRESS --limit 100 --maxSignatures 10000
+ * 
+ * # Incremental update (only new transactions)
+ * npx ts-node bulk-data-fetcher.ts --addresses WALLET_ADDRESS --limit 100 --maxSignatures 1000 --smartFetch
+ * 
+ * # Multiple wallets
+ * npx ts-node bulk-data-fetcher.ts --addresses WALLET1,WALLET2,WALLET3 --limit 100
+ */
+
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
