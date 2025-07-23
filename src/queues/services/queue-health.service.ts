@@ -27,7 +27,7 @@ export interface QueueHealthStatus {
 
 export interface RedisHealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
-  connectionStatus: 'connected' | 'connecting' | 'disconnected' | 'error';
+  connectionStatus: 'connected' | 'connecting' | 'disconnected' | 'error' | 'ready';
   responseTime?: number;
   memory?: {
     used: string;
@@ -284,10 +284,11 @@ export class QueueHealthService implements OnModuleInit {
       }
 
       // Determine status
-      const connectionStatus = this.redis.status as 'connected' | 'connecting' | 'disconnected' | 'error';
+      const connectionStatus = this.redis.status as 'connected' | 'connecting' | 'disconnected' | 'error' | 'ready';
       let status: 'healthy' | 'degraded' | 'unhealthy';
 
-      if (connectionStatus !== 'connected') {
+      // Redis can be 'ready' or 'connected' - both indicate healthy connection
+      if (connectionStatus !== 'connected' && connectionStatus !== 'ready') {
         status = 'unhealthy';
         issues.push(`Redis connection status: ${connectionStatus}`);
       } else if (issues.length === 0) {
