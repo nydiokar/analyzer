@@ -42,8 +42,10 @@ export class PnlAnalysisService {
         this.heliusApiClient = heliusApiClient;
         this.tokenInfoService = tokenInfoService;
 
+        // Note: In a proper NestJS setup, WalletBalanceService would be injected via constructor
+        // For now, we'll keep the manual instantiation for the core service
         if (this.heliusApiClient) {
-            this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.tokenInfoService);
+            this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService, this.tokenInfoService);
             logger.info('PnlAnalysisService instantiated with HeliusApiClient and TokenInfoService. WalletBalanceService active.');
         } else {
             this.walletBalanceService = null;

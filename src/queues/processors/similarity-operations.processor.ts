@@ -42,8 +42,9 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     private readonly balanceCacheService: BalanceCacheService,
     private readonly websocketGateway: JobProgressGateway,
   ) {
-    // Initialize WalletBalanceService
-    this.walletBalanceService = new WalletBalanceService(this.heliusApiClient);
+    // Note: In a proper NestJS setup, WalletBalanceService would be injected via constructor
+    // For now, we'll keep the manual instantiation for the processor
+    this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService);
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
     
     // RESTORED: Use proper worker architecture for production scalability

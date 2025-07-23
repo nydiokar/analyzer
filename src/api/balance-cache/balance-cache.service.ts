@@ -21,7 +21,7 @@ export class BalanceCacheService {
       maxRetriesPerRequest: 3,
     });
     // The service is manually instantiated here, following the existing pattern in the codebase.
-    this.walletBalanceService = new WalletBalanceService(this.heliusApiClient);
+    this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService);
   }
 
   /**

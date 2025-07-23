@@ -87,7 +87,7 @@ export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 // Performance configuration for Helius API
 export const HELIUS_CONFIG = {
   DEFAULT_RPS: 25, // Requests per second (adjust based on your Helius plan)
-  INTERNAL_CONCURRENCY: 5, // Concurrent batches for transaction detail fetching (reduced from 5)
+  INTERNAL_CONCURRENCY: 10, // Concurrent batches for transaction detail fetching (reduced from 5)
   BATCH_SIZE: 100, // Signatures per batch request
 } as const;
 

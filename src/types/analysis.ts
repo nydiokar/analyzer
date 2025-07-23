@@ -22,6 +22,17 @@ export interface BehaviorAnalysisConfig extends BaseAnalysisConfig {
     minimumPercentageRemaining?: number; // Minimum % of original position (default: 0.05 = 5%)
     minimumHoldingTimeSeconds?: number;  // Minimum time held to count (default: 300 = 5 minutes)
   };
+  // Scam token filtering options
+  scamFiltering?: {
+    enabled?: boolean;             // Enable/disable scam token filtering (default: true)
+    logFilteredTokens?: boolean;   // Log details about filtered tokens (default: false)
+    strictMode?: boolean;          // Use stricter thresholds (default: false)
+    thresholds?: {
+      minTradeCount?: number;      // Minimum trade count to consider for filtering (default: 100)
+      minTotalValue?: number;      // Minimum total SOL value to be considered legitimate (default: 0.001)
+      minTotalUsdcValue?: number;  // Minimum total USDC value to be considered legitimate (default: 0.01)
+    };
+  };
 }
 
 // Configuration specific to Correlation Analysis

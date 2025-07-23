@@ -6,6 +6,7 @@ import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 import { formatLargeNumber } from 'core/utils/number-formatting';
 import { TokenInfoService } from '../../api/token-info/token-info.service';
 import { TokenInfo } from '@prisma/client';
+import { DatabaseService } from './database-service';
 
 const logger = createLogger('WalletBalanceService');
 const SOL_DECIMALS = 9;
@@ -18,6 +19,7 @@ const SOL_DECIMALS = 9;
 export class WalletBalanceService {
   private heliusClient: HeliusApiClient;
   private tokenInfoService?: TokenInfoService;
+  private databaseService: DatabaseService;
 
   /**
    * Constructs an instance of the WalletBalanceService.
@@ -27,9 +29,11 @@ export class WalletBalanceService {
    */
   constructor(
     heliusClient: HeliusApiClient,
+    databaseService: DatabaseService,
     tokenInfoService?: TokenInfoService
   ) {
     this.heliusClient = heliusClient;
+    this.databaseService = databaseService;
     this.tokenInfoService = tokenInfoService;
   }
 
@@ -70,7 +74,7 @@ export class WalletBalanceService {
     }
 
     // 1. Fetch SOL balances using getMultipleAccounts (batched)
-    const batchSize = 100; // Max 100 pubkeys per getMultipleAccounts call
+    const batchSize = 100;
     for (let i = 0; i < walletAddresses.length; i += batchSize) {
       const batchAddresses = walletAddresses.slice(i, i + batchSize);
       try {
@@ -153,6 +157,51 @@ export class WalletBalanceService {
           });
         }
 
+        // 3. FALLBACK: Check for missing tokens that should have balances
+        // This handles the Helius API bug where some tokens are missing from bulk fetch
+        const missingTokens = await this.findMissingTokensWithBalances(address, tokenBalances);
+        if (missingTokens.length > 0) {
+          logger.info(`Address ${address}: Found ${missingTokens.length} missing tokens, attempting recovery...`);
+          
+          let recoveredCount = 0;
+          for (const missingToken of missingTokens) {
+            try {
+              const specificAccounts = await this.heliusClient.getTokenAccountsByOwner(
+                address,
+                missingToken.tokenAddress
+              );
+              
+              if (specificAccounts.value.length > 0) {
+                const account = specificAccounts.value[0];
+                const accountData = account.account.data;
+                
+                if (typeof accountData !== 'string' && !Array.isArray(accountData) && accountData.parsed) {
+                  const parsedInfo = accountData.parsed.info;
+                  if (parsedInfo && parsedInfo.tokenAmount) {
+                    const recoveredToken: TokenBalanceDetails = {
+                      mint: parsedInfo.mint,
+                      tokenAccountAddress: account.pubkey,
+                      balance: parsedInfo.tokenAmount.amount,
+                      decimals: parsedInfo.tokenAmount.decimals,
+                      uiBalance: parsedInfo.tokenAmount.uiAmount,
+                      uiBalanceString: formatLargeNumber(parsedInfo.tokenAmount.uiAmount),
+                    };
+                    
+                    tokenBalances.push(recoveredToken);
+                    recoveredCount++;
+                  }
+                }
+              }
+            } catch (error) {
+              logger.warn(`Address ${address}: Failed to recover missing token ${missingToken.tokenAddress}:`, error);
+            }
+          }
+          
+          if (recoveredCount > 0) {
+            logger.info(`Address ${address}: ✅ Successfully recovered ${recoveredCount}/${missingTokens.length} missing tokens`);
+          }
+        }
+
         const existingBalance = walletBalances.get(address);
         if (existingBalance) {
           existingBalance.tokenBalances = tokenBalances;
@@ -175,6 +224,47 @@ export class WalletBalanceService {
 
     logger.info(`Successfully processed RAW wallet balance fetching for ${walletAddresses.length} addresses (no metadata).`);
     return walletBalances;
+  }
+
+  /**
+   * Finds tokens that should have balances but are missing from the current token list.
+   * This handles the Helius API bug where some tokens are missing from bulk fetch.
+   * 
+   * @param walletAddress The wallet address to check
+   * @param currentTokenBalances The current list of token balances
+   * @returns Array of missing tokens that should have balances
+   */
+  private async findMissingTokensWithBalances(
+    walletAddress: string, 
+    currentTokenBalances: TokenBalanceDetails[]
+  ): Promise<Array<{ tokenAddress: string; netAmountChange: number }>> {
+    try {
+      // Get database records for this wallet with positive netAmountChange but missing current balance
+      const dbRecords = await this.databaseService.getAnalysisResults({
+        where: {
+          walletAddress,
+          netAmountChange: { gt: 0 },
+          OR: [
+            { currentUiBalance: null },
+            { currentUiBalance: 0 }
+          ]
+        }
+      });
+
+      // Find tokens that are in database but not in current balances
+      const currentMints = new Set(currentTokenBalances.map(t => t.mint));
+      const missingTokens = dbRecords.filter(record => !currentMints.has(record.tokenAddress));
+
+      // Only log if there are missing tokens (reduces noise for normal wallets)
+      if (missingTokens.length > 0) {
+        logger.debug(`Found ${missingTokens.length} potentially missing tokens for ${walletAddress}`);
+      }
+
+      return missingTokens;
+    } catch (error) {
+      logger.warn(`Error finding missing tokens for ${walletAddress}:`, error);
+      return [];
+    }
   }
 
   /**

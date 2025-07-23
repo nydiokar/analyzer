@@ -175,7 +175,7 @@ export class WalletOperationsProcessor {
       await job.updateProgress(10);
       this.logger.debug(`Fetching balance for wallet ${walletAddress}`);
 
-      const walletBalanceService = new WalletBalanceService(this.heliusApiClient);
+      const walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService);
       
       await job.updateProgress(50);
       const balancesMap = await walletBalanceService.fetchWalletBalances([walletAddress]);

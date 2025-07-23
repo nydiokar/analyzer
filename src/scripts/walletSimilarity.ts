@@ -91,7 +91,7 @@ async function runSimilarityAnalysisScript(
         network: 'mainnet' // Assuming mainnet, adjust if needed or make configurable
     };
     const heliusClient = new HeliusApiClient(heliusConfig, dbService);
-    const walletBalanceService = new WalletBalanceService(heliusClient);
+    const walletBalanceService = new WalletBalanceService(heliusClient, dbService);
     // ---- End WalletBalanceService Instantiation ----
     
     // Instantiate ReportingService: Pass dbService first, undefined for BehaviorService, similarityService third.

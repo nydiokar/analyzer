@@ -38,7 +38,7 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import { createLogger } from 'core/utils/logger';
+import { createLogger } from '../../core/utils/logger';
 import { HeliusApiClient } from 'core/services/helius-api-client';
 import { mapHeliusTransactionsToIntermediateRecords } from 'core/services/helius-transaction-mapper';
 import { DatabaseService, prisma } from 'core/services/database-service';

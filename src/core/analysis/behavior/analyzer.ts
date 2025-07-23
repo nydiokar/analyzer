@@ -20,6 +20,7 @@ interface TokenTrade {
   direction: 'in' | 'out';
   amount: number;
   associatedSolValue: number;
+  associatedUsdcValue?: number; // Optional since some trades might not have USDC value
 }
 
 interface TokenTradeSequence {
@@ -236,7 +237,8 @@ export class BehaviorAnalyzer {
           timestamp: r.timestamp,
           direction: r.direction as 'in' | 'out',
           amount: r.amount,
-          associatedSolValue: r.associatedSolValue ?? 0 // Handle null
+          associatedSolValue: r.associatedSolValue ?? 0, // Handle null
+          associatedUsdcValue: r.associatedUsdcValue // Handle null
         })),
         buyCount,
         sellCount,
@@ -628,34 +630,75 @@ export class BehaviorAnalyzer {
 
     // Calculate mostTradedTokens
     const tokenDataForMostTraded: { 
-        [mint: string]: { count: number, totalValue: number, firstSeen: number, lastSeen: number }
+        [mint: string]: { count: number, totalValue: number, totalUsdcValue: number, firstSeen: number, lastSeen: number }
     } = {};
 
     sequences.forEach(seq => {
       let firstSeen = Infinity;
       let lastSeen = 0;
       let totalValue = 0;
+      let totalUsdcValue = 0;
       seq.trades.forEach(trade => {
         if (trade.timestamp < firstSeen) firstSeen = trade.timestamp;
         if (trade.timestamp > lastSeen) lastSeen = trade.timestamp;
         totalValue += trade.associatedSolValue;
+        totalUsdcValue += trade.associatedUsdcValue ?? 0; // Use actual USDC value from database
       });
 
       tokenDataForMostTraded[seq.mint] = {
         count: seq.buyCount + seq.sellCount,
         totalValue: totalValue,
+        totalUsdcValue: totalUsdcValue,
         firstSeen: firstSeen === Infinity ? 0 : firstSeen,
         lastSeen: lastSeen,
       };
     });
 
-    metrics.tokenPreferences.mostTradedTokens = Object.entries(tokenDataForMostTraded)
+    // Filter out scam tokens from mostTradedTokens
+    const filteredTokenData: { 
+        [mint: string]: { count: number, totalValue: number, totalUsdcValue: number, firstSeen: number, lastSeen: number }
+    } = {};
+
+    let scamTokensFiltered = 0;
+    let totalTokensProcessed = 0;
+
+    // Check if scam filtering is enabled (default to true if not specified)
+    const scamFilteringEnabled = this.config.scamFiltering?.enabled !== false;
+    const logFilteredTokens = this.config.scamFiltering?.logFilteredTokens === true;
+
+    for (const [mint, data] of Object.entries(tokenDataForMostTraded)) {
+      totalTokensProcessed++;
+      
+      // SIMPLE FILTER: Only use totalValue to detect scams
+      // Tokens with high trade counts but zero/low SOL value are likely scams
+      if (scamFilteringEnabled) {
+        const isScam = this.isScamTokenByValue(data.count, data.totalValue, data.totalUsdcValue);
+        
+        if (isScam) {
+          scamTokensFiltered++;
+          if (logFilteredTokens) {
+            this.logger.debug(`Filtered out scam token ${mint}: ${data.count} trades but only ${data.totalValue.toFixed(6)} SOL total value`);
+          }
+          continue; // Skip this token
+        }
+      }
+
+      // Include legitimate tokens
+      filteredTokenData[mint] = data;
+    }
+
+    if (scamFilteringEnabled) {
+      this.logger.info(`Scam token filtering: Processed ${totalTokensProcessed} tokens, filtered out ${scamTokensFiltered} scam tokens (${((scamTokensFiltered / totalTokensProcessed) * 100).toFixed(1)}%)`);
+    }
+
+    metrics.tokenPreferences.mostTradedTokens = Object.entries(filteredTokenData)
       .sort(([, dataA], [, dataB]) => dataB.count - dataA.count) // Sort by trade count
       .slice(0, 5) // Top 5
       .map(([mint, data]) => ({
         mint: mint,
         count: data.count,
         totalValue: data.totalValue,
+        totalUsdcValue: data.totalUsdcValue,
         firstSeen: data.firstSeen,
         lastSeen: data.lastSeen,
       }));
@@ -1005,5 +1048,36 @@ export class BehaviorAnalyzer {
       averageSessionStartHour,
       averageSessionDurationMinutes,
     };
+  }
+
+  /**
+   * Simple scam detection based on totalValue vs trade count.
+   * This is the core insight: scam tokens have high trade counts but zero/low value.
+   * 
+   * @param tradeCount - Number of trades for this token
+   * @param totalValue - Total SOL value of all trades
+   * @param totalUsdcValue - Total USDC value of all trades (optional)
+   * @returns true if this token is likely a scam
+   */
+  private isScamTokenByValue(tradeCount: number, totalValue: number, totalUsdcValue?: number): boolean {
+    // Get thresholds from config or use defaults
+    const thresholds = this.config.scamFiltering?.thresholds || {};
+    const minTradeCount = thresholds.minTradeCount ?? 100;  // Default: 100+ trades
+    const minTotalValue = thresholds.minTotalValue ?? 0.001; // Default: 0.001 SOL minimum
+    const minTotalUsdcValue = thresholds.minTotalUsdcValue ?? 5; // Default: $0.01 USDC minimum
+
+    // Check if token has meaningful value in either SOL or USDC
+    const hasSolValue = totalValue >= minTotalValue;
+    const hasUsdcValue = totalUsdcValue && totalUsdcValue >= minTotalUsdcValue;
+    const hasAnyValue = hasSolValue || hasUsdcValue;
+
+    // A token is considered a scam if:
+    // 1. It has many trades (indicating activity) AND no meaningful value in either currency
+    const highTradeCountNoValue = (tradeCount >= minTradeCount && !hasAnyValue);
+
+    // 2. OR, if it has absolutely zero value in both currencies, regardless of trade count
+    const zeroTotalValue = (totalValue === 0 && (!totalUsdcValue || totalUsdcValue === 0));
+
+    return highTradeCountNoValue || zeroTotalValue;
   }
 }
