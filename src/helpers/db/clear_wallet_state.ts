@@ -173,7 +173,7 @@ async function clearWalletState() {
     
     console.log('\n🎉 Wallet state clear operation completed successfully!');
     console.log('\n📋 Next steps:');
-    console.log(`  1. Run: npx ts-node src/helpers/db/bulk-data-fetcher.ts --addresses ${walletAddress} --limit 100 --maxSignatures 10000`);
+    console.log(`  1. Run: npx ts-node -r tsconfig-paths/register src/helpers/db/bulk-data-fetcher.ts --addresses ${walletAddress} --limit 100 --maxSignatures 10000`);
     console.log('  2. Verify results in dashboard');
     
   } catch (error) {

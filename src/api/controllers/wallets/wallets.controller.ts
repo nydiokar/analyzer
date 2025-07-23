@@ -28,6 +28,7 @@ import { PnlOverviewService, PnlOverviewResponse } from '../../wallets/pnl_overv
 import { TokenInfoService } from '../../token-info/token-info.service';
 import { WalletClassificationService } from '../../../core/services/wallet-classification.service';
 import { SmartFetchService } from '../../../core/services/smart-fetch-service';
+import { DexscreenerService } from '../../dexscreener/dexscreener.service';
 
 
 // DTOs
@@ -57,6 +58,7 @@ export class WalletsController {
     private readonly tokenInfoService: TokenInfoService,
     private readonly classificationService: WalletClassificationService,
     private readonly smartFetchService: SmartFetchService,
+    private readonly dexscreenerService: DexscreenerService,
   ) {}
 
   @Get('search')
@@ -229,6 +231,26 @@ export class WalletsController {
       // Get wallet classification for frontend display with auto-classification
       const finalClassification = await this.smartFetchService.getOrAutoClassifyWallet(walletAddress);
 
+      // Fetch current SOL price for USD conversions
+      let solPriceUsd: number | undefined;
+      let latestPnlUsd: number | undefined;
+      let currentSolBalanceUsd: number | undefined;
+      
+      try {
+        solPriceUsd = await this.dexscreenerService.getSolPrice();
+        
+        // Calculate USD equivalents
+        if (solPriceUsd !== undefined) {
+          latestPnlUsd = parseFloat((latestPnl * solPriceUsd).toFixed(2));
+          if (currentSolBalance !== undefined && currentSolBalance !== null) {
+            currentSolBalanceUsd = parseFloat((currentSolBalance * solPriceUsd).toFixed(2));
+          }
+        }
+      } catch (error) {
+        // If SOL price fetch fails, we'll still return SOL values but without USD equivalents
+        this.logger.warn('Failed to fetch SOL price for USD conversions:', error);
+      }
+
       const summary: WalletSummaryResponse = {
         status: 'ok',
         walletAddress,
@@ -236,10 +258,12 @@ export class WalletsController {
         lastActiveTimestamp: finalLastActiveTimestamp,
         daysActive: finalDaysActive,
         latestPnl: latestPnl,
+        latestPnlUsd: latestPnlUsd,
         tokenWinRate: tokenWinRate,
         behaviorClassification: behaviorClassification,
         classification: finalClassification,
         currentSolBalance: currentSolBalance,
+        currentSolBalanceUsd: currentSolBalanceUsd,
         balancesFetchedAt: balancesFetchedAt ? balancesFetchedAt.toISOString() : null,
       };
 

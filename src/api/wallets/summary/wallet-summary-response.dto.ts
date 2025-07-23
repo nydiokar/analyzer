@@ -39,6 +39,12 @@ export class WalletSummaryResponse {
   latestPnl?: number | null;
 
   @ApiPropertyOptional({ 
+    description: 'The latest realized PNL for the wallet in USD.',
+    example: 125075.00 
+  })
+  latestPnlUsd?: number | null;
+
+  @ApiPropertyOptional({ 
     description: 'The win rate of profitable tokens as a percentage.',
     example: 66.67 
   })
@@ -63,15 +69,15 @@ export class WalletSummaryResponse {
   })
   currentSolBalance?: number | null;
 
-  @ApiPropertyOptional({
-    description: 'The current USDC balance of the wallet.',
-    example: 5000.25
+  @ApiPropertyOptional({ 
+    description: 'The current SOL balance of the wallet in USD.',
+    example: 1050.00 
   })
-  currentUsdcBalance?: number | null;
+  currentSolBalanceUsd?: number | null;
 
   @ApiPropertyOptional({ 
-    description: 'ISO 8601 timestamp of when the SOL balance was last fetched.',
-    example: '2023-05-21T09:55:00.000Z' 
+    description: 'ISO 8601 timestamp of when the balance was last fetched.',
+    example: '2023-05-21T10:00:00.000Z' 
   })
   balancesFetchedAt?: string | null;
 } 

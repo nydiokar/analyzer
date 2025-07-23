@@ -9,6 +9,7 @@ import { PnlOverviewModule } from './pnl_overview/pnl-overview.module';
 // which it does for the summary endpoint's activity logging and direct data fetches.
 import { DatabaseModule } from '../database/database.module';
 import { TokenInfoModule } from '../token-info/token-info.module';
+import { DexscreenerModule } from '../dexscreener/dexscreener.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { TokenInfoModule } from '../token-info/token-info.module';
     TokenPerformanceModule,
     // Removed: AggregatedMetricsModule,
     TokenInfoModule,
+    DexscreenerModule, // For SOL price fetching
   ],
   controllers: [WalletsController],
   providers: [],

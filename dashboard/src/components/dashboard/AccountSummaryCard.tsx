@@ -166,9 +166,16 @@ export default function AccountSummaryCard({
       <div className="space-y-2">
         <Flex justifyContent="between" alignItems="center" className="gap-2">
           <Text className="text-sm font-medium">PNL</Text>
-          <Metric color={(data.latestPnl ?? 0) >= 0 ? 'emerald' : 'red'} className="text-base">
-            {formatPnl(data.latestPnl ?? null)}
-          </Metric>
+          <div className="flex flex-col items-end">
+            <Metric color={(data.latestPnl ?? 0) >= 0 ? 'emerald' : 'red'} className="text-base">
+              {formatPnl(data.latestPnl ?? null)}
+            </Metric>
+            {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
+              <Text className="text-xs text-muted-foreground">
+                {data.latestPnlUsd >= 0 ? '+' : ''}${data.latestPnlUsd.toLocaleString()}
+              </Text>
+            )}
+          </div>
         </Flex>
 
         <Flex justifyContent="between" alignItems="center" className="gap-2">
@@ -179,7 +186,16 @@ export default function AccountSummaryCard({
         {data.currentSolBalance !== undefined && (
           <Flex justifyContent="between" alignItems="center" className="gap-2">
             <Text className="text-sm font-medium">Balance</Text>
-            <Text className="text-base font-semibold">{data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL</Text>
+            <div className="flex flex-col items-end">
+              <Text className="text-base font-semibold">
+                {data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL
+              </Text>
+              {data.currentSolBalanceUsd !== null && data.currentSolBalanceUsd !== undefined && (
+                <Text className="text-xs text-muted-foreground">
+                  ${data.currentSolBalanceUsd.toLocaleString()}
+                </Text>
+              )}
+            </div>
           </Flex>
         )}
 

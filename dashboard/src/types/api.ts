@@ -25,12 +25,14 @@ export interface WalletSummaryData {
   lastActiveTimestamp: number | null; // Unix timestamp in seconds or null
   daysActive: number | string | null; // Backend seems to send string or number
   latestPnl?: number | null; // Moved from keyPerformanceIndicators
+  latestPnlUsd?: number | null; // New USD field
   tokenWinRate?: number | null; // Moved from keyPerformanceIndicators
   behaviorClassification: string | null; // High-level classification from BehaviorService
   classification?: string | null; // Wallet classification: 'normal', 'high_frequency', 'unknown'
   rawAdvancedStats?: AdvancedStatsResult; // Full raw object for more detail if needed by client
   rawBehaviorMetrics?: BehaviorMetrics; // Full raw object for more detail if needed by client
   currentSolBalance?: number | null;
+  currentSolBalanceUsd?: number | null; // New USD field
 }
 
 export interface WalletSummaryError {
