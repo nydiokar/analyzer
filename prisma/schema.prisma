@@ -54,11 +54,11 @@ model Wallet {
   @@index([isVerifiedBot])
 }
 
-// Stores raw Helius transaction details.
+// Stores lightweight cache of processed transaction signatures.
+// Used to avoid re-fetching already processed transactions from Helius API.
 model HeliusTransactionCache {
   signature String   @id @unique
   timestamp Int
-  rawData   Bytes
   fetchedAt DateTime @default(now())
 
   @@index([timestamp])

@@ -18,7 +18,7 @@ import { HeliusTransaction } from '@/types/helius-api'; // Assuming HeliusTransa
 import { TransactionData } from '@/types/correlation'; // Needed for getTransactionsForAnalysis
 import { BaseAnalysisConfig } from '@/types/analysis'; // Needed for getTransactionsForAnalysis
 import { createLogger } from 'core/utils/logger'; // Assuming createLogger function is defined in utils
-import zlib from 'zlib'; // Added zlib
+
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger } from '@nestjs/common';
@@ -1163,43 +1163,21 @@ export class DatabaseService {
 
     // --- HeliusTransactionCache Methods ---
     /**
-     * Retrieves cached Helius transaction data.
+     * Retrieves cached transaction signatures (lightweight cache).
      * @param signature A single transaction signature string or an array of signature strings.
-     * @returns Depends on input: HeliusTransaction | null | Map<string, HeliusTransaction>
+     * @returns Depends on input: { timestamp: number } | null | Map<string, { timestamp: number }>
      */
-    async getCachedTransaction(signature: string | string[]): Promise<HeliusTransaction | null | Map<string, HeliusTransaction>> {
+    async getCachedTransaction(signature: string | string[]): Promise<{ timestamp: number } | null | Map<string, { timestamp: number }>> {
       if (typeof signature === 'string') {
         try {
           const cached = await this.prismaClient.heliusTransactionCache.findUnique({
             where: { signature },
+            select: { signature: true, timestamp: true }
           });
           if (cached) {
-                try {
-                    const rawDataObject = cached.rawData;
-                    if (Buffer.isBuffer(rawDataObject)) {
-                        const decompressedBuffer = zlib.inflateSync(rawDataObject);
-                        const jsonString = decompressedBuffer.toString('utf-8');
-                        return JSON.parse(jsonString) as HeliusTransaction;
-                    } else if (typeof rawDataObject === 'string') {
-                        this.logger.warn(`[CacheRead] rawData for ${signature} is a string (old format?), attempting direct parse.`);
-                        return JSON.parse(rawDataObject) as HeliusTransaction;
-                    } else if (typeof rawDataObject === 'object' && rawDataObject !== null) {
-                        const byteArray = Object.values(rawDataObject).filter(v => typeof v === 'number') as number[];
-                        if (byteArray.length > 0 && byteArray.every(v => v >= 0 && v <= 255)) {
-                            const buffer = Buffer.from(byteArray);
-                            const decompressedBuffer = zlib.inflateSync(buffer);
-                            const jsonString = decompressedBuffer.toString('utf-8');
-                            return JSON.parse(jsonString) as HeliusTransaction;
-                        }
-                    }
-                    this.logger.error(`[CacheRead] rawData for ${signature} is in an unexpected format. Type: ${typeof rawDataObject}`);
-                    return null;
-                } catch (processError) {
-                    this.logger.error(`Failed to process cached rawData for signature ${signature}`, { error: processError });
-                    return null;
-                }
-            }
-            return null;
+            return { timestamp: cached.timestamp };
+          }
+          return null;
         } catch (error) {
             this.logger.error(`Error fetching cached transaction ${signature}`, { error });
             return null;
@@ -1216,36 +1194,12 @@ export class DatabaseService {
                     signature: {
                         in: signature
                     }
-                }
+                },
+                select: { signature: true, timestamp: true }
             });
-            const resultMap = new Map<string, HeliusTransaction>();
+            const resultMap = new Map<string, { timestamp: number }>();
             for (const record of cachedRecords) {
-                try {
-                    const rawDataObject = record.rawData;
-                    if (Buffer.isBuffer(rawDataObject)) {
-                        const decompressedBuffer = zlib.inflateSync(rawDataObject);
-                        const jsonString = decompressedBuffer.toString('utf-8');
-                        const tx = JSON.parse(jsonString) as HeliusTransaction;
-                        resultMap.set(record.signature, tx);
-                    } else if (typeof rawDataObject === 'string') {
-                         this.logger.warn(`[CacheRead-Batch] rawData for ${record.signature} is a string (old format?), attempting direct parse.`);
-                         const tx = JSON.parse(rawDataObject) as HeliusTransaction;
-                         resultMap.set(record.signature, tx);
-                    } else if (typeof rawDataObject === 'object' && rawDataObject !== null) {
-                        const byteArray = Object.values(rawDataObject).filter(v => typeof v === 'number') as number[];
-                        if (byteArray.length > 0 && byteArray.every(v => v >= 0 && v <= 255)) {
-                            const buffer = Buffer.from(byteArray);
-                            const decompressedBuffer = zlib.inflateSync(buffer);
-                            const jsonString = decompressedBuffer.toString('utf-8');
-                            const tx = JSON.parse(jsonString) as HeliusTransaction;
-                            resultMap.set(record.signature, tx);
-                        } else {
-                             this.logger.error(`[CacheRead-Batch] rawData for ${record.signature} is in an unexpected format. Type: ${typeof rawDataObject}`);
-                        }
-                    }
-                } catch (processError) {
-                     this.logger.error(`Failed to process cached rawData in batch for signature ${record.signature}`, { error: processError });
-                }
+                resultMap.set(record.signature, { timestamp: record.timestamp });
             }
             return resultMap;
         } catch (error) {
@@ -1266,7 +1220,7 @@ export class DatabaseService {
             this.logger.debug('No transactions provided to save to cache.');
             return { count: 0 };
         }
-        this.logger.debug(`Attempting to save ${transactions.length} transactions to cache efficiently...`);
+        this.logger.debug(`Attempting to save ${transactions.length} transaction signatures to lightweight cache...`);
         const incomingSignatures = transactions.map(tx => tx.signature);
         let existingSignatures = new Set<string>();
         try {
@@ -1292,20 +1246,15 @@ export class DatabaseService {
             return { count: 0 };
         }
          this.logger.debug(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
-        const dataToSave = newTransactions.map(tx => {
-            const jsonString = JSON.stringify(tx);
-            const compressedRawData = zlib.deflateSync(Buffer.from(jsonString, 'utf-8'));
-            return {
-                signature: tx.signature,
-                timestamp: tx.timestamp,
-                rawData: compressedRawData,
-            };
-        });
+        const dataToSave = newTransactions.map(tx => ({
+            signature: tx.signature,
+            timestamp: tx.timestamp,
+        }));
         try {
             const result = await this.prismaClient.heliusTransactionCache.createMany({
                 data: dataToSave,
             });
-             this.logger.debug(`Cache save complete. ${result.count} new transactions added to HeliusTransactionCache.`);
+             this.logger.debug(`Cache save complete. ${result.count} new transaction signatures added to HeliusTransactionCache.`);
             return result;
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError) {

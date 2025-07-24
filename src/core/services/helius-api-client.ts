@@ -388,8 +388,6 @@ export class HeliusApiClient {
     let newlyFetchedTransactions: HeliusTransaction[] = []; 
     // Set to hold signatures whose details need to be fetched from API
     const signaturesToFetchDetails = new Set<string>();
-    // Add array to collect cached transactions
-    const cachedTransactions: HeliusTransaction[] = [];
 
     // === PHASE 1: Fetch Signatures via RPC ===
     logger.debug(`Starting Phase 1: Fetching signatures via Solana RPC for ${address}`);
@@ -465,24 +463,23 @@ export class HeliusApiClient {
     // === Check Cache to Identify Signatures to Fetch ===
     logger.debug(`Checking database cache existence for ${uniqueSignatures.length} signatures...`);
     
-    // Use the dbService instance method
-    const cachedTxMap = await this.dbService.getCachedTransaction(uniqueSignatures) as Map<string, HeliusTransaction>;
+    // Use the dbService instance method - now returns lightweight cache info
+    const cachedTxMap = await this.dbService.getCachedTransaction(uniqueSignatures) as Map<string, { timestamp: number }>;
     const cacheHits = cachedTxMap.size;
     
-    // Separate cached transactions and signatures that need to be fetched
+    // Separate cached signatures and signatures that need to be fetched
     for (const sig of uniqueSignatures) {
-      const cachedTx = cachedTxMap.get(sig);
-      if (cachedTx) {
-        if (includeCached) {
-          cachedTransactions.push(cachedTx); // Only keep if includeCached is true
-        }
+      const cachedInfo = cachedTxMap.get(sig);
+      if (cachedInfo) {
+        // Signature exists in cache - skip fetching details
+        logger.debug(`Signature ${sig} found in cache, skipping fetch`);
       } else {
+        // Signature not in cache - need to fetch details
         signaturesToFetchDetails.add(sig);
       }
     }
     
     logger.debug(`Found ${cacheHits} signatures in cache. Need to fetch details for ${signaturesToFetchDetails.size} signatures.`);
-    logger.debug(`Cache inclusion is ${includeCached ? 'enabled' : 'disabled'}, keeping ${cachedTransactions.length} cached transactions.`);
 
     const signaturesToFetchArray = Array.from(signaturesToFetchDetails);
 
@@ -559,16 +556,12 @@ export class HeliusApiClient {
         }
     } // End if signaturesToFetchArray.length > 0
     
-    // Merge cached and newly fetched transactions based on includeCached flag
-    if (includeCached) {
-      logger.debug(`Loaded ${cachedTransactions.length} cached transactions.`);
-    } else {
-      logger.debug(`Skipping ${cachedTxMap.size} cached transactions (cache inclusion disabled).`);
-    }
+    // With lightweight cache, we only have newly fetched transactions
+    // Cached signatures are used to avoid re-fetching, not to provide transaction data
+    logger.debug(`Cache hit ${cacheHits} signatures (avoided re-fetching).`);
+    logger.debug(`Fetched ${newlyFetchedTransactions.length} new transactions from API.`);
     
-    const allTransactions = includeCached 
-      ? [...cachedTransactions, ...newlyFetchedTransactions]
-      : [...newlyFetchedTransactions];
+    const allTransactions = newlyFetchedTransactions;
     
     // === Filtering & Sorting of All Transactions ===
 
