@@ -13,7 +13,7 @@ DB_PATH: str = "dev.db"
 # Schema information for size estimation based on current Prisma schema
 TABLE_CONFIG: dict[str, dict] = {
     "HeliusTransactionCache": {
-        "bytes_fields": ["rawData"],  # Changed from json_fields to bytes_fields
+        # rawData field removed - now lightweight cache with signatures only
         "string_fields": ["signature"],
         "int_fields": ["timestamp"],
         "datetime_fields": ["fetchedAt"],
@@ -190,6 +190,7 @@ def estimate_table_sizes_fallback(conn: sqlite3.Connection) -> list[tuple[str, i
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
     tables = [row[0] for row in cursor.fetchall()]
+    print(f"Found {len(tables)} tables: {', '.join(tables)}")
     
     table_details: list[tuple[str, int, int, str]] = [] # name, row_count, estimated_size_bytes, notes
 
@@ -209,7 +210,7 @@ def estimate_table_sizes_fallback(conn: sqlite3.Connection) -> list[tuple[str, i
                 config = TABLE_CONFIG[table_name]
                 current_table_data_size: int = 0
 
-                # Estimate Bytes field sizes (for rawData in HeliusTransactionCache)
+                # Estimate Bytes field sizes (for any remaining bytes fields)
                 if "bytes_fields" in config:
                     for field in config["bytes_fields"]:
                         cursor.execute(f"PRAGMA table_info('{table_name}');")
@@ -350,7 +351,7 @@ def main() -> None:
 
         print("\n--- Potential High Storage Candidates (from schema knowledge) ---")
         if "HeliusTransactionCache" in TABLE_CONFIG:
-             print(f"- Table 'HeliusTransactionCache' with its '{TABLE_CONFIG['HeliusTransactionCache']['bytes_fields'][0]}' Bytes field is a primary suspect for high storage.")
+             print(f"- Table 'HeliusTransactionCache' is now lightweight (signatures only) - no longer a storage concern.")
         if "SwapAnalysisInput" in TABLE_CONFIG:
              print(f"- Table 'SwapAnalysisInput' can be large due to high row counts and multiple string/float fields.")
         if "WalletBehaviorProfile" in TABLE_CONFIG:
