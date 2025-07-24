@@ -213,7 +213,7 @@ async function processSingleWallet(
         try {
             fetchedTransactions = await heliusClient.getAllTransactionsForAddress(
                 address, options.limit, fetchLimit,
-                stopAtSignature, newestProcessedTimestamp, true, undefined,
+                stopAtSignature, newestProcessedTimestamp, undefined,
                 2 // Explicitly set phase2InternalConcurrency for the script, can be configurable via CLI later if needed
             );
             logger.info(`${logPrefix} Fetched ${fetchedTransactions.length} newer transactions.`);
@@ -242,7 +242,7 @@ async function processSingleWallet(
             try {
                 olderTransactions = await heliusClient.getAllTransactionsForAddress(
                     address, options.limit, olderFetchLimit,
-                    undefined, undefined, true,
+                    undefined, undefined,
                     firstProcessedTimestamp, // Use firstProcessedTimestamp as the 'until' marker
                     2 // Explicitly set phase2InternalConcurrency for the script
                 );

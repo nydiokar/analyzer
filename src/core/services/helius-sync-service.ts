@@ -204,10 +204,9 @@ export class HeliusSyncService {
                capForNewerFetch, 
                stopAtSignatureForNewer, 
                newestProcessedTimestampForNewer, 
-               true, 
                undefined,
                HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
-           ); 
+           );
            newerTransactionsFetchedCount = newerTransactions.length;
            logger.debug(`[Sync] SmartFetch Phase 1 (Newer): Fetched ${newerTransactionsFetchedCount} potentially newer transactions from API for ${walletAddress}.`);
            if (newerTransactionsFetchedCount > 0) {
@@ -251,7 +250,6 @@ export class HeliusSyncService {
                         remainingSignaturesToFetchForOlder,
                         undefined,
                         undefined,
-                        true, 
                         oldestProcessedTimestamp,
                         HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
                     );
@@ -322,8 +320,6 @@ export class HeliusSyncService {
             newestProcessedTimestampForStd = walletState!.newestProcessedTimestamp ?? undefined;
         }
         
-        const includeCached = true; // For standard fetch, always include cached results. API client handles de-duplication of fetch.
-        
         try {
             logger.debug(`[Sync] Standard Fetch: Calling HeliusApiClient for ${walletAddress} with maxSignatures: ${options.maxSignatures}, limit: ${options.limit}`);
             
@@ -333,7 +329,6 @@ export class HeliusSyncService {
                 options.maxSignatures, 
                 stopAtSignatureForStd, 
                 newestProcessedTimestampForStd, 
-                includeCached,
                 untilTimestampForStd,
                 HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
             );

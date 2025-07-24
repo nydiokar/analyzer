@@ -358,17 +358,15 @@ export class HeliusApiClient {
    * 3. Identifies signatures for which details are missing from the cache.
    * 4. Fetches the full, parsed transaction details for these missing signatures from the Helius API (`/v0/transactions`) in batches.
    * 5. Saves the newly fetched transactions to the database cache.
-   * 6. Merges cached and newly fetched transactions (controlled by `includeCached`).
-   * 7. Filters the combined list based on optional timestamps (`newestProcessedTimestamp`, `untilTimestamp`).
-   * 8. Filters the list to include only transactions relevant to the target `address` (sender, receiver, account data changes, swaps).
-   * 9. Sorts the final relevant transactions by timestamp ascending (oldest first).
+   * 6. Filters the newly fetched transactions based on optional timestamps (`newestProcessedTimestamp`, `untilTimestamp`).
+   * 7. Filters the list to include only transactions relevant to the target `address` (sender, receiver, account data changes, swaps).
+   * 8. Sorts the final relevant transactions by timestamp ascending (oldest first).
    *
    * @param address The wallet address to fetch transactions for.
    * @param parseBatchLimit The number of signatures to include in each batch request to the Helius `/v0/transactions` endpoint (default: 100).
    * @param maxSignatures Optional maximum total number of signatures to process (fetched via RPC). Fetching stops once this limit is reached.
    * @param stopAtSignature Optional signature. If encountered during RPC fetch, stops fetching older pages.
    * @param newestProcessedTimestamp Optional Unix timestamp (seconds). If provided, filters the results to include only transactions *strictly newer* than this timestamp.
-   * @param includeCached If true (default), combines cached transactions with newly fetched ones in the final result. If false, only returns newly fetched transactions.
    * @param untilTimestamp Optional Unix timestamp (seconds). If provided, filters the results to include only transactions *strictly older* than this timestamp.
    * @param phase2InternalConcurrency New parameter for internal concurrency
    * @returns A promise resolving to an array of HeliusTransaction objects, filtered and sorted chronologically.
@@ -379,7 +377,6 @@ export class HeliusApiClient {
     maxSignatures: number | null = null,
     stopAtSignature?: string, // Optional signature to stop fetching pages at
     newestProcessedTimestamp?: number, // Optional timestamp to filter results (exclusive)
-    includeCached: boolean = true, // Flag to control whether to include cached transactions in results
     untilTimestamp?: number,
     phase2InternalConcurrency: number = HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable internal concurrency
   ): Promise<HeliusTransaction[]> {
@@ -472,7 +469,7 @@ export class HeliusApiClient {
       const cachedInfo = cachedTxMap.get(sig);
       if (cachedInfo) {
         // Signature exists in cache - skip fetching details
-        logger.debug(`Signature ${sig} found in cache, skipping fetch`);
+        // logger.debug(`Signature ${sig} found in cache, skipping fetch`);
       } else {
         // Signature not in cache - need to fetch details
         signaturesToFetchDetails.add(sig);
@@ -480,7 +477,7 @@ export class HeliusApiClient {
     }
     
     logger.debug(`Found ${cacheHits} signatures in cache. Need to fetch details for ${signaturesToFetchDetails.size} signatures.`);
-
+    
     const signaturesToFetchArray = Array.from(signaturesToFetchDetails);
 
     // === PHASE 2: Fetch Uncached Details SEQUENTIALLY & Save to Cache ===
@@ -561,7 +558,7 @@ export class HeliusApiClient {
     logger.debug(`Cache hit ${cacheHits} signatures (avoided re-fetching).`);
     logger.debug(`Fetched ${newlyFetchedTransactions.length} new transactions from API.`);
     
-    const allTransactions = newlyFetchedTransactions;
+    const allTransactions = [...newlyFetchedTransactions];
     
     // === Filtering & Sorting of All Transactions ===
 

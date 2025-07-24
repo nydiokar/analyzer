@@ -1441,7 +1441,7 @@ export class DatabaseService {
             throw error;
         }
     }
-    
+
     /**
      * Retrieves transactions (SwapAnalysisInput) suitable for correlation/similarity analysis.
      * Handles fetching for multiple wallets and applying AnalysisConfig filters.
