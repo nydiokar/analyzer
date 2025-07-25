@@ -925,6 +925,7 @@ tail -f logs/app.log
 ## Future Enhancements
 
 ### Phase 6: Advanced Features (Post-Migration)
+0. Think of Redis cache for the whole wallet stuff to avoid refetching when the window is refreshed. 
 1. **Job cancellation** - allow users to cancel running jobs
 2. **Job prioritization** - premium users get higher priority
 3. **Batch processing** - analyze multiple wallets simultaneously

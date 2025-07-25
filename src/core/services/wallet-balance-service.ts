@@ -240,10 +240,11 @@ export class WalletBalanceService {
   ): Promise<Array<{ tokenAddress: string; netAmountChange: number }>> {
     try {
       // Get database records for this wallet with positive netAmountChange but missing current balance
+      // Add threshold to filter out dust amounts (less than 300k tokens)
       const dbRecords = await this.databaseService.getAnalysisResults({
         where: {
           walletAddress,
-          netAmountChange: { gt: 0 },
+          netAmountChange: { gt: 300000 }, // Filter out dust amounts
           OR: [
             { currentUiBalance: null },
             { currentUiBalance: 0 }
