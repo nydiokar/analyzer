@@ -4,10 +4,10 @@ import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
-import { TokenInfoService } from '../../api/token-info/token-info.service';
-import { DexscreenerService } from '../../api/dexscreener/dexscreener.service';
-import { BalanceCacheService } from '../../api/balance-cache/balance-cache.service';
-import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
+import { TokenInfoService } from '../../api/services/token-info.service';
+import { DexscreenerService } from '../../api/services/dexscreener.service';
+import { BalanceCacheService } from '../../api/services/balance-cache.service';
+import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 
 @Injectable()
 export class EnrichmentOperationsProcessor {

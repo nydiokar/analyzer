@@ -1,6 +1,6 @@
 import { createLogger } from 'core/utils/logger';
 import { HeliusApiClient } from 'core/services/helius-api-client';
-import { DatabaseService } from '../../api/database/database.service';
+import { DatabaseService } from '../../api/services/database.service';
 import {
     mapHeliusTransactionsToIntermediateRecords,
     MappingResult

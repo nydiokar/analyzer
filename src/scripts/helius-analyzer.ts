@@ -22,8 +22,8 @@ import { ReportingService } from 'core/reporting/reportGenerator';
 import { BehaviorService } from 'core/analysis/behavior/behavior-service';
 import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { HeliusApiClient } from 'core/services/helius-api-client';
-import { DexscreenerService } from '../api/dexscreener/dexscreener.service';
-import { TokenInfoService } from '../api/token-info/token-info.service';
+import { DexscreenerService } from '../api/services/dexscreener.service';
+import { TokenInfoService } from '../api/services/token-info.service';
 import { HttpService } from '@nestjs/axios';
 
 // Initialize environment variables

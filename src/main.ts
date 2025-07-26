@@ -1,6 +1,6 @@
 import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ForbiddenExceptionFilter } from './api/common/filters/forbidden-exception.filter';
+import { ForbiddenExceptionFilter } from './api/shared/forbidden-exception.filter';
 import { Logger, LogLevel } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';

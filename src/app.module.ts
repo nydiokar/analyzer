@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ApiModule } from './api.module';
 import { ConfigModule } from '@nestjs/config'; // For .env variable support
-import { HeliusModule } from './api/helius/helius.module'; // Import the global HeliusModule
-import { DatabaseModule } from './api/database/database.module'; // Import the global DatabaseModule
-import { UsersModule } from './api/users/users.module';
+import { HeliusModule } from './api/integrations/helius.module'; // Import the global HeliusModule
+import { DatabaseModule } from './api/modules/database.module'; // Import the global DatabaseModule
+import { UsersModule } from './api/modules/users.module';
 import { QueueModule } from './queues/queue.module'; // Add BullMQ queue integration
 import { APP_GUARD } from '@nestjs/core';
-import { ApiKeyAuthGuard } from './api/auth/api-key-auth.guard';
+import { ApiKeyAuthGuard } from './api/shared/guards/api-key-auth.guard';
 
 @Module({
   imports: [

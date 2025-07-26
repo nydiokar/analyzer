@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { Queue, QueueEvents } from 'bullmq';
 import { QueueNames } from '../config/queue.config';
 import { redisConfig } from '../config/redis.config';
-import { JobProgressGateway } from '../../api/websocket/job-progress.gateway';
+import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 
 @Injectable()
 export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {

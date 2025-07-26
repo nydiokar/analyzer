@@ -6,7 +6,7 @@ import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
-import { DatabaseService } from '../../api/database/database.service';
+import { DatabaseService } from '../../api/services/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { JobEventsBridgeService } from '../services/job-events-bridge.service';
 import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';

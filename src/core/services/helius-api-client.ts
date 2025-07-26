@@ -7,7 +7,7 @@ import {
   GetTokenAccountsByOwnerResult,
   // RpcAccountInfo, // Not directly used as a parameter/return type of public methods here yet
 } from '@/types/helius-api';
-import { DatabaseService } from '../../api/database/database.service';
+import { DatabaseService } from '../../api/services/database.service';
 import { Injectable } from '@nestjs/common';
 import { HELIUS_CONFIG } from '../../config/constants';
 
