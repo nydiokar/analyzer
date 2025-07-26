@@ -4,8 +4,8 @@ import { GetMultipleAccountsResult, GetTokenAccountsByOwnerResult, TokenAccount 
 import { createLogger } from 'core/utils/logger';
 import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 import { formatLargeNumber } from 'core/utils/number-formatting';
-import { TokenInfoService } from '../../api/token-info/token-info.service';
-import { TokenInfo } from '@prisma/client';
+import { TokenInfoService } from '../../api/services/token-info.service';
+import { TokenInfo } from '@prisma/client'; 
 import { DatabaseService } from './database-service';
 
 const logger = createLogger('WalletBalanceService');

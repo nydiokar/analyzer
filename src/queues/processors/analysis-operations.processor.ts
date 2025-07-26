@@ -4,9 +4,9 @@ import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { AnalyzePnlJobData, AnalyzeBehaviorJobData, AnalysisResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
-import { PnlAnalysisService } from '../../api/pnl_analysis/pnl-analysis.service';
-import { BehaviorService } from '../../api/wallets/behavior/behavior.service';
-import { DatabaseService } from '../../api/database/database.service';
+import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
+import { BehaviorService } from '../../api/services/behavior.service';
+import { DatabaseService } from '../../api/services/database.service';
 import { BehaviorAnalysisConfig } from '../../types/analysis';
 
 @Injectable()

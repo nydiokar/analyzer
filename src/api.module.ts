@@ -1,15 +1,15 @@
 import { Module } from '@nestjs/common';
-import { DatabaseModule } from './api/database/database.module';
-import { TestController } from './api/test/test.controller';
+import { DatabaseModule } from './api/modules/database.module';
+import { TestController } from './api/controllers/test.controller';
 // Import the main WalletsModule which groups wallet-related features and controllers
-import { WalletsModule } from './api/wallets/wallets.module'; 
-import { AnalysesModule } from './api/analyses/analyses.module'; // Import AnalysesModule
-import { UsersModule } from './api/users/users.module'; // Import the new UsersModule
-import { DexscreenerModule } from './api/dexscreener/dexscreener.module';
-import { TokenInfoModule } from './api/token-info/token-info.module';
-import { HealthModule } from './api/health/health.module';
-import { JobsModule } from './api/jobs/jobs.module'; // Import JobsModule for job status API
-import { WebSocketModule } from './api/websocket/websocket.module'; // Import WebSocketModule for real-time updates
+import { WalletsModule } from './api/modules/wallets.module'; 
+import { AnalysesModule } from './api/modules/analyses.module'; // Import AnalysesModule
+import { UsersModule } from './api/modules/users.module'; // Import the new UsersModule
+import { DexscreenerModule } from './api/integrations/dexscreener.module';
+import { TokenInfoModule } from './api/integrations/token-info.module';
+import { HealthModule } from './api/modules/health.module';
+import { JobsModule } from './api/modules/jobs.module'; // Import JobsModule for job status API
+import { WebSocketModule } from './api/modules/websocket.module'; // Import WebSocketModule for real-time updates
 
 @Module({
   imports: [

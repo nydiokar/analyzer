@@ -27,15 +27,15 @@ import { QueueHealthService } from './services/queue-health.service';
 import { JobEventsBridgeService } from './services/job-events-bridge.service';
 
 // External dependencies - Import modules that provide the services we need
-import { DatabaseModule } from '../api/database/database.module';
-import { HeliusModule } from '../api/helius/helius.module';
-import { SimilarityModule } from '../api/analyses/similarity/similarity.module';
-import { BehaviorModule } from '../api/wallets/behavior/behavior.module';
-import { PnlAnalysisModule } from '../api/pnl_analysis/pnl-analysis.module';
-import { TokenInfoModule } from '../api/token-info/token-info.module';
-import { DexscreenerModule } from '../api/dexscreener/dexscreener.module';
-import { WebSocketModule } from '../api/websocket/websocket.module';
-import { BalanceCacheModule } from '../api/balance-cache/balance-cache.module';
+import { DatabaseModule } from '../api/modules/database.module';
+import { HeliusModule } from '../api/integrations/helius.module';
+import { SimilarityModule } from '../api/modules/similarity.module';
+import { BehaviorModule } from '../api/modules/behavior.module';
+import { PnlAnalysisModule } from '../api/modules/pnl-analysis.module';
+import { TokenInfoModule } from '../api/integrations/token-info.module';
+import { DexscreenerModule } from '../api/integrations/dexscreener.module';
+import { WebSocketModule } from '../api/modules/websocket.module';
+import { BalanceCacheModule } from '../api/modules/balance-cache.module';
 
 @Module({
   imports: [

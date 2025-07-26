@@ -8,7 +8,7 @@ import { HeliusApiClient } from './helius-api-client';
 import { WalletBalanceService } from './wallet-balance-service';
 import { WalletBalance } from '@/types/wallet';
 import { Injectable } from '@nestjs/common';
-import { TokenInfoService } from '../../api/token-info/token-info.service';
+import { TokenInfoService } from '../../api/services/token-info.service';
 
 const logger = createLogger('PnlAnalysisService');
 

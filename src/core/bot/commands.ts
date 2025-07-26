@@ -16,8 +16,8 @@ import { OnChainAnalysisResult, SwapAnalysisSummary } from '@/types/helius-api';
 import { PnlAnalysisService } from 'core/services/pnl-analysis-service';
 import { generatePnlOverviewHtmlTelegram, generateBehaviorSummaryHtmlTelegram, generateDetailedBehaviorHtmlTelegram, generateDetailedAdvancedStatsHtmlTelegram, generateCorrelationReportTelegram } from '../reporting/report_utils';
 import { HeliusApiClient } from '../services/helius-api-client';
-import { DexscreenerService } from '../../api/dexscreener/dexscreener.service';
-import { TokenInfoService } from '../../api/token-info/token-info.service';
+import { DexscreenerService } from '../../api/services/dexscreener.service';
+import { TokenInfoService } from '../../api/services/token-info.service';
 import { HttpService } from '@nestjs/axios';
 
 const logger = createLogger('WalletAnalysisCommands');
