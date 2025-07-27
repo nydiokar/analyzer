@@ -17,7 +17,7 @@ export class SwapAnalyzer {
 
   constructor() {
     // Configuration could be passed here if needed in the future (e.g., custom stablecoins)
-    logger.info('SwapAnalyzer instantiated.');
+    logger.debug('SwapAnalyzer instantiated.');
   }
 
   /**
@@ -31,29 +31,20 @@ export class SwapAnalyzer {
    * @returns An object containing the analysis results per token, signature count, and timestamps.
    *          Note: This returns the core data; the calling service will assemble the final SwapAnalysisSummary.
    */
-  analyze(
-    swapInputs: SwapAnalysisInput[], 
-    walletAddress: string
-  ): { 
-      results: OnChainAnalysisResult[], 
-      processedSignaturesCount: number, 
-      firstTimestamp: number, 
-      lastTimestamp: number,
-      stablecoinNetFlow: number // Expose this calculated value
-    } {
-    if (!swapInputs || !walletAddress) {
-        logger.error("SwapAnalysisInput array and walletAddress are required for analysis.");
-        return { results: [], processedSignaturesCount: 0, firstTimestamp: 0, lastTimestamp: 0, stablecoinNetFlow: 0 };
-    }
-
-    // Filter out records with interactionType 'BURN' before starting analysis
-    const filteredSwapInputs = swapInputs.filter(input => input.interactionType?.toUpperCase() !== 'BURN');
-
-    if (filteredSwapInputs.length < swapInputs.length) {
-        logger.info(`Filtered out ${swapInputs.length - filteredSwapInputs.length} records with 'BURN' interaction type for ${walletAddress}.`);
-    }
-
-    logger.info(`[SwapAnalyzer] Analyzing ${filteredSwapInputs.length} pre-processed swap input records for wallet ${walletAddress} (after BURN filter)...`);
+  analyze(swapInputs: SwapAnalysisInput[], walletAddress: string): { 
+    results: OnChainAnalysisResult[], 
+    processedSignaturesCount: number, 
+    firstTimestamp: number, 
+    lastTimestamp: number,
+    stablecoinNetFlow: number
+  } {
+        logger.debug(`[SwapAnalyzer] Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletAddress} (after BURN filter)...`);
+        
+        // Filter out BURN interactions
+        const filteredSwapInputs = swapInputs.filter(input => input.interactionType !== 'BURN');
+        if (filteredSwapInputs.length !== swapInputs.length) {
+            logger.debug(`Filtered out ${swapInputs.length - filteredSwapInputs.length} records with 'BURN' interaction type for ${walletAddress}.`);
+        }
 
     // 1. Aggregate by SPL Mint
     const analysisBySplMint = new Map<string, Partial<OnChainAnalysisResult> & { timestamps: number[], totalFeesPaidInSol?: number }>();
@@ -141,7 +132,7 @@ export class SwapAnalyzer {
         }
     } // End loop through swap inputs
 
-    logger.info(`[SwapAnalyzer] Aggregated data for ${analysisBySplMint.size} unique SPL tokens across ${processedSignatures.size} signatures.`);
+    logger.debug(`[SwapAnalyzer] Aggregated data for ${analysisBySplMint.size} unique SPL tokens across ${processedSignatures.size} signatures.`);
 
     // 2. Calculate Final Metrics
     const finalResultsPreFilter: OnChainAnalysisResult[] = [];
@@ -192,11 +183,11 @@ export class SwapAnalyzer {
     // Filter out WSOL records from the final results
     const finalResults = finalResultsPreFilter.filter(r => r.tokenAddress !== SOL_MINT);
 
-    logger.info(`[SwapAnalyzer] Final analysis complete. Generated ${finalResults.length} results (after filtering WSOL).`);
+    logger.debug(`[SwapAnalyzer] Final analysis complete. Generated ${finalResults.length} results (after filtering WSOL).`);
     
     if (totalStablecoinValue > 0) {
-        logger.info(`[SwapAnalyzer] Total stablecoin value: ${totalStablecoinValue.toFixed(2)} SOL`);
-        logger.info(`[SwapAnalyzer] Net SOL flow to stablecoins: ${totalStablecoinNetFlow.toFixed(2)} SOL`);
+        logger.debug(`[SwapAnalyzer] Total stablecoin value: ${totalStablecoinValue.toFixed(2)} SOL`);
+        logger.debug(`[SwapAnalyzer] Net SOL flow to stablecoins: ${totalStablecoinNetFlow.toFixed(2)} SOL`);
     }
 
     if (overallFirstTimestamp === Infinity) overallFirstTimestamp = 0;
@@ -209,4 +200,4 @@ export class SwapAnalyzer {
         stablecoinNetFlow: totalStablecoinNetFlow // Return the calculated net flow
     };
   }
-} 
+}

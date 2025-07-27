@@ -5,6 +5,7 @@ import { DatabaseService } from '../services/database.service'; // NestJS-wrappe
 import { HeliusApiClient } from '../../core/services/helius-api-client'; // Core HeliusApiClient type
 import { SwapAnalysisSummary } from '../../types/helius-api';
 import { TokenInfoService } from '../services/token-info.service';
+import { WalletBalance } from '../../types/wallet';
 
 @Injectable()
 export class PnlAnalysisService {
@@ -33,7 +34,7 @@ export class PnlAnalysisService {
   async analyzeWalletPnl(
     walletAddress: string,
     timeRange?: { startTs?: number; endTs?: number },
-    options?: { isViewOnly?: boolean },
+    options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean },
   ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
     this.logger.debug(`[NestWrapper] analyzeWalletPnl called for ${walletAddress}`);
     return this.corePnlAnalysisService.analyzeWalletPnl(walletAddress, timeRange, options);

@@ -1434,7 +1434,7 @@ export class DatabaseService {
                     timestamp: 'asc',
                 },
             });
-            this.logger.info(`Found ${inputs.length} SwapAnalysisInput records for ${walletAddress}.`);
+            this.logger.debug(`Found ${inputs.length} SwapAnalysisInput records for ${walletAddress}.`);
             return inputs;
         } catch (error) {
             this.logger.error(`Error fetching SwapAnalysisInputs for ${walletAddress}`, { error });

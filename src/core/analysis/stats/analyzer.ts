@@ -13,7 +13,7 @@ export class AdvancedStatsAnalyzer {
 
     constructor() {
         // Configuration could be passed here if needed (e.g., trim %, win threshold)
-        logger.info('AdvancedStatsAnalyzer instantiated.');
+        logger.debug('AdvancedStatsAnalyzer instantiated.');
     }
 
     /**
@@ -109,25 +109,32 @@ export class AdvancedStatsAnalyzer {
         : 0;
 
       // --- Average PnL Per Day Active (Proxy) ---
+      // Original intent: Measure trading intensity per token (PNL per day of active trading)
+      // Fix: Use reasonable minimum duration to prevent mathematical inflation
       let totalDaysActive = 0;
       let tokensWithDuration = 0;
+      const MIN_DURATION_DAYS = 0.1; // 2.4 hours minimum to prevent inflation
+      
       results.forEach(r => {
         if (r.lastTransferTimestamp > r.firstTransferTimestamp) {
           const durationSeconds = r.lastTransferTimestamp - r.firstTransferTimestamp;
           const durationDays = durationSeconds / (60 * 60 * 24);
-          if (durationDays > 0) {
-              totalDaysActive += durationDays;
-              tokensWithDuration++;
-          }
+          // Use minimum duration to prevent inflation while preserving trading intensity concept
+          const effectiveDurationDays = Math.max(durationDays, MIN_DURATION_DAYS);
+          totalDaysActive += effectiveDurationDays;
+          tokensWithDuration++;
         }
       });
-      const averageDaysActive = tokensWithDuration > 0 ? totalDaysActive / tokensWithDuration : 0;
+      
+      const averageDaysActive = tokensWithDuration > 0 ? totalDaysActive / tokensWithDuration : 1.0;
       const averagePnlPerToken = totalTokens > 0 ? overallNetPnl / totalTokens : 0;
       const averagePnlPerDayActiveApprox = averageDaysActive > 0
           ? averagePnlPerToken / averageDaysActive
           : 0;
 
-      logger.info('[AdvancedStatsAnalyzer] Calculated advanced trading stats.');
+      logger.debug(`[AdvancedStatsAnalyzer] Trading Intensity: ${overallNetPnl.toFixed(2)} SOL / ${totalTokens} tokens = ${averagePnlPerToken.toFixed(2)} SOL/token, avg duration: ${averageDaysActive.toFixed(3)} days, result: ${averagePnlPerDayActiveApprox.toFixed(2)} SOL/day`);
+
+      logger.debug('[AdvancedStatsAnalyzer] Calculated advanced trading stats.');
 
       return {
         medianPnlPerToken,
@@ -136,7 +143,7 @@ export class AdvancedStatsAnalyzer {
         standardDeviationPnl,
         medianPnlToVolatilityRatio,
         weightedEfficiencyScore,
-        averagePnlPerDayActiveApprox,
+        averagePnlPerDayActiveApprox, // Trading intensity per token
         firstTransactionTimestamp: overallFirstTimestamp,
         lastTransactionTimestamp: overallLastTimestamp,
       };

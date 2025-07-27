@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
-import { AnalyzePnlJobData, AnalyzeBehaviorJobData, AnalysisResult, DashboardWalletAnalysisJobData } from '../jobs/types';
+import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
@@ -15,6 +15,7 @@ import { WalletBalanceService } from '../../core/services/wallet-balance-service
 import { SyncOptions } from '../../core/services/helius-sync-service';
 import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
+import { TokenInfoService } from '../../api/services/token-info.service';
 
 @Injectable()
 export class AnalysisOperationsProcessor {
@@ -29,7 +30,8 @@ export class AnalysisOperationsProcessor {
     private readonly heliusSyncService: HeliusSyncService,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly heliusApiClient: HeliusApiClient,
-    private readonly jobProgressGateway: JobProgressGateway
+    private readonly jobProgressGateway: JobProgressGateway,
+    private readonly tokenInfoService: TokenInfoService
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -315,7 +317,7 @@ export class AnalysisOperationsProcessor {
 
       // Start balance fetching in parallel - DON'T await yet
       const balancePromise = (async () => {
-        const walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService);
+        const walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService, this.tokenInfoService);
         return await walletBalanceService.fetchWalletBalances([walletAddress]);
       })();
       
@@ -330,19 +332,27 @@ export class AnalysisOperationsProcessor {
       await job.updateProgress(25);
       await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 25);
       
-      // 4. Start analysis with synced data (balance fetch continues in background)
-      this.logger.debug('🚀 Starting analysis with synced data (balance fetch in background)...');
+      // 4. Wait for balance fetch to complete (for PNL analysis)
+      this.logger.debug('⏳ Waiting for balance fetch to complete (for PNL analysis)...');
+      const balanceData = await balancePromise;
+      this.logger.debug(`✅ BALANCE FETCH COMPLETED: Balances available for PNL analysis`);
+      
+      await job.updateProgress(30);
+      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 30);
+      
+      // 5. Start analysis with synced data and pre-fetched balances
+      this.logger.debug('🚀 Starting analysis with synced data and pre-fetched balances...');
       
       await job.updateProgress(40);
       await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 40);
       
-      // 5. Run analysis sequentially (NOT in parallel to avoid race conditions)
+      // 6. Run analysis sequentially (NOT in parallel to avoid race conditions)
       await job.updateProgress(50);
       await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 50);
       this.logger.debug(`Starting PNL and behavior analysis for ${walletAddress}`);
       
-      // Run PNL analysis first
-      const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress);
+      // Run PNL analysis first with pre-fetched balances
+      const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, { preFetchedBalances: balanceData });
       await job.updateProgress(65);
       await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 65);
       
@@ -355,7 +365,7 @@ export class AnalysisOperationsProcessor {
       await job.updateProgress(80);
       await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 80);
       
-      // 6. Queue enrichment if requested (AFTER analysis is complete)
+      // 7. Queue enrichment if requested (AFTER analysis is complete)
       let enrichmentJobId;
       if (enrichMetadata) {
         await job.updateProgress(85);
@@ -363,24 +373,12 @@ export class AnalysisOperationsProcessor {
         this.logger.debug(`Queueing token enrichment for ${walletAddress} (after analysis completion)`);
         
         try {
-          // CRITICAL FIX: Now that analysis is complete, we can safely query for tokens
-          // First try to get balance data (which might have completed by now)
+          // Use the balance data we already fetched for enrichment
           let walletBalancesForEnrichment = {};
-          let balanceData: any = undefined;
-          
-          try {
-            balanceData = await Promise.race([
-              balancePromise,
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Balance fetch timeout')), 2000))
-            ]);
-            this.logger.debug(`✅ BALANCE FETCH COMPLETED: Balances available for enrichment`);
-          } catch (balanceError) {
-            this.logger.warn(`⚠️ Balance fetch not ready yet, will use analysis results: ${balanceError}`);
-          }
           
           if (balanceData && balanceData.size > 0) {
             walletBalancesForEnrichment = Object.fromEntries(balanceData);
-            this.logger.debug(`Using balance data for enrichment: ${balanceData.size} entries`);
+            this.logger.debug(`Using pre-fetched balance data for enrichment: ${balanceData.size} entries`);
           } else {
             // FALLBACK: Now that analysis is complete, we can safely query AnalysisResult table
             this.logger.debug(`Balance data not available, getting token addresses from completed analysis results`);
@@ -445,7 +443,6 @@ export class AnalysisOperationsProcessor {
         actualProcessingTime  // Use explicit variable for clarity
       );
 
-      this.logger.log(`Dashboard analysis completed for ${walletAddress} in ${actualProcessingTime}ms`);
       return result;
 
     } catch (error) {

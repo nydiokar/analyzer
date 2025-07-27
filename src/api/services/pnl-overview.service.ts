@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PnlAnalysisService } from './pnl-analysis.service';
-import { SwapAnalysisSummary, AdvancedTradeStats } from '../../types/helius-api'; // Added AdvancedTradeStats
+import { SwapAnalysisSummary } from '../../types/helius-api';
 
 // Updated PnlOverviewResponse to include more fields
 export class PnlOverviewResponseData {
@@ -99,11 +99,11 @@ export class PnlOverviewService {
     walletAddress: string,
     timeRange?: { startTs?: number; endTs?: number },
   ): Promise<PnlOverviewResponse> {
-    // Fetch all-time data
+    // Fetch all-time data - SKIP balance fetch since Account Stats doesn't need current balances
     const allTimeAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
       walletAddress,
       undefined, // No time range for all-time
-      { isViewOnly: true },
+      { isViewOnly: true, skipBalanceFetch: true },
     );
 
     const allTimeData = this.formatPnlData(allTimeAnalysisSummary);
@@ -116,7 +116,7 @@ export class PnlOverviewService {
       const periodAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
         walletAddress,
         timeRange,
-        { isViewOnly: true },
+        { isViewOnly: true, skipBalanceFetch: true },
       );
       periodData = this.formatPnlData(periodAnalysisSummary);
       // If periodData is null (e.g. no transactions in period), it's fine, it will be returned as null.
@@ -142,7 +142,7 @@ export class PnlOverviewService {
     const analysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
       walletAddress,
       timeRange,
-      { isViewOnly: true },
+      { isViewOnly: true, skipBalanceFetch: true },
     );
     return analysisSummary as (SwapAnalysisSummary & { runId?: undefined }) | null;
   }

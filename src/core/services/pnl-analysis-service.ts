@@ -60,6 +60,7 @@ export class PnlAnalysisService {
      * @param timeRange Optional object with `startTs` and/or `endTs` (Unix timestamps in seconds) to filter SwapAnalysisInput records for the analysis.
      * @param options Optional configuration for the analysis:
      *                - `isViewOnly`: If true, results are not saved to the database (e.g., for historical views without altering records).
+     *                - `preFetchedBalances`: Optional pre-fetched wallet balances to avoid redundant API calls.
      * @returns A promise resolving to an enriched `SwapAnalysisSummary` object, or null if a critical error occurs
      *          or if no relevant swap input data is found. The summary includes P&L metrics, advanced stats,
      *          and potentially the `runId` of the analysis if not in view-only mode. It may also include
@@ -67,10 +68,10 @@ export class PnlAnalysisService {
      */
     async analyzeWalletPnl(
         walletAddress: string,
-        timeRange?: { startTs?: number, endTs?: number },
-        options?: { isViewOnly?: boolean }
+        timeRange?: { startTs?: number; endTs?: number },
+        options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
-        logger.info(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, options });
+        logger.debug(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, options });
 
         let runId: number | undefined = undefined;
         let analysisRunStatus: 'COMPLETED' | 'FAILED' | 'IN_PROGRESS' = 'IN_PROGRESS';
@@ -78,28 +79,40 @@ export class PnlAnalysisService {
 
         const isHistoricalView = !!timeRange;
         const isViewOnlyMode = !!options?.isViewOnly;
+        const shouldSkipBalanceFetch = !!options?.skipBalanceFetch;
 
         let startTimeMs: number = 0;
 
-        // Fetch current wallet state (SOL & Token Balances)
+        // Fetch current wallet state (SOL & Token Balances) - SKIP if requested
         let currentWalletBalance: WalletBalance | undefined;
         let balancesFetchedAt: Date | undefined;
 
-        if (this.walletBalanceService) {
-            try {
-                logger.debug(`[PnlAnalysis] Fetching current wallet state for ${walletAddress}...`);
-                const walletBalancesMap = await this.walletBalanceService.fetchWalletBalances([walletAddress]);
-                currentWalletBalance = walletBalancesMap.get(walletAddress);
+        if (shouldSkipBalanceFetch) {
+            logger.debug(`[PnlAnalysis] Skipping balance fetch for ${walletAddress} (skipBalanceFetch=true)`);
+        } else {
+            // Use pre-fetched balances if provided, otherwise fetch them
+            if (options?.preFetchedBalances) {
+                currentWalletBalance = options.preFetchedBalances.get(walletAddress);
                 if (currentWalletBalance) {
                     balancesFetchedAt = currentWalletBalance.fetchedAt;
-                    logger.info(`[PnlAnalysis] Successfully fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, FetchedAt: ${balancesFetchedAt}`);
+                    logger.info(`[PnlAnalysis] Using pre-fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, FetchedAt: ${balancesFetchedAt}`);
                 }
-            } catch (balanceError: any) {
-                logger.warn(`[PnlAnalysis] Failed to fetch wallet state for ${walletAddress}. Proceeding without live balances. Error: ${balanceError.message || balanceError}`);
-                // Non-critical, proceed with PNL analysis without current balances if fetch fails
+            } else if (this.walletBalanceService) {
+                try {
+                    logger.debug(`[PnlAnalysis] Fetching current wallet state for ${walletAddress}...`);
+                    const walletBalancesMap = await this.walletBalanceService.fetchWalletBalances([walletAddress]);
+                    currentWalletBalance = walletBalancesMap.get(walletAddress);
+                    if (currentWalletBalance) {
+                        balancesFetchedAt = currentWalletBalance.fetchedAt;
+                        logger.info(`[PnlAnalysis] Successfully fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, FetchedAt: ${balancesFetchedAt}`);
+                    }
+                } catch (balanceError: any) {
+                    logger.warn(`[PnlAnalysis] Failed to fetch wallet state for ${walletAddress}. Proceeding without live balances. Error: ${balanceError.message || balanceError}`);
+                    // Non-critical, proceed with PNL analysis without current balances if fetch fails
+                }
+            } else {
+                logger.debug(`[PnlAnalysis] WalletBalanceService is not active (no HeliusApiClient provided). Skipping live balance fetch for ${walletAddress}.`);
             }
-        } else {
-            logger.info(`[PnlAnalysis] WalletBalanceService is not active (no HeliusApiClient provided). Skipping live balance fetch for ${walletAddress}.`);
         }
 
         try {
@@ -163,7 +176,7 @@ export class PnlAnalysisService {
 
             // This is the primary analysis call
             const { results: swapAnalysisResultsFromAnalyzer, processedSignaturesCount, stablecoinNetFlow } = this.swapAnalyzer.analyze(swapInputs, walletAddress);
-            logger.info(`[PnlAnalysis] SwapAnalyzer finished for ${walletAddress}. Got ${swapAnalysisResultsFromAnalyzer.length} token results.`);
+            logger.debug(`[PnlAnalysis] SwapAnalyzer finished for ${walletAddress}. Got ${swapAnalysisResultsFromAnalyzer.length} token results.`);
             
             // Attach wallet balances to the results if available.
             const enrichedSwapAnalysisResults = swapAnalysisResultsFromAnalyzer.map(result => {
@@ -355,7 +368,7 @@ export class PnlAnalysisService {
 
                 // Use the optimized batch upsert method for better performance
                 await this.databaseService.batchUpsertAnalysisResults(resultsToUpsert);
-                logger.info(`[PnlAnalysis] Batch upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
+                logger.debug(`[PnlAnalysis] Batch upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
 
                 // DEACTIVATED: The enrichment process is now triggered from the frontend to decouple it from the main analysis pipeline.
                 // if (this.tokenInfoService) {
@@ -379,7 +392,10 @@ export class PnlAnalysisService {
                 logger.info(`[PnlAnalysis] Successfully marked AnalysisRun ${runId} as COMPLETED.`);
             }
 
-            // logger.info(`[PnlAnalysis] Analysis complete for wallet ${walletAddress}. Net PNL: ${summary.netPnl} SOL`);
+            // Add meaningful summary log
+            const timeRangeStr = timeRange ? ` (${timeRange.startTs ? new Date(timeRange.startTs * 1000).toISOString().split('T')[0] : 'start'} to ${timeRange.endTs ? new Date(timeRange.endTs * 1000).toISOString().split('T')[0] : 'end'})` : '';
+            logger.info(`[PnlAnalysis] Analysis completed for ${walletAddress}${timeRangeStr}: ${swapInputs.length} transactions → ${summary.results.length} tokens, Net PNL: ${summary.netPnl.toFixed(4)} SOL`);
+
             return { ...summary, runId: isViewOnlyMode ? undefined : runId };
 
         } catch (error: any) {

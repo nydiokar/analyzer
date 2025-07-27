@@ -210,7 +210,7 @@ export interface PnlOverviewResponseData {
   standardDeviationPnl?: number; 
   medianPnlToVolatilityRatio?: number; 
   weightedEfficiencyScore?: number; 
-  averagePnlPerDayActiveApprox?: number; 
+  averagePnlPerDayActiveApprox?: number;
 }
 
 export interface PnlOverviewResponse {

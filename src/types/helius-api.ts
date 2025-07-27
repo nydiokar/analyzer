@@ -213,7 +213,7 @@ export interface AdvancedTradeStats {
   weightedEfficiencyScore: number;
   medianPnlToVolatilityRatio: number;
   // Proxy metric with caveats
-  averagePnlPerDayActiveApprox: number; // Average PnL per token / Average days between first/last tx
+  averagePnlPerDayActiveApprox: number; // Average PnL per token / Average days between first/last tx (trading intensity)
   firstTransactionTimestamp?: number;
   lastTransactionTimestamp?: number;
 }

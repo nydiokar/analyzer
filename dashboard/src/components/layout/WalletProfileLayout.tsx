@@ -275,6 +275,7 @@ export default function WalletProfileLayout({
 
   const isCurrentWalletFavorite = !!currentFavoriteData;
 
+  // Progressive loading: Start with summary, then load detailed data
   const walletSummaryKey = isInitialized && walletAddress ? `/wallets/${walletAddress}/summary` : null;
   const { data: walletSummary, error: summaryError, isLoading: isLoadingWalletSummary } = useSWR<WalletSummaryData>(
     walletSummaryKey,
@@ -287,6 +288,17 @@ export default function WalletProfileLayout({
       dedupingInterval: 5000, // Prevent duplicate requests within 5 seconds
     }
   );
+
+  // Each component will handle its own data loading
+  // No detailed data loading at layout level
+  
+  // Tab state management - SIMPLIFIED
+  const [activeTab, setActiveTab] = useState<string>('token-performance');
+  
+  // Simple tab change handler - no complex logic
+  const handleTabChange = useCallback((value: string) => {
+    setActiveTab(value);
+  }, []);
 
   // Ensure initial fetch happens when walletSummaryKey becomes available
   useEffect(() => {
@@ -327,7 +339,7 @@ export default function WalletProfileLayout({
         }
       }
     }
-  }, [walletSummary, isPolling, analysisRequestTime, cache, globalMutate, walletAddress, walletSummaryKey]);
+  }, [walletSummary, isPolling, analysisRequestTime, cache, walletAddress, walletSummaryKey]);
 
   useEffect(() => {
     // This effect handles polling timeout
@@ -667,6 +679,20 @@ export default function WalletProfileLayout({
     </div>
   );
 
+  // Progressive loading states - SIMPLIFIED
+  // Each component will handle its own loading state
+  const isInitialLoading = isLoadingFavorites || isLoadingWalletSummary;
+  
+  // Show page immediately when we have basic data (favorites + summary)
+  const canShowPage = !isInitialLoading && walletSummary;
+  
+  // Show loading message based on what's loading
+  const getLoadingMessage = () => {
+    if (isLoadingFavorites) return "Loading favorites...";
+    if (isLoadingWalletSummary) return "Loading wallet summary...";
+    return "Loading wallet data...";
+  };
+
   // Render based on error state
   if (summaryError) {
     return (
@@ -680,21 +706,20 @@ export default function WalletProfileLayout({
     );
   }
 
-  // If we have no data yet (but not in an error state), show a loading screen.
-  // This also handles the initial state before the first fetch completes.
-  if (!walletSummary) {
+  // If we have no basic data yet, show a minimal loading screen
+  if (!canShowPage) {
       return (
           <div className="flex items-center justify-center h-screen">
               <div className="flex flex-col items-center gap-4">
                   <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-                  <p className="text-muted-foreground">Loading wallet data for {truncateWalletAddress(walletAddress)}...</p>
+                  <p className="text-muted-foreground">{getLoadingMessage()}</p>
               </div>
           </div>
       );
   }
 
   return (
-    <Tabs defaultValue="token-performance" className="flex flex-col w-full bg-muted/40">
+    <Tabs defaultValue="token-performance" value={activeTab} onValueChange={handleTabChange} className="flex flex-col w-full bg-muted/40">
       <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
         <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
           
@@ -1039,8 +1064,13 @@ export default function WalletProfileLayout({
             <div>
               {children}
               <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
-                <h3 className="text-lg font-semibold mb-2">AI overview is comming soon ...</h3>
-                <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center text-sm text-muted-foreground"> (This is being worked on, comming soon ...) </div>
+                <h3 className="text-lg font-semibold mb-2">AI Overview Coming Soon</h3>
+                <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center text-sm text-muted-foreground">
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                    <p>AI-powered wallet insights are being developed...</p>
+                  </div>
+                </div>
               </div>
             </div>
           </TabsContent>

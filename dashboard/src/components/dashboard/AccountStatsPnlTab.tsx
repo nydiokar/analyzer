@@ -167,7 +167,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
                 <Card className="p-2.5 text-left">
                   <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
                     Avg. PNL/Day Active (Approx)
-                    <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Total realized PNL divided by the approximate number of days the wallet was active in trading.</p></TooltipContent></Tooltip></TooltipProvider>
+                    <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Average PnL per token divided by average trading duration per token. Shows trading intensity - how much PnL each token generated per day of active trading.</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
                   <Metric className="text-base">{formatMetric(data.averagePnlPerDayActiveApprox, 'SOL')}</Metric>
                 </Card>
