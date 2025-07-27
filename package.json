@@ -12,7 +12,7 @@
     "dev": "ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/main.ts",
     "dev:quiet": "cross-env QUIET_MODE=true ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/main.ts",
     "dev:verbose": "cross-env NODE_ENV=production ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/main.ts",
-    "clean": "rimraf dist data logs",
+    "clean": "rimraf dist logs",
     "build:watch": "tsc --watch",
     "verify": "tsc --noEmit",
     "analyze": "ts-node -r ts-node/register src/scripts/helius-analyzer.ts",

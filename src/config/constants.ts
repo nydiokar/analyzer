@@ -107,6 +107,7 @@ export const DASHBOARD_JOB_CONFIG = {
   ENRICHMENT_TIMEOUT_MINUTES: 20,
   MAX_RETRIES: 3,
   PROGRESS_UPDATE_INTERVAL: 5000, // 5 seconds
+  ENABLED: process.env.USE_DASHBOARD_JOB_SYSTEM === 'true' || false, // Feature flag
 } as const;
 
 // Enhanced metadata fetching configuration

@@ -433,15 +433,19 @@ export class AnalysisOperationsProcessor {
         processingTimeMs: Date.now() - startTime
       };
 
+      // Log timing for debugging
+      const actualProcessingTime = Date.now() - startTime;
+      this.logger.log(`Dashboard analysis completed for ${walletAddress} in ${actualProcessingTime}ms`);
+
       // Publish completion event with actual processing time (like similarity processor)
       await this.jobProgressGateway.publishCompletedEvent(
         job.id!, 
         'analysis-operations', 
         result, 
-        Date.now() - startTime
+        actualProcessingTime  // Use explicit variable for clarity
       );
 
-      this.logger.log(`Dashboard analysis completed for ${walletAddress} in ${Date.now() - startTime}ms`);
+      this.logger.log(`Dashboard analysis completed for ${walletAddress} in ${actualProcessingTime}ms`);
       return result;
 
     } catch (error) {

@@ -27,6 +27,7 @@ interface JobCompletedEvent {
   timestamp: number;
   queue: string;
   processingTime: number;
+  totalTime?: number; // Total time from queue to completion
 }
 
 interface JobFailedEvent {
@@ -40,6 +41,13 @@ interface JobFailedEvent {
 
 interface ClientSubscription {
   jobIds: Set<string>;
+}
+
+interface JobQueueToStartEvent {
+  jobId: string;
+  queueToStartTime: number;
+  timestamp: number;
+  queue: string;
 }
 
 @WebSocketGateway({
@@ -118,6 +126,8 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
         this.broadcastToSubscribers('job-completed', data, data.jobId, data.queue);
       } else if (channel === 'job-events:failed') {
         this.broadcastToSubscribers('job-failed', data, data.jobId, data.queue);
+      } else if (channel === 'job-events:queue-to-start') {
+        this.broadcastToSubscribers('job-queue-to-start', data, data.jobId, data.queue);
       }
     } catch (error) {
       this.logger.warn(`Failed to parse Redis message from ${channel}:`, error);
@@ -163,14 +173,19 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     await this.redisPublisher.publish('job-events:progress', JSON.stringify(event));
   }
 
-  async publishCompletedEvent(jobId: string, queue: string, result: any, processingTime: number) {
-    const event: JobCompletedEvent = { jobId, queue, result, processingTime, timestamp: Date.now() };
+  async publishCompletedEvent(jobId: string, queue: string, result: any, processingTime: number, totalTime?: number) {
+    const event: JobCompletedEvent = { jobId, queue, result, processingTime, totalTime, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:completed', JSON.stringify(event));
   }
 
   async publishFailedEvent(jobId: string, queue: string, error: string, attempts: number, maxAttempts: number) {
     const event: JobFailedEvent = { jobId, queue, error, attempts, maxAttempts, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:failed', JSON.stringify(event));
+  }
+
+  async publishQueueToStartEvent(jobId: string, queue: string, queueToStartTime: number) {
+    const event: JobQueueToStartEvent = { jobId, queue, queueToStartTime, timestamp: Date.now() };
+    await this.redisPublisher.publish('job-events:queue-to-start', JSON.stringify(event));
   }
   
   async onModuleDestroy() {

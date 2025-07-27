@@ -18,7 +18,15 @@ export interface JobCompletionData {
   timestamp: number;
   queue: string;
   processingTime: number;
+  totalTime?: number; // Total time from queue to completion
   enrichmentJobId?: string;
+}
+
+export interface JobQueueToStartData {
+  jobId: string;
+  queueToStartTime: number;
+  timestamp: number;
+  queue: string;
 }
 
 export interface JobFailedData {

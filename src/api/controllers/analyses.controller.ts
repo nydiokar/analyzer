@@ -18,7 +18,7 @@ import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operat
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
-import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
+import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { JobPriority } from '../../queues/config/queue.config';
 
 @ApiTags('Analyses')
@@ -353,7 +353,7 @@ export class AnalysesController {
     @Body() triggerAnalysisDto: TriggerAnalysisDto,
   ): Promise<{ message: string; triggeredAnalyses: string[]; skippedAnalyses: string[] }> {
     // Check feature flag for gradual rollout
-    const useJobSystem = process.env.USE_DASHBOARD_JOB_SYSTEM === 'true';
+    const useJobSystem = DASHBOARD_JOB_CONFIG.ENABLED;
     
     if (useJobSystem && triggerAnalysisDto.walletAddresses.length === 1) {
       // Redirect single wallet to new job-based endpoint

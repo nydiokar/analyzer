@@ -48,11 +48,39 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       await this.jobProgressGateway.publishProgressEvent(jobId, queueName, progressData);
     });
 
+    // Track when job starts processing (queue-to-start time)
+    queueEvents.on('active', async ({ jobId }) => {
+      const job = await this.queueMap.get(queueName)?.getJob(jobId);
+      if (job && job.processedOn && job.timestamp) {
+        const queueToStartTime = job.processedOn - job.timestamp;
+        this.logger.log(`Job started processing: ${jobId} after ${queueToStartTime}ms in queue`);
+        
+        // Publish queue-to-start timing event
+        await this.jobProgressGateway.publishQueueToStartEvent(jobId, queueName, queueToStartTime);
+      }
+    });
+
     queueEvents.on('completed', async ({ jobId, returnvalue }) => {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
-      const processingTime = job ? job.processedOn - job.timestamp : 0;
-      this.logger.log(`Job completed: ${jobId} in ${processingTime}ms`);
-      await this.jobProgressGateway.publishCompletedEvent(jobId, queueName, returnvalue, processingTime);
+      
+      // Use manual processing time from job result if available, otherwise fallback to BullMQ timing
+      let processingTime = 0;
+      const result = returnvalue as any;
+      if (result && typeof result === 'object' && 'processingTimeMs' in result) {
+        processingTime = result.processingTimeMs;
+      } else if (job && job.finishedOn && job.processedOn) {
+        // Fallback: use actual finish time - start time (not queue time)
+        processingTime = job.finishedOn - job.processedOn;
+      }
+      
+      // Calculate total time (queue to completion)
+      let totalTime = 0;
+      if (job && job.finishedOn && job.timestamp) {
+        totalTime = job.finishedOn - job.timestamp;
+      }
+      
+      this.logger.log(`Job completed: ${jobId} - Processing: ${processingTime}ms, Total: ${totalTime}ms`);
+      await this.jobProgressGateway.publishCompletedEvent(jobId, queueName, result || {}, processingTime, totalTime);
     });
 
     queueEvents.on('failed', async ({ jobId, failedReason }) => {

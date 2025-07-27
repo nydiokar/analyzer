@@ -7,7 +7,8 @@ import {
   JobCompletionData,
   JobProgressData,
   JobFailedData,
-  EnrichmentCompletionData
+  EnrichmentCompletionData,
+  JobQueueToStartData
 } from '@/types/websockets';
 
 export interface UseJobProgressCallbacks {
@@ -17,6 +18,7 @@ export interface UseJobProgressCallbacks {
   onEnrichmentComplete: (data: EnrichmentCompletionData) => void;
   onEnrichmentError?: (data: { requestId: string; error: string }) => void;
   onConnectionChange?: (connected: boolean) => void;
+  onJobQueueToStart?: (data: JobQueueToStartData) => void; // New callback for queue-to-start timing
 }
 
 export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
@@ -34,11 +36,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   const handleJobCompletedFromHttp = useCallback((job: JobStatusResponseDto) => {
     // Prevent duplicate processing
     if (completedJobs.has(job.id)) {
-      console.log('📢 Job completion already processed (HTTP poll) - JobId:', job.id);
       return;
     }
     
-    console.log('📢 Job completed (polled) - JobId:', job.id);
     setCompletedJobs(prev => new Set(prev).add(job.id));
     
     const completionData: JobCompletionData = {
@@ -67,7 +67,6 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
   // This handler processes job failure data from the initial HTTP poll.
   const handleJobFailedFromHttp = useCallback((job: JobStatusResponseDto) => {
-    console.error('❌ Job failed (polled):', job.id, job.error);
     const failureData: JobFailedData = {
       jobId: job.id,
       failedReason: job.error ?? 'Unknown error',
@@ -122,7 +121,6 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const handleJobCompleted = (data: JobCompletionData) => {
       // Prevent duplicate processing
       if (completedJobs.has(data.jobId)) {
-        console.log('📢 Job completion already processed (WebSocket) - JobId:', data.jobId);
         return;
       }
       
@@ -154,12 +152,18 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       }
     };
 
+    const handleJobQueueToStart = (data: JobQueueToStartData) => {
+      console.log('🚀 Job started processing (WebSocket):', data.jobId, 'Queue time:', data.queueToStartTime + 'ms');
+      callbacksRef.current.onJobQueueToStart?.(data);
+    };
+
     newSocket.on('connect', handleConnect);
     newSocket.on('disconnect', handleDisconnect);
     newSocket.on('connect_error', handleConnectError);
     newSocket.on('job-progress', handleJobProgress);
     newSocket.on('job-completed', handleJobCompleted);
     newSocket.on('job-failed', handleJobFailed);
+    newSocket.on('job-queue-to-start', handleJobQueueToStart);
 
     setSocket(newSocket);
 
@@ -170,14 +174,16 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       newSocket.off('job-progress', handleJobProgress);
       newSocket.off('job-completed', handleJobCompleted);
       newSocket.off('job-failed', handleJobFailed);
+      newSocket.off('job-queue-to-start', handleJobQueueToStart);
       newSocket.disconnect();
     };
   }, []);
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {
-    // Clear completed jobs when starting a new subscription
-    setCompletedJobs(new Set());
+    // Don't clear completed jobs when subscribing to new jobs
+    // This prevents duplicate processing of job completion events
+    // setCompletedJobs(new Set()); // ❌ REMOVED: This was causing duplicate events
     
     // 1. Subscribe to WebSocket to catch live events.
     if (socket?.connected) {
@@ -189,7 +195,6 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
     // 2. Poll via HTTP to get the *current* state, solving the race condition.
     try {
-      console.log(`🔍 Polling initial status for job: ${jobId}`);
       const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
       if (job) {
         // If the job is already finished, process it immediately.

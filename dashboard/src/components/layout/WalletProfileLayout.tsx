@@ -104,11 +104,8 @@ export default function WalletProfileLayout({
       setJobStatus('active');
     },
     onJobCompleted: (data: JobCompletionData) => {
-      console.log('✅ Dashboard job completed:', data.jobId);
-      
       // Case 1: The main analysis job has completed
       if (data.jobId === analysisJobId) {
-        console.log('✅ Processing completion for MAIN dashboard job:', data.jobId);
         setJobProgress(100);
         setJobStatus('completed');
         setLastAnalysisStatus('success');
@@ -119,14 +116,9 @@ export default function WalletProfileLayout({
           }
           
           const resultData = data.result;
-          console.log('✅ Using dashboard result data from WebSocket:', { 
-            hasEnrichmentJob: !!resultData.enrichmentJobId,
-            processingTime: resultData.processingTimeMs
-          });
           
           // Set the enrichment job ID from the result payload (like similarity lab)
           if (resultData.enrichmentJobId) {
-            console.log('🎨 Setting enrichment job ID:', resultData.enrichmentJobId);
             setEnrichmentJobId(resultData.enrichmentJobId);
           }
           
@@ -162,7 +154,6 @@ export default function WalletProfileLayout({
       } 
       // Case 2: Enrichment job completed
       else if (data.jobId === enrichmentJobId) {
-        console.log('🎨 Processing completion for ENRICHMENT job:', data.jobId);
         setEnrichmentJobId(null);
         toast.success("Token Data Updated", {
           description: "Token metadata and prices have been updated.",
@@ -178,7 +169,6 @@ export default function WalletProfileLayout({
               typeof key === 'string' &&
               key.startsWith(`/wallets/${walletAddress}/token-performance`)
             ) {
-              console.log('🔄 Refreshing token performance data:', key);
               globalMutate(key);
             }
           }
@@ -192,10 +182,7 @@ export default function WalletProfileLayout({
           { revalidate: true }
         );
       }
-      // Case 3: Unrelated job
-      else {
-        console.log('Ignoring completion for unrelated job:', data.jobId);
-      }
+      // Case 3: Unrelated job - silently ignore
     },
     onJobFailed: (data: JobFailedData) => {
       console.error('❌ Job failed:', data.jobId, data.error);
@@ -251,36 +238,8 @@ export default function WalletProfileLayout({
       }
     },
     onEnrichmentComplete: (data) => {
-      console.log('🎨 Enrichment complete callback:', data);
-      setEnrichmentJobId(null);
-      setSubscribedEnrichmentJobId(null);
-      toast.success("Token Data Updated", {
-        description: "Token metadata and prices have been updated.",
-      });
-      // Refresh wallet data to show updated token information
-      globalMutate(`/wallets/${walletAddress}/summary`);
-      
-      // CRITICAL FIX: Also refresh token performance data to show enriched token metadata
-      // This ensures the TokenPerformanceTab shows updated token icons and metadata
-      if (cache instanceof Map) {
-        for (const key of cache.keys()) {
-          if (
-            typeof key === 'string' &&
-            key.startsWith(`/wallets/${walletAddress}/token-performance`)
-          ) {
-            console.log('🔄 Refreshing token performance data:', key);
-            globalMutate(key);
-          }
-        }
-      }
-      
-      // ENHANCED FIX: Also invalidate any cached token performance data patterns
-      // This ensures fresh data even if the tab hasn't been loaded yet
-      globalMutate(
-        (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
-        undefined,
-        { revalidate: true }
-      );
+      // This callback is not used - enrichment jobs are handled in onJobCompleted
+      // Keeping for interface compatibility but not implementing
     },
     onConnectionChange: (connected) => {
       if (!connected) {
@@ -427,12 +386,12 @@ export default function WalletProfileLayout({
   const [subscribedEnrichmentJobId, setSubscribedEnrichmentJobId] = useState<string | null>(null);
   
   useEffect(() => {
+    // Only subscribe if we have an enrichment job ID, we're connected, and we haven't subscribed to this job yet
     if (enrichmentJobId && isConnected && enrichmentJobId !== subscribedEnrichmentJobId) {
-      console.log('🎨 Subscribing to enrichment job:', enrichmentJobId);
       subscribeToJob(enrichmentJobId);
       setSubscribedEnrichmentJobId(enrichmentJobId);
     }
-  }, [enrichmentJobId, isConnected, subscribedEnrichmentJobId]);
+  }, [enrichmentJobId, subscribedEnrichmentJobId, isConnected, subscribeToJob]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(walletAddress)
