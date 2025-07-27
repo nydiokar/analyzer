@@ -36,6 +36,12 @@ export const JobTimeouts = {
     timeout: 20 * 60 * 1000,        // 20 minutes max (reasonable for enrichment)
     staleAfter: 30 * 60 * 1000,     // 30 minutes = stale
     retryBackoff: 'fixed' as const
+  },
+
+  'dashboard-wallet-analysis': {
+    timeout: 15 * 60 * 1000,        // 15 minutes max
+    staleAfter: 20 * 60 * 1000,     // 20 minutes = stale
+    retryBackoff: 'exponential' as const
   }
 };
 

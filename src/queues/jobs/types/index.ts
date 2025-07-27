@@ -37,6 +37,17 @@ export interface AnalyzeBehaviorJobData {
   requestId?: string;
 }
 
+// Dashboard Wallet Analysis Job Data
+export interface DashboardWalletAnalysisJobData {
+  walletAddress: string;
+  requestId: string;
+  forceRefresh?: boolean;
+  enrichMetadata?: boolean;
+  failureThreshold?: number;    // Partial failure tolerance (default 0.8)
+  timeoutMinutes?: number;
+}
+
+
 
 // Comprehensive Similarity Flow with Dual Queues
 export interface ComprehensiveSimilarityFlowData {

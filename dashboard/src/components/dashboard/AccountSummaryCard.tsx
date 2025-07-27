@@ -38,11 +38,7 @@ export default function AccountSummaryCard({
 }: AccountSummaryCardProps) {
   const { isDemo } = useApiKeyStore();
   
-  React.useEffect(() => {
-    if (data) {
-      console.log('AccountSummaryCard data from parent:', data);
-    }
-  }, [data]);
+
 
   if (!walletAddress) {
     return (

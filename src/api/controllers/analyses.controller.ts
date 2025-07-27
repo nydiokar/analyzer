@@ -8,18 +8,18 @@ import { SmartFetchService } from '../../core/services/smart-fetch-service';
 
 import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
 import { Wallet } from '@prisma/client';
-import { SimilarityApiService } from '../services/similarity.service';
 import { SimilarityAnalysisRequestDto } from '../shared/dto/similarity-analysis.dto';
 import { WalletStatusRequestDto, WalletStatusResponseDto } from '../shared/dto/wallet-status.dto';
 import { TriggerAnalysisDto } from '../shared/dto/trigger-analysis.dto';
+import { DashboardAnalysisRequestDto, DashboardAnalysisResponseDto } from '../shared/dto/dashboard-analysis.dto';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
 import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operations.queue';
-import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData } from '../../queues/jobs/types';
-import { generateJobId } from '../../queues/utils/job-id-generator';
-import { JobsService } from '../services/jobs.service';
+import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
+import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
 import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
+import { JobPriority } from '../../queues/config/queue.config';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -32,10 +32,9 @@ export class AnalysesController {
     private readonly heliusSyncService: HeliusSyncService,
     private readonly pnlAnalysisService: PnlAnalysisService,
     private readonly behaviorService: BehaviorService,
-    private readonly similarityApiService: SimilarityApiService,
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
-    private readonly jobsService: JobsService,
+    private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
     private readonly smartFetchService: SmartFetchService,
   ) {}
@@ -259,9 +258,90 @@ export class AnalysesController {
     return this.databaseService.getWalletsStatus(walletStatusRequestDto.walletAddresses);
   }
 
+  @Post('/wallets/dashboard-analysis')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ 
+    summary: 'Queue dashboard wallet analysis job',
+    description: 'Queues a comprehensive wallet analysis job for dashboard display. Returns job ID for monitoring via the Jobs API.'
+  })
+  @ApiResponse({ 
+    status: 202, 
+    description: 'Dashboard analysis job queued successfully',
+    type: DashboardAnalysisResponseDto
+  })
+  @ApiResponse({ status: 400, description: 'Invalid wallet address or request parameters' })
+  @ApiResponse({ status: 503, description: 'Analysis already in progress for this wallet' })
+  @HttpCode(202)
+  async queueDashboardWalletAnalysis(
+    @Body() dto: DashboardAnalysisRequestDto,
+  ): Promise<DashboardAnalysisResponseDto> {
+    this.logger.log(`Received request to queue dashboard analysis for wallet: ${dto.walletAddress}`);
+
+    // Validate wallet address
+    if (!isValidSolanaAddress(dto.walletAddress)) {
+      throw new BadRequestException(`Invalid Solana address: ${dto.walletAddress}`);
+    }
+
+    try {
+      // Generate request ID
+      const requestId = `dashboard-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Check wallet status to estimate processing time
+      const walletStatuses = await this.databaseService.getWalletsStatus([dto.walletAddress]);
+      const needsSync = walletStatuses.statuses[0].status === 'STALE' || 
+                       walletStatuses.statuses[0].status === 'MISSING' || 
+                       dto.forceRefresh;
+
+      // Prepare job data
+      const jobData: DashboardWalletAnalysisJobData = {
+        walletAddress: dto.walletAddress,
+        requestId,
+        forceRefresh: dto.forceRefresh || false,
+        enrichMetadata: dto.enrichMetadata !== false, // Default to true
+        failureThreshold: 0.8,
+        timeoutMinutes: needsSync ? 15 : 8, // Longer timeout if sync is needed
+      };
+
+      // Add job to analysis operations queue
+      const job = await this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
+        priority: JobPriority.CRITICAL, // High priority for user-initiated requests
+        delay: 0
+      });
+
+      // Calculate estimated processing time
+      const baseTimeMinutes = 3; // Base analysis time
+      const syncTimeMinutes = needsSync ? 10 : 0; // Additional time if sync needed
+      const estimatedMinutes = baseTimeMinutes + syncTimeMinutes;
+      const estimatedTime = estimatedMinutes > 60 
+        ? `${Math.round(estimatedMinutes / 60)} hour(s)`
+        : `${estimatedMinutes} minute(s)`;
+
+      this.logger.log(`Queued dashboard analysis job ${job.id} for wallet ${dto.walletAddress}`);
+
+      return {
+        jobId: job.id!,
+        requestId,
+        status: 'queued',
+        queueName: 'analysis-operations',
+        estimatedProcessingTime: estimatedTime,
+        monitoringUrl: `/jobs/${job.id}`
+      };
+
+    } catch (error) {
+      this.logger.error(`Failed to queue dashboard analysis:`, error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to queue dashboard analysis job');
+    }
+  }
+
   @Post('/wallets/trigger-analysis')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ summary: 'Triggers a full analysis for multiple wallets' })
+  @ApiOperation({ 
+    summary: 'Triggers a full analysis for multiple wallets (DEPRECATED)',
+    description: 'DEPRECATED: Use /analyses/wallets/dashboard-analysis for new implementations. This endpoint will be removed in a future version.'
+  })
   @ApiBody({ type: TriggerAnalysisDto })
   @ApiResponse({
     status: 200,
@@ -272,6 +352,34 @@ export class AnalysesController {
   async triggerAnalyses(
     @Body() triggerAnalysisDto: TriggerAnalysisDto,
   ): Promise<{ message: string; triggeredAnalyses: string[]; skippedAnalyses: string[] }> {
+    // Check feature flag for gradual rollout
+    const useJobSystem = process.env.USE_DASHBOARD_JOB_SYSTEM === 'true';
+    
+    if (useJobSystem && triggerAnalysisDto.walletAddresses.length === 1) {
+      // Redirect single wallet to new job-based endpoint
+      this.logger.warn('Deprecated endpoint /analyses/wallets/trigger-analysis called. Redirecting to new job-based endpoint.');
+      
+      try {
+        const jobResponse = await this.queueDashboardWalletAnalysis({
+          walletAddress: triggerAnalysisDto.walletAddresses[0],
+          forceRefresh: false,
+          enrichMetadata: true
+        });
+        
+        return {
+          message: `Analysis job queued successfully. Job ID: ${jobResponse.jobId}`,
+          triggeredAnalyses: [triggerAnalysisDto.walletAddresses[0]],
+          skippedAnalyses: []
+        };
+      } catch (error) {
+        this.logger.error('Failed to redirect to job-based endpoint:', error);
+        // Fall back to old implementation
+      }
+    }
+    
+    // Use old synchronous processing for backward compatibility
+    this.logger.warn('Using deprecated synchronous processing for /analyses/wallets/trigger-analysis');
+    
     const { walletAddresses } = triggerAnalysisDto;
     this.logger.log(`Received request to trigger analysis for wallets: ${walletAddresses.join(', ')}`);
 

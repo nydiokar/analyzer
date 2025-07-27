@@ -18,9 +18,9 @@ async function bootstrap() {
   if (isQuietMode) {
     logLevels = ['error', 'warn']; // Minimal logging
   } else if (isDev) {
-    logLevels = ['error', 'warn', 'log']; // Reduced verbosity for development
+    logLevels = ['error', 'warn', 'log', 'debug', 'verbose']; // Reduced verbosity for development
   } else {
-    logLevels = ['error', 'warn', 'log', 'debug', 'verbose']; // Full logging for production
+    logLevels = ['error', 'warn', 'log']; // Production logging (no debug/verbose)
   }
 
   const app = await NestFactory.create(AppModule, {

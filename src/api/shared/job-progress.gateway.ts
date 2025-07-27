@@ -70,6 +70,11 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     this.server = server;
     this.logger.log('WebSocket Gateway initialized');
     
+    // Set up server-level event handlers (only once)
+    this.server.on('connection_error', (err) => {
+      this.logger.error(`Socket.IO connection error: ${err.message}`, err);
+    });
+    
     setImmediate(() => this.setupRedisSubscriptions());
   }
 
@@ -77,12 +82,6 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     const clientId = client.id;
     this.logger.log(`Client connected: ${clientId}`);
     this.clientSubscriptions.set(clientId, { jobIds: new Set() });
-    this.server.on('connection', (socket) => {
-      this.logger.log(`Client connected: ${socket.id}`);
-    }); 
-    this.server.on('connection_error', (err) => {
-      this.logger.error(`Socket.IO connection error: ${err.message}`, err);
-    });
     client.emit('connected', { message: 'Connected to job progress updates', clientId, timestamp: Date.now() });
   }
 

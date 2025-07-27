@@ -8,6 +8,7 @@ export interface JobIdGenerator {
   calculateSimilarity: (walletAddresses: string[], requestId: string) => string;
   enrichMetadata: (tokenAddress: string, requestId?: string) => string;
   enrichParallel: (requestId: string) => string;
+  dashboardWalletAnalysis: (walletAddress: string, requestId: string) => string;
 }
 
 export const generateJobId: JobIdGenerator = {
@@ -43,6 +44,11 @@ export const generateJobId: JobIdGenerator = {
   enrichParallel: (requestId: string) => {
     const hashInput = `enrich-parallel-${requestId}`;
     return `enrich-parallel-${crypto.createHash('md5').update(hashInput).digest('hex').slice(0, 12)}`;
+  },
+
+  dashboardWalletAnalysis: (walletAddress: string, requestId: string) => {
+    const hashInput = `dashboard-${walletAddress}-${requestId}`;
+    return `dashboard-${crypto.createHash('md5').update(hashInput).digest('hex').slice(0, 8)}`;
   },
 };
 

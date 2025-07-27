@@ -1,5 +1,22 @@
 export const changelog = [
-  
+  {
+    version: "v0.13",
+    date: "July 2025",
+    changes: [
+      "Added Wallet Analysis Job System for improved analysis reliability and performance.",
+      "Improved analysis progress tracking and display in the Wallet Profile page.",
+      "Enhanced error handling and logging for analysis operations.",
+    ]
+  },
+  {
+    version: "v0.12",
+    date: "July 2025",
+    changes: [
+      "Added Similarity Lab for analyzing and comparing multiple wallets at once.",
+      "Added tagging system for wallets - custom tags and filtering by tags.",
+      "Improved token performance calculations, metadata and token badges.",
+    ]
+  },
   {
     version: "v0.11",
     date: "June 2025",

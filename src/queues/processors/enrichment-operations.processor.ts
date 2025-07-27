@@ -83,12 +83,7 @@ export class EnrichmentOperationsProcessor {
       // If no new tokens were actually fetched, we can short-circuit the expensive cache write.
       if (summary.newTokensFetched === 0) {
         this.logger.log(`Skipping cache write for request ${requestId} as no new token metadata was fetched.`);
-        await this.websocketGateway.publishCompletedEvent(
-          job.id!,
-          'enrichment',
-          { enrichedBalances },
-          Date.now() - startTime
-        );
+
         this.logger.log(`Parallel enrichment completed for requestId: ${requestId} (no-op).`);
         return { enrichedBalances };
       }
@@ -103,13 +98,7 @@ export class EnrichmentOperationsProcessor {
       await redis.set(cacheKey, JSON.stringify(enrichedBalances), 'EX', 300);
       await redis.quit();
       
-      // Notify completion with enriched balances
-      await this.websocketGateway.publishCompletedEvent(
-        job.id!,
-        'enrichment',
-        { enrichedBalances },
-        Date.now() - startTime
-      );
+
       
       this.logger.log(`Parallel enrichment completed for requestId: ${requestId}. Total processing time: ${Date.now() - startTime}ms`);
       return { enrichedBalances };

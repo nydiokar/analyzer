@@ -590,6 +590,8 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     {
       revalidateOnFocus: false,
       keepPreviousData: true,
+      dedupingInterval: 5000, // Prevent duplicate requests within 5 seconds
+      revalidateOnReconnect: false, // Prevent revalidation on network reconnect
     }
   );
 
@@ -641,15 +643,15 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     .catch(error => console.error('Could not trigger enrichment:', error.message));
   }, [walletAddress, apiKey]);
 
-  // Effect for initial load and wallet change
+  // Effect for initial load and wallet change - REMOVED automatic enrichment trigger
+  // Enrichment should only be triggered manually or by the dashboard analysis job
   useEffect(() => {
-    if (walletAddress) {
-      triggerEnrichment();
-      // After triggering enrichment, schedule a refresh to get any new data
-      const refreshTimer = setTimeout(() => localMutate(), 2000);
-      return () => clearTimeout(refreshTimer);
+    if (walletAddress && swrKey) {
+      // Only refresh data, don't trigger enrichment automatically
+      // Use SWR's built-in revalidation instead of manual mutate
+      // This prevents multiple calls
     }
-  }, [walletAddress, apiKey, localMutate, triggerEnrichment]);
+  }, [walletAddress, apiKey]); // Removed localMutate from dependencies
 
   const handlePnlFilterChange = (newValue: string) => {
     startTransition(() => {
@@ -720,10 +722,9 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     if (isLoadingData) return;
     setIsRefreshing(true);
     try {
-      // Refresh the main data first
+      // Refresh the main data only
       await localMutate();
-      // Then, check for any newly added tokens that need enrichment
-      triggerEnrichment();
+      // Enrichment is now handled by the dashboard analysis job or manual trigger
     } finally {
       setIsRefreshing(false);
     }

@@ -17,6 +17,7 @@ export class TokenInfoService implements ITokenInfoService {
     tokenAddresses: string[],
     userId: string,
   ): Promise<void> {
+    const startTime = Date.now();
 
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
       tokenCount: tokenAddresses.length,
@@ -34,9 +35,15 @@ export class TokenInfoService implements ITokenInfoService {
       return !existingToken || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneMinuteAgo;
     });
 
-
     // This is no longer fire-and-forget. We must await completion.
     await this.dexscreenerService.fetchAndSaveTokenInfo(newTokensToFetch);
+    
+    // Log success status
+    const durationMs = Date.now() - startTime;
+    await this.db.logActivity(userId, 'trigger_token_enrichment', {
+      tokenCount: tokenAddresses.length,
+      newTokensFetched: newTokensToFetch.length,
+    }, 'SUCCESS', durationMs);
   }
 
   async findMany(tokenAddresses: string[]) {

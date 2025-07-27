@@ -23,6 +23,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [completedJobs, setCompletedJobs] = useState<Set<string>>(new Set());
 
   const callbacksRef = useRef(callbacks);
   useEffect(() => {
@@ -31,7 +32,15 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
   // This handler processes job completion data from the initial HTTP poll.
   const handleJobCompletedFromHttp = useCallback((job: JobStatusResponseDto) => {
+    // Prevent duplicate processing
+    if (completedJobs.has(job.id)) {
+      console.log('📢 Job completion already processed (HTTP poll) - JobId:', job.id);
+      return;
+    }
+    
     console.log('📢 Job completed (polled) - JobId:', job.id);
+    setCompletedJobs(prev => new Set(prev).add(job.id));
+    
     const completionData: JobCompletionData = {
       jobId: job.id,
       queue: job.queue,
@@ -54,7 +63,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     } else {
       callbacksRef.current.onJobCompleted?.(completionData);
     }
-  }, [callbacksRef]);
+  }, [callbacksRef, completedJobs]);
 
   // This handler processes job failure data from the initial HTTP poll.
   const handleJobFailedFromHttp = useCallback((job: JobStatusResponseDto) => {
@@ -74,13 +83,6 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   }, [callbacksRef]);
 
   useEffect(() => {
-    console.log('🔍 DEBUG_0: WebSocket URL =', process.env.NEXT_PUBLIC_WEBSOCKET_URL);
-    console.log('🔍 DEBUG_1: Full connection URL =', `${process.env.NEXT_PUBLIC_WEBSOCKET_URL}`);
-    console.log('🔍 DEBUG_2: Environment variables =', {
-      NEXT_PUBLIC_WEBSOCKET_URL: process.env.NEXT_PUBLIC_WEBSOCKET_URL,
-      NODE_ENV: process.env.NODE_ENV
-    });
-
     // Use the backend URL directly - no proxy needed
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001';
     const newSocket = io(`${baseUrl}`, {
@@ -90,7 +92,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       timeout: 20000, // 20 second timeout
-      forceNew: true, // Force new connection
+      forceNew: false, // Don't force new connection - reuse existing
     });
 
     const handleConnect = () => {
@@ -118,9 +120,16 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
     // This handler processes job completion events from the live WebSocket connection.
     const handleJobCompleted = (data: JobCompletionData) => {
-      console.log('📢 Job completed (WebSocket) - JobId:', data.jobId);
-      if (data.queue === 'enrichment-operations' && data.result) {
-        // Transform JobResult to EnrichmentCompletionData
+      // Prevent duplicate processing
+      if (completedJobs.has(data.jobId)) {
+        console.log('📢 Job completion already processed (WebSocket) - JobId:', data.jobId);
+        return;
+      }
+      
+      console.log('📢 Job completed (WebSocket):', data.jobId, 'Processing time:', data.processingTime);
+      setCompletedJobs(prev => new Set(prev).add(data.jobId));
+      
+      if (data.queue === 'enrichment-operations') {
         const enrichmentData: EnrichmentCompletionData = {
           requestId: data.jobId,
           enrichedBalances: (data.result as any).enrichedBalances || data.result.data,
@@ -167,6 +176,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {
+    // Clear completed jobs when starting a new subscription
+    setCompletedJobs(new Set());
+    
     // 1. Subscribe to WebSocket to catch live events.
     if (socket?.connected) {
       console.log(`🔔 Subscribing to WebSocket for job: ${jobId}`);
@@ -211,6 +223,8 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     if (socket) {
       socket.disconnect();
     }
+    // Clear completed jobs on cleanup
+    setCompletedJobs(new Set());
   }, [socket]);
 
   return {

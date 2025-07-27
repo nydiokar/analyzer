@@ -38,15 +38,11 @@ import { isValid, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
-import { WalletSummaryData } from '@/types/api';
+import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse } from '@/types/api';
 import { useFavorites } from '@/hooks/useFavorites';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
-import { 
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useJobProgress, UseJobProgressCallbacks } from '@/hooks/useJobProgress';
+import { JobProgressData, JobCompletionData, JobFailedData } from '@/types/websockets';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,7 +53,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
 import { getTagColor, getCollectionColor } from '@/lib/color-utils';
 
 
@@ -97,6 +92,209 @@ export default function WalletProfileLayout({
   const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false);
   const [analysisRequestTime, setAnalysisRequestTime] = useState<Date | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+  const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
+  const [jobProgress, setJobProgress] = useState<number>(0);
+  const [jobStatus, setJobStatus] = useState<string>('idle');
+  
+  // Job progress callbacks
+  const jobProgressCallbacks: UseJobProgressCallbacks = {
+    onJobProgress: (data: JobProgressData) => {
+      setJobProgress(data.progress);
+      setJobStatus('active');
+    },
+    onJobCompleted: (data: JobCompletionData) => {
+      console.log('✅ Dashboard job completed:', data.jobId);
+      
+      // Case 1: The main analysis job has completed
+      if (data.jobId === analysisJobId) {
+        console.log('✅ Processing completion for MAIN dashboard job:', data.jobId);
+        setJobProgress(100);
+        setJobStatus('completed');
+        setLastAnalysisStatus('success');
+        
+        try {
+          if (!data.result) {
+            throw new Error("WebSocket completion event missing result data");
+          }
+          
+          const resultData = data.result;
+          console.log('✅ Using dashboard result data from WebSocket:', { 
+            hasEnrichmentJob: !!resultData.enrichmentJobId,
+            processingTime: resultData.processingTimeMs
+          });
+          
+          // Set the enrichment job ID from the result payload (like similarity lab)
+          if (resultData.enrichmentJobId) {
+            console.log('🎨 Setting enrichment job ID:', resultData.enrichmentJobId);
+            setEnrichmentJobId(resultData.enrichmentJobId);
+          }
+          
+          // Show success message
+          if (resultData.enrichmentJobId) {
+            toast.success("Analysis Complete", {
+              description: "Wallet data has been successfully updated. Token metadata is loading in the background.",
+            });
+          } else {
+            toast.success("Analysis Complete", {
+              description: "Wallet data has been successfully updated.",
+            });
+          }
+          
+          // Refresh wallet data
+          globalMutate(`/wallets/${walletAddress}/summary`);
+          
+          // Clear main analysis tracking but keep enrichment job ID
+          setAnalysisJobId(null);
+          setIsAnalyzing(false);
+          setIsPolling(false);
+          
+        } catch (error: any) {
+          console.error('❌ Error processing dashboard job result:', error);
+          setLastAnalysisStatus('error');
+          toast.error("Analysis Failed", {
+            description: error.message || "Failed to process job results.",
+          });
+          setAnalysisJobId(null);
+          setIsAnalyzing(false);
+          setIsPolling(false);
+        }
+      } 
+      // Case 2: Enrichment job completed
+      else if (data.jobId === enrichmentJobId) {
+        console.log('🎨 Processing completion for ENRICHMENT job:', data.jobId);
+        setEnrichmentJobId(null);
+        toast.success("Token Data Updated", {
+          description: "Token metadata and prices have been updated.",
+        });
+        // Refresh wallet data to show updated token information
+        globalMutate(`/wallets/${walletAddress}/summary`);
+        
+        // CRITICAL FIX: Also refresh token performance data to show enriched token metadata
+        // This ensures the TokenPerformanceTab shows updated token icons and metadata
+        if (cache instanceof Map) {
+          for (const key of cache.keys()) {
+            if (
+              typeof key === 'string' &&
+              key.startsWith(`/wallets/${walletAddress}/token-performance`)
+            ) {
+              console.log('🔄 Refreshing token performance data:', key);
+              globalMutate(key);
+            }
+          }
+        }
+        
+        // ENHANCED FIX: Also invalidate any cached token performance data patterns
+        // This ensures fresh data even if the tab hasn't been loaded yet
+        globalMutate(
+          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
+          undefined,
+          { revalidate: true }
+        );
+      }
+      // Case 3: Unrelated job
+      else {
+        console.log('Ignoring completion for unrelated job:', data.jobId);
+      }
+    },
+    onJobFailed: (data: JobFailedData) => {
+      console.error('❌ Job failed:', data.jobId, data.error);
+      
+      if (data.jobId === analysisJobId) {
+        setJobStatus('failed');
+        setIsAnalyzing(false);
+        setIsPolling(false);
+        setAnalysisJobId(null);
+        setLastAnalysisStatus('error');
+        
+        // Enhanced error handling similar to similarity lab
+        const errorMessage = data.error;
+        if (errorMessage.includes('already in progress')) {
+          toast.warning("Analysis Already Running", {
+            description: "An analysis is already in progress for this wallet. Please wait for it to complete.",
+          });
+        } else if (errorMessage.includes('Invalid wallet')) {
+          toast.error("Invalid Wallet Address", {
+            description: "The wallet address is invalid or has no transaction data.",
+          });
+        } else {
+          toast.error("Analysis Failed", {
+            description: errorMessage || "The analysis job failed. Please try again.",
+          });
+        }
+      } else if (data.jobId === enrichmentJobId) {
+        setEnrichmentJobId(null);
+        setSubscribedEnrichmentJobId(null);
+        toast.error("Token Enrichment Failed", {
+          description: "Failed to load token metadata. You can still view the analysis results.",
+        });
+        // Even on failure, refresh token performance data to show current state
+        if (cache instanceof Map) {
+          for (const key of cache.keys()) {
+            if (
+              typeof key === 'string' &&
+              key.startsWith(`/wallets/${walletAddress}/token-performance`)
+            ) {
+              console.log('🔄 Refreshing token performance data after enrichment failure:', key);
+              globalMutate(key);
+            }
+          }
+        }
+        
+        // ENHANCED FIX: Also invalidate any cached token performance data patterns
+        // This ensures fresh data even if the tab hasn't been loaded yet
+        globalMutate(
+          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
+          undefined,
+          { revalidate: true }
+        );
+      }
+    },
+    onEnrichmentComplete: (data) => {
+      console.log('🎨 Enrichment complete callback:', data);
+      setEnrichmentJobId(null);
+      setSubscribedEnrichmentJobId(null);
+      toast.success("Token Data Updated", {
+        description: "Token metadata and prices have been updated.",
+      });
+      // Refresh wallet data to show updated token information
+      globalMutate(`/wallets/${walletAddress}/summary`);
+      
+      // CRITICAL FIX: Also refresh token performance data to show enriched token metadata
+      // This ensures the TokenPerformanceTab shows updated token icons and metadata
+      if (cache instanceof Map) {
+        for (const key of cache.keys()) {
+          if (
+            typeof key === 'string' &&
+            key.startsWith(`/wallets/${walletAddress}/token-performance`)
+          ) {
+            console.log('🔄 Refreshing token performance data:', key);
+            globalMutate(key);
+          }
+        }
+      }
+      
+      // ENHANCED FIX: Also invalidate any cached token performance data patterns
+      // This ensures fresh data even if the tab hasn't been loaded yet
+      globalMutate(
+        (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
+        undefined,
+        { revalidate: true }
+      );
+    },
+    onConnectionChange: (connected) => {
+      if (!connected) {
+        // If WebSocket disconnects during analysis, fall back to polling
+        if (isAnalyzing && analysisJobId) {
+          setIsPolling(true);
+          setAnalysisRequestTime(new Date());
+        }
+      }
+    }
+  };
+
+  // Use the existing job progress hook
+  const { subscribeToJob, unsubscribeFromJob, isConnected, error: wsError } = useJobProgress(jobProgressCallbacks);
   
   // Quick add modal state
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
@@ -118,15 +316,25 @@ export default function WalletProfileLayout({
 
   const isCurrentWalletFavorite = !!currentFavoriteData;
 
-  const walletSummaryKey = isInitialized && apiKey && walletAddress ? `/wallets/${walletAddress}/summary` : null;
+  const walletSummaryKey = isInitialized && walletAddress ? `/wallets/${walletAddress}/summary` : null;
   const { data: walletSummary, error: summaryError, isLoading: isLoadingWalletSummary } = useSWR<WalletSummaryData>(
     walletSummaryKey,
     fetcher,
     {
       revalidateOnFocus: false,
-      refreshInterval: isPolling ? 5000 : 0, // Poll every 5s when isPolling is true
+      revalidateOnMount: false, // Prevent duplicate initial calls
+      revalidateOnReconnect: false,
+      refreshInterval: isPolling ? 10000 : 0, // Poll every 10s when isPolling is true (reduced from 5s)
+      dedupingInterval: 5000, // Prevent duplicate requests within 5 seconds
     }
   );
+
+  // Ensure initial fetch happens when walletSummaryKey becomes available
+  useEffect(() => {
+    if (walletSummaryKey && !walletSummary) {
+      globalMutate(walletSummaryKey);
+    }
+  }, [walletSummaryKey, walletSummary, globalMutate]);
 
   // CRITICAL FIX: Add validation to prevent stale SWR data from causing errors.
   // This ensures that the rendered data actually belongs to the wallet address in the URL.
@@ -143,7 +351,7 @@ export default function WalletProfileLayout({
         setLastAnalysisStatus('success');
         setLastAnalysisTimestamp(lastAnalyzedDate);
         toast.success("Analysis Complete", {
-          description: "Wallet data has been successfully updated. Hit Refresh button.",
+          description: "Wallet data has been successfully updated.",
         });
         // Manually revalidate other wallet-related data, since polling will now stop.
         // We explicitly skip revalidating the summary key itself, as we already have the latest from the poll.
@@ -201,6 +409,31 @@ export default function WalletProfileLayout({
     }
   }, [walletSummary]);
 
+  // Cleanup job subscription when component unmounts or job completes
+  useEffect(() => {
+    return () => {
+      if (analysisJobId) {
+        unsubscribeFromJob(analysisJobId);
+      }
+      if (enrichmentJobId) {
+        unsubscribeFromJob(enrichmentJobId);
+      }
+      // Reset subscription tracking
+      setSubscribedEnrichmentJobId(null);
+    };
+  }, [analysisJobId, enrichmentJobId, unsubscribeFromJob]);
+
+  // Subscribe to enrichment job when it's set (with duplicate prevention)
+  const [subscribedEnrichmentJobId, setSubscribedEnrichmentJobId] = useState<string | null>(null);
+  
+  useEffect(() => {
+    if (enrichmentJobId && isConnected && enrichmentJobId !== subscribedEnrichmentJobId) {
+      console.log('🎨 Subscribing to enrichment job:', enrichmentJobId);
+      subscribeToJob(enrichmentJobId);
+      setSubscribedEnrichmentJobId(enrichmentJobId);
+    }
+  }, [enrichmentJobId, isConnected, subscribedEnrichmentJobId]);
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(walletAddress)
       .then(() => {
@@ -253,33 +486,43 @@ export default function WalletProfileLayout({
     }
 
     setIsAnalyzing(true);
-    setAnalysisRequestTime(new Date());
+    setJobProgress(0);
+    setJobStatus('starting');
+    setEnrichmentJobId(null); // Clear any previous enrichment job
     toast.info("Analysis Queued", {
-      description: `Fetching and analyzing data for ${truncateWalletAddress(walletAddress)}. This may take a few moments.`,
+      description: `Analysis job submitted for ${truncateWalletAddress(walletAddress)}. You'll receive real-time updates.`,
     });
 
     try {
-      await fetcher('/analyses/wallets/trigger-analysis', {
-        method: 'POST',
-        body: JSON.stringify({ walletAddresses: [walletAddress] }),
-      });
-      
-      setIsPolling(true); // Start polling for summary updates
+      const requestData: DashboardAnalysisRequest = {
+        walletAddress,
+        forceRefresh: true,
+        enrichMetadata: true,
+      };
 
-    } catch (err: any) {
-      console.error("Error triggering analysis:", err);
-      setLastAnalysisStatus('error');
-      setIsAnalyzing(false); // Re-enable button on trigger failure
+      const response: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
+        method: 'POST',
+        body: JSON.stringify(requestData),
+      });
+
+      setAnalysisJobId(response.jobId);
       
-      if (err.status === 503) {
-        toast.warning("Analysis Already Running", {
-          description: "An analysis is already in progress. Please wait for it to complete before starting a new one.",
-        });
+      // Check WebSocket connection status before subscribing
+      if (isConnected) {
+        await subscribeToJob(response.jobId);
       } else {
-        toast.error("Analysis Failed to Trigger", {
-          description: err.message || "An unexpected error occurred. Please check the console for details.",
-        });
+        // Fall back to polling if WebSocket is not connected
+        setIsPolling(true);
+        setAnalysisRequestTime(new Date());
       }
+
+    } catch (error: any) {
+      setIsAnalyzing(false);
+      setJobStatus('failed');
+      
+      toast.error("Analysis Failed to Trigger", {
+        description: error.message || "An unexpected error occurred. Please try again.",
+      });
     }
   };
 
@@ -387,6 +630,38 @@ export default function WalletProfileLayout({
     }
   }, [currentFavoriteData, walletAddress, mutateFavorites]);
 
+  const renderAnalysisProgress = () => {
+    if (jobStatus === 'idle' || !isAnalyzing) return null;
+
+    return (
+      <div className="space-y-2 w-full">
+        <div className="flex items-center justify-between text-sm">
+          <span className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            {jobStatus === 'starting' && 'Starting analysis...'}
+            {jobStatus === 'active' && 'Analyzing wallet...'}
+            {jobStatus === 'completed' && 'Analysis completed'}
+            {jobStatus === 'failed' && 'Analysis failed'}
+          </span>
+          <span className="text-muted-foreground">{jobProgress}%</span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <div 
+            className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+            style={{ width: `${jobProgress}%` }}
+          />
+        </div>
+        {/* Show enrichment status */}
+        {enrichmentJobId && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
+            <span>Loading token metadata...</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const ExpandedAnalysisControl = () => (
     <div className="flex flex-col items-start gap-1 w-full md:w-auto">
       <Button 
@@ -401,6 +676,12 @@ export default function WalletProfileLayout({
           ? 'Analyzing...' 
           : (lastAnalysisTimestamp ? 'Refresh Wallet Data' : 'Analyze Wallet')}
       </Button>
+      
+      {/* Show progress during analysis */}
+      {renderAnalysisProgress()}
+      
+      {/* Connection status is handled by useJobProgress internally */}
+      
       {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
         <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
           <span

@@ -100,6 +100,15 @@ export const PROCESSING_CONFIG = {
   RETRY_DELAY_MS: 2000
 } as const;
 
+// Dashboard Job System Configuration
+export const DASHBOARD_JOB_CONFIG = {
+  DEFAULT_TIMEOUT_MINUTES: 15,
+  SYNC_TIMEOUT_MINUTES: 20,
+  ENRICHMENT_TIMEOUT_MINUTES: 20,
+  MAX_RETRIES: 3,
+  PROGRESS_UPDATE_INTERVAL: 5000, // 5 seconds
+} as const;
+
 // Enhanced metadata fetching configuration
 export const METADATA_FETCHING_CONFIG = {
   // DexScreener API optimization

@@ -7,7 +7,6 @@ import { SimilarityAnalysisConfig } from '@/types/analysis';
 import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 import { TokenInfoService } from '../services/token-info.service';
 import { CombinedSimilarityResult } from '@/types/similarity';
-import { BalanceCacheService } from '../services/balance-cache.service';
 import { WalletBalance } from '@/types/wallet';
 
 const logger = createLogger('SimilarityApiService');

@@ -266,3 +266,22 @@ export interface JobStatusResponseDto {
   maxAttempts: number;
   remainingTime?: number;
 }
+
+// Dashboard Analysis Types
+export interface DashboardAnalysisRequest {
+  walletAddress: string;
+  forceRefresh?: boolean;
+  enrichMetadata?: boolean;
+}
+
+export interface DashboardAnalysisResponse {
+  jobId: string;
+  requestId: string;
+  status: string;
+  queueName: string;
+  estimatedProcessingTime: string;
+  monitoringUrl: string;
+}
+
+// Note: JobProgressEvent, JobCompletedEvent, and JobFailedEvent are now imported from websockets.ts
+// to maintain consistency with the existing useJobProgress hook

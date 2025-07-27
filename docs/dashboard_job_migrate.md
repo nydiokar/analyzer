@@ -965,3 +965,117 @@ The implementation is minimal, focused, and leverages existing infrastructure wh
 6. **Documentation**: Clear implementation guide
 
 This plan ensures a smooth transition to the job system while maintaining system stability and user satisfaction.
+
+## Recent Fixes and Optimizations (Latest Session)
+
+### Issues Identified and Resolved
+
+#### 1. **Duplicate Job Completion Events (6897ms vs 2ms)**
+
+**Problem**: The system was receiving duplicate job completion events with different processing times due to both HTTP polling and WebSocket events firing for the same job completion.
+
+**Root Cause**: 
+- `useJobProgress` hook was processing job completion from both HTTP polling (`handleJobCompletedFromHttp`) and WebSocket events (`handleJobCompleted`)
+- If a job completed between the HTTP poll and WebSocket subscription, both handlers would fire
+
+**Solution**:
+- Added `completedJobs` state to track processed job IDs
+- Added duplicate prevention logic in both `handleJobCompletedFromHttp` and `handleJobCompleted`
+- Clear completed jobs when starting new subscription or on cleanup
+
+#### 2. **Duplicate Summary API Calls**
+
+**Problem**: The `/wallets/{walletAddress}/summary` endpoint was being called multiple times on page load.
+
+**Root Cause**:
+- SWR configuration had `revalidateOnMount: true` causing immediate call
+- Combined with polling interval, this created multiple calls
+
+**Solution**:
+- Changed `revalidateOnMount: false` to prevent duplicate initial calls
+- Kept `dedupingInterval: 5000` to prevent rapid duplicate requests
+
+#### 3. **Excessive Frontend Logging**
+
+**Problem**: Redundant logging between `WalletProfileLayout` and `useJobProgress` was cluttering the console.
+
+**Root Cause**:
+- Both components were logging the same WebSocket events
+- `useJobProgress` already provides comprehensive logging
+
+**Solution**:
+- Removed all `console.log` statements from `WalletProfileLayout` job progress callbacks
+- Kept only essential error logging in `useJobProgress`
+- Removed redundant WebSocket connection status logging
+
+#### 4. **Polling vs WebSocket Usage Clarification**
+
+**Current Architecture**:
+- **Initial Status Check**: HTTP polling to get current job status (solves race condition)
+- **Real-time Updates**: WebSocket for live progress updates
+- **Fallback**: Polling when WebSocket is disconnected
+
+This hybrid approach is intentional and correct:
+- HTTP polling ensures we don't miss job completion if it happens before WebSocket subscription
+- WebSocket provides real-time progress updates during job execution
+- Polling fallback ensures reliability when WebSocket is unavailable
+
+### Technical Details
+
+#### useJobProgress Hook Improvements
+```typescript
+// Added duplicate prevention
+const [completedJobs, setCompletedJobs] = useState<Set<string>>(new Set());
+
+// Clear completed jobs on new subscription
+const subscribeToJob = useCallback(async (jobId: string) => {
+  setCompletedJobs(new Set()); // Clear previous completions
+  // ... rest of subscription logic
+}, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp]);
+
+// Prevent duplicate processing
+const handleJobCompleted = (data: JobCompletionData) => {
+  if (completedJobs.has(data.jobId)) {
+    console.log('📢 Job completion already processed - JobId:', data.jobId);
+    return;
+  }
+  setCompletedJobs(prev => new Set(prev).add(data.jobId));
+  // ... process completion
+};
+```
+
+#### SWR Configuration Optimization
+```typescript
+const { data: walletSummary } = useSWR<WalletSummaryData>(
+  walletSummaryKey,
+  fetcher,
+  {
+    revalidateOnFocus: false,
+    revalidateOnMount: false, // Prevent duplicate initial calls
+    revalidateOnReconnect: false,
+    refreshInterval: isPolling ? 10000 : 0,
+    dedupingInterval: 5000, // Prevent rapid duplicates
+  }
+);
+```
+
+### Testing Recommendations
+
+1. **Duplicate Prevention**: Test by rapidly triggering multiple analyses to ensure only one completion event per job
+2. **API Call Reduction**: Monitor network tab to confirm summary endpoint is called only once on initial load
+3. **Logging Cleanup**: Verify console is cleaner with only essential useJobProgress logs
+4. **WebSocket Fallback**: Test by disconnecting WebSocket during analysis to ensure polling fallback works
+
+### Performance Impact
+
+- **Reduced Network Traffic**: Eliminated duplicate API calls
+- **Cleaner Logs**: Reduced console noise for better debugging
+- **Better UX**: No duplicate completion notifications
+- **Maintained Reliability**: WebSocket + polling fallback ensures robust job tracking
+
+### Future Considerations
+
+- Consider implementing job deduplication at the backend level for additional safety
+- Monitor WebSocket connection stability in production
+- Consider implementing exponential backoff for polling intervals
+- Add metrics to track job completion success rates and timing
