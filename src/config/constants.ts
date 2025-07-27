@@ -120,7 +120,10 @@ export const METADATA_FETCHING_CONFIG = {
     adaptiveRateLimiting: true, // Dynamically adjust based on response times
     maxRetries: 2,
     // Caching for metadata ONLY (not price/balance data)
-    cacheExpiryHours: 0.083, // 5 minutes - ONLY for avoiding duplicate calls in same analysis
+    // FIXED: Use 24 hours to allow old tokens like POKE6900 to be refreshed
+    cacheExpiryHours: 1, // 24 hours - allows old tokens like POKE6900 to be refreshed
+    // Price data should be refreshed more frequently
+    priceCacheExpiryMinutes: 1, // 5 minutes for price data
     prioritizeActiveTokens: true, // Prioritize tokens with recent trading activity
   },
   

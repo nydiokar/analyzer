@@ -292,13 +292,32 @@ export default function WalletProfileLayout({
   // Each component will handle its own data loading
   // No detailed data loading at layout level
   
-  // Tab state management - SIMPLIFIED
+  // Tab state management
   const [activeTab, setActiveTab] = useState<string>('token-performance');
   
-  // Simple tab change handler - no complex logic
+  // Simple tab change handler
   const handleTabChange = useCallback((value: string) => {
     setActiveTab(value);
   }, []);
+
+  // Background preloading: After active tab loads, preload other tabs
+  const [preloadedTabs, setPreloadedTabs] = useState<Set<string>>(new Set());
+  
+  // Preload other tabs when active tab is ready
+  useEffect(() => {
+    if (walletSummary && !preloadedTabs.has(activeTab)) {
+      // Mark current tab as preloaded
+      setPreloadedTabs(prev => new Set([...prev, activeTab]));
+      
+      // Preload other tabs in background
+      const tabsToPreload = ['account-stats', 'behavioral-patterns'].filter(tab => tab !== activeTab);
+      tabsToPreload.forEach(tab => {
+        // Trigger SWR fetch for each tab
+        const preloadKey = `/wallets/${walletAddress}?startDate=${startDate?.toISOString()}&endDate=${endDate?.toISOString()}&tab=${tab}`;
+        globalMutate(preloadKey);
+      });
+    }
+  }, [walletSummary, activeTab, preloadedTabs, walletAddress, startDate, endDate, globalMutate]);
 
   // Ensure initial fetch happens when walletSummaryKey becomes available
   useEffect(() => {
@@ -339,7 +358,7 @@ export default function WalletProfileLayout({
         }
       }
     }
-  }, [walletSummary, isPolling, analysisRequestTime, cache, walletAddress, walletSummaryKey]);
+  }, [walletSummary, isPolling, analysisRequestTime, cache, globalMutate, walletAddress, walletSummaryKey]);
 
   useEffect(() => {
     // This effect handles polling timeout
@@ -679,7 +698,7 @@ export default function WalletProfileLayout({
     </div>
   );
 
-  // Progressive loading states - SIMPLIFIED
+  // Progressive loading states - REMOVED global loading
   // Each component will handle its own loading state
   const isInitialLoading = isLoadingFavorites || isLoadingWalletSummary;
   

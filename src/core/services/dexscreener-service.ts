@@ -63,9 +63,13 @@ export class DexscreenerService {
             return;
         }
 
+        logger.info(`🔍 DexScreener: Starting fetch for ${tokenAddresses.length} tokens`);
+
         // OPTIMIZATION 1: Intelligent pre-filtering to reduce API calls
         const filteredTokens = await this.preFilterTokensForDexScreener(tokenAddresses);
         const skippedCount = tokenAddresses.length - filteredTokens.length;
+        
+        logger.info(`🔍 DexScreener: Pre-filtering results - ${filteredTokens.length} tokens to fetch, ${skippedCount} skipped (${((skippedCount/tokenAddresses.length)*100).toFixed(1)}% reduction)`);
         
         if (skippedCount > 0) {
             logger.info(`Pre-filtered ${skippedCount} tokens likely not in DexScreener (${((skippedCount/tokenAddresses.length)*100).toFixed(1)}% reduction)`);
@@ -77,10 +81,12 @@ export class DexscreenerService {
         }
 
         const chunks = this.chunkArray(filteredTokens, METADATA_FETCHING_CONFIG.dexscreener.chunkSize);
+        logger.info(`🔍 DexScreener: Created ${chunks.length} chunks of ${METADATA_FETCHING_CONFIG.dexscreener.chunkSize} tokens each`);
 
         // OPTIMIZATION 2: Parallel processing with controlled concurrency
         const maxConcurrentRequests = METADATA_FETCHING_CONFIG.dexscreener.maxConcurrentRequests;
         let processedCount = 0;
+        let actualApiCalls = 0;
         
         for (let i = 0; i < chunks.length; i += maxConcurrentRequests) {
             // Process multiple chunks in parallel, but respect the concurrency limit
@@ -95,6 +101,7 @@ export class DexscreenerService {
                 }
                 
                 try {
+                    actualApiCalls++;
                     const result = await this.fetchTokensFromDexScreener(chunk);
                     return result;
                 } catch (error) {
@@ -121,6 +128,7 @@ export class DexscreenerService {
             }
         }
 
+        logger.info(`🔍 DexScreener: Final results - ${actualApiCalls} API calls made, ${processedCount} tokens processed out of ${tokenAddresses.length} requested`);
         logger.info(`[DexScreener API] Completed all requests for ${tokenAddresses.length} tokens (${processedCount} processed).`);
     }
 
@@ -301,8 +309,7 @@ export class DexscreenerService {
             // 1. Upsert all found tokens
             if (tokenInfoFromPairs.length > 0) {
                 await this.databaseService.upsertManyTokenInfo(tokenInfoFromPairs);
-                // Only log occasionally to reduce noise
-                // logger.debug(`Saved/updated ${tokenInfoFromPairs.length} token records from API.`);
+                logger.debug(`Saved/updated ${tokenInfoFromPairs.length} token records from API.`);
             }
 
             // 2. Create placeholders for tokens not found
@@ -310,8 +317,8 @@ export class DexscreenerService {
             const notFoundAddresses = chunk.filter(addr => !foundAddresses.has(addr));
 
             if (notFoundAddresses.length > 0) {
-                // Only log warnings occasionally to reduce noise  
-              //  logger.debug(`${notFoundAddresses.length} tokens not found via API. Creating placeholders.`);
+                logger.debug(`${notFoundAddresses.length} tokens not found via API. Creating placeholders.`);
+                
                 const placeholderData = notFoundAddresses.map(addr => ({
                     tokenAddress: addr,
                     name: 'Unknown Token',
@@ -344,6 +351,8 @@ export class DexscreenerService {
      * This can reduce API calls by 60-80% for wallets with many scam/new tokens
      */
     private async preFilterTokensForDexScreener(tokenAddresses: string[]): Promise<string[]> {
+        logger.info(`🔍 Pre-filter: Starting with ${tokenAddresses.length} tokens`);
+        
         // FILTER 1: Check database for recently checked tokens (within configured hours)
         const recentlyCheckedTokens = await this.databaseService.getRecentlyCheckedTokens(
             tokenAddresses, 
@@ -352,6 +361,11 @@ export class DexscreenerService {
         const recentlyCheckedSet = new Set(recentlyCheckedTokens);
         
         const uncheckedTokens = tokenAddresses.filter(addr => !recentlyCheckedSet.has(addr));
+        
+        logger.info(`🔍 Pre-filter: After recently checked filter - ${uncheckedTokens.length} tokens remain (${recentlyCheckedTokens.length} were recently checked)`);
+        logger.info(`🔍 Pre-filter: Cache expiry hours: ${METADATA_FETCHING_CONFIG.dexscreener.cacheExpiryHours} (${METADATA_FETCHING_CONFIG.dexscreener.cacheExpiryHours * 60} minutes)`);
+        
+        
         
         // FILTER 2: Skip known scam/spam patterns (if enabled)
         const validTokens = METADATA_FETCHING_CONFIG.filtering.enableScamTokenFilter 
@@ -364,6 +378,10 @@ export class DexscreenerService {
             })
             : uncheckedTokens;
         
+        logger.info(`🔍 Pre-filter: After scam filter - ${validTokens.length} tokens remain (${uncheckedTokens.length - validTokens.length} filtered as scam)`);
+        
+        
+        
         // FILTER 3: Prioritize tokens by wallet activity (if enabled)
         if (METADATA_FETCHING_CONFIG.filtering.enableActivityPrioritization) {
             const tokensWithActivity = await this.databaseService.getTokensWithRecentActivity(validTokens);
@@ -371,9 +389,13 @@ export class DexscreenerService {
                 ...tokensWithActivity, // Tokens with recent trading activity first
                 ...validTokens.filter(addr => !tokensWithActivity.includes(addr)) // Other tokens last
             ];
+            
+            logger.info(`🔍 Pre-filter: After activity prioritization - ${prioritizedTokens.length} tokens (${tokensWithActivity.length} with recent activity)`);
+            
             return prioritizedTokens;
         }
         
+        logger.info(`🔍 Pre-filter: Final result - ${validTokens.length} tokens to fetch`);
         return validTokens;
     }
 } 

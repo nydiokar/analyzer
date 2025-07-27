@@ -219,63 +219,133 @@ export class EnrichmentOperationsProcessor {
     
     this.logger.log(`Starting enrichment for ${uniqueTokens.length} unique tokens`);
     
+    // FILTER: Only process tokens that are likely to have metadata
+    // This filters out account addresses, closed accounts, and tokens with zero balances
+    const meaningfulTokens = uniqueTokens.filter(tokenAddress => {
+      // Check if this token has any meaningful balance across all wallets
+      const hasMeaningfulBalance = Object.values(walletBalances).some(wallet => {
+        const tokenBalance = wallet.tokenBalances?.find(t => t.mint === tokenAddress);
+        if (!tokenBalance) return false;
+        
+        // Check if token has a meaningful balance (not zero or very small)
+        const uiBalance = tokenBalance.uiBalance || 0;
+        const rawBalance = tokenBalance.balance || '0';
+        
+        // Skip tokens with zero or very small balances (likely closed accounts)
+        if (uiBalance <= 0 || BigInt(rawBalance) === BigInt(0)) return false;
+        
+        // Skip tokens with extremely small balances (dust)
+        if (uiBalance < 0.001) return false;
+        
+        return true;
+      });
+      
+      return hasMeaningfulBalance;
+    });
+    
+    this.logger.log(`Filtered to ${meaningfulTokens.length} meaningful tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as likely account addresses or zero balances)`);
+    
     // STEP 1: Get existing tokens from database (database-first approach)
-    const existingTokens = await this.tokenInfoService.findMany(uniqueTokens);
+    const existingTokens = await this.tokenInfoService.findMany(meaningfulTokens);
     const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
     
-    // STEP 2: Filter to only fetch tokens that don't exist or are stale (5 minutes)
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const tokensToFetch = uniqueTokens.filter(address => {
+    // STEP 2: Filter to only fetch tokens that don't exist or are stale (1 hour for metadata, 5 minutes for prices)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata
+    const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000); // 5 minutes for prices
+    
+    const tokensToFetch = meaningfulTokens.filter(address => {
       const existingToken = existingTokenMap.get(address);
-      return !existingToken || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
+      
+      // Skip tokens that are clearly placeholders (Unknown Token with no real data)
+      if (existingToken?.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {
+        // Only refresh placeholders if they're older than 1 hour
+        const isPlaceholderStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
+        return isPlaceholderStale;
+      }
+      
+      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (5 minutes)
+      if (existingToken) {
+        const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
+        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
+        
+        // Only fetch if metadata is stale OR if we have price data but it's stale
+        return metadataStale || (existingToken.priceUsd && priceStale);
+      }
+      
+      // New token - always fetch
+      return true;
     });
     
     this.logger.log(`Found ${existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
     
+    // Log breakdown of why tokens are being fetched
+    const newTokens = meaningfulTokens.filter(address => !existingTokenMap.has(address));
+    const staleTokens = meaningfulTokens.filter(address => {
+      const existingToken = existingTokenMap.get(address);
+      if (!existingToken) return false;
+      
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000);
+      
+      // Check if it's a placeholder that needs refresh
+      if (existingToken.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {
+        return !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
+      }
+      
+      // Check if metadata or price is stale
+      const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
+      const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
+      
+      return metadataStale || (existingToken.priceUsd && priceStale);
+    });
+    
+    this.logger.log(`Breakdown: ${newTokens.length} new tokens, ${staleTokens.length} stale tokens`);
+    
     let newTokensFetched = 0;
     
-            // STEP 3: Only fetch new/stale tokens from DexScreener
-        if (tokensToFetch.length > 0) {
-          // Process tokens in batches with cancellation checks
-          const batchSize = 500; // Smaller batches for better cancellation responsiveness
-          let processedTokens = 0;
-          
-          for (let i = 0; i < tokensToFetch.length; i += batchSize) {
-            // Check for cancellation before each batch
-            await this.checkJobCancellation(job);
-            
-            const batch = tokensToFetch.slice(i, i + batchSize);
-            
-            try {
-              // Process this batch using TokenInfoService (which has proper database logic)
-              await this.tokenInfoService.triggerTokenInfoEnrichment(batch, 'system-enrichment-job');
-              processedTokens += batch.length;
-              newTokensFetched += batch.length;
-          
-          // Update progress
-          const progress = Math.min(90, Math.floor((processedTokens / tokensToFetch.length) * 90));
-          await job.updateProgress(progress);
-          await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
-          
-          this.logger.log(`Enriched batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(tokensToFetch.length / batchSize)} (${processedTokens}/${tokensToFetch.length} tokens)`);
-          
-        } catch (error) {
-          if (error instanceof Error && error.message.includes('cancelled')) {
-            throw error; // Re-throw cancellation errors
-          }
-          
-          this.logger.warn(`Failed to enrich batch starting at index ${i}:`, error);
-          // Continue with other batches instead of failing the entire job
-        }
+    // STEP 3: Only fetch new/stale tokens from DexScreener
+    if (tokensToFetch.length > 0) {
+      // Process tokens in batches with cancellation checks
+      const batchSize = 500; // Smaller batches for better cancellation responsiveness
+      let processedTokens = 0;
+      
+      for (let i = 0; i < tokensToFetch.length; i += batchSize) {
+        // Check for cancellation before each batch
+        await this.checkJobCancellation(job);
+        
+        const batch = tokensToFetch.slice(i, i + batchSize);
+        
+        try {
+          // Process this batch using TokenInfoService (which has proper database logic)
+          await this.tokenInfoService.triggerTokenInfoEnrichment(batch, 'system-enrichment-job');
+          processedTokens += batch.length;
+          newTokensFetched += batch.length;
+      
+      // Update progress
+      const progress = Math.min(90, Math.floor((processedTokens / tokensToFetch.length) * 90));
+      await job.updateProgress(progress);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
+      
+      this.logger.log(`Enriched batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(tokensToFetch.length / batchSize)} (${processedTokens}/${tokensToFetch.length} tokens)`);
+      
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('cancelled')) {
+        throw error; // Re-throw cancellation errors
       }
-    } else {
-      this.logger.log('All tokens already have recent metadata, no API calls needed');
-      await job.updateProgress(90);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
+      
+      this.logger.warn(`Failed to enrich batch starting at index ${i}:`, error);
+      // Continue with other batches instead of failing the entire job
     }
+  }
+} else {
+  this.logger.log('All tokens already have recent metadata, no API calls needed');
+  await job.updateProgress(90);
+  await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
+}
+
     
     // STEP 4: Return enriched balances with metadata from database
-    const finalTokenInfos = await this.tokenInfoService.findMany(uniqueTokens);
+    const finalTokenInfos = await this.tokenInfoService.findMany(meaningfulTokens);
     const finalTokenMap = new Map(finalTokenInfos.map(t => [t.tokenAddress, t]));
     
     // Enrich the wallet balances with the final metadata and USD values

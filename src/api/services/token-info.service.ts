@@ -24,15 +24,32 @@ export class TokenInfoService implements ITokenInfoService {
     });
 
     const existingTokens = await this.findMany(tokenAddresses);
-    // Update token prices every 1 minute for active trading
-    const oneMinuteAgo = new Date(Date.now() - 1 * 60 * 1000);
+    // FIXED: Use more reasonable cache expiry - 1 hour for metadata, 5 minutes for prices
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata
+    const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000); // 5 minutes for prices
 
     const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
     
     const newTokensToFetch = tokenAddresses.filter(address => {
       const existingToken = existingTokenMap.get(address);
-      // Fetch if the token doesn't exist OR if it exists but hasn't been updated in the last 1 minute.
-      return !existingToken || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneMinuteAgo;
+      
+      // Skip tokens that are clearly placeholders (Unknown Token with no real data)
+      if (existingToken?.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {
+        // Only refresh placeholders if they're older than 1 hour
+        return !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
+      }
+      
+      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (5 minutes)
+      if (existingToken) {
+        const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
+        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
+        
+        // Only fetch if metadata is stale OR if we have price data but it's stale
+        return metadataStale || (existingToken.priceUsd && priceStale);
+      }
+      
+      // New token - always fetch
+      return true;
     });
 
     // This is no longer fire-and-forget. We must await completion.
