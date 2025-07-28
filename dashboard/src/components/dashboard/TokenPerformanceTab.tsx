@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, useEffect, memo, startTransition, useDeferredValue } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, memo, startTransition, useDeferredValue, useRef } from 'react';
 import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store'; 
 import { Card, Text, Flex } from '@tremor/react';
@@ -357,7 +357,11 @@ const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyz
     accessorFn: (row) => {
       const totalPnl = row.totalPnlSol ?? 0;
       const totalSpent = row.totalSolSpent ?? 0;
-      return totalSpent !== 0 ? (totalPnl / totalSpent) * 100 : 0;
+      // Match backend sorting logic: when no investment was made, use specific values for proper sorting
+      if (totalSpent === 0) {
+        return totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0;
+      }
+      return (totalPnl / totalSpent) * 100;
     },
     id: 'roi',
     header: 'ROI (%)',
@@ -365,7 +369,13 @@ const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyz
       const item = row.original;
       const totalPnl = item.totalPnlSol ?? 0;
       const totalSpent = item.totalSolSpent ?? 0;
-      const roi = totalSpent !== 0 ? (totalPnl / totalSpent) * 100 : 0;
+      
+      // No investment made - show N/A instead of confusing 0%
+      if (totalSpent === 0) {
+        return <span className="text-slate-400 dark:text-slate-500 text-sm">N/A</span>;
+      }
+      
+      const roi = (totalPnl / totalSpent) * 100;
       return roi === Infinity ? <span className="text-emerald-600 dark:text-emerald-400 font-semibold">∞</span> : roi === -Infinity ? <span className="text-red-500 dark:text-red-400 font-semibold">-∞</span> : formatPercentage(roi);
     },
     meta: { className: 'text-right px-2 min-w-[90px]' },
@@ -653,6 +663,23 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     }
   }, [walletAddress, apiKey]); // Removed localMutate from dependencies
 
+  // Effect to auto-refresh when analysis completes
+  const prevAnalyzingRef = useRef(isAnalyzingGlobal);
+  useEffect(() => {
+    const wasAnalyzing = prevAnalyzingRef.current;
+    const isAnalyzingNow = isAnalyzingGlobal;
+    
+    // Analysis just completed (was true, now false)
+    if (wasAnalyzing && !isAnalyzingNow && swrKey) {
+      console.log('🔄 Analysis completed, refreshing token data...');
+      setTimeout(() => {
+        localMutate();
+      }, 1000); // Small delay to ensure backend is ready
+    }
+    
+    prevAnalyzingRef.current = isAnalyzingNow;
+  }, [isAnalyzingGlobal, swrKey, localMutate]);
+
   const handlePnlFilterChange = (newValue: string) => {
     startTransition(() => {
       setPnlFilter(newValue);
@@ -753,10 +780,10 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="error" title="Error Loading Data" description={error.message} /></TableCell></TableRow></TableBody>;
     }
     
-    // If the parent component is analyzing, show a specific state.
-    if (isAnalyzingGlobal && !tableData.length) {
-      return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={Loader2} title="Analyzing Wallet..." description="Please wait while the wallet analysis is in progress. Token performance data will update shortly." className="my-8" /></TableCell></TableRow></TableBody>;
-    }
+    // Remove duplicate analyzing state - progress is shown in main layout
+    // if (isAnalyzingGlobal && !tableData.length) {
+    //   return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={Loader2} title="Analyzing Wallet..." description="Please wait while the wallet analysis is in progress. Token performance data will update shortly." className="my-8" /></TableCell></TableRow></TableBody>;
+    // }
 
     // If there's no data, check if we're enriching before declaring "No Token Data".
     if (tableData.length === 0) {

@@ -87,7 +87,7 @@ export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 // Performance configuration for Helius API
 export const HELIUS_CONFIG = {
   DEFAULT_RPS: 25, // Requests per second (adjust based on your Helius plan)
-  INTERNAL_CONCURRENCY: 10, // Concurrent batches for transaction detail fetching (reduced from 5)
+  INTERNAL_CONCURRENCY: 5, // Concurrent batches for transaction detail fetching (reduced to avoid rate limits)
   BATCH_SIZE: 100, // Signatures per batch request
 } as const;
 
@@ -106,7 +106,7 @@ export const DASHBOARD_JOB_CONFIG = {
   SYNC_TIMEOUT_MINUTES: 20,
   ENRICHMENT_TIMEOUT_MINUTES: 20,
   MAX_RETRIES: 3,
-  PROGRESS_UPDATE_INTERVAL: 5000, // 5 seconds
+  PROGRESS_UPDATE_INTERVAL: 2000, // 5 seconds
   ENABLED: process.env.USE_DASHBOARD_JOB_SYSTEM === 'true' || false, // Feature flag
 } as const;
 

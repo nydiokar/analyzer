@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { debounce } from 'lodash';
 import { fetcher } from '@/lib/fetcher'; // Use the global fetcher
 import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
+import { DashboardAnalysisResponse } from '@/types/api';
 
 const DEBOUNCE_DELAY = 500;
 const MIN_QUERY_LENGTH = 3;
@@ -91,15 +92,23 @@ export function WalletSearch() {
     setIsAnalyzing(true);
     setAnalysisTarget(walletAddress);
     try {
-      const result = await fetcher(`/analyses/wallets/${walletAddress}/trigger-analysis`, {
+      // Use the new dashboard analysis endpoint instead of deprecated trigger-analysis
+      const requestData = {
+        walletAddress,
+        forceRefresh: true,
+        enrichMetadata: true,
+      };
+      
+      const result: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
         method: 'POST',
+        body: JSON.stringify(requestData),
       });
       
-      toast.success(result.message || `Analysis started for ${walletAddress.substring(0,6)}...`);
+      toast.success(`Analysis queued for ${walletAddress.substring(0,6)}...`);
       
-      globalMutate((key: any) => Array.isArray(key) && key[0].includes('/users/me/favorites'));
-      mutateSearch();
-
+      // Navigate to the wallet page to show progress, passing the job ID
+      window.location.href = `/wallets/${walletAddress}?jobId=${result.jobId}`;
+      
     } catch (err: any) {
       toast.error(`Analysis error: ${err.message}`);
     } finally {
@@ -167,7 +176,7 @@ export function WalletSearch() {
           
           {!searchError && !isSearchLoading && searchResults && searchResults.length > 0 && (
             <ul className="space-y-0.5">
-              {searchResults.map((wallet) => (
+              {searchResults.map((wallet: WalletSearchResultItem) => (
                 <li key={wallet.address}>
                   <Link 
                     href={`/wallets/${wallet.address}`} 

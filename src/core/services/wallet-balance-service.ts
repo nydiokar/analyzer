@@ -333,9 +333,16 @@ export class WalletBalanceService {
    */
   public async fetchWalletBalances(
     walletAddresses: string[],
-    commitment?: string
+    commitment?: string,
+    skipEnrichment: boolean = false
   ): Promise<Map<string, WalletBalance>> {
     const rawBalances = await this.fetchWalletBalancesRaw(walletAddresses, commitment);
+    
+    if (skipEnrichment) {
+      logger.debug(`Skipping token metadata enrichment for ${walletAddresses.length} wallets (performance optimization - reduces API contention)`);
+      return rawBalances;
+    }
+    
     return await this.enrichWalletBalancesWithMetadata(rawBalances);
   }
 

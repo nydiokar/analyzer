@@ -296,46 +296,34 @@ export class AnalysisOperationsProcessor {
                        walletStatuses.statuses[0].status === 'MISSING' || 
                        forceRefresh;
       
-      // 2. Start sync and balance fetch in parallel (like similarity processor)
-      this.logger.debug('🚀 Starting sync and balance fetch in parallel...');
+      // 2. Sequential processing to avoid API rate limiting
+      this.logger.log('🚀 Starting sequential sync and balance fetch...');
       
-      // Start sync immediately (if needed) - DON'T await yet
-      const syncPromise = needsSync 
-        ? (async () => {
-            this.logger.debug(`Wallet ${walletAddress} needs sync, starting sync process`);
-            const syncOptions: SyncOptions = {
-              limit: 100,
-              fetchAll: true,
-              skipApi: false,
-              fetchOlder: true,
-              maxSignatures: ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES,
-              smartFetch: true,
-            };
-            await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-          })()
-        : Promise.resolve();
-
-      // Start balance fetching in parallel - DON'T await yet
-      const balancePromise = (async () => {
-        const walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService, this.tokenInfoService);
-        return await walletBalanceService.fetchWalletBalances([walletAddress]);
-      })();
-      
-      await job.updateProgress(15);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 15);
-
-      // 3. Wait for sync to complete FIRST (critical for analysis)
-      this.logger.debug('⏳ Waiting for sync to complete (critical for analysis)...');
-      const syncResult = await syncPromise;
-      this.logger.debug(`✅ SYNC COMPLETED: Wallet data synced for analysis`);
+      // Start sync first (if needed)
+      if (needsSync) {
+        await job.updateProgress(15);
+        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 15);
+        this.logger.log(`📡 Syncing wallet data for ${walletAddress}...`);
+        const syncOptions: SyncOptions = {
+          limit: 100,
+          fetchAll: true,
+          skipApi: false,
+          fetchOlder: true,
+          maxSignatures: ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES,
+          smartFetch: true,
+        };
+        await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+        this.logger.log(`✅ SYNC COMPLETED: Wallet data synced for analysis`);
+      }
       
       await job.updateProgress(25);
       await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 25);
       
-      // 4. Wait for balance fetch to complete (for PNL analysis)
-      this.logger.debug('⏳ Waiting for balance fetch to complete (for PNL analysis)...');
-      const balanceData = await balancePromise;
-      this.logger.debug(`✅ BALANCE FETCH COMPLETED: Balances available for PNL analysis`);
+      // Start balance fetching AFTER sync completes (no API contention)
+      this.logger.log('💰 Starting balance fetch after sync...');
+      const walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService, this.tokenInfoService);
+      const balanceData = await walletBalanceService.fetchWalletBalances([walletAddress], 'default', true); // skipEnrichment = true
+      this.logger.log(`✅ BALANCE FETCH COMPLETED: Balances available for PNL analysis`);
       
       await job.updateProgress(30);
       await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 30);
@@ -349,7 +337,7 @@ export class AnalysisOperationsProcessor {
       // 6. Run analysis sequentially (NOT in parallel to avoid race conditions)
       await job.updateProgress(50);
       await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 50);
-      this.logger.debug(`Starting PNL and behavior analysis for ${walletAddress}`);
+      this.logger.log(`📊 Starting analysis for ${walletAddress}`);
       
       // Run PNL analysis first with pre-fetched balances
       const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, { preFetchedBalances: balanceData });
@@ -370,48 +358,44 @@ export class AnalysisOperationsProcessor {
       if (enrichMetadata) {
         await job.updateProgress(85);
         await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 85);
-        this.logger.debug(`Queueing token enrichment for ${walletAddress} (after analysis completion)`);
+        // Queue token enrichment after analysis completion
         
         try {
-          // Use the balance data we already fetched for enrichment
-          let walletBalancesForEnrichment = {};
+          // ALWAYS use analysis results for enrichment to ensure we only enrich displayed tokens
+          // Get token addresses from completed analysis results for targeted enrichment
+          const analysisResults = await this.databaseService.getAnalysisResults({
+            where: { walletAddress }
+          });
           
-          if (balanceData && balanceData.size > 0) {
-            walletBalancesForEnrichment = Object.fromEntries(balanceData);
-            this.logger.debug(`Using pre-fetched balance data for enrichment: ${balanceData.size} entries`);
-          } else {
-            // FALLBACK: Now that analysis is complete, we can safely query AnalysisResult table
-            this.logger.debug(`Balance data not available, getting token addresses from completed analysis results`);
-            const analysisResults = await this.databaseService.getAnalysisResults({
-              where: { walletAddress }
-            });
+          if (analysisResults.length > 0) {
+            const tokenAddresses = [...new Set(analysisResults.map(ar => ar.tokenAddress))];
+            this.logger.log(`🎯 Targeted enrichment: ${tokenAddresses.length} tokens from analysis results (reduced from ${balanceData?.size || 'unknown'} balance entries)`);
             
-            if (analysisResults.length > 0) {
-              const tokenAddresses = [...new Set(analysisResults.map(ar => ar.tokenAddress))];
-              this.logger.debug(`Found ${tokenAddresses.length} unique tokens from analysis results for enrichment`);
-              
-              // Create a minimal wallet balances structure for enrichment
-              walletBalancesForEnrichment = {
-                [walletAddress]: {
-                  tokenBalances: tokenAddresses.map(address => ({ mint: address }))
-                }
-              };
-            } else {
-              this.logger.warn(`No analysis results found for ${walletAddress}, skipping enrichment`);
-            }
-          }
-          
-          if (Object.keys(walletBalancesForEnrichment).length > 0) {
+            // Create enrichment structure with meaningful balance data to avoid filtering
+            const walletBalancesForEnrichment = {
+              [walletAddress]: {
+                tokenBalances: tokenAddresses.map(address => {
+                  // Find the analysis result for this token to get balance info
+                  const analysisResult = analysisResults.find(ar => ar.tokenAddress === address);
+                  return {
+                    mint: address,
+                    uiBalance: Math.max(analysisResult?.currentUiBalance || 0, 1), // Ensure non-zero to pass filtering
+                    balance: '1000000' // Provide a non-zero raw balance
+                  };
+                })
+              }
+            };
+            
             enrichmentJob = await this.enrichmentOperationsQueue.addEnrichTokenBalances({
               walletBalances: walletBalancesForEnrichment,
               requestId: job.data.requestId,
-              priority: 3
+              priority: 3,
+              enrichmentContext: 'dashboard-analysis' // Add context to help enrichment processor
             });
             enrichmentJobId = enrichmentJob.id;
-            this.logger.debug(`Background enrichment job queued: ${enrichmentJobId} for wallet: ${walletAddress}`);
             // DON'T wait for enrichment - keep it truly parallel!
           } else {
-            this.logger.warn(`No token data available for enrichment, skipping enrichment job`);
+            this.logger.warn(`No analysis results found for ${walletAddress}, skipping enrichment`);
           }
         } catch (error) {
           this.logger.warn(`Failed to queue enrichment job, continuing without enrichment:`, error);
@@ -431,9 +415,9 @@ export class AnalysisOperationsProcessor {
         processingTimeMs: Date.now() - startTime
       };
 
-      // Log timing for debugging
+      // Log timing and performance metrics
       const actualProcessingTime = Date.now() - startTime;
-      this.logger.log(`Dashboard analysis completed for ${walletAddress} in ${actualProcessingTime}ms`);
+      this.logger.log(`✅ Dashboard analysis completed for ${walletAddress} in ${actualProcessingTime}ms${enrichmentJobId ? ' (enrichment queued)' : ''}`);
 
       // Publish completion event with actual processing time (like similarity processor)
       await this.jobProgressGateway.publishCompletedEvent(

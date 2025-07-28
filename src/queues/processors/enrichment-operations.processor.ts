@@ -30,7 +30,7 @@ export class EnrichmentOperationsProcessor {
     );
 
     this.worker.on('completed', (job) => {
-      this.logger.log(`Job ${job.id} completed successfully`);
+      this.logger.log(` ✅ Job ${job.id} completed successfully`);
     });
 
     this.worker.on('failed', (job, err) => {
@@ -171,14 +171,12 @@ export class EnrichmentOperationsProcessor {
       try {
         await job.updateProgress(5);
         await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
-        this.logger.log(`Processing sophisticated token enrichment for ${Object.keys(walletBalances).length} wallets`);
 
         // Use the sophisticated logic from enrichBalances method
         const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
 
         await job.updateProgress(100);
         await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
-        this.logger.log(`Sophisticated token enrichment completed successfully`);
         
         // Format the result according to the new interface
         const result: EnrichTokenBalancesResult = {
@@ -217,12 +215,13 @@ export class EnrichmentOperationsProcessor {
     const allTokens = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
     const uniqueTokens = [...new Set(allTokens)];
     
-    this.logger.log(`Starting enrichment for ${uniqueTokens.length} unique tokens`);
+    this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} unique tokens`);
     
     // FILTER: Only process tokens that are likely to have metadata
     // This filters out account addresses, closed accounts, and tokens with zero balances
     const meaningfulTokens = uniqueTokens.filter(tokenAddress => {
-      // Check if this token has any meaningful balance across all wallets
+      // For dashboard-triggered enrichment, include all tokens from analysis results
+      // as they're already filtered for relevance
       const hasMeaningfulBalance = Object.values(walletBalances).some(wallet => {
         const tokenBalance = wallet.tokenBalances?.find(t => t.mint === tokenAddress);
         if (!tokenBalance) return false;
@@ -231,11 +230,9 @@ export class EnrichmentOperationsProcessor {
         const uiBalance = tokenBalance.uiBalance || 0;
         const rawBalance = tokenBalance.balance || '0';
         
-        // Skip tokens with zero or very small balances (likely closed accounts)
-        if (uiBalance <= 0 || BigInt(rawBalance) === BigInt(0)) return false;
-        
-        // Skip tokens with extremely small balances (dust)
-        if (uiBalance < 0.001) return false;
+        // For dashboard analysis tokens, be more lenient with filtering
+        // Skip only if both UI and raw balance are explicitly zero
+        if (uiBalance === 0 && rawBalance === '0') return false;
         
         return true;
       });
@@ -251,7 +248,7 @@ export class EnrichmentOperationsProcessor {
     
     // STEP 2: Filter to only fetch tokens that don't exist or are stale (1 hour for metadata, 5 minutes for prices)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata
-    const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000); // 5 minutes for prices
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes for prices
     
     const tokensToFetch = meaningfulTokens.filter(address => {
       const existingToken = existingTokenMap.get(address);
@@ -284,7 +281,7 @@ export class EnrichmentOperationsProcessor {
       const existingToken = existingTokenMap.get(address);
       if (!existingToken) return false;
       
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const oneHourAgo = new Date(Date.now() - 1 * 60 * 1000);
       const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000);
       
       // Check if it's a placeholder that needs refresh

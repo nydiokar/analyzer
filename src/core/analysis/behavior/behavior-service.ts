@@ -15,7 +15,7 @@ export class BehaviorService {
     private config: BehaviorAnalysisConfig
   ) {
     this.behaviorAnalyzer = new BehaviorAnalyzer(config); // Pass specific config
-    logger.info('BehaviorService instantiated');
+    logger.debug('BehaviorService instantiated');
   }
 
   /**
@@ -30,7 +30,7 @@ export class BehaviorService {
     walletAddress: string,
     timeRange?: { startTs?: number; endTs?: number }
   ): Promise<BehavioralMetrics | null> {
-    logger.info(`Analyzing trading behavior for wallet ${walletAddress}`);
+    logger.debug(`Analyzing trading behavior for wallet ${walletAddress}`);
 
     try {
       // Fetch swap records using the injected DatabaseService

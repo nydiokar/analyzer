@@ -76,6 +76,7 @@ export interface EnrichTokenBalancesJobData {
   requestId: string;
   priority?: number;
   optimizationHint?: 'small' | 'large' | 'massive'; // For smart batching
+  enrichmentContext?: 'dashboard-analysis' | 'similarity-analysis' | 'manual'; // Context for filtering decisions
 }
 
 

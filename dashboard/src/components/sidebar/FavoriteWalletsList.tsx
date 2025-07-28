@@ -52,7 +52,7 @@ interface FavoriteWalletsListProps {
 
 
 export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
-  const { favorites: favoriteWallets, error, isLoading, mutate: mutateFavorites } = useFavorites();
+  const { favorites: favoriteWallets, error, mutate: mutateFavorites } = useFavorites();
   const { isInitialized, apiKey: hasApiKey } = useApiKeyStore();
   
   // Filter state
@@ -70,9 +70,9 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
   const portfolioStats = useMemo(() => {
     if (!favoriteWallets?.length) return null;
     
-    const totalPnl = favoriteWallets.reduce((sum, wallet) => sum + (wallet.pnl || 0), 0);
+    const totalPnl = favoriteWallets.reduce((sum: number, wallet: FavoriteWallet) => sum + (wallet.pnl || 0), 0);
     const recentWallet = favoriteWallets
-      .sort((a, b) => {
+      .sort((a: FavoriteWallet, b: FavoriteWallet) => {
         const aTime = a.lastViewedAt ? new Date(a.lastViewedAt).getTime() : new Date(a.createdAt).getTime();
         const bTime = b.lastViewedAt ? new Date(b.lastViewedAt).getTime() : new Date(b.createdAt).getTime();
         return bTime - aTime;
@@ -90,7 +90,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     if (!favoriteWallets?.length) return new Map();
     
     const cache = new Map<string, number>();
-    favoriteWallets.forEach(wallet => {
+    favoriteWallets.forEach((wallet: FavoriteWallet) => {
       const time = wallet.lastViewedAt ? new Date(wallet.lastViewedAt).getTime() : new Date(wallet.createdAt).getTime();
       cache.set(wallet.walletAddress, time);
     });
@@ -101,8 +101,8 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
   const allTags = useMemo(() => {
     if (!favoriteWallets?.length) return [];
     const tagSet = new Set<string>();
-    favoriteWallets.forEach(wallet => {
-      wallet.tags?.forEach(tag => tagSet.add(tag));
+    favoriteWallets.forEach((wallet: FavoriteWallet) => {
+      wallet.tags?.forEach((tag: string) => tagSet.add(tag));
     });
     return Array.from(tagSet).sort();
   }, [favoriteWallets]);
@@ -110,8 +110,8 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
   const allCollections = useMemo(() => {
     if (!favoriteWallets?.length) return [];
     const collectionSet = new Set<string>();
-    favoriteWallets.forEach(wallet => {
-      wallet.collections?.forEach(collection => collectionSet.add(collection));
+    favoriteWallets.forEach((wallet: FavoriteWallet) => {
+      wallet.collections?.forEach((collection: string) => collectionSet.add(collection));
     });
     return Array.from(collectionSet).sort();
   }, [favoriteWallets]);
@@ -123,11 +123,11 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
     let filtered = favoriteWallets;
     
     if (filterMode === 'tag' && selectedTag) {
-      filtered = favoriteWallets.filter(wallet => 
+      filtered = favoriteWallets.filter((wallet: FavoriteWallet) => 
         wallet.tags?.includes(selectedTag)
       );
     } else if (filterMode === 'collection' && selectedCollection) {
-      filtered = favoriteWallets.filter(wallet => 
+      filtered = favoriteWallets.filter((wallet: FavoriteWallet) => 
         wallet.collections?.includes(selectedCollection)
       );
     }
@@ -142,7 +142,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
 
   // Memoized callbacks for performance
   const handleRemoveFavorite = useCallback((walletAddress: string) => {
-    const wallet = favoriteWallets?.find(w => w.walletAddress === walletAddress);
+    const wallet = favoriteWallets?.find((w: FavoriteWallet) => w.walletAddress === walletAddress);
     if (wallet) {
       setWalletToDelete(wallet);
     }
@@ -323,7 +323,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                         <span className="text-sm font-medium text-muted-foreground">Tags</span>
                       </div>
                       <div className="flex flex-wrap gap-1">
-                        {wallet.tags?.map(tag => (
+                        {wallet.tags?.map((tag: string) => (
                           <Badge 
                             key={tag} 
                             variant="secondary" 
@@ -343,7 +343,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                         <span className="text-sm font-medium text-muted-foreground">Collections</span>
                       </div>
                       <div className="flex flex-wrap gap-1">
-                        {wallet.collections?.map(collection => (
+                        {wallet.collections?.map((collection: string) => (
                           <Badge 
                             key={collection} 
                             className={`text-xs px-2 py-1 ${getCollectionColor(collection)}`}
@@ -434,7 +434,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
             </PopoverTrigger>
             <PopoverContent className="w-56 p-2" side="right">
               <div className="space-y-1">
-                {allTags.map(tag => (
+                {allTags.map((tag: string) => (
                   <Button
                     key={tag}
                     variant="ghost"
@@ -445,7 +445,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                     <Badge className={`mr-2 ${getTagColor(tag)}`}>
                   {tag}
                 </Badge>
-                    ({favoriteWallets?.filter(w => w.tags?.includes(tag)).length || 0})
+                    ({favoriteWallets?.filter((w: FavoriteWallet) => w.tags?.includes(tag)).length || 0})
                   </Button>
               ))}
             </div>
@@ -466,7 +466,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
             </PopoverTrigger>
             <PopoverContent className="w-56 p-2" side="right">
               <div className="space-y-1">
-                {allCollections.map(collection => (
+                {allCollections.map((collection: string) => (
                   <Button
                     key={collection}
                     variant="ghost"
@@ -477,7 +477,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
                     <Badge className={`mr-2 ${getCollectionColor(collection)}`}>
                   {collection}
                 </Badge>
-                    ({favoriteWallets?.filter(w => w.collections?.includes(collection)).length || 0})
+                    ({favoriteWallets?.filter((w: FavoriteWallet) => w.collections?.includes(collection)).length || 0})
                   </Button>
               ))}
             </div>
@@ -520,15 +520,6 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
           <Info className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Enter an API Key in</p>
           <Link href="/settings" className="text-sm text-blue-500 hover:underline">Settings</Link>
-        </div>
-      );
-    }
-    
-    if (isLoading) {
-      return (
-        <div className="p-4 text-center">
-          <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-          <p className="text-sm text-muted-foreground">Loading favorites...</p>
         </div>
       );
     }
@@ -592,7 +583,7 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
 
   // Get current editing wallet data
   const currentEditingWallet = useMemo(() => {
-    return editingWallet ? favoriteWallets?.find(w => w.walletAddress === editingWallet) : null;
+    return editingWallet ? favoriteWallets?.find((w: FavoriteWallet) => w.walletAddress === editingWallet) : null;
   }, [editingWallet, favoriteWallets]);
 
   // Render favorites trigger button for sidebar

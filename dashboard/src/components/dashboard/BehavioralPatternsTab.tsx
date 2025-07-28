@@ -134,18 +134,18 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
     }
   );
 
-  // Show global analyzing state first
-  if (isAnalyzingGlobal) {
-    return (
-      <EmptyState
-        variant="default"
-        icon={Loader2}
-        title="Analyzing Wallet..."
-        description="Please wait while the wallet analysis is in progress. Behavioral patterns will update shortly."
-        className="mt-4 md:mt-6 lg:mt-8"
-      />
-    );
-  }
+  // Remove duplicate analyzing state - progress is shown in main layout
+  // if (isAnalyzingGlobal) {
+  //   return (
+  //     <EmptyState
+  //       variant="default"
+  //       icon={Loader2}
+  //       title="Analyzing Wallet..."
+  //       description="Please wait while the wallet analysis is in progress. Behavioral patterns will update shortly."
+  //       className="mt-4 md:mt-6 lg:mt-8"
+  //     />
+  //   );
+  // }
 
   if (behaviorIsLoading && !isAnalyzingGlobal) {
     return (

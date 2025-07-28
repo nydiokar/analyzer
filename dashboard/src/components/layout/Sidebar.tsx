@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SettingsIcon, HelpCircleIcon, BriefcaseIcon, SearchIcon, FlaskConical } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, BriefcaseIcon, SearchIcon, FlaskConical } from 'lucide-react';
 import {
     Tooltip,
     TooltipContent,
@@ -24,12 +24,16 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
 
   return (
     <aside 
-      className={`h-screen p-4 border-r bg-gray-50 dark:bg-gray-800 flex flex-col transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-64'}`}
+      className={`h-screen p-3 border-r bg-gray-50 dark:bg-gray-800 flex flex-col transition-all duration-300 ease-in-out ${isCollapsed ? 'w-18' : 'w-56'}`}
     >
       <TooltipProvider delayDuration={100}>
         {/* Header - Always visible */}
-        <div className="flex items-center justify-between mb-6 flex-shrink-0">
-          {!isCollapsed && <span className="text-xl font-semibold">Sova Intel</span>}
+        <div className="flex items-center justify-between mb-5 flex-shrink-0">
+          {!isCollapsed && (
+            <Link href="/" className="text-xl font-semibold hover:text-primary transition-colors">
+              Sova Intel
+            </Link>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button 
@@ -84,25 +88,14 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             <li className="mb-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
-                    <HomeIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                    {!isCollapsed && <span className="flex-1 font-semibold">Dashboard Home</span>}
+                  <Link href="/similarity-lab" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
+                    <FlaskConical size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
+                    {!isCollapsed && <span className="flex-1 font-semibold">Similarity LAB</span>}
                   </Link>
                 </TooltipTrigger>
-                {isCollapsed && <TooltipContent side="right" align="center"><p>Dashboard Home</p></TooltipContent>}
+                {isCollapsed && <TooltipContent side="right" align="center"><p>Similarity LAB</p></TooltipContent>}
               </Tooltip>
             </li>
-              <li className="mb-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link href="/similarity-lab" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
-                      <FlaskConical size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
-                      {!isCollapsed && <span className="flex-1 font-semibold">Similarity LAB</span>}
-                    </Link>
-                  </TooltipTrigger>
-                  {isCollapsed && <TooltipContent side="right" align="center"><p>Similarity LAB</p></TooltipContent>}
-                </Tooltip>
-              </li>
           </ul>
         </div>
         

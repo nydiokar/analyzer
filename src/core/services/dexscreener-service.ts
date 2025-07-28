@@ -10,6 +10,13 @@ const logger = createLogger('DexscreenerService');
 // A simple sleep helper function
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Retry configuration
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelay: 1000, // 1 second
+  maxDelay: 10000, // 10 seconds
+};
+
 // Type definition for the expected DexScreener API response for a single pair
 interface DexScreenerPair {
   baseToken: {
@@ -63,13 +70,10 @@ export class DexscreenerService {
             return;
         }
 
-        logger.info(`🔍 DexScreener: Starting fetch for ${tokenAddresses.length} tokens`);
-
         // OPTIMIZATION 1: Intelligent pre-filtering to reduce API calls
         const filteredTokens = await this.preFilterTokensForDexScreener(tokenAddresses);
         const skippedCount = tokenAddresses.length - filteredTokens.length;
         
-        logger.info(`🔍 DexScreener: Pre-filtering results - ${filteredTokens.length} tokens to fetch, ${skippedCount} skipped (${((skippedCount/tokenAddresses.length)*100).toFixed(1)}% reduction)`);
         
         if (skippedCount > 0) {
             logger.info(`Pre-filtered ${skippedCount} tokens likely not in DexScreener (${((skippedCount/tokenAddresses.length)*100).toFixed(1)}% reduction)`);
@@ -81,7 +85,6 @@ export class DexscreenerService {
         }
 
         const chunks = this.chunkArray(filteredTokens, METADATA_FETCHING_CONFIG.dexscreener.chunkSize);
-        logger.info(`🔍 DexScreener: Created ${chunks.length} chunks of ${METADATA_FETCHING_CONFIG.dexscreener.chunkSize} tokens each`);
 
         // OPTIMIZATION 2: Parallel processing with controlled concurrency
         const maxConcurrentRequests = METADATA_FETCHING_CONFIG.dexscreener.maxConcurrentRequests;
@@ -129,7 +132,6 @@ export class DexscreenerService {
         }
 
         logger.info(`🔍 DexScreener: Final results - ${actualApiCalls} API calls made, ${processedCount} tokens processed out of ${tokenAddresses.length} requested`);
-        logger.info(`[DexScreener API] Completed all requests for ${tokenAddresses.length} tokens (${processedCount} processed).`);
     }
 
     async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
@@ -140,7 +142,7 @@ export class DexscreenerService {
         const chunks = this.chunkArray(tokenAddresses, 30);
 
         for (const chunk of chunks) {
-            try {
+            await this.fetchWithRetry(async () => {
                 const url = `${this.baseUrl}/dex/tokens/${chunk.join(',')}`;
                 const response = await firstValueFrom(this.httpService.get(url));
                 const pairs: DexScreenerPair[] = response.data?.pairs || [];
@@ -150,11 +152,9 @@ export class DexscreenerService {
                         prices.set(pair.baseToken.address, parseFloat(pair.priceUsd));
                     }
                 }
-            } catch (error) {
-                logger.error('Failed to fetch token prices for chunk.', error);
-            } finally {
-                await sleep(1000);
-            }
+            }, `price data for ${chunk.length} tokens`);
+            
+            await sleep(1000); // Rate limiting between chunks
         }
         return prices;
     }
@@ -299,7 +299,7 @@ export class DexscreenerService {
      * Fetch tokens from DexScreener API for a single chunk
      */
     private async fetchTokensFromDexScreener(chunk: string[]): Promise<number> {
-        try {
+        return await this.fetchWithRetry(async () => {
             const url = `${this.baseUrl}/dex/tokens/${chunk.join(',')}`;
             const response = await firstValueFrom(this.httpService.get(url));
             const pairs: DexScreenerPair[] = response.data?.pairs || [];
@@ -329,14 +329,7 @@ export class DexscreenerService {
             }
             
             return chunk.length;
-        } catch (error) {
-            if (error instanceof Error) {
-                logger.error(`Failed to fetch or save token data for chunk. Error: ${error.message}`, error.stack);
-            } else {
-                logger.error(`An unknown error occurred while fetching token data for chunk.`, error);
-            }
-            return 0;
-        }
+        }, `metadata for ${chunk.length} tokens`);
     }
 
     /**
@@ -351,7 +344,6 @@ export class DexscreenerService {
      * This can reduce API calls by 60-80% for wallets with many scam/new tokens
      */
     private async preFilterTokensForDexScreener(tokenAddresses: string[]): Promise<string[]> {
-        logger.info(`🔍 Pre-filter: Starting with ${tokenAddresses.length} tokens`);
         
         // FILTER 1: Check database for recently checked tokens (within configured hours)
         const recentlyCheckedTokens = await this.databaseService.getRecentlyCheckedTokens(
@@ -360,11 +352,7 @@ export class DexscreenerService {
         );
         const recentlyCheckedSet = new Set(recentlyCheckedTokens);
         
-        const uncheckedTokens = tokenAddresses.filter(addr => !recentlyCheckedSet.has(addr));
-        
-        logger.info(`🔍 Pre-filter: After recently checked filter - ${uncheckedTokens.length} tokens remain (${recentlyCheckedTokens.length} were recently checked)`);
-        logger.info(`🔍 Pre-filter: Cache expiry hours: ${METADATA_FETCHING_CONFIG.dexscreener.cacheExpiryHours} (${METADATA_FETCHING_CONFIG.dexscreener.cacheExpiryHours * 60} minutes)`);
-        
+        const uncheckedTokens = tokenAddresses.filter(addr => !recentlyCheckedSet.has(addr));        
         
         
         // FILTER 2: Skip known scam/spam patterns (if enabled)
@@ -389,13 +377,44 @@ export class DexscreenerService {
                 ...tokensWithActivity, // Tokens with recent trading activity first
                 ...validTokens.filter(addr => !tokensWithActivity.includes(addr)) // Other tokens last
             ];
-            
-            logger.info(`🔍 Pre-filter: After activity prioritization - ${prioritizedTokens.length} tokens (${tokensWithActivity.length} with recent activity)`);
-            
+                        
             return prioritizedTokens;
         }
         
-        logger.info(`🔍 Pre-filter: Final result - ${validTokens.length} tokens to fetch`);
         return validTokens;
+    }
+
+    /**
+     * Retry helper for DexScreener API calls with exponential backoff
+     */
+    private async fetchWithRetry<T>(
+        operation: () => Promise<T>, 
+        description: string
+    ): Promise<T> {
+        let lastError: Error;
+        
+        for (let attempt = 1; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+            try {
+                return await operation();
+            } catch (error) {
+                lastError = error as Error;
+                
+                if (attempt === RETRY_CONFIG.maxRetries) {
+                    logger.error(`Failed to fetch ${description} after ${RETRY_CONFIG.maxRetries} attempts:`, lastError);
+                    throw lastError;
+                }
+                
+                // Calculate exponential backoff delay
+                const delay = Math.min(
+                    RETRY_CONFIG.baseDelay * Math.pow(2, attempt - 1),
+                    RETRY_CONFIG.maxDelay
+                );
+                
+                logger.warn(`Attempt ${attempt}/${RETRY_CONFIG.maxRetries} failed for ${description}, retrying in ${delay}ms:`, lastError.message);
+                await sleep(delay);
+            }
+        }
+        
+        throw lastError!;
     }
 } 
