@@ -225,9 +225,15 @@ export class DatabaseService {
         walletAddress: string
     ): Promise<(Prisma.WalletPnlSummaryGetPayload<{ include: { advancedStats: true, wallet: true } }>) | null> {
         try {
-            return await this.prismaClient.walletPnlSummary.findUnique({
+            // Use findFirst instead of findUnique for better performance with includes
+            return await this.prismaClient.walletPnlSummary.findFirst({
                 where: { walletAddress },
-                include: { advancedStats: true, wallet: true },
+                include: { 
+                    advancedStats: true, 
+                    wallet: true 
+                },
+                // Add orderBy to ensure consistent results
+                orderBy: { updatedAt: 'desc' }
             });
         } catch (error) {
             this.logger.error('Error fetching WalletPnlSummary with relations', { error, walletAddress });
@@ -246,8 +252,10 @@ export class DatabaseService {
     async getWalletBehaviorProfile(walletAddress: string): Promise<WalletBehaviorProfile | null> {
         this.logger.debug(`Fetching WalletBehaviorProfile for wallet: ${walletAddress}`);
         try {
-            return await this.prismaClient.walletBehaviorProfile.findUnique({
+            // Use findFirst for better performance with potential indexes
+            return await this.prismaClient.walletBehaviorProfile.findFirst({
                 where: { walletAddress },
+                orderBy: { updatedAt: 'desc' } // Get the most recent profile
             });
         } catch (error) {
             this.logger.error('Error fetching WalletBehaviorProfile', { error, walletAddress });

@@ -16,6 +16,8 @@ export default function FavoriteWalletItem({ walletAddress }: FavoriteWalletItem
     fetcher,
     {
       revalidateOnFocus: false,
+      revalidateOnMount: true, // Allow initial data loading
+      dedupingInterval: 10000, // Prevent rapid duplicates
       shouldRetryOnError: false,
     }
   );

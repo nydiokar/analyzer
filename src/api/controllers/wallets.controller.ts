@@ -49,6 +49,10 @@ import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../shared/dto
 @Controller('wallets')
 export class WalletsController {
   private readonly logger = new Logger(WalletsController.name);
+  
+  // Simple in-memory cache for summary responses
+  private summaryCache = new Map<string, { data: WalletSummaryResponse; timestamp: number }>();
+  private readonly CACHE_TTL = 60 * 1000; // 1 minute cache
 
   constructor(
     private readonly databaseService: DatabaseService,
@@ -144,6 +148,14 @@ export class WalletsController {
 
     this.logger.debug(`getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
 
+    // Check cache first
+    const cacheKey = `${walletAddress}-${JSON.stringify(queryDto)}`;
+    const cached = this.summaryCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
+      this.logger.debug(`Returning cached summary for ${walletAddress}`);
+      return cached.data;
+    }
+
     // Prepare timeRange for specific period data if dates are provided
     let serviceTimeRange: { startTs?: number; endTs?: number } | undefined = undefined;
     if (queryDto.startDate && queryDto.endDate) {
@@ -164,34 +176,30 @@ export class WalletsController {
       // 1. Find or create the wallet entity to ensure it's tracked.
       const wallet = await this.databaseService.ensureWalletExists(walletAddress);
 
-      // DEMO USER CHECK - This is now handled by the ApiKeyAuthGuard
-      // const user = req.user;
-      // if (user && user.isDemo && !(wallet as any).isDemo) {
-      //   this.logger.warn(`Restricted access for demo user ${user.id} on non-demo wallet ${walletAddress}.`);
-      //   return {
-      //     status: 'restricted',
-      //     walletAddress: walletAddress,
-      //   };
-      // }
-      
       // 2. Fetch the main persisted PNL Summary for overall KPIs.
       const overallPnlSummary = await this.databaseService.getWalletPnlSummaryWithRelations(walletAddress);
 
       if (!overallPnlSummary) {
         this.logger.warn(`No WalletPnlSummary found for wallet: ${walletAddress}. Returning 'unanalyzed' state.`);
-        return {
-          status: 'unanalyzed',
+        const response = {
+          status: 'unanalyzed' as const,
           walletAddress: walletAddress,
         };
+        // Cache the unanalyzed response
+        this.summaryCache.set(cacheKey, { data: response, timestamp: Date.now() });
+        return response;
       }
 
-      // 2. Fetch the main persisted Behavior Profile
-      const overallBehaviorProfile = await this.databaseService.getWalletBehaviorProfile(walletAddress);
+      // 3. Fetch the main persisted Behavior Profile in parallel with SOL price
+      const [overallBehaviorProfile, solPriceUsd] = await Promise.all([
+        this.databaseService.getWalletBehaviorProfile(walletAddress),
+        this.dexscreenerService.getSolPrice().catch(() => undefined) // Don't fail if SOL price fetch fails
+      ]);
       
-      // 3. Determine lastAnalyzedAt from the PNL summary's updatedAt field
+      // 4. Determine lastAnalyzedAt from the PNL summary's updatedAt field
       const lastAnalyzedAt = overallPnlSummary.updatedAt;
 
-      // 4. Use data from these persisted overall summaries
+      // 5. Use data from these persisted overall summaries
       let latestPnl = overallPnlSummary.realizedPnl ?? 0; // Or netPnl
       let tokenWinRate = overallPnlSummary.advancedStats?.tokenWinRatePercent;
       let behaviorClassification = overallBehaviorProfile?.tradingStyle || 'N/A';
@@ -211,48 +219,31 @@ export class WalletsController {
         finalDaysActive = 1; // Active for at least one day if there's a last transaction
       }
 
-      // ---- Optional: Handle period-specific data if serviceTimeRange is provided ----
-      // This part can be added if specific KPIs for the selected time range are still needed
-      // AND can be fetched efficiently (e.g., from AnalysisResult or a lightweight PnlOverviewService call
-      // that *doesn't* re-trigger full balance fetches and core PnlAnalysisService.analyzeWalletPnl).
-      // For now, the primary summary uses overall persisted data.
-      // If serviceTimeRange is present, one might choose to call a *different*, more lightweight method
-      // on PnlOverviewService or BehaviorService that works primarily with indexed AnalysisResult entries.
-      // Example:
-      // let periodSpecificPnl: number | undefined;
-      // if (serviceTimeRange) {
-      //   const periodPnlData = await this.pnlOverviewService.getLightweightPnlForPeriod(walletAddress, serviceTimeRange);
-      //   periodSpecificPnl = periodPnlData?.realizedPnl;
-      //   // Potentially override latestPnl if period data is specifically requested to be the focus.
-      // }
-      // For simplicity in this refactor, we primarily use the overallPnlSummary for KPIs.
-      // The frontend time range selector influences other tabs more directly (Token Performance, PNL Overview tab).
-
-      // Get wallet classification for frontend display with auto-classification
-      const finalClassification = await this.smartFetchService.getOrAutoClassifyWallet(walletAddress);
-
-      // Fetch current SOL price for USD conversions
-      let solPriceUsd: number | undefined;
+      // 6. Get wallet classification asynchronously (don't block the response)
+      const classificationPromise = this.smartFetchService.getOrAutoClassifyWallet(walletAddress);
+      
+      // 7. Calculate USD equivalents if SOL price is available
       let latestPnlUsd: number | undefined;
       let currentSolBalanceUsd: number | undefined;
       
-      try {
-        solPriceUsd = await this.dexscreenerService.getSolPrice();
-        
-        // Calculate USD equivalents
-        if (solPriceUsd !== undefined) {
-          latestPnlUsd = parseFloat((latestPnl * solPriceUsd).toFixed(2));
-          if (currentSolBalance !== undefined && currentSolBalance !== null) {
-            currentSolBalanceUsd = parseFloat((currentSolBalance * solPriceUsd).toFixed(2));
-          }
+      if (solPriceUsd !== undefined) {
+        latestPnlUsd = parseFloat((latestPnl * solPriceUsd).toFixed(2));
+        if (currentSolBalance !== undefined && currentSolBalance !== null) {
+          currentSolBalanceUsd = parseFloat((currentSolBalance * solPriceUsd).toFixed(2));
         }
-      } catch (error) {
-        // If SOL price fetch fails, we'll still return SOL values but without USD equivalents
-        this.logger.warn('Failed to fetch SOL price for USD conversions:', error);
       }
 
-      const summary: WalletSummaryResponse = {
-        status: 'ok',
+      // 8. Get classification (this might take a moment, but we have the main data ready)
+      const finalClassification = await classificationPromise;
+
+      if (userId) {
+        const durationMs = Date.now() - startTime;
+        await this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp);
+      }
+      
+      // Add caching headers for better performance
+      const response: WalletSummaryResponse = {
+        status: 'ok' as const,
         walletAddress,
         lastAnalyzedAt: lastAnalyzedAt.toISOString(),
         lastActiveTimestamp: finalLastActiveTimestamp,
@@ -267,11 +258,16 @@ export class WalletsController {
         balancesFetchedAt: balancesFetchedAt ? balancesFetchedAt.toISOString() : null,
       };
 
-      if (userId) {
-        const durationMs = Date.now() - startTime;
-        await this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp);
+      // Cache the successful response
+      this.summaryCache.set(cacheKey, { data: response, timestamp: Date.now() });
+
+      // Set cache headers for better performance
+      if (req.res) {
+        req.res.setHeader('Cache-Control', 'public, max-age=60'); // Cache for 1 minute
+        req.res.setHeader('ETag', `"${walletAddress}-${lastAnalyzedAt.getTime()}"`);
       }
-      return summary;
+
+      return response;
     } catch (error) {
       const durationMs = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown server error';
@@ -284,6 +280,25 @@ export class WalletsController {
       }
       this.logger.error(`Error fetching summary for wallet ${walletAddress}:`, error);
       throw new InternalServerErrorException('Failed to retrieve wallet summary.');
+    }
+  }
+
+  /**
+   * Clear the summary cache for a specific wallet or all wallets
+   */
+  private clearSummaryCache(walletAddress?: string): void {
+    if (walletAddress) {
+      // Clear cache for specific wallet
+      for (const [key] of this.summaryCache) {
+        if (key.startsWith(`${walletAddress}-`)) {
+          this.summaryCache.delete(key);
+        }
+      }
+      this.logger.debug(`Cleared summary cache for wallet: ${walletAddress}`);
+    } else {
+      // Clear all cache
+      this.summaryCache.clear();
+      this.logger.debug('Cleared all summary cache');
     }
   }
 

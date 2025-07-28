@@ -303,6 +303,8 @@ export default function WalletProfileLayout({
     fetcher,
     {
       refreshInterval: isPolling ? 10000 : 0, // Poll every 10s when isPolling is true
+      revalidateOnMount: true, // Allow initial data loading
+      dedupingInterval: 10000, // Prevent rapid duplicates
     }
   );
 
@@ -362,6 +364,9 @@ export default function WalletProfileLayout({
             }
           }
         }
+        
+        // Clear summary cache to ensure fresh data
+        globalMutate(walletSummaryKey);
       }
     }
   }, [walletSummary, isPolling, analysisRequestTime, cache, globalMutate, walletAddress, walletSummaryKey]);

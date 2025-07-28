@@ -71,6 +71,9 @@ export default function Home() {
 
   return (
     <div className="w-full min-h-full text-white animated-gradient">
+      {/* Preload the dashboard preview image only on homepage */}
+      <link rel="preload" href="/preview/dashboard-preview.png" as="image" type="image/png" />
+      
       <header className="container mx-auto max-w-5xl h-16 flex justify-end items-center px-4 sm:px-6 lg:px-8">
           {isInitialized && apiKey && <StatusIndicator isDemo={isDemo} />}
       </header>
@@ -215,7 +218,6 @@ export default function Home() {
                   quality={85}
                   placeholder="blur"
                   blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
-                  loading="lazy"
                 />
               </div>
           </section>

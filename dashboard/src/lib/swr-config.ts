@@ -27,7 +27,8 @@ export const defaultSWRConfig: SWRConfiguration = {
   fetcher,
   revalidateOnFocus: false,
   revalidateOnReconnect: false, // Disable to prevent unnecessary requests
-  dedupingInterval: 2000, // Reduce to 2 seconds
+  revalidateOnMount: true, // Allow initial data loading
+  dedupingInterval: 10000, // Reduce to 10 seconds to prevent rapid duplicates
   shouldRetryOnError: (error) => {
     // Don't retry on 4xx errors (client errors)
     if (error?.status >= 400 && error?.status < 500) {
@@ -38,6 +39,8 @@ export const defaultSWRConfig: SWRConfiguration = {
   errorRetryCount: 1, // Reduce retry attempts
   errorRetryInterval: 1000, // Faster retry interval
   refreshInterval: 0, // Disable auto refresh by default
+  // Add focusThrottleInterval to prevent rapid revalidations
+  focusThrottleInterval: 5000,
 };
 
 // Create cache keys with consistent patterns

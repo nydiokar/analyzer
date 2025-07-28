@@ -99,7 +99,7 @@ export class WalletClassificationService {
     try {
       // Check recent mapping activity (last 3 days)
       const recentLogs = await this.getMappingActivityLogs(walletAddress, {
-        limit: 3,
+        limit: 2,
         fromDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
       });
 
