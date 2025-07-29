@@ -31,13 +31,11 @@ export const JobTimeouts = {
     staleAfter: 45 * 60 * 1000,     // 45 minutes = stale
     retryBackoff: 'exponential' as const
   },
-
   'enrich-token-balances': {
     timeout: 20 * 60 * 1000,        // 20 minutes max (reasonable for enrichment)
     staleAfter: 30 * 60 * 1000,     // 30 minutes = stale
     retryBackoff: 'fixed' as const
   },
-
   'dashboard-wallet-analysis': {
     timeout: 15 * 60 * 1000,        // 15 minutes max
     staleAfter: 20 * 60 * 1000,     // 20 minutes = stale
@@ -73,7 +71,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
         removeOnFail: 100,
         attempts: 3,
         backoff: {
-          type: JobTimeouts['dashboard-analysis'].retryBackoff,
+          type: JobTimeouts['analyze-behavior'].retryBackoff,
           delay: 5000
         }
       }
@@ -91,7 +89,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
         removeOnFail: 100,
         attempts: 3,
         backoff: {
-          type: JobTimeouts['similarity-analysis'].retryBackoff,
+          type: JobTimeouts['calculate-similarity'].retryBackoff,
           delay: 3000
         }
       }
@@ -109,7 +107,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
         removeOnFail: 100,
         attempts: 3,
         backoff: {
-          type: JobTimeouts['enrichment'].retryBackoff,
+          type: JobTimeouts['enrich-token-balances'].retryBackoff,
           delay: 2000
         }
       }

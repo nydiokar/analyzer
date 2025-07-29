@@ -168,6 +168,130 @@ export class RedisLockService {
   }
 
   /**
+   * Cleanup orphaned locks on startup - locks that exist but have no corresponding active job
+   * This handles the case where server restart causes jobs to be lost but locks remain
+   * @returns Promise<number> - Number of orphaned locks cleaned up
+   */
+  async cleanupOrphanedLocksOnStartup(): Promise<number> {
+    try {
+      this.logger.log('Starting orphaned lock cleanup on startup...');
+      let cleanedCount = 0;
+
+      // Get all lock keys
+      const lockKeys = await this.redis.keys('lock:*');
+      
+      if (lockKeys.length === 0) {
+        this.logger.log('No locks found - startup cleanup complete');
+        return 0;
+      }
+
+      this.logger.log(`Found ${lockKeys.length} locks to check for orphans`);
+
+      // For each lock, check if it has a corresponding active job
+      for (const lockKey of lockKeys) {
+        try {
+          const lockValue = await this.redis.get(lockKey);
+          if (!lockValue) continue; // Lock already expired
+
+          // lockValue should be a job ID - check if this job exists and is active
+          const isOrphaned = await this.isLockOrphaned(lockKey, lockValue);
+          
+          if (isOrphaned) {
+            const released = await this.forceReleaseLock(lockKey);
+            if (released) {
+              cleanedCount++;
+              this.logger.warn(`🧹 Cleaned orphaned lock: ${truncate(lockKey)} (job: ${truncate(lockValue)})`);
+            }
+          }
+        } catch (error) {
+          this.logger.warn(`Error checking lock ${truncate(lockKey)}:`, error);
+        }
+      }
+
+      this.logger.log(`Startup orphaned lock cleanup completed. Cleaned ${cleanedCount} orphaned locks out of ${lockKeys.length} total locks`);
+      return cleanedCount;
+    } catch (error) {
+      this.logger.error('Error during startup orphaned lock cleanup:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Check if a lock is orphaned (has no corresponding active job)
+   * @param lockKey - The lock key
+   * @param jobId - The job ID stored in the lock
+   * @returns Promise<boolean> - true if the lock is orphaned
+   */
+  private async isLockOrphaned(lockKey: string, jobId: string): Promise<boolean> {
+    try {
+      // Extract queue name from lock key pattern
+      const queueName = this.extractQueueNameFromLock(lockKey);
+      if (!queueName) {
+        this.logger.warn(`Cannot determine queue for lock: ${truncate(lockKey)}`);
+        return false; // Conservative - don't clean if we can't determine
+      }
+
+      // Import Queue dynamically to check if job exists and is active
+      const { Queue } = await import('bullmq');
+      const { redisConfig } = await import('../config/redis.config');
+      const queue = new Queue(queueName, { connection: redisConfig });
+
+      try {
+        const job = await queue.getJob(jobId);
+        
+        if (!job) {
+          // Job doesn't exist - lock is orphaned
+          return true;
+        }
+
+        // Check if job is in a finished state
+        const isFinished = job.finishedOn !== undefined;
+        const isFailed = job.failedReason !== undefined;
+        
+        if (isFinished || isFailed) {
+          // Job is finished but lock still exists - orphaned
+          return true;
+        }
+
+        // Job exists and is active - lock is not orphaned
+        return false;
+      } finally {
+        await queue.close();
+      }
+    } catch (error) {
+      this.logger.warn(`Error checking if lock is orphaned ${truncate(lockKey)}:`, error);
+      return false; // Conservative - don't clean if we can't verify
+    }
+  }
+
+  /**
+   * Extract queue name from lock key to check the right queue
+   * @param lockKey - The lock key (e.g., "lock:wallet:pnl:address" or "lock:similarity:requestId")
+   * @returns string | null - The queue name or null if cannot determine
+   */
+  private extractQueueNameFromLock(lockKey: string): string | null {
+    const parts = lockKey.split(':');
+    
+    if (parts.length < 3) return null;
+    
+    if (parts[1] === 'wallet') {
+      // wallet locks: sync → wallet-operations, pnl/behavior/dashboard-analysis → analysis-operations  
+      const operation = parts[2];
+      if (operation === 'sync') {
+        return 'wallet-operations';
+      } else if (['pnl', 'behavior', 'dashboard-analysis'].includes(operation)) {
+        return 'analysis-operations';
+      }
+    } else if (parts[1] === 'similarity') {
+      return 'similarity-operations';
+    } else if (parts[1] === 'enrichment') {
+      return 'enrichment-operations';
+    }
+    
+    return null;
+  }
+
+  /**
    * Utility method to create a lock key for wallet operations
    * @param walletAddress - The wallet address
    * @param operation - The operation type (e.g., 'sync', 'pnl', 'behavior')
@@ -203,18 +327,4 @@ export class RedisLockService {
   static createEnrichmentLockKey(identifier: string): string {
     return `lock:enrichment:${identifier}`;
   }
-
-  // No longer needed as the connection is managed centrally by the provider
-  // and will be closed on application shutdown via the provider's logic.
-  // /**
-  //  * Cleanup method to be called on application shutdown
-  //  */
-  // async onApplicationShutdown(): Promise<void> {
-  //   try {
-  //     await this.redis.quit();
-  //     this.logger.log('Redis connection closed');
-  //   } catch (error) {
-  //     this.logger.error('Error closing Redis connection:', error);
-  //   }
-  // }
 } 

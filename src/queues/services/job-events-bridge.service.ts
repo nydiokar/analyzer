@@ -3,6 +3,7 @@ import { Queue, QueueEvents } from 'bullmq';
 import { QueueNames } from '../config/queue.config';
 import { redisConfig } from '../config/redis.config';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
+import { RedisLockService } from './redis-lock.service';
 
 @Injectable()
 export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
@@ -10,7 +11,10 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly queueEventsMap: Map<string, QueueEvents> = new Map();
   private readonly queueMap: Map<string, Queue<any>> = new Map();
 
-  constructor(private readonly jobProgressGateway: JobProgressGateway) {}
+  constructor(
+    private readonly jobProgressGateway: JobProgressGateway,
+    private readonly redisLockService: RedisLockService
+  ) {}
 
   async onModuleInit() {
     this.logger.log('Initializing Job Events Bridge...');
@@ -21,6 +25,16 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     }
     
     this.logger.log(`Job Events Bridge active for ${Object.keys(QueueNames).length} queues`);
+    
+    // 🧹 TARGETED FIX: Cleanup orphaned locks from previous restart
+    try {
+      const orphanedLocks = await this.redisLockService.cleanupOrphanedLocksOnStartup();
+      if (orphanedLocks > 0) {
+        this.logger.log(`🧹 Startup cleanup: Removed ${orphanedLocks} orphaned locks from previous restart`);
+      }
+    } catch (error) {
+      this.logger.error('Error during startup lock cleanup:', error);
+    }
   }
 
   async onModuleDestroy() {

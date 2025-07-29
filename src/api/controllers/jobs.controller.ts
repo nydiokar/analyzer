@@ -75,6 +75,9 @@ export class JobsController {
     return this.jobsService.submitAnalyzeWalletJob(dto);
   }
 
+  /**
+   * Submit a new similarity analysis job
+   */
   @Post('similarity/analyze')
   @HttpCode(202)
   @ApiOperation({ 
