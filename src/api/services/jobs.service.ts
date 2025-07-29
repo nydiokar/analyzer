@@ -12,10 +12,12 @@ import {
   SyncWalletJobRequestDto,
   AnalyzeWalletJobRequestDto,
   SimilarityAnalysisJobRequestDto,
+  DashboardAnalysisJobRequestDto,
   JobSubmissionResponseDto
 } from '../shared/dto/job-status.dto';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
+import { DatabaseService } from './database.service';
 
 @Injectable()
 export class JobsService {
@@ -27,6 +29,7 @@ export class JobsService {
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly redisLockService: RedisLockService,
+    private readonly databaseService: DatabaseService,
   ) {}
 
   // === DIRECT JOB SUBMISSION METHODS ===
@@ -180,6 +183,57 @@ export class JobsService {
       requestId,
       status: 'queued',
       queueName: 'similarity-operations',
+      estimatedProcessingTime: estimatedTime,
+      monitoringUrl: `/jobs/${job.id}`,
+    };
+  }
+
+  async submitDashboardAnalysisJob(dto: DashboardAnalysisJobRequestDto): Promise<JobSubmissionResponseDto> {
+    this.logger.log(`Submitting dashboard analysis job for wallet: ${dto.walletAddress}`);
+
+    // Validate wallet address
+    if (!isValidSolanaAddress(dto.walletAddress)) {
+      throw new BadRequestException(`Invalid Solana address: ${dto.walletAddress}`);
+    }
+
+    // Generate request ID
+    const requestId = `dashboard-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+
+    // Check wallet status to estimate processing time
+    const walletStatuses = await this.databaseService.getWalletsStatus([dto.walletAddress]);
+    const needsSync = walletStatuses.statuses[0].status === 'STALE' || 
+                     walletStatuses.statuses[0].status === 'MISSING' || 
+                     dto.forceRefresh;
+
+    // Prepare job data
+    const jobData = {
+      walletAddress: dto.walletAddress,
+      requestId,
+      forceRefresh: dto.forceRefresh || false,
+      enrichMetadata: dto.enrichMetadata !== false, // Default to true
+      failureThreshold: 0.8,
+      timeoutMinutes: dto.timeoutMinutes || (needsSync ? 15 : 8), // Longer timeout if sync is needed
+    };
+
+    // Add job to analysis operations queue
+    const job = await this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
+      priority: 10, // High priority for user-initiated requests
+      delay: 0
+    });
+
+    // Calculate estimated processing time
+    const baseTimeMinutes = 3; // Base analysis time
+    const syncTimeMinutes = needsSync ? 10 : 0; // Additional time if sync needed
+    const estimatedMinutes = baseTimeMinutes + syncTimeMinutes;
+    const estimatedTime = estimatedMinutes > 60 
+      ? `${Math.round(estimatedMinutes / 60)} hour(s)`
+      : `${estimatedMinutes} minute(s)`;
+
+    return {
+      jobId: job.id!,
+      requestId,
+      status: 'queued',
+      queueName: 'analysis-operations',
       estimatedProcessingTime: estimatedTime,
       monitoringUrl: `/jobs/${job.id}`,
     };

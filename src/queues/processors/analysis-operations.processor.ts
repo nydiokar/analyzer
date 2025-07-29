@@ -304,6 +304,8 @@ export class AnalysisOperationsProcessor {
         await job.updateProgress(15);
         await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 15);
         this.logger.log(`📡 Syncing wallet data for ${walletAddress}...`);
+        
+        // Create sync options with progress callback
         const syncOptions: SyncOptions = {
           limit: 100,
           fetchAll: true,
@@ -312,7 +314,15 @@ export class AnalysisOperationsProcessor {
           maxSignatures: ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES,
           smartFetch: true,
         };
+        
+        // Enhanced sync with intermediate progress updates
+        await job.updateProgress(18);
+        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 18);
+        
         await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+        
+        await job.updateProgress(25);
+        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 25);
         this.logger.log(`✅ SYNC COMPLETED: Wallet data synced for analysis`);
       }
       

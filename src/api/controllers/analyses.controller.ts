@@ -1,16 +1,9 @@
-import { Controller, Post, Logger, UseGuards, ServiceUnavailableException, Body, HttpCode, BadRequestException, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
-import { PnlAnalysisService } from '../services/pnl-analysis.service';
-import { BehaviorService } from '../services/behavior.service';
-import { SmartFetchService } from '../../core/services/smart-fetch-service';
-
-import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
-import { Wallet } from '@prisma/client';
 import { SimilarityAnalysisRequestDto } from '../shared/dto/similarity-analysis.dto';
 import { WalletStatusRequestDto, WalletStatusResponseDto } from '../shared/dto/wallet-status.dto';
-import { TriggerAnalysisDto } from '../shared/dto/trigger-analysis.dto';
 import { DashboardAnalysisRequestDto, DashboardAnalysisResponseDto } from '../shared/dto/dashboard-analysis.dto';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
@@ -18,25 +11,19 @@ import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operat
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
-import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { JobPriority } from '../../queues/config/queue.config';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
 export class AnalysesController {
   private readonly logger = new Logger(AnalysesController.name);
-  private runningAnalyses = new Set<string>();
 
   constructor(
     private readonly databaseService: DatabaseService,
-    private readonly heliusSyncService: HeliusSyncService,
-    private readonly pnlAnalysisService: PnlAnalysisService,
-    private readonly behaviorService: BehaviorService,
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
-    private readonly smartFetchService: SmartFetchService,
   ) {}
 
   @Post('/similarity/enrich-balances')
@@ -334,149 +321,5 @@ export class AnalysesController {
       }
       throw new InternalServerErrorException('Failed to queue dashboard analysis job');
     }
-  }
-
-  @Post('/wallets/trigger-analysis')
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ 
-    summary: 'Triggers a full analysis for multiple wallets (DEPRECATED)',
-    description: 'DEPRECATED: Use /analyses/wallets/dashboard-analysis for new implementations. This endpoint will be removed in a future version.'
-  })
-  @ApiBody({ type: TriggerAnalysisDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Analysis triggered successfully for the valid wallets.',
-  })
-  @ApiResponse({ status: 400, description: 'Invalid wallet addresses provided.' })
-  @ApiResponse({ status: 503, description: 'An analysis is already in progress for some wallets.' })
-  async triggerAnalyses(
-    @Body() triggerAnalysisDto: TriggerAnalysisDto,
-  ): Promise<{ message: string; triggeredAnalyses: string[]; skippedAnalyses: string[] }> {
-    // Check feature flag for gradual rollout
-    const useJobSystem = DASHBOARD_JOB_CONFIG.ENABLED;
-    
-    if (useJobSystem && triggerAnalysisDto.walletAddresses.length === 1) {
-      // Redirect single wallet to new job-based endpoint
-      this.logger.warn('Deprecated endpoint /analyses/wallets/trigger-analysis called. Redirecting to new job-based endpoint.');
-      
-      try {
-        const jobResponse = await this.queueDashboardWalletAnalysis({
-          walletAddress: triggerAnalysisDto.walletAddresses[0],
-          forceRefresh: false,
-          enrichMetadata: true
-        });
-        
-        return {
-          message: `Analysis job queued successfully. Job ID: ${jobResponse.jobId}`,
-          triggeredAnalyses: [triggerAnalysisDto.walletAddresses[0]],
-          skippedAnalyses: []
-        };
-      } catch (error) {
-        this.logger.error('Failed to redirect to job-based endpoint:', error);
-        // Fall back to old implementation
-      }
-    }
-    
-    // Use old synchronous processing for backward compatibility
-    this.logger.warn('Using deprecated synchronous processing for /analyses/wallets/trigger-analysis');
-    
-    const { walletAddresses } = triggerAnalysisDto;
-    this.logger.log(`Received request to trigger analysis for wallets: ${walletAddresses.join(', ')}`);
-
-    const invalidWallets = walletAddresses.filter(w => !isValidSolanaAddress(w));
-    if (invalidWallets.length > 0) {
-      throw new BadRequestException(`Invalid Solana address(es) provided: ${invalidWallets.join(', ')}`);
-    }
-
-    const analysesToRun: string[] = [];
-    const skippedAnalyses: string[] = [];
-
-    for (const walletAddress of walletAddresses) {
-      if (this.runningAnalyses.has(walletAddress)) {
-        this.logger.warn(`An analysis for ${walletAddress} is already in progress. Request skipped for this wallet.`);
-        skippedAnalyses.push(walletAddress);
-      } else {
-        analysesToRun.push(walletAddress);
-      }
-    }
-
-    // Run analysis in the background for each wallet without waiting for all to complete
-    analysesToRun.forEach(walletAddress => {
-      (async () => {
-        try {
-          this.runningAnalyses.add(walletAddress);
-          this.logger.debug(`Lock acquired for analysis of wallet: ${walletAddress}.`);
-          
-          const initialWalletState: Wallet | null = await this.databaseService.getWallet(walletAddress);
-          const isNewWalletFlow = !initialWalletState;
-
-          if (isNewWalletFlow) {
-            this.logger.debug(`Wallet ${walletAddress} appears new or not yet in DB. Proceeding with comprehensive sync and analysis.`);
-          } else {
-            this.logger.debug(`Wallet ${walletAddress} exists. Proceeding with update sync and full re-analysis.`);
-          }
-
-          const syncOptions: SyncOptions = {
-            limit: 100,
-            fetchAll: true,
-            skipApi: false,
-            fetchOlder: true,
-            maxSignatures: ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES,
-            smartFetch: true,
-          };
-
-          this.logger.debug(`Calling HeliusSyncService.syncWalletData for ${walletAddress} with options: ${JSON.stringify(syncOptions)}`);
-          
-          // Auto-classify wallet and notify if high-frequency
-          try {
-            const finalClassification = await this.smartFetchService.getOrAutoClassifyWallet(walletAddress);
-            if (finalClassification === 'high_frequency') {
-              // Send WebSocket notification about limited analysis
-              const message = `High-frequency wallet detected. Analysis limited to ${syncOptions.maxSignatures} recent transactions for optimal performance.`;
-              // TODO: Add WebSocket broadcast here when WebSocket service is available
-              this.logger.log(`🤖 [Analysis] ${message} - Wallet: ${walletAddress}`);
-            }
-          } catch (error) {
-            this.logger.warn(`Failed to auto-classify wallet ${walletAddress}:`, error);
-          }
-          
-          await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-          this.logger.debug(`Helius sync process completed for ${walletAddress}.`);
-
-          const currentWallet: Wallet | null = await this.databaseService.ensureWalletExists(walletAddress);
-          if (!currentWallet) {
-            this.logger.error(`Failed to find or create wallet ${walletAddress}. Aborting analysis for this wallet.`);
-            return;
-          }
-
-          this.logger.debug('Wallet data synced, proceeding to PNL and Behavior analysis.');
-          await this.pnlAnalysisService.analyzeWalletPnl(walletAddress);
-          this.logger.debug(`PNL analysis completed for ${walletAddress}.`);
-
-          this.logger.debug(`Starting Behavior analysis for wallet: ${walletAddress}.`);
-          const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
-          const behaviorMetrics = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig);
-          this.logger.debug(`Behavior analysis completed for ${walletAddress}.`);
-
-          // Smart fetch classification is now handled in HeliusSyncService
-
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          const errorStack = error instanceof Error ? error.stack : undefined;
-          this.logger.error(`Unexpected error during async analysis for ${walletAddress}: ${errorMessage}`, errorStack, String(error));
-        } finally {
-          this.runningAnalyses.delete(walletAddress);
-          this.logger.debug(`Lock released after analysis of wallet: ${walletAddress}.`);
-        }
-      })();
-    });
-
-    const message = `Analysis for ${analysesToRun.length} wallet(s) has been triggered successfully. ${skippedAnalyses.length} were skipped as they were already in progress.`;
-    this.logger.log(message);
-    return { message, triggeredAnalyses: analysesToRun, skippedAnalyses };
-  }
-
-  public isAnalysisRunning(walletAddress: string): boolean {
-    return this.runningAnalyses.has(walletAddress);
   }
 } 

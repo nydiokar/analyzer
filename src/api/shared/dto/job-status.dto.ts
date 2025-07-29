@@ -207,6 +207,27 @@ export class SimilarityAnalysisJobRequestDto {
   timeoutMinutes?: number;
 }
 
+export class DashboardAnalysisJobRequestDto {
+  @ApiProperty({ description: 'Wallet address to analyze for dashboard display' })
+  @IsString()
+  walletAddress: string;
+
+  @ApiProperty({ description: 'Force refresh even if recently analyzed', required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  forceRefresh?: boolean;
+
+  @ApiProperty({ description: 'Enable token metadata enrichment', required: false, default: true })
+  @IsOptional()
+  @IsBoolean()
+  enrichMetadata?: boolean;
+
+  @ApiProperty({ description: 'Timeout in minutes', required: false, default: 15 })
+  @IsOptional()
+  @IsNumber()
+  timeoutMinutes?: number;
+}
+
 export class JobSubmissionResponseDto {
   @ApiProperty({ description: 'Unique job identifier' })
   @IsString()

@@ -43,7 +43,9 @@ export const JobTimeouts = {
   }
 };
 
-// Optimized queue configurations for our current service performance characteristics
+// Optimized queue configurations for production scaling and performance
+// Analysis Operations: Increased concurrency (8) and better stall detection for dashboard jobs
+// Retry Strategy: Exponential backoff for better failure handling during high load
 export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; workerOptions: WorkerOptions }> = {
   [QueueNames.WALLET_OPERATIONS]: {
     queueOptions: {
@@ -67,18 +69,20 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     queueOptions: {
       connection: redisConnection,
       defaultJobOptions: {
-        removeOnComplete: 50,
-        removeOnFail: 100,
+        removeOnComplete: 100,        // Increased for better scaling (more completed jobs kept for debugging)
+        removeOnFail: 200,            // Increased for better error analysis during high load
         attempts: 3,
         backoff: {
-          type: JobTimeouts['analyze-behavior'].retryBackoff,
-          delay: 5000
+          type: 'exponential' as const, // Better for dashboard jobs than fixed delay
+          delay: 3000                   // Reduced from 5000ms for faster retries
         }
       }
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 5,              // Restored from 1 to 5 - original working setting
+      concurrency: 8,               // Increased from 5 to 8 for better dashboard analysis throughput
+      maxStalledCount: 3,           // Prevent stuck jobs during scaling
+      stalledInterval: 30000,       // 30 seconds check for stalled jobs
     }
   },
   [QueueNames.SIMILARITY_OPERATIONS]: {

@@ -10,6 +10,7 @@ import {
   SyncWalletJobRequestDto,
   AnalyzeWalletJobRequestDto,
   SimilarityAnalysisJobRequestDto,
+  DashboardAnalysisJobRequestDto,
   JobSubmissionResponseDto
 } from '../shared/dto/job-status.dto';
 import { DeadLetterQueueService } from '../../queues/services/dead-letter-queue.service';
@@ -93,6 +94,23 @@ export class JobsController {
   @ApiResponse({ status: 400, description: 'Invalid wallet addresses or parameters' })
   async submitSimilarityAnalysisJob(@Body() dto: SimilarityAnalysisJobRequestDto): Promise<JobSubmissionResponseDto> {
     return this.jobsService.submitSimilarityAnalysisJob(dto);
+  }
+
+  @Post('wallets/dashboard-analysis')
+  @HttpCode(202)
+  @ApiOperation({ 
+    summary: 'Submit dashboard wallet analysis job',
+    description: 'Direct access to dashboard analysis queue. Provides comprehensive wallet analysis for external integrations and scaling scenarios.'
+  })
+  @ApiBody({ type: DashboardAnalysisJobRequestDto })
+  @ApiResponse({ 
+    status: 202, 
+    description: 'Dashboard analysis job submitted successfully',
+    type: JobSubmissionResponseDto
+  })
+  @ApiResponse({ status: 400, description: 'Invalid wallet address or parameters' })
+  async submitDashboardAnalysisJob(@Body() dto: DashboardAnalysisJobRequestDto): Promise<JobSubmissionResponseDto> {
+    return this.jobsService.submitDashboardAnalysisJob(dto);
   }
 
   // === Existing Job Status Endpoints ===

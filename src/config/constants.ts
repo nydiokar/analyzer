@@ -86,9 +86,9 @@ export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 // Performance configuration for Helius API
 export const HELIUS_CONFIG = {
-  DEFAULT_RPS: 25, // Reduced from 5 to 3 - extremely conservative to handle silent rate limiting
-  INTERNAL_CONCURRENCY: 10, // Keep at 1 - NO concurrent requests to eliminate burst patterns
-  BATCH_SIZE: 100, // Reduced from 100 to 50 - smaller batches to reduce API pressure
+  DEFAULT_RPS: 25, // Conservative rate limit
+  INTERNAL_CONCURRENCY: 10, // Sequential processing to avoid burst detection
+  BATCH_SIZE: 100, // Reduced batch size
 } as const;
 
 // Queue and processing configuration
@@ -103,11 +103,6 @@ export const PROCESSING_CONFIG = {
 // Dashboard Job System Configuration
 export const DASHBOARD_JOB_CONFIG = {
   DEFAULT_TIMEOUT_MINUTES: 15,
-  SYNC_TIMEOUT_MINUTES: 20,
-  ENRICHMENT_TIMEOUT_MINUTES: 20,
-  MAX_RETRIES: 3,
-  PROGRESS_UPDATE_INTERVAL: 2000, // 5 seconds
-  ENABLED: process.env.USE_DASHBOARD_JOB_SYSTEM === 'true' || false, // Feature flag
 } as const;
 
 // Enhanced metadata fetching configuration
