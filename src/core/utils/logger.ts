@@ -1,5 +1,6 @@
 import winston from 'winston';
 import chalk from 'chalk';
+import DailyRotateFile from 'winston-daily-rotate-file';
 
 const { createLogger: winstonCreateLogger, format, transports } = winston;
 const { combine, timestamp, printf, colorize, errors } = format;
@@ -66,14 +67,22 @@ const globalLogger = winstonCreateLogger({
       handleExceptions: true, // Centralized exception handling
       handleRejections: true  // Centralized rejection handling
     }),
-    new transports.File({
-      filename: `logs/error.log`,
+    new DailyRotateFile({
+      filename: 'logs/error-%DATE%.log',
+      datePattern: 'YYYY-MM-DD',
       level: 'error',
-      // handleExceptions: false, // Let the console transport handle exceptions primarily
+      maxSize: '10m', // 10MB max file size
+      maxFiles: '14d', // Keep 14 days of error logs
+      zippedArchive: true, // Compress old log files
+      handleExceptions: false,
     }),
-    new transports.File({
-      filename: `logs/combined.log`,
-      // handleExceptions: false, // Let the console transport handle exceptions primarily
+    new DailyRotateFile({
+      filename: 'logs/combined-%DATE%.log',
+      datePattern: 'YYYY-MM-DD',
+      maxSize: '20m', // 20MB max file size
+      maxFiles: '7d', // Keep 7 days of combined logs
+      zippedArchive: true, // Compress old log files
+      handleExceptions: false,
     })
   ],
 });

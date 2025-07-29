@@ -60,6 +60,8 @@ export class HeliusApiClient {
   private static globalLastRequestTime: number = 0;
   private static globalRequestQueue: Array<() => void> = [];
   private static processingQueue: boolean = false;
+  private static globalMinRequestIntervalMs: number = 0; // Global rate limit interval shared across all instances
+
 
   /**
    * Handles configuration and sets up the Axios instance.
@@ -68,6 +70,7 @@ export class HeliusApiClient {
    */
   constructor(config: HeliusApiConfig, dbService: DatabaseService) {
     this.apiKey = config.apiKey;
+    
     // Allow network to be specified for RPC URL construction
     const rpcNetworkUrl = config.network === 'devnet' ? MODULE_SOLANA_RPC_URL_DEVNET : MODULE_SOLANA_RPC_URL_MAINNET;
     this.baseUrl = config.baseUrl || (config.network === 'mainnet' 
@@ -76,19 +79,28 @@ export class HeliusApiClient {
     this.rpcUrl = `${rpcNetworkUrl}?api-key=${this.apiKey}`; // Store the full RPC URL with API key
     
     const targetRps = config.requestsPerSecond || HELIUS_CONFIG.DEFAULT_RPS;
+
     // Calculate interval: (1000 ms / RPS) + safety buffer
     this.minRequestIntervalMs = Math.ceil(1000 / targetRps) + RATE_LIMIT_SAFETY_BUFFER_MS;
-    logger.info(`Initializing HeliusApiClient: Target RPS=${targetRps}, Min Request Interval=${this.minRequestIntervalMs}ms`);
+    
+    // Set global rate limit interval to the most restrictive (highest) value to ensure all instances respect the same limit
+    if (HeliusApiClient.globalMinRequestIntervalMs === 0 || this.minRequestIntervalMs > HeliusApiClient.globalMinRequestIntervalMs) {
+      HeliusApiClient.globalMinRequestIntervalMs = this.minRequestIntervalMs;
+      logger.info(`Updated global rate limit interval to ${HeliusApiClient.globalMinRequestIntervalMs}ms (from instance with ${targetRps} RPS)`);
+    }
+    
+    logger.info(`Initializing HeliusApiClient: Target RPS=${targetRps}, Min Request Interval=${this.minRequestIntervalMs}ms, Global Interval=${HeliusApiClient.globalMinRequestIntervalMs}ms`);
 
     this.api = axios.create({
       baseURL: this.baseUrl,
-      timeout: 30000, // Increased timeout for potentially larger requests
+      timeout: 30000, // 30 second timeout
       headers: {
-        'Content-Type': 'application/json'
-      }
+        'Content-Type': 'application/json',
+      },
     });
 
     this.dbService = dbService; // Assign passed DatabaseService instance
+
   }
 
   /** Ensures a minimum interval between requests to respect rate limits globally. */
@@ -111,8 +123,8 @@ export class HeliusApiClient {
       const now = Date.now();
       const timeSinceLastRequest = now - HeliusApiClient.globalLastRequestTime;
       
-      if (timeSinceLastRequest < this.minRequestIntervalMs) {
-        const waitTime = this.minRequestIntervalMs - timeSinceLastRequest;
+      if (timeSinceLastRequest < HeliusApiClient.globalMinRequestIntervalMs) {
+        const waitTime = HeliusApiClient.globalMinRequestIntervalMs - timeSinceLastRequest;
         // logger.debug(`Global rate limiting: Waiting ${waitTime}ms for next request...`);
         await delay(waitTime);
       }
@@ -278,11 +290,12 @@ export class HeliusApiClient {
             });
 
             logger.debug(`Attempt ${attempt}: Retrieved ${response.data.length} full transactions.`);
-             // Simple validation: Check if we got data for *most* requested signatures
+            
+            // Simple validation: Check if we got data for *most* requested signatures
             if (response.data.length < signatures.length * 0.8 && signatures.length > 5) { // Adjusted threshold slightly
                 logger.warn(
                     `Attempt ${attempt}: Received significantly fewer transactions (${response.data.length}) ` +
-                    `than signatures requested (${signatures.length}). Some might be missing. ` +
+                    `than signatures requested (${signatures.length}). Some might be missing due to failed TXs. ` +
                     `Helius response data (first 5 if many):`, 
                     JSON.stringify(response.data.slice(0, 5), null, 2) // Log a sample of the raw response
                 );
@@ -294,6 +307,7 @@ export class HeliusApiClient {
             if (!this.isRetryableError(error)) {
                 throw error;
             }
+            
             const isAxiosError = axios.isAxiosError(error);
             const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
             const attempt = retries + 1;

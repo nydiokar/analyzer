@@ -31,6 +31,7 @@
     "clear-queues": "npx ts-node scripts/clear-all-queues.ts",
     "clear-locks": "npx ts-node scripts/clear-stale-locks.ts",
     "clean-cache": "npx ts-node scripts/clean-wallet-cache.ts",
+    "clean-logs": "npx ts-node scripts/clean-logs.ts",
     "emergency-stop": "pm2 stop all && npm run clear-queues && npm run clear-locks",
     "reset-system": "npm run emergency-stop && pm2 start ecosystem.config.js",
     "reset": "npm run build && pm2 restart all"
@@ -89,6 +90,7 @@
     "telegraf": "^4.15.3",
     "uuid": "^11.1.0",
     "winston": "^3.12.0",
+    "winston-daily-rotate-file": "^5.0.0",
     "yargs": "^17.7.2"
   },
   "devDependencies": {

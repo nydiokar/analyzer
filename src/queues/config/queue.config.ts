@@ -62,64 +62,61 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 3,              // Helius API rate limits (10 RPS)
+      concurrency: 3,              // Restored from 1 to 3 - original working setting
     }
   },
-  
   [QueueNames.ANALYSIS_OPERATIONS]: {
     queueOptions: {
       connection: redisConnection,
       defaultJobOptions: {
-        removeOnComplete: 20,
-        removeOnFail: 50, 
-        attempts: 2,               // Analysis failures usually aren't transient
+        removeOnComplete: 50,
+        removeOnFail: 100,
+        attempts: 3,
         backoff: {
-          type: JobTimeouts['analyze-pnl'].retryBackoff,
-          delay: 1000
-        }
-      }
-    },
-    workerOptions: {
-      connection: redisConnection,
-      concurrency: 5,              // CPU-bound, can parallelize
-    }
-  },
-  
-  [QueueNames.SIMILARITY_OPERATIONS]: {
-    queueOptions: {
-      connection: redisConnection,
-      defaultJobOptions: {
-        removeOnComplete: 10,
-        removeOnFail: 25,
-        attempts: 2,               // Standard retry attempts for similarity operations
-        backoff: {
-          type: JobTimeouts['calculate-similarity'].retryBackoff, 
+          type: JobTimeouts['dashboard-analysis'].retryBackoff,
           delay: 5000
         }
       }
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 2,              // Memory intensive, complex multi-wallet operations
+      concurrency: 5,              // Restored from 1 to 5 - original working setting
     }
   },
-  
-  [QueueNames.ENRICHMENT_OPERATIONS]: {
+  [QueueNames.SIMILARITY_OPERATIONS]: {
     queueOptions: {
       connection: redisConnection,
       defaultJobOptions: {
-        removeOnComplete: 10,
-        removeOnFail: 25,
-        attempts: 3,               // External API calls need retries
+        removeOnComplete: 50,
+        removeOnFail: 100,
+        attempts: 3,
         backoff: {
-          type: JobTimeouts['enrich-token-balances'].retryBackoff, 
+          type: JobTimeouts['similarity-analysis'].retryBackoff,
           delay: 3000
         }
       }
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 3,              // I/O bound (external APIs), moderate parallelism
+      concurrency: 2,              // Restored from 1 to 2 - original working setting
+    }
+  },
+  [QueueNames.ENRICHMENT_OPERATIONS]: {
+    queueOptions: {
+      connection: redisConnection,
+      defaultJobOptions: {
+        removeOnComplete: 50,
+        removeOnFail: 100,
+        attempts: 3,
+        backoff: {
+          type: JobTimeouts['enrichment'].retryBackoff,
+          delay: 2000
+        }
+      }
+    },
+    workerOptions: {
+      connection: redisConnection,
+      concurrency: 3,              // Restored from 1 to 3 - original working setting
     }
   }
 };
