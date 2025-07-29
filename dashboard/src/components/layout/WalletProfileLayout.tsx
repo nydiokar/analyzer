@@ -313,8 +313,18 @@ export default function WalletProfileLayout({
   
   // Tab state management
   const [activeTab, setActiveTab] = useState<string>('token-performance');
+  const [debouncedActiveTab, setDebouncedActiveTab] = useState<string>('token-performance');
   
-  // Simplified tab change handler
+  // Debounce active tab changes to prevent performance spikes
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedActiveTab(activeTab);
+    }, 150); // 150ms debounce to smooth out rapid tab switching
+
+    return () => clearTimeout(timeoutId);
+  }, [activeTab]);
+  
+  // Simplified tab change handler with debouncing
   const handleTabChange = useCallback((value: string) => {
     if (value === activeTab) return; // Skip if already active
     setActiveTab(value);
@@ -323,9 +333,9 @@ export default function WalletProfileLayout({
   // Simplified preloading - only preload summary when needed
   useEffect(() => {
     if (walletSummary && walletAddress) {
-      preloadWalletData(globalMutate, walletAddress, activeTab);
+      preloadWalletData(globalMutate, walletAddress, debouncedActiveTab);
     }
-  }, [walletSummary, activeTab, walletAddress, globalMutate]);
+  }, [walletSummary, debouncedActiveTab, walletAddress, globalMutate]);
 
   // Ensure initial fetch happens when walletSummaryKey becomes available
   useEffect(() => {
@@ -997,7 +1007,7 @@ export default function WalletProfileLayout({
 
       <main className="flex-1 overflow-y-auto p-0">
         <div className="w-full h-full flex flex-col">
-          <LazyTabContent value="overview" activeTab={activeTab} className="mt-4" defer={false}>
+          <LazyTabContent value="overview" activeTab={debouncedActiveTab} className="mt-4" defer={false} preloadOnHover={false}>
             <div>
               {children}
               <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
@@ -1012,11 +1022,11 @@ export default function WalletProfileLayout({
             </div>
           </LazyTabContent>
 
-          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col" defer={true}>
+          <LazyTabContent value="token-performance" activeTab={debouncedActiveTab} className="mt-0 p-0 flex flex-col" defer={true} preloadOnHover={false}>
             <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} />
           </LazyTabContent>
 
-          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0" defer={true}>
+          <LazyTabContent value="account-stats" activeTab={debouncedActiveTab} className="mt-0 p-0" defer={true} preloadOnHover={false}>
             <MemoizedAccountStatsPnlTab 
               walletAddress={walletAddress} 
               triggerAnalysisGlobal={handleTriggerAnalysis} 
@@ -1025,11 +1035,11 @@ export default function WalletProfileLayout({
             />
           </LazyTabContent>
 
-          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0" defer={true}>
+          <LazyTabContent value="behavioral-patterns" activeTab={debouncedActiveTab} className="mt-0 p-0" defer={true} preloadOnHover={false}>
             <MemoizedBehavioralPatternsTab walletAddress={walletAddress} />
           </LazyTabContent>
 
-          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0" defer={true}>
+          <LazyTabContent value="notes" activeTab={debouncedActiveTab} className="mt-0 p-0" defer={true} preloadOnHover={false}>
             <MemoizedReviewerLogTab walletAddress={walletAddress} />
           </LazyTabContent>
         </div>

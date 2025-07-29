@@ -558,6 +558,10 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const [sortOrder, setSortOrder] = useState('DESC');
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
+  // PERFORMANCE FIX: Improve debouncing for better responsiveness
+  const deferredPnlFilter = useDeferredValue(pnlFilter);
+  const deferredSpamFilter = useDeferredValue(spamFilter);
+
   const apiUrlBase = walletAddress ? `/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
 
@@ -574,11 +578,11 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     if (endDate) params.append('endDate', endDate.toISOString());
     if (showHoldingsOnly) params.append('showOnlyHoldings', 'true');
     if (deferredSearchTerm) params.append('searchTerm', deferredSearchTerm);
-    if (spamFilter !== 'all') params.append('spamFilter', spamFilter);
+    if (deferredSpamFilter !== 'all') params.append('spamFilter', deferredSpamFilter);
     
-    if (pnlFilter !== 'any') {
-      const operatorMatch = pnlFilter.match(/^([><])/);
-      const valueMatch = pnlFilter.match(/-?[\d.]+$/);
+    if (deferredPnlFilter !== 'any') {
+      const operatorMatch = deferredPnlFilter.match(/^([><])/);
+      const valueMatch = deferredPnlFilter.match(/-?[\d.]+$/);
       if (operatorMatch && valueMatch) {
         const opMap: { [key: string]: string } = { '>': 'gt', '<': 'lt' };
         params.append('pnlConditionOperator', opMap[operatorMatch[1]]);
@@ -600,41 +604,68 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     {
       revalidateOnFocus: false,
       keepPreviousData: true,
-      dedupingInterval: 5000, // Prevent duplicate requests within 5 seconds
+      dedupingInterval: 15000, // Increase to match global config and prevent rapid duplicates during tab switching
       revalidateOnReconnect: false, // Prevent revalidation on network reconnect
     }
   );
 
   const tableData = useMemo(() => data?.data || [], [data]);
 
-  // Memoize spam analysis results to prevent expensive recalculations
+  // CRITICAL PERFORMANCE FIX: Cache spam analysis results per token to avoid recalculation
+  // Use a stable cache that persists across renders and only recalculates for new/changed tokens
+  const spamAnalysisCache = useRef(new Map<string, { result: ReturnType<typeof analyzeTokenSpamRisk>; timestamp: number }>());
+  
   const spamAnalysisResults = useMemo(() => {
     const results = new Map<string, ReturnType<typeof analyzeTokenSpamRisk>>();
+    const currentTime = Date.now();
+    const cacheTimeout = 5 * 60 * 1000; // 5 minutes cache timeout
+    
     tableData.forEach(token => {
-      results.set(token.tokenAddress, analyzeTokenSpamRisk(token));
+      const cached = spamAnalysisCache.current.get(token.tokenAddress);
+      
+      // Use cached result if it exists and is not expired
+      if (cached && (currentTime - cached.timestamp) < cacheTimeout) {
+        results.set(token.tokenAddress, cached.result);
+      } else {
+        // Only compute for new or expired tokens
+        const analysis = analyzeTokenSpamRisk(token);
+        results.set(token.tokenAddress, analysis);
+        spamAnalysisCache.current.set(token.tokenAddress, {
+          result: analysis,
+          timestamp: currentTime
+        });
+      }
     });
+    
+    // Clean up old cache entries to prevent memory leaks
+    const allCurrentAddresses = new Set(tableData.map(t => t.tokenAddress));
+    for (const [address, cached] of spamAnalysisCache.current.entries()) {
+      if (!allCurrentAddresses.has(address) || (currentTime - cached.timestamp) > cacheTimeout) {
+        spamAnalysisCache.current.delete(address);
+      }
+    }
+    
     return results;
   }, [tableData]);
 
-  // Create columns with spam analysis results
+  // PERFORMANCE FIX: Memoize columns creation with stable dependency
   const columns = useMemo(() => createColumns(spamAnalysisResults), [spamAnalysisResults]);
 
-  // TanStack Table instance - SYNCED WITH BACKEND SORTING
-  const table = useReactTable({
+  // PERFORMANCE FIX: Memoize table configuration to prevent unnecessary re-creation
+  const tableConfig = useMemo(() => ({
     data: tableData,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    // REMOVED: getSortedRowModel - backend handles sorting
     getFilteredRowModel: getFilteredRowModel(),
-    // REMOVED: getPaginationRowModel - backend handles pagination
-    // REMOVED: onSortingChange - we handle sorting manually
     onColumnFiltersChange: setColumnFilters,
     state: {
       columnFilters,
     },
-    // Disable client-side sorting since backend handles it
     enableSorting: false,
-  });
+  }), [tableData, columns, columnFilters]);
+
+  // TanStack Table instance - SYNCED WITH BACKEND SORTING
+  const table = useReactTable(tableConfig);
 
   const triggerEnrichment = useCallback(() => {
     if (!walletAddress || !apiKey) return;
@@ -680,31 +711,32 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     prevAnalyzingRef.current = isAnalyzingNow;
   }, [isAnalyzingGlobal, swrKey, localMutate]);
 
-  const handlePnlFilterChange = (newValue: string) => {
+  // PERFORMANCE FIX: Memoize handlers to prevent unnecessary re-renders
+  const handlePnlFilterChange = useCallback((newValue: string) => {
     startTransition(() => {
       setPnlFilter(newValue);
       setPage(1);
     });
-  };
+  }, []);
 
-  const handleMinTradesToggleChange = (checked: boolean) => {
+  const handleMinTradesToggleChange = useCallback((checked: boolean) => {
     startTransition(() => {
       setMinTradesToggle(checked);
       setPage(1);
     });
-  };
+  }, []);
 
-  const handleShowHoldingsToggleChange = (checked: boolean) => {
+  const handleShowHoldingsToggleChange = useCallback((checked: boolean) => {
     startTransition(() => {
       setShowHoldingsOnly(checked);
       setPage(1);
       // Force refresh when toggling holdings filter to ensure fresh data
       localMutate();
     });
-  };
+  }, [localMutate]);
 
   // RESTORED: handleSort function to sync TanStack Table with backend sorting
-  const handleSort = (columnId: string) => {
+const handleSort = useCallback((columnId: string) => {
     // Map frontend column IDs to backend field names
     const fieldMapping: Record<string, string> = {
       'currentBalanceDisplay': 'currentSolValue'  // Sort by SOL value, not token amount
@@ -721,31 +753,31 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       setSortOrder('DESC');
     }
     setPage(1);
-  };
+  }, [sortBy, sortOrder]);
   
-  const handleSearchTermChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSearchTermChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     // Immediate update for responsive typing experience
     setSearchTerm(e.target.value);
     // Page reset in transition to avoid blocking
     startTransition(() => {
       setPage(1);
     });
-  };
+  }, []);
 
-  const handleSpamFilterChange = (newValue: string) => {
+  const handleSpamFilterChange = useCallback((newValue: string) => {
     startTransition(() => {
       setSpamFilter(newValue);
       setPage(1);
     });
-  };
+  }, []);
 
-  const handlePageChange = (newPage: number) => {
+  const handlePageChange = useCallback((newPage: number) => {
     if (newPage > 0 && newPage <= Math.ceil((data?.total || 0) / pageSize)) {
       setPage(newPage);
     }
-  };
+  }, [data?.total, pageSize]);
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     if (isLoadingData) return;
     setIsRefreshing(true);
     try {
@@ -755,9 +787,10 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [isLoadingData, localMutate]);
 
-  const renderSkeletonTableRows = () => {
+  // PERFORMANCE FIX: Memoize skeleton rendering to prevent unnecessary re-creation
+  const renderSkeletonTableRows = useCallback(() => {
     return Array.from({ length: 3 }).map((_, rowIndex) => (
       <TableRow key={`skeleton-row-${rowIndex}`}>
         {table.getAllColumns().map((column, colIndex) => (
@@ -767,7 +800,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
         ))}
       </TableRow>
     ));
-  };
+  }, [table]);
 
   const renderTableContent = () => {
     // If SWR is loading and we have no cached data, show the skeleton.
@@ -794,7 +827,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       // If not enriching and still no data, then it's final.
       const hasDateFilter = startDate || endDate;
       const emptyMessage = hasDateFilter 
-        ? "No token activity detected for the selected time period. Try expanding the date range or selecting 'All' to see historical data."
+        ? "No token activity or missing token data. Try expanding the date range, selecting 'All' or hit Refresh."
         : "No token activity detected for the selected filters.";
       
       return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;

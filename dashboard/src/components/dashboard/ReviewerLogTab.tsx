@@ -76,7 +76,8 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
   const swrKey = (notesApiUrl && isInitialized && apiKey) ? [notesApiUrl, apiKey] : null;
 
   const { data: notes, error: notesError, isLoading: isLoadingNotes, mutate: mutateNotes } = useSWR<WalletNote[], Error & { status?: number; payload?: any }>(swrKey, ([url]) => fetcher(url), {
-    refreshInterval: 30000,
+    // Remove auto-polling to prevent unnecessary API calls when tab is not active
+    // refreshInterval: 30000,
   });
 
   const sortedNotes = useMemo(() => {

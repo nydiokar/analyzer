@@ -471,7 +471,7 @@ export class DatabaseService {
         skip?: number;
         take?: number;
     }): Promise<AnalysisResult[]> {
-        this.logger.debug(`Fetching AnalysisResults with params: ${JSON.stringify(params)}`);
+        // this.logger.debug(`Fetching AnalysisResults with params: ${JSON.stringify(params)}`);
         try {
             return await this.prismaClient.analysisResult.findMany(params);
         } catch (error) {
@@ -756,7 +756,7 @@ export class DatabaseService {
         errorMessage?: string,
         sourceIp?: string
     ): Promise<ActivityLog | null> {
-        this.logger.debug('Logging activity for user ID: ' + userId + ', action: ' + actionType);
+        // this.logger.debug('Logging activity for user ID: ' + userId + ', action: ' + actionType);
         
         // Handle system operations by setting userId to null to avoid foreign key constraint issues
         const isSystemOperation = userId?.startsWith('system-') || userId === 'system-enrichment-job';
@@ -794,7 +794,7 @@ export class DatabaseService {
                 data: safeData
             });
             
-            this.logger.debug(`Activity logged successfully: ${activityLog.id} for ${isSystemOperation ? 'system operation' : 'user: ' + safeData.userId}`);
+            this.logger.debug(`Activity logged successfully: ${activityLog.id} for ${isSystemOperation ? 'system operation' : 'user: ' + safeData.userId}, for action: ${actionType}`);
             return activityLog;
         } catch (error) {
             this.logger.error('Error logging activity - DETAILED ANALYSIS:', {

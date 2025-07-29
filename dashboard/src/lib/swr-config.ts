@@ -28,7 +28,7 @@ export const defaultSWRConfig: SWRConfiguration = {
   revalidateOnFocus: false,
   revalidateOnReconnect: false, // Disable to prevent unnecessary requests
   revalidateOnMount: true, // Allow initial data loading
-  dedupingInterval: 10000, // Reduce to 10 seconds to prevent rapid duplicates
+  dedupingInterval: 15000, // Increase to 15 seconds to prevent rapid duplicates during tab switching
   shouldRetryOnError: (error) => {
     // Don't retry on 4xx errors (client errors)
     if (error?.status >= 400 && error?.status < 500) {
@@ -75,8 +75,7 @@ export const invalidateWalletCache = (mutate: any, walletAddress: string) => {
 
 // Simplified preload function  
 export const preloadWalletData = (mutate: any, walletAddress: string, currentTab: string) => {
-  // Only preload wallet summary to avoid overwhelming the server
-  if (currentTab !== 'overview') {
-    mutate(createCacheKey.walletSummary(walletAddress));
-  }
+  // Remove automatic summary preloading - summary is already loaded in layout
+  // and cached properly by SWR. No need to trigger additional fetches on tab changes.
+  // Each tab component will handle its own data loading when rendered.
 }; 
