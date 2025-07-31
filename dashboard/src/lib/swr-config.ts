@@ -5,7 +5,7 @@ import { fetcher } from './fetcher';
 export const CACHE_DURATIONS = {
   // Wallet summary data – keep previous data in memory for 5 minutes so UI never flashes blank while a revalidation is in-flight.
   // Wallet summary data – never auto-expire; we will invalidate it manually when analysis completes.
-  WALLET_SUMMARY: Number.MAX_SAFE_INTEGER,
+  WALLET_SUMMARY: 10 * 1000, // 10 seconds only
   
   // Token performance data - SHORT cache since it changes with enrichment
   TOKEN_PERFORMANCE: 10 * 1000, // 10 seconds only

@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState, memo } from 'react';
-import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { CombinedSimilarityResult, KeyInsight, InsightType, CombinedPairwiseSimilarity } from "./types";
 import { generateKeyInsights } from '@/lib/similarity-report-parser';
@@ -9,14 +8,11 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Info, LinkIcon, Handshake, Scale, Users2, ArrowUpRightFromSquare, TrendingDown, Lightbulb } from "lucide-react";
+import { Handshake, Scale, Users2, ArrowUpRightFromSquare, TrendingDown, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from "@/components/ui/button";
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { TokenBadge } from '@/components/shared/TokenBadge';
-import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface EnhancedKeyInsightsProps {
@@ -497,7 +493,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                     </TooltipTrigger>
                     <TooltipContent className="max-w-sm">
                       <p>
-                        Portfolio overlap shows what percentage of each wallet's invested capital is in these shared tokens
+                        Portfolio overlap shows what percentage of each wallet&apos;s invested capital is in these shared tokens
                         (<strong>{totalBinaryTokensA}</strong> and <strong>{totalBinaryTokensB}</strong> tokens respectively).
                       </p>
                     </TooltipContent>
@@ -552,7 +548,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                     </TooltipTrigger>
                     <TooltipContent className="max-w-sm">
                       <p>
-                        Capital overlap shows what percentage of each wallet's capital is allocated into these shared tokens
+                        Capital overlap shows what percentage of each wallet&apos;s capital is allocated into these shared tokens
                         (<strong>{totalCapitalTokensA}</strong> and <strong>{totalCapitalTokensB}</strong> tokens respectively).
                       </p>
                     </TooltipContent>

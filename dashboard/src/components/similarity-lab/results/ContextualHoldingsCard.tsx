@@ -90,13 +90,6 @@ export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefre
 
   const walletAddresses = Object.keys(balancesSource);
 
-  const { walletOrder, hasBalances } = useMemo(() => {
-    const balances = balancesSource || {};
-    const order = Object.keys(balances);
-    const hasAnyBalances = order.some(addr => balances[addr]?.tokenBalances?.length > 0);
-    return { walletOrder: order, hasBalances: hasAnyBalances };
-  }, [balancesSource]);
-
   const areBalancesLoading = !balancesSource || Object.keys(balancesSource).length === 0;
 
   // Use useCallback for functions passed as props to memoized components

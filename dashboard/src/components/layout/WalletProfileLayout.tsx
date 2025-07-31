@@ -559,16 +559,6 @@ export default function WalletProfileLayout({
     }
   };
 
-  // Get wallet display name
-  const getWalletDisplayName = (expanded: boolean = true) => {
-    if (currentFavoriteData?.nickname) {
-      return currentFavoriteData.nickname;
-    }
-    return expanded 
-      ? truncateWalletAddress(walletAddress, 8, 6)
-      : truncateWalletAddress(walletAddress, 6, 4);
-  };
-
   // Edit modal functions
   const openEditModal = useCallback(() => {
     if (currentFavoriteData) {

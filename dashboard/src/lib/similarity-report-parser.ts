@@ -25,7 +25,7 @@ export function generateKeyInsights(
     walletLabels: Record<string, string>
 ): KeyInsight[] {
     const keyInsights: KeyInsight[] = [];
-    const uniqueTokensPerWallet = metrics.uniqueTokensPerWallet;
+    const uniqueTokensPerWallet = metrics.uniqueTokensPerWallet; // TODO: Use this to generate insights
 
     for (const pair of metrics.pairwiseSimilarities) {
         const { walletA, walletB, binaryScore, capitalScore, sharedTokens } = pair;

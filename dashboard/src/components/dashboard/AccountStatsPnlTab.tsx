@@ -261,7 +261,6 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   const { startDate, endDate } = useTimeRangeStore();
   const { apiKey, isInitialized } = useApiKeyStore(); // Get key and init status
   const [displayMode, setDisplayMode] = useState<number>(2);
-  const { toast } = useToast();
 
   const pnlOverviewApiUrlBase = walletAddress ? `/wallets/${walletAddress}/pnl-overview` : null;
   let swrKeyPnl: (string | null)[] | null = null;

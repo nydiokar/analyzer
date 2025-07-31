@@ -4,11 +4,15 @@ import React, { useEffect, useRef } from 'react';
 import * as echarts from 'echarts/core';
 import {
   GridComponent,
+  GridComponentOption,
   TooltipComponent,
+  TooltipComponentOption,
   LegendComponent,
+  LegendComponentOption,
   VisualMapComponent,
+  VisualMapComponentOption,
 } from 'echarts/components';
-import { BarChart, HeatmapChart, LineChart, CustomChart } from 'echarts/charts';
+import { BarChart, BarSeriesOption, HeatmapChart, HeatmapSeriesOption, LineChart, LineSeriesOption, CustomChart, CustomSeriesOption } from 'echarts/charts';
 import { UniversalTransition } from 'echarts/features';
 import { CanvasRenderer } from 'echarts/renderers';
 import { EChartsOption } from 'echarts';

@@ -660,23 +660,6 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   // TanStack Table instance - SYNCED WITH BACKEND SORTING
   const table = useReactTable(tableConfig);
 
-  const triggerEnrichment = useCallback(() => {
-    if (!walletAddress || !apiKey) return;
-
-    setIsEnriching(true);
-    setEnrichmentMessage('Fetching latest token info...');
-    setTimeout(() => {
-      setIsEnriching(false);
-      setEnrichmentMessage(null);
-    }, 7000); // Hide loader and message after 7s
-
-    fetcher(`/wallets/${walletAddress}/enrich-all-tokens`, {
-      method: 'POST',
-    })
-    .then(data => console.log(`Enrichment triggered: ${data.message}`))
-    .catch(error => console.error('Could not trigger enrichment:', error.message));
-  }, [walletAddress, apiKey]);
-
   // Effect for initial load and wallet change - REMOVED automatic enrichment trigger
   // Enrichment should only be triggered manually or by the dashboard analysis job
   useEffect(() => {

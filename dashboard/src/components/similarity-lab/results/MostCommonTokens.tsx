@@ -4,12 +4,11 @@ import { useMemo, memo, useState, useEffect } from 'react'; // Import memo
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback,  } from "@/components/ui/avatar";
 import { WalletBadge } from "@/components/shared/WalletBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { CombinedSimilarityResult, TokenInfo } from "./types";
-import { Copy, ExternalLink, Globe, X as Twitter, Send, HelpCircle } from "lucide-react";
+import { CombinedSimilarityResult } from "./types";
+import { HelpCircle } from "lucide-react";
 import { TokenBadge } from "@/components/shared/TokenBadge";
 
 interface MostCommonTokensProps {
@@ -80,8 +79,6 @@ const buildTokenMetadataMap = (enrichedBalances: Record<string, any> | null) => 
 
 // Wrap the component in React.memo
 export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonTokensProps) => {
-    const { toast } = useToast();
-
     const tokenMetadataMap = buildTokenMetadataMap(enrichedBalances);
 
     const commonTokens = useMemo(() => {
