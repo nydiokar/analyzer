@@ -5,7 +5,7 @@ import useSWR, { mutate } from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { BehaviorAnalysisResponseDto } from '@/types/api'; // Assuming this type exists
 import { Card, Text, Title, Flex } from '@tremor/react';
-import { AlertTriangle, Hourglass, LineChart, Users, Clock, ShieldCheck, HelpCircle, PlayCircle, RefreshCw, Loader2, Info } from 'lucide-react';
+import { AlertTriangle, Hourglass, LineChart, Users, ShieldCheck, HelpCircle, Info } from 'lucide-react';
 import EChartComponent, { ECOption } from '../charts/EChartComponent'; // Import the new chart component
 import { VisualMapComponent, CalendarComponent } from 'echarts/components'; // Import VisualMap and Calendar
 import * as echarts from 'echarts/core';

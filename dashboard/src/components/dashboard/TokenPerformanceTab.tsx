@@ -29,13 +29,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   HelpCircle as HelpCircleIcon,
-  DollarSign as DollarSignIcon,
-  Percent as PercentIcon,
-  ArrowLeftCircle as ArrowLeftCircleIcon,
-  ArrowRightCircle as ArrowRightCircleIcon,
-  Package as PackageIcon,
-  ArrowRightLeft as ArrowRightLeftIcon,
-  CalendarDays as CalendarDaysIcon,
+
   ChevronsLeft,
   ChevronsRight,
   Loader2,
@@ -44,7 +38,7 @@ import {
   AlertTriangle,
   Lock,
   LogOut,
-  TrendingUpIcon,
+
 } from 'lucide-react';
 import { PaginatedTokenPerformanceResponse, TokenPerformanceDataDto } from '@/types/api'; 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";

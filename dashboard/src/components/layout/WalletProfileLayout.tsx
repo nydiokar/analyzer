@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { 
@@ -19,8 +19,7 @@ import {
   FileText,        // Notes
   RefreshCw,     // Added for the refresh button
   Star,          // Added Star icon for favorites
-  Plus,
-  X,
+
   Tags,
   FolderOpen,
   Edit2,
@@ -868,9 +867,6 @@ export default function WalletProfileLayout({
               <>
                 <AccountSummaryCard 
                   walletAddress={walletAddress}
-                  summaryData={walletSummary || null}
-                  isLoading={isLoadingWalletSummary}
-                  error={summaryError}
                   className="w-full sm:w-auto md:max-w-sm"
                   triggerAnalysis={handleTriggerAnalysis} 
                   isAnalyzingGlobal={isAnalyzing}

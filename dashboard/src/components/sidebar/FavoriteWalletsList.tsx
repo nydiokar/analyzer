@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { AlertTriangle, Trash2, Star, Loader2, Info, StarIcon, CopyIcon, Edit2, Check, X, Tags, FolderOpen, Plus, ChevronDown, ChevronRight, Filter, Archive } from 'lucide-react';
+import { AlertTriangle, Trash2, Star, Loader2, Info, Edit2, Tags, FolderOpen, ChevronDown, ChevronRight, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useState, useMemo, useCallback, memo, useEffect } from 'react';

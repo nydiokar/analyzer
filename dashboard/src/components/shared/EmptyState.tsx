@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button'; // Assuming shadcn/ui Button
-import { LucideIcon, AlertTriangle, Info, SearchX, FileQuestion, ServerCrash, PlayCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { LucideIcon, AlertTriangle, Info, SearchX, FileQuestion, ServerCrash, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils'; // Import cn for merging classNames
 
 interface EmptyStateProps {

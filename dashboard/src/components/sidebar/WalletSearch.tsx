@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
-import useSWR, { mutate as globalMutate } from 'swr';
+import useSWR from 'swr';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Loader2, AlertTriangle, Search, PlusCircle, Info, DownloadCloud } from 'lucide-react';
+import { Loader2, AlertTriangle, Search, Info, DownloadCloud } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from 'sonner';
 import { debounce } from 'lodash';

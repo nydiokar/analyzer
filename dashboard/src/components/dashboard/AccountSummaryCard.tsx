@@ -4,7 +4,7 @@ import React from 'react';
 import { Card, Metric, Text, Flex, Badge } from '@tremor/react';
 import { WalletSummaryData } from '@/types/api';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Info, CalendarDays, Landmark, SearchX, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Landmark, SearchX, ShieldAlert } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   Tooltip,
@@ -17,11 +17,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useApiKeyStore } from '@/store/api-key-store';
 import { Button } from '@/components/ui/button';
 
+import useSWR from 'swr';
+import { createCacheKey } from '@/lib/swr-config';
+import { fetcher } from '@/lib/fetcher';
+
 interface AccountSummaryCardProps {
   walletAddress: string;
-  summaryData: WalletSummaryData | null;
-  isLoading: boolean;
-  error: any;
   className?: string;
   triggerAnalysis?: () => void;
   isAnalyzingGlobal?: boolean;
@@ -29,14 +30,24 @@ interface AccountSummaryCardProps {
 
 export default function AccountSummaryCard({ 
   walletAddress, 
-  summaryData: data, 
-  isLoading, 
-  error,
   className, 
   triggerAnalysis, 
   isAnalyzingGlobal 
 }: AccountSummaryCardProps) {
   const { isDemo } = useApiKeyStore();
+  
+  const walletSummaryKey = walletAddress ? createCacheKey.walletSummary(walletAddress) : null;
+  const { data, error, isLoading } = useSWR<WalletSummaryData>(
+    walletSummaryKey,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      keepPreviousData: true,
+      revalidateIfStale: true,
+      errorRetryCount: 0,
+    }
+  );
   
 
 

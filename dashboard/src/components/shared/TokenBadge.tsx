@@ -26,7 +26,6 @@ interface TokenBadgeProps {
 const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeProps) => {
   const tokenName = metadata?.name || 'Unknown Token';
   const tokenSymbol = metadata?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
-  const shortAddress = `${mint.slice(0, 4)}...${mint.slice(-4)}`;
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();

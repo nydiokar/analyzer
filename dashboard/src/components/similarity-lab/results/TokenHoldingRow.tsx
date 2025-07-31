@@ -1,12 +1,6 @@
 'use client';
 
 import { memo } from 'react';
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, ExternalLink } from "lucide-react";
-import { toast } from "@/hooks/use-toast"; // Import the standalone toast function
 import { TokenBadge } from "@/components/shared/TokenBadge";
 
 // Types would be imported from a shared types file in a real app

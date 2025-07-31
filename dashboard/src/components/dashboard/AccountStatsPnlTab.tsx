@@ -3,11 +3,11 @@
 import React, { useEffect, useState } from 'react';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { PnlOverviewResponse, PnlOverviewResponseData } from '@/types/api'; 
-import { Card, Metric, Text, Flex, Grid, Title, Subtitle, TabGroup, TabList, Tab, Button } from '@tremor/react'; // Added Button
+import { Card, Metric, Text, Flex, Grid, Title, Subtitle, TabGroup, TabList, Tab } from '@tremor/react';
 import { useToast } from "@/hooks/use-toast";
 import { fetcher } from '@/lib/fetcher';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { HelpCircle, DollarSign, TrendingUp, ShieldAlert, Zap, Hourglass, AlertTriangle, Info, RefreshCw, Loader2, SearchX } from "lucide-react"; // Added Loader2 and SearchX
+import { HelpCircle, TrendingUp, AlertTriangle, Info, SearchX } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 import { Skeleton } from "@/components/ui/skeleton"; // Ensure Skeleton is imported

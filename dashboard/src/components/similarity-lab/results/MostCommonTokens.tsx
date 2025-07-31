@@ -6,12 +6,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
 import { WalletBadge } from "@/components/shared/WalletBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { CombinedSimilarityResult, TokenInfo } from "./types";
-import { Button } from "@/components/ui/button";
 import { Copy, ExternalLink, Globe, X as Twitter, Send, HelpCircle } from "lucide-react";
 import { TokenBadge } from "@/components/shared/TokenBadge";
 

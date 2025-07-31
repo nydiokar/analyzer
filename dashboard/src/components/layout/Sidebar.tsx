@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, BriefcaseIcon, SearchIcon, FlaskConical } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, SearchIcon, FlaskConical } from 'lucide-react';
 import {
     Tooltip,
     TooltipContent,
@@ -20,7 +20,6 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
-  const commonLinkClasses = "flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors";
 
   return (
     <aside 

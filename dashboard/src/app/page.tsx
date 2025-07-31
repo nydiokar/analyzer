@@ -3,7 +3,7 @@
 // import type { Metadata } from 'next'; // Metadata type can be removed if not used elsewhere in this file
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { SearchIcon, KeyRoundIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, CopyIcon, ChevronRightIcon, CheckIcon, SettingsIcon } from 'lucide-react';
+import { SearchIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, ChevronRightIcon, CheckIcon, SettingsIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApiKeyStore } from '@/store/api-key-store';

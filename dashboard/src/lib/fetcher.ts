@@ -45,7 +45,7 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         let errorPayload;
         try {
             errorPayload = await res.json();
-        } catch (e) {
+        } catch {
             errorPayload = { message: res.statusText || 'An error occurred' };
         }
         const error = new Error(errorPayload.message || 'An error occurred while fetching the data.') as any;
