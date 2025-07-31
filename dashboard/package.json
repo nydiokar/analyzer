@@ -2,6 +2,7 @@
   "name": "sova",
   "version": "0.4.1",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",

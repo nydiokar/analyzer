@@ -3,11 +3,12 @@ import { fetcher } from './fetcher';
 
 // Cache durations in milliseconds
 export const CACHE_DURATIONS = {
-  // Wallet summary data - moderate caching since it changes with new analysis
-  WALLET_SUMMARY: 2 * 60 * 1000, // 2 minutes
+  // Wallet summary data – keep previous data in memory for 5 minutes so UI never flashes blank while a revalidation is in-flight.
+  // Wallet summary data – never auto-expire; we will invalidate it manually when analysis completes.
+  WALLET_SUMMARY: Number.MAX_SAFE_INTEGER,
   
-  // Token performance data - longer caching as it's expensive to compute
-  TOKEN_PERFORMANCE: 2 * 60 * 1000, // 2 minutes
+  // Token performance data - SHORT cache since it changes with enrichment
+  TOKEN_PERFORMANCE: 10 * 1000, // 10 seconds only
   
   // Behavioral analysis - longer caching as it's very expensive
   BEHAVIORAL_ANALYSIS: 2 * 60 * 1000, // 2 minutes

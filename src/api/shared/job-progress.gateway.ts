@@ -17,6 +17,7 @@ import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 interface JobProgressEvent {
   jobId: string;
   progress: number | object;
+  details?: string;
   timestamp: number;
   queue: string;
 }
@@ -168,8 +169,8 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     }
   }
   
-  async publishProgressEvent(jobId: string, queue: string, progress: number | object) {
-    const event: JobProgressEvent = { jobId, queue, progress, timestamp: Date.now() };
+  async publishProgressEvent(jobId: string, queue: string, progress: number | object, details?: string) {
+    const event: JobProgressEvent = { jobId, queue, progress, details, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:progress', JSON.stringify(event));
   }
 

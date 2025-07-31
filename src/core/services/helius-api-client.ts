@@ -392,7 +392,8 @@ export class HeliusApiClient {
     stopAtSignature?: string, // Optional signature to stop fetching pages at
     newestProcessedTimestamp?: number, // Optional timestamp to filter results (exclusive)
     untilTimestamp?: number,
-    phase2InternalConcurrency: number = HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable internal concurrency
+    phase2InternalConcurrency: number = HELIUS_CONFIG.INTERNAL_CONCURRENCY,
+    onProgress?: (progress: number) => void
   ): Promise<HeliusTransaction[]> {
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run
@@ -505,6 +506,8 @@ export class HeliusApiClient {
         let processedSignaturesCount = 0;
         let lastLoggedPercentage = 0;
 
+        onProgress?.(0);
+        
         // Process signatures in chunks, each chunk handled by a concurrent set of batch fetches
         for (let i = 0; i < totalSignaturesToFetch; i += parseBatchLimit * phase2InternalConcurrency) {
             const chunkSignatures = signaturesToFetchArray.slice(i, i + parseBatchLimit * phase2InternalConcurrency);
@@ -539,8 +542,10 @@ export class HeliusApiClient {
             }
             
             processedSignaturesCount += chunkSignatures.length; // Update based on the size of the chunk attempted
-            const currentPercentage = Math.floor((newlyFetchedTransactions.length / totalSignaturesToFetch) * 100); // Progress based on successfully fetched
+            const currentPercentage = Math.floor((processedSignaturesCount / totalSignaturesToFetch) * 100);
             
+            onProgress?.(currentPercentage);
+
             // Only show progress for larger operations (more than 50 signatures)
             if (totalSignaturesToFetch > 50 && (currentPercentage >= lastLoggedPercentage + 25 || processedSignaturesCount >= totalSignaturesToFetch)) {
                  const displayPercentage = Math.min(100, Math.floor((processedSignaturesCount / totalSignaturesToFetch) * 100));
@@ -548,6 +553,8 @@ export class HeliusApiClient {
                  lastLoggedPercentage = currentPercentage;
             }
         } // End loop through chunks
+        
+        onProgress?.(100);
         
         if (totalSignaturesToFetch > 50) {
             process.stdout.write('\n'); // Newline after final progress update only if we showed progress

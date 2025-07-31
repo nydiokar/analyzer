@@ -313,21 +313,23 @@ export class AnalysisOperationsProcessor {
           fetchOlder: true,
           maxSignatures: ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES,
           smartFetch: true,
+          onProgress: (progress) => {
+            const syncProgress = 15 + Math.floor(progress * 0.35); 
+            job.updateProgress(syncProgress);
+            this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', syncProgress);
+          },
         };
         
         // Enhanced sync with intermediate progress updates
-        await job.updateProgress(18);
-        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 18);
-        
         await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
         
-        await job.updateProgress(25);
-        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 25);
+        await job.updateProgress(50);
+        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 50);
         this.logger.log(`✅ SYNC COMPLETED: Wallet data synced for analysis`);
       }
       
-      await job.updateProgress(25);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 25);
+      await job.updateProgress(50);
+      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 50);
       
       // Start balance fetching AFTER sync completes (no API contention)
       this.logger.log('💰 Starting balance fetch after sync...');
@@ -335,24 +337,24 @@ export class AnalysisOperationsProcessor {
       const balanceData = await walletBalanceService.fetchWalletBalances([walletAddress], 'default', true); // skipEnrichment = true
       this.logger.log(`✅ BALANCE FETCH COMPLETED: Balances available for PNL analysis`);
       
-      await job.updateProgress(30);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 30);
+      await job.updateProgress(55);
+      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 55);
       
       // 5. Start analysis with synced data and pre-fetched balances
       this.logger.debug('🚀 Starting analysis with synced data and pre-fetched balances...');
       
-      await job.updateProgress(40);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 40);
+      await job.updateProgress(60);
+      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 60);
       
       // 6. Run analysis sequentially (NOT in parallel to avoid race conditions)
-      await job.updateProgress(50);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 50);
+      await job.updateProgress(65);
+      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 65);
       this.logger.log(`📊 Starting analysis for ${walletAddress}`);
       
       // Run PNL analysis first with pre-fetched balances
       const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, { preFetchedBalances: balanceData });
-      await job.updateProgress(65);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 65);
+      await job.updateProgress(80);
+      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 80);
       
       // Then run behavior analysis
       const behaviorResult = await this.behaviorService.getWalletBehavior(
@@ -360,14 +362,14 @@ export class AnalysisOperationsProcessor {
         this.behaviorService.getDefaultBehaviorAnalysisConfig()
       );
       
-      await job.updateProgress(80);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 80);
+      await job.updateProgress(90);
+      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 90);
       
       // 7. Queue enrichment if requested (AFTER analysis is complete)
-      let enrichmentJobId;
+      let enrichmentJobId: string | undefined;
       if (enrichMetadata) {
-        await job.updateProgress(85);
-        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 85);
+        await job.updateProgress(95);
+        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 95);
         // Queue token enrichment after analysis completion
         
         try {

@@ -32,6 +32,7 @@ export interface SyncOptions {
     maxSignatures?: number | null; 
     /** If true, uses a smart fetch logic: fetches newer transactions first, then older ones if the maxSignatures target is not yet met. */
     smartFetch: boolean;     
+    onProgress?: (progress: number, details?: string) => void;     
     // Note: timeRange/period is handled by the PnlAnalysisService, not the sync service
 }
 
@@ -197,6 +198,7 @@ export class HeliusSyncService {
         const capForNewerFetch = options.maxSignatures && options.maxSignatures > 0 ? options.maxSignatures : undefined;
 
         logger.debug(`[Sync] SmartFetch Phase 1 (Newer): Fetching for ${walletAddress} since sig: ${stopAtSignatureForNewer}, ts: ${newestProcessedTimestampForNewer}. API client call will be capped by ${capForNewerFetch ?? 'Helius default/internal cap'}.`);
+        options.onProgress?.(10, 'Fetching newer transactions...');
         try {
             const newerTransactions = await this.heliusClient.getAllTransactionsForAddress(
                walletAddress, 
@@ -205,11 +207,13 @@ export class HeliusSyncService {
                stopAtSignatureForNewer, 
                newestProcessedTimestampForNewer, 
                undefined,
-               HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
+               HELIUS_CONFIG.INTERNAL_CONCURRENCY,
+               (progress) => options.onProgress?.(10 + (progress * 0.4), 'Fetching newer transactions...')
            );
            newerTransactionsFetchedCount = newerTransactions.length;
            logger.debug(`[Sync] SmartFetch Phase 1 (Newer): Fetched ${newerTransactionsFetchedCount} potentially newer transactions from API for ${walletAddress}.`);
            if (newerTransactionsFetchedCount > 0) {
+              options.onProgress?.(50, 'Saving new transactions...');
                await this.processAndSaveTransactions(walletAddress, newerTransactions, true, options);
            }
         } catch (fetchError) {
@@ -243,6 +247,7 @@ export class HeliusSyncService {
                 const oldestProcessedTimestamp = updatedWalletStateAfterPhase1?.firstProcessedTimestamp ?? undefined;
                 
                 logger.debug(`[Sync] SmartFetch Phase 2 (Older): Attempting to fetch ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress}, older than ts: ${oldestProcessedTimestamp}.`);
+                options.onProgress?.(55, 'Fetching older transactions...');
                 try {
                     const olderTransactions = await this.heliusClient.getAllTransactionsForAddress(
                         walletAddress, 
@@ -251,10 +256,12 @@ export class HeliusSyncService {
                         undefined,
                         undefined,
                         oldestProcessedTimestamp,
-                        HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
+                        HELIUS_CONFIG.INTERNAL_CONCURRENCY,
+                        (progress) => options.onProgress?.(55 + (progress * 0.4), 'Fetching older transactions...')
                     );
                     logger.debug(`[Sync] SmartFetch Phase 2 (Older): Fetched ${olderTransactions.length} potentially older transactions from API for ${walletAddress}.`);
                     if (olderTransactions.length > 0) {
+                        options.onProgress?.(95, 'Saving older transactions...');
                         await this.processAndSaveTransactions(walletAddress, olderTransactions, false, options);
                     }
                 } catch (fetchError) {
@@ -278,6 +285,7 @@ export class HeliusSyncService {
         } else {
             logger.debug(`[Sync] SmartFetch: Skipping Phase 2 (Older) because options.maxSignatures is not valid or not set. Only newer transactions were fetched if available.`);
         }
+        options.onProgress?.(100, 'Sync complete.');
         logger.debug(`[Sync] SmartFetch process completed for ${walletAddress}.`);
     }
 
@@ -320,6 +328,7 @@ export class HeliusSyncService {
             newestProcessedTimestampForStd = walletState!.newestProcessedTimestamp ?? undefined;
         }
         
+        options.onProgress?.(10, 'Fetching transactions...');
         try {
             logger.debug(`[Sync] Standard Fetch: Calling HeliusApiClient for ${walletAddress} with maxSignatures: ${options.maxSignatures}, limit: ${options.limit}`);
             
@@ -330,10 +339,12 @@ export class HeliusSyncService {
                 stopAtSignatureForStd, 
                 newestProcessedTimestampForStd, 
                 untilTimestampForStd,
-                HELIUS_CONFIG.INTERNAL_CONCURRENCY // Configurable concurrency
+                HELIUS_CONFIG.INTERNAL_CONCURRENCY,
+                (progress) => options.onProgress?.(10 + (progress * 0.8), 'Fetching transactions...')
             );
             logger.debug(`[Sync] Standard Fetch: Fetched ${transactions.length} transactions from HeliusApiClient for ${walletAddress}.`);
             if (transactions.length > 0) {
+                options.onProgress?.(90, 'Saving transactions...');
                 await this.processAndSaveTransactions(walletAddress, transactions, isEffectivelyInitialFetch, options);
             }
         } catch (fetchError) {
@@ -357,6 +368,7 @@ export class HeliusSyncService {
                 throw fetchError; 
             }
         }
+        options.onProgress?.(100, 'Sync complete.');
         logger.debug(`[Sync] Standard Fetch process completed for ${walletAddress}.`);
     }
 

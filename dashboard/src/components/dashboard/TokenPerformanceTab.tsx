@@ -604,7 +604,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     {
       revalidateOnFocus: false,
       keepPreviousData: true,
-      dedupingInterval: 15000, // Increase to match global config and prevent rapid duplicates during tab switching
+      dedupingInterval: 7000, // Shorter interval so enrichment refresh within ~7s is not skipped
       revalidateOnReconnect: false, // Prevent revalidation on network reconnect
     }
   );
@@ -702,10 +702,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     
     // Analysis just completed (was true, now false)
     if (wasAnalyzing && !isAnalyzingNow && swrKey) {
-      console.log('🔄 Analysis completed, refreshing token data...');
-      setTimeout(() => {
-        localMutate();
-      }, 1000); // Small delay to ensure backend is ready
+      localMutate();
     }
     
     prevAnalyzingRef.current = isAnalyzingNow;

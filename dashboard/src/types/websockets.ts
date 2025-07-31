@@ -10,6 +10,7 @@ export interface JobProgressData {
   status?: string;
   timestamp: number;
   queue: string;
+  detaidefils?: string;
 }
 
 export interface JobCompletionData {

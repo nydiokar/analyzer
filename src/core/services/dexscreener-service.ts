@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { METADATA_FETCHING_CONFIG } from '@config/constants';
+import { isWellKnownToken, getWellKnownTokenMetadata } from 'core/utils/token-metadata';
 
 const logger = createLogger('DexscreenerService');
 
@@ -231,6 +232,9 @@ export class DexscreenerService {
 
         for (const pair of pairs) {
             const tokensToProcess = [pair.baseToken, pair.quoteToken].filter(t => t && t.address);
+            
+            // Determine which token should receive the pair's metadata (if any)
+            const metadataRecipient = this.determineMetadataRecipient(pair.baseToken, pair.quoteToken);
 
             for (const token of tokensToProcess) {
                 if (!token) continue;
@@ -242,15 +246,23 @@ export class DexscreenerService {
                     const twitter = socials?.find(s => s.type === 'twitter')?.url;
                     const telegram = socials?.find(s => s.type === 'telegram')?.url;
 
+                    // Check if this is a well-known token
+                    const wellKnownMetadata = getWellKnownTokenMetadata(address);
+                    const isWellKnown = !!wellKnownMetadata;
+                    const shouldReceiveMetadata = metadataRecipient?.address === address;
+
                     tokenInfoMap.set(address, {
                         tokenAddress: address,
-                        name,
-                        symbol,
-                        imageUrl: pair.info?.imageUrl,
-                        websiteUrl: website,
-                        twitterUrl: twitter,
-                        telegramUrl: telegram,
-                        // Market data from DexScreener
+                        // Use well-known metadata if available, otherwise use DexScreener data
+                        name: wellKnownMetadata?.name || name,
+                        symbol: wellKnownMetadata?.symbol || symbol,
+                        // Only apply pair metadata (image, social links) to the designated recipient
+                        // Well-known tokens never receive pair metadata to prevent contamination
+                        imageUrl: (!isWellKnown && shouldReceiveMetadata) ? pair.info?.imageUrl : null,
+                        websiteUrl: (!isWellKnown && shouldReceiveMetadata) ? website : null,
+                        twitterUrl: (!isWellKnown && shouldReceiveMetadata) ? twitter : null,
+                        telegramUrl: (!isWellKnown && shouldReceiveMetadata) ? telegram : null,
+                        // Market data from DexScreener (always update this for price tracking)
                         marketCapUsd: pair.marketCap,
                         liquidityUsd: pair.liquidity?.usd,
                         pairCreatedAt: pair.pairCreatedAt ? BigInt(pair.pairCreatedAt) : null,
@@ -264,6 +276,40 @@ export class DexscreenerService {
         }
 
         return Array.from(tokenInfoMap.values());
+    }
+
+    /**
+     * Intelligently determines which token in a pair should receive the pair's metadata
+     * to prevent well-known tokens from being contaminated with incorrect metadata.
+     * 
+     * Rules:
+     * 1. If one token is well-known and the other isn't: metadata goes to the unknown token
+     * 2. If both tokens are well-known: no metadata assignment (both use their predefined data)
+     * 3. If both tokens are unknown: metadata goes to the base token (convention)
+     */
+    private determineMetadataRecipient(baseToken: any, quoteToken: any): any | null {
+        if (!baseToken?.address) return quoteToken;
+        if (!quoteToken?.address) return baseToken;
+
+        const baseIsWellKnown = isWellKnownToken(baseToken.address);
+        const quoteIsWellKnown = isWellKnownToken(quoteToken.address);
+
+        // Case 1: One well-known, one unknown -> unknown token gets metadata
+        if (baseIsWellKnown && !quoteIsWellKnown) {
+            return quoteToken;
+        }
+        
+        if (!baseIsWellKnown && quoteIsWellKnown) {
+            return baseToken;
+        }
+
+        // Case 2: Both well-known -> no metadata assignment (prevent contamination)
+        if (baseIsWellKnown && quoteIsWellKnown) {
+            return null;
+        }
+
+        // Case 3: Both unknown -> base token gets metadata (DexScreener convention)
+        return baseToken;
     }
 
     private chunkArray<T>(array: T[], size: number): T[][] {
