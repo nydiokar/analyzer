@@ -82,18 +82,15 @@ export default function AccountSummaryCard({
     let title = `API Error (Status: ${error.statusCode || 'Unknown'})`;
     let description = error.message || "An unexpected error occurred.";
     let Icon = AlertTriangle;
-    let emptyStateVariant: 'default' | 'error' | 'info' = 'error';
     
     if (error.statusCode === 404) {
       title = "Not Yet Analyzed";
       description = "No analysis data is available for this wallet yet. You can trigger a new analysis to get started.";
       Icon = SearchX;
-      emptyStateVariant = 'info';
     } else if (error.statusCode === 403) {
       title = "Access Denied";
       description = "This wallet is not part of the demo, or you do not have permission to view it.";
       Icon = ShieldAlert;
-      emptyStateVariant = 'error';
     }
     
     return (

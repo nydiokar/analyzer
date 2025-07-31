@@ -10,7 +10,7 @@ import { CombinedSimilarityResult } from '@/components/similarity-lab/results/ty
 import { fetcher } from '@/lib/fetcher';
 import { toast } from 'sonner';
 import { useJobProgress } from '@/hooks/useJobProgress';
-import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
+import { JobProgressData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { useApiKeyStore } from '@/store/api-key-store';
 
@@ -31,7 +31,7 @@ export default function AnalysisLabPage() {
   const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
 
   const [syncMessage, setSyncMessage] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   
   // Job tracking for analysis
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
@@ -49,8 +49,8 @@ export default function AnalysisLabPage() {
   const {
     isConnected: wsConnected,
     subscribeToJob,
-    unsubscribeFromJob,
-    cleanup: cleanupWebSocket
+    // unsubscribeFromJob,
+    // cleanup: cleanupWebSocket
   } = useJobProgress({
     onJobProgress: useCallback((data: JobProgressData) => {
       // Only update the main progress bar for the main analysis job (not enrichment)
@@ -305,36 +305,6 @@ export default function AnalysisLabPage() {
     }
   }, [analysisResult, apiKey, subscribeToJob, toast, setEnrichmentJobId]);
 
-  const handleEnrichData = async () => {
-    if (!analysisResult?.walletBalances) return;
-    setJobStatuses(prev => ({ ...prev, enrichment: 'running' }));
-    
-    try {
-      const enrichmentJob = await fetcher('/analyses/similarity/enrich-balances', {
-        method: 'POST',
-        body: JSON.stringify({ walletBalances: analysisResult.walletBalances }),
-      });
-      
-      if (enrichmentJob.jobId && wsConnected) {
-        setEnrichmentJobId(enrichmentJob.jobId);
-        subscribeToJob(enrichmentJob.jobId);
-        
-        toast.info("Enrichment Started", {
-          description: "Fetching token prices and metadata...",
-        });
-      } else {
-        throw new Error('Failed to start enrichment job');
-      }
-    } catch (error: any) {
-      console.error('Error starting enrichment job:', error);
-      setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
-      
-      toast.error("Enrichment Failed", {
-        description: error.message || "Could not start token enrichment.",
-      });
-    }
-  };
-
   const handleAnalyze = async () => {
     // Prevent multiple simultaneous analyses
     if (jobStatuses.analysis === 'running') {
@@ -517,10 +487,6 @@ export default function AnalysisLabPage() {
     };
     
     setTimeout(poll, 1000);
-  };
-
-  const getWalletList = () => {
-    return walletList;
   };
 
   return (

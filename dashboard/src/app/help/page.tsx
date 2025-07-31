@@ -44,8 +44,8 @@ export default function HelpPage() {
           </CardHeader>
           <CardContent className="prose prose-invert max-w-none text-muted-foreground">
             <ul>
-              <li><strong>Explore Demo Wallets:</strong> Click any wallet in the "Favorites" list to see the full dashboard in action. No API key needed.</li>
-              <li><strong>Analyze Any Wallet:</strong> Paste any Solana wallet address into the top search bar and click "Analyze".</li>
+              <li><strong>Explore Demo Wallets:</strong> Click any wallet in the &quot;Favorites&quot; list to see the full dashboard in action. No API key needed.</li>
+              <li><strong>Analyze Any Wallet:</strong> Paste any Solana wallet address into the top search bar and click &quot;Analyze&quot;.</li>
               <li><strong>Understand the Metrics:</strong> For details on any specific metric, simply hover over its title in the dashboard to see a brief explanation.</li>
             </ul>
           </CardContent>
@@ -60,7 +60,7 @@ export default function HelpPage() {
           </CardHeader>
           <CardContent className="prose prose-invert max-w-none text-muted-foreground space-y-2">
             <p><strong>Analysis seems slow or stuck:</strong> For wallets with thousands of transactions, the initial analysis can take several minutes due to our current beta hardware. Please be patient. If it fails, please try again later.</p>
-            <p><strong>Key issues:</strong> If you've been issued a key and it's not working, please ensure it is entered correctly. For all key-related inquiries, please use the contact method below.</p>
+            <p><strong>Key issues:</strong> If you&apos;ve been issued a key and it&apos;s not working, please ensure it is entered correctly. For all key-related inquiries, please use the contact method below.</p>
           </CardContent>
         </Card>
         

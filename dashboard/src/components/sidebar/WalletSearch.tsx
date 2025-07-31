@@ -20,10 +20,6 @@ interface WalletSearchResultItem {
   // name?: string; // Optional: if backend provides a name/alias
 }
 
-interface TriggerAnalysisResponse {
-  message: string;
-}
-
 // --- API Fetcher ---
 // const fetcher = async (url: string, apiKey?: string) => { ... };
 
@@ -62,7 +58,7 @@ export function WalletSearch() {
     data: searchResults,
     error: searchError,
     isLoading: isSearchLoading,
-    mutate: mutateSearch
+    // mutate: mutateSearch
   } = useWalletSearch(query);
 
   const debouncedSetQuery = useCallback(debounce((newQuery: string) => {
@@ -170,7 +166,7 @@ export function WalletSearch() {
 
           {!searchError && !isSearchLoading && query.length >= MIN_QUERY_LENGTH && searchResults && searchResults.length === 0 && (
             <p className="p-2 text-center text-xs text-muted-foreground">
-              No wallets found matching "{query.length > 15 ? query.substring(0,15)+"..." : query}".
+              No wallets found matching &quot;{query.length > 15 ? query.substring(0,15)+"..." : query}&quot;.
             </p>
           )}
           
@@ -211,7 +207,7 @@ export function WalletSearch() {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" align="start" className="max-w-[250px] text-xs">
-                    <p>This wallet isn't in our database. Click to fetch its transaction history, perform an initial analysis, and then view its details.</p>
+                    <p>This wallet isn&apos;t in our database. Click to fetch its transaction history, perform an initial analysis, and then view its details.</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

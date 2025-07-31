@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import useSWR, { mutate } from 'swr';
+import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { BehaviorAnalysisResponseDto } from '@/types/api'; // Assuming this type exists
 import { Card, Text, Title, Flex } from '@tremor/react';

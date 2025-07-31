@@ -81,7 +81,6 @@ const analyzeTokenSpamRisk = (token: TokenPerformanceDataDto): {
   const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
   const totalSpent = token.totalSolSpent ?? 0;
   const totalReceived = token.totalSolReceived ?? 0;
-  const netPnl = token.netSolProfitLoss ?? 0;
   const transfersIn = token.transferCountIn ?? 0;
   const transfersOut = token.transferCountOut ?? 0;
   const totalTransfers = transfersIn + transfersOut;

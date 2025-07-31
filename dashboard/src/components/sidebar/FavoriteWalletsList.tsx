@@ -3,11 +3,10 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { AlertTriangle, Trash2, Star, Loader2, Info, Edit2, Tags, FolderOpen, ChevronDown, ChevronRight, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
-import { useState, useMemo, useCallback, memo, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { WalletEditForm } from '../layout/WalletEditForm';
 
 import {
@@ -15,13 +14,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -162,15 +154,6 @@ export function FavoriteWalletsList({ isCollapsed }: FavoriteWalletsListProps) {
       toast.error(`Failed to remove: ${err.message}`);
     }
   }, [walletToDelete, mutateFavorites]);
-
-  const handleCopyAddress = useCallback(async (walletAddress: string) => {
-    try {
-      await navigator.clipboard.writeText(walletAddress);
-      toast.success("Address copied!");
-    } catch (err) {
-      toast.error("Failed to copy address");
-    }
-  }, []);
 
   const openEditDialog = useCallback((wallet: FavoriteWallet) => {
     setEditingWallet(wallet.walletAddress);

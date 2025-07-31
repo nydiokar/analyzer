@@ -32,13 +32,12 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip"
-import { useTimeRangeStore } from '@/store/time-range-store';
 import { isValid, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
 import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse } from '@/types/api';
-import { createCacheKey, invalidateWalletCache, preloadWalletData, CACHE_DURATIONS } from '@/lib/swr-config';
+import { createCacheKey, invalidateWalletCache, preloadWalletData } from '@/lib/swr-config';
 import { useFavorites } from '@/hooks/useFavorites';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { useJobProgress, UseJobProgressCallbacks } from '@/hooks/useJobProgress';
@@ -54,7 +53,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { getTagColor, getCollectionColor } from '@/lib/color-utils';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 
 // Import the new tab component
@@ -92,8 +91,7 @@ export default function WalletProfileLayout({
   walletAddress,
 }: WalletProfileLayoutProps) {
   const { mutate: globalMutate, cache } = useSWRConfig();
-  const { startDate, endDate } = useTimeRangeStore();
-  const { apiKey, isInitialized, isDemo } = useApiKeyStore();
+  const { apiKey } = useApiKeyStore();
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -990,7 +988,7 @@ export default function WalletProfileLayout({
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <div>
-                  Removing <span className="font-medium">{currentFavoriteData?.nickname || 'this wallet'}</span> from favorites will delete it's metadata.
+                  Removing <span className="font-medium">{currentFavoriteData?.nickname || 'this wallet'}</span> from favorites will delete it&apos;s metadata.
                 </div>
                 
                 {/* Show what will be lost */}

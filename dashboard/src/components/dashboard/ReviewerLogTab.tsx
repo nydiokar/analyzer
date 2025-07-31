@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from 'react';
-import useSWR, { mutate } from 'swr';
+import useSWR from 'swr';
 import { fetcher } from '@/lib/fetcher';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -66,7 +66,6 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showInputArea, setShowInputArea] = useState(false);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [noteToDelete, setNoteToDelete] = useState<WalletNote | null>(null);
   const [noteToViewFull, setNoteToViewFull] = useState<WalletNote | null>(null);
   const [editingNote, setEditingNote] = useState<{ id: string; content: string } | null>(null);
   const [isUpdatingNote, setIsUpdatingNote] = useState(false);
@@ -179,10 +178,10 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
         description: `Note has been deleted.`,
       });
       mutateNotes();
-      setNoteToDelete(null);
+      setNoteToViewFull(null);
     } catch (err) {
       handleError(err, 'Deletion Failed');
-      setNoteToDelete(null);
+      setNoteToViewFull(null);
     }
   };
 
@@ -417,7 +416,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
                             <AlertDialogDescription>
                                 This action cannot be undone. This will permanently delete the note:
                                 <br />
-                                <strong className="block mt-2 p-2 bg-muted rounded text-sm">"{note.content}"</strong>
+                                <strong className="block mt-2 p-2 bg-muted rounded text-sm">&quot;{note.content}&quot;</strong>
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -474,7 +473,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
               <DialogHeader>
                 <DialogTitle>Edit Note</DialogTitle>
                 <DialogDescription>
-                  Modify your note content below. Click save when you're done.
+                  Modify your note content below. Click save when you&apos;re done.
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
@@ -503,27 +502,4 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
       </CardContent>
     </Card>
   );
-}
-
-async function handleDeleteNote(noteId: string, walletAddress: string, toast: any, notesApiUrl: string | null, mutateSWR: any) {
-  if (!noteId || !walletAddress) return;
-
-  const deleteUrl = `/wallets/${walletAddress}/notes/${noteId}`;
-  
-  try {
-    await fetcher(deleteUrl, { method: 'DELETE' });
-    toast({
-      title: 'Note Deleted',
-      description: `Note has been deleted.`,
-    });
-    if (notesApiUrl) mutateSWR(notesApiUrl); // Revalidate SWR cache for notes
-  } catch (err) {
-    const error = err as Error & { status?: number; payload?: any };
-    toast({
-      title: 'Deletion Failed',
-      description: error.payload?.message || error.message || 'An unexpected error occurred.',
-      variant: 'destructive',
-    });
-    console.error("Failed to delete note:", error);
-  }
 } 
