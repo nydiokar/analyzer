@@ -1,4 +1,4 @@
-import { SWRConfiguration } from 'swr';
+import { SWRConfiguration, MutatorCallback } from 'swr';
 import { fetcher } from './fetcher';
 
 // Cache durations in milliseconds
@@ -47,15 +47,15 @@ export const defaultSWRConfig: SWRConfiguration = {
 // Create cache keys with consistent patterns
 export const createCacheKey = {
   walletSummary: (walletAddress: string) => `/wallets/${walletAddress}/summary`,
-  tokenPerformance: (walletAddress: string, params?: Record<string, any>) => {
+  tokenPerformance: (walletAddress: string, params?: Record<string, string>) => {
     const searchParams = params ? new URLSearchParams(params).toString() : '';
     return `/wallets/${walletAddress}/token-performance${searchParams ? '?' + searchParams : ''}`;
   },
-  behaviorAnalysis: (walletAddress: string, params?: Record<string, any>) => {
+  behaviorAnalysis: (walletAddress: string, params?: Record<string, string>) => {
     const searchParams = params ? new URLSearchParams(params).toString() : '';
     return `/wallets/${walletAddress}/behavior-analysis${searchParams ? '?' + searchParams : ''}`;
   },
-  pnlOverview: (walletAddress: string, params?: Record<string, any>) => {
+  pnlOverview: (walletAddress: string, params?: Record<string, string>) => {
     const searchParams = params ? new URLSearchParams(params).toString() : '';
     return `/wallets/${walletAddress}/pnl-overview${searchParams ? '?' + searchParams : ''}`;
   },
@@ -64,9 +64,9 @@ export const createCacheKey = {
 };
 
 // Simplified cache invalidation patterns
-export const invalidateWalletCache = (mutate: any, walletAddress: string) => {
+export const invalidateWalletCache = (mutate: MutatorCallback, walletAddress: string) => {
   // Invalidate all wallet-related cache keys
-  mutate((key: any) => {
+  mutate((key: unknown) => {
     if (typeof key === 'string') {
       return key.startsWith(`/wallets/${walletAddress}`);
     }
@@ -75,7 +75,7 @@ export const invalidateWalletCache = (mutate: any, walletAddress: string) => {
 };
 
 // Simplified preload function  
-export const preloadWalletData = (mutate: any, walletAddress: string, currentTab: string) => {
+export const preloadWalletData = (mutate: MutatorCallback, walletAddress: string, currentTab: string) => {
   // Remove automatic summary preloading - summary is already loaded in layout
   // and cached properly by SWR. No need to trigger additional fetches on tab changes.
   // Each tab component will handle its own data loading when rendered.

@@ -47,7 +47,7 @@ export interface JobFailedData {
  */
 export interface JobResult {
   success: boolean;
-  data: any;  // The actual analysis data (e.g., SimilarityAnalysisResult)
+  data: unknown;  // The actual analysis data (e.g., SimilarityAnalysisResult)
   requestId?: string;
   timestamp: number;
   processingTimeMs?: number;
@@ -69,7 +69,7 @@ export interface JobResult {
  */
 export interface EnrichmentCompletionData {
   requestId: string;
-  enrichedBalances: Record<string, any>;
+  enrichedBalances: unknown;
   timestamp: number;
 }
 

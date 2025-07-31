@@ -14,6 +14,7 @@ import {
 } from 'echarts/components';
 import { BarChart, BarSeriesOption, HeatmapChart, HeatmapSeriesOption, LineChart, LineSeriesOption, CustomChart, CustomSeriesOption } from 'echarts/charts';
 import { UniversalTransition } from 'echarts/features';
+import type { ECElementEvent } from 'echarts';
 import { CanvasRenderer } from 'echarts/renderers';
 import { EChartsOption } from 'echarts';
 
@@ -37,7 +38,7 @@ interface EChartComponentProps {
   option: ECOption;
   style?: React.CSSProperties;
   className?: string;
-  onEvents?: Record<string, (params: any) => void>;
+  onEvents?: Record<string, (params: ECElementEvent) => void>;
   showLoading?: boolean;
 }
 
@@ -58,7 +59,7 @@ const EChartComponent: React.FC<EChartComponentProps> = ({
       // Attach event listeners if any
       if (onEvents && chartInstanceRef.current) {
         Object.keys(onEvents).forEach((eventName) => {
-          chartInstanceRef.current?.on(eventName, onEvents[eventName]);
+          chartInstanceRef.current?.on(eventName, onEvents[eventName] as (...args: unknown[]) => void);
         });
       }
 

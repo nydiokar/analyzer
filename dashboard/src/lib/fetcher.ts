@@ -30,14 +30,14 @@ export const fetcher = async (url: string, options?: RequestInit) => {
             ...options,
             headers: mergedHeaders,
         });
-    } catch (e: any) {
-        // Network errors
-        const networkError = new Error(
-            e.message || 'Network error: Failed to fetch data. Please check your connection and the server status.'
-        ) as any;
-        networkError.isNetworkError = true;
-        networkError.status = e.status || 0;
-        networkError.originalError = e;
+    } catch (e: unknown) {
+        // Network errors - using built-in Error type
+        const errorMessage = e instanceof Error ? e.message : 'Network error: Failed to fetch data. Please check your connection and the server status.';
+        const networkError = new Error(errorMessage);
+        // Using built-in Error properties
+        Object.defineProperty(networkError, 'isNetworkError', { value: true });
+        Object.defineProperty(networkError, 'status', { value: (e as any).status || 0 });
+        Object.defineProperty(networkError, 'originalError', { value: e });
         throw networkError;
     }
 
@@ -48,9 +48,10 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         } catch {
             errorPayload = { message: res.statusText || 'An error occurred' };
         }
-        const error = new Error(errorPayload.message || 'An error occurred while fetching the data.') as any;
-        error.status = res.status;
-        error.payload = errorPayload;
+        const error = new Error(errorPayload.message || 'An error occurred while fetching the data.');
+        // Using built-in Error properties
+        Object.defineProperty(error, 'status', { value: res.status });
+        Object.defineProperty(error, 'payload', { value: errorPayload });
         throw error;
     }
 
@@ -82,9 +83,10 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     } catch (e) {
         // This handles cases where the server returns a successful status
         // but the body is not valid JSON.
-        const jsonError = new Error('Failed to parse JSON response from server.') as any;
-        jsonError.status = res.status;
-        jsonError.originalError = e;
+        const jsonError = new Error('Failed to parse JSON response from server.');
+        // Using built-in Error properties
+        Object.defineProperty(jsonError, 'status', { value: res.status });
+        Object.defineProperty(jsonError, 'originalError', { value: e });
         throw jsonError;
     }
 }; 

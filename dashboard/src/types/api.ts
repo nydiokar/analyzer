@@ -125,8 +125,8 @@ export interface BehaviorAnalysisResponseDto {
   medianCurrentHoldingDurationHours?: number | null;
   weightedAverageHoldingDurationHours?: number | null;
   percentOfValueInCurrentHoldings?: number | null;
-  additionalMetrics?: Record<string, any>;
-  rawMetrics?: Record<string, any>;
+  additionalMetrics?: Record<string, unknown>;
+  rawMetrics?: Record<string, unknown>;
 }
 
 // --- Token Performance Types ---

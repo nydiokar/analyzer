@@ -11,6 +11,17 @@ import {
   JobQueueToStartData
 } from '@/types/websockets';
 
+// Define proper error types
+interface ApiError extends Error {
+  status?: number;
+  payload?: unknown;
+}
+
+interface NetworkError extends Error {
+  status?: number;
+  response?: Response;
+}
+
 export interface UseJobProgressCallbacks {
   onJobProgress: (data: JobProgressData) => void;
   onJobCompleted: (data: JobCompletionData) => void;
@@ -54,9 +65,10 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
     if (job.queue === 'enrichment-operations' && job.result) {
       // Transform JobResult to EnrichmentCompletionData
+      const resultData = job.result as { enrichedBalances?: unknown; data?: unknown };
       const enrichmentData: EnrichmentCompletionData = {
         requestId: job.id,
-        enrichedBalances: (job.result as any).enrichedBalances || job.result.data,
+        enrichedBalances: resultData.enrichedBalances || resultData.data || {},
         timestamp: job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now(),
       };
       callbacksRef.current.onEnrichmentComplete?.(enrichmentData);
@@ -107,12 +119,12 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       callbacksRef.current.onConnectionChange?.(false);
     };
 
-    const handleError = (error: any) => {
+    const handleError = (error: Error) => {
       console.error('🔌 WebSocket error:', error);
       setError(error.message || 'WebSocket error');
     };
 
-    const handleConnectError = (error: any) => {
+    const handleConnectError = (error: Error) => {
       console.error('🔌 WebSocket connection error:', error);
       setError(`Connection failed: ${error.message || 'Unknown error'}`);
     };
@@ -130,7 +142,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       if (data.queue === 'enrichment-operations') {
         const enrichmentData: EnrichmentCompletionData = {
           requestId: data.jobId,
-          enrichedBalances: (data.result as any).enrichedBalances || data.result.data,
+          enrichedBalances: (data.result as { enrichedBalances?: unknown; data?: unknown }).enrichedBalances || data.result.data || {},
           timestamp: data.timestamp,
         };
         callbacksRef.current.onEnrichmentComplete?.(enrichmentData);
@@ -205,8 +217,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
         }
         // If 'active' or 'waiting', the WebSocket listener will handle it from here.
       }
-    } catch (error: any) {
-      if (error.status !== 404) {
+    } catch (error: unknown) {
+      const apiError = error as ApiError;
+      if (apiError.status !== 404) {
         console.error(`Error polling job status for ${jobId}:`, error);
         toast({
           title: 'Could not get job status',

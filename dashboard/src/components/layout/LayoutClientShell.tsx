@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { ThemeProvider } from "@/components/theme-provider";
 import Sidebar from "@/components/layout/Sidebar";
 import { Toaster } from 'sonner';
-import { SWRConfig } from 'swr';
+import { SWRConfig, SWRConfiguration } from 'swr';
 import { defaultSWRConfig } from '@/lib/swr-config';
 import { AppCacheProvider } from '@/lib/cache-provider';
 
@@ -29,7 +29,7 @@ export default function LayoutClientShell({ children }: LayoutClientShellProps) 
   };
 
   return (
-    <SWRConfig value={swrConfig}>
+    <SWRConfig value={swrConfig as SWRConfiguration}>
       <ThemeProvider
         attribute="class"
         defaultTheme="dark"

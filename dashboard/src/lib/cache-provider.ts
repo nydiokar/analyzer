@@ -2,13 +2,13 @@ import { CACHE_DURATIONS } from './swr-config';
 
 type CacheKey = string;
 
-interface CacheEntry {
-  value: any;
+interface CacheEntry<T = unknown> {
+  value: T;
   expiry: number;
 }
 
 // A simple TTL cache that properly implements the Map interface required by SWR.
-export class AppCacheProvider extends Map<CacheKey, any> {
+export class AppCacheProvider extends Map<CacheKey, unknown> {
   private cache = new Map<CacheKey, CacheEntry>();
 
   private getTTL(key: CacheKey): number {
@@ -34,7 +34,7 @@ export class AppCacheProvider extends Map<CacheKey, any> {
     return 10 * 60 * 1000; // 10 minutes default
   }
 
-  set(key: CacheKey, value: any): this {
+  set(key: CacheKey, value: unknown): this {
     const ttl = this.getTTL(key);
     const expiry = Date.now() + ttl;
     this.cache.set(key, { value, expiry });
@@ -44,7 +44,7 @@ export class AppCacheProvider extends Map<CacheKey, any> {
     return this;
   }
 
-  get(key: CacheKey): any {
+  get(key: CacheKey): unknown {
     const entry = this.cache.get(key);
     if (!entry) {
       return super.get(key); // Fallback to parent Map

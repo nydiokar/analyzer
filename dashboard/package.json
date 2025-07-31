@@ -50,6 +50,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@types/echarts": "^4.9.22",
     "@types/lodash": "^4.17.20",
     "@types/node": "^20",
     "@types/react": "^19",

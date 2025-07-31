@@ -116,7 +116,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
     }
   }
   
-  const { data: behaviorData, error: behaviorError, isLoading: behaviorIsLoading } = useSWR<BehaviorAnalysisResponseDto, Error & { status?: number; payload?: any }>(
+  const { data: behaviorData, error: behaviorError, isLoading: behaviorIsLoading } = useSWR<BehaviorAnalysisResponseDto, Error & { status?: number; payload?: { message?: string } }>(
     swrKeyBehavior,
     ([url]) => fetcher(url), // Pass only URL to fetcher
     {

@@ -6,7 +6,7 @@ import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; /
 import { ArrowUp } from 'lucide-react';
 
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
-import { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
+import { CombinedSimilarityResult, TokenInfo } from '@/components/similarity-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
 import { toast } from 'sonner';
 import { useJobProgress } from '@/hooks/useJobProgress';
@@ -187,7 +187,10 @@ export default function AnalysisLabPage() {
           if (!prevResult) return null; // Should not happen if flow is correct
           return {
             ...prevResult,
-            walletBalances: data.enrichedBalances,
+            walletBalances: data.enrichedBalances as Record<string, { 
+              totalValueUsd: number;
+              tokenBalances: (TokenInfo & { uiBalance: number; valueUsd: number | null })[];
+            }>,
           };
         });
 

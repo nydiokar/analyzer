@@ -155,7 +155,7 @@ export default function WalletProfileLayout({
           globalMutate(
             createCacheKey.walletSummary(walletAddress),
             undefined,
-            { revalidate: true }
+            { revalidate: false }
           );
 
           setIsAnalyzing(false);
@@ -185,7 +185,7 @@ export default function WalletProfileLayout({
           globalMutate(
             createCacheKey.walletSummary(walletAddress),
             undefined,
-            { revalidate: true }
+            { revalidate: false }
           );
         }, 1000); // Give enrichment time to fully complete
         // All jobs are done; clear analysis state
