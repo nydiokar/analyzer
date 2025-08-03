@@ -66,6 +66,7 @@ import { WalletEditForm } from './WalletEditForm';
 import QuickAddForm from './QuickAddForm';
 import LazyTabContent from './LazyTabContent';
 import { FavoriteWallet } from '@/types/api';
+import { WalletBadge } from '@/components/shared/WalletBadge';
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
@@ -92,7 +93,26 @@ export default function WalletProfileLayout({
 }: WalletProfileLayoutProps) {
   const { mutate: globalMutate, cache } = useSWRConfig();
   const { apiKey } = useApiKeyStore();
-  const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
+  const [isHeaderExpanded, setIsHeaderExpanded] = useState(() => {
+    // Try to get the saved state from localStorage, default to true
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('wallet-profile-header-expanded');
+      return saved !== null ? JSON.parse(saved) : true;
+    }
+    return true;
+  });
+
+  // Save the header expanded state to localStorage with throttling to prevent excessive writes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Use a ref to throttle localStorage writes
+      const timeoutId = setTimeout(() => {
+        localStorage.setItem('wallet-profile-header-expanded', JSON.stringify(isHeaderExpanded));
+      }, 500); // Throttle to 500ms to reduce excessive writes
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isHeaderExpanded]);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
@@ -259,34 +279,17 @@ export default function WalletProfileLayout({
     fetcher,
     {
       refreshInterval: isPolling && !isConnected ? 10000 : 0, // Only poll when WebSocket is unavailable
-      revalidateOnMount: true, // Allow initial data loading
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      dedupingInterval: 10000, // Reduced to 10 seconds for faster response
-      keepPreviousData: false, // FIXED: This was causing isLoading to never resolve
-      revalidateIfStale: true, // FIXED: Allow revalidation to properly resolve loading state
-      errorRetryCount: 0,
-      focusThrottleInterval: 10000, // Reduced to 10 seconds
+      // Use global SWR config for all other settings
     }
   );
 
   // Each component will handle its own data loading
   // No detailed data loading at layout level
   
-  // Tab state management
+  // Tab state management - simplified without debouncing
   const [activeTab, setActiveTab] = useState<string>('token-performance');
-  const [debouncedActiveTab, setDebouncedActiveTab] = useState<string>('token-performance');
   
-  // Debounce active tab changes to prevent performance spikes
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setDebouncedActiveTab(activeTab);
-    }, 150); // 150ms debounce to smooth out rapid tab switching
-
-    return () => clearTimeout(timeoutId);
-  }, [activeTab]);
-  
-  // Simplified tab change handler with debouncing
+  // Direct tab change handler - no debouncing needed
   const handleTabChange = useCallback((value: string) => {
     if (value === activeTab) return; // Skip if already active
     setActiveTab(value);
@@ -427,7 +430,7 @@ export default function WalletProfileLayout({
       });
   };
 
-  const handleTriggerAnalysis = async () => {
+  const handleTriggerAnalysis = useCallback(async () => {
     if (!isValidSolanaAddress(walletAddress)) {
       toast.error("Invalid Wallet Address", {
         description: "The address in the URL is not a valid Solana wallet address.",
@@ -499,7 +502,7 @@ export default function WalletProfileLayout({
         description: error.message || "An unexpected error occurred. Please try again.",
       });
     }
-  };
+  }, [walletAddress, isAnalyzing, isConnected, subscribeToJob]);
 
   const handleToggleFavorite = async () => {
     if (!walletAddress || !apiKey || isTogglingFavorite) {
@@ -671,22 +674,17 @@ export default function WalletProfileLayout({
             {walletAddress && isHeaderExpanded && (
               <>
                 <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-1">
-                    <WalletIcon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                  <div className="flex items-center gap-2">
+                    {/* Use WalletBadge component */}
+                    <WalletBadge address={walletAddress} className="text-sm" />
                     
-                    {/* Display nickname if available, otherwise wallet address */}
-                    {currentFavoriteData?.nickname ? (
-                      <span className="text-sm font-medium">{currentFavoriteData.nickname}</span>
-                    ) : (
-                      <Badge variant="outline" className="px-2 py-1 text-xs md:text-sm font-mono truncate">
-                        {truncateWalletAddress(walletAddress, 8, 6)} 
-                      </Badge>
+                    {/* Display nickname if available */}
+                    {currentFavoriteData?.nickname && (
+                      <span className="text-sm font-medium text-muted-foreground">
+                        ({currentFavoriteData.nickname})
+                      </span>
                     )}
                     
-                    <Button variant="ghost" size="icon" onClick={copyToClipboard} className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0">
-                      <CopyIcon className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                      <span className="sr-only">Copy wallet address</span>
-                    </Button>
                     {apiKey && (
                       <>
                         <TooltipProvider delayDuration={100}>
@@ -734,6 +732,22 @@ export default function WalletProfileLayout({
                         )}
                       </>
                     )}
+                    
+                    {/* High-frequency wallet indicator */}
+                    {isValidData && walletSummary?.classification === 'high_frequency' && (
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="h-7 w-7 md:h-8 md:w-8 flex items-center justify-center">
+                              <Bot className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-500" />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p>High-frequency trading wallet</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                   </div>
                   
                   {/* Tags and Collections Display */}
@@ -760,12 +774,6 @@ export default function WalletProfileLayout({
                       ))}
                     </div>
                   )}
-                  {/* High-frequency wallet indicator */}
-                  {isValidData && walletSummary?.classification === 'high_frequency' && (
-                    <div className="h-7 w-7 md:h-8 md:w-8 flex items-center justify-center">
-                      <Bot className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-500" />
-                    </div>
-                  )}
                 </div>
                 <ExpandedAnalysisControl />
               </>
@@ -773,52 +781,58 @@ export default function WalletProfileLayout({
 
             {walletAddress && !isHeaderExpanded && (
               <div className="w-full flex items-center justify-between gap-2 py-1">
-                                  <div className="flex items-center gap-1 flex-shrink min-w-0">
-                    <WalletIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    
-                    {/* Display nickname if available, otherwise wallet address */}
-                    {currentFavoriteData?.nickname ? (
-                      <span className="text-xs font-medium truncate">{currentFavoriteData.nickname}</span>
-                    ) : (
-                      <Badge variant="outline" className="px-1.5 py-0.5 text-xs font-mono truncate">
-                        {truncateWalletAddress(walletAddress, 6, 4)}
-                      </Badge>
-                    )}
-                    
-                    <Button variant="ghost" size="icon" onClick={copyToClipboard} className="h-6 w-6 flex-shrink-0">
-                      <CopyIcon className="h-3 w-3" />
-                    </Button>
-                    {apiKey && (
-                      <>
+                <div className="flex items-center gap-1 flex-shrink min-w-0">
+                  {/* Use WalletBadge component for collapsed state */}
+                  <WalletBadge address={walletAddress} className="text-xs" />
+                  
+                  {/* Display nickname if available */}
+                  {currentFavoriteData?.nickname && (
+                    <span className="text-xs font-medium text-muted-foreground truncate">
+                      ({currentFavoriteData.nickname})
+                    </span>
+                  )}
+                  
+                  {apiKey && (
+                    <>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={handleToggleFavorite} 
+                        disabled={isTogglingFavorite}
+                        className="h-6 w-6 flex-shrink-0"
+                      >
+                        <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
+                      </Button>
+                      
+                      {/* Edit button for favorites */}
+                      {isCurrentWalletFavorite && (
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          onClick={handleToggleFavorite} 
-                          disabled={isTogglingFavorite}
+                          onClick={openEditModal} 
                           className="h-6 w-6 flex-shrink-0"
                         >
-                          <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
+                          <Edit2 className="h-3 w-3" />
+                          <span className="sr-only">Edit wallet data</span>
                         </Button>
-                        
-                        {/* Edit button for favorites */}
-                        {isCurrentWalletFavorite && (
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={openEditModal} 
-                            className="h-6 w-6 flex-shrink-0"
-                          >
-                            <Edit2 className="h-3 w-3" />
-                            <span className="sr-only">Edit wallet data</span>
-                          </Button>
-                        )}
-                      </>
-                    )}
-                    {/* High-frequency wallet indicator (collapsed) */}
+                      )}
+                    </>
+                  )}
+                  
+                  {/* High-frequency wallet indicator (collapsed) */}
                   {isValidData && walletSummary?.classification === 'high_frequency' && (
-                    <div className="h-6 w-6 flex items-center justify-center">
-                      <Bot className="h-3 w-3 text-orange-500" />
-                    </div>  
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="h-6 w-6 flex items-center justify-center">
+                            <Bot className="h-3 w-3 text-orange-500" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>High-frequency trading wallet</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -856,7 +870,7 @@ export default function WalletProfileLayout({
             )}>
               <AccountSummaryCard 
                 walletAddress={walletAddress}
-                className="w-full sm:w-auto md:max-w-sm"
+                className="w-full sm:w-auto md:max-w-none"
                 triggerAnalysis={handleTriggerAnalysis} 
                 isAnalyzingGlobal={isAnalyzing}
                 walletSummary={walletSummary}
@@ -913,7 +927,7 @@ export default function WalletProfileLayout({
 
       <main className="flex-1 overflow-y-auto p-0">
         <div className="w-full h-full flex flex-col">
-          <LazyTabContent value="overview" activeTab={debouncedActiveTab} className="mt-4" defer={false} preloadOnHover={false}>
+          <LazyTabContent value="overview" activeTab={activeTab} className="mt-4" defer={false}>
             <div>
               {children}
               <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
@@ -928,11 +942,11 @@ export default function WalletProfileLayout({
             </div>
           </LazyTabContent>
 
-          <LazyTabContent value="token-performance" activeTab={debouncedActiveTab} className="mt-0 p-0 flex flex-col" defer={true} preloadOnHover={false}>
+          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col" defer={true}>
             <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} />
           </LazyTabContent>
 
-          <LazyTabContent value="account-stats" activeTab={debouncedActiveTab} className="mt-0 p-0" defer={true} preloadOnHover={false}>
+          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedAccountStatsPnlTab 
               walletAddress={walletAddress} 
               triggerAnalysisGlobal={handleTriggerAnalysis} 
@@ -941,11 +955,11 @@ export default function WalletProfileLayout({
             />
           </LazyTabContent>
 
-          <LazyTabContent value="behavioral-patterns" activeTab={debouncedActiveTab} className="mt-0 p-0" defer={true} preloadOnHover={false}>
+          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedBehavioralPatternsTab walletAddress={walletAddress} />
           </LazyTabContent>
 
-          <LazyTabContent value="notes" activeTab={debouncedActiveTab} className="mt-0 p-0" defer={true} preloadOnHover={false}>
+          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedReviewerLogTab walletAddress={walletAddress} />
           </LazyTabContent>
         </div>

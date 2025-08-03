@@ -1,35 +1,36 @@
 import { SWRConfiguration, MutatorCallback } from 'swr';
 import { fetcher } from './fetcher';
 
-// Cache durations in milliseconds
+// Cache durations in milliseconds - optimized for performance
 export const CACHE_DURATIONS = {
-  // Wallet summary data – keep previous data in memory for 5 minutes so UI never flashes blank while a revalidation is in-flight.
-  // Wallet summary data – never auto-expire; we will invalidate it manually when analysis completes.
-  WALLET_SUMMARY: 60 * 1000, // 1 minute only
+  // Wallet summary data – extended cache to prevent frequent re-fetches
+  WALLET_SUMMARY: 20 * 60 * 1000, // 20 minutes
   
-  // Token performance data - SHORT cache since it changes with enrichment
-  TOKEN_PERFORMANCE: 60 * 1000, // 1 minute only
+  // Token performance data - longer cache to reduce requests
+  TOKEN_PERFORMANCE: 10 * 60 * 1000, // 10 minutes
   
-  // Behavioral analysis - longer caching as it's very expensive
-  BEHAVIORAL_ANALYSIS: 2 * 60 * 1000, // 2 minutes
+  // Behavioral analysis - much longer caching as it's very expensive
+  BEHAVIORAL_ANALYSIS: 30 * 60 * 1000, // 30 minutes
   
-  // PNL data - moderate caching
-  PNL_DATA: 2 * 60 * 1000, // 2 minutes
+  // PNL data - extended caching
+  PNL_DATA: 15 * 60 * 1000, // 15 minutes
   
-  // User favorites - short caching as user can modify frequently
-  FAVORITES: 2 * 60 * 1000, // 2 minutes
+  // User favorites - moderate caching
+  FAVORITES: 5 * 60 * 1000, // 5 minutes
   
-  // Search results - very short caching
-  SEARCH: 30 * 1000, // 30 seconds
+  // Search results - moderate caching
+  SEARCH: 2 * 60 * 1000, // 2 minutes
 };
 
-// Simplified SWR configuration
+// Optimized SWR configuration for performance
 export const defaultSWRConfig: SWRConfiguration = {
   fetcher,
   revalidateOnFocus: false,
   revalidateOnReconnect: false, // Disable to prevent unnecessary requests
   revalidateOnMount: true, // Allow initial data loading
-  dedupingInterval: 15000, // Increase to 15 seconds to prevent rapid duplicates during tab switching
+  dedupingInterval: 300000, // 5 minutes - much longer to prevent rapid duplicates
+  keepPreviousData: true, // Keep previous data to prevent layout shifts
+  revalidateIfStale: false, // Disable automatic revalidation
   shouldRetryOnError: (error) => {
     // Don't retry on 4xx errors (client errors)
     if (error?.status >= 400 && error?.status < 500) {
@@ -38,10 +39,10 @@ export const defaultSWRConfig: SWRConfiguration = {
     return true;
   },
   errorRetryCount: 1, // Reduce retry attempts
-  errorRetryInterval: 1000, // Faster retry interval
+  errorRetryInterval: 2000, // Slightly longer retry interval
   refreshInterval: 0, // Disable auto refresh by default
   // Add focusThrottleInterval to prevent rapid revalidations
-  focusThrottleInterval: 5000,
+  focusThrottleInterval: 300000, // 5 minutes
 };
 
 // Create cache keys with consistent patterns

@@ -57,15 +57,30 @@ export default function AccountSummaryCard({
 
   if (isLoading) {
     return (
-      <Card className={cn("p-4", className)}>
-        <div className="space-y-4">
-          <Skeleton className="h-8 w-3/4" />
-          <Skeleton className="h-4 w-1/2" />
-          <div className="grid grid-cols-2 gap-4 pt-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
+      <Card className={cn("p-3 shadow-sm w-full md:w-auto md:min-w-[280px] lg:min-w-[320px]", className)}>
+        <div className="space-y-3">
+          {/* Main metrics skeleton - match the actual layout */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="flex flex-col items-center text-center">
+              <Skeleton className="h-3 w-8 mb-1" />
+              <Skeleton className="h-5 w-16" />
+            </div>
+            <div className="flex flex-col items-center text-center">
+              <Skeleton className="h-3 w-12 mb-1" />
+              <Skeleton className="h-5 w-12" />
+            </div>
+            <div className="flex flex-col items-center text-center">
+              <Skeleton className="h-3 w-10 mb-1" />
+              <Skeleton className="h-5 w-12" />
+            </div>
+          </div>
+          
+          {/* Additional info skeleton */}
+          <div className="pt-2 border-t border-muted/50">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-4 w-16" />
+            </div>
           </div>
         </div>
       </Card>
@@ -160,12 +175,13 @@ export default function AccountSummaryCard({
   };
 
   return (
-    <Card className={cn("p-3 shadow-sm w-full md:w-auto md:min-w-[280px] lg:min-w-[300px]", className)}>
-      <div className="space-y-2">
-        <Flex justifyContent="between" alignItems="center" className="gap-2">
-          <Text className="text-sm font-medium">PNL</Text>
-          <div className="flex flex-col items-end">
-            <Metric color={(data.latestPnl ?? 0) >= 0 ? 'emerald' : 'red'} className="text-base">
+    <Card className={cn("p-3 shadow-sm w-full md:w-auto md:min-w-[280px] lg:min-w-[320px]", className)}>
+      <div className="space-y-3">
+        {/* Main metrics in a horizontal layout */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="flex flex-col items-center text-center">
+            <Text className="text-xs text-muted-foreground">PNL</Text>
+            <Metric color={(data.latestPnl ?? 0) >= 0 ? 'emerald' : 'red'} className="text-sm">
               {formatPnl(data.latestPnl ?? null)}
             </Metric>
             {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
@@ -174,19 +190,17 @@ export default function AccountSummaryCard({
               </Text>
             )}
           </div>
-        </Flex>
 
-        <Flex justifyContent="between" alignItems="center" className="gap-2">
-          <Text className="text-sm font-medium">Win Rate</Text>
-          <Text className="text-base font-semibold">{formatWinRate(data.tokenWinRate ?? null)}</Text>
-        </Flex>
+          <div className="flex flex-col items-center text-center">
+            <Text className="text-xs text-muted-foreground">Win Rate</Text>
+            <Text className="text-sm font-semibold">{formatWinRate(data.tokenWinRate ?? null)}</Text>
+          </div>
 
-        {data.currentSolBalance !== undefined && (
-          <Flex justifyContent="between" alignItems="center" className="gap-2">
-            <Text className="text-sm font-medium">Balance</Text>
-            <div className="flex flex-col items-end">
-              <Text className="text-base font-semibold">
-                {data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL
+          {data.currentSolBalance !== undefined && (
+            <div className="flex flex-col items-center text-center">
+              <Text className="text-xs text-muted-foreground">Balance</Text>
+              <Text className="text-sm font-semibold">
+                {data.currentSolBalance?.toFixed(2) ?? 'N/A'}
               </Text>
               {data.currentSolBalanceUsd !== null && data.currentSolBalanceUsd !== undefined && (
                 <Text className="text-xs text-muted-foreground">
@@ -194,57 +208,26 @@ export default function AccountSummaryCard({
                 </Text>
               )}
             </div>
-          </Flex>
-        )}
+          )}
+        </div>
 
-        <div className="mt-2 pt-2 border-t border-muted/50">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-2 gap-x-4">
+        {/* Additional info with proper spacing */}
+        <div className="pt-2 border-t border-muted/50">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5" />
+              <span>
+                {data.lastActiveTimestamp 
+                  ? format(new Date(data.lastActiveTimestamp * 1000), 'MMM d, yyyy') 
+                  : 'N/A'}
+              </span>
+            </div>
             
-            <TooltipProvider delayDuration={100}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center justify-between cursor-default">
-                    <div className="flex items-center gap-1.5">
-                      <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                      <Text className="text-xs text-muted-foreground">Last Active</Text>
-                    </div>
-                    <Text className="text-xs text-muted-foreground">
-                      {data.lastActiveTimestamp 
-                        ? format(new Date(data.lastActiveTimestamp * 1000), 'MMM d, yyyy') 
-                        : 'N/A'}
-                    </Text>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" align="center" sideOffset={6}>
-                  <p>{data.lastActiveTimestamp 
-                      ? format(new Date(data.lastActiveTimestamp * 1000), 'PPP p') 
-                      : 'No data available'}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
             {data.behaviorClassification && (
-              <TooltipProvider delayDuration={100}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center justify-between cursor-default">
-                      <div className="flex items-center gap-1.5">
-                        <Landmark className="h-4 w-4 text-muted-foreground" />
-                        <Text className="text-xs text-muted-foreground">Behavior</Text>
-                      </div>
-                      <Badge color="sky" size="xs" className="ml-1">
-                        {data.behaviorClassification}
-                      </Badge>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" align="center" sideOffset={6}>
-                    <p>{data.behaviorClassification}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Badge color="sky" size="xs">
+                {data.behaviorClassification}
+              </Badge>
             )}
-
           </div>
         </div>
       </div>

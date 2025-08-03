@@ -13,7 +13,7 @@ interface LayoutClientShellProps {
 }
 
 export default function LayoutClientShell({ children }: LayoutClientShellProps) {
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   // ✅ Create cache provider once and reuse it
   const cacheProvider = useMemo(() => new AppCacheProvider(), []);
