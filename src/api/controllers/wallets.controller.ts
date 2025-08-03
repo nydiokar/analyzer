@@ -49,10 +49,6 @@ import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../shared/dto
 @Controller('wallets')
 export class WalletsController {
   private readonly logger = new Logger(WalletsController.name);
-  
-  // Simple in-memory cache for summary responses
-  private summaryCache = new Map<string, { data: WalletSummaryResponse; timestamp: number }>();
-  private readonly CACHE_TTL = 60 * 1000; // 1 minute cache
 
   constructor(
     private readonly databaseService: DatabaseService,
@@ -148,14 +144,6 @@ export class WalletsController {
 
     this.logger.debug(`getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
 
-    // Check cache first
-    const cacheKey = `${walletAddress}-${JSON.stringify(queryDto)}`;
-    const cached = this.summaryCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
-      this.logger.debug(`Returning cached summary for ${walletAddress}`);
-      return cached.data;
-    }
-
     // Prepare timeRange for specific period data if dates are provided
     let serviceTimeRange: { startTs?: number; endTs?: number } | undefined = undefined;
     if (queryDto.startDate && queryDto.endDate) {
@@ -185,8 +173,6 @@ export class WalletsController {
           status: 'unanalyzed' as const,
           walletAddress: walletAddress,
         };
-        // Cache the unanalyzed response
-        this.summaryCache.set(cacheKey, { data: response, timestamp: Date.now() });
         return response;
       }
 
@@ -241,7 +227,6 @@ export class WalletsController {
         await this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp);
       }
       
-      // Add caching headers for better performance
       const response: WalletSummaryResponse = {
         status: 'ok' as const,
         walletAddress,
@@ -258,15 +243,6 @@ export class WalletsController {
         balancesFetchedAt: balancesFetchedAt ? balancesFetchedAt.toISOString() : null,
       };
 
-      // Cache the successful response
-      this.summaryCache.set(cacheKey, { data: response, timestamp: Date.now() });
-
-      // Set cache headers for better performance
-      if (req.res) {
-        req.res.setHeader('Cache-Control', 'public, max-age=60'); // Cache for 1 minute
-        req.res.setHeader('ETag', `"${walletAddress}-${lastAnalyzedAt.getTime()}"`);
-      }
-
       return response;
     } catch (error) {
       const durationMs = Date.now() - startTime;
@@ -280,25 +256,6 @@ export class WalletsController {
       }
       this.logger.error(`Error fetching summary for wallet ${walletAddress}:`, error);
       throw new InternalServerErrorException('Failed to retrieve wallet summary.');
-    }
-  }
-
-  /**
-   * Clear the summary cache for a specific wallet or all wallets
-   */
-  private clearSummaryCache(walletAddress?: string): void {
-    if (walletAddress) {
-      // Clear cache for specific wallet
-      for (const [key] of this.summaryCache) {
-        if (key.startsWith(`${walletAddress}-`)) {
-          this.summaryCache.delete(key);
-        }
-      }
-      this.logger.debug(`Cleared summary cache for wallet: ${walletAddress}`);
-    } else {
-      // Clear all cache
-      this.summaryCache.clear();
-      this.logger.debug('Cleared all summary cache');
     }
   }
 

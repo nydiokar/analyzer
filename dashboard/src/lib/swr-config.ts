@@ -73,10 +73,3 @@ export const invalidateWalletCache = (mutate: MutatorCallback, walletAddress: st
     return false;
   });
 };
-
-// Simplified preload function  
-export const preloadWalletData = (mutate: MutatorCallback, walletAddress: string, currentTab: string) => {
-  // Remove automatic summary preloading - summary is already loaded in layout
-  // and cached properly by SWR. No need to trigger additional fetches on tab changes.
-  // Each tab component will handle its own data loading when rendered.
-}; 

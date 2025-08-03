@@ -37,7 +37,7 @@ import { cn } from '@/lib/utils';
 import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
 import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse } from '@/types/api';
-import { createCacheKey, invalidateWalletCache, preloadWalletData } from '@/lib/swr-config';
+import { createCacheKey, invalidateWalletCache } from '@/lib/swr-config';
 import { useFavorites } from '@/hooks/useFavorites';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { useJobProgress, UseJobProgressCallbacks } from '@/hooks/useJobProgress';
@@ -118,10 +118,17 @@ export default function WalletProfileLayout({
   // Job progress callbacks
   const jobProgressCallbacks: UseJobProgressCallbacks = {
     onJobProgress: (data: JobProgressData) => {
-      setJobProgress(data.progress);
-      
+      // Throttle progress updates to reduce re-renders (only update every 5% change)
+      setJobProgress(prev => {
+        const newProgress = data.progress;
+        if (Math.abs(newProgress - prev) >= 5 || newProgress === 100) {
+          return newProgress;
+        }
+        return prev;
+      });
     },
-    onJobCompleted: (data: JobCompletionData) => {
+    onJobCompleted: async (data: JobCompletionData) => {
+      console.log('🔄 Job completed:', data.jobId, 'Analysis:', analysisJobId, 'Enrichment:', enrichmentJobId);
       
       // Case 1: The main analysis job has completed
       if (data.jobId === analysisJobId) {
@@ -152,21 +159,39 @@ export default function WalletProfileLayout({
           }
           // Immediately fetch fresh data from database - no cache to worry about
           // Force-refetch the summary immediately; keepPreviousData makes sure UI doesn’t blank.
-          globalMutate(
-            createCacheKey.walletSummary(walletAddress),
-            undefined,
-            { revalidate: false }
-          );
-
-          setIsAnalyzing(false);
           setAnalysisJobId(null);
-          // If there's an enrichment job, isAnalyzing remains true
+          
+          // Wait longer for database to be fully updated before refreshing cache
+          setTimeout(async () => {
+            console.log('🔄 Dashboard job completed - refreshing summary cache');
+            
+            try {
+              // Force-refetch the summary with fresh data from database
+              await globalMutate(
+                createCacheKey.walletSummary(walletAddress),
+                () => fetcher(createCacheKey.walletSummary(walletAddress)),
+                { populateCache: true, revalidate: false }
+              );
+              console.log('✅ Dashboard cache refresh complete');
+            } catch (error) {
+              console.error('❌ Dashboard cache refresh failed:', error);
+            }
+          }, 3000);
+
+          // If there's an enrichment job, keep isAnalyzing true until enrichment completes
+          if (!resultData.enrichmentJobId) {
+            setIsAnalyzing(false);
+          }
         } catch (error: any) {
           // ... error handling
+          console.error('Error handling dashboard job completion:', error);
           setIsAnalyzing(false);
           setJobProgress(0);
+          setEnrichmentJobId(null);
         }
       } else if (data.jobId === enrichmentJobId) {
+        console.log('✅ Enrichment job completed successfully:', data.jobId);
+        
         // Stop any remaining polling since enrichment completed via WebSocket
         setIsPolling(false);
         setAnalysisRequestTime(null);
@@ -175,23 +200,29 @@ export default function WalletProfileLayout({
         toast.success("Token Data Updated", {
           description: "Token metadata and prices have been updated.",
         });
-        // Revalidate token performance data but keep showing existing data during fetch
-        setTimeout(() => {
-          // Refresh token performance tables
+        // Refresh only token performance data after enrichment completes
+        setTimeout(async () => {
+          console.log('🔄 Enrichment job completed - refreshing token performance data only');
+          
+          // Only refresh token performance data, no summary refresh needed
           globalMutate(
             (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`)
           );
-          // And refresh wallet summary as the enrichment step can affect balance / classification
-          globalMutate(
-            createCacheKey.walletSummary(walletAddress),
-            undefined,
-            { revalidate: false }
-          );
-        }, 1000); // Give enrichment time to fully complete
+        }, 1000); // Reduced delay since we're only refreshing token data
+        
         // All jobs are done; clear analysis state
         setIsAnalyzing(false);
         setJobProgress(0);
         
+      } else {
+        // Safety net: if we get a job completion for an unknown job, but we're still analyzing,
+        // check if both our tracked jobs are null (meaning they've completed) and reset state
+        console.warn('⚠️ Unknown job completed:', data.jobId, 'Current state - Analysis:', analysisJobId, 'Enrichment:', enrichmentJobId);
+        if (!analysisJobId && !enrichmentJobId && isAnalyzing) {
+          console.log('🔧 Safety reset: clearing analysis state for unknown job');
+          setIsAnalyzing(false);
+          setJobProgress(0);
+        }
       }
     },
     onJobFailed: (data: JobFailedData) => {
@@ -253,22 +284,19 @@ export default function WalletProfileLayout({
   // Progressive loading: Start with summary, then load detailed data
   // Remove isInitialized dependency - let SWR handle the request with or without API key
   const walletSummaryKey = walletAddress ? createCacheKey.walletSummary(walletAddress) : null;
-  const { data: walletSummary, error: summaryError, isLoading: isLoadingWalletSummary } = useSWR<WalletSummaryData>(
+  const { data: walletSummary, error: summaryError } = useSWR<WalletSummaryData>(
     walletSummaryKey,
     fetcher,
     {
       refreshInterval: isPolling && !isConnected ? 10000 : 0, // Only poll when WebSocket is unavailable
       revalidateOnMount: true, // Allow initial data loading
-      // Do not disrupt the UI by revalidating on every tab or network change –
-      // we will explicitly invalidate the cache when running a new analysis.
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
-      // Prevent hammering the API by deduping identical requests for 15 s.
-      dedupingInterval: 15_000,
-      // Keep the previous summary visible while a background revalidation is running.
-      keepPreviousData: true,
-      revalidateIfStale: true,
-      errorRetryCount: 0 // Don't retry on error to avoid constant fetching
+      dedupingInterval: 10000, // Reduced to 10 seconds for faster response
+      keepPreviousData: false, // FIXED: This was causing isLoading to never resolve
+      revalidateIfStale: true, // FIXED: Allow revalidation to properly resolve loading state
+      errorRetryCount: 0,
+      focusThrottleInterval: 10000, // Reduced to 10 seconds
     }
   );
 
@@ -294,12 +322,8 @@ export default function WalletProfileLayout({
     setActiveTab(value);
   }, [activeTab]);
 
-  // Simplified preloading - only preload summary when needed
-  useEffect(() => {
-    if (walletSummary && walletAddress) {
-      preloadWalletData(globalMutate, walletAddress, debouncedActiveTab);
-    }
-  }, [walletSummary, debouncedActiveTab, walletAddress, globalMutate]);
+  // Removed preloading effect - preloadWalletData is empty and was causing unnecessary re-renders
+  // Each tab component handles its own data loading when rendered
 
   // Removed redundant manual fetch - SWR handles initial loading automatically
 
@@ -307,11 +331,22 @@ export default function WalletProfileLayout({
   // This ensures that the rendered data actually belongs to the wallet address in the URL.
   const isValidData = walletSummary && walletSummary.walletAddress === walletAddress;
 
+  // Store the last analysis check time to prevent duplicate polling checks
+  const lastPollingCheckRef = React.useRef<number>(0);
+  
   useEffect(() => {
     // This effect handles the completion of polling - ONLY when WebSocket is unavailable
     if (isPolling && walletSummary && analysisRequestTime && !isConnected) {
+      const now = Date.now();
+      // Throttle polling checks to prevent excessive re-renders (max once per 2 seconds)
+      if (now - lastPollingCheckRef.current < 2000) {
+        return;
+      }
+      lastPollingCheckRef.current = now;
+      
       const lastAnalyzedDate = walletSummary.lastAnalyzedAt ? new Date(walletSummary.lastAnalyzedAt) : null;
       if (lastAnalyzedDate && lastAnalyzedDate > analysisRequestTime) {
+        console.log('✅ Polling detected analysis completion');
         setIsPolling(false);
         setIsAnalyzing(false);
         setAnalysisRequestTime(null);
@@ -320,8 +355,8 @@ export default function WalletProfileLayout({
         toast.success("Analysis Complete", {
           description: "Wallet data has been successfully updated.",
         });
+        
         // Manually revalidate other wallet-related data, since polling will now stop.
-        // We explicitly skip revalidating the summary key itself, as we already have the latest from the poll.
         if (cache instanceof Map) {
           for (const key of cache.keys()) {
             if (
@@ -333,9 +368,6 @@ export default function WalletProfileLayout({
             }
           }
         }
-        
-        // Polling fallback complete - refresh all wallet data
-        invalidateWalletCache(globalMutate, walletAddress);
       }
     }
   }, [walletSummary, isPolling, analysisRequestTime, cache, globalMutate, walletAddress, walletSummaryKey, isConnected]);
@@ -357,6 +389,42 @@ export default function WalletProfileLayout({
     }
     return () => clearTimeout(timeoutId);
   }, [isPolling]);
+
+  // Safety timeout for stuck analysis state
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    if (isAnalyzing && jobProgress === 100) {
+      // If we're stuck at 100% for more than 5 seconds, force reset
+      timeoutId = setTimeout(() => {
+        console.log('🔧 Force reset: Analysis stuck at 100%');
+        setIsAnalyzing(false);
+        setJobProgress(0);
+        setAnalysisJobId(null);
+        setEnrichmentJobId(null);
+        
+        // Force a final cache refresh when force resetting
+        setTimeout(async () => {
+          console.log('🔄 Force reset - final cache refresh');
+          
+          try {
+            await globalMutate(
+              createCacheKey.walletSummary(walletAddress),
+              () => fetcher(createCacheKey.walletSummary(walletAddress)),
+              { populateCache: true, revalidate: false }
+            );
+            console.log('✅ Force reset complete');
+          } catch (error) {
+            console.error('❌ Force reset failed:', error);
+          }
+        }, 500);
+        
+        toast.success("Analysis completed", {
+          description: "Analysis state has been reset and data refreshed.",
+        });
+      }, 5000); // Reduced to 5 seconds for faster recovery
+    }
+    return () => clearTimeout(timeoutId);
+  }, [isAnalyzing, jobProgress, globalMutate, walletAddress]);
 
   useEffect(() => {
     if (walletSummary && typeof walletSummary.lastAnalyzedAt === 'string') {
@@ -650,11 +718,6 @@ export default function WalletProfileLayout({
           />
           <span>{formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}</span>
         </div>
-      ) : lastAnalysisStatus === 'idle' && !isAnalyzing ? (
-        <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
-              <span className="h-2 w-2 rounded-full bg-gray-400" title="Not analyzed" />
-              <span>Not yet analyzed</span>
-        </div>
       ) : null }
     </div>
   );
@@ -858,6 +921,9 @@ export default function WalletProfileLayout({
                   className="w-full sm:w-auto md:max-w-sm"
                   triggerAnalysis={handleTriggerAnalysis} 
                   isAnalyzingGlobal={isAnalyzing}
+                  walletSummary={walletSummary}
+                  summaryError={summaryError}
+                  summaryIsLoading={!walletSummary && !summaryError}
                 />
                 <TimeRangeSelector />
               </>

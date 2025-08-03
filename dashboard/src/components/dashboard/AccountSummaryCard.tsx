@@ -17,39 +17,50 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useApiKeyStore } from '@/store/api-key-store';
 import { Button } from '@/components/ui/button';
 
-import useSWR from 'swr';
-import { createCacheKey } from '@/lib/swr-config';
-import { fetcher } from '@/lib/fetcher';
+// REMOVED: useSWR import and fetcher import - no longer needed
+// REMOVED: createCacheKey import - no longer needed
 
 interface AccountSummaryCardProps {
   walletAddress: string;
   className?: string;
   triggerAnalysis?: () => void;
   isAnalyzingGlobal?: boolean;
+  // NEW: Add data props from parent
+  walletSummary?: WalletSummaryData;
+  summaryError?: any;
+  summaryIsLoading?: boolean;
 }
 
 export default function AccountSummaryCard({ 
   walletAddress, 
   className, 
   triggerAnalysis, 
-  isAnalyzingGlobal 
+  isAnalyzingGlobal,
+  // NEW: Destructure the data props
+  walletSummary: data,
+  summaryError: error,
+  summaryIsLoading: isLoading
 }: AccountSummaryCardProps) {
   const { isDemo } = useApiKeyStore();
   
-  const walletSummaryKey = walletAddress ? createCacheKey.walletSummary(walletAddress) : null;
-  const { data, error, isLoading } = useSWR<WalletSummaryData>(
-    walletSummaryKey,
-    fetcher,
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      keepPreviousData: true,
-      revalidateIfStale: true,
-      errorRetryCount: 0,
-    }
-  );
+  // Debug flag - set to true only when needed for troubleshooting
+  const DEBUG_SUMMARY_CARD = true;
   
-
+  // REMOVED: walletSummaryKey and useSWR hook - data now comes from props
+  
+  // Conditional debugging - only when flag is enabled  
+  React.useEffect(() => {
+    if (DEBUG_SUMMARY_CARD) {
+      console.log('📊 AccountSummaryCard Debug:', {
+        walletAddress: walletAddress?.slice(0, 8) + '...',
+        hasData: !!data,
+        dataStatus: data?.status,
+        hasLatestPnl: !!data?.latestPnl,
+        isLoading,
+        hasError: !!error,
+      });
+    }
+  }, [data, error, isLoading, walletAddress, DEBUG_SUMMARY_CARD]);
 
   if (!walletAddress) {
     return (
