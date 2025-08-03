@@ -42,33 +42,33 @@ export class AnalysisOperationsProcessor {
     );
 
     this.worker.on('completed', (job) => {
-      this.logger.debug(`Job ${job.id} completed successfully`);
+      this.logger.log(`Job ${job.id} from queue ${job.queueName} completed successfully`);
     });
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Job ${job?.id} failed:`, err);
+      this.logger.error(`Job ${job?.id} from queue ${job?.queueName} failed:`, err);
     });
 
     this.worker.on('error', (err) => {
-      this.logger.error('Worker error:', err);
+      this.logger.error('Worker error in AnalysisOperationsProcessor:', err);
     });
 
-    this.logger.debug('AnalysisOperationsProcessor initialized with worker');
+    this.logger.log('AnalysisOperationsProcessor has been initialized');
   }
 
   private async processJob(job: Job): Promise<any> {
     const jobName = job.name;
-    
-    this.logger.debug(`Processing ${jobName} job ${job.id}`);
+    this.logger.log(`Processing job '${jobName}' with ID ${job.id}`);
     
     switch (jobName) {
       case 'analyze-pnl':
-        return await this.processAnalyzePnl(job as Job<AnalyzePnlJobData>);
+        return this.processAnalyzePnl(job as Job<AnalyzePnlJobData>);
       case 'analyze-behavior':
-        return await this.processAnalyzeBehavior(job as Job<AnalyzeBehaviorJobData>);
+        return this.processAnalyzeBehavior(job as Job<AnalyzeBehaviorJobData>);
       case 'dashboard-wallet-analysis':
-        return await this.processDashboardWalletAnalysis(job as Job<DashboardWalletAnalysisJobData>);
+        return this.processDashboardWalletAnalysis(job as Job<DashboardWalletAnalysisJobData>);
       default:
+        this.logger.error(`Unknown job name: ${jobName} for job ID ${job.id}`);
         throw new Error(`Unknown job type: ${jobName}`);
     }
   }
@@ -82,48 +82,41 @@ export class AnalysisOperationsProcessor {
     const timeoutMs = JobTimeouts['analyze-pnl'].timeout;
     const startTime = Date.now();
     
-    // Apply deduplication strategy - verify job ID matches expected
+    // Deduplication check
     const expectedJobId = generateJobId.analyzePnl(walletAddress, requestId);
     if (job.id !== expectedJobId) {
-      throw new Error(`Job ID mismatch - possible duplicate: expected ${expectedJobId}, got ${job.id}`);
+      this.logger.warn(`Job ID mismatch - possible duplicate: expected ${expectedJobId}, got ${job.id}`);
+      throw new Error(`Job ID mismatch - possible duplicate`);
     }
 
-    // Acquire Redis lock to prevent concurrent analysis of same wallet
+    // Acquire lock
     const lockKey = RedisLockService.createWalletLockKey(walletAddress, 'pnl');
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
     
     if (!lockAcquired) {
+      this.logger.warn(`Could not acquire lock for PnL analysis on ${walletAddress}, job ${job.id} will be retried.`);
       throw new Error(`PnL analysis already in progress for wallet ${walletAddress}`);
     }
 
     try {
       await job.updateProgress(5);
-              this.logger.debug(`Processing PnL analysis for ${walletAddress}`);
+      this.logger.log(`Starting PnL analysis for ${walletAddress}`);
 
-      // Check if recent analysis exists (idempotency at service level)
+      // Idempotency check
       if (!forceRefresh) {
         const wallet = await this.databaseService.getWallet(walletAddress);
         const lastAnalysisAge = wallet?.analyzedTimestampEnd 
-          ? Date.now() - wallet.analyzedTimestampEnd * 1000  // Convert from seconds to milliseconds
+          ? Date.now() - wallet.analyzedTimestampEnd * 1000
           : Infinity;
         
-        const shouldSkipAnalysis = lastAnalysisAge < 10 * 60 * 1000; // 10 minutes
-        
-        if (shouldSkipAnalysis) {
+        if (lastAnalysisAge < 10 * 60 * 1000) { // 10 minutes idempotency threshold
           await job.updateProgress(100);
-          this.logger.debug(`PnL analysis for ${walletAddress} is already current. Skipping analysis.`);
-          
-          return {
-            success: true,
-            walletAddress,
-            analysisType: 'pnl',
-            timestamp: Date.now(),
-            processingTimeMs: Date.now() - startTime
-          };
+          this.logger.log(`Skipping PnL analysis for ${walletAddress} as recent data exists.`);
+          return { success: true, walletAddress, analysisType: 'pnl', timestamp: Date.now(), processingTimeMs: Date.now() - startTime };
         }
       }
 
-      // Execute PnL analysis with existing optimal service and timeout guard
+      // Execute analysis
       await job.updateProgress(20);
       this.checkTimeout(startTime, timeoutMs, 'Starting PnL analysis');
 
@@ -142,7 +135,7 @@ export class AnalysisOperationsProcessor {
         success: true,
         walletAddress,
         analysisType: 'pnl',
-        resultId: pnlResult.runId?.toString() || undefined,
+        resultId: pnlResult.runId?.toString(),
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime
       };
@@ -152,19 +145,8 @@ export class AnalysisOperationsProcessor {
 
     } catch (error) {
       this.logger.error(`PnL analysis failed for ${walletAddress}:`, error);
-      
-      const result: AnalysisResult = {
-        success: false,
-        walletAddress,
-        analysisType: 'pnl',
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: Date.now(),
-        processingTimeMs: Date.now() - startTime
-      };
-      
       throw error;
     } finally {
-      // Always release lock
       await this.redisLockService.releaseLock(lockKey, job.id!);
     }
   }
@@ -178,29 +160,30 @@ export class AnalysisOperationsProcessor {
     const timeoutMs = JobTimeouts['analyze-behavior'].timeout;
     const startTime = Date.now();
     
-    // Apply deduplication strategy - verify job ID matches expected
+    // Deduplication check
     const expectedJobId = generateJobId.analyzeBehavior(walletAddress, requestId);
     if (job.id !== expectedJobId) {
-      throw new Error(`Job ID mismatch - possible duplicate: expected ${expectedJobId}, got ${job.id}`);
+      this.logger.warn(`Job ID mismatch - possible duplicate: expected ${expectedJobId}, got ${job.id}`);
+      throw new Error(`Job ID mismatch - possible duplicate`);
     }
 
-    // Acquire Redis lock to prevent concurrent analysis of same wallet
+    // Acquire lock
     const lockKey = RedisLockService.createWalletLockKey(walletAddress, 'behavior');
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
     
     if (!lockAcquired) {
+      this.logger.warn(`Could not acquire lock for behavior analysis on ${walletAddress}, job ${job.id} will be retried.`);
       throw new Error(`Behavior analysis already in progress for wallet ${walletAddress}`);
     }
 
     try {
       await job.updateProgress(5);
-              this.logger.debug(`Processing behavior analysis for ${walletAddress}`);
+      this.logger.log(`Starting behavior analysis for ${walletAddress}`);
 
-      // Execute behavior analysis with existing optimal service and timeout guard
+      // Execute analysis
       await job.updateProgress(20);
       this.checkTimeout(startTime, timeoutMs, 'Starting behavior analysis');
 
-      // Create behavior analysis config
       const behaviorConfig: BehaviorAnalysisConfig = config ? {
         timeRange: config.timeRange ? {
           startTs: config.timeRange.from ? Math.floor(config.timeRange.from.getTime() / 1000) : undefined,
@@ -208,11 +191,8 @@ export class AnalysisOperationsProcessor {
         } : undefined,
         excludedMints: config.excludeMints || []
       } : this.behaviorService.getDefaultBehaviorAnalysisConfig();
-
-      const timeRange = config?.timeRange ? {
-        startTs: config.timeRange.from ? Math.floor(config.timeRange.from.getTime() / 1000) : undefined,
-        endTs: config.timeRange.to ? Math.floor(config.timeRange.to.getTime() / 1000) : undefined
-      } : undefined;
+      
+      const timeRange = behaviorConfig.timeRange;
 
       await job.updateProgress(40);
       const behaviorResult = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig, timeRange);
@@ -240,19 +220,8 @@ export class AnalysisOperationsProcessor {
 
     } catch (error) {
       this.logger.error(`Behavior analysis failed for ${walletAddress}:`, error);
-      
-      const result: AnalysisResult = {
-        success: false,
-        walletAddress,
-        analysisType: 'behavior',
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: Date.now(),
-        processingTimeMs: Date.now() - startTime
-      };
-      
       throw error;
     } finally {
-      // Always release lock
       await this.redisLockService.releaseLock(lockKey, job.id!);
     }
   }
@@ -262,50 +231,44 @@ export class AnalysisOperationsProcessor {
    * Implements comprehensive wallet analysis with sync, PNL, and behavior analysis
    */
   async processDashboardWalletAnalysis(job: Job<DashboardWalletAnalysisJobData>): Promise<any> {
-    const { walletAddress, forceRefresh, enrichMetadata, timeoutMinutes, failureThreshold } = job.data;
+    const { walletAddress, forceRefresh, enrichMetadata, timeoutMinutes } = job.data;
     const timeoutMs = (timeoutMinutes || DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES) * 60 * 1000;
     const startTime = Date.now();
     
-    // Apply deduplication strategy
+    // Deduplication check
     const expectedJobId = generateJobId.dashboardWalletAnalysis(walletAddress, job.data.requestId);
     if (job.id !== expectedJobId) {
-      throw new Error(`Job ID mismatch - possible duplicate: expected ${expectedJobId}, got ${job.id}`);
+      this.logger.warn(`Job ID mismatch - possible duplicate: expected ${expectedJobId}, got ${job.id}`);
+      throw new Error(`Job ID mismatch - possible duplicate`);
     }
 
-    // Acquire Redis lock to prevent concurrent processing
+    // Acquire lock
     const lockKey = RedisLockService.createWalletLockKey(walletAddress, 'dashboard-analysis');
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
     
     if (!lockAcquired) {
+      this.logger.warn(`Could not acquire lock for dashboard analysis on ${walletAddress}, job ${job.id} will be retried.`);
       throw new Error(`Dashboard analysis already in progress for wallet ${walletAddress}`);
     }
 
-    // Declare enrichmentJob outside try block so it's accessible in catch block
     let enrichmentJob: Job | undefined;
 
     try {
       await job.updateProgress(5);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 5);
-      this.logger.debug(`Processing dashboard analysis for ${walletAddress}`);
+      this.logger.log(`Starting dashboard analysis for wallet: ${walletAddress}`);
 
-      // 1. Check wallet status (smart sync detection)
+      // 1. Check wallet status for smart sync
       await job.updateProgress(10);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 10);
       const walletStatuses = await this.databaseService.getWalletsStatus([walletAddress]);
       const needsSync = walletStatuses.statuses[0].status === 'STALE' || 
                        walletStatuses.statuses[0].status === 'MISSING' || 
                        forceRefresh;
       
-      // 2. Sequential processing to avoid API rate limiting
-      this.logger.log('🚀 Starting sequential sync and balance fetch...');
-      
-      // Start sync first (if needed)
+      // 2. Sync wallet data if necessary
       if (needsSync) {
         await job.updateProgress(15);
-        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 15);
-        this.logger.log(`📡 Syncing wallet data for ${walletAddress}...`);
+        this.logger.log(`Syncing transaction data for ${walletAddress}...`);
         
-        // Create sync options with progress callback
         const syncOptions: SyncOptions = {
           limit: 100,
           fetchAll: true,
@@ -314,87 +277,51 @@ export class AnalysisOperationsProcessor {
           maxSignatures: ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES,
           smartFetch: true,
           onProgress: (progress) => {
-            const syncProgress = 15 + Math.floor(progress * 0.35); 
+            const syncProgress = 15 + Math.floor(progress * 0.35); // Sync is 35% of total progress
             job.updateProgress(syncProgress);
-            this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', syncProgress);
           },
         };
         
-        // Enhanced sync with intermediate progress updates
         await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-        
-        await job.updateProgress(50);
-        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 50);
-        this.logger.log(`✅ SYNC COMPLETED: Wallet data synced for analysis`);
+        this.logger.log(`Sync completed for ${walletAddress}`);
       }
       
       await job.updateProgress(50);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 50);
       
-      // Start balance fetching AFTER sync completes (no API contention)
-      this.logger.log('💰 Starting balance fetch after sync...');
+      // 3. Fetch current balances
+      this.logger.log(`Fetching balances for ${walletAddress}...`);
       const walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService, this.tokenInfoService);
-      const balanceData = await walletBalanceService.fetchWalletBalances([walletAddress], 'default', true); // skipEnrichment = true
-      this.logger.log(`✅ BALANCE FETCH COMPLETED: Balances available for PNL analysis`);
+      const balanceData = await walletBalanceService.fetchWalletBalances([walletAddress], 'default', true);
       
       await job.updateProgress(55);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 55);
       
-      // 5. Start analysis with synced data and pre-fetched balances
-      this.logger.debug('🚀 Starting analysis with synced data and pre-fetched balances...');
-      
-      await job.updateProgress(60);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 60);
-      
-      // 6. Run analysis sequentially (NOT in parallel to avoid race conditions)
+      // 4. Run PNL and Behavior analysis
+      this.logger.log(`Running PNL and Behavior analysis for ${walletAddress}`);
       await job.updateProgress(65);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 65);
-      this.logger.log(`📊 Starting analysis for ${walletAddress}`);
       
-      // Run PNL analysis first with pre-fetched balances
       const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, { preFetchedBalances: balanceData });
       await job.updateProgress(80);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 80);
       
-      // Then run behavior analysis
-      const behaviorResult = await this.behaviorService.getWalletBehavior(
-        walletAddress, 
-        this.behaviorService.getDefaultBehaviorAnalysisConfig()
-      );
-      
+      const behaviorResult = await this.behaviorService.getWalletBehavior(walletAddress, this.behaviorService.getDefaultBehaviorAnalysisConfig());
       await job.updateProgress(90);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 90);
       
-      // 7. Queue enrichment if requested (AFTER analysis is complete)
+      // 5. Queue metadata enrichment job
       let enrichmentJobId: string | undefined;
       if (enrichMetadata) {
         await job.updateProgress(95);
-        await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 95);
-        // Queue token enrichment after analysis completion
-        
         try {
-          // ALWAYS use analysis results for enrichment to ensure we only enrich displayed tokens
-          // Get token addresses from completed analysis results for targeted enrichment
-          const analysisResults = await this.databaseService.getAnalysisResults({
-            where: { walletAddress }
-          });
+          const walletBalanceData = balanceData?.get(walletAddress);
+          const tokenBalances = walletBalanceData?.tokenBalances || [];
           
-          if (analysisResults.length > 0) {
-            const tokenAddresses = [...new Set(analysisResults.map(ar => ar.tokenAddress))];
-            this.logger.log(`🎯 Targeted enrichment: ${tokenAddresses.length} tokens from analysis results (reduced from ${balanceData?.size || 'unknown'} balance entries)`);
-            
-            // Create enrichment structure with meaningful balance data to avoid filtering
+          if (tokenBalances.length > 0) {
+            this.logger.log(`Queuing enrichment for ${tokenBalances.length} tokens for wallet ${walletAddress}`);
             const walletBalancesForEnrichment = {
               [walletAddress]: {
-                tokenBalances: tokenAddresses.map(address => {
-                  // Find the analysis result for this token to get balance info
-                  const analysisResult = analysisResults.find(ar => ar.tokenAddress === address);
-                  return {
-                    mint: address,
-                    uiBalance: Math.max(analysisResult?.currentUiBalance || 0, 1), // Ensure non-zero to pass filtering
-                    balance: '1000000' // Provide a non-zero raw balance
-                  };
-                })
+                tokenBalances: tokenBalances.map(tokenBalance => ({
+                  mint: tokenBalance.mint,
+                  uiBalance: tokenBalance.uiBalance,
+                  balance: tokenBalance.balance,
+                }))
               }
             };
             
@@ -402,20 +329,18 @@ export class AnalysisOperationsProcessor {
               walletBalances: walletBalancesForEnrichment,
               requestId: job.data.requestId,
               priority: 3,
-              enrichmentContext: 'dashboard-analysis' // Add context to help enrichment processor
+              enrichmentContext: 'dashboard-analysis'
             });
             enrichmentJobId = enrichmentJob.id;
-            // DON'T wait for enrichment - keep it truly parallel!
           } else {
-            this.logger.warn(`No analysis results found for ${walletAddress}, skipping enrichment`);
+            this.logger.log(`No token balances found for ${walletAddress}, skipping enrichment.`);
           }
         } catch (error) {
-          this.logger.warn(`Failed to queue enrichment job, continuing without enrichment:`, error);
+          this.logger.warn(`Failed to queue enrichment job for ${walletAddress}, continuing without it:`, error);
         }
       }
       
       await job.updateProgress(100);
-      await this.jobProgressGateway.publishProgressEvent(job.id!, 'analysis-operations', 100);
       
       const result = {
         success: true,
@@ -427,44 +352,27 @@ export class AnalysisOperationsProcessor {
         processingTimeMs: Date.now() - startTime
       };
 
-      // Log timing and performance metrics
       const actualProcessingTime = Date.now() - startTime;
-      this.logger.log(`✅ Dashboard analysis completed for ${walletAddress} in ${actualProcessingTime}ms${enrichmentJobId ? ' (enrichment queued)' : ''}`);
+      this.logger.log(`✅ Dashboard analysis for ${walletAddress} completed in ${actualProcessingTime}ms.`);
 
-      // Publish completion event with actual processing time (like similarity processor)
-      await this.jobProgressGateway.publishCompletedEvent(
-        job.id!, 
-        'analysis-operations', 
-        result, 
-        actualProcessingTime  // Use explicit variable for clarity
-      );
+      await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, actualProcessingTime);
 
       return result;
 
     } catch (error) {
-      this.logger.error(`Dashboard analysis failed for ${walletAddress}:`, error);
+      this.logger.error(`Dashboard analysis for ${walletAddress} failed:`, error);
       
-      // Cancel any running enrichment job to prevent orphaned processes
       if (enrichmentJob) {
         try {
-          this.logger.log(`Cancelling enrichment job ${enrichmentJob.id} due to dashboard analysis failure`);
+          this.logger.log(`Cancelling enrichment job ${enrichmentJob.id} due to main analysis failure.`);
           await enrichmentJob.remove();
         } catch (cancelError) {
           this.logger.warn(`Failed to cancel enrichment job ${enrichmentJob.id}:`, cancelError);
         }
       }
       
-      const result = {
-        success: false,
-        walletAddress,
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: Date.now(),
-        processingTimeMs: Date.now() - startTime
-      };
-      
       throw error;
     } finally {
-      // Always release lock
       await this.redisLockService.releaseLock(lockKey, job.id!);
     }
   }
@@ -474,7 +382,7 @@ export class AnalysisOperationsProcessor {
    */
   private checkTimeout(startTime: number, timeoutMs: number, operation: string): void {
     if (Date.now() - startTime > timeoutMs) {
-      throw new Error(`${operation} timeout after ${timeoutMs}ms`);
+      throw new Error(`Operation '${operation}' timed out after ${timeoutMs / 1000}s`);
     }
   }
 
@@ -482,7 +390,7 @@ export class AnalysisOperationsProcessor {
    * Shutdown the worker gracefully
    */
   async shutdown(): Promise<void> {
-    this.logger.debug('Shutting down AnalysisOperationsProcessor worker...');
+    this.logger.log('Shutting down AnalysisOperationsProcessor worker...');
     await this.worker.close();
   }
 } 

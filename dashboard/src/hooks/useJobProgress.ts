@@ -129,15 +129,13 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       setError(`Connection failed: ${error.message || 'Unknown error'}`);
     };
 
-    // This handler processes job completion events from the live WebSocket connection.
     const handleJobCompleted = (data: JobCompletionData) => {
-      // Prevent duplicate processing
       if (completedJobs.has(data.jobId)) {
-        return;
+        return; 
       }
+      setCompletedJobs(prev => new Set(prev).add(data.jobId));
       
       console.log('📢 Job completed (WebSocket):', data.jobId, 'Processing time:', data.processingTime);
-      setCompletedJobs(prev => new Set(prev).add(data.jobId));
       
       if (data.queue === 'enrichment-operations') {
         const enrichmentData: EnrichmentCompletionData = {

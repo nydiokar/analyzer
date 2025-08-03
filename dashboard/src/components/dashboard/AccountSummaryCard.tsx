@@ -43,24 +43,7 @@ export default function AccountSummaryCard({
 }: AccountSummaryCardProps) {
   const { isDemo } = useApiKeyStore();
   
-  // Debug flag - set to true only when needed for troubleshooting
-  const DEBUG_SUMMARY_CARD = true;
-  
-  // REMOVED: walletSummaryKey and useSWR hook - data now comes from props
-  
-  // Conditional debugging - only when flag is enabled  
-  React.useEffect(() => {
-    if (DEBUG_SUMMARY_CARD) {
-      console.log('📊 AccountSummaryCard Debug:', {
-        walletAddress: walletAddress?.slice(0, 8) + '...',
-        hasData: !!data,
-        dataStatus: data?.status,
-        hasLatestPnl: !!data?.latestPnl,
-        isLoading,
-        hasError: !!error,
-      });
-    }
-  }, [data, error, isLoading, walletAddress, DEBUG_SUMMARY_CARD]);
+
 
   if (!walletAddress) {
     return (

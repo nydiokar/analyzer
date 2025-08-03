@@ -59,17 +59,7 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     // This is common for DELETE (204) or sometimes POST (201) requests.
     const contentLength = res.headers.get('content-length');
     
-    // Debug: Log the actual contentLength value
-    if (res.status === 200) {
-        console.log('🔍 Debug: Response details:', {
-            url: absoluteUrl,
-            status: res.status,
-            contentLength,
-            contentLengthType: typeof contentLength,
-            contentLengthParsed: contentLength ? parseInt(contentLength, 10) : null,
-            method: options?.method || 'GET'
-        });
-    }
+
     
     // Handle responses that are successful but have no content body.
     // This is common for DELETE (204) or sometimes POST (201) requests.

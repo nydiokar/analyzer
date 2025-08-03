@@ -582,8 +582,8 @@ export class BehaviorAnalyzer {
          if (s.buyCount > 0 && s.sellCount > 0) {
             // Max possible pairs is min(buys, sells)
             const maxPossiblePairs = Math.min(s.buyCount, s.sellCount); 
-            // If maxPossiblePairs is 0, consistency is irrelevant (or 1?)
-            return sum + (maxPossiblePairs > 0 ? (s.completePairs / maxPossiblePairs) : 1);
+            // If maxPossiblePairs is 0, no pairs possible, so no consistency contribution
+            return sum + (maxPossiblePairs > 0 ? (s.completePairs / maxPossiblePairs) : 0);
          }
          return sum;
       }, 0);

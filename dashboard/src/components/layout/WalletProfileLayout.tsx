@@ -128,8 +128,6 @@ export default function WalletProfileLayout({
       });
     },
     onJobCompleted: async (data: JobCompletionData) => {
-      console.log('🔄 Job completed:', data.jobId, 'Analysis:', analysisJobId, 'Enrichment:', enrichmentJobId);
-      
       // Case 1: The main analysis job has completed
       if (data.jobId === analysisJobId) {
         // Stop any polling immediately since WebSocket got the completion
@@ -161,27 +159,15 @@ export default function WalletProfileLayout({
           // Force-refetch the summary immediately; keepPreviousData makes sure UI doesn’t blank.
           setAnalysisJobId(null);
           
-          // Wait longer for database to be fully updated before refreshing cache
-          setTimeout(async () => {
-            console.log('🔄 Dashboard job completed - refreshing summary cache');
-            
-            try {
-              // Force-refetch the summary with fresh data from database
-              await globalMutate(
-                createCacheKey.walletSummary(walletAddress),
-                () => fetcher(createCacheKey.walletSummary(walletAddress)),
-                { populateCache: true, revalidate: false }
-              );
-              console.log('✅ Dashboard cache refresh complete');
-            } catch (error) {
-              console.error('❌ Dashboard cache refresh failed:', error);
-            }
-          }, 3000);
-
-          // If there's an enrichment job, keep isAnalyzing true until enrichment completes
-          if (!resultData.enrichmentJobId) {
-            setIsAnalyzing(false);
-          }
+          await globalMutate(
+            createCacheKey.walletSummary(walletAddress),
+            () => fetcher(createCacheKey.walletSummary(walletAddress)),
+            { populateCache: true, revalidate: false }
+          );
+         
+          // All jobs are done; clear analysis state
+          setIsAnalyzing(false);
+          
         } catch (error: any) {
           // ... error handling
           console.error('Error handling dashboard job completion:', error);
@@ -189,37 +175,10 @@ export default function WalletProfileLayout({
           setJobProgress(0);
           setEnrichmentJobId(null);
         }
-      } else if (data.jobId === enrichmentJobId) {
-        console.log('✅ Enrichment job completed successfully:', data.jobId);
-        
-        // Stop any remaining polling since enrichment completed via WebSocket
-        setIsPolling(false);
-        setAnalysisRequestTime(null);
-        
-        setEnrichmentJobId(null);
-        toast.success("Token Data Updated", {
-          description: "Token metadata and prices have been updated.",
-        });
-        // Refresh only token performance data after enrichment completes
-        setTimeout(async () => {
-          console.log('🔄 Enrichment job completed - refreshing token performance data only');
-          
-          // Only refresh token performance data, no summary refresh needed
-          globalMutate(
-            (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`)
-          );
-        }, 1000); // Reduced delay since we're only refreshing token data
-        
-        // All jobs are done; clear analysis state
-        setIsAnalyzing(false);
-        setJobProgress(0);
-        
       } else {
         // Safety net: if we get a job completion for an unknown job, but we're still analyzing,
         // check if both our tracked jobs are null (meaning they've completed) and reset state
-        console.warn('⚠️ Unknown job completed:', data.jobId, 'Current state - Analysis:', analysisJobId, 'Enrichment:', enrichmentJobId);
         if (!analysisJobId && !enrichmentJobId && isAnalyzing) {
-          console.log('🔧 Safety reset: clearing analysis state for unknown job');
           setIsAnalyzing(false);
           setJobProgress(0);
         }
@@ -237,8 +196,19 @@ export default function WalletProfileLayout({
         description: data.error || "An unexpected error occurred during analysis.",
       });
     },
-    onEnrichmentComplete: (data: EnrichmentCompletionData) => {
-      // This is handled via onJobCompleted for enrichment queue, but here for completeness
+    onEnrichmentComplete: () => {
+      // Handles completion of the background enrichment job
+      setEnrichmentJobId(null);
+
+      // Refresh token performance data after a short delay to allow backend to sync
+      setTimeout(() => {
+        globalMutate(
+          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`)
+        );
+        toast.success("Token Data Updated", {
+          description: "Token metadata and prices have been updated.",
+        });
+      }, 2500);
     },
     onConnectionChange: (connected) => {
       if (!connected && isAnalyzing && analysisJobId) {
@@ -390,41 +360,7 @@ export default function WalletProfileLayout({
     return () => clearTimeout(timeoutId);
   }, [isPolling]);
 
-  // Safety timeout for stuck analysis state
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    if (isAnalyzing && jobProgress === 100) {
-      // If we're stuck at 100% for more than 5 seconds, force reset
-      timeoutId = setTimeout(() => {
-        console.log('🔧 Force reset: Analysis stuck at 100%');
-        setIsAnalyzing(false);
-        setJobProgress(0);
-        setAnalysisJobId(null);
-        setEnrichmentJobId(null);
-        
-        // Force a final cache refresh when force resetting
-        setTimeout(async () => {
-          console.log('🔄 Force reset - final cache refresh');
-          
-          try {
-            await globalMutate(
-              createCacheKey.walletSummary(walletAddress),
-              () => fetcher(createCacheKey.walletSummary(walletAddress)),
-              { populateCache: true, revalidate: false }
-            );
-            console.log('✅ Force reset complete');
-          } catch (error) {
-            console.error('❌ Force reset failed:', error);
-          }
-        }, 500);
-        
-        toast.success("Analysis completed", {
-          description: "Analysis state has been reset and data refreshed.",
-        });
-      }, 5000); // Reduced to 5 seconds for faster recovery
-    }
-    return () => clearTimeout(timeoutId);
-  }, [isAnalyzing, jobProgress, globalMutate, walletAddress]);
+
 
   useEffect(() => {
     if (walletSummary && typeof walletSummary.lastAnalyzedAt === 'string') {
@@ -914,20 +850,21 @@ export default function WalletProfileLayout({
           </div>
 
           <div className="flex flex-col md:flex-row items-start md:items-center justify-end gap-x-2 gap-y-2 mt-2 md:mt-0 flex-grow">
-            {isHeaderExpanded && (
-              <>
-                <AccountSummaryCard 
-                  walletAddress={walletAddress}
-                  className="w-full sm:w-auto md:max-w-sm"
-                  triggerAnalysis={handleTriggerAnalysis} 
-                  isAnalyzingGlobal={isAnalyzing}
-                  walletSummary={walletSummary}
-                  summaryError={summaryError}
-                  summaryIsLoading={!walletSummary && !summaryError}
-                />
-                <TimeRangeSelector />
-              </>
-            )}
+            <div className={cn(
+              "flex flex-col md:flex-row items-start md:items-center gap-x-2 gap-y-2",
+              isHeaderExpanded ? "opacity-100 visible" : "opacity-0 invisible h-0 overflow-hidden"
+            )}>
+              <AccountSummaryCard 
+                walletAddress={walletAddress}
+                className="w-full sm:w-auto md:max-w-sm"
+                triggerAnalysis={handleTriggerAnalysis} 
+                isAnalyzingGlobal={isAnalyzing}
+                walletSummary={walletSummary}
+                summaryError={summaryError}
+                summaryIsLoading={!walletSummary && !summaryError}
+              />
+              <TimeRangeSelector />
+            </div>
             <div className={cn(
               "flex items-center gap-1 self-stretch justify-end",
               isHeaderExpanded ? "md:ml-2" : "w-full mt-2 md:mt-0"
