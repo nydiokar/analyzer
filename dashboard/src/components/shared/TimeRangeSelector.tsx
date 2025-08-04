@@ -40,23 +40,41 @@ export default function TimeRangeSelector() {
   const [currentDisplayStartDate, setCurrentDisplayStartDate] = React.useState<Date>(startDate);
   const [currentDisplayEndDate, setCurrentDisplayEndDate] = React.useState<Date>(endDate);
 
+  // Memoized date comparison to avoid expensive isEqual calls
+  const shouldUpdateStartDate = React.useMemo(() => {
+    return !isEqual(startDate, currentDisplayStartDate);
+  }, [startDate, currentDisplayStartDate]);
+
+  const shouldUpdateEndDate = React.useMemo(() => {
+    return !isEqual(endDate, currentDisplayEndDate);
+  }, [endDate, currentDisplayEndDate]);
+
   // Effect to update local display dates when global store changes
   React.useEffect(() => {
-    if (!isEqual(startDate, currentDisplayStartDate)) {
-        setCurrentDisplayStartDate(startDate);
+    if (shouldUpdateStartDate) {
+      setCurrentDisplayStartDate(startDate);
     }
-    if (!isEqual(endDate, currentDisplayEndDate)) {
-        setCurrentDisplayEndDate(endDate);
+    if (shouldUpdateEndDate) {
+      setCurrentDisplayEndDate(endDate);
     }
-  }, [startDate, endDate]); // Removed currentDisplayStartDate & endDate from deps
+  }, [startDate, endDate, shouldUpdateStartDate, shouldUpdateEndDate]);
 
-  const handlePresetButtonClick = (selectedPreset: TimeRangePreset) => {
+  // Memoized click handler to prevent unnecessary re-renders
+  const handlePresetButtonClick = React.useCallback((selectedPreset: TimeRangePreset) => {
     setPreset(selectedPreset);
-    // The store's setPreset will update global startDate and endDate,
-    // which will then update currentDisplayStartDate/EndDate via useEffect.
-  };
+  }, [setPreset]);
 
-  const handleDateChange = (date: Date | undefined, type: 'start' | 'end') => {
+  // Create stable click handlers for each preset to prevent double events
+  const clickHandlers = React.useMemo(() => {
+    const handlers: Record<TimeRangePreset, () => void> = {} as Record<TimeRangePreset, () => void>;
+    presetButtonsList.forEach((p) => {
+      handlers[p.value] = () => handlePresetButtonClick(p.value);
+    });
+    return handlers;
+  }, [handlePresetButtonClick]);
+
+  // Memoized date change handler
+  const handleDateChange = React.useCallback((date: Date | undefined, type: 'start' | 'end') => {
     if (!date) return;
 
     let newStart = currentDisplayStartDate;
@@ -79,8 +97,9 @@ export default function TimeRangeSelector() {
     setCurrentDisplayStartDate(newStart);
     setCurrentDisplayEndDate(newEnd);
     setCustomDateRange(newStart, newEnd); // Update global store, sets preset to 'custom'
-  };
+  }, [currentDisplayStartDate, currentDisplayEndDate, setCustomDateRange]);
   
+  // Memoized range label to prevent recalculation on every render
   const currentRangeLabel = React.useMemo(() => {
     if (!currentDisplayStartDate || !currentDisplayEndDate) return "Loading range...";
     const foundPreset = presetButtonsList.find((p: PresetButton) => p.value === preset);
@@ -93,21 +112,25 @@ export default function TimeRangeSelector() {
     return `${foundPreset?.label}: ${formattedStartDate} - ${formattedEndDate}`;
   }, [currentDisplayStartDate, currentDisplayEndDate, preset]);
 
+  // Memoized button rendering to prevent unnecessary re-renders
+  const presetButtons = React.useMemo(() => {
+    return presetButtonsList.map((p: PresetButton) => (
+      <Button
+        key={p.value}
+        variant={preset === p.value ? 'default' : 'outline'}
+        size="sm"
+        className="h-8 text-xs px-3"
+        onClick={clickHandlers[p.value]}
+      >
+        {p.label}
+      </Button>
+    ));
+  }, [preset, clickHandlers]);
 
   return (
     <div className="flex flex-col items-center gap-2 p-1 rounded-lg shadow-sm bg-card text-card-foreground border">
       <div className="flex items-center gap-1">
-        {presetButtonsList.map((p: PresetButton) => (
-          <Button
-            key={p.value}
-            variant={preset === p.value ? 'default' : 'outline'}
-            size="sm"
-            className="h-8 text-xs px-3"
-            onClick={() => handlePresetButtonClick(p.value)}
-          >
-            {p.label}
-          </Button>
-        ))}
+        {presetButtons}
       </div>
       <div className="flex items-center gap-1">
         <Popover>

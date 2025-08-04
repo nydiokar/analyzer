@@ -14,48 +14,68 @@ export interface TimeRangeState {
 const getDefaultEndDate = () => endOfDay(new Date());
 const getDefaultStartDate = (daysToSubtract: number) => startOfDay(subDays(new Date(), daysToSubtract));
 
+// Debounce utility to prevent rapid successive calls
+let debounceTimer: NodeJS.Timeout | null = null;
+const DEBOUNCE_DELAY = 300; // 300ms delay
+
 export const useTimeRangeStore = create<TimeRangeState>((set) => ({
   preset: 'all', // Default to all time to show historical data
   startDate: new Date(2000, 0, 1), // Very early date for 'all' 
   endDate: getDefaultEndDate(),
 
   setPreset: (preset) => {
-    let newStartDate: Date;
-    const newEndDate = getDefaultEndDate();
-
-    switch (preset) {
-      case '24h':
-        newStartDate = getDefaultStartDate(1);
-        break;
-      case '7d':
-        newStartDate = getDefaultStartDate(7);
-        break;
-      case '1m':
-        newStartDate = getDefaultStartDate(30);
-        break;
-      case '3m':
-        newStartDate = getDefaultStartDate(90);
-        break;
-      case 'ytd':
-        newStartDate = startOfDay(new Date(new Date().getFullYear(), 0, 1));
-        break;
-      case 'all':
-        // For 'all', we might use a very early date or rely on API to not filter by start date
-        // Using a practical early date for now.
-        newStartDate = new Date(2000, 0, 1); 
-        break;
-      default:
-        newStartDate = getDefaultStartDate(30); // Default to 1 month if unknown
+    // Clear any pending debounce
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
     }
-    set({ preset, startDate: newStartDate, endDate: newEndDate });
+
+    // Debounce the preset change to prevent rapid API calls
+    debounceTimer = setTimeout(() => {
+      let newStartDate: Date;
+      const newEndDate = getDefaultEndDate();
+
+      switch (preset) {
+        case '24h':
+          newStartDate = getDefaultStartDate(1);
+          break;
+        case '7d':
+          newStartDate = getDefaultStartDate(7);
+          break;
+        case '1m':
+          newStartDate = getDefaultStartDate(30);
+          break;
+        case '3m':
+          newStartDate = getDefaultStartDate(90);
+          break;
+        case 'ytd':
+          newStartDate = startOfDay(new Date(new Date().getFullYear(), 0, 1));
+          break;
+        case 'all':
+          // For 'all', we might use a very early date or rely on API to not filter by start date
+          // Using a practical early date for now.
+          newStartDate = new Date(2000, 0, 1); 
+          break;
+        default:
+          newStartDate = getDefaultStartDate(30); // Default to 1 month if unknown
+      }
+      set({ preset, startDate: newStartDate, endDate: newEndDate });
+    }, DEBOUNCE_DELAY);
   },
 
   setCustomDateRange: (startDate, endDate) => {
-    set({
-      preset: 'custom',
-      startDate: startOfDay(startDate),
-      endDate: endOfDay(endDate),
-    });
+    // Clear any pending debounce
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+
+    // Debounce the custom date range change
+    debounceTimer = setTimeout(() => {
+      set({
+        preset: 'custom',
+        startDate: startOfDay(startDate),
+        endDate: endOfDay(endDate),
+      });
+    }, DEBOUNCE_DELAY);
   },
 }));
 
