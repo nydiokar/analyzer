@@ -159,6 +159,8 @@ export class WalletBalanceService {
 
         // 3. FALLBACK: Check for missing tokens that should have balances
         // This handles the Helius API bug where some tokens are missing from bulk fetch
+        // TEMPORARILY DISABLED due to excessive API calls - will be re-enabled with proper caching
+        /*
         const missingTokens = await this.findMissingTokensWithBalances(address, tokenBalances);
         if (missingTokens.length > 0) {
           logger.info(`Address ${address}: Found ${missingTokens.length} missing tokens, attempting recovery...`);
@@ -201,6 +203,7 @@ export class WalletBalanceService {
             logger.info(`Address ${address}: ✅ Successfully recovered ${recoveredCount}/${missingTokens.length} missing tokens`);
           }
         }
+        */
 
         const existingBalance = walletBalances.get(address);
         if (existingBalance) {

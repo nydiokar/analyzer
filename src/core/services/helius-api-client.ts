@@ -198,7 +198,7 @@ export class HeliusApiClient {
     let retries = 0;
     while(retries <= MAX_RETRIES) {
         const attempt = retries + 1;
-        logger.debug(`Attempt ${attempt}: Fetching RPC signatures page: limit=${limit}, before=${before || 'N/A'}`);
+                    // logger.debug(`Attempt ${attempt}: Fetching RPC signatures page: limit=${limit}, before=${before || 'N/A'}`);
         try {
             await this.rateLimit(); // Apply rate limit before RPC call too
             const response = await this.api.post<{ result: SignatureInfo[], error?: any }>(url, payload); // Use the internal axios instance
@@ -211,7 +211,7 @@ export class HeliusApiClient {
             }
 
             if (response.data && Array.isArray(response.data.result)) {
-                logger.debug(`Attempt ${attempt}: Received ${response.data.result.length} signatures via RPC.`);
+                // logger.debug(`Attempt ${attempt}: Received ${response.data.result.length} signatures via RPC.`);
                 return response.data.result; // Success
             } else {
                 logger.warn(`Attempt ${attempt}: Received unexpected response structure from getSignaturesForAddress RPC.`, { responseData: response.data });
@@ -281,7 +281,7 @@ export class HeliusApiClient {
         try {
             await this.rateLimit(); // Apply rate limit before each attempt
             const attempt = retries + 1;
-            logger.debug(`Attempt ${attempt}: Fetching full transactions for ${signatures.length} signatures.`);
+            // logger.debug(`Attempt ${attempt}: Fetching full transactions for ${signatures.length} signatures.`);
             
             const endpoint = `/v0/transactions?api-key=${this.apiKey}`;
 
@@ -289,7 +289,7 @@ export class HeliusApiClient {
                 transactions: signatures
             });
 
-            logger.debug(`Attempt ${attempt}: Retrieved ${response.data.length} full transactions.`);
+            // logger.debug(`Attempt ${attempt}: Retrieved ${response.data.length} full transactions.`);
             
             // Simple validation: Check if we got data for *most* requested signatures
             if (response.data.length < signatures.length * 0.8 && signatures.length > 5) { // Adjusted threshold slightly
