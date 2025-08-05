@@ -5,6 +5,7 @@ import { Injectable } from '@nestjs/common';
 import { PnlAnalysisService } from './pnl-analysis-service';
 import { DatabaseService } from './database-service';
 import { SwapAnalysisSummary } from '@/types/helius-api';
+import { mapHeliusTransactionsToIntermediateRecords } from './helius-transaction-mapper';
 
 const logger = createLogger('TokenFirstBuyersService');
 
@@ -139,24 +140,26 @@ export class TokenFirstBuyersService {
         const transactions = await this.heliusClient['getTransactionsBySignatures'](batch);
         processedSignatures += batch.length;
 
-        // Extract buyers from each transaction
-        for (const tx of transactions) {
-          if (!tx || !tx.tokenTransfers) continue;
+                 // Extract buyers from each transaction
+         for (const tx of transactions) {
+           if (!tx || !tx.tokenTransfers) continue;
 
-          // Find token transfers where wallets received this specific token
-          const tokenReceives = tx.tokenTransfers.filter(transfer => 
-            transfer.mint === mintAddress && 
-            transfer.toUserAccount && 
-            transfer.tokenAmount > 0
-          );
+           // Find token transfers where wallets received this specific token
+           const tokenReceives = tx.tokenTransfers.filter(transfer => 
+             transfer.mint === mintAddress && 
+             transfer.toUserAccount && 
+             transfer.tokenAmount > 0
+           );
 
-                     for (const transfer of tokenReceives) {
-             const walletAddress = transfer.toUserAccount;
-             
-                           // Skip bonding curve addresses and other program addresses
-              if (walletAddress === bondingCurveAddress || walletAddress === mintAddress) {
-                continue; // Remove excessive logging
-              }
+           
+
+                      for (const transfer of tokenReceives) {
+              const walletAddress = transfer.toUserAccount;
+              
+                            // Skip bonding curve addresses and other program addresses
+               if (walletAddress === bondingCurveAddress || walletAddress === mintAddress) {
+                 continue; // Remove excessive logging
+               }
               
               // Only skip obvious program addresses (bonding curve and mint itself)
               // Don't filter out valid wallets based on length or patterns
@@ -217,6 +220,8 @@ export class TokenFirstBuyersService {
 
     return firstBuyers;
   }
+
+
 
   /**
    * Determines which address to use for fetching transaction signatures.
@@ -460,42 +465,53 @@ export class TokenFirstBuyersService {
       existingResults = [];
     }
 
-    // Step 4: Run PnL analysis for wallets missing results
-    const walletsWithResults = new Set(existingResults.map(r => r.walletAddress));
-    const missingWallets = walletAddresses.filter(addr => !walletsWithResults.has(addr));
+         // Step 4: Run PnL analysis for wallets missing results
+     const walletsWithResults = new Set(existingResults.map(r => r.walletAddress));
+     const missingWallets = walletAddresses.filter(addr => !walletsWithResults.has(addr));
 
-    if (missingWallets.length > 0) {
-      logger.info(`Running full PnL analysis for ${missingWallets.length} wallets missing database results...`);
-      
-      // Process in smaller batches to avoid overwhelming the system
-      const batchSize = 5;
-      for (let i = 0; i < missingWallets.length; i += batchSize) {
-        const batch = missingWallets.slice(i, i + batchSize);
-        logger.info(`Processing PnL batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(missingWallets.length / batchSize)}`);
+           if (missingWallets.length > 0) {
+        logger.info(`Running proper data pipeline for ${missingWallets.length} wallets missing database results...`);
         
-        const batchPromises = batch.map(async (walletAddress) => {
-          try {
-            logger.debug(`🔄 Starting full PnL analysis for ${walletAddress}`);
-            await this.pnlAnalysisService!.analyzeWalletPnl(
-              walletAddress,
-              undefined, // No time range - analyze all time
-              { isViewOnly: false } // Save results to database
-            );
-            logger.debug(`✅ Completed PnL analysis for ${walletAddress}`);
-          } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.warn(`❌ Failed PnL analysis for ${walletAddress}: ${errorMessage}`);
+        // Process in smaller batches to avoid overwhelming the system
+        const batchSize = 3; // Smaller batch size for transaction fetching
+        for (let i = 0; i < missingWallets.length; i += batchSize) {
+          const batch = missingWallets.slice(i, i + batchSize);
+          logger.info(`Processing data pipeline batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(missingWallets.length / batchSize)}`);
+          
+          const batchPromises = batch.map(async (walletAddress) => {
+            try {
+              logger.debug(`🔄 Starting data pipeline for ${walletAddress}`);
+              
+              // Step 1: Fetch and save transactions using Helius method
+              const transactionsSaved = await this.fetchAndSaveWalletTransactions(walletAddress, mintAddress);
+              
+              if (transactionsSaved > 0) {
+                logger.debug(`✅ Saved ${transactionsSaved} transactions for ${walletAddress}, now analyzing PnL`);
+                
+                // Step 2: Now analyze PnL using the saved transaction data
+                await this.pnlAnalysisService!.analyzeWalletPnl(
+                  walletAddress,
+                  undefined, // No time range - analyze all time
+                  { isViewOnly: false } // Save results to database
+                );
+                logger.debug(`✅ Completed PnL analysis for ${walletAddress}`);
+              } else {
+                logger.warn(`⚠️ No transactions found for ${walletAddress}, skipping PnL analysis`);
+              }
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              logger.warn(`❌ Failed data pipeline for ${walletAddress}: ${errorMessage}`);
+            }
+          });
+
+          await Promise.all(batchPromises);
+          
+          // Delay between batches
+          if (i + batchSize < missingWallets.length) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
-        });
-
-        await Promise.all(batchPromises);
-        
-        // Delay between batches
-        if (i + batchSize < missingWallets.length) {
-          await new Promise(resolve => setTimeout(resolve, 3000));
         }
       }
-    }
 
     // Step 5: Fetch all analysis results for the mint from database
     logger.info(`Fetching all analysis results for mint ${mintAddress} from database...`);
@@ -513,54 +529,59 @@ export class TokenFirstBuyersService {
       allResults = [];
     }
 
-    // Step 6: Convert database results to TopTraderResult format
-    const topTradersData: TopTraderResult[] = firstBuyers.map(buyer => {
-      const analysisResult = allResults.find(result => result.walletAddress === buyer.walletAddress);
-      
-      if (analysisResult) {
-        const realizedPnl = analysisResult.netSolProfitLoss || 0;
-        const totalVolume = (analysisResult.totalSolSpent || 0) + (analysisResult.totalSolReceived || 0);
-        const profitableTokensCount = realizedPnl > 0 ? 1 : 0;
-        const unprofitableTokensCount = realizedPnl <= 0 ? 1 : 0;
-        const tokenWinRate = realizedPnl > 0 ? 100 : 0;
+         // Step 6: Convert database results to TopTraderResult format
+     const topTradersData: TopTraderResult[] = [];
+     
+     for (const buyer of firstBuyers) {
+       const analysisResult = allResults.find(result => result.walletAddress === buyer.walletAddress);
+       
+       if (analysisResult) {
+         // Use database result if available
+         const realizedPnl = analysisResult.netSolProfitLoss || 0;
+         const totalVolume = (analysisResult.totalSolSpent || 0) + (analysisResult.totalSolReceived || 0);
+         const profitableTokensCount = realizedPnl > 0 ? 1 : 0;
+         const unprofitableTokensCount = realizedPnl <= 0 ? 1 : 0;
+         const tokenWinRate = realizedPnl > 0 ? 100 : 0;
 
-        return {
-          ...buyer,
-          rank: 0, // Will be set after sorting
-          realizedPnl,
-          netPnl: realizedPnl,
-          totalVolume,
-          profitableTokensCount,
-          unprofitableTokensCount,
-          tokenWinRate,
-          analysisSuccess: true
-        };
-      } else {
-        logger.warn(`No analysis result found for wallet ${buyer.walletAddress} on mint ${mintAddress}`);
-        return {
-          ...buyer,
-          rank: 0,
-          realizedPnl: 0,
-          netPnl: 0,
-          totalVolume: 0,
-          profitableTokensCount: 0,
-          unprofitableTokensCount: 0,
-          tokenWinRate: 0,
-          analysisSuccess: false,
-          errorMessage: 'No analysis result found in database'
-        };
-      }
-    });
+         topTradersData.push({
+           ...buyer,
+           rank: 0, // Will be set after sorting
+           realizedPnl,
+           netPnl: realizedPnl,
+           totalVolume,
+           profitableTokensCount,
+           unprofitableTokensCount,
+           tokenWinRate,
+           analysisSuccess: true
+         });
+               } else {
+          logger.warn(`No analysis result found for wallet ${buyer.walletAddress} on mint ${mintAddress}`);
+          
+                     // No fallback - if database analysis fails, skip this wallet
+           topTradersData.push({
+             ...buyer,
+             rank: 0,
+             realizedPnl: 0,
+             netPnl: 0,
+             totalVolume: 0,
+             profitableTokensCount: 0,
+             unprofitableTokensCount: 0,
+             tokenWinRate: 0,
+             analysisSuccess: false,
+             errorMessage: 'No transaction data found for this wallet and mint'
+           });
+        }
+     }
 
-    // Step 7: Sort by net PnL and assign ranks
-    const sortedTraders = topTradersData
-      .filter(trader => trader.analysisSuccess && trader.netPnl !== 0) // Only include traders with actual PnL data
-      .sort((a, b) => b.netPnl - a.netPnl)
-      .slice(0, topCount)
-      .map((trader, index) => ({
-        ...trader,
-        rank: index + 1
-      }));
+         // Step 7: Sort by token amount (descending) and assign ranks
+     const sortedTraders = topTradersData
+       .filter(trader => trader.analysisSuccess) // Include all successful analyses
+       .sort((a, b) => b.tokenAmount - a.tokenAmount) // Sort by token amount descending
+       .slice(0, topCount)
+       .map((trader, index) => ({
+         ...trader,
+         rank: index + 1
+       }));
 
     const successfulAnalyses = topTradersData.filter(t => t.analysisSuccess).length;
     const failedAnalyses = topTradersData.length - successfulAnalyses;
@@ -607,9 +628,13 @@ export class TokenFirstBuyersService {
     topTraders: TopTraderResult[];
     summary: any;
   }> {
+    // Get ALL first buyers for the TXT file
+    const allFirstBuyers = await this.getFirstBuyers(mintAddress, options);
+    
+    // Get top traders analysis
     const result = await this.getTopTradersFromFirstBuyers(mintAddress, options, topCount);
     
-    if (outputDir && result.topTraders.length > 0) {
+    if (outputDir && allFirstBuyers.length > 0) {
       const fs = await import('fs');
       const path = await import('path');
       
@@ -622,270 +647,141 @@ export class TokenFirstBuyersService {
       const addressTypeSuffix = options.addressType === 'bonding-curve' ? '_bonding_curve' : 
                                options.addressType === 'mint' ? '_mint' : '_auto';
 
-      // Save simple wallet addresses list (space-separated for easy copy-paste)
+      // Save ALL first buyers wallet addresses list (space-separated for easy copy-paste)
       const walletListPath = path.join(outputDir, `wallet_addresses_${mintAddress}${addressTypeSuffix}_${timestamp}.txt`);
-      fs.writeFileSync(walletListPath, result.walletAddresses.join(' '), 'utf8');
+      const allWalletAddresses = allFirstBuyers.map(buyer => buyer.walletAddress);
+      fs.writeFileSync(walletListPath, allWalletAddresses.join(' '), 'utf8');
 
-      // Save detailed top traders analysis
-      const topTradersPath = path.join(outputDir, `top_traders_${mintAddress}${addressTypeSuffix}_${timestamp}.json`);
-      const exportData = {
-        metadata: {
-          mintAddress,
-          analysisTimestamp: new Date().toISOString(),
-          addressType: options.addressType || 'auto',
-          bondingCurveAddress: options.bondingCurveAddress,
-          totalFirstBuyers: result.walletAddresses.length,
-          topTradersCount: result.topTraders.length,
-          summary: result.summary
-        },
-        topTraders: result.topTraders.map(trader => ({
-          rank: trader.rank,
-          walletAddress: trader.walletAddress,
-          firstBuyTimestamp: trader.firstBuyTimestamp,
-          firstBuyDate: new Date(trader.firstBuyTimestamp * 1000).toISOString(),
-          firstBuySignature: trader.firstBuySignature,
-          tokenAmount: trader.tokenAmount,
-          realizedPnl: trader.realizedPnl,
-          netPnl: trader.netPnl,
-          totalVolume: trader.totalVolume,
-          profitableTokensCount: trader.profitableTokensCount,
-          unprofitableTokensCount: trader.unprofitableTokensCount,
-          tokenWinRate: trader.tokenWinRate,
-          analysisSuccess: trader.analysisSuccess,
-          errorMessage: trader.errorMessage
-        }))
-      };
-
-      fs.writeFileSync(topTradersPath, JSON.stringify(exportData, null, 2), 'utf8');
+      // Save detailed top traders analysis as CSV
+      const topTradersPath = path.join(outputDir, `top_traders_${mintAddress}${addressTypeSuffix}_${timestamp}.csv`);
       
-      logger.info(`Wallet addresses saved to: ${walletListPath}`);
-      logger.info(`Top traders analysis saved to: ${topTradersPath}`);
+      // Create CSV content with only the requested columns
+      const csvHeader = 'wallet_address,first_buy_timestamp,token_amount,realized_pnl,total_volume\n';
+      const csvRows = result.topTraders.map(trader => 
+        `${trader.walletAddress},${trader.firstBuyTimestamp},${trader.tokenAmount},${trader.realizedPnl},${trader.totalVolume}`
+      ).join('\n');
+      
+      const csvContent = csvHeader + csvRows;
+      fs.writeFileSync(topTradersPath, csvContent, 'utf8');
+      
+      logger.info(`All ${allFirstBuyers.length} first buyer wallet addresses saved to: ${walletListPath}`);
+      logger.info(`Top ${result.topTraders.length} traders analysis saved to CSV: ${topTradersPath}`);
     }
 
     return result;
   }
 
-     /**
-    * Efficient PnL calculation for a wallet's trading of a specific token.
-    * Uses direct mint-specific queries instead of fetching all wallet transactions.
-    */
-   private async calculateSimplePnl(walletAddress: string, mintAddress: string): Promise<{
-     realizedPnl: number;
-     netPnl: number;
-     totalVolume: number;
-     profitableTokensCount: number;
-     unprofitableTokensCount: number;
-     tokenWinRate: number;
-   }> {
-     try {
-               // Only validate that wallet address exists
-        if (!walletAddress) {
-          logger.debug(`No wallet address provided`);
-          return {
-            realizedPnl: 0,
-            netPnl: 0,
-            totalVolume: 0,
-            profitableTokensCount: 0,
-            unprofitableTokensCount: 0,
-            tokenWinRate: 0
-          };
-        }
+  /**
+   * Fetches and saves transactions for a specific wallet and mint using the Helius method.
+   * This is the proper data pipeline: get token accounts → fetch transactions → save to database.
+   * 
+   * @param walletAddress The wallet address to fetch transactions for
+   * @param mintAddress The specific mint address to filter transactions
+   * @returns Number of transactions saved to database
+   */
+  private async fetchAndSaveWalletTransactions(
+    walletAddress: string, 
+    mintAddress: string
+  ): Promise<number> {
+    if (!this.databaseService) {
+      logger.warn('Database service not available, cannot save transactions');
+      return 0;
+    }
 
-       // Try to get wallet's own transaction history first (more reliable)
-       try {
-         const walletSignatures = await this.heliusClient['getSignaturesViaRpcPage'](walletAddress, 200, null);
+    try {
+      logger.debug(`🔄 Fetching token accounts for wallet ${walletAddress} and mint ${mintAddress}`);
+      
+                   // Step 1: Get token accounts for this wallet and specific mint
+      const tokenAccountsResult = await this.heliusClient.getTokenAccountsByOwner(
+        walletAddress,
+        mintAddress, // Filter by specific mint (this will create { mint: mintAddress } filter)
+        // programId: Uses default SPL Token Program ID
+        // commitment: Uses default
+        'jsonParsed' // encoding for structured data
+      );
+
+      if (!tokenAccountsResult.value || tokenAccountsResult.value.length === 0) {
+        logger.debug(`No token accounts found for wallet ${walletAddress} and mint ${mintAddress}`);
+        return 0;
+      }
+
+      logger.debug(`Found ${tokenAccountsResult.value.length} token accounts for wallet ${walletAddress}`);
+
+             // Step 2: Fetch transactions for all token accounts in batches
+       const allTransactions: HeliusTransaction[] = [];
+       const allSignatures: string[] = [];
+       
+       // First, collect all signatures from all token accounts
+       for (const tokenAccount of tokenAccountsResult.value) {
+         const tokenAccountAddress = tokenAccount.pubkey;
          
-         if (walletSignatures.length === 0) {
-           logger.debug(`No transaction history found for wallet: ${walletAddress}`);
-           return {
-             realizedPnl: 0,
-             netPnl: 0,
-             totalVolume: 0,
-             profitableTokensCount: 0,
-             unprofitableTokensCount: 0,
-             tokenWinRate: 0
-           };
-         }
-
-         // Get transaction details for wallet's recent transactions (increased from 50 to 100)
-         const transactions = await this.heliusClient['getTransactionsBySignatures'](
-           walletSignatures.slice(0, 100).map(s => s.signature)
-         );
-
-         let totalSolSpent = 0;
-         let totalSolReceived = 0;
-         let totalTokensReceived = 0;
-         let totalTokensSold = 0;
-         let tradeCount = 0;
-
-         for (const tx of transactions) {
-           if (!tx || !tx.tokenTransfers) continue;
-
-           // Look for trades involving this specific token
-           const tokenTransfers = tx.tokenTransfers.filter(transfer => 
-             transfer.mint === mintAddress
-           );
+         try {
+           logger.debug(`📡 Fetching signatures for token account ${tokenAccountAddress}`);
            
-           for (const transfer of tokenTransfers) {
-             if (transfer.toUserAccount === walletAddress && transfer.tokenAmount > 0) {
-               // Wallet received tokens (buy)
-               totalTokensReceived += transfer.tokenAmount;
-               tradeCount++;
-               
-               // Find corresponding SOL transfer for this specific trade
-               const solTransfers = tx.nativeTransfers?.filter(native => 
-                 native.fromUserAccount === walletAddress && native.amount > 0
-               ) || [];
-               
-               if (solTransfers.length > 0) {
-                 totalSolSpent += solTransfers.reduce((sum, transfer) => sum + transfer.amount / 1e9, 0);
-               }
-             } else if (transfer.fromUserAccount === walletAddress && transfer.tokenAmount > 0) {
-               // Wallet sent tokens (sell)
-               totalTokensSold += transfer.tokenAmount;
-               
-               // Find corresponding SOL transfer for this specific trade
-               const solTransfers = tx.nativeTransfers?.filter(native => 
-                 native.toUserAccount === walletAddress && native.amount > 0
-               ) || [];
-               
-               if (solTransfers.length > 0) {
-                 totalSolReceived += solTransfers.reduce((sum, transfer) => sum + transfer.amount / 1e9, 0);
-               }
-             }
-           }
-         }
-
-         const realizedPnl = totalSolReceived - totalSolSpent;
-         const totalVolume = totalSolSpent + totalSolReceived;
-         
-         // Simple metrics
-         const profitableTokensCount = realizedPnl > 0 ? 1 : 0;
-         const unprofitableTokensCount = realizedPnl < 0 ? 1 : 0;
-         const tokenWinRate = profitableTokensCount > 0 ? 100 : 0;
-
-         // Remove debug logging - will be shown in final results
-
-         return {
-           realizedPnl,
-           netPnl: realizedPnl,
-           totalVolume,
-           profitableTokensCount,
-           unprofitableTokensCount,
-           tokenWinRate
-         };
-
-       } catch (walletError) {
-         // Enhanced error logging to understand what's causing the failures
-         const errorMessage = walletError instanceof Error ? walletError.message : String(walletError);
-         if (errorMessage.includes('400')) {
-           logger.warn(`400 error for wallet ${walletAddress}: ${errorMessage}`);
-           logger.warn(`Wallet address length: ${walletAddress.length}, looks like: ${walletAddress.substring(0, 10)}...`);
-         } else {
-           logger.debug(`Wallet-specific query failed for ${walletAddress}: ${errorMessage}`);
-         }
-         logger.debug(`Falling back to mint-based approach for ${walletAddress}`);
-         
-         // EFFICIENT APPROACH: Get transactions where this specific mint was involved
-         const signatures = await this.heliusClient['getSignaturesViaRpcPage'](mintAddress, 1000, null);
-         
-         if (signatures.length === 0) {
-           return {
-             realizedPnl: 0,
-             netPnl: 0,
-             totalVolume: 0,
-             profitableTokensCount: 0,
-             unprofitableTokensCount: 0,
-             tokenWinRate: 0
-           };
-         }
-
-         // Get transaction details for the mint's recent transactions
-         const transactions = await this.heliusClient['getTransactionsBySignatures'](
-           signatures.slice(0, 200).map(s => s.signature)
-         );
-
-         let totalSolSpent = 0;
-         let totalSolReceived = 0;
-         let totalTokensReceived = 0;
-         let totalTokensSold = 0;
-         let tradeCount = 0;
-
-         for (const tx of transactions) {
-           if (!tx || !tx.tokenTransfers) continue;
-
-           // Look for trades involving this specific token AND our wallet
-           const tokenTransfers = tx.tokenTransfers.filter(transfer => 
-             transfer.mint === mintAddress && 
-             (transfer.toUserAccount === walletAddress || transfer.fromUserAccount === walletAddress)
+           // Get signatures for this token account (max 1000 per call)
+           const signatures = await this.heliusClient['getSignaturesViaRpcPage'](
+             tokenAccountAddress,
+             1000, // Max limit
+             null
            );
-           
-           for (const transfer of tokenTransfers) {
-             if (transfer.toUserAccount === walletAddress && transfer.tokenAmount > 0) {
-               // Wallet received tokens (buy)
-               totalTokensReceived += transfer.tokenAmount;
-               tradeCount++;
-               
-               // Find corresponding SOL transfer for this specific trade
-               const solTransfers = tx.nativeTransfers?.filter(native => 
-                 native.fromUserAccount === walletAddress && native.amount > 0
-               ) || [];
-               
-               if (solTransfers.length > 0) {
-                 totalSolSpent += solTransfers.reduce((sum, transfer) => sum + transfer.amount / 1e9, 0);
-               }
-             } else if (transfer.fromUserAccount === walletAddress && transfer.tokenAmount > 0) {
-               // Wallet sent tokens (sell)
-               totalTokensSold += transfer.tokenAmount;
-               
-               // Find corresponding SOL transfer for this specific trade
-               const solTransfers = tx.nativeTransfers?.filter(native => 
-                 native.toUserAccount === walletAddress && native.amount > 0
-               ) || [];
-               
-               if (solTransfers.length > 0) {
-                 totalSolReceived += solTransfers.reduce((sum, transfer) => sum + transfer.amount / 1e9, 0);
-               }
-             }
+
+           if (signatures.length > 0) {
+             allSignatures.push(...signatures.map(s => s.signature));
+             logger.debug(`📄 Collected ${signatures.length} signatures from token account ${tokenAccountAddress}`);
            }
+         } catch (error) {
+           const errorMessage = error instanceof Error ? error.message : String(error);
+           logger.warn(`Failed to fetch signatures for token account ${tokenAccountAddress}: ${errorMessage}`);
+           // Continue with other token accounts
          }
-
-         const realizedPnl = totalSolReceived - totalSolSpent;
-         const totalVolume = totalSolSpent + totalSolReceived;
-         
-         // Simple metrics
-         const profitableTokensCount = realizedPnl > 0 ? 1 : 0;
-         const unprofitableTokensCount = realizedPnl < 0 ? 1 : 0;
-         const tokenWinRate = profitableTokensCount > 0 ? 100 : 0;
-
-         return {
-           realizedPnl,
-           netPnl: realizedPnl,
-           totalVolume,
-           profitableTokensCount,
-           unprofitableTokensCount,
-           tokenWinRate
-         };
        }
 
-     } catch (error) {
-       const errorMessage = error instanceof Error ? error.message : String(error);
-       
-       // Handle specific API errors
-       if (errorMessage.includes('400')) {
-         logger.debug(`Invalid wallet address or API error for ${walletAddress}: ${errorMessage}`);
-       } else {
-         logger.debug(`Error calculating simple PnL for ${walletAddress}: ${errorMessage}`);
+       // Step 3: Fetch all transactions in batches (more efficient)
+       if (allSignatures.length > 0) {
+         logger.debug(`🔄 Fetching ${allSignatures.length} total signatures in batches`);
+         
+         // Process signatures in batches of 100 (Helius recommended batch size)
+         const batchSize = 100;
+         for (let i = 0; i < allSignatures.length; i += batchSize) {
+           const batch = allSignatures.slice(i, i + batchSize);
+           
+           try {
+             const transactions = await this.heliusClient['getTransactionsBySignatures'](batch);
+             allTransactions.push(...transactions);
+             logger.debug(`📄 Fetched ${transactions.length} transactions for batch ${Math.floor(i / batchSize) + 1}`);
+           } catch (error) {
+             const errorMessage = error instanceof Error ? error.message : String(error);
+             logger.warn(`Failed to fetch transactions for batch ${Math.floor(i / batchSize) + 1}: ${errorMessage}`);
+             // Continue with next batch
+           }
+         }
        }
-       
-       return {
-         realizedPnl: 0,
-         netPnl: 0,
-         totalVolume: 0,
-         profitableTokensCount: 0,
-         unprofitableTokensCount: 0,
-         tokenWinRate: 0
-       };
-     }
-   }
+
+      if (allTransactions.length === 0) {
+        logger.debug(`No transactions found for wallet ${walletAddress} and mint ${mintAddress}`);
+        return 0;
+      }
+
+             logger.debug(`💾 Processing ${allTransactions.length} total transactions for database storage`);
+
+       // Step 4: Map transactions to analysis inputs and save to database
+      const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(walletAddress, allTransactions);
+      
+      if (analysisInputs.length > 0) {
+        await this.databaseService.saveSwapAnalysisInputs(analysisInputs);
+        logger.debug(`✅ Successfully saved ${analysisInputs.length} analysis inputs to database for ${walletAddress}`);
+        return analysisInputs.length;
+      } else {
+        logger.debug(`ℹ️ No analysis inputs to save for wallet ${walletAddress}`);
+        return 0;
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`❌ Failed to fetch and save transactions for ${walletAddress}: ${errorMessage}`);
+      return 0;
+    }
+  }
+
+     
 }
