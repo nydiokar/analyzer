@@ -215,7 +215,16 @@ export class EnrichmentOperationsProcessor {
     const allTokens = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
     const uniqueTokens = [...new Set(allTokens)];
     
-    this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} unique tokens`);
+    // For dashboard analysis, we should only process the tokens that were actually analyzed
+    // The walletBalances object should already contain only the analyzed tokens
+    const jobData = job.data as any;
+    const isDashboardAnalysis = jobData?.enrichmentContext === 'dashboard-analysis';
+    
+    if (isDashboardAnalysis) {
+      this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} analyzed tokens (dashboard analysis context)`);
+    } else {
+      this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} unique tokens`);
+    }
     
     // FILTER: Only process tokens that are likely to have metadata
     // This filters out account addresses, closed accounts, and tokens with zero balances
@@ -240,7 +249,11 @@ export class EnrichmentOperationsProcessor {
       return hasMeaningfulBalance;
     });
     
-    this.logger.log(`Filtered to ${meaningfulTokens.length} meaningful tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as likely account addresses or zero balances)`);
+    if (isDashboardAnalysis) {
+      this.logger.log(`Filtered to ${meaningfulTokens.length} meaningful analyzed tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as zero balances)`);
+    } else {
+      this.logger.log(`Filtered to ${meaningfulTokens.length} meaningful tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as likely account addresses or zero balances)`);
+    }
     
     // STEP 1: Get existing tokens from database (database-first approach)
     const existingTokens = await this.tokenInfoService.findMany(meaningfulTokens);
@@ -273,7 +286,11 @@ export class EnrichmentOperationsProcessor {
       return true;
     });
     
-    this.logger.log(`Found ${existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
+    if (isDashboardAnalysis) {
+      this.logger.log(`Found ${existingTokens.length} existing analyzed tokens, need to fetch ${tokensToFetch.length} new/stale analyzed tokens`);
+    } else {
+      this.logger.log(`Found ${existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
+    }
     
     // Log breakdown of why tokens are being fetched
     const newTokens = meaningfulTokens.filter(address => !existingTokenMap.has(address));
@@ -296,7 +313,11 @@ export class EnrichmentOperationsProcessor {
       return metadataStale || (existingToken.priceUsd && priceStale);
     });
     
-    this.logger.log(`Breakdown: ${newTokens.length} new tokens, ${staleTokens.length} stale tokens`);
+    if (isDashboardAnalysis) {
+      this.logger.log(`Breakdown: ${newTokens.length} new analyzed tokens, ${staleTokens.length} stale analyzed tokens`);
+    } else {
+      this.logger.log(`Breakdown: ${newTokens.length} new tokens, ${staleTokens.length} stale tokens`);
+    }
     
     let newTokensFetched = 0;
     
@@ -335,7 +356,11 @@ export class EnrichmentOperationsProcessor {
     }
   }
 } else {
-  this.logger.log('All tokens already have recent metadata, no API calls needed');
+  if (isDashboardAnalysis) {
+    this.logger.log('All analyzed tokens already have recent metadata, no API calls needed');
+  } else {
+    this.logger.log('All tokens already have recent metadata, no API calls needed');
+  }
   await job.updateProgress(90);
   await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
 }

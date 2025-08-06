@@ -310,14 +310,22 @@ export class AnalysisOperationsProcessor {
       if (enrichMetadata) {
         await job.updateProgress(95);
         try {
-          const walletBalanceData = balanceData?.get(walletAddress);
-          const tokenBalances = walletBalanceData?.tokenBalances || [];
+          // Use only the tokens that were actually analyzed in the PnL analysis
+          // instead of all wallet balances to avoid enriching 18k+ tokens when only 59 were analyzed
+          const analyzedTokens = pnlResult?.results?.map(result => result.tokenAddress) || [];
           
-          if (tokenBalances.length > 0) {
-            this.logger.log(`Queuing enrichment for ${tokenBalances.length} tokens for wallet ${walletAddress}`);
+          if (analyzedTokens.length > 0) {
+            // Get current balances for only the analyzed tokens
+            const walletBalanceData = balanceData?.get(walletAddress);
+            const analyzedTokenBalances = walletBalanceData?.tokenBalances?.filter(tokenBalance => 
+              analyzedTokens.includes(tokenBalance.mint)
+            ) || [];
+            
+            this.logger.log(`Queuing enrichment for ${analyzedTokenBalances.length} analyzed tokens (out of ${walletBalanceData?.tokenBalances?.length || 0} total wallet tokens) for wallet ${walletAddress}`);
+            
             const walletBalancesForEnrichment = {
               [walletAddress]: {
-                tokenBalances: tokenBalances.map(tokenBalance => ({
+                tokenBalances: analyzedTokenBalances.map(tokenBalance => ({
                   mint: tokenBalance.mint,
                   uiBalance: tokenBalance.uiBalance,
                   balance: tokenBalance.balance,
@@ -333,7 +341,7 @@ export class AnalysisOperationsProcessor {
             });
             enrichmentJobId = enrichmentJob.id;
           } else {
-            this.logger.log(`No token balances found for ${walletAddress}, skipping enrichment.`);
+            this.logger.log(`No analyzed tokens found for ${walletAddress}, skipping enrichment.`);
           }
         } catch (error) {
           this.logger.warn(`Failed to queue enrichment job for ${walletAddress}, continuing without it:`, error);
