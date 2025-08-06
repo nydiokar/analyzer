@@ -302,8 +302,6 @@ export class PnlAnalysisService {
                                         // Unrealized P&L: Current value vs cost basis of remaining holdings (both in SOL)
                                         const unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
                                         unrealizedPnl += unrealizedPnlSol;
-                                        
-                                        logger.debug(`[PnlAnalysis] Token ${tokenBalance.mint}: Holdings=${currentUiBalance}, Price=${priceUsd}, Value=${currentHoldingsValueSol} SOL, Cost=${costBasisForCurrentHoldings} SOL, Unrealized=${unrealizedPnlSol} SOL`);
                                     }
                                 }
                             }

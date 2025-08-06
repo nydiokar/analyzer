@@ -393,7 +393,8 @@ export class HeliusApiClient {
     newestProcessedTimestamp?: number, // Optional timestamp to filter results (exclusive)
     untilTimestamp?: number,
     phase2InternalConcurrency: number = HELIUS_CONFIG.INTERNAL_CONCURRENCY,
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
+    onTransactionBatch?: (batch: HeliusTransaction[]) => Promise<void> // ✅ NEW: Stream processing callback
   ): Promise<HeliusTransaction[]> {
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run
@@ -533,12 +534,20 @@ export class HeliusApiClient {
 
             if (promises.length > 0) {
                 const results = await Promise.allSettled(promises);
-                results.forEach(result => {
-                    if (result.status === 'fulfilled' && result.value) {
-                        newlyFetchedTransactions.push(...result.value);
+                
+                // ✅ STREAM PROCESSING: Process each batch immediately
+                for (const result of results) {
+                    if (result.status === 'fulfilled' && result.value && result.value.length > 0) {
+                        if (onTransactionBatch) {
+                            // Stream process immediately - no memory accumulation!
+                            await onTransactionBatch(result.value);
+                        } else {
+                            // Fallback: accumulate for existing callers
+                            newlyFetchedTransactions.push(...result.value);
+                        }
                     }
                     // Failed promises are already handled by the catch within the push to `promises`
-                });
+                }
             }
             
             processedSignaturesCount += chunkSignatures.length; // Update based on the size of the chunk attempted

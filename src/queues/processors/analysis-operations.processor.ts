@@ -310,22 +310,35 @@ export class AnalysisOperationsProcessor {
       if (enrichMetadata) {
         await job.updateProgress(95);
         try {
-          // Use only the tokens that were actually analyzed in the PnL analysis
-          // instead of all wallet balances to avoid enriching 18k+ tokens when only 59 were analyzed
-          const analyzedTokens = pnlResult?.results?.map(result => result.tokenAddress) || [];
+          // Get ALL tokens mapped to this wallet from the database (not just current balances)
+          // This ensures we enrich all tokens that have ever been associated with this wallet
+          const allWalletTokens = await this.databaseService.getUniqueTokenAddressesFromAnalysisResults(walletAddress);
           
-          if (analyzedTokens.length > 0) {
-            // Get current balances for only the analyzed tokens
+          if (allWalletTokens.length > 0) {
+            // Get current balances for all mapped tokens
             const walletBalanceData = balanceData?.get(walletAddress);
-            const analyzedTokenBalances = walletBalanceData?.tokenBalances?.filter(tokenBalance => 
-              analyzedTokens.includes(tokenBalance.mint)
+            const allTokenBalances = walletBalanceData?.tokenBalances?.filter(tokenBalance => 
+              allWalletTokens.includes(tokenBalance.mint)
             ) || [];
             
-            this.logger.log(`Queuing enrichment for ${analyzedTokenBalances.length} analyzed tokens (out of ${walletBalanceData?.tokenBalances?.length || 0} total wallet tokens) for wallet ${walletAddress}`);
+            // For tokens that don't have current balances, create placeholder entries
+            const tokensWithoutBalances = allWalletTokens.filter(tokenAddress => 
+              !allTokenBalances.some(tb => tb.mint === tokenAddress)
+            );
+            
+            const placeholderBalances = tokensWithoutBalances.map(tokenAddress => ({
+              mint: tokenAddress,
+              uiBalance: 0,
+              balance: '0',
+            }));
+            
+            const allBalancesForEnrichment = [...allTokenBalances, ...placeholderBalances];
+            
+            this.logger.log(`Queuing enrichment for ${allBalancesForEnrichment.length} mapped tokens (${allTokenBalances.length} with current balances, ${placeholderBalances.length} without current balances) for wallet ${walletAddress}`);
             
             const walletBalancesForEnrichment = {
               [walletAddress]: {
-                tokenBalances: analyzedTokenBalances.map(tokenBalance => ({
+                tokenBalances: allBalancesForEnrichment.map(tokenBalance => ({
                   mint: tokenBalance.mint,
                   uiBalance: tokenBalance.uiBalance,
                   balance: tokenBalance.balance,
@@ -341,7 +354,7 @@ export class AnalysisOperationsProcessor {
             });
             enrichmentJobId = enrichmentJob.id;
           } else {
-            this.logger.log(`No analyzed tokens found for ${walletAddress}, skipping enrichment.`);
+            this.logger.log(`No mapped tokens found for ${walletAddress}, skipping enrichment.`);
           }
         } catch (error) {
           this.logger.warn(`Failed to queue enrichment job for ${walletAddress}, continuing without it:`, error);

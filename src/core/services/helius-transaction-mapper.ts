@@ -368,7 +368,6 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
         // Skip if no user token activity (not a DeFi transaction)
         if (userTokenTransfers.length === 0) {
-          logger.debug(`Skipping UNKNOWN tx ${tx.signature} - no user token activity`);
           mappingStats.unknownTxSkippedNoJito++; // for now unknownTxSkippedNoJito is misleading, it should be unknownTxSkippedLiquidityOperation but we need to change the database schema first
           continue;
         }
@@ -407,7 +406,6 @@ export function mapHeliusTransactionsToIntermediateRecords(
           
           if (allPositive || allNegative) {
             // User received both tokens OR sent both tokens = liquidity operation
-            logger.debug(`Skipping UNKNOWN tx ${tx.signature} - detected as liquidity operation (user ${allPositive ? 'received' : 'sent'} both tokens)`);
             mappingStats.unknownTxSkippedNoJito++; // for now unknownTxSkippedNoJito is misleading, it should be unknownTxSkippedLiquidityOperation but we need to change the database schema first
             continue;
           }

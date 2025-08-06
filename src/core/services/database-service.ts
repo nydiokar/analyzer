@@ -591,7 +591,7 @@ export class DatabaseService {
                 update: {}, // No fields to update if it exists
                 create: { address: walletAddress },
             });
-            this.logger.debug(`[DB] Successfully upserted wallet: ${walletAddress}`);
+            // ✅ REMOVED: Successful upsert logging to reduce spam
             return wallet;
         } catch (error) {
             this.logger.error(`Error ensuring wallet ${walletAddress} exists in database`, { error });
@@ -1104,7 +1104,7 @@ export class DatabaseService {
      * @returns The Wallet object if found, otherwise null.
      */
     async getWallet(walletAddress: string): Promise<Wallet | null> {
-      this.logger.debug(`Fetching wallet data for: ${walletAddress}`);
+      // this.logger.debug(`Fetching wallet data for: ${walletAddress}`);
       try {
         const wallet = await this.prismaClient.wallet.findUnique({
           where: { address: walletAddress },
@@ -1161,7 +1161,7 @@ export class DatabaseService {
 
       try {
         const updatedWallet = await this.prismaClient.wallet.upsert(upsertOptions);
-        this.logger.info(`[DB] Successfully upserted wallet: ${walletAddress}`);
+        // ✅ REMOVED: Successful upsert logging to reduce spam - only log errors now
         return updatedWallet;
       } catch (error: any) {
           this.logger.error(`[DB] Error upserting wallet ${walletAddress}. Create Payload: ${JSON.stringify(upsertOptions.create)}, Update Payload: ${JSON.stringify(upsertOptions.update)}`, { error: { message: error.message, code: error.code, meta: error.meta, name: error.name }, data });
@@ -1228,7 +1228,7 @@ export class DatabaseService {
             this.logger.debug('No transactions provided to save to cache.');
             return { count: 0 };
         }
-        this.logger.debug(`Attempting to save ${transactions.length} transaction signatures to lightweight cache...`);
+        // this.logger.debug(`Attempting to save ${transactions.length} transaction signatures to lightweight cache...`);
         const incomingSignatures = transactions.map(tx => tx.signature);
         let existingSignatures = new Set<string>();
         try {
@@ -1301,8 +1301,8 @@ export class DatabaseService {
         let existingDbEntries: { signature: string; mint: string; direction: string; amount: number; }[] = [];
 
         if (distinctInputSignatures.length > 0) {
-            this.logger.debug(`[DB] Distinct signatures for findMany: ${JSON.stringify(distinctInputSignatures.slice(0, 5))}${distinctInputSignatures.length > 5 ? '...' : ''}`);
-            this.logger.debug(`[DB] Sample input for findMany (first item): ${inputs.length > 0 ? JSON.stringify(inputs[0]) : 'N/A'}`);
+            // this.logger.debug(`[DB] Distinct signatures for findMany: ${JSON.stringify(distinctInputSignatures.slice(0, 5))}${distinctInputSignatures.length > 5 ? '...' : ''}`);
+            // this.logger.debug(`[DB] Sample input for findMany (first item): ${inputs.length > 0 ? JSON.stringify(inputs[0]) : 'N/A'}`);
             // Assign to the already declared variable
             existingDbEntries = await this.prismaClient.swapAnalysisInput.findMany({ // Note: assign here
                 where: {
@@ -1365,13 +1365,16 @@ export class DatabaseService {
             // as the primary debugging for that is complete. The iterative save handles the skips.
             // --- End of REMOVED Detailed Logging ---
             
-            this.logger.debug(`[DB] Attempting to bulk insert ${uniqueNewRecordsToInsert.length} records with createMany...`);
+            // this.logger.debug(`[DB] Attempting to bulk insert ${uniqueNewRecordsToInsert.length} records with createMany...`);
             try {
                 // The fast path: try to insert everything in one go.
                 const result = await this.prismaClient.swapAnalysisInput.createMany({
                     data: uniqueNewRecordsToInsert,
                 });
-                this.logger.debug(`[DB] createMany successful. Inserted ${result.count} records.`);
+                // ✅ REDUCED LOGGING: Only log for large batches to reduce spam
+                if (result.count >= 100) {
+                    this.logger.debug(`[DB] createMany successful. Inserted ${result.count} records.`);
+                }
                 return result;
             } catch (error) {
                 // The fallback path: if the batch fails due to a unique constraint violation...

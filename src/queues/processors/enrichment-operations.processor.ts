@@ -221,16 +221,20 @@ export class EnrichmentOperationsProcessor {
     const isDashboardAnalysis = jobData?.enrichmentContext === 'dashboard-analysis';
     
     if (isDashboardAnalysis) {
-      this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} analyzed tokens (dashboard analysis context)`);
+      this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} mapped tokens (dashboard analysis context)`);
     } else {
       this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} unique tokens`);
     }
     
-    // FILTER: Only process tokens that are likely to have metadata
-    // This filters out account addresses, closed accounts, and tokens with zero balances
+    // For dashboard analysis, process ALL tokens that are mapped to this wallet
+    // For other contexts, filter tokens that are likely to have metadata
     const meaningfulTokens = uniqueTokens.filter(tokenAddress => {
-      // For dashboard-triggered enrichment, include all tokens from analysis results
-      // as they're already filtered for relevance
+      // For dashboard analysis, include ALL tokens regardless of current balance
+      if (isDashboardAnalysis) {
+        return true; // Include all mapped tokens for dashboard analysis
+      }
+      
+      // For other contexts, check if token has a meaningful balance
       const hasMeaningfulBalance = Object.values(walletBalances).some(wallet => {
         const tokenBalance = wallet.tokenBalances?.find(t => t.mint === tokenAddress);
         if (!tokenBalance) return false;
@@ -239,7 +243,6 @@ export class EnrichmentOperationsProcessor {
         const uiBalance = tokenBalance.uiBalance || 0;
         const rawBalance = tokenBalance.balance || '0';
         
-        // For dashboard analysis tokens, be more lenient with filtering
         // Skip only if both UI and raw balance are explicitly zero
         if (uiBalance === 0 && rawBalance === '0') return false;
         
@@ -250,7 +253,7 @@ export class EnrichmentOperationsProcessor {
     });
     
     if (isDashboardAnalysis) {
-      this.logger.log(`Filtered to ${meaningfulTokens.length} meaningful analyzed tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as zero balances)`);
+      this.logger.log(`Processing ${meaningfulTokens.length} mapped tokens for dashboard analysis (all tokens included)`);
     } else {
       this.logger.log(`Filtered to ${meaningfulTokens.length} meaningful tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as likely account addresses or zero balances)`);
     }
@@ -287,7 +290,7 @@ export class EnrichmentOperationsProcessor {
     });
     
     if (isDashboardAnalysis) {
-      this.logger.log(`Found ${existingTokens.length} existing analyzed tokens, need to fetch ${tokensToFetch.length} new/stale analyzed tokens`);
+      this.logger.log(`Found ${existingTokens.length} existing mapped tokens, need to fetch ${tokensToFetch.length} new/stale mapped tokens`);
     } else {
       this.logger.log(`Found ${existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
     }
@@ -314,7 +317,7 @@ export class EnrichmentOperationsProcessor {
     });
     
     if (isDashboardAnalysis) {
-      this.logger.log(`Breakdown: ${newTokens.length} new analyzed tokens, ${staleTokens.length} stale analyzed tokens`);
+      this.logger.log(`Breakdown: ${newTokens.length} new mapped tokens, ${staleTokens.length} stale mapped tokens`);
     } else {
       this.logger.log(`Breakdown: ${newTokens.length} new tokens, ${staleTokens.length} stale tokens`);
     }
@@ -357,7 +360,7 @@ export class EnrichmentOperationsProcessor {
   }
 } else {
   if (isDashboardAnalysis) {
-    this.logger.log('All analyzed tokens already have recent metadata, no API calls needed');
+    this.logger.log('All mapped tokens already have recent metadata, no API calls needed');
   } else {
     this.logger.log('All tokens already have recent metadata, no API calls needed');
   }

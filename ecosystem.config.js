@@ -35,7 +35,7 @@ module.exports = {
       name: "analyzer-backend-api",
       script: "dist/main.js",     // Correct entry point for the NestJS application
       watch: false,              // Watching is not recommended for production
-      max_memory_restart : '1G',  // Optional: restart if it exceeds memory
+      max_memory_restart : '2G',  // Optional: restart if it exceeds memory
       env_production: {
          NODE_ENV: "production",
       }

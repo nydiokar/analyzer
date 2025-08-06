@@ -127,12 +127,11 @@ export class BehaviorService {
           
           // Use the new DatabaseService method
           const savedProfile = await this.databaseService.upsertWalletBehaviorProfile(profileDataToSave);
-          if (savedProfile) {
-            logger.info(`Successfully upserted WalletBehaviorProfile for ${walletAddress}`);
-          } else {
+          if (!savedProfile) {
             logger.error(`Failed to upsert WalletBehaviorProfile for ${walletAddress}`);
             // Decide if this should be a critical error that stops the process or just a warning
           }
+          // ✅ REMOVED: Success logging to reduce spam - only log failures
         } else {
           logger.info(`Skipping WalletBehaviorProfile upsert for ${walletAddress} because a specific timeRange was provided.`);
         }
