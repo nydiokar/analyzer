@@ -6,7 +6,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { TokenPerformanceDataDto } from '../shared/dto/token-performance-data.dto';
 import { TokenInfoService } from '../services/token-info.service';
 import { DexscreenerService } from '../services/dexscreener.service';
-import { getWellKnownTokenMetadata, isWellKnownToken } from '../../core/utils/token-metadata';
+import { getWellKnownTokenMetadata, isWellKnownToken } from '../../core/utils/token-metadata';  
+import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 
 export class PaginatedTokenPerformanceResponse {
   @ApiProperty({ type: () => [TokenPerformanceDataDto], description: 'Array of token performance records' })
@@ -247,24 +248,43 @@ export class TokenPerformanceService {
         currentHoldingsValueUsd = currentUiBalance * priceUsd;
         currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
         
+        // ✅ FILTER UNREALISTIC SOL VALUES AND USE CENTRALIZED EXCLUDED MINTS
+        const maxReasonableSolValue = 10000; // Max 10k SOL value for any single token holding
+        const maxReasonablePriceRatio = 1000; // Token price shouldn't be more than 1000x SOL price
+        
+        if (currentHoldingsValueSol > maxReasonableSolValue || 
+            priceUsd > estimatedSolPriceUsd * maxReasonablePriceRatio ||
+            DEFAULT_EXCLUDED_MINTS.includes(ar.tokenAddress)) {
+          // Reset to null for unrealistic values or excluded tokens
+          currentHoldingsValueUsd = null;
+          currentHoldingsValueSol = null;
+        }
+        
         // Realized P&L: Only from tokens that were actually sold
         const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
         realizedPnlSol = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
         
-        // Unrealized P&L: Current value vs cost basis of remaining holdings
-        const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
-        unrealizedPnlUsd = currentHoldingsValueUsd - (costBasisForCurrentHoldings * estimatedSolPriceUsd);
-        unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
-        
-        // Calculate percentages
-        // Realized PNL % = (Realized PNL / Total SOL Invested) × 100
-        realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
-        
-        // Unrealized PNL % = (Unrealized PNL / Cost Basis of Current Holdings) × 100  
-        unrealizedPnlPercentage = costBasisForCurrentHoldings > 0 ? (unrealizedPnlSol / costBasisForCurrentHoldings) * 100 : null;
-        
-        // Total P&L: Simple and clean calculation
-        totalPnlSol = realizedPnlSol + unrealizedPnlSol;
+        // ✅ Only calculate unrealized PnL if we have valid SOL values
+        if (currentHoldingsValueSol !== null && currentHoldingsValueUsd !== null) {
+          // Unrealized P&L: Current value vs cost basis of remaining holdings
+          const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
+          unrealizedPnlUsd = currentHoldingsValueUsd - (costBasisForCurrentHoldings * estimatedSolPriceUsd);
+          unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
+          
+          // Calculate percentages
+          // Realized PNL % = (Realized PNL / Total SOL Invested) × 100
+          realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
+          
+          // Unrealized PNL % = (Unrealized PNL / Cost Basis of Current Holdings) × 100  
+          unrealizedPnlPercentage = costBasisForCurrentHoldings > 0 ? (unrealizedPnlSol / costBasisForCurrentHoldings) * 100 : null;
+          
+          // Total P&L: Simple and clean calculation
+          totalPnlSol = realizedPnlSol + unrealizedPnlSol;
+        } else {
+          // ✅ FILTERED TOKEN: Only show realized PnL
+          realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
+          totalPnlSol = realizedPnlSol; // Only realized PnL for filtered tokens
+        }
         
              } else if (currentUiBalance > 0) {
          // We have holdings but no price data - can't calculate unrealized P&L

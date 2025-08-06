@@ -558,7 +558,8 @@ export class HeliusApiClient {
             // Only show progress for larger operations (more than 50 signatures)
             if (totalSignaturesToFetch > 50 && (currentPercentage >= lastLoggedPercentage + 25 || processedSignaturesCount >= totalSignaturesToFetch)) {
                  const displayPercentage = Math.min(100, Math.floor((processedSignaturesCount / totalSignaturesToFetch) * 100));
-                 process.stdout.write(`  Fetching details: Processed ~${displayPercentage}% of signatures (${newlyFetchedTransactions.length} successful txns fetched so far)...\r`);
+                 // ✅ ENHANCED PROGRESS: Show signatures processed vs successful transactions
+                 process.stdout.write(`  Fetching details: Processed ~${displayPercentage}% of signatures (${processedSignaturesCount}/${totalSignaturesToFetch} sigs → ${newlyFetchedTransactions.length} successful txns)...\r`);
                  lastLoggedPercentage = currentPercentage;
             }
         } // End loop through chunks

@@ -9,6 +9,7 @@ import { WalletBalanceService } from './wallet-balance-service';
 import { WalletBalance } from '@/types/wallet';
 import { Injectable } from '@nestjs/common';
 import { TokenInfoService } from '../../api/services/token-info.service';
+import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -291,6 +292,28 @@ export class PnlAnalysisService {
                                     const currentHoldingsValueUsd = currentUiBalance * priceUsd;
                                     const currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
                                     
+                                    // ✅ FILTER UNREALISTIC SOL VALUES
+                                    // Skip tokens with unrealistic SOL values (likely DexScreener pricing errors)
+                                    const maxReasonableSolValue = 10000; // Max 10k SOL value for any single token holding
+                                    const maxReasonablePriceRatio = 1000; // Token price shouldn't be more than 1000x SOL price
+                                    
+                                    if (currentHoldingsValueSol > maxReasonableSolValue) {
+                                        logger.warn(`[PnlAnalysis] Skipping unrealistic token ${tokenBalance.mint}: ${currentHoldingsValueSol.toFixed(2)} SOL value (${currentUiBalance.toLocaleString()} tokens @ $${priceUsd})`);
+                                        continue;
+                                    }
+                                    
+                                    if (priceUsd > estimatedSolPriceUsd * maxReasonablePriceRatio) {
+                                        logger.warn(`[PnlAnalysis] Skipping token with suspicious price ${tokenBalance.mint}: $${priceUsd} vs SOL $${estimatedSolPriceUsd}`);
+                                        continue;
+                                    }
+                                    
+                                    // ✅ USE CENTRALIZED EXCLUDED MINTS LIST
+                                    // This includes stablecoins, liquid staking tokens, and problematic tokens
+                                    if (DEFAULT_EXCLUDED_MINTS.includes(tokenBalance.mint)) {
+                                        logger.debug(`[PnlAnalysis] Skipping excluded token ${tokenBalance.mint} from unrealized PnL calculation (configured in DEFAULT_EXCLUDED_MINTS)`);
+                                        continue;
+                                    }
+                                    
                                     // Find the corresponding analysis result for cost basis
                                     const analysisResult = enrichedSwapAnalysisResults.find(r => r.tokenAddress === tokenBalance.mint);
                                     if (analysisResult) {
@@ -301,7 +324,13 @@ export class PnlAnalysisService {
                                         
                                         // Unrealized P&L: Current value vs cost basis of remaining holdings (both in SOL)
                                         const unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
-                                        unrealizedPnl += unrealizedPnlSol;
+                                        
+                                        // ✅ ADDITIONAL SANITY CHECK: Don't add unrealistic unrealized PnL
+                                        if (Math.abs(unrealizedPnlSol) < 10000) { // Max 10k SOL unrealized PnL per token
+                                            unrealizedPnl += unrealizedPnlSol;
+                                        } else {
+                                            logger.warn(`[PnlAnalysis] Skipping unrealistic unrealized PnL for ${tokenBalance.mint}: ${unrealizedPnlSol.toFixed(2)} SOL`);
+                                        }
                                     }
                                 }
                             }

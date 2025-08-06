@@ -9,8 +9,7 @@ export const DEFAULT_EXCLUDED_MINTS = [
   'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', // mSOL
   '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj', // stSOL
   'rndrizKT3MK1iimdxRdWabcF7Zb7nx9Vi3CY6A5J9NK', // rndr
-  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
-  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', // RAY
+  '8888xhvqnTWZ6tNbfAyP8mLLfaKsqfiW33tgA8RZ8888', // memeSOL - fake/scam token
 ];
 
 // Define specific program IDs
@@ -60,7 +59,7 @@ export const CLUSTERING_CONFIG = {
 
 export const ANALYSIS_EXECUTION_CONFIG = {
   SIMILARITY_LAB_MAX_SIGNATURES: 500,
-  DASHBOARD_MAX_SIGNATURES: 50000,
+  DASHBOARD_MAX_SIGNATURES: 5000,
 } as const;
 
 // Database configuration
