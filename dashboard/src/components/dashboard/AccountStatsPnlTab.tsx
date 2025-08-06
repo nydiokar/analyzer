@@ -69,10 +69,14 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
         <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Core Trading Metrics</Text>
         <Card className="p-0">
           <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
-            <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
+            <Grid numItemsSm={2} numItemsMd={4} className="gap-x-4 gap-y-4">
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
                 <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Realized PNL</Text>
                 <Metric className="text-base">{formatMetric(data.realizedPnl, 'SOL')}</Metric>
+              </Flex>
+              <Flex flexDirection="col" alignItems="start" justifyContent="start">
+                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Unrealized PNL</Text>
+                <Metric className="text-base">{formatMetric(data.unrealizedPnl, 'SOL')}</Metric>
               </Flex>
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
                 <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Avg. P/L per Trade</Text>
@@ -208,8 +212,8 @@ const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
       <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Core Trading Metrics</Text>
       <Card className="p-0">
         <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
-          <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
-            {[...Array(3)].map((_, i) => (
+          <Grid numItemsSm={2} numItemsMd={4} className="gap-x-4 gap-y-4">
+            {[...Array(4)].map((_, i) => (
               <Flex key={`core-metric-skel-${i}`} flexDirection="col" alignItems="start" justifyContent="start">
                 <Skeleton className="h-3 w-1/2 mb-1" />
                 <Skeleton className="h-6 w-3/4" />

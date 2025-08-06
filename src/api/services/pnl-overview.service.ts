@@ -1,11 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PnlAnalysisService } from './pnl-analysis.service';
+import { TokenInfoService } from './token-info.service';
+import { DexscreenerService } from './dexscreener.service';
 import { SwapAnalysisSummary } from '../../types/helius-api';
 
 // Updated PnlOverviewResponse to include more fields
 export class PnlOverviewResponseData {
   dataFrom?: string;
   realizedPnl: number;
+  unrealizedPnl?: number; // Add unrealized PnL field
   swapWinRate?: number;
   winLossCount?: string; 
   avgPLTrade?: number;
@@ -34,11 +37,15 @@ export class PnlOverviewResponse {
 
 @Injectable()
 export class PnlOverviewService {
+  private readonly logger = new Logger(PnlOverviewService.name);
+
   constructor(
     private readonly pnlAnalysisService: PnlAnalysisService,
+    private readonly tokenInfoService: TokenInfoService,
+    private readonly dexscreenerService: DexscreenerService,
   ) {}
 
-  private formatPnlData(analysisSummary: (SwapAnalysisSummary & { analysisSkipped?: boolean }) | null): PnlOverviewResponseData | null {
+  private async formatPnlData(analysisSummary: (SwapAnalysisSummary & { analysisSkipped?: boolean }) | null): Promise<PnlOverviewResponseData | null> {
     if (!analysisSummary || (analysisSummary.results.length === 0 && !analysisSummary.analysisSkipped)) {
       return null;
     }
@@ -59,6 +66,9 @@ export class PnlOverviewService {
     } = analysisSummary;
 
     const totalTrades = profitableTokensCount + unprofitableTokensCount;
+    
+    // Use unrealized PNL from the analysis summary (calculated by core service)
+    const unrealizedPnl = analysisSummary.unrealizedPnl || 0;
     
     // Calculate true trade-level winrate by counting individual trades
     let profitableTradesCount = 0;
@@ -88,6 +98,7 @@ export class PnlOverviewService {
       ? (profitableTradesCount / totalIndividualTrades) * 100 
       : (totalTrades > 0 ? (profitableTokensCount / totalTrades) * 100 : 0);
     
+    // Use realized PNL for performance metrics to avoid unrealized PNL volatility
     const avgPLTrade = totalTrades > 0 ? realizedPnl / totalTrades : 0;
     
     let calculatedTotalSolSpent = 0;
@@ -110,24 +121,25 @@ export class PnlOverviewService {
 
     return {
       dataFrom: dataFromString,
-      realizedPnl: realizedPnl,
-      swapWinRate: formatAdvancedStat(swapWinRate, 1),
+      realizedPnl: realizedPnl, // Completed trades only - stable metric
+      unrealizedPnl: formatAdvancedStat(unrealizedPnl, 2), // Current holdings value - volatile
+      swapWinRate: formatAdvancedStat(swapWinRate, 1), // Based on completed trades only
       winLossCount: totalIndividualTrades > 0 
         ? `${profitableTradesCount}/${totalIndividualTrades} trades` 
         : `${profitableTokensCount}/${totalTrades} tokens`,
-      avgPLTrade: formatAdvancedStat(avgPLTrade, 2),
+      avgPLTrade: formatAdvancedStat(avgPLTrade, 2), // Based on realized PNL only
       totalVolume: formatAdvancedStat(totalVolume, 2),
       totalSolSpent: formatAdvancedStat(calculatedTotalSolSpent, 2) as number,
       totalSolReceived: formatAdvancedStat(calculatedTotalSolReceived, 2) as number,
-      medianPLToken: formatAdvancedStat(advancedStats?.medianPnlPerToken, 2),
-      trimmedMeanPnlPerToken: formatAdvancedStat(advancedStats?.trimmedMeanPnlPerToken, 2),
-      tokenWinRate: formatAdvancedStat(advancedStats?.tokenWinRatePercent, 1),
-      standardDeviationPnl: formatAdvancedStat(advancedStats?.standardDeviationPnl, 2),
-      medianPnlToVolatilityRatio: formatAdvancedStat(advancedStats?.medianPnlToVolatilityRatio, 2),
-      weightedEfficiencyScore: formatAdvancedStat(advancedStats?.weightedEfficiencyScore, 2),
-      averagePnlPerDayActiveApprox: formatAdvancedStat(advancedStats?.averagePnlPerDayActiveApprox, 2),
-      profitableTokensCount: profitableTokensCount,
-      unprofitableTokensCount: unprofitableTokensCount,
+      medianPLToken: formatAdvancedStat(advancedStats?.medianPnlPerToken, 2), // Based on realized PNL only
+      trimmedMeanPnlPerToken: formatAdvancedStat(advancedStats?.trimmedMeanPnlPerToken, 2), // Based on realized PNL only
+      tokenWinRate: formatAdvancedStat(advancedStats?.tokenWinRatePercent, 1), // Based on realized PNL only
+      standardDeviationPnl: formatAdvancedStat(advancedStats?.standardDeviationPnl, 2), // Based on realized PNL only
+      medianPnlToVolatilityRatio: formatAdvancedStat(advancedStats?.medianPnlToVolatilityRatio, 2), // Based on realized PNL only
+      weightedEfficiencyScore: formatAdvancedStat(advancedStats?.weightedEfficiencyScore, 2), // Based on realized PNL only
+      averagePnlPerDayActiveApprox: formatAdvancedStat(advancedStats?.averagePnlPerDayActiveApprox, 2), // Based on realized PNL only
+      profitableTokensCount: profitableTokensCount, // Based on realized PNL only
+      unprofitableTokensCount: unprofitableTokensCount, // Based on realized PNL only
     };
   }
 
@@ -135,14 +147,23 @@ export class PnlOverviewService {
     walletAddress: string,
     timeRange?: { startTs?: number; endTs?: number },
   ): Promise<PnlOverviewResponse> {
-    // Fetch all-time data - SKIP balance fetch since Account Stats doesn't need current balances
+    // Fetch SOL price for unrealized PNL calculation
+    let solPriceUsd = 0;
+    try {
+      solPriceUsd = await this.dexscreenerService.getSolPrice();
+      this.logger.debug(`[PnlOverview] Fetched SOL price: $${solPriceUsd}`);
+    } catch (error) {
+      this.logger.warn(`[PnlOverview] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
+    }
+
+    // Fetch all-time data with SOL price for unrealized PNL calculation
     const allTimeAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
       walletAddress,
       undefined, // No time range for all-time
-      { isViewOnly: true, skipBalanceFetch: true },
+      { isViewOnly: true, skipBalanceFetch: true, solPriceUsd },
     );
 
-    const allTimeData = this.formatPnlData(allTimeAnalysisSummary);
+    const allTimeData = await this.formatPnlData(allTimeAnalysisSummary);
     if (!allTimeData) {
       throw new NotFoundException(`No PNL overview data available for wallet ${walletAddress}. All-time analysis might have failed, yielded no results, or was skipped.`);
     }
@@ -152,9 +173,9 @@ export class PnlOverviewService {
       const periodAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
         walletAddress,
         timeRange,
-        { isViewOnly: true, skipBalanceFetch: true },
+        { isViewOnly: true, skipBalanceFetch: true, solPriceUsd },
       );
-      periodData = this.formatPnlData(periodAnalysisSummary);
+      periodData = await this.formatPnlData(periodAnalysisSummary);
       // If periodData is null (e.g. no transactions in period), it's fine, it will be returned as null.
     }
 

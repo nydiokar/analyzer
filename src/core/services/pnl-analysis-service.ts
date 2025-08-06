@@ -69,7 +69,7 @@ export class PnlAnalysisService {
     async analyzeWalletPnl(
         walletAddress: string,
         timeRange?: { startTs?: number; endTs?: number },
-        options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean }
+        options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean, solPriceUsd?: number }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
         logger.debug(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, options });
 
@@ -89,6 +89,44 @@ export class PnlAnalysisService {
 
         if (shouldSkipBalanceFetch) {
             logger.debug(`[PnlAnalysis] Skipping balance fetch for ${walletAddress} (skipBalanceFetch=true)`);
+            // Retrieve stored balance data from database instead of fetching fresh balances
+            try {
+                const storedAnalysisResults = await this.databaseService.getAnalysisResults({
+                    where: { walletAddress }
+                });
+                
+                if (storedAnalysisResults.length > 0) {
+                    // Create a WalletBalance object from stored data
+                    const tokenBalances = storedAnalysisResults
+                        .filter(result => result.currentUiBalance && result.currentUiBalance > 0)
+                        .map(result => ({
+                            mint: result.tokenAddress,
+                            tokenAccountAddress: result.tokenAddress, // Use token address as fallback since we don't store token account address
+                            balance: result.currentRawBalance || '0',
+                            uiBalance: result.currentUiBalance || 0,
+                            uiBalanceString: result.currentUiBalanceString || '0',
+                            decimals: result.balanceDecimals || 0,
+                        }));
+                    
+                    // Get SOL balance from WalletPnlSummary if available
+                    const pnlSummary = await this.databaseService.getWalletPnlSummaryWithRelations(walletAddress);
+                    const solBalance = pnlSummary?.currentSolBalance || 0;
+                    const balancesFetchedAt = pnlSummary?.solBalanceFetchedAt || 
+                        (storedAnalysisResults[0]?.balanceFetchedAt || new Date());
+                    
+                    currentWalletBalance = {
+                        solBalance,
+                        tokenBalances,
+                        fetchedAt: balancesFetchedAt,
+                    };
+                    
+                    logger.info(`[PnlAnalysis] Retrieved stored balance data for ${walletAddress}. SOL: ${solBalance}, Tokens: ${tokenBalances.length}`);
+                } else {
+                    logger.debug(`[PnlAnalysis] No stored balance data found for ${walletAddress}`);
+                }
+            } catch (error) {
+                logger.warn(`[PnlAnalysis] Failed to retrieve stored balance data for ${walletAddress}: ${error}`);
+            }
         } else {
             // Use pre-fetched balances if provided, otherwise fetch them
             if (options?.preFetchedBalances) {
@@ -220,6 +258,65 @@ export class PnlAnalysisService {
                     unrealizedPnl += result.estimatedPreservedValue;
                 }
             }
+            
+            // Calculate unrealized PNL for current holdings using stored balance data
+            if (currentWalletBalance && currentWalletBalance.tokenBalances.length > 0) {
+                try {
+                    // Get token info for price data
+                    const tokenAddresses = currentWalletBalance.tokenBalances.map(tb => tb.mint);
+                    const tokenInfoList = this.tokenInfoService ? await this.tokenInfoService.findMany(tokenAddresses) : [];
+                    const tokenInfoMap = new Map<string, any>();
+                    for (const info of tokenInfoList) {
+                        tokenInfoMap.set(info.tokenAddress, info);
+                    }
+                    
+                    // Get SOL price for USD conversion
+                    let estimatedSolPriceUsd = options?.solPriceUsd || 0;
+                    if (estimatedSolPriceUsd <= 0) {
+                        logger.warn(`[PnlAnalysis] Cannot calculate unrealized PNL without proper SOL price. Skipping unrealized PNL calculation.`);
+                    } else {
+                        logger.debug(`[PnlAnalysis] Using SOL price: $${estimatedSolPriceUsd} for unrealized PNL calculation`);
+                    }
+                    
+                    // Only calculate unrealized PNL if we have proper SOL price
+                    if (estimatedSolPriceUsd > 0) {
+                        for (const tokenBalance of currentWalletBalance.tokenBalances) {
+                            const currentUiBalance = tokenBalance.uiBalance || 0;
+                            if (currentUiBalance > 0) {
+                                const tokenInfo = tokenInfoMap.get(tokenBalance.mint);
+                                const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
+                                
+                                if (priceUsd && priceUsd > 0) {
+                                    // Calculate current value in SOL (USD / SOL_price)
+                                    const currentHoldingsValueUsd = currentUiBalance * priceUsd;
+                                    const currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
+                                    
+                                    // Find the corresponding analysis result for cost basis
+                                    const analysisResult = enrichedSwapAnalysisResults.find(r => r.tokenAddress === tokenBalance.mint);
+                                    if (analysisResult) {
+                                        const totalSolSpent = analysisResult.totalSolSpent || 0;
+                                        const totalAmountIn = analysisResult.totalAmountIn || 0;
+                                        const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
+                                        const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
+                                        
+                                        // Unrealized P&L: Current value vs cost basis of remaining holdings (both in SOL)
+                                        const unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
+                                        unrealizedPnl += unrealizedPnlSol;
+                                        
+                                        logger.debug(`[PnlAnalysis] Token ${tokenBalance.mint}: Holdings=${currentUiBalance}, Price=${priceUsd}, Value=${currentHoldingsValueSol} SOL, Cost=${costBasisForCurrentHoldings} SOL, Unrealized=${unrealizedPnlSol} SOL`);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        logger.warn(`[PnlAnalysis] Skipping unrealized PNL calculation due to missing SOL price data`);
+                    }
+                    
+                    logger.debug(`[PnlAnalysis] Calculated unrealized PNL for ${walletAddress}: ${unrealizedPnl} SOL`);
+                } catch (error) {
+                    logger.warn(`[PnlAnalysis] Failed to calculate unrealized PNL for ${walletAddress}: ${error}`);
+                }
+            }
             const finalNetPnl = realizedPnl + unrealizedPnl;
             const totalPnlTokens = profitableTokensCount + unprofitableTokensCount;
             const averageSwapSize = totalPnlTokens > 0 ? totalVolume / totalPnlTokens : 0;
@@ -241,8 +338,8 @@ export class PnlAnalysisService {
                 totalVolume: totalVolume,
                 totalFees: totalFees,
                 realizedPnl: realizedPnl,
-                unrealizedPnl: 0, // Placeholder, true unrealized PNL is complex
-                netPnl: realizedPnl, // For now, netPnl is realizedPnl
+                unrealizedPnl: unrealizedPnl, // Use calculated unrealized PNL
+                netPnl: finalNetPnl, // Use calculated net PNL (realized + unrealized)
                 stablecoinNetFlow: stablecoinNetFlow,
                 overallFirstTimestamp: overallFirstTimestamp || 0,
                 overallLastTimestamp: overallLastTimestamp || 0,

@@ -4,12 +4,14 @@ import { DatabaseModule } from '../modules/database.module';
 import { PnlAnalysisService } from '../services/pnl-analysis.service';
 import { TokenInfoModule } from '../integrations/token-info.module';
 import { HeliusModule } from '../integrations/helius.module'; // Import HeliusModule to use global singleton
+import { DexscreenerModule } from '../integrations/dexscreener.module';
 
 @Module({
   imports: [
     DatabaseModule,
     TokenInfoModule,
     HeliusModule, // Import HeliusModule to get the global HeliusApiClient singleton
+    DexscreenerModule, // Import DexscreenerModule to get DexscreenerService
   ],
   providers: [
     PnlOverviewService,

@@ -34,7 +34,7 @@ export class PnlAnalysisService {
   async analyzeWalletPnl(
     walletAddress: string,
     timeRange?: { startTs?: number; endTs?: number },
-    options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean },
+    options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean, solPriceUsd?: number },
   ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
     this.logger.debug(`[NestWrapper] analyzeWalletPnl called for ${walletAddress}`);
     return this.corePnlAnalysisService.analyzeWalletPnl(walletAddress, timeRange, options);

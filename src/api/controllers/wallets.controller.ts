@@ -186,7 +186,8 @@ export class WalletsController {
       const lastAnalyzedAt = overallPnlSummary.updatedAt;
 
       // 5. Use data from these persisted overall summaries
-      let latestPnl = overallPnlSummary.realizedPnl ?? 0; // Or netPnl
+      // Use realized PNL for summary card to avoid misleading inflated numbers
+      let latestPnl = overallPnlSummary.realizedPnl ?? 0;
       let tokenWinRate = overallPnlSummary.advancedStats?.tokenWinRatePercent;
       let behaviorClassification = overallBehaviorProfile?.tradingStyle || 'N/A';
       let currentSolBalance = overallPnlSummary.currentSolBalance;
@@ -271,8 +272,12 @@ export class WalletsController {
         lastAnalyzedAt: lastAnalyzedAt.toISOString(),
         lastActiveTimestamp: finalLastActiveTimestamp,
         daysActive: finalDaysActive,
-        latestPnl: latestPnl,
+        latestPnl: latestPnl, // Realized PNL only for summary display
         latestPnlUsd: latestPnlUsd,
+        // Add separate fields for LLM context
+        realizedPnl: overallPnlSummary.realizedPnl ?? 0,
+        unrealizedPnl: overallPnlSummary.unrealizedPnl ?? 0,
+        netPnl: (overallPnlSummary.realizedPnl ?? 0) + (overallPnlSummary.unrealizedPnl ?? 0), // Total portfolio value
         tokenWinRate: tradeLevelWinRate, // Use trade-level winrate for the summary card
         behaviorClassification: behaviorClassification,
         classification: finalClassification,

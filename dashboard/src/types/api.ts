@@ -24,9 +24,12 @@ export interface WalletSummaryData {
   lastAnalyzedAt?: string | null;
   lastActiveTimestamp: number | null; // Unix timestamp in seconds or null
   daysActive: number | string | null; // Backend seems to send string or number
-  latestPnl?: number | null; // Moved from keyPerformanceIndicators
-  latestPnlUsd?: number | null; // New USD field
-  tokenWinRate?: number | null; // Moved from keyPerformanceIndicators
+  latestPnl?: number | null; // Realized PNL only for summary display
+  latestPnlUsd?: number | null; // USD equivalent of realized PNL
+  realizedPnl?: number | null; // Realized PNL (completed trades only)
+  unrealizedPnl?: number | null; // Unrealized PNL (current holdings value)
+  netPnl?: number | null; // Total portfolio value (realized + unrealized)
+  tokenWinRate?: number | null; // Trade-level win rate
   behaviorClassification: string | null; // High-level classification from BehaviorService
   classification?: string | null; // Wallet classification: 'normal', 'high_frequency', 'unknown'
   rawAdvancedStats?: AdvancedStatsResult; // Full raw object for more detail if needed by client
@@ -200,6 +203,7 @@ export interface PaginatedTokenPerformanceResponse {
 export interface PnlOverviewResponseData {
   dataFrom?: string;
   realizedPnl: number;
+  unrealizedPnl?: number; // Add unrealized PnL field
   swapWinRate?: number;
   winLossCount?: string; 
   avgPLTrade?: number;

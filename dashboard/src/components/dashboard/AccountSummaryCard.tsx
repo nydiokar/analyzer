@@ -31,6 +31,28 @@ interface AccountSummaryCardProps {
   summaryIsLoading?: boolean;
 }
 
+// Utility function to format USD values with K/B notation
+const formatUsdValue = (value: number | null | undefined): string => {
+  if (value === null || value === undefined) return 'N/A';
+  
+  const absValue = Math.abs(value);
+  const sign = value >= 0 ? '+' : '';
+  
+  if (absValue >= 1_000_000_000) {
+    // Billions
+    return `${sign}$${(absValue / 1_000_000_000).toFixed(1)}B`;
+  } else if (absValue >= 1_000_000) {
+    // Millions
+    return `${sign}$${(absValue / 1_000_000).toFixed(1)}M`;
+  } else if (absValue >= 1_000) {
+    // Thousands
+    return `${sign}$${(absValue / 1_000).toFixed(1)}K`;
+  } else {
+    // Less than 1K
+    return `${sign}$${absValue.toFixed(0)}`;
+  }
+};
+
 export default function AccountSummaryCard({ 
   walletAddress, 
   className, 
@@ -186,7 +208,7 @@ export default function AccountSummaryCard({
             </Metric>
             {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
               <Text className="text-xs text-muted-foreground">
-                {data.latestPnlUsd >= 0 ? '+' : ''}${data.latestPnlUsd.toLocaleString()}
+                {formatUsdValue(data.latestPnlUsd)}
               </Text>
             )}
           </div>
@@ -210,7 +232,7 @@ export default function AccountSummaryCard({
               </Text>
               {data.currentSolBalanceUsd !== null && data.currentSolBalanceUsd !== undefined && (
                 <Text className="text-xs text-muted-foreground">
-                  ${data.currentSolBalanceUsd.toLocaleString()}
+                  {formatUsdValue(data.currentSolBalanceUsd)}
                 </Text>
               )}
             </div>

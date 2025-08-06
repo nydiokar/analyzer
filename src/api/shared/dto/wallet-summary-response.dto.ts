@@ -45,6 +45,24 @@ export class WalletSummaryResponse {
   latestPnlUsd?: number | null;
 
   @ApiPropertyOptional({ 
+    description: 'The realized PNL (completed trades only) for the wallet. This represents actual profit/loss from completed transactions.',
+    example: 1250.75 
+  })
+  realizedPnl?: number | null;
+
+  @ApiPropertyOptional({ 
+    description: 'The unrealized PNL (current holdings value) for the wallet. This represents potential profit/loss from current holdings and is subject to market volatility.',
+    example: 500.25 
+  })
+  unrealizedPnl?: number | null;
+
+  @ApiPropertyOptional({ 
+    description: 'The total portfolio value (realized + unrealized PNL) for the wallet. This represents the complete current portfolio value including both completed trades and current holdings.',
+    example: 1751.00 
+  })
+  netPnl?: number | null;
+
+  @ApiPropertyOptional({ 
     description: 'The trade-level win rate representing the percentage of individual trades that were profitable (realized PnL > 0) out of all trades executed.',
     example: 66.67 
   })
