@@ -95,7 +95,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
   useEffect(() => {
     // Use the backend URL directly - no proxy needed
-    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3001';
+    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://sova-intel.duckdns.org';
     const newSocket = io(`${baseUrl}`, {
       autoConnect: true,
       path: "/socket.io/",
