@@ -99,12 +99,11 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const newSocket = io(`${baseUrl}`, {
       autoConnect: true,
       path: "/socket.io/",
-      transports: ['polling', 'websocket'], // Try polling first, then WebSocket
-      reconnectionAttempts: 3,
-      reconnectionDelay: 2000,
-      timeout: 10000, // Faster timeout
-      forceNew: true, // Force new connection
-      upgrade: true, // Enable transport upgrade
+      transports: ['websocket', 'polling'], // Try both WebSocket and polling
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 20000, // 20 second timeout
+      forceNew: false, // Don't force new connection - reuse existing
     });
 
     const handleConnect = () => {
