@@ -79,8 +79,17 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
                 <Metric className="text-base">{formatMetric(data.avgPLTrade, 'SOL')}</Metric>
               </Flex>
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
-                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Token Win Rate</Text>
+                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5 flex items-center">
+                  Token Win Rate
+                  <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Percentage of tokens that were profitable (realized PnL &gt; 0) out of all tokens traded. This represents token selection success.</p></TooltipContent></Tooltip></TooltipProvider>
+                </Text>
                 <Metric className="text-base">{formatPercentage(data.tokenWinRate)}</Metric>
+                {data.profitableTokensCount !== null && data.profitableTokensCount !== undefined &&
+                 data.unprofitableTokensCount !== null && data.unprofitableTokensCount !== undefined && (
+                  <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-0.5">
+                    {data.profitableTokensCount}/{data.profitableTokensCount + data.unprofitableTokensCount} tokens
+                  </Text>
+                )}
               </Flex>
             </Grid>
           </div>

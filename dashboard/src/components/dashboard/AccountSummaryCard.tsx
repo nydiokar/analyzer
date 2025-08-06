@@ -194,13 +194,19 @@ export default function AccountSummaryCard({
           <div className="flex flex-col items-center text-center">
             <Text className="text-xs text-muted-foreground">Win Rate</Text>
             <Text className="text-sm font-semibold">{formatWinRate(data.tokenWinRate ?? null)}</Text>
+                        {data.profitableTradesCount !== null && data.profitableTradesCount !== undefined &&
+             data.totalTradesCount !== null && data.totalTradesCount !== undefined && data.totalTradesCount > 0 && (
+              <Text className="text-xs text-muted-foreground">
+                {data.profitableTradesCount}/{data.totalTradesCount} trades
+              </Text>
+            )}
           </div>
 
           {data.currentSolBalance !== undefined && (
             <div className="flex flex-col items-center text-center">
               <Text className="text-xs text-muted-foreground">Balance</Text>
               <Text className="text-sm font-semibold">
-                {data.currentSolBalance?.toFixed(2) ?? 'N/A'}
+                {data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL
               </Text>
               {data.currentSolBalanceUsd !== null && data.currentSolBalanceUsd !== undefined && (
                 <Text className="text-xs text-muted-foreground">

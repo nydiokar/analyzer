@@ -45,7 +45,7 @@ export class WalletSummaryResponse {
   latestPnlUsd?: number | null;
 
   @ApiPropertyOptional({ 
-    description: 'The win rate of profitable tokens as a percentage.',
+    description: 'The trade-level win rate representing the percentage of individual trades that were profitable (realized PnL > 0) out of all trades executed.',
     example: 66.67 
   })
   tokenWinRate?: number | null;
@@ -74,6 +74,20 @@ export class WalletSummaryResponse {
     example: 1050.00 
   })
   currentSolBalanceUsd?: number | null;
+
+
+
+  @ApiPropertyOptional({
+    description: 'The number of profitable trades (individual transactions) that were profitable.',
+    example: 150
+  })
+  profitableTradesCount?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'The total number of individual trades (transactions) executed.',
+    example: 350
+  })
+  totalTradesCount?: number | null;
 
   @ApiPropertyOptional({ 
     description: 'ISO 8601 timestamp of when the balance was last fetched.',

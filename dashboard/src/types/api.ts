@@ -33,6 +33,8 @@ export interface WalletSummaryData {
   rawBehaviorMetrics?: BehaviorMetrics; // Full raw object for more detail if needed by client
   currentSolBalance?: number | null;
   currentSolBalanceUsd?: number | null; // New USD field
+  profitableTradesCount?: number | null;
+  totalTradesCount?: number | null;
 }
 
 export interface WalletSummaryError {
@@ -211,6 +213,8 @@ export interface PnlOverviewResponseData {
   medianPnlToVolatilityRatio?: number; 
   weightedEfficiencyScore?: number; 
   averagePnlPerDayActiveApprox?: number;
+  profitableTokensCount?: number;
+  unprofitableTokensCount?: number;
 }
 
 export interface PnlOverviewResponse {

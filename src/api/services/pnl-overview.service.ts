@@ -21,6 +21,10 @@ export class PnlOverviewResponseData {
   medianPnlToVolatilityRatio?: number; // New
   weightedEfficiencyScore?: number; // New
   averagePnlPerDayActiveApprox?: number; // New
+  
+  // Token count fields for context
+  profitableTokensCount?: number;
+  unprofitableTokensCount?: number;
 }
 
 export class PnlOverviewResponse {
@@ -55,7 +59,35 @@ export class PnlOverviewService {
     } = analysisSummary;
 
     const totalTrades = profitableTokensCount + unprofitableTokensCount;
-    const winRate = totalTrades > 0 ? (profitableTokensCount / totalTrades) * 100 : 0;
+    
+    // Calculate true trade-level winrate by counting individual trades
+    let profitableTradesCount = 0;
+    let totalIndividualTrades = 0;
+    
+    analysisSummary.results.forEach(result => {
+      if (!result.isValuePreservation) {
+        // Count individual trades (transfers)
+        const tradesIn = result.transferCountIn || 0;
+        const tradesOut = result.transferCountOut || 0;
+        const totalTradesForToken = tradesIn + tradesOut;
+        
+        if (totalTradesForToken > 0) {
+          totalIndividualTrades += totalTradesForToken;
+          
+          // If the token was profitable, all its trades are considered profitable
+          // If the token was unprofitable, all its trades are considered unprofitable
+          if (result.netSolProfitLoss > 0) {
+            profitableTradesCount += totalTradesForToken;
+          }
+        }
+      }
+    });
+    
+    // Use true trade-level winrate if we have individual trade data, otherwise fallback to token-level
+    const swapWinRate = totalIndividualTrades > 0 
+      ? (profitableTradesCount / totalIndividualTrades) * 100 
+      : (totalTrades > 0 ? (profitableTokensCount / totalTrades) * 100 : 0);
+    
     const avgPLTrade = totalTrades > 0 ? realizedPnl / totalTrades : 0;
     
     let calculatedTotalSolSpent = 0;
@@ -79,8 +111,10 @@ export class PnlOverviewService {
     return {
       dataFrom: dataFromString,
       realizedPnl: realizedPnl,
-      swapWinRate: formatAdvancedStat(winRate, 1),
-      winLossCount: `${profitableTokensCount}/${totalTrades} wins`,
+      swapWinRate: formatAdvancedStat(swapWinRate, 1),
+      winLossCount: totalIndividualTrades > 0 
+        ? `${profitableTradesCount}/${totalIndividualTrades} trades` 
+        : `${profitableTokensCount}/${totalTrades} tokens`,
       avgPLTrade: formatAdvancedStat(avgPLTrade, 2),
       totalVolume: formatAdvancedStat(totalVolume, 2),
       totalSolSpent: formatAdvancedStat(calculatedTotalSolSpent, 2) as number,
@@ -92,6 +126,8 @@ export class PnlOverviewService {
       medianPnlToVolatilityRatio: formatAdvancedStat(advancedStats?.medianPnlToVolatilityRatio, 2),
       weightedEfficiencyScore: formatAdvancedStat(advancedStats?.weightedEfficiencyScore, 2),
       averagePnlPerDayActiveApprox: formatAdvancedStat(advancedStats?.averagePnlPerDayActiveApprox, 2),
+      profitableTokensCount: profitableTokensCount,
+      unprofitableTokensCount: unprofitableTokensCount,
     };
   }
 

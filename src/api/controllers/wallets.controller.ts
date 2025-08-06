@@ -192,6 +192,44 @@ export class WalletsController {
       let currentSolBalance = overallPnlSummary.currentSolBalance;
       let balancesFetchedAt = overallPnlSummary.solBalanceFetchedAt;
       
+      // Calculate trade-level winrate for the summary card
+      let tradeLevelWinRate = tokenWinRate;
+      let profitableTradesCount = 0;
+      let totalIndividualTrades = 0;
+      
+      if (overallPnlSummary.profitableTokensCount !== undefined && overallPnlSummary.unprofitableTokensCount !== undefined) {
+        const totalTokens = overallPnlSummary.profitableTokensCount + overallPnlSummary.unprofitableTokensCount;
+        if (totalTokens > 0) {
+          // Calculate trade-level winrate by counting individual trades
+          
+          // Get the detailed analysis to count individual trades
+          const detailedAnalysis = await this.pnlOverviewService.getPnlAnalysisForSummary(walletAddress);
+          if (detailedAnalysis && detailedAnalysis.results) {
+            detailedAnalysis.results.forEach(result => {
+              if (!result.isValuePreservation) {
+                const tradesIn = result.transferCountIn || 0;
+                const tradesOut = result.transferCountOut || 0;
+                const totalTradesForToken = tradesIn + tradesOut;
+                
+                if (totalTradesForToken > 0) {
+                  totalIndividualTrades += totalTradesForToken;
+                  
+                  // If the token was profitable, all its trades are considered profitable
+                  if (result.netSolProfitLoss > 0) {
+                    profitableTradesCount += totalTradesForToken;
+                  }
+                }
+              }
+            });
+          }
+          
+          // Use trade-level winrate if we have individual trade data, otherwise fallback to token-level
+          tradeLevelWinRate = totalIndividualTrades > 0 
+            ? (profitableTradesCount / totalIndividualTrades) * 100 
+            : (overallPnlSummary.profitableTokensCount / totalTokens) * 100;
+        }
+      }
+
       // For lastActiveTimestamp and daysActive, use overall wallet info if available
       // Fallback to PNL summary timestamps if wallet entity doesn't have them directly or is not fetched
       let finalLastActiveTimestamp = overallPnlSummary.wallet?.newestProcessedTimestamp || overallPnlSummary.advancedStats?.lastTransactionTimestamp || null;
@@ -235,11 +273,13 @@ export class WalletsController {
         daysActive: finalDaysActive,
         latestPnl: latestPnl,
         latestPnlUsd: latestPnlUsd,
-        tokenWinRate: tokenWinRate,
+        tokenWinRate: tradeLevelWinRate, // Use trade-level winrate for the summary card
         behaviorClassification: behaviorClassification,
         classification: finalClassification,
         currentSolBalance: currentSolBalance,
         currentSolBalanceUsd: currentSolBalanceUsd,
+        profitableTradesCount: profitableTradesCount,
+        totalTradesCount: totalIndividualTrades,
         balancesFetchedAt: balancesFetchedAt ? balancesFetchedAt.toISOString() : null,
       };
 
