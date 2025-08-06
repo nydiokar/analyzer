@@ -46,7 +46,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@nestjs/axios": "^4.0.0",
+    "@nestjs/axios": "^4.0.1",
     "@nestjs/bullmq": "^11.0.2",
     "@nestjs/cli": "^11.0.7",
     "@nestjs/common": "^11.1.2",
