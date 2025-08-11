@@ -115,6 +115,38 @@ export class DatabaseService {
         this.logger.info('DatabaseService instantiated.');
     }
 
+    private async sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    private isTransientDbTimeout(error: unknown): boolean {
+        const message = (error as { message?: string })?.message ?? '';
+        const code = (error as { code?: string })?.code ?? '';
+        // Prisma timeout or sqlite lock symptoms
+        return code === 'P1008' || code === 'P2024' || message.includes('Socket timeout') || message.includes('database is locked');
+    }
+
+    private async executeWithRetry<T>(operationName: string, fn: () => Promise<T>): Promise<T> {
+        const maxRetries: number = DB_CONFIG.maxRetries ?? 3;
+        const baseDelayMs: number = DB_CONFIG.retryDelayMs ?? 1000;
+        let attempt: number = 0;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+            try {
+                return await fn();
+            } catch (error) {
+                attempt += 1;
+                if (!this.isTransientDbTimeout(error) || attempt > maxRetries) {
+                    this.logger.error(`DB ${operationName} failed${attempt > 1 ? ` after ${attempt} attempts` : ''}`, { error });
+                    throw error;
+                }
+                const delay = baseDelayMs * Math.pow(2, attempt - 1);
+                this.logger.warn(`DB ${operationName} transient error (attempt ${attempt}/${maxRetries}). Retrying in ${delay}ms...`);
+                await this.sleep(delay);
+            }
+        }
+    }
+
     // --- Mapping Activity Log Methods ---
     /**
      * Saves a mapping activity log entry to the database.
@@ -471,13 +503,9 @@ export class DatabaseService {
         skip?: number;
         take?: number;
     }): Promise<AnalysisResult[]> {
-        // this.logger.debug(`Fetching AnalysisResults with params: ${JSON.stringify(params)}`);
-        try {
+        return this.executeWithRetry('analysisResult.findMany', async () => {
             return await this.prismaClient.analysisResult.findMany(params);
-        } catch (error) {
-            this.logger.error('Error fetching AnalysisResults', { error, params });
-            throw error; // Re-throw for service layer to handle
-        }
+        });
     }
 
     /**
@@ -491,12 +519,9 @@ export class DatabaseService {
         where?: Prisma.AnalysisResultWhereInput;
     }): Promise<number> {
         this.logger.debug(`Counting AnalysisResults with params: ${JSON.stringify(params)}`);
-        try {
+        return this.executeWithRetry('analysisResult.count', async () => {
             return await this.prismaClient.analysisResult.count(params);
-        } catch (error) {
-            this.logger.error('Error counting AnalysisResults', { error, params });
-            throw error; // Re-throw for service layer to handle
-        }
+        });
     }
 
     // --- User Management Methods ---
