@@ -53,7 +53,7 @@ interface JobQueueToStartEvent {
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: true,
     methods: ['GET', 'POST'],
     credentials: true,
   },

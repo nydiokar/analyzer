@@ -23,7 +23,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger } from '@nestjs/common';
 import { WalletAnalysisStatus } from '@/types/wallet';
-import { DB_CONFIG } from '../../config/constants';
+import { DB_CONFIG, HELIUS_CONFIG } from '../../config/constants';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -1259,12 +1259,66 @@ export class DatabaseService {
             timestamp: tx.timestamp,
         }));
         try {
+            // Fast path: attempt bulk insert (SQLite will throw P2002 on any duplicate)
             const result = await this.prismaClient.heliusTransactionCache.createMany({
                 data: dataToSave,
             });
-             this.logger.debug(`Cache save complete. ${result.count} new transaction signatures added to HeliusTransactionCache.`);
+            this.logger.debug(`Cache save complete. ${result.count} new transaction signatures added to HeliusTransactionCache.`);
+            // Optional: verify-on-save
+            if (HELIUS_CONFIG.DEBUG_VERIFY_CACHE_SAVES) {
+                const savedRecords = await this.prismaClient.heliusTransactionCache.findMany({
+                    where: { signature: { in: newTransactions.map(t => t.signature) } },
+                    select: { signature: true }
+                });
+                const savedSet = new Set(savedRecords.map(r => r.signature));
+                const missingAfterSave = newTransactions.map(t => t.signature).filter(sig => !savedSet.has(sig));
+                if (missingAfterSave.length > 0) {
+                    this.logger.warn(`[DB] Post-save verification: ${missingAfterSave.length} signatures missing; attempting per-row inserts.`);
+                    const failures: string[] = [];
+                    for (const sig of missingAfterSave) {
+                        const tx = transactions.find(t => t.signature === sig);
+                        if (!tx) continue;
+                        try {
+                            await this.prismaClient.heliusTransactionCache.create({ data: { signature: tx.signature, timestamp: tx.timestamp } });
+                        } catch (e) {
+                            failures.push(sig);
+                        }
+                    }
+                    if (failures.length > 0) {
+                        try {
+                            const outDir = require('path').resolve(HELIUS_CONFIG.LEGIT_MISSING_OUTPUT_DIR || 'debug_output');
+                            const fs = require('fs');
+                            if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+                            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                            const filePath = require('path').join(outDir, `cache-save-failures-${ts}.json`);
+                            fs.writeFileSync(filePath, JSON.stringify({ failures }, null, 2), 'utf-8');
+                            this.logger.warn(`[DB] Wrote cache-save-failures diagnostics to ${filePath}`);
+                        } catch {}
+                    }
+                }
+            }
             return result;
         } catch (error) {
+            // Duplicate present in bulk; fall back to iterative inserts (same pattern used for SwapAnalysisInput)
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                this.logger.warn(`[DB] createMany(HeliusTransactionCache) failed due to duplicate (P2002). Falling back to iterative insertion.`);
+                let inserted = 0;
+                let skippedDup = 0;
+                for (const tx of newTransactions) {
+                    try {
+                        await this.prismaClient.heliusTransactionCache.create({ data: { signature: tx.signature, timestamp: tx.timestamp } });
+                        inserted++;
+                    } catch (e) {
+                        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+                            skippedDup++;
+                        } else {
+                            this.logger.error('[DB] Iterative fallback (HeliusTransactionCache) error', { error: e });
+                        }
+                    }
+                }
+                this.logger.debug(`[DB] Iterative fallback complete for cache. Inserted: ${inserted}, Skipped duplicates: ${skippedDup}`);
+                return { count: inserted };
+            }
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
                  this.logger.error('Prisma Error saving new cached transactions to HeliusTransactionCache', { code: error.code, meta: error.meta });
             } else {

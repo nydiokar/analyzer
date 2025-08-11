@@ -88,6 +88,28 @@ export const HELIUS_CONFIG = {
   DEFAULT_RPS: 25, // Conservative rate limit
   INTERNAL_CONCURRENCY: 10, // Sequential processing to avoid burst detection
   BATCH_SIZE: 100, // Reduced batch size
+  // Observability + retry controls for missing transactions
+  LOG_MISSING_CLASSIFICATION_PER_BATCH: true,
+  ENABLE_SECOND_PASS_RETRY: false,
+  SECOND_PASS_MICRO_BATCH_LIMIT: 20,
+  SECOND_PASS_INDEXING_WAIT_MS: 1500,
+  WRITE_LEGIT_MISSING_TO_FILE: true,
+  LEGIT_MISSING_OUTPUT_DIR: 'debug_output',
+  // Diagnostics (no behavior change): compare cap strategies and boundary drops
+  DEBUG_CAP_COMPARE: true,
+  DEBUG_BOUNDARY_WOULD_DROP: true,
+  // Trace specific signatures end-to-end through fetching pipeline
+  DEBUG_TRACE_SIGNATURES: ['2y7z7TzXTu8XHswoM4d4Hjf1JLEmaTJepsucgShYiQ69bSghmJfdhXM4yAEN9k477riiWq2rAn7zpxaJe5xiPsU6'] as string[],
+  DEBUG_TRACE_TO_FILE: true,
+  // When tracing: immediately probe missing traced signatures with a single-signature fetch
+  DEBUG_TRACE_PROBE_ON_MISSING: true,
+  // Write RPC signature manifests (before/after cap) for reproducibility
+  WRITE_RPC_MANIFEST: true,
+  // Verify cache saves by re-querying after inserts; write small diagnostic if missing
+  DEBUG_VERIFY_CACHE_SAVES: true,
+  // Reconciliation settings
+  RECONCILE_ENABLED: true,
+  RECONCILE_MICRO_BATCH_LIMIT: 50,
 } as const;
 
 // Queue and processing configuration

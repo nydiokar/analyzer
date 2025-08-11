@@ -96,6 +96,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   useEffect(() => {
     // Use the backend URL directly - no proxy needed
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://sova-intel.duckdns.org';
+    const forceNewSocket = (process.env.NEXT_PUBLIC_SOCKET_FORCE_NEW === 'true');
     const newSocket = io(`${baseUrl}`, {
       autoConnect: true,
       path: "/socket.io/",
@@ -103,7 +104,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       timeout: 20000, // 20 second timeout
-      forceNew: false, // Don't force new connection - reuse existing
+      forceNew: forceNewSocket, // Allow forcing a fresh Manager via env flag when debugging sticky sessions
     });
 
     const handleConnect = () => {
