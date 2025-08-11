@@ -10,8 +10,6 @@ import {
 import { DatabaseService } from '../../api/services/database.service';
 import { Injectable } from '@nestjs/common';
 import { HELIUS_CONFIG } from '../../config/constants';
-import * as fs from 'fs';
-import * as path from 'path';
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
 interface SignatureInfo {
@@ -396,17 +394,8 @@ export class HeliusApiClient {
     untilTimestamp?: number,
     phase2InternalConcurrency: number = HELIUS_CONFIG.INTERNAL_CONCURRENCY,
     onProgress?: (progress: number) => void,
-    onTransactionBatch?: (batch: HeliusTransaction[]) => Promise<void>, // ✅ NEW: Stream processing callback
-    processCachedSignatures: boolean = true // ✅ NEW: also process cache hits by refetching details
+    onTransactionBatch?: (batch: HeliusTransaction[]) => Promise<void>, // stream processing callback
   ): Promise<HeliusTransaction[]> {
-    // --- DEBUG TRACE: initialize trace state for specific signatures ---
-    const traceSet = new Set<string>((HELIUS_CONFIG.DEBUG_TRACE_SIGNATURES || []).map(s => s.trim()));
-    const trace: Record<string, any> = {};
-    const markTrace = (sig: string, field: string, value: any = true) => {
-      if (!traceSet.has(sig)) return;
-      if (!trace[sig]) trace[sig] = { sig };
-      trace[sig][field] = value;
-    };
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run
     let newlyFetchedTransactions: HeliusTransaction[] = []; 
@@ -426,10 +415,6 @@ export class HeliusApiClient {
         
         if (signatureInfos.length > 0) {
             allRpcSignaturesInfo.push(...signatureInfos);
-            // DEBUG TRACE: mark inRPC
-            for (const info of signatureInfos) {
-              if (traceSet.has(info.signature)) markTrace(info.signature, 'inRpc', true);
-            }
             fetchedSignaturesCount += signatureInfos.length;
             lastRpcSignature = signatureInfos[signatureInfos.length - 1].signature;
 
@@ -472,78 +457,15 @@ export class HeliusApiClient {
     }
 
     // --- Apply hard maxSignatures limit to the RPC results before detail fetching ---
-    const capDroppedSet = new Set<string>(); // DEBUG/Rescue: signatures beyond cap
-    if (HELIUS_CONFIG.WRITE_RPC_MANIFEST) {
-      try {
-        const outDir = path.resolve(HELIUS_CONFIG.LEGIT_MISSING_OUTPUT_DIR || 'debug_output');
-        if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        fs.writeFileSync(path.join(outDir, `rpc-manifest-precap-${address}-${ts}.json`), JSON.stringify({ address, signatures: allRpcSignaturesInfo.map(s => ({ sig: s.signature, blockTime: s.blockTime ?? null })) }, null, 2));
-      } catch {}
-    }
-
     if (maxSignatures !== null && allRpcSignaturesInfo.length > maxSignatures) {
         logger.debug(`RPC fetch resulted in ${allRpcSignaturesInfo.length} signatures. Applying hard limit of ${maxSignatures}.`);
-
-        // Diagnostics: compare RPC-order cap vs blockTime-sorted cap
-        if (HELIUS_CONFIG.DEBUG_CAP_COMPARE) {
-          const rpcOrderedCap = allRpcSignaturesInfo.slice(0, maxSignatures).map(s => s.signature);
-          const sortedByBlockTime = [...allRpcSignaturesInfo].sort((a, b) => (b.blockTime ?? 0) - (a.blockTime ?? 0));
-          const sortedCap = sortedByBlockTime.slice(0, maxSignatures).map(s => s.signature);
-          const onlyInRpcCap = rpcOrderedCap.filter(sig => !sortedCap.includes(sig));
-          const onlyInSortedCap = sortedCap.filter(sig => !rpcOrderedCap.includes(sig));
-          if (onlyInRpcCap.length > 0 || onlyInSortedCap.length > 0) {
-            logger.warn(`CAP difference detected: rpcCapOnly=${onlyInRpcCap.length}, sortedCapOnly=${onlyInSortedCap.length}. Writing cap-compare diagnostics.`);
-            try {
-              const outDir = path.resolve(HELIUS_CONFIG.LEGIT_MISSING_OUTPUT_DIR || 'debug_output');
-              if (!fs.existsSync(outDir)) {
-                fs.mkdirSync(outDir, { recursive: true });
-              }
-              const ts = new Date().toISOString().replace(/[:.]/g, '-');
-              const filePath = path.join(outDir, `cap-compare-${address}-${ts}.json`);
-              const payload = {
-                address,
-                maxSignatures,
-                totalSignatures: allRpcSignaturesInfo.length,
-                onlyInRpcCap,
-                onlyInSortedCap,
-                sampleRpcCap: rpcOrderedCap.slice(0, 50),
-                sampleSortedCap: sortedCap.slice(0, 50)
-              };
-              fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
-            } catch (e) {
-              logger.warn('Failed to write cap-compare diagnostics file.', { error: this.sanitizeError(e) });
-            }
-          }
-        }
-
         // Apply cap in RPC order (newest-first) to avoid blockTime nulls reordering
-        const preCapAll = allRpcSignaturesInfo.map(s => s.signature);
-        const kept = preCapAll.slice(0, maxSignatures);
-        const dropped = preCapAll.slice(maxSignatures);
-        for (const sig of dropped) capDroppedSet.add(sig);
-        // Trace: mark dropped-by-cap for traced signatures
-        for (const sig of dropped) { if (traceSet.has(sig)) markTrace(sig, 'droppedByCap', true); }
         allRpcSignaturesInfo = allRpcSignaturesInfo.slice(0, maxSignatures);
         logger.debug(`Sliced RPC signatures to newest ${allRpcSignaturesInfo.length} based on maxSignatures limit (RPC order).`);
     }
 
-    if (HELIUS_CONFIG.WRITE_RPC_MANIFEST) {
-      try {
-        const outDir = path.resolve(HELIUS_CONFIG.LEGIT_MISSING_OUTPUT_DIR || 'debug_output');
-        if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        fs.writeFileSync(path.join(outDir, `rpc-manifest-postcap-${address}-${ts}.json`), JSON.stringify({ address, signatures: allRpcSignaturesInfo.map(s => ({ sig: s.signature, blockTime: s.blockTime ?? null })) }, null, 2));
-      } catch {}
-    }
-
     const uniqueSignatures = Array.from(new Set(allRpcSignaturesInfo.map(s => s.signature)));
     logger.debug(`Total unique signatures from RPC after potential maxSignatures slicing: ${uniqueSignatures.length}`);
-    // Map for quick lookup of RPC info by signature (used for missing classification)
-    const rpcInfoBySignature = new Map<string, SignatureInfo>();
-    for (const info of allRpcSignaturesInfo) {
-      rpcInfoBySignature.set(info.signature, info);
-    }
 
     // === Check Cache to Identify Signatures to Fetch ===
     logger.debug(`Checking database cache existence for ${uniqueSignatures.length} signatures...`);
@@ -558,21 +480,17 @@ export class HeliusApiClient {
       if (cachedInfo) {
         // Signature exists in cache - skip fetching details
         // logger.debug(`Signature ${sig} found in cache, skipping fetch`);
-        markTrace(sig, 'cacheHit', true);
+        // cache hit
       } else {
         // Signature not in cache - need to fetch details
         signaturesToFetchDetails.add(sig);
-        markTrace(sig, 'cacheHit', false);
+        // cache miss
       }
     }
     
     logger.debug(`Found ${cacheHits} signatures in cache. Need to fetch details for ${signaturesToFetchDetails.size} signatures.`);
     
     const signaturesToFetchArray = Array.from(signaturesToFetchDetails);
-    const cachedSignaturesArray = uniqueSignatures.filter(sig => cachedTxMap.has(sig));
-    if (cachedSignaturesArray.length > 0) {
-      logger.debug(`Identified ${cachedSignaturesArray.length} signatures in cache that will${processCachedSignatures ? '' : ' not'} be processed in this run.`);
-    }
 
     // === PHASE 2: Fetch Uncached Details SEQUENTIALLY & Save to Cache ===
     if (signaturesToFetchArray.length > 0) {
@@ -584,13 +502,7 @@ export class HeliusApiClient {
         const totalSignaturesToFetch = signaturesToFetchArray.length;
         let processedSignaturesCount = 0;
         let lastLoggedPercentage = 0;
-        // Classification tracking
-        const legitMissingForRetry = new Set<string>();
-        let missingFailedCount = 0;
-        let totalRequestedCount = 0;
-        let totalReceivedCount = 0;
-        let totalMissingCount = 0;
-        let totalLegitMissingCount = 0;
+
 
         onProgress?.(0);
         
@@ -602,8 +514,6 @@ export class HeliusApiClient {
             for (let j = 0; j < chunkSignatures.length; j += parseBatchLimit) {
                 const batchSignatures = chunkSignatures.slice(j, j + parseBatchLimit);
                 if (batchSignatures.length > 0) {
-                    // DEBUG TRACE: requested in Phase 2
-                    for (const s of batchSignatures) markTrace(s, 'requestedP2', true);
                     // The getTransactionsBySignatures method already includes rate limiting and retries
                     promises.push(
                         this.getTransactionsBySignatures(batchSignatures)
@@ -623,11 +533,10 @@ export class HeliusApiClient {
             if (promises.length > 0) {
                 const results = await Promise.allSettled(promises);
                 
-                // ✅ STREAM PROCESSING: Process each batch immediately
+                // Stream processing: Process each batch immediately
                 for (const result of results) {
                   if (result.status === 'fulfilled' && result.value) {
                     const txs = result.value.txs || [];
-                    const requested = result.value.requested || [];
                     if (txs.length > 0) {
                       if (onTransactionBatch) {
                         // Stream process immediately - no memory accumulation!
@@ -641,57 +550,6 @@ export class HeliusApiClient {
                       } else {
                         // Fallback: accumulate for existing callers
                         newlyFetchedTransactions.push(...txs);
-                      }
-                    }
-                    // Classification
-                    const received = new Set<string>(txs.map(t => t.signature));
-                    // DEBUG TRACE: mark receivedP2
-                    for (const s of received) markTrace(s, 'receivedP2', true);
-                    const missing = requested.filter(sig => !received.has(sig));
-                    totalRequestedCount += requested.length;
-                    totalReceivedCount += received.size;
-                    totalMissingCount += missing.length;
-                    if (missing.length > 0) {
-                      let legitCount = 0;
-                      let failedCount = 0;
-                      for (const sig of missing) {
-                        const info = rpcInfoBySignature.get(sig);
-                        if (info && info.err) {
-                          failedCount++;
-                          missingFailedCount++;
-                        } else {
-                          legitMissingForRetry.add(sig);
-                          legitCount++;
-                        }
-                      }
-                      totalLegitMissingCount += legitCount;
-                      if (HELIUS_CONFIG.LOG_MISSING_CLASSIFICATION_PER_BATCH) {
-                        logger.warn(
-                          `Detected missing transactions in batch response: requested=${requested.length}, received=${received.size}, missing=${missing.length}, legitMissing=${legitCount}, failedMissing=${failedCount}.`
-                        );
-                      }
-                      // DEBUG TRACE: if a traced signature is missing, optionally probe it immediately
-                      if (HELIUS_CONFIG.DEBUG_TRACE_PROBE_ON_MISSING) {
-                        const tracedMissing = missing.filter(sig => traceSet.has(sig));
-                        for (const sig of tracedMissing) {
-                          try {
-                            logger.warn(`TRACE-PROBE: Immediately fetching details for traced missing signature ${sig}`);
-                            const probe = await this.getTransactionsBySignatures([sig]);
-                            if (probe && probe.length > 0) {
-                              markTrace(sig, 'probeReceived', true);
-                              if (onTransactionBatch) {
-                                await onTransactionBatch(probe);
-                                try { await this.dbService.saveCachedTransactions(probe); } catch {}
-                              } else {
-                                newlyFetchedTransactions.push(...probe);
-                              }
-                            } else {
-                              markTrace(sig, 'probeReceived', false);
-                            }
-                          } catch (e) {
-                            markTrace(sig, 'probeError', this.sanitizeError(e));
-                          }
-                        }
                       }
                     }
                   }
@@ -720,78 +578,6 @@ export class HeliusApiClient {
         }
         logger.debug('Concurrent batch requests for Phase 2 finished.');
         logger.debug(`Successfully fetched details for ${newlyFetchedTransactions.length} out of ${totalSignaturesToFetch} new transactions attempted in Phase 2.`);
-        if (HELIUS_CONFIG.LOG_MISSING_CLASSIFICATION_PER_BATCH) {
-          if (missingFailedCount > 0) {
-            logger.info(`Classified ${missingFailedCount} missing signatures as failed transactions based on RPC err field. These will be skipped.`);
-          }
-          logger.info(`Phase 2 aggregate: requested=${totalRequestedCount}, received=${totalReceivedCount}, missing=${totalMissingCount}, legitMissing=${totalLegitMissingCount}.`);
-        }
-
-        // Optionally write legit-missing signatures to a JSON file
-        if (HELIUS_CONFIG.WRITE_LEGIT_MISSING_TO_FILE && legitMissingForRetry.size > 0) {
-          try {
-            const outDir = path.resolve(HELIUS_CONFIG.LEGIT_MISSING_OUTPUT_DIR || 'debug_output');
-            if (!fs.existsSync(outDir)) {
-              fs.mkdirSync(outDir, { recursive: true });
-            }
-            const ts = new Date().toISOString().replace(/[:.]/g, '-');
-            const filePath = path.join(outDir, `legit-missing-${address}-${ts}.json`);
-            const payload = {
-              address,
-              requested: totalRequestedCount,
-              received: totalReceivedCount,
-              missing: totalMissingCount,
-              legitMissingCount: totalLegitMissingCount,
-              signatures: Array.from(legitMissingForRetry),
-            };
-            fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
-            if (HELIUS_CONFIG.LOG_MISSING_CLASSIFICATION_PER_BATCH) {
-              logger.info(`Wrote legit-missing signatures to ${filePath}`);
-            }
-          } catch (writeErr) {
-            if (HELIUS_CONFIG.LOG_MISSING_CLASSIFICATION_PER_BATCH) {
-              logger.error('Failed to write legit-missing signatures file', { error: this.sanitizeError(writeErr) });
-            }
-          }
-        }
-
-        // Second pass retry for legit-missing (optional)
-        if (HELIUS_CONFIG.ENABLE_SECOND_PASS_RETRY && legitMissingForRetry.size > 0) {
-          const microLimit = HELIUS_CONFIG.SECOND_PASS_MICRO_BATCH_LIMIT || 10;
-          const waitMs = HELIUS_CONFIG.SECOND_PASS_INDEXING_WAIT_MS || 1500;
-          const secondPassTargets = Array.from(legitMissingForRetry);
-          if (HELIUS_CONFIG.LOG_MISSING_CLASSIFICATION_PER_BATCH) {
-            logger.warn(`Preparing second-pass retry for ${secondPassTargets.length} legitimately missing transactions using micro-batches of ${microLimit}. Waiting ${waitMs}ms for indexing...`);
-          }
-          await delay(waitMs);
-          for (let k = 0; k < secondPassTargets.length; k += microLimit) {
-            const microBatch = secondPassTargets.slice(k, k + microLimit);
-            try {
-              const txs = await this.getTransactionsBySignatures(microBatch);
-              if (txs && txs.length > 0) {
-                if (onTransactionBatch) {
-                  await onTransactionBatch(txs);
-                  try {
-                    await this.dbService.saveCachedTransactions(txs);
-                  } catch (e) {
-                    logger.warn('Failed to save second-pass streamed batch to cache (continuing).', { error: this.sanitizeError(e) });
-                  }
-                } else {
-                  newlyFetchedTransactions.push(...txs);
-                }
-              }
-              const got = new Set<string>((txs || []).map(t => t.signature));
-              const stillMissing = microBatch.filter(sig => !got.has(sig));
-              if (stillMissing.length > 0 && HELIUS_CONFIG.LOG_MISSING_CLASSIFICATION_PER_BATCH) {
-                logger.warn(`Second pass micro-batch returned fewer results. requested=${microBatch.length}, received=${got.size}, stillMissing=${stillMissing.length}. Sample: ${stillMissing.slice(0, 3).join(', ')}`);
-              }
-            } catch (e) {
-              if (HELIUS_CONFIG.LOG_MISSING_CLASSIFICATION_PER_BATCH) {
-                logger.error(`Second pass micro-batch fetch failed for ${microBatch.length} signatures.`, { error: this.sanitizeError(e) });
-              }
-            }
-          }
-        }
 
         // --- Save newly fetched transactions to DB Cache --- 
         if (newlyFetchedTransactions.length > 0) {
@@ -805,136 +591,10 @@ export class HeliusApiClient {
         }
     } // End if signaturesToFetchArray.length > 0
     
-    // === PHASE 2b: Process Cached Signatures (optional re-fetch) ===
-    if (processCachedSignatures && cachedSignaturesArray.length > 0) {
-      logger.debug(`Starting Phase 2b: Re-fetching ${cachedSignaturesArray.length} cached signatures for processing.`);
-      for (let i = 0; i < cachedSignaturesArray.length; i += parseBatchLimit * phase2InternalConcurrency) {
-        const chunk = cachedSignaturesArray.slice(i, i + parseBatchLimit * phase2InternalConcurrency);
-        const promises: Promise<HeliusTransaction[]>[] = [];
-        for (let j = 0; j < chunk.length; j += parseBatchLimit) {
-          const batch = chunk.slice(j, j + parseBatchLimit);
-          if (batch.length > 0) {
-            // DEBUG TRACE: requested in Phase 2b
-            for (const s of batch) markTrace(s, 'requestedP2b', true);
-            promises.push(
-              this.getTransactionsBySignatures(batch).catch(err => {
-                logger.error(`Cached batch fetch failed for ${batch.length} signatures.`, { error: this.sanitizeError(err) });
-                return [] as HeliusTransaction[];
-              })
-            );
-          }
-        }
-        if (promises.length > 0) {
-          const results = await Promise.allSettled(promises);
-          for (const res of results) {
-            if (res.status === 'fulfilled' && res.value && res.value.length > 0) {
-              if (onTransactionBatch) {
-                await onTransactionBatch(res.value);
-              } else {
-                newlyFetchedTransactions.push(...res.value);
-              }
-              // DEBUG TRACE: received in Phase 2b
-              for (const s of res.value.map(t => t.signature)) markTrace(s, 'receivedP2b', true);
-            }
-          }
-        }
-      }
-      logger.debug('Phase 2b complete: processed cached signatures by re-fetching details.');
-    }
-
-    // === PHASE 2c: Rescue fetch for traced signatures dropped by cap ===
-    if (capDroppedSet.size > 0) {
-      const tracedDropped = Array.from(capDroppedSet).filter(sig => traceSet.has(sig));
-      if (tracedDropped.length > 0) {
-        logger.warn(`TRACE-RESCUE: Fetching ${tracedDropped.length} traced signatures that were dropped by cap.`);
-        for (let i = 0; i < tracedDropped.length; i += parseBatchLimit) {
-          const batch = tracedDropped.slice(i, i + parseBatchLimit);
-          try {
-            const txs = await this.getTransactionsBySignatures(batch);
-            if (txs && txs.length > 0) {
-              if (onTransactionBatch) {
-                await onTransactionBatch(txs);
-                try { await this.dbService.saveCachedTransactions(txs); } catch {}
-              } else {
-                newlyFetchedTransactions.push(...txs);
-              }
-              for (const s of txs.map(t => t.signature)) markTrace(s, 'rescueReceived', true);
-            }
-          } catch (e) {
-            logger.warn('TRACE-RESCUE batch fetch failed.', { error: this.sanitizeError(e) });
-          }
-        }
-      }
-    }
-
     // With lightweight cache, we only have newly fetched transactions
     // Cached signatures are used to avoid re-fetching, not to provide transaction data
     logger.debug(`Cache hit ${cacheHits} signatures (avoided re-fetching).`);
     logger.debug(`Fetched ${newlyFetchedTransactions.length} new transactions from API.`);
-    
-    // === RECONCILIATION: ensure cache contains all RPC signatures that are not failed ===
-    if (HELIUS_CONFIG.RECONCILE_ENABLED) {
-      try {
-        const rpcSet = new Set<string>(Array.from(new Set(allRpcSignaturesInfo.map(s => s.signature))));
-        // Exclude known failed from RPC err
-        for (const info of allRpcSignaturesInfo) {
-          if ((info as any).err) rpcSet.delete(info.signature);
-        }
-        // Read cache for these signatures in chunks
-        const rpcList = Array.from(rpcSet);
-        const cachedSet = new Set<string>();
-        const chunk = 1000;
-        for (let i = 0; i < rpcList.length; i += chunk) {
-          const part = rpcList.slice(i, i + chunk);
-          const cacheMap = await this.dbService.getCachedTransaction(part) as Map<string, { timestamp: number }>;
-          for (const sig of part) {
-            if (cacheMap.get(sig)) cachedSet.add(sig);
-          }
-        }
-        const stillMissing = rpcList.filter(sig => !cachedSet.has(sig));
-        if (stillMissing.length > 0) {
-          logger.warn(`RECONCILE: ${stillMissing.length} signatures missing from cache after normal phases. Attempting micro-fetch.`);
-          const limit = HELIUS_CONFIG.RECONCILE_MICRO_BATCH_LIMIT || 50;
-          for (let i = 0; i < stillMissing.length; i += limit) {
-            const batch = stillMissing.slice(i, i + limit);
-            try {
-              const txs = await this.getTransactionsBySignatures(batch);
-              if (txs && txs.length > 0) {
-                if (onTransactionBatch) {
-                  await onTransactionBatch(txs);
-                  try { await this.dbService.saveCachedTransactions(txs); } catch {}
-                } else {
-                  newlyFetchedTransactions.push(...txs);
-                }
-              }
-            } catch (e) {
-              logger.warn('RECONCILE micro-fetch failed for a batch.', { error: this.sanitizeError(e) });
-            }
-          }
-          // Final verify and diagnostics
-          const afterCacheSet = new Set<string>();
-          for (let i = 0; i < rpcList.length; i += chunk) {
-            const part = rpcList.slice(i, i + chunk);
-            const cacheMap = await this.dbService.getCachedTransaction(part) as Map<string, { timestamp: number }>;
-            for (const sig of part) {
-              if (cacheMap.get(sig)) afterCacheSet.add(sig);
-            }
-          }
-          const stillMissingAfter = rpcList.filter(sig => !afterCacheSet.has(sig));
-          if (stillMissingAfter.length > 0) {
-            try {
-              const outDir = path.resolve(HELIUS_CONFIG.LEGIT_MISSING_OUTPUT_DIR || 'debug_output');
-              if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-              const ts = new Date().toISOString().replace(/[:.]/g, '-');
-              fs.writeFileSync(path.join(outDir, `reconcile-${address}-${ts}.json`), JSON.stringify({ address, missing: stillMissingAfter }, null, 2), 'utf-8');
-              logger.warn(`RECONCILE: Wrote diagnostics for ${stillMissingAfter.length} signatures still missing after reconciliation.`);
-            } catch {}
-          }
-        }
-      } catch (e) {
-        logger.warn('RECONCILE step encountered an error (continuing).', { error: this.sanitizeError(e) });
-      }
-    }
 
     const allTransactions = [...newlyFetchedTransactions];
     
@@ -1009,20 +669,6 @@ export class HeliusApiClient {
     // Sort the relevant transactions by timestamp (ascending - oldest first)
     relevantFiltered.sort((a, b) => a.timestamp - b.timestamp);
     logger.debug(`Sorted ${relevantFiltered.length} relevant transactions by timestamp.`);
-
-    // --- DEBUG TRACE: write trace file if any tracked ---
-    try {
-      if (HELIUS_CONFIG.DEBUG_TRACE_TO_FILE && Object.keys(trace).length > 0) {
-        const outDir = path.resolve(HELIUS_CONFIG.LEGIT_MISSING_OUTPUT_DIR || 'debug_output');
-        if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        const filePath = path.join(outDir, `trace-${address}-${ts}.json`);
-        fs.writeFileSync(filePath, JSON.stringify({ address, trace }, null, 2), 'utf-8');
-        logger.info(`Wrote trace diagnostics to ${filePath}`);
-      }
-    } catch (e) {
-      logger.warn('Failed to write trace diagnostics file.', { error: this.sanitizeError(e) });
-    }
 
     logger.debug(`Helius API client process finished. Returning ${relevantFiltered.length} relevant transactions.`);
     return relevantFiltered; // Return the filtered & sorted list of ALL filtered transactions

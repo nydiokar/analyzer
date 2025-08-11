@@ -28,6 +28,7 @@
     "test:queues": "npx ts-node src/queues/test-similarity-flow.ts",
     "test:integration": "npx ts-node -r tsconfig-paths/register src/queues/test-backend-integration.ts",
     "validate:deps": "npx ts-node -r tsconfig-paths/register scripts/validate-dependencies.ts",
+    "clear-wallet": "npx ts-node -r tsconfig-paths/register scripts/clear-wallet-data.ts",
     "clear-queues": "npx ts-node scripts/clear-all-queues.ts",
     "clear-locks": "npx ts-node scripts/clear-stale-locks.ts",
     "clean-cache": "npx ts-node scripts/clean-wallet-cache.ts",
