@@ -427,10 +427,21 @@ export class HeliusApiClient {
                 }
             }
 
-            // IMPORTANT: This condition stops PAGINATION, not processing of already fetched signatures.
-            // We will apply a hard limit AFTER this loop if maxSignatures is set.
-            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures && !stopAtSignature) {
-                logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, which meets or exceeds an intended conceptual target related to maxSignatures (${maxSignatures}). Stopping further RPC pagination.`);
+            // Pagination stop rules:
+            // - If fetching "older" with untilTimestamp, continue until boundary is covered
+            // - Otherwise, allow early stop once conceptual maxSignatures is reached
+            if (!stopAtSignature && untilTimestamp !== undefined) {
+                // Determine oldest blockTime we've seen so far (treat null/undefined as 0 = very old)
+                const oldestSoFar = allRpcSignaturesInfo.reduce((min, info) => {
+                  const t = (info.blockTime ?? 0);
+                  return t < min ? t : min;
+                }, Number.POSITIVE_INFINITY);
+                if (oldestSoFar !== Number.POSITIVE_INFINITY && oldestSoFar <= untilTimestamp) {
+                  logger.debug(`Reached untilTimestamp boundary during pagination (oldestSoFar=${oldestSoFar} <= ${untilTimestamp}).`);
+                  hasMoreSignatures = false;
+                }
+            } else if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures && !stopAtSignature) {
+                logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, meeting conceptual target related to maxSignatures (${maxSignatures}). Stopping pagination.`);
                 hasMoreSignatures = false;
             } else if (signatureInfos.length < rpcLimit) {
                 logger.debug('Last page of RPC signatures reached (received less than limit).');
@@ -456,12 +467,22 @@ export class HeliusApiClient {
        return []; // Return empty if signature fetching fails critically
     }
 
-    // --- Apply hard maxSignatures limit to the RPC results before detail fetching ---
-    if (maxSignatures !== null && allRpcSignaturesInfo.length > maxSignatures) {
-        logger.debug(`RPC fetch resulted in ${allRpcSignaturesInfo.length} signatures. Applying hard limit of ${maxSignatures}.`);
-        // Apply cap in RPC order (newest-first) to avoid blockTime nulls reordering
+    // --- Apply maxSignatures limit appropriately before detail fetching ---
+    if (maxSignatures !== null) {
+      if (untilTimestamp !== undefined) {
+        // Older-mode: keep only signatures whose blockTime <= untilTimestamp, newest-first within that set
+        const olderEligible = allRpcSignaturesInfo.filter(s => (s.blockTime ?? 0) <= untilTimestamp);
+        if (olderEligible.length > maxSignatures) {
+          allRpcSignaturesInfo = olderEligible.slice(0, maxSignatures);
+        } else {
+          allRpcSignaturesInfo = olderEligible;
+        }
+        logger.debug(`Applied older-aware cap: kept ${allRpcSignaturesInfo.length} signatures (<= untilTimestamp=${untilTimestamp}).`);
+      } else if (allRpcSignaturesInfo.length > maxSignatures) {
+        // Default: cap newest-first in RPC order
         allRpcSignaturesInfo = allRpcSignaturesInfo.slice(0, maxSignatures);
-        logger.debug(`Sliced RPC signatures to newest ${allRpcSignaturesInfo.length} based on maxSignatures limit (RPC order).`);
+        logger.debug(`Applied newest-first cap: kept ${allRpcSignaturesInfo.length} signatures.`);
+      }
     }
 
     const uniqueSignatures = Array.from(new Set(allRpcSignaturesInfo.map(s => s.signature)));
@@ -502,7 +523,7 @@ export class HeliusApiClient {
         const totalSignaturesToFetch = signaturesToFetchArray.length;
         let processedSignaturesCount = 0;
         let lastLoggedPercentage = 0;
-
+        let totalFetchedTxCount = 0;
 
         onProgress?.(0);
         
@@ -551,6 +572,7 @@ export class HeliusApiClient {
                         // Fallback: accumulate for existing callers
                         newlyFetchedTransactions.push(...txs);
                       }
+                      totalFetchedTxCount += txs.length;
                     }
                   }
                   // Failed promises are already handled by the catch within the push to `promises`
@@ -565,8 +587,8 @@ export class HeliusApiClient {
             // Only show progress for larger operations (more than 50 signatures)
             if (totalSignaturesToFetch > 50 && (currentPercentage >= lastLoggedPercentage + 25 || processedSignaturesCount >= totalSignaturesToFetch)) {
                  const displayPercentage = Math.min(100, Math.floor((processedSignaturesCount / totalSignaturesToFetch) * 100));
-                 // ✅ ENHANCED PROGRESS: Show signatures processed vs successful transactions
-                 process.stdout.write(`  Fetching details: Processed ~${displayPercentage}% of signatures (${processedSignaturesCount}/${totalSignaturesToFetch} sigs → ${newlyFetchedTransactions.length} successful txns)...\r`);
+                 // Progress: show processed signatures vs fetched transactions (stream-safe)
+                 process.stdout.write(`  Fetching details: Processed ~${displayPercentage}% of signatures (${processedSignaturesCount}/${totalSignaturesToFetch} sigs → ${totalFetchedTxCount} txns fetched)...\r`);
                  lastLoggedPercentage = currentPercentage;
             }
         } // End loop through chunks
@@ -577,7 +599,7 @@ export class HeliusApiClient {
             process.stdout.write('\n'); // Newline after final progress update only if we showed progress
         }
         logger.debug('Concurrent batch requests for Phase 2 finished.');
-        logger.debug(`Successfully fetched details for ${newlyFetchedTransactions.length} out of ${totalSignaturesToFetch} new transactions attempted in Phase 2.`);
+        logger.debug(`Successfully fetched details for ${onTransactionBatch ? totalFetchedTxCount : newlyFetchedTransactions.length} out of ${totalSignaturesToFetch} new transactions attempted in Phase 2.`);
 
         // --- Save newly fetched transactions to DB Cache --- 
         if (newlyFetchedTransactions.length > 0) {
