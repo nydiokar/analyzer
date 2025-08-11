@@ -43,7 +43,13 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
     const textColor = sign === 1 ? 'text-green-500' : sign === -1 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle';
     const arrowChar = sign === 1 ? '▲' : sign === -1 ? '▼' : '';
     const arrowElement = arrowChar ? <span className="text-xs mr-1 align-middle">{arrowChar}</span> : null;
-    return <span className={textColor}>{arrowElement}{value.toFixed(decimals)} {unit}</span>;
+    const formatted = Number(value.toFixed(decimals)).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    return <span className={textColor}>{arrowElement}{formatted} {unit}</span>;
+  };
+
+  const formatPlainNumber = (value: number | undefined | null, decimals: number = 2): string => {
+    if (value === undefined || value === null) return 'N/A';
+    return Number(value.toFixed(decimals)).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
   };
 
   const formatPercentage = (value: number | undefined | null) => {
@@ -91,7 +97,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
                 {data.profitableTokensCount !== null && data.profitableTokensCount !== undefined &&
                  data.unprofitableTokensCount !== null && data.unprofitableTokensCount !== undefined && (
                   <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-0.5">
-                    {data.profitableTokensCount}/{data.profitableTokensCount + data.unprofitableTokensCount} tokens
+                    {Number(data.profitableTokensCount).toLocaleString()}/{Number((data.profitableTokensCount || 0) + (data.unprofitableTokensCount || 0)).toLocaleString()} tokens
                   </Text>
                 )}
               </Flex>
@@ -108,15 +114,15 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
             <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
                 <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total Volume Traded</Text>
-                <Metric className="text-base text-blue-500">{data.totalVolume?.toFixed(2) ?? 'N/A'} SOL</Metric>
+                <Metric className="text-base text-blue-500">{formatPlainNumber(data.totalVolume, 2)} SOL</Metric>
               </Flex>
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
                 <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total SOL Spent</Text>
-                <Metric className="text-base text-blue-500">{data.totalSolSpent?.toFixed(2) ?? 'N/A'} SOL</Metric>
+                <Metric className="text-base text-blue-500">{formatPlainNumber(data.totalSolSpent, 2)} SOL</Metric>
               </Flex>
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
                 <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total SOL Received</Text>
-                <Metric className="text-base text-blue-500">{data.totalSolReceived?.toFixed(2) ?? 'N/A'} SOL</Metric>
+                <Metric className="text-base text-blue-500">{formatPlainNumber(data.totalSolReceived, 2)} SOL</Metric>
               </Flex>
             </Grid>
           </div>
@@ -187,7 +193,18 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
                 <Card className="p-2.5 text-left">
                   <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
                     Weighted Efficiency Score
-                    <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">A composite score reflecting PNL relative to volume, trade frequency, and consistency. (Details may vary by specific formula used)</p></TooltipContent></Tooltip></TooltipProvider>
+                    <TooltipProvider>
+                      <Tooltip delayDuration={0}>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p className="text-sm">
+                            Combines per-token profitability and win rate: WES = (Avg PnL per token) × (1 + Win Rate) × 10. Higher is better; negative means net loss on average.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </Text>
                   <Metric className="text-base">{formatMetric(data.weightedEfficiencyScore, '', 2)}</Metric>
                 </Card>

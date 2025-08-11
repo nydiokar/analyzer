@@ -64,6 +64,8 @@ async function main() {
   const analyzePnl = flagArgs.includes('--analyze-pnl');
   const topCountFlag = flagArgs.find(arg => arg.startsWith('--top-count='));
   const topCount = topCountFlag ? parseInt(topCountFlag.split('=')[1]) : 50;
+  const minTokenAmountFlag = flagArgs.find(arg => arg.startsWith('--min-token-amount='));
+  const minTokenAmount = minTokenAmountFlag ? parseInt(minTokenAmountFlag.split('=')[1]) : undefined;
 
   if (!process.env.HELIUS_API_KEY) {
     console.error('HELIUS_API_KEY environment variable is required');
@@ -107,7 +109,8 @@ async function main() {
           maxSignatures,
           batchSize: 100,
           addressType,
-          bondingCurveAddress
+          bondingCurveAddress,
+          minTokenAmount
         },
         topCount
       );

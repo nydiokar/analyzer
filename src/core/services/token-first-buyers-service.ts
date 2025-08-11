@@ -35,6 +35,8 @@ export interface TokenFirstBuyersOptions {
   maxSignatures?: number;
   /** Batch size for processing signatures */
   batchSize?: number;
+  /** Skip buyers with tokenAmount below this threshold (applies in top-trader analysis) */
+  minTokenAmount?: number;
   /** 
    * Address type to search for transactions:
    * - 'bonding-curve': Search bonding curve address (for pump.fun pre-migration buyers)
@@ -400,7 +402,8 @@ export class TokenFirstBuyersService {
   async getTopTradersFromFirstBuyers(
     mintAddress: string,
     options: TokenFirstBuyersOptions = {},
-    topCount: number = 50
+    topCount: number = 50,
+    precomputedFirstBuyers?: FirstBuyerResult[]
   ): Promise<{
     walletAddresses: string[];
     topTraders: TopTraderResult[];
@@ -418,8 +421,18 @@ export class TokenFirstBuyersService {
 
     logger.info(`Starting top traders analysis for token: ${mintAddress}`);
 
-    // Step 1: Get first buyers
-    const firstBuyers = await this.getFirstBuyers(mintAddress, options);
+    // Step 1: Get first buyers (reuse if provided to avoid duplicate work)
+    let firstBuyers = precomputedFirstBuyers && precomputedFirstBuyers.length > 0
+      ? precomputedFirstBuyers
+      : await this.getFirstBuyers(mintAddress, options);
+
+    // Optional: filter out small buyers to speed up subsequent analysis
+    if (options.minTokenAmount && options.minTokenAmount > 0) {
+      const beforeCount = firstBuyers.length;
+      firstBuyers = firstBuyers.filter(b => b.tokenAmount >= options.minTokenAmount!);
+      const afterCount = firstBuyers.length;
+      logger.info(`Filtered first buyers by minTokenAmount=${options.minTokenAmount}. Kept ${afterCount}/${beforeCount}.`);
+    }
     
     if (firstBuyers.length === 0) {
       logger.warn('No first buyers found, cannot analyze top traders');
@@ -489,10 +502,14 @@ export class TokenFirstBuyersService {
                 logger.debug(`✅ Saved ${transactionsSaved} transactions for ${walletAddress}, now analyzing PnL`);
                 
                 // Step 2: Now analyze PnL using the saved transaction data
+                // NOTE: We intentionally skip live balance fetching here to speed up bulk analysis.
+                // This yields realized PnL and volume from stored transactions only.
+                // Unrealized PnL for this specific mint will be added later as an optional step
+                // by fetching current mint balances for top wallets and combining with price data.
                 await this.pnlAnalysisService!.analyzeWalletPnl(
                   walletAddress,
                   undefined, // No time range - analyze all time
-                  { isViewOnly: false } // Save results to database
+                  { isViewOnly: false, skipBalanceFetch: true } // Save results to database, skip live balance fetch for speed
                 );
                 logger.debug(`✅ Completed PnL analysis for ${walletAddress}`);
               } else {
@@ -628,11 +645,11 @@ export class TokenFirstBuyersService {
     topTraders: TopTraderResult[];
     summary: any;
   }> {
-    // Get ALL first buyers for the TXT file
+    // Get ALL first buyers once for both TXT export and top-traders computation
     const allFirstBuyers = await this.getFirstBuyers(mintAddress, options);
     
     // Get top traders analysis
-    const result = await this.getTopTradersFromFirstBuyers(mintAddress, options, topCount);
+    const result = await this.getTopTradersFromFirstBuyers(mintAddress, options, topCount, allFirstBuyers);
     
     if (outputDir && allFirstBuyers.length > 0) {
       const fs = await import('fs');
@@ -664,8 +681,55 @@ export class TokenFirstBuyersService {
       const csvContent = csvHeader + csvRows;
       fs.writeFileSync(topTradersPath, csvContent, 'utf8');
       
+      // Save a human-friendly Markdown report
+      const mdPath = path.join(outputDir, `top_traders_${mintAddress}${addressTypeSuffix}_${timestamp}.md`);
+      const fmt = (n: number, maxFrac: number = 3): string => {
+        if (!Number.isFinite(n)) return '0';
+        return n.toLocaleString('en-US', { maximumFractionDigits: maxFrac });
+      };
+      const fmtInt = (n: number): string => {
+        if (!Number.isFinite(n)) return '0';
+        return Math.round(n).toLocaleString('en-US');
+      };
+      const fmtDate = (ts: number): string => new Date(ts * 1000).toISOString().replace('T', ' ').replace('Z', ' UTC');
+
+      const winners = [...result.topTraders].sort((a, b) => b.netPnl - a.netPnl).slice(0, Math.min(20, result.topTraders.length));
+      const losers = [...result.topTraders].sort((a, b) => a.netPnl - b.netPnl).slice(0, Math.min(20, result.topTraders.length));
+      const outliers = [...result.topTraders]
+        .sort((a, b) => Math.abs(b.netPnl) - Math.abs(a.netPnl))
+        .slice(0, Math.min(5, result.topTraders.length));
+
+      const table = (rows: typeof winners) => {
+        const header = '| Rank | Wallet | First Buy (UTC) | Tokens | Realized PnL (SOL) | Volume (SOL) |\n|---:|---|---:|---:|---:|---:|';
+        const body = rows.map(t => `| ${t.rank} | ${t.walletAddress} | ${fmtDate(t.firstBuyTimestamp)} | ${fmtInt(t.tokenAmount)} | ${fmt(t.realizedPnl, 3)} | ${fmt(t.totalVolume, 2)} |`).join('\n');
+        return `${header}\n${body}`;
+      };
+
+      const md = [
+        `## Top Traders Report for ${mintAddress}${addressTypeSuffix}`,
+        '',
+        `- Generated: ${new Date().toISOString()}`,
+        `- Total analyzed: ${result.summary.totalAnalyzed}`,
+        `- Successful analyses: ${result.summary.successfulAnalyses}`,
+        `- Failed analyses: ${result.summary.failedAnalyses}`,
+        `- Average PnL (SOL): ${fmt(result.summary.averagePnl, 3)}`,
+        `- Total Volume (SOL): ${fmt(result.summary.totalVolume, 2)}`,
+        '',
+        '### Top Winners (by realized/net PnL) — Top 20',
+        table(winners),
+        '',
+        '### Top Losers (by realized/net PnL) — Top 20',
+        table(losers),
+        '',
+        '### Outliers (largest |PnL|)',
+        table(outliers),
+      ].join('\n');
+
+      fs.writeFileSync(mdPath, md, 'utf8');
+      
       logger.info(`All ${allFirstBuyers.length} first buyer wallet addresses saved to: ${walletListPath}`);
       logger.info(`Top ${result.topTraders.length} traders analysis saved to CSV: ${topTradersPath}`);
+      logger.info(`Human-friendly Markdown report saved to: ${mdPath}`);
     }
 
     return result;
