@@ -95,16 +95,28 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
   useEffect(() => {
     // Use the backend URL directly - no proxy needed
-    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://sova-intel.duckdns.org';
-    const forceNewSocket = (process.env.NEXT_PUBLIC_SOCKET_FORCE_NEW === 'false');
+    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'https://sova-intel.duckdns.org';
+    const forceNewSocket = (process.env.NEXT_PUBLIC_SOCKET_FORCE_NEW === 'true');
+
+    const transportsEnv = (process.env.NEXT_PUBLIC_SOCKET_TRANSPORTS || 'polling,websocket') as string;
+    const transports = transportsEnv
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t === 'polling' || t === 'websocket');
+    const upgrade = process.env.NEXT_PUBLIC_SOCKET_UPGRADE !== 'false';
+    const includeNonce = process.env.NEXT_PUBLIC_SOCKET_NONCE === 'true';
+    const query = includeNonce ? { nonce: Date.now().toString(36) } : undefined;
+
     const newSocket = io(`${baseUrl}`, {
       autoConnect: true,
       path: "/socket.io/",
-      transports: ['websocket', 'polling'], // Try both WebSocket and polling
+      transports,
+      upgrade,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       timeout: 20000, // 20 second timeout
       forceNew: forceNewSocket, // Allow forcing a fresh Manager via env flag when debugging sticky sessions
+      query,
     });
 
     const handleConnect = () => {
