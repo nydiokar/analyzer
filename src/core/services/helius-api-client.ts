@@ -427,20 +427,9 @@ export class HeliusApiClient {
                 }
             }
 
-            // Pagination stop rules:
-            // - If fetching "older" with untilTimestamp, continue until boundary is covered
-            // - Otherwise, allow early stop once conceptual maxSignatures is reached
-            if (!stopAtSignature && untilTimestamp !== undefined) {
-                // Determine oldest blockTime we've seen so far (treat null/undefined as 0 = very old)
-                const oldestSoFar = allRpcSignaturesInfo.reduce((min, info) => {
-                  const t = (info.blockTime ?? 0);
-                  return t < min ? t : min;
-                }, Number.POSITIVE_INFINITY);
-                if (oldestSoFar !== Number.POSITIVE_INFINITY && oldestSoFar <= untilTimestamp) {
-                  logger.debug(`Reached untilTimestamp boundary during pagination (oldestSoFar=${oldestSoFar} <= ${untilTimestamp}).`);
-                  hasMoreSignatures = false;
-                }
-            } else if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures && !stopAtSignature) {
+            // IMPORTANT: This condition stops PAGINATION, not processing of already fetched signatures.
+            // We will apply a hard limit AFTER this loop if maxSignatures is set.
+            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures && !stopAtSignature) {
                 logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, meeting conceptual target related to maxSignatures (${maxSignatures}). Stopping pagination.`);
                 hasMoreSignatures = false;
             } else if (signatureInfos.length < rpcLimit) {
@@ -467,22 +456,12 @@ export class HeliusApiClient {
        return []; // Return empty if signature fetching fails critically
     }
 
-    // --- Apply maxSignatures limit appropriately before detail fetching ---
-    if (maxSignatures !== null) {
-      if (untilTimestamp !== undefined) {
-        // Older-mode: keep only signatures whose blockTime <= untilTimestamp, newest-first within that set
-        const olderEligible = allRpcSignaturesInfo.filter(s => (s.blockTime ?? 0) <= untilTimestamp);
-        if (olderEligible.length > maxSignatures) {
-          allRpcSignaturesInfo = olderEligible.slice(0, maxSignatures);
-        } else {
-          allRpcSignaturesInfo = olderEligible;
-        }
-        logger.debug(`Applied older-aware cap: kept ${allRpcSignaturesInfo.length} signatures (<= untilTimestamp=${untilTimestamp}).`);
-      } else if (allRpcSignaturesInfo.length > maxSignatures) {
-        // Default: cap newest-first in RPC order
+    // --- Apply hard maxSignatures limit to the RPC results before detail fetching ---
+    if (maxSignatures !== null && allRpcSignaturesInfo.length > maxSignatures) {
+        logger.debug(`RPC fetch resulted in ${allRpcSignaturesInfo.length} signatures. Applying hard limit of ${maxSignatures}.`);
+        // Apply cap in RPC order (newest-first) to avoid blockTime nulls reordering
         allRpcSignaturesInfo = allRpcSignaturesInfo.slice(0, maxSignatures);
-        logger.debug(`Applied newest-first cap: kept ${allRpcSignaturesInfo.length} signatures.`);
-      }
+        logger.debug(`Sliced RPC signatures to newest ${allRpcSignaturesInfo.length} based on maxSignatures limit (RPC order).`);
     }
 
     const uniqueSignatures = Array.from(new Set(allRpcSignaturesInfo.map(s => s.signature)));
