@@ -176,39 +176,38 @@ export class RedisLockService {
     try {
       this.logger.log('Starting orphaned lock cleanup on startup...');
       let cleanedCount = 0;
+      let scannedCount = 0;
 
-      // Get all lock keys
-      const lockKeys = await this.redis.keys('lock:*');
-      
-      if (lockKeys.length === 0) {
-        this.logger.log('No locks found - startup cleanup complete');
-        return 0;
-      }
+      // Iteratively SCAN for keys to avoid blocking Redis with KEYS
+      let cursor = '0';
+      const pattern = 'lock:*';
+      const countPerScan = 1000;
 
-      this.logger.log(`Found ${lockKeys.length} locks to check for orphans`);
+      do {
+        const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', countPerScan);
+        cursor = nextCursor;
+        scannedCount += keys.length;
 
-      // For each lock, check if it has a corresponding active job
-      for (const lockKey of lockKeys) {
-        try {
-          const lockValue = await this.redis.get(lockKey);
-          if (!lockValue) continue; // Lock already expired
+        for (const lockKey of keys) {
+          try {
+            const lockValue = await this.redis.get(lockKey);
+            if (!lockValue) continue; // Lock already expired
 
-          // lockValue should be a job ID - check if this job exists and is active
-          const isOrphaned = await this.isLockOrphaned(lockKey, lockValue);
-          
-          if (isOrphaned) {
-            const released = await this.forceReleaseLock(lockKey);
-            if (released) {
-              cleanedCount++;
-              this.logger.warn(`🧹 Cleaned orphaned lock: ${truncate(lockKey)} (job: ${truncate(lockValue)})`);
+            const isOrphaned = await this.isLockOrphaned(lockKey, lockValue);
+            if (isOrphaned) {
+              const released = await this.forceReleaseLock(lockKey);
+              if (released) {
+                cleanedCount++;
+                this.logger.warn(`🧹 Cleaned orphaned lock: ${truncate(lockKey)} (job: ${truncate(lockValue)})`);
+              }
             }
+          } catch (error) {
+            this.logger.warn(`Error checking lock ${truncate(lockKey)}:`, error);
           }
-        } catch (error) {
-          this.logger.warn(`Error checking lock ${truncate(lockKey)}:`, error);
         }
-      }
+      } while (cursor !== '0');
 
-      this.logger.log(`Startup orphaned lock cleanup completed. Cleaned ${cleanedCount} orphaned locks out of ${lockKeys.length} total locks`);
+      this.logger.log(`Startup orphaned lock cleanup completed. Cleaned ${cleanedCount} orphaned locks (scanned ${scannedCount} keys matching ${pattern})`);
       return cleanedCount;
     } catch (error) {
       this.logger.error('Error during startup orphaned lock cleanup:', error);

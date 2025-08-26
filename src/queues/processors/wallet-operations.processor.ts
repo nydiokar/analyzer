@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { SyncWalletJobData, FetchBalanceJobData, WalletSyncResult } from '../jobs/types';
@@ -12,7 +12,7 @@ import { JobEventsBridgeService } from '../services/job-events-bridge.service';
 import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
 
 @Injectable()
-export class WalletOperationsProcessor {
+export class WalletOperationsProcessor implements OnModuleDestroy {
   private readonly logger = new Logger(WalletOperationsProcessor.name);
   private readonly worker: Worker;
 
@@ -219,5 +219,13 @@ export class WalletOperationsProcessor {
   async shutdown(): Promise<void> {
     this.logger.debug('Shutting down WalletOperationsProcessor worker...');
     await this.worker.close();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    try {
+      await this.shutdown();
+    } catch (err) {
+      this.logger.warn('Error shutting down WalletOperationsProcessor worker', err as Error);
+    }
   }
 } 
