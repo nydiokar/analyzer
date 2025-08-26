@@ -57,9 +57,16 @@ export const CLUSTERING_CONFIG = {
   MAX_DAILY_TOKENS_FOR_FILTER: 50 // From activityCorrelator.ts for bot filtering
 } as const;
 
+const getEnvNumber = (key: string, fallback: number): number => {
+  const raw = process.env[key];
+  if (raw === undefined) return fallback;
+  const num = Number(raw);
+  return Number.isFinite(num) && num >= 0 ? num : fallback;
+};
+
 export const ANALYSIS_EXECUTION_CONFIG = {
-  SIMILARITY_LAB_MAX_SIGNATURES: 500,
-  DASHBOARD_MAX_SIGNATURES: 50001,
+  SIMILARITY_LAB_MAX_SIGNATURES: getEnvNumber('SIMILARITY_LAB_MAX_SIGNATURES', 500),
+  DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 5001),
 } as const;
 
 // Database configuration
@@ -92,16 +99,16 @@ export const HELIUS_CONFIG = {
 
 // Queue and processing configuration
 export const PROCESSING_CONFIG = {
-  WALLET_SYNC_CONCURRENCY: 3, // Number of wallets that can sync simultaneously
-  BATCH_PROCESSING_TIMEOUT_MS: 30 * 60 * 1000, // 30 minutes
-  FAILURE_THRESHOLD: 0.8, // 80% success rate required
-  RETRY_ATTEMPTS: 1,
-  RETRY_DELAY_MS: 2000
+  WALLET_SYNC_CONCURRENCY: getEnvNumber('WALLET_SYNC_CONCURRENCY', 3),
+  BATCH_PROCESSING_TIMEOUT_MS: getEnvNumber('BATCH_PROCESSING_TIMEOUT_MS', 30 * 60 * 1000),
+  FAILURE_THRESHOLD: Number.isFinite(Number(process.env.FAILURE_THRESHOLD)) ? Math.min(Math.max(Number(process.env.FAILURE_THRESHOLD), 0), 1) : 0.8,
+  RETRY_ATTEMPTS: getEnvNumber('RETRY_ATTEMPTS', 1),
+  RETRY_DELAY_MS: getEnvNumber('RETRY_DELAY_MS', 2000)
 } as const;
 
 // Dashboard Job System Configuration
 export const DASHBOARD_JOB_CONFIG = {
-  DEFAULT_TIMEOUT_MINUTES: 15,
+  DEFAULT_TIMEOUT_MINUTES: getEnvNumber('DASHBOARD_JOB_DEFAULT_TIMEOUT_MINUTES', 15),
 } as const;
 
 // Enhanced metadata fetching configuration

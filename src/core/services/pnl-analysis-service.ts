@@ -13,6 +13,17 @@ import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 
 const logger = createLogger('PnlAnalysisService');
 
+// Domain error for PnL analysis failures to ensure callers can distinguish
+// analysis errors from "no data" cases without relying on nulls.
+export class PnlAnalysisError extends Error {
+    public readonly causeError?: unknown;
+    constructor(message: string, causeError?: unknown) {
+        super(message);
+        this.name = 'PnlAnalysisError';
+        this.causeError = causeError;
+    }
+}
+
 /**
  * Service responsible for performing Profit and Loss (P&L) analysis for wallets.
  * It coordinates fetching transaction data, running swap analysis, calculating advanced statistics,
@@ -525,14 +536,15 @@ export class PnlAnalysisService {
         } catch (error: any) {
             logger.error(`[PnlAnalysis] Critical error during PNL analysis for ${walletAddress}:`, { error });
             analysisRunStatus = 'FAILED';
-            analysisRunErrorMessage = error.message || String(error);
+            analysisRunErrorMessage = error?.message || String(error);
             if (runId) {
                 await prisma.analysisRun.update({
                     where: { id: runId },
                     data: { status: analysisRunStatus, errorMessage: analysisRunErrorMessage, durationMs: Date.now() - startTimeMs },
                 }).catch(err => logger.error(`[PnlAnalysis] FAILED to update AnalysisRun ${runId} to FAILED status:`, err));
             }
-            return null;
+            // Propagate a typed error instead of returning null, to avoid silent failures.
+            throw new PnlAnalysisError(analysisRunErrorMessage ?? 'PNL analysis failed', error);
         } finally {
             if (runId && (analysisRunStatus === 'IN_PROGRESS' || (analysisRunStatus !== 'COMPLETED' && analysisRunStatus !== 'FAILED'))) {
                  await prisma.analysisRun.update({
