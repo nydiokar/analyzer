@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, SearchIcon, FlaskConical } from 'lucide-react';
 import {
@@ -20,7 +22,6 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
-
   return (
     <aside 
       className={`h-screen p-3 border-r bg-gray-50 dark:bg-gray-800 flex flex-col transition-all duration-300 ease-in-out ${isCollapsed ? 'w-18' : 'w-56'}`}

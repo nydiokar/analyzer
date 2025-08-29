@@ -1,17 +1,25 @@
 import { useApiKeyStore } from '@/store/api-key-store';
+import { useAuthStore } from '@/store/auth-store';
 
 export const fetcher = async (url: string, options?: RequestInit) => {
-    // Get the key directly from the Zustand store's state
-    const apiKey = useApiKeyStore.getState().apiKey;
+    // Try modern auth store first, then fallback to legacy API key store
+    const authState = useAuthStore.getState();
+    const apiKeyState = useApiKeyStore.getState();
     
     const baseHeaders: HeadersInit = {
         'Content-Type': 'application/json',
     };
 
-    if (apiKey) {
-        baseHeaders['X-API-Key'] = apiKey;
+    // Priority: JWT token > API key from auth store > legacy API key
+    if (authState.token && !authState.isUsingApiKey) {
+        baseHeaders['Authorization'] = `Bearer ${authState.token}`;
+    } else if (authState.apiKey && authState.isUsingApiKey) {
+        baseHeaders['X-API-Key'] = authState.apiKey;
+    } else if (apiKeyState.apiKey) {
+        // Legacy fallback
+        baseHeaders['X-API-Key'] = apiKeyState.apiKey;
     }
-    // No warning if key is missing, as the backend will handle unauthorized requests.
+    // No warning if auth is missing, as the backend will handle unauthorized requests.
 
     // Merge base headers with any headers provided in the specific fetch call
     const mergedHeaders = {

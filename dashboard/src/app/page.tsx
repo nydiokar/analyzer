@@ -1,42 +1,83 @@
 'use client';
 
-// import type { Metadata } from 'next'; // Metadata type can be removed if not used elsewhere in this file
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { SearchIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, ChevronRightIcon, CheckIcon, SettingsIcon } from 'lucide-react';
+import { SearchIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, ChevronRightIcon, CheckIcon, SettingsIcon, LogIn } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
+import { AuthModal } from '@/components/auth/AuthModal';
+import { UserMenu } from '@/components/auth/UserMenu';
 import { useApiKeyStore } from '@/store/api-key-store';
 import Image from 'next/image';
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useState } from 'react';
 // It's better to import WalletSearch if it can be made context-agnostic
 // For now, we'll create a simple search input placeholder
 // import { WalletSearch } from \'@/components/sidebar/WalletSearch\';
 
-function StatusIndicator({ isDemo }: { isDemo: boolean }) {
-  const tooltipContent = isDemo 
-    ? "Using demo mode. Click to change key for unrestricted analysis." 
-    : "Using your key for unrestricted analysis.";
+function AuthHeader({ onShowAuthModal }: { onShowAuthModal?: () => void }) {
+  const { isAuthenticated, isDemoMode } = useAuth();
+  const { isInitialized: legacyInitialized, apiKey: legacyApiKey, isDemo: legacyIsDemo } = useApiKeyStore();
 
+  // Determine the current authentication state
+  const hasAuth = isAuthenticated || (legacyInitialized && legacyApiKey);
+  const currentIsDemo = isDemoMode || legacyIsDemo;
+
+  if (hasAuth) {
+    if (isAuthenticated) {
+      // JWT authenticated user
+      return <UserMenu className="ml-auto" />;
+    } else {
+      // Legacy API key mode - show status indicator
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link href="/settings" className="flex items-center gap-3 group">
+                <div className="text-right">
+                  <p className="text-sm font-medium text-slate-200">{currentIsDemo ? 'Demo Mode' : 'Full Access'}</p>
+                  <p className="text-xs text-slate-400 group-hover:text-blue-400 transition-colors"></p>
+                </div>
+                <SettingsIcon className={`h-5 w-5 transition-all duration-300 group-hover:rotate-90 ${currentIsDemo ? 'text-blue-400' : 'text-green-400'}`} />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{currentIsDemo 
+                ? "Using demo mode. Click to change key for unrestricted analysis." 
+                : "Using your key for unrestricted analysis."}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+  }
+
+  // No authentication - show sign in/up buttons
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Link href="/settings" className="flex items-center gap-3 group">
-            <div className="text-right">
-              <p className="text-sm font-medium text-slate-200">{isDemo ? 'Demo Mode' : 'Full Access'}</p>
-              <p className="text-xs text-slate-400 group-hover:text-blue-400 transition-colors"></p>
-            </div>
-            <SettingsIcon className={`h-5 w-5 transition-all duration-300 group-hover:rotate-90 ${isDemo ? 'text-blue-400' : 'text-green-400'}`} />
-          </Link>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{tooltipContent}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
+    <div className="flex items-center gap-2">
+      <Button 
+        onClick={onShowAuthModal}
+        variant="ghost" 
+        size="sm"
+        className="text-slate-200 hover:text-white hover:bg-slate-700"
+      >
+        Sign In
+      </Button>
+      <Button 
+        onClick={() => {
+          if (onShowAuthModal) {
+            onShowAuthModal();
+          }
+        }}
+        size="sm"
+        className="bg-green-600 hover:bg-green-700 text-white"
+      >
+        Sign Up
+      </Button>
+    </div>
+  );
 }
 
 // These wallets are for demonstration purposes and can be accessed without an API key.
@@ -50,7 +91,9 @@ const DEMO_WALLETS = [
 
 export default function Home() {
   const router = useRouter();
-  const { apiKey, isInitialized, isDemo, setDemoMode } = useApiKeyStore();
+  const { isAuthenticated, isDemoMode, setDemoMode: setJwtDemoMode } = useAuth();
+  const { apiKey, isInitialized: legacyInitialized, isDemo: legacyIsDemo, setDemoMode: setLegacyDemoMode } = useApiKeyStore();
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   const handleSearch = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -64,10 +107,18 @@ export default function Home() {
   };
 
   const useDemoKey = async () => {
-    await setDemoMode();
+    // Try JWT demo mode first, fallback to legacy if needed
+    try {
+      await setJwtDemoMode();
+    } catch {
+      await setLegacyDemoMode();
+    }
   };
 
-  const showSearch = isInitialized && apiKey && !isDemo;
+  // Determine combined authentication state
+  const hasAuth = isAuthenticated || (legacyInitialized && apiKey);
+  const currentIsDemo = isDemoMode || legacyIsDemo;
+  const showSearch = hasAuth && !currentIsDemo;
 
   return (
     <div className="w-full min-h-full text-white animated-gradient">
@@ -75,7 +126,7 @@ export default function Home() {
       <link rel="preload" href="/preview/dashboard-preview.png" as="image" type="image/png" />
       
       <header className="container mx-auto max-w-5xl h-16 flex justify-end items-center px-4 sm:px-6 lg:px-8">
-          {isInitialized && apiKey && <StatusIndicator isDemo={isDemo} />}
+        <AuthHeader onShowAuthModal={() => setShowAuthModal(true)} />
       </header>
 
       <main className="container mx-auto max-w-5xl text-center flex flex-col h-full px-4 sm:px-6 lg:px-8 pb-12 sm:pb-16">
@@ -90,13 +141,13 @@ export default function Home() {
             Institutional-grade tools to analyze any Solana wallet. Track PNL, uncover patterns, and get historical insights.
           </p>
 
-          {isInitialized && !apiKey && (
+          {!hasAuth && (
             <div className="flex flex-col sm:flex-row justify-center gap-4 mt-8">
               <Button onClick={useDemoKey} size="lg" className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
                 Try Demo Mode
               </Button>
               <Button asChild variant="outline" size="lg" className="w-full sm:w-auto border-slate-600 hover:border-slate-400">
-                <Link href="/settings">Use Key</Link>
+                <Link href="/settings">Use API Key</Link>
               </Button>
             </div>
           )}
@@ -178,15 +229,16 @@ export default function Home() {
                   <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Full PNL and ROI Analysis</span></li>
                   <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Behavioral Pattern Recognition</span></li>
                 </ul>
-                <Button onClick={async () => await setDemoMode()} variant="secondary" className="w-full mt-8">
+                <Button onClick={useDemoKey} variant="secondary" className="w-full mt-8">
                   Start Demo
                 </Button>
               </div>
+
               {/* Full Access Card */}
               <div className="p-6 bg-slate-800 rounded-lg shadow-lg border-2 border-purple-500 relative">
-                 <div className="absolute top-0 right-4 -mt-3">
-                    <Badge className="bg-purple-600 text-purple-100 text-xs border-purple-500">Full Power</Badge>
-                  </div>
+                <div className="absolute top-0 right-4 -mt-3">
+                  <Badge className="bg-purple-600 text-purple-100 text-xs border-purple-500">Full Power</Badge>
+                </div>
                 <h3 className="text-xl font-semibold text-purple-400 mb-4">Full Access</h3>
                 <p className="text-sm text-slate-400 mb-6">Unlock unlimited analysis on any Solana wallet.</p>
                 <ul className="space-y-3">
@@ -196,7 +248,7 @@ export default function Home() {
                   <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Priority Access to New Features</span></li>
                 </ul>
                 <Button asChild variant="default" className="w-full mt-8 bg-purple-600 hover:bg-purple-700">
-                  <Link href="/settings">Use Your Key</Link>
+                  <Link href="/settings">Use Your API Key</Link>
                 </Button>
               </div>
             </div>
@@ -232,6 +284,15 @@ export default function Home() {
           </p>
         </footer>
       </main>
+      
+      {/* Auth Modal */}
+      <AuthModal 
+        open={showAuthModal} 
+        onOpenChange={setShowAuthModal}
+        onSuccess={() => {
+          setShowAuthModal(false);
+        }}
+      />
     </div>
   );
 }

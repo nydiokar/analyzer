@@ -209,4 +209,77 @@ export class AuthController {
     this.logger.log('User logged out');
     return { message: 'Logout successful' };
   }
+
+  @Post('request-verification')
+  @UseGuards(CompositeAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Request email verification' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Verification email requested successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        token: { type: 'string', description: 'Verification token (for demo purposes - would be sent via email in production)' },
+      }
+    }
+  })
+  @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Email already verified' })
+  async requestEmailVerification(@Req() req: AuthenticatedRequest): Promise<{ message: string; token: string }> {
+    try {
+      const user = req.user!;
+      const result = await this.authService.requestEmailVerification(user.id);
+      
+      this.logger.log(`Email verification requested for user: ${user.id}`);
+      return { 
+        message: 'Verification email sent successfully. Please check your email and use the token below for demo purposes.', 
+        token: result.token 
+      };
+    } catch (error) {
+      this.logger.error(`Email verification request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
+    }
+  }
+
+  @Post('verify-email')
+  @UseGuards(CompositeAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify email with token' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        token: { type: 'string', description: 'Email verification token' }
+      },
+      required: ['token']
+    }
+  })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Email verified successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        message: { type: 'string' },
+      }
+    }
+  })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Invalid verification token' })
+  async verifyEmail(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { token: string }
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const user = req.user!;
+      const result = await this.authService.verifyEmail(user.id, body.token);
+      
+      this.logger.log(`Email verified for user: ${user.id}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Email verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
+    }
+  }
 }

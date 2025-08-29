@@ -1,7 +1,8 @@
-import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { JwtDatabaseService } from './jwt-database.service';
 
 export interface RegisterDto {
@@ -196,5 +197,79 @@ export class AuthService {
       result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return result;
+  }
+
+  /**
+   * Generate email verification token
+   */
+  generateVerificationToken(): string {
+    return crypto.randomBytes(32).toString('hex');
+  }
+
+  /**
+   * Request email verification (resend verification email)
+   */
+  async requestEmailVerification(userId: string): Promise<{ token: string }> {
+    const user = await this.databaseService.findUserById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.emailVerified) {
+      throw new ConflictException('Email is already verified');
+    }
+
+    const verificationToken = this.generateVerificationToken();
+    
+    // Note: In a real application, you would:
+    // 1. Store this token in database with expiration (e.g., 24 hours)
+    // 2. Send an email to the user with a verification link
+    // 3. The link would contain this token and point to /auth/verify-email?token=TOKEN
+    
+    this.logger.log(`Email verification requested for user: ${userId}`);
+    
+    // For now, we return the token (in production, this would be sent via email)
+    return { token: verificationToken };
+  }
+
+  /**
+   * Verify email with token
+   * Note: This is a simplified implementation. In production, you should:
+   * 1. Store tokens in database with expiration
+   * 2. Validate token against stored values
+   * 3. Mark tokens as used after verification
+   */
+  async verifyEmail(userId: string, token: string): Promise<{ success: boolean; message: string }> {
+    // Simple validation - in production, validate against stored tokens
+    if (!token || token.length < 10) {
+      throw new UnauthorizedException('Invalid verification token');
+    }
+
+    const user = await this.databaseService.findUserById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.emailVerified) {
+      return { success: true, message: 'Email is already verified' };
+    }
+
+    // Update user email verification status
+    await this.databaseService.updateUserEmailVerification(userId, true);
+    
+    this.logger.log(`Email verified for user: ${userId}`);
+    
+    return { success: true, message: 'Email verified successfully' };
+  }
+
+  /**
+   * Check if user email is verified
+   */
+  async isEmailVerified(userId: string): Promise<boolean> {
+    const user = await this.databaseService.findUserById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return user.emailVerified;
   }
 }

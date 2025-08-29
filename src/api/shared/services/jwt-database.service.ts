@@ -64,6 +64,24 @@ export class JwtDatabaseService {
     });
   }
 
+  async findUserById(userId: string): Promise<User | null> {
+    try {
+      return await (this.databaseService as any).prismaClient.user.findUnique({
+        where: { id: userId },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to find user by ID: ${userId}`, error);
+      return null;
+    }
+  }
+
+  async updateUserEmailVerification(userId: string, emailVerified: boolean): Promise<void> {
+    await (this.databaseService as any).prismaClient.user.update({
+      where: { id: userId },
+      data: { emailVerified },
+    });
+  }
+
   // Delegate API key validation to the existing service
   async validateApiKey(apiKey: string): Promise<User | null> {
     return await this.databaseService.validateApiKey(apiKey);
