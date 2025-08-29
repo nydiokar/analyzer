@@ -258,6 +258,12 @@ model User {
   lastSeenAt      DateTime?
   isActive        Boolean              @default(true)
   
+  // New JWT authentication fields
+  email           String?              @unique // Email for JWT authentication
+  passwordHash    String?              // Bcrypt hashed password
+  emailVerified   Boolean              @default(false)
+  lastLoginAt     DateTime?            // Track last login for JWT sessions
+  
   // Relations
   activityLogs    ActivityLog[]
   favoriteWallets UserFavoriteWallet[] // Added for User-FavoriteWallets relationship
