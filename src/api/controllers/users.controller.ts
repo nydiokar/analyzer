@@ -1,5 +1,6 @@
-import { Controller, Get, Req, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Req, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { User } from '@prisma/client';
 import { UserProfileDto } from '../shared/dto/user-profile.dto';
 
@@ -14,6 +15,8 @@ export class UsersController {
   constructor() {}
 
   @Get('me')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60000 } }) // 30 requests per minute for profile access
   @ApiOperation({ summary: "Get the authenticated user's profile" })
   @ApiResponse({ status: HttpStatus.OK, description: 'User profile retrieved successfully.', type: UserProfileDto })
   @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized.' })

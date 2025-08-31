@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ApiModule } from './api.module';
 import { ConfigModule } from '@nestjs/config'; // For .env variable support
 import { HeliusModule } from './api/integrations/helius.module'; // Import the global HeliusModule
@@ -12,6 +13,7 @@ import { CompositeAuthGuard } from './api/shared/guards/composite-auth.guard';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{
       ttl: 60000, // 1 minute in milliseconds
       limit: 100, // 100 requests per minute

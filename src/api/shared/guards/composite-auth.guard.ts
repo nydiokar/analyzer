@@ -2,6 +2,7 @@ import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, Forbi
 import { Request } from 'express';
 import { JwtDatabaseService } from '../services/jwt-database.service';
 import { AuthService } from '../services/auth.service';
+import { SecurityLoggerService } from '../services/security-logger.service';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
@@ -16,8 +17,10 @@ interface AuthenticatedRequest extends Request {
 export class CompositeAuthGuard implements CanActivate {
   private readonly logger = new Logger(CompositeAuthGuard.name);
   private readonly demoWallets: string[];
-  private readonly apiKeyCache = new Map<string, User>();
-  private readonly jwtCache = new Map<string, User>();
+  private readonly apiKeyCache = new Map<string, {user: User, expiresAt: number}>();
+  private readonly jwtCache = new Map<string, {user: User, expiresAt: number}>();
+  private readonly JWT_CACHE_TTL = 15 * 60 * 1000; // 15 minutes in milliseconds
+  private readonly API_KEY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
 
   constructor(
     private readonly databaseService: JwtDatabaseService,
@@ -25,6 +28,7 @@ export class CompositeAuthGuard implements CanActivate {
     private readonly jwtService: JwtService,
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
+    // Security logging will be handled at controller level to avoid circular dependencies
   ) {
     const demoWalletsFromEnv = this.configService.get<string>('DEMO_WALLETS');
     this.demoWallets = demoWalletsFromEnv ? demoWalletsFromEnv.split(',').map(w => w.trim()) : [];
@@ -53,10 +57,12 @@ export class CompositeAuthGuard implements CanActivate {
         if (user) {
           request.user = user;
           this.checkDemoPermissions(request, user);
+          // Security logging handled at controller level
           this.logger.debug(`User ${user.id} authenticated via JWT`);
           return true;
         }
       } catch (error) {
+        // Security logging handled at controller level
         this.logger.warn(`JWT authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         // Continue to API key fallback
       }
@@ -70,15 +76,18 @@ export class CompositeAuthGuard implements CanActivate {
         if (user) {
           request.user = user;
           this.checkDemoPermissions(request, user);
+          // Security logging handled at controller level
           this.logger.debug(`User ${user.id} authenticated via API key`);
           return true;
         }
       } catch (error) {
+        // Security logging handled at controller level
         this.logger.warn(`API key authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
     // No valid authentication method found
+    // Security logging handled at controller level
     this.logger.warn('No valid authentication provided');
     throw new UnauthorizedException('Authentication required. Provide either a Bearer token or X-API-Key header.');
   }
@@ -86,8 +95,20 @@ export class CompositeAuthGuard implements CanActivate {
   private async validateJwtToken(token: string): Promise<User | null> {
     try {
       // Check cache first
-      if (this.jwtCache.has(token)) {
-        return this.jwtCache.get(token)!;
+      const cached = this.jwtCache.get(token);
+      if (cached && cached.expiresAt > Date.now()) {
+        // Even with cache hit, always validate user is still active
+        const freshUser = await this.databaseService.findActiveUserById(cached.user.id);
+        if (freshUser && freshUser.isActive) {
+          // Update last seen
+          await this.authService.updateLastSeen(freshUser.id);
+          this.logger.debug(`JWT cache hit for user: ${freshUser.id}`);
+          return freshUser;
+        } else {
+          // User is no longer active, remove from cache
+          this.jwtCache.delete(token);
+          this.logger.warn(`Cached user is no longer active, removed from cache: ${cached.user.id}`);
+        }
       }
 
       // Verify JWT token
@@ -108,11 +129,20 @@ export class CompositeAuthGuard implements CanActivate {
       // Update last seen
       await this.authService.updateLastSeen(user.id);
 
-      // Cache the result (with a reasonable TTL - we'll clean this periodically)
-      this.jwtCache.set(token, user);
+      // Cache the result with TTL
+      this.jwtCache.set(token, {
+        user,
+        expiresAt: Date.now() + this.JWT_CACHE_TTL
+      });
+
+      // Clean cache if it gets too large
+      this.cleanCacheIfNeeded();
 
       return user;
     } catch (error) {
+      // Remove invalid token from cache
+      this.jwtCache.delete(token);
+      
       if (error instanceof Error && error.name === 'TokenExpiredError') {
         throw new UnauthorizedException('Token has expired');
       } else if (error instanceof Error && error.name === 'JsonWebTokenError') {
@@ -124,18 +154,35 @@ export class CompositeAuthGuard implements CanActivate {
 
   private async validateApiKey(apiKey: string): Promise<User | null> {
     // Check cache first
-    if (this.apiKeyCache.has(apiKey)) {
-      return this.apiKeyCache.get(apiKey)!;
+    const cached = this.apiKeyCache.get(apiKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      // Even with cache hit, validate user is still active
+      const freshUser = await this.databaseService.findActiveUserById(cached.user.id);
+      if (freshUser && freshUser.isActive) {
+        this.logger.debug(`API key cache hit for user: ${freshUser.id}`);
+        return freshUser;
+      } else {
+        // User is no longer active, remove from cache
+        this.apiKeyCache.delete(apiKey);
+        this.logger.warn(`Cached API key user is no longer active, removed from cache: ${cached.user.id}`);
+      }
     }
 
-    // If not in cache, validate against DB
+    // If not in cache or expired, validate against DB
     const user = await this.databaseService.validateApiKey(apiKey);
     if (!user) {
       throw new UnauthorizedException('Invalid or inactive API key');
     }
 
-    // Add to cache
-    this.apiKeyCache.set(apiKey, user);
+    // Add to cache with TTL
+    this.apiKeyCache.set(apiKey, {
+      user,
+      expiresAt: Date.now() + this.API_KEY_CACHE_TTL
+    });
+
+    // Clean cache if it gets too large
+    this.cleanCacheIfNeeded();
+
     return user;
   }
 
@@ -171,15 +218,39 @@ export class CompositeAuthGuard implements CanActivate {
     }
   }
 
-  // Clean cache periodically to prevent memory leaks
-  private cleanCache() {
+  // Clean cache when needed to prevent memory leaks and remove expired entries
+  private cleanCacheIfNeeded() {
+    const now = Date.now();
+    
+    // Clean expired JWT cache entries
+    for (const [token, entry] of this.jwtCache.entries()) {
+      if (entry.expiresAt <= now) {
+        this.jwtCache.delete(token);
+      }
+    }
+    
+    // Clean expired API key cache entries
+    for (const [apiKey, entry] of this.apiKeyCache.entries()) {
+      if (entry.expiresAt <= now) {
+        this.apiKeyCache.delete(apiKey);
+      }
+    }
+
+    // If cache is still too large, clear all
     if (this.jwtCache.size > 1000) {
-      this.logger.log('Cleaning JWT cache');
+      this.logger.log('JWT cache size limit exceeded, clearing all entries');
       this.jwtCache.clear();
     }
     if (this.apiKeyCache.size > 1000) {
-      this.logger.log('Cleaning API key cache');
+      this.logger.log('API key cache size limit exceeded, clearing all entries');
       this.apiKeyCache.clear();
     }
+  }
+
+  // Method to forcibly clear caches (useful for testing or security incidents)
+  clearAllCaches() {
+    this.jwtCache.clear();
+    this.apiKeyCache.clear();
+    this.logger.log('All authentication caches cleared');
   }
 }

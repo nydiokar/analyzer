@@ -1,9 +1,11 @@
 import { Injectable, UnauthorizedException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { JwtDatabaseService } from './jwt-database.service';
+import { SecurityLoggerService } from './security-logger.service';
 
 export interface RegisterDto {
   email: string;
@@ -35,12 +37,26 @@ export interface AuthResponse {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly saltRounds = 12;
+  
+  // Different security levels for different data types
+  private readonly PASSWORD_SALT_ROUNDS = 12;  // Higher security for passwords
+  private readonly API_KEY_SALT_ROUNDS = 10;   // Lower rounds for API keys (used more frequently)
+  private readonly passwordPepper: string;
 
   constructor(
     private readonly databaseService: JwtDatabaseService,
     private readonly jwtService: JwtService,
-  ) {}
+    private readonly configService: ConfigService,
+    // Security logger will be injected via method calls to avoid circular dependency
+  ) {
+    // Load password pepper from environment
+    this.passwordPepper = this.configService.get<string>('PASSWORD_PEPPER') || '';
+    if (!this.passwordPepper) {
+      this.logger.warn('PASSWORD_PEPPER not set in environment variables. Using empty pepper (less secure)');
+    } else if (this.passwordPepper.length < 32) {
+      this.logger.warn('PASSWORD_PEPPER is shorter than recommended 32 characters');
+    }
+  }
 
   async register(registerDto: RegisterDto): Promise<AuthResponse> {
     const { email, password } = registerDto;
@@ -64,12 +80,13 @@ export class AuthService {
     }
 
     try {
-      // Hash password
-      const passwordHash = await bcrypt.hash(password, this.saltRounds);
+      // Hash password with pepper and higher salt rounds
+      const passwordWithPepper = password + this.passwordPepper;
+      const passwordHash = await this.hashPassword(passwordWithPepper);
 
       // Generate API key for backward compatibility
       const apiKey = this.generateSecureApiKey();
-      const hashedApiKey = await bcrypt.hash(apiKey, this.saltRounds);
+      const hashedApiKey = await this.hashApiKey(apiKey);
 
       // Create user
       const user = await this.databaseService.createUserWithJWT({
@@ -83,6 +100,8 @@ export class AuthService {
       });
 
       this.logger.log(`New user registered: ${user.id} (${email})`);
+      
+      // Security logging handled at controller level to avoid circular dependencies
 
       // Generate JWT token
       const payload: JwtPayload = {
@@ -110,23 +129,20 @@ export class AuthService {
     const { email, password } = loginDto;
 
     try {
-      // Find user by email
+      // Always perform timing-consistent operations to prevent user enumeration
       const user = await this.databaseService.findUserByEmail(email);
+      const passwordWithPepper = password + this.passwordPepper;
+      
+      // Always perform password verification even if user doesn't exist (timing attack prevention)
+      const dummyHash = '$2b$12$dummyhashtopreventtimingattacksandusernameenumeration';
+      const targetHash = user?.passwordHash || dummyHash;
+      const isPasswordValid = await this.verifyPassword(passwordWithPepper, targetHash);
 
-      if (!user || !user.passwordHash) {
-        this.logger.warn(`Login attempt with non-existent or API-key-only user: ${email}`);
-        throw new UnauthorizedException('Invalid credentials');
-      }
-
-      if (!user.isActive) {
-        this.logger.warn(`Login attempt with inactive user: ${email}`);
-        throw new UnauthorizedException('Account is inactive');
-      }
-
-      // Verify password
-      const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-      if (!isPasswordValid) {
-        this.logger.warn(`Invalid password for user: ${email}`);
+      // Check all conditions after password verification to maintain constant timing
+      if (!user || !user.passwordHash || !user.isActive || !isPasswordValid) {
+        // Use consistent timing for all failure scenarios
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 100 + 50)); // 50-150ms delay
+        this.logger.warn(`Login attempt failed for: ${email}`);
         throw new UnauthorizedException('Invalid credentials');
       }
 
@@ -134,6 +150,8 @@ export class AuthService {
       await this.databaseService.updateUserLastLogin(user.id);
 
       this.logger.log(`User logged in: ${user.id} (${email})`);
+      
+      // Security logging handled at controller level to avoid circular dependencies
 
       // Generate JWT token
       const payload: JwtPayload = {
@@ -190,13 +208,8 @@ export class AuthService {
   }
 
   private generateSecureApiKey(): string {
-    // Generate a secure API key (32 characters)
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let result = '';
-    for (let i = 0; i < 32; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
+    // Generate a cryptographically secure API key (32 bytes = 64 hex chars)
+    return crypto.randomBytes(32).toString('hex');
   }
 
   /**
@@ -219,34 +232,34 @@ export class AuthService {
       throw new ConflictException('Email is already verified');
     }
 
+    // Invalidate any existing tokens for this user
+    await this.databaseService.invalidateExistingVerificationTokens(userId);
+
     const verificationToken = this.generateVerificationToken();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
     
-    // Note: In a real application, you would:
-    // 1. Store this token in database with expiration (e.g., 24 hours)
-    // 2. Send an email to the user with a verification link
-    // 3. The link would contain this token and point to /auth/verify-email?token=TOKEN
+    // Store the token in database
+    await this.databaseService.createVerificationToken(userId, verificationToken, expiresAt);
     
     this.logger.log(`Email verification requested for user: ${userId}`);
     
-    // For now, we return the token (in production, this would be sent via email)
+    // In production, this token would be sent via email instead of returned
     return { token: verificationToken };
   }
 
   /**
-   * Verify email with token
-   * Note: This is a simplified implementation. In production, you should:
-   * 1. Store tokens in database with expiration
-   * 2. Validate token against stored values
-   * 3. Mark tokens as used after verification
+   * Verify email with token - SECURE IMPLEMENTATION
    */
   async verifyEmail(userId: string, token: string): Promise<{ success: boolean; message: string }> {
-    // Simple validation - in production, validate against stored tokens
-    if (!token || token.length < 10) {
-      throw new UnauthorizedException('Invalid verification token');
+    // Validate token format
+    if (!token || typeof token !== 'string' || token.length < 32) {
+      this.logger.warn(`Invalid token format provided by user: ${userId}`);
+      throw new UnauthorizedException('Invalid verification token format');
     }
 
     const user = await this.databaseService.findUserById(userId);
     if (!user) {
+      this.logger.warn(`Verification attempt for non-existent user: ${userId}`);
       throw new NotFoundException('User not found');
     }
 
@@ -254,10 +267,29 @@ export class AuthService {
       return { success: true, message: 'Email is already verified' };
     }
 
-    // Update user email verification status
+    // Find and validate the token in database
+    const verificationToken = await this.databaseService.findValidVerificationToken(userId, token);
+    
+    if (!verificationToken) {
+      this.logger.warn(`Invalid or expired verification token attempt by user: ${userId}`);
+      throw new UnauthorizedException('Invalid or expired verification token');
+    }
+
+    if (verificationToken.used) {
+      this.logger.warn(`Already used verification token attempt by user: ${userId}`);
+      throw new UnauthorizedException('This verification token has already been used');
+    }
+
+    if (verificationToken.expiresAt < new Date()) {
+      this.logger.warn(`Expired verification token attempt by user: ${userId}`);
+      throw new UnauthorizedException('Verification token has expired');
+    }
+
+    // Mark token as used and verify user email
+    await this.databaseService.markVerificationTokenAsUsed(verificationToken.id);
     await this.databaseService.updateUserEmailVerification(userId, true);
     
-    this.logger.log(`Email verified for user: ${userId}`);
+    this.logger.log(`Email successfully verified for user: ${userId}`);
     
     return { success: true, message: 'Email verified successfully' };
   }
@@ -271,5 +303,74 @@ export class AuthService {
       throw new NotFoundException('User not found');
     }
     return user.emailVerified;
+  }
+
+  /**
+   * Hash password with high security (pepper + high salt rounds)
+   */
+  private async hashPassword(passwordWithPepper: string): Promise<string> {
+    try {
+      return await bcrypt.hash(passwordWithPepper, this.PASSWORD_SALT_ROUNDS);
+    } catch (error) {
+      this.logger.error('Failed to hash password', error);
+      throw new UnauthorizedException('Password processing failed');
+    }
+  }
+
+  /**
+   * Verify password with pepper
+   */
+  private async verifyPassword(passwordWithPepper: string, hash: string): Promise<boolean> {
+    try {
+      return await bcrypt.compare(passwordWithPepper, hash);
+    } catch (error) {
+      this.logger.error('Failed to verify password', error);
+      return false;
+    }
+  }
+
+  /**
+   * Hash API key with medium security (no pepper, lower salt rounds)
+   */
+  private async hashApiKey(apiKey: string): Promise<string> {
+    try {
+      return await bcrypt.hash(apiKey, this.API_KEY_SALT_ROUNDS);
+    } catch (error) {
+      this.logger.error('Failed to hash API key', error);
+      throw new UnauthorizedException('API key processing failed');
+    }
+  }
+
+  /**
+   * Verify API key (used by database service)
+   */
+  async verifyApiKey(apiKey: string, hash: string): Promise<boolean> {
+    try {
+      return await bcrypt.compare(apiKey, hash);
+    } catch (error) {
+      this.logger.error('Failed to verify API key', error);
+      return false;
+    }
+  }
+
+  /**
+   * Update user password (with proper hashing)
+   */
+  async updateUserPassword(userId: string, newPassword: string): Promise<void> {
+    // Validate password strength
+    if (!this.isStrongPassword(newPassword)) {
+      throw new UnauthorizedException('Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number');
+    }
+
+    try {
+      const passwordWithPepper = newPassword + this.passwordPepper;
+      const passwordHash = await this.hashPassword(passwordWithPepper);
+      
+      await this.databaseService.updateUserPassword(userId, passwordHash);
+      this.logger.log(`Password updated for user: ${userId}`);
+    } catch (error) {
+      this.logger.error(`Failed to update password for user: ${userId}`, error);
+      throw new UnauthorizedException('Password update failed');
+    }
   }
 }

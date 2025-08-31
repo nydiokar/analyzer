@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { User } from '@prisma/client';
 import { AuthService, RegisterDto, LoginDto, AuthResponse } from '../shared/services/auth.service';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
+import { SecurityLoggerService } from '../shared/services/security-logger.service';
 import { Public } from '../shared/decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
 import { IsEmail, IsString, MinLength, IsNotEmpty } from 'class-validator';
@@ -43,6 +44,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
+    private readonly securityLogger: SecurityLoggerService,
   ) {
     this.cookieMode = this.configService.get<string>('AUTH_COOKIE_MODE') === 'true';
     this.cookieName = this.configService.get<string>('AUTH_COOKIE_NAME') || 'analyzer.sid';
@@ -211,7 +213,8 @@ export class AuthController {
   }
 
   @Post('request-verification')
-  @UseGuards(CompositeAuthGuard)
+  @UseGuards(CompositeAuthGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 2, ttl: 3600000 } }) // 2 requests per hour
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Request email verification' })
   @ApiResponse({ 
@@ -243,7 +246,8 @@ export class AuthController {
   }
 
   @Post('verify-email')
-  @UseGuards(CompositeAuthGuard)
+  @UseGuards(CompositeAuthGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Verify email with token' })
   @ApiBody({
@@ -275,9 +279,12 @@ export class AuthController {
       const user = req.user!;
       const result = await this.authService.verifyEmail(user.id, body.token);
       
+      this.securityLogger.logEmailVerificationAttempt(req, user.id, true);
       this.logger.log(`Email verified for user: ${user.id}`);
       return result;
     } catch (error) {
+      const user = req.user!;
+      this.securityLogger.logEmailVerificationAttempt(req, user.id, false, error instanceof Error ? error.message : 'Unknown error');
       this.logger.error(`Email verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }

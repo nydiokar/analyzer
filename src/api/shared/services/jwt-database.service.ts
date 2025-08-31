@@ -86,4 +86,70 @@ export class JwtDatabaseService {
   async validateApiKey(apiKey: string): Promise<User | null> {
     return await this.databaseService.validateApiKey(apiKey);
   }
+
+  // Email verification token methods
+  async createVerificationToken(userId: string, token: string, expiresAt: Date): Promise<void> {
+    await (this.databaseService as any).prismaClient.emailVerificationToken.create({
+      data: {
+        userId,
+        token,
+        expiresAt,
+      },
+    });
+  }
+
+  async findValidVerificationToken(userId: string, token: string): Promise<any> {
+    try {
+      return await (this.databaseService as any).prismaClient.emailVerificationToken.findFirst({
+        where: {
+          userId,
+          token,
+          used: false,
+          expiresAt: {
+            gt: new Date(),
+          },
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to find verification token for user: ${userId}`, error);
+      return null;
+    }
+  }
+
+  async markVerificationTokenAsUsed(tokenId: string): Promise<void> {
+    await (this.databaseService as any).prismaClient.emailVerificationToken.update({
+      where: { id: tokenId },
+      data: { used: true },
+    });
+  }
+
+  async invalidateExistingVerificationTokens(userId: string): Promise<void> {
+    await (this.databaseService as any).prismaClient.emailVerificationToken.updateMany({
+      where: {
+        userId,
+        used: false,
+      },
+      data: { used: true },
+    });
+  }
+
+  // Cleanup expired tokens (should be called periodically)
+  async cleanupExpiredVerificationTokens(): Promise<void> {
+    const deletedCount = await (this.databaseService as any).prismaClient.emailVerificationToken.deleteMany({
+      where: {
+        expiresAt: {
+          lt: new Date(),
+        },
+      },
+    });
+    this.logger.log(`Cleaned up ${deletedCount.count} expired verification tokens`);
+  }
+
+  // Update user password
+  async updateUserPassword(userId: string, passwordHash: string): Promise<void> {
+    await (this.databaseService as any).prismaClient.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
+  }
 }
