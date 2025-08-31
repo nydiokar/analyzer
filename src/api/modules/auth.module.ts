@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { AuthController } from '../controllers/auth.controller';\nimport { SecurityController } from '../controllers/security.controller';
+import { AuthController } from '../controllers/auth.controller';
+import { SecurityController } from '../controllers/security.controller'
+import { BotIntegrationController } from '../controllers/bot-integration.controller';
 import { AuthService } from '../shared/services/auth.service';
 import { JwtDatabaseService } from '../shared/services/jwt-database.service';
 import { JwtSecretValidatorService } from '../shared/services/jwt-secret-validator.service';
@@ -47,7 +49,7 @@ import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guar
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController, SecurityController],
+  controllers: [AuthController, SecurityController, BotIntegrationController],
   providers: [
     JwtDatabaseService,
     JwtSecretValidatorService,

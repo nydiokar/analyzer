@@ -1,10 +1,10 @@
 import { Injectable, ExecutionContext, Logger, Inject, forwardRef } from '@nestjs/common';
-import { ThrottlerGuard, ThrottlerLimitDetail } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerLimitDetail, ThrottlerStorage } from '@nestjs/throttler';
 import { Request } from 'express';
 import { AdvancedThrottlerService } from '../services/advanced-throttler.service';
 import { SecurityLoggerService } from '../services/security-logger.service';
 import { Reflector } from '@nestjs/core';
-import { ThrottlerStorageService } from '@nestjs/throttler/dist/throttler-storage.service';
+// ThrottlerStorageService no longer exists in v6; use ThrottlerStorage interface instead
 
 /**
  * Advanced throttler guard with IP blocking, progressive backoff, and suspicious activity detection
@@ -18,7 +18,7 @@ export class AdvancedThrottlerGuard extends ThrottlerGuard {
     @Inject(forwardRef(() => SecurityLoggerService))
     private readonly securityLogger: SecurityLoggerService,
     options: any,
-    storageService: ThrottlerStorageService,
+    storageService: ThrottlerStorage,
     reflector: Reflector,
   ) {
     super(options, storageService, reflector);
@@ -44,17 +44,7 @@ export class AdvancedThrottlerGuard extends ThrottlerGuard {
     }
     
     // Proceed with standard throttling check
-    try {
-      return await super.canActivate(context);
-    } catch (error) {
-      // Record the violation for progressive backoff
-      const throttlerLimitDetails = await this.getTracker(request);
-      for (const limit of throttlerLimitDetails) {
-        this.advancedThrottler.recordViolation(context, limit);
-        this.securityLogger.logRateLimitExceeded(request, limit.limit, limit.ttl);
-      }
-      throw error;
-    }
+    return await super.canActivate(context);
   }
 
   /**
@@ -73,22 +63,23 @@ export class AdvancedThrottlerGuard extends ThrottlerGuard {
   /**
    * Enhanced key generation that includes IP for better tracking
    */
-  protected async generateKey(
+  protected generateKey(
     context: ExecutionContext,
     suffix: string,
-  ): Promise<string> {
+    name: string,
+  ): string {
     const request = context.switchToHttp().getRequest<Request>();
     const ip = this.getClientIp(request);
     
     // Include both IP and user identification for comprehensive rate limiting
-    const baseKey = await super.generateKey(context, suffix);
+    const baseKey = super.generateKey(context, suffix, name);
     return `${baseKey}:${ip}`;
   }
 
   /**
    * Custom error message with backoff information
    */
-  protected getErrorMessage(context: ExecutionContext, throttlerLimitDetail: ThrottlerLimitDetail): string {
+  protected async getErrorMessage(context: ExecutionContext, throttlerLimitDetail: ThrottlerLimitDetail): Promise<string> {
     const request = context.switchToHttp().getRequest<Request>();
     const ip = this.getClientIp(request);
     
@@ -98,5 +89,25 @@ export class AdvancedThrottlerGuard extends ThrottlerGuard {
     }
     
     return `Rate limit exceeded. Too many requests from ${ip}. Please try again later.`;
+  }
+
+  /**
+   * Hook into throttling exception to record and log violations
+   */
+  protected async throwThrottlingException(
+    context: ExecutionContext,
+    throttlerLimitDetail: ThrottlerLimitDetail,
+  ): Promise<void> {
+    const request = context.switchToHttp().getRequest<Request>();
+    try {
+      this.advancedThrottler.recordViolation(context, throttlerLimitDetail);
+      this.securityLogger.logRateLimitExceeded(
+        request,
+        throttlerLimitDetail.limit,
+        throttlerLimitDetail.ttl,
+      );
+    } finally {
+      await super.throwThrottlingException(context, throttlerLimitDetail);
+    }
   }
 }
