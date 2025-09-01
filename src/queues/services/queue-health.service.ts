@@ -1,7 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { Redis, RedisOptions } from 'ioredis';
-import { redisConfig } from '../config/redis.config';
+import { Redis } from 'ioredis';
+import { REDIS_CLIENT } from '../config/redis.provider';
 
 export interface QueueHealthStatus {
   queueName: string;
@@ -63,6 +63,7 @@ export class QueueHealthService implements OnModuleInit {
   private readonly logger = new Logger(QueueHealthService.name);
   private readonly redis: Redis;
   private readonly monitoredQueues = new Map<string, Queue>();
+  private lastConnectionClosedLogAt: number | null = null;
   
   // Health thresholds
   private readonly QUEUE_HEALTH_THRESHOLDS = {
@@ -79,19 +80,22 @@ export class QueueHealthService implements OnModuleInit {
   private readonly BATCH_SIZE = 100; // Limit job fetching
   private healthCheckTimer?: NodeJS.Timeout;
 
-  constructor() {
-    // Create Redis instance using environment variables directly for type safety
-    const ioredisOptions: RedisOptions = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD,
-      db: parseInt(process.env.REDIS_DB || '0', 10),
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: false,
-      lazyConnect: true,
-    };
-    
-    this.redis = new Redis(ioredisOptions);
+  constructor(@Inject(REDIS_CLIENT) redisClient: Redis) {
+    this.redis = redisClient;
+  }
+
+  private isRedisConnected(): boolean {
+    return this.redis && (this.redis.status as string) === 'connected';
+  }
+
+  private shouldLogConnectionClosed(): boolean {
+    const now = Date.now();
+    const cooldownMs = 60_000; // 1 minute
+    if (!this.lastConnectionClosedLogAt || now - this.lastConnectionClosedLogAt > cooldownMs) {
+      this.lastConnectionClosedLogAt = now;
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -122,6 +126,21 @@ export class QueueHealthService implements OnModuleInit {
     }
 
     try {
+      // If Redis is not connected, avoid calling queue methods that will throw
+      if (!this.isRedisConnected()) {
+        return {
+          queueName,
+          status: 'unhealthy',
+          stats: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, paused: 0 },
+          details: {
+            isRunning: false,
+            isPaused: false,
+            processingCapacity: 0,
+          },
+          issues: ['Redis not connected; skipping queue metrics'],
+        };
+      }
+
       // Get queue statistics (optimized with batch limits)
       const [waiting, active, completed, failed, delayed] = await Promise.all([
         queue.getWaiting(0, this.BATCH_SIZE), // Limit to first 100 waiting jobs
@@ -222,7 +241,14 @@ export class QueueHealthService implements OnModuleInit {
       };
 
     } catch (error) {
-      this.logger.error(`Error checking health for queue ${queueName}:`, error);
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Connection is closed') || message.includes('ECONNREFUSED')) {
+        if (this.shouldLogConnectionClosed()) {
+          this.logger.warn(`Queue health check suppressed repeated errors for ${queueName}: ${message}`);
+        }
+      } else {
+        this.logger.error(`Error checking health for queue ${queueName}:`, error);
+      }
       return {
         queueName,
         status: 'unhealthy',
@@ -232,7 +258,7 @@ export class QueueHealthService implements OnModuleInit {
           isPaused: false,
           processingCapacity: 0,
         },
-        issues: [`Health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`],
+        issues: [`Health check failed: ${message}`],
       };
     }
   }
@@ -245,6 +271,16 @@ export class QueueHealthService implements OnModuleInit {
     const startTime = Date.now();
 
     try {
+      // If connection isn't established, avoid ping to reduce noise
+      const connectionStatus = this.redis.status as 'connected' | 'connecting' | 'disconnected' | 'error';
+      if (connectionStatus !== 'connected') {
+        return {
+          status: 'unhealthy',
+          connectionStatus,
+          issues: ['Redis not connected'],
+        };
+      }
+
       // Test Redis connectivity with a simple ping
       const pingResult = await this.redis.ping();
       const responseTime = Date.now() - startTime;
@@ -284,12 +320,12 @@ export class QueueHealthService implements OnModuleInit {
       }
 
       // Determine status
-      const connectionStatus = this.redis.status as 'connected' | 'connecting' | 'disconnected' | 'error';
+      const connectionStatusAfter = this.redis.status as 'connected' | 'connecting' | 'disconnected' | 'error';
       let status: 'healthy' | 'degraded' | 'unhealthy';
 
-      if (connectionStatus !== 'connected') {
+      if (connectionStatusAfter !== 'connected') {
         status = 'unhealthy';
-        issues.push(`Redis connection status: ${connectionStatus}`);
+        issues.push(`Redis connection status: ${connectionStatusAfter}`);
       } else if (issues.length === 0) {
         status = 'healthy';
       } else {
@@ -298,7 +334,7 @@ export class QueueHealthService implements OnModuleInit {
 
       return {
         status,
-        connectionStatus,
+        connectionStatus: connectionStatusAfter,
         responseTime,
         memory,
         clients,
@@ -307,11 +343,18 @@ export class QueueHealthService implements OnModuleInit {
       };
 
     } catch (error) {
-      this.logger.error('Redis health check failed:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Connection is closed') || message.includes('ECONNREFUSED')) {
+        if (this.shouldLogConnectionClosed()) {
+          this.logger.warn(`Redis health check suppressed repeated errors: ${message}`);
+        }
+      } else {
+        this.logger.error('Redis health check failed:', error);
+      }
       return {
         status: 'unhealthy',
         connectionStatus: 'error',
-        issues: [`Redis health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`],
+        issues: [`Redis health check failed: ${message}`],
       };
     }
   }
