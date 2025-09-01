@@ -10,9 +10,10 @@ import Link from 'next/link';
 
 interface UserMenuProps {
   className?: string;
+  isCollapsed?: boolean;
 }
 
-export function UserMenu({ className }: UserMenuProps) {
+export function UserMenu({ className, isCollapsed = false }: UserMenuProps) {
   const { user, isAuthenticated, isDemoMode, logout, isUsingApiKey } = useAuth();
 
   if (!isAuthenticated || !user) {
@@ -61,27 +62,35 @@ export function UserMenu({ className }: UserMenuProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className={`h-auto p-2 ${className}`}>
-          <div className="flex items-center gap-3">
+          {isCollapsed ? (
             <Avatar className="w-8 h-8">
               <AvatarFallback className="bg-slate-700 text-slate-200 text-sm font-medium">
                 {getInitials(user.email)}
               </AvatarFallback>
             </Avatar>
-            <div className="flex flex-col items-start min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-slate-200 truncate max-w-24">
-                  {user.email ? user.email.split('@')[0] : 'User'}
-                </span>
-                <Badge 
-                  variant={statusInfo.variant} 
-                  className={`text-xs px-2 py-0.5 flex items-center gap-1 ${statusInfo.className}`}
-                >
-                  {statusInfo.icon}
-                  {statusInfo.label}
-                </Badge>
+          ) : (
+            <div className="flex items-center gap-3">
+              <Avatar className="w-8 h-8">
+                <AvatarFallback className="bg-slate-700 text-slate-200 text-sm font-medium">
+                  {getInitials(user.email)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex flex-col items-start min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-slate-200 truncate max-w-24">
+                    {user.email ? user.email.split('@')[0] : 'User'}
+                  </span>
+                  <Badge 
+                    variant={statusInfo.variant} 
+                    className={`text-xs px-2 py-0.5 flex items-center gap-1 ${statusInfo.className}`}
+                  >
+                    {statusInfo.icon}
+                    {statusInfo.label}
+                  </Badge>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </Button>
       </DropdownMenuTrigger>
       

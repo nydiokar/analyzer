@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npm run start:backend:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []

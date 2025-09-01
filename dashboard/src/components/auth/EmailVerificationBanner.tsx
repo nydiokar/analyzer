@@ -62,7 +62,7 @@ export function EmailVerificationBanner() {
             </div>
             
             <p className="text-sm text-orange-200 mb-3">
-              Please verify your email address ({user.email}) to ensure account security and access to all features.
+              Please verify your email address ({user.email}) to access full functionality. Until verified, you're in demo mode with limited features.
             </p>
             
             {!showTokenInput ? (
@@ -79,18 +79,18 @@ export function EmailVerificationBanner() {
               <div className="space-y-3">
                 <div className="p-3 bg-blue-500/20 border border-blue-500/30 rounded-lg">
                   <div className="flex items-center gap-2 mb-2">
-                    <Shield className="w-4 h-4 text-blue-400" />
-                    <span className="text-sm font-medium text-blue-400">Demo Mode Notice</span>
+                    <Mail className="w-4 h-4 text-blue-400" />
+                    <span className="text-sm font-medium text-blue-400">Development Mode</span>
                   </div>
                   <p className="text-xs text-blue-200">
-                    In production, this would be sent to your email. For demo purposes, the verification token was displayed in the success message above.
+                    If email service is configured, check your email. Otherwise, check server console/logs for the verification token.
                   </p>
                 </div>
                 
                 <div className="flex gap-2">
                   <Input
                     type="text"
-                    placeholder="Enter verification token"
+                    placeholder="Enter verification token (from server logs)"
                     value={verificationToken}
                     onChange={(e) => setVerificationToken(e.target.value)}
                     className="flex-1 h-9 text-sm bg-background/50"

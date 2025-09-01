@@ -183,7 +183,10 @@ export const useAuthStore = create<AuthStore>()(
       // Computed properties
       isDemoMode: () => {
         const state = get();
-        return state.user?.isDemo || false;
+        // Demo mode if:
+        // 1. User explicitly marked as demo, OR
+        // 2. JWT user who hasn't verified their email yet
+        return state.user?.isDemo || (state.user && !state.user.emailVerified && !state.isUsingApiKey) || false;
       },
 
       getAuthHeader: () => {

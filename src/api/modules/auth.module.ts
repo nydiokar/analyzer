@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthController } from '../controllers/auth.controller';
 import { SecurityController } from '../controllers/security.controller'
 import { BotIntegrationController } from '../controllers/bot-integration.controller';
@@ -12,6 +13,7 @@ import { SecurityCleanupService } from '../shared/services/security-cleanup.serv
 import { AdvancedThrottlerService } from '../shared/services/advanced-throttler.service';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
 import { SecurityAlertsService } from '../shared/services/security-alerts.service';
+import { EmailService } from '../shared/services/email.service';
 import { JwtStrategy } from '../shared/strategies/jwt.strategy';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guard';
@@ -19,6 +21,7 @@ import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guar
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
+    ThrottlerModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
@@ -57,6 +60,7 @@ import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guar
     AdvancedThrottlerService,
     SecurityLoggerService,
     SecurityAlertsService,
+    EmailService,
     AuthService,
     JwtStrategy,
     CompositeAuthGuard,

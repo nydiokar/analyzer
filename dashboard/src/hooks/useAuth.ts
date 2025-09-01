@@ -206,7 +206,7 @@ export const useAuth = () => {
       }
 
       const data = await response.json();
-      toast.success('Verification email sent! For demo purposes, use this token: ' + data.token);
+      toast.success(data.message, { duration: 10000 });
       return true;
     } catch (error) {
       console.error('Failed to request email verification:', error);

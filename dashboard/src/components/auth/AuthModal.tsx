@@ -42,8 +42,8 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
       // Show email verification notice for new registrations
       if (!isLogin) {
         setTimeout(() => {
-          toast.info('Please check your email to verify your account. For demo purposes, you can find the verification token in the banner above.', {
-            duration: 8000,
+          toast.info('Please check your email to verify your account before proceeding.', {
+            duration: 6000,
           });
         }, 1000);
       }
@@ -148,6 +148,16 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                 >
                   {loading ? 'Signing in...' : 'Sign In'}
                 </Button>
+                
+                <div className="text-center mt-4">
+                  <button
+                    type="button"
+                    onClick={() => toast.info('Forgot password functionality will be available soon. Please contact support if you need help.', { duration: 6000 })}
+                    className="text-sm text-blue-400 hover:text-blue-300 underline"
+                  >
+                    Forgot your password?
+                  </button>
+                </div>
               </form>
             </TabsContent>
 

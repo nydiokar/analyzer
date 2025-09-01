@@ -1,5 +1,5 @@
 import { Injectable, ExecutionContext, Logger, Inject, forwardRef } from '@nestjs/common';
-import { ThrottlerGuard, ThrottlerLimitDetail, ThrottlerStorage } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerLimitDetail, ThrottlerStorage, ThrottlerModuleOptions } from '@nestjs/throttler';
 import { Request } from 'express';
 import { AdvancedThrottlerService } from '../services/advanced-throttler.service';
 import { SecurityLoggerService } from '../services/security-logger.service';
@@ -14,12 +14,12 @@ export class AdvancedThrottlerGuard extends ThrottlerGuard {
   private readonly logger = new Logger(AdvancedThrottlerGuard.name);
 
   constructor(
+    options: ThrottlerModuleOptions,
+    storageService: ThrottlerStorage,
+    reflector: Reflector,
     private readonly advancedThrottler: AdvancedThrottlerService,
     @Inject(forwardRef(() => SecurityLoggerService))
     private readonly securityLogger: SecurityLoggerService,
-    options: any,
-    storageService: ThrottlerStorage,
-    reflector: Reflector,
   ) {
     super(options, storageService, reflector);
   }

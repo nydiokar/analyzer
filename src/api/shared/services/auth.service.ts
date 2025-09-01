@@ -243,7 +243,8 @@ export class AuthService {
     
     this.logger.log(`Email verification requested for user: ${userId}`);
     
-    // In production, this token would be sent via email instead of returned
+    // TODO: Send email with verification token to user's email address
+    // For now, we'll store the token in the database and return it for manual verification
     return { token: verificationToken };
   }
 

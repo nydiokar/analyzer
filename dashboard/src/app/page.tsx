@@ -2,7 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { SearchIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, ChevronRightIcon, CheckIcon, SettingsIcon, LogIn } from 'lucide-react';
+import { SearchIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, ChevronRightIcon, CheckIcon, SettingsIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';

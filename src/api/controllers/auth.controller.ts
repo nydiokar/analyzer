@@ -5,6 +5,7 @@ import { User } from '@prisma/client';
 import { AuthService, RegisterDto, LoginDto, AuthResponse } from '../shared/services/auth.service';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
+import { EmailService } from '../shared/services/email.service';
 import { Public } from '../shared/decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
 import { IsEmail, IsString, MinLength, IsNotEmpty } from 'class-validator';
@@ -45,6 +46,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
     private readonly securityLogger: SecurityLoggerService,
+    private readonly emailService: EmailService,
   ) {
     this.cookieMode = this.configService.get<string>('AUTH_COOKIE_MODE') === 'true';
     this.cookieName = this.configService.get<string>('AUTH_COOKIE_NAME') || 'analyzer.sid';
@@ -93,6 +95,21 @@ export class AuthController {
           sameSite: 'strict',
           maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         });
+      }
+
+      // Automatically send email verification after successful registration
+      try {
+        const emailResult = await this.authService.requestEmailVerification(result.user.id);
+        const emailSent = await this.emailService.sendVerificationEmail(result.user.email, emailResult.token);
+        
+        if (emailSent) {
+          this.logger.log(`Email verification automatically sent to new user: ${result.user.id}`);
+        } else {
+          this.logger.warn(`Email service not configured - verification token for user ${result.user.id}: ${emailResult.token}`);
+        }
+      } catch (emailError) {
+        this.logger.warn(`Failed to send automatic verification email for user ${result.user.id}: ${emailError instanceof Error ? emailError.message : 'Unknown error'}`);
+        // Don't fail registration if email sending fails
       }
 
       this.logger.log(`User registered successfully: ${result.user.id}`);
@@ -213,8 +230,8 @@ export class AuthController {
   }
 
   @Post('request-verification')
-  @UseGuards(CompositeAuthGuard, ThrottlerGuard)
-  @Throttle({ default: { limit: 2, ttl: 3600000 } }) // 2 requests per hour
+  @UseGuards(CompositeAuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 300000 } }) // 10 requests per 5 minutes
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Request email verification' })
   @ApiResponse({ 
@@ -224,21 +241,31 @@ export class AuthController {
       type: 'object',
       properties: {
         message: { type: 'string' },
-        token: { type: 'string', description: 'Verification token (for demo purposes - would be sent via email in production)' },
       }
     }
   })
   @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Email already verified' })
-  async requestEmailVerification(@Req() req: AuthenticatedRequest): Promise<{ message: string; token: string }> {
+  async requestEmailVerification(@Req() req: AuthenticatedRequest): Promise<{ message: string }> {
     try {
       const user = req.user!;
       const result = await this.authService.requestEmailVerification(user.id);
       
+      // Try to send email
+      const emailSent = await this.emailService.sendVerificationEmail(user.email!, result.token);
+      
       this.logger.log(`Email verification requested for user: ${user.id}`);
-      return { 
-        message: 'Verification email sent successfully. Please check your email and use the token below for demo purposes.', 
-        token: result.token 
-      };
+      
+      if (emailSent) {
+        return { 
+          message: 'Verification email sent! Please check your email and enter the verification token.'
+        };
+      } else {
+        // Email not configured - log token for development
+        this.logger.warn(`🔑 DEVELOPMENT MODE - Email Verification Token for user ${user.id}: ${result.token}`);
+        return { 
+          message: 'Email service not configured. For development, the verification token has been logged to the server console.'
+        };
+      }
     } catch (error) {
       this.logger.error(`Email verification request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;

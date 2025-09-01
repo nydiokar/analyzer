@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, SearchIcon, FlaskConical } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, SearchIcon, FlaskConical, LogIn, UserPlus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
     Tooltip,
     TooltipContent,
@@ -15,6 +17,9 @@ import {
 } from "@/components/ui/popover";
 import { FavoriteWalletsList } from '../sidebar/FavoriteWalletsList';
 import { WalletSearch } from '../sidebar/WalletSearch';
+import { UserMenu } from '../auth/UserMenu';
+import { AuthModal } from '../auth/AuthModal';
+import { useAuth } from '@/hooks/useAuth';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -22,6 +27,9 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
+  const { isAuthenticated } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
   return (
     <aside 
       className={`h-screen p-3 border-r bg-gray-50 dark:bg-gray-800 flex flex-col transition-all duration-300 ease-in-out ${isCollapsed ? 'w-18' : 'w-56'}`}
@@ -107,8 +115,60 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
           <FavoriteWalletsList isCollapsed={isCollapsed} />
         </div>
 
-        {/* Footer Navigation - Always visible */}
+        {/* Authentication Section - Always visible */}
         <div className="flex-shrink-0 mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
+          {isAuthenticated ? (
+            <div className="mb-4">
+              <UserMenu 
+                className={isCollapsed ? "" : "w-full justify-start"} 
+                isCollapsed={isCollapsed}
+              />
+            </div>
+          ) : (
+            <div className={`mb-4 ${isCollapsed ? 'space-y-2' : 'space-y-2'}`}>
+              {isCollapsed ? (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button 
+                        onClick={() => setShowAuthModal(true)}
+                        variant="ghost" 
+                        size="sm"
+                        className="w-full p-2 hover:bg-gray-200 dark:hover:bg-gray-700"
+                      >
+                        <LogIn size={18} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" align="center">
+                      <p>Sign In / Sign Up</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <Button 
+                    onClick={() => setShowAuthModal(true)}
+                    variant="ghost" 
+                    size="sm"
+                    className="w-full justify-start text-left hover:bg-gray-200 dark:hover:bg-gray-700"
+                  >
+                    <LogIn size={16} className="mr-2" />
+                    Sign In
+                  </Button>
+                  <Button 
+                    onClick={() => setShowAuthModal(true)}
+                    variant="outline" 
+                    size="sm"
+                    className="w-full justify-start text-left"
+                  >
+                    <UserPlus size={16} className="mr-2" />
+                    Sign Up
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          
           <ul className="space-y-2">
             <li>
               <Tooltip>
@@ -135,6 +195,13 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
           </ul>
         </div>
       </TooltipProvider>
+      
+      {/* Auth Modal */}
+      <AuthModal 
+        open={showAuthModal} 
+        onOpenChange={setShowAuthModal}
+        onSuccess={() => setShowAuthModal(false)}
+      />
     </aside>
   );
 } 
