@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "engines": {
@@ -15,6 +15,7 @@
     "clean": "rimraf dist logs",
     "build:watch": "tsc --watch",
     "verify": "tsc --noEmit",
+    "test:unit": "node --test -r ts-node/register -r tsconfig-paths/register src/core/services/helius-api-client.v2.test.ts src/core/services/helius-transaction-mapper.test.ts",
     "analyze": "ts-node -r ts-node/register src/scripts/helius-analyzer.ts",
     "similarity": "ts-node -r ts-node/register src/scripts/activityCorrelator.ts",
     "kpi-report": "ts-node -r ts-node/register src/scripts/kpi-comparison-report.ts",

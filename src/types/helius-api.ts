@@ -322,3 +322,15 @@ export interface GetTokenAccountsByOwnerResult {
   context: GetTokenAccountsByOwnerResultContext;
   value: TokenAccount[];
 }
+
+// Optional: V2 pagination response types (internal usage in client)
+export interface GetTokenAccountsByOwnerV2ResultContext {
+  slot: number;
+  apiVersion?: string;
+}
+
+export interface GetTokenAccountsByOwnerV2Result {
+  accounts: TokenAccount[];
+  paginationKey?: string;
+  context: GetTokenAccountsByOwnerV2ResultContext;
+}

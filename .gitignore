@@ -30,6 +30,8 @@ all_alerts/
 alerts.json
 analysis_reports/
 debug_output/
+logs.json
+*audit.json 
 
 ## PROJECT DOCUMENTATION
 9. DNM.md

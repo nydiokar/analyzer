@@ -97,6 +97,29 @@ export const HELIUS_CONFIG = {
   BATCH_SIZE: 100, // Reduced batch size
 } as const;
 
+// --- Helius V2 Pagination Feature Flag & Tuning ---
+const boolFromEnv = (key: string, fallback: boolean): boolean => {
+  const raw = process.env[key];
+  if (raw === undefined || raw === null) return fallback;
+  const val = String(raw).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(val)) return true;
+  if (["0", "false", "no", "off"].includes(val)) return false;
+  return fallback;
+};
+
+const numFromEnv = (key: string, fallback: number): number => {
+  const raw = process.env[key];
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+export const HELIUS_V2_CONFIG = {
+  enablePagination: boolFromEnv('ENABLE_HELIUS_V2_PAGINATION', true),
+  pageLimit: Math.max(1000, Math.min(10000, numFromEnv('HELIUS_V2_PAGE_LIMIT', 5000))),
+  enableIncremental: boolFromEnv('ENABLE_HELIUS_V2_INCREMENTAL', false),
+} as const;
+
 // Queue and processing configuration
 export const PROCESSING_CONFIG = {
   WALLET_SYNC_CONCURRENCY: getEnvNumber('WALLET_SYNC_CONCURRENCY', 3),
