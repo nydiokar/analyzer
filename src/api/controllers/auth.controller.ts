@@ -1,9 +1,11 @@
-import { Controller, Post, Get, Body, Req, Res, HttpStatus, UseGuards, Logger, UseInterceptors, ValidationPipe } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, Res, HttpStatus, UseGuards, Logger, UseInterceptors, ValidationPipe, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { User } from '@prisma/client';
 import { AuthService, RegisterDto, LoginDto, AuthResponse } from '../shared/services/auth.service';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
+import { CsrfGuard } from '../shared/guards/csrf.guard';
+import { CsrfService } from '../shared/services/csrf.service';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
 import { EmailService } from '../shared/services/email.service';
 import { Public } from '../shared/decorators/public.decorator';
@@ -30,6 +32,41 @@ class LoginRequestDto {
   password: string;
 }
 
+class RefreshRequestDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Refresh token is required' })
+  refresh_token: string;
+}
+
+class PasswordResetRequestDto {
+  @IsEmail({}, { message: 'Please provide a valid email address' })
+  email: string;
+}
+
+class PasswordResetDto {
+  @IsEmail({}, { message: 'Please provide a valid email address' })
+  email: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Reset token is required' })
+  token: string;
+
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters long' })
+  newPassword: string;
+}
+
+class EmailChangeRequestDto {
+  @IsEmail({}, { message: 'Please provide a valid email address' })
+  newEmail: string;
+}
+
+class EmailChangeDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Change token is required' })
+  token: string;
+}
+
 interface AuthenticatedRequest extends Request {
   user?: User;
 }
@@ -45,6 +82,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
+    private readonly csrfService: CsrfService,
     private readonly securityLogger: SecurityLoggerService,
     private readonly emailService: EmailService,
   ) {
@@ -55,7 +93,7 @@ export class AuthController {
 
   @Post('register')
   @Public()
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(CsrfGuard, ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 requests per minute for registration
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({ type: RegisterRequestDto })
@@ -66,6 +104,7 @@ export class AuthController {
       type: 'object',
       properties: {
         access_token: { type: 'string' },
+        refresh_token: { type: 'string' },
         user: {
           type: 'object',
           properties: {
@@ -93,7 +132,7 @@ export class AuthController {
           httpOnly: true,
           secure: this.cookieSecure,
           sameSite: 'strict',
-          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+          maxAge: 30 * 60 * 1000, // 30 minutes to match token TTL
         });
       }
 
@@ -121,8 +160,9 @@ export class AuthController {
   }
 
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   @Public()
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(CsrfGuard, ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 requests per minute for login
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiBody({ type: LoginRequestDto })
@@ -133,6 +173,7 @@ export class AuthController {
       type: 'object',
       properties: {
         access_token: { type: 'string' },
+        refresh_token: { type: 'string' },
         user: {
           type: 'object',
           properties: {
@@ -159,7 +200,7 @@ export class AuthController {
           httpOnly: true,
           secure: this.cookieSecure,
           sameSite: 'strict',
-          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+          maxAge: 30 * 60 * 1000, // 30 minutes to match token TTL
         });
       }
 
@@ -169,6 +210,36 @@ export class AuthController {
       this.logger.error(`Login failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
+  }
+
+  @Get('csrf-token')
+  @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60000 } }) // 30 requests per minute
+  @ApiOperation({ summary: 'Get CSRF token (only when cookie mode enabled)' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'CSRF token generated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        csrfToken: { type: 'string' },
+        message: { type: 'string' },
+      }
+    }
+  })
+  async getCsrfToken(@Req() req: AuthenticatedRequest): Promise<{ csrfToken?: string; message: string }> {
+    if (!this.cookieMode) {
+      return { message: 'CSRF protection not enabled (not in cookie mode)' };
+    }
+
+    const sessionId = req.user?.id; // Use user ID as session ID if authenticated
+    const csrfToken = this.csrfService.generateCsrfToken(sessionId);
+    
+    return {
+      csrfToken,
+      message: 'Include this token in X-CSRF-Token header for state-changing requests',
+    };
   }
 
   @Get('me')
@@ -210,27 +281,101 @@ export class AuthController {
     };
   }
 
-  @Post('logout')
-  @UseGuards(CompositeAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Logout user (clear cookie if cookie mode enabled)' })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Logout successful' })
-  async logout(@Res({ passthrough: true }) response: Response): Promise<{ message: string }> {
-    // Clear cookie if cookie mode is enabled
-    if (this.cookieMode) {
-      response.clearCookie(this.cookieName, {
-        httpOnly: true,
-        secure: this.cookieSecure,
-        sameSite: 'strict',
-      });
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @Public()
+  @UseGuards(CsrfGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60000 } }) // 20 requests per minute for token refresh
+  @ApiOperation({ summary: 'Refresh access token using refresh token' })
+  @ApiBody({ type: RefreshRequestDto })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Token refreshed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        access_token: { type: 'string' },
+        refresh_token: { type: 'string' },
+        user: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            email: { type: 'string' },
+            isDemo: { type: 'boolean' },
+            emailVerified: { type: 'boolean' },
+          }
+        }
+      }
     }
+  })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Invalid or expired refresh token' })
+  async refresh(
+    @Body() refreshDto: RefreshRequestDto,
+    @Res({ passthrough: true }) response: Response
+  ): Promise<AuthResponse> {
+    try {
+      const result = await this.authService.refreshAccessToken(refreshDto.refresh_token);
 
-    this.logger.log('User logged out');
-    return { message: 'Logout successful' };
+      // Update cookie if cookie mode is enabled
+      if (this.cookieMode) {
+        response.cookie(this.cookieName, result.access_token, {
+          httpOnly: true,
+          secure: this.cookieSecure,
+          sameSite: 'strict',
+          maxAge: 30 * 60 * 1000, // 30 minutes for new short-lived token
+        });
+      }
+
+      this.logger.log(`Token refreshed for user: ${result.user.id}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Token refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
+    }
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @Public() // Allow both authenticated and unauthenticated requests
+  @UseGuards(CsrfGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Logout user and revoke refresh token' })
+  @ApiBody({ 
+    type: RefreshRequestDto,
+    required: false,
+    description: 'Optional refresh token to revoke specific session'
+  })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Logout successful' })
+  async logout(
+    @Body() body?: { refresh_token?: string },
+    @Res({ passthrough: true }) response?: Response
+  ): Promise<{ message: string }> {
+    try {
+      // Revoke refresh token session if provided
+      if (body?.refresh_token) {
+        await this.authService.logout(body.refresh_token);
+      }
+
+      // Clear cookie if cookie mode is enabled
+      if (this.cookieMode && response) {
+        response.clearCookie(this.cookieName, {
+          httpOnly: true,
+          secure: this.cookieSecure,
+          sameSite: 'strict',
+        });
+      }
+
+      this.logger.log('User logged out');
+      return { message: 'Logout successful' };
+    } catch (error) {
+      this.logger.warn(`Logout warning: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Don't fail logout even if refresh token revocation fails
+      return { message: 'Logout successful' };
+    }
   }
 
   @Post('request-verification')
-  @UseGuards(CompositeAuthGuard)
+  @UseGuards(CompositeAuthGuard, CsrfGuard)
   @Throttle({ default: { limit: 10, ttl: 300000 } }) // 10 requests per 5 minutes
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Request email verification' })
@@ -273,7 +418,7 @@ export class AuthController {
   }
 
   @Post('verify-email')
-  @UseGuards(CompositeAuthGuard, ThrottlerGuard)
+  @UseGuards(CompositeAuthGuard, CsrfGuard, ThrottlerGuard)
   @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Verify email with token' })
@@ -313,6 +458,139 @@ export class AuthController {
       const user = req.user!;
       this.securityLogger.logEmailVerificationAttempt(req, user.id, false, error instanceof Error ? error.message : 'Unknown error');
       this.logger.error(`Email verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
+    }
+  }
+
+  @Post('forgot-password')
+  @Public()
+  @UseGuards(CsrfGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 requests per 5 minutes
+  @ApiOperation({ summary: 'Request password reset token' })
+  @ApiBody({ type: PasswordResetRequestDto })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Password reset requested',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+      }
+    }
+  })
+  async forgotPassword(@Body() body: PasswordResetRequestDto): Promise<{ message: string }> {
+    try {
+      const result = await this.authService.requestPasswordReset(body.email);
+      
+      // TODO: Send email with reset token to user's email address
+      // For development, log the token
+      if (result.token) {
+        this.logger.warn(`🔑 DEVELOPMENT MODE - Password Reset Token for ${body.email}: ${result.token}`);
+      }
+      
+      return { message: result.message };
+    } catch (error) {
+      this.logger.error(`Password reset request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
+    }
+  }
+
+  @Post('reset-password')
+  @Public()
+  @UseGuards(CsrfGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
+  @ApiOperation({ summary: 'Reset password with token' })
+  @ApiBody({ type: PasswordResetDto })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Password reset successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        message: { type: 'string' },
+      }
+    }
+  })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Invalid reset token' })
+  async resetPassword(@Body() body: PasswordResetDto): Promise<{ success: boolean; message: string }> {
+    try {
+      const result = await this.authService.resetPassword(body.email, body.token, body.newPassword);
+      this.logger.log(`Password reset successful for: ${body.email}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Password reset failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
+    }
+  }
+
+  @Post('change-email')
+  @UseGuards(CompositeAuthGuard, CsrfGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 300000 } }) // 5 requests per 5 minutes
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Request email change' })
+  @ApiBody({ type: EmailChangeRequestDto })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Email change requested',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+      }
+    }
+  })
+  @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Email already in use' })
+  async changeEmail(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: EmailChangeRequestDto
+  ): Promise<{ message: string }> {
+    try {
+      const user = req.user!;
+      const result = await this.authService.requestEmailChange(user.id, body.newEmail);
+      
+      // TODO: Send email with change token to new email address
+      // For development, log the token
+      this.logger.warn(`🔑 DEVELOPMENT MODE - Email Change Token for user ${user.id}: ${result.token}`);
+      
+      return { message: result.message };
+    } catch (error) {
+      this.logger.error(`Email change request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
+    }
+  }
+
+  @Post('verify-email-change')
+  @UseGuards(CompositeAuthGuard, CsrfGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify email change with token' })
+  @ApiBody({ type: EmailChangeDto })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Email changed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        message: { type: 'string' },
+        newEmail: { type: 'string' },
+      }
+    }
+  })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Invalid change token' })
+  async verifyEmailChange(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: EmailChangeDto
+  ): Promise<{ success: boolean; message: string; newEmail?: string }> {
+    try {
+      const user = req.user!;
+      const result = await this.authService.verifyEmailChange(user.id, body.token);
+      
+      this.logger.log(`Email change verified for user: ${user.id}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Email change verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }

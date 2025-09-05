@@ -9,6 +9,10 @@ import { BotIntegrationController } from '../controllers/bot-integration.control
 import { AuthService } from '../shared/services/auth.service';
 import { JwtDatabaseService } from '../shared/services/jwt-database.service';
 import { JwtSecretValidatorService } from '../shared/services/jwt-secret-validator.service';
+import { RefreshTokenService } from '../shared/services/refresh-token.service';
+import { CsrfService } from '../shared/services/csrf.service';
+import { JwtKeyRotationService } from '../shared/services/jwt-key-rotation.service';
+import { ApiKeyService } from '../shared/services/api-key.service';
 import { SecurityCleanupService } from '../shared/services/security-cleanup.service';
 import { AdvancedThrottlerService } from '../shared/services/advanced-throttler.service';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
@@ -16,6 +20,7 @@ import { SecurityAlertsService } from '../shared/services/security-alerts.servic
 import { EmailService } from '../shared/services/email.service';
 import { JwtStrategy } from '../shared/strategies/jwt.strategy';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
+import { CsrfGuard } from '../shared/guards/csrf.guard';
 import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guard';
 
 @Module({
@@ -45,7 +50,7 @@ import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guar
         return {
           secret: jwtSecret,
           signOptions: {
-            expiresIn: configService.get<string>('JWT_EXPIRES_IN') || '7d',
+            expiresIn: configService.get<string>('JWT_EXPIRES_IN') || '30m', // Changed from 7d to 30m for short-lived tokens
           },
         };
       },
@@ -56,6 +61,10 @@ import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guar
   providers: [
     JwtDatabaseService,
     JwtSecretValidatorService,
+    RefreshTokenService,
+    CsrfService,
+    JwtKeyRotationService,
+    ApiKeyService,
     SecurityCleanupService,
     AdvancedThrottlerService,
     SecurityLoggerService,
@@ -64,13 +73,19 @@ import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guar
     AuthService,
     JwtStrategy,
     CompositeAuthGuard,
+    CsrfGuard,
     AdvancedThrottlerGuard,
   ],
   exports: [
     JwtDatabaseService,
+    RefreshTokenService,
+    CsrfService,
+    JwtKeyRotationService,
+    ApiKeyService,
     AuthService,
     JwtStrategy,
     CompositeAuthGuard,
+    CsrfGuard,
     AdvancedThrottlerService,
     SecurityLoggerService,
     SecurityAlertsService,

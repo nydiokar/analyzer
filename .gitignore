@@ -21,6 +21,7 @@ tests/
 tsconfig.tsbuildinfo
 migrate_rawdata_to_compressed.py
 run_vacuum.py
+*audit.json
 
 ## DATA 
 data/

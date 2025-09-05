@@ -21,7 +21,27 @@ Basic health check endpoint for monitoring system status.
 **Endpoints:**
 - `GET /health` - System health check
 
-### 2. Users Module (`/users`)
+### 2. Authentication Module (`/auth`)
+
+Complete JWT-based authentication system with email verification and security features.
+
+**Endpoints:**
+- `POST /auth/register` - Register new user account
+- `POST /auth/login` - Login with email and password
+- `GET /auth/me` - Get current user profile
+- `POST /auth/logout` - Logout user (clear cookies if enabled)
+- `POST /auth/request-verification` - Request email verification
+- `POST /auth/verify-email` - Verify email with token
+
+**Authentication:** Registration/Login are public, others require authentication  
+**Rate Limiting:** 
+- Registration: 5 requests/minute
+- Login: 10 requests/minute  
+- Email verification request: 10 requests per 5 minutes
+- Email verification: 3 attempts per 5 minutes
+- Profile access: No rate limiting
+
+### 3. Users Module (`/users`)
 
 User profile management for authenticated users.
 
@@ -33,7 +53,22 @@ User profile management for authenticated users.
 
 ---
 
-### 3. Wallets Module (`/wallets`) - Core Analysis
+### 4. Security Module (`/security`)
+
+Security monitoring, metrics, and alert management for system administrators.
+
+**Endpoints:**
+- `GET /security/metrics` - Get security metrics and monitoring data
+- `GET /security/health` - Security system health check
+- `GET /security/alerts` - Get active security alerts
+- `POST /security/alerts/{id}/resolve` - Resolve a security alert
+
+**Authentication:** Required (restricted to non-demo users)  
+**Rate Limiting:** 10-20 requests/minute
+
+---
+
+### 5. Wallets Module (`/wallets`) - Core Analysis
 
 The primary module for wallet analysis and data retrieval.
 
@@ -117,7 +152,7 @@ The primary module for wallet analysis and data retrieval.
 
 ---
 
-### 4. Analyses Module (`/analyses`) - Job Management
+### 6. Analyses Module (`/analyses`) - Job Management
 
 High-level analysis operations that queue background jobs.
 
@@ -155,7 +190,7 @@ High-level analysis operations that queue background jobs.
 
 ---
 
-### 5. Jobs Module (`/jobs`) - Queue Monitoring
+### 7. Jobs Module (`/jobs`) - Queue Monitoring
 
 Comprehensive job management and monitoring system.
 
@@ -193,19 +228,61 @@ Comprehensive job management and monitoring system.
 
 ---
 
-### 6. Additional Modules
+### 8. Additional Modules
 
-#### Token Info (`/token-info`)
-- Token metadata retrieval and caching
-- Integration with external token data providers
+#### User Favorites Module (`/users/me/favorites`)
+Personal wallet favorites management and organization.
 
-#### User Favorites (`/user-favorites`)  
-- Personal wallet favorites management
-- User-specific collections and tags
+**Endpoints:**
+- `POST /users/me/favorites` - Add wallet to favorites
+- `DELETE /users/me/favorites/{walletAddress}` - Remove wallet from favorites
+- `PUT /users/me/favorites/{walletAddress}` - Update favorite wallet
+- `POST /users/me/favorites/{walletAddress}/viewed` - Mark wallet as viewed
+- `GET /users/me/favorites` - Get all favorite wallets
+- `GET /users/me/favorites/tags` - Get favorite tags
+- `GET /users/me/favorites/collections` - Get favorite collections
 
-#### Test Controller (`/test`)
-- Development and testing endpoints
-- System validation utilities
+**Authentication:** Required  
+**Rate Limiting:** Standard
+
+#### Token Info Module (`/token-info`)
+Token metadata retrieval and caching system.
+
+**Endpoints:**
+- `POST /token-info` - Request token metadata enrichment
+
+**Authentication:** Required  
+**Rate Limiting:** Standard
+
+#### Bot Integration Module (`/bot`)
+External bot integration and monitoring endpoints.
+
+**Endpoints:**
+- `GET /bot/health` - Bot health check endpoint
+- `GET /bot/security-summary` - Security summary for bot reporting
+- `GET /bot/critical-alerts` - Get critical security alerts
+- `POST /bot/acknowledge` - Acknowledge alerts from external bot
+
+**Authentication:** Required  
+**Rate Limiting:** 10-60 requests/minute (varies by endpoint)
+
+#### Test Controller (`/test-auth`)
+Development and testing endpoints for authentication validation.
+
+**Endpoints:**
+- Various test endpoints for development
+
+**Authentication:** Varies by endpoint  
+**Rate Limiting:** Standard
+
+#### Health Module (`/health`)
+System health monitoring and status checks.
+
+**Endpoints:**
+- `GET /health` - Basic system health check
+
+**Authentication:** Not required  
+**Rate Limiting:** Standard
 
 ---
 
@@ -268,6 +345,48 @@ All analysis endpoints return job IDs that can be monitored via the Jobs API. Th
 }
 ```
 
+### Authentication Error Responses
+
+#### Invalid Credentials
+```json
+{
+  "statusCode": 401,
+  "message": "Invalid email or password",
+  "error": "Unauthorized",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+#### Token Expired
+```json
+{
+  "statusCode": 401,
+  "message": "Token has expired",
+  "error": "Unauthorized",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+#### Demo User Restriction
+```json
+{
+  "statusCode": 403,
+  "message": "This wallet is not available in the Demo account.",
+  "error": "Forbidden",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+#### Email Already Verified
+```json
+{
+  "statusCode": 409,
+  "message": "Email is already verified",
+  "error": "Conflict",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
 ---
 
 ## Rate Limiting & Caching
@@ -286,10 +405,208 @@ All analysis endpoints return job IDs that can be monitored via the Jobs API. Th
 
 ## Authentication & Security
 
-### API Key Authentication
-All endpoints (except health) require API key authentication via:
-- Header: `Authorization: Bearer {api_key}`
-- Header: `X-API-Key: {api_key}`
+### Dual Authentication System
+The API supports two authentication methods with automatic fallback:
+
+#### 1. JWT Authentication (Preferred)
+- **Header:** `Authorization: Bearer {jwt_token}`
+- **Cookie:** `analyzer.sid` (if cookie mode enabled)
+- **Token Type:** JWT (JSON Web Token)
+- **Expiration:** 7 days (configurable)
+- **Features:** 
+  - Stateless authentication
+  - Built-in expiration handling
+  - User context caching (15 minutes)
+  - Automatic token validation
+  - Optional HTTP-only cookie support
+
+#### 2. API Key Authentication (Legacy/Backup)
+- **Header:** `X-API-Key: {api_key}`
+- **Features:**
+  - Backward compatibility
+  - API key caching (5 minutes)
+  - User validation on each request
+
+### Cookie Authentication Support
+
+The API supports optional HTTP-only cookie authentication for enhanced security:
+
+#### Configuration
+- **Environment Variable:** `AUTH_COOKIE_MODE=true`
+- **Cookie Name:** `analyzer.sid` (configurable via `AUTH_COOKIE_NAME`)
+- **Security:** HTTP-only, Secure, SameSite=strict
+- **Expiration:** 7 days (matches JWT expiration)
+
+#### Cookie Behavior
+- **Auto-Set:** Cookies are automatically set on successful login/registration
+- **Auto-Clear:** Cookies are cleared on logout
+- **Fallback:** Header authentication still works when cookies are disabled
+- **Security:** Prevents XSS attacks via HTTP-only flag
+
+### Authentication Flow
+
+#### Registration
+```http
+POST /api/auth/register
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SecurePassword123"
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "isDemo": false,
+    "emailVerified": false
+  }
+}
+```
+
+#### Login
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SecurePassword123"
+}
+```
+
+**Response:** Same as registration
+
+#### Profile Access
+```http
+GET /api/auth/me
+Authorization: Bearer {jwt_token}
+```
+
+**Response:**
+```json
+{
+  "id": "user_123",
+  "email": "user@example.com",
+  "isDemo": false,
+  "emailVerified": true,
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "lastLoginAt": "2024-01-01T12:00:00.000Z"
+}
+```
+
+### Email Verification System
+
+#### Request Verification
+```http
+POST /api/auth/request-verification
+Authorization: Bearer {jwt_token}
+```
+
+#### Verify Email
+```http
+POST /api/auth/verify-email
+Authorization: Bearer {jwt_token}
+Content-Type: application/json
+
+{
+  "token": "verification_token_here"
+}
+```
+
+### User Types & Permissions
+
+#### Regular Users
+- Full access to all wallet analysis features
+- Can create, edit, and delete notes
+- Can manage favorites
+- Access to all wallet addresses
+
+#### Demo Users
+- **Restricted Access:** Limited to predefined demo wallets
+- **Read-Only:** Cannot perform write operations (except favorites)
+- **Notes:** Can only read notes, cannot create/edit/delete
+- **Wallet Access:** Only demo wallets from `DEMO_WALLETS` environment variable
+
+### Security Features
+
+#### Password Security
+- **Minimum Length:** 8 characters
+- **Requirements:** Uppercase, lowercase, and number
+- **Hashing:** bcrypt with 12 salt rounds
+- **Pepper:** Additional secret pepper for enhanced security
+
+#### JWT Security
+- **Secret Validation:** JWT secret must meet security requirements
+- **Token Structure:** Contains user ID and email
+- **Expiration:** Automatic token expiration
+- **Validation:** Database user validation on each request
+
+#### Rate Limiting
+- **Registration:** 5 requests/minute
+- **Login:** 10 requests/minute
+- **Email Verification Request:** 10 requests per 5 minutes
+- **Email Verification:** 3 attempts per 5 minutes
+- **Profile Access (`/users/me`):** 30 requests/minute
+- **Profile Access (`/auth/me`):** No rate limiting
+- **Security Metrics:** 10 requests/minute
+- **Security Health:** 20 requests/minute
+- **Security Alerts:** 20 requests/minute
+
+### Security Monitoring
+
+#### Security Metrics
+```http
+GET /api/security/metrics?timeRange=hour
+Authorization: Bearer {jwt_token}
+```
+
+**Response:**
+```json
+{
+  "securityEvents": {
+    "totalEvents": 150,
+    "eventsBySeverity": {
+      "LOW": 100,
+      "MEDIUM": 40,
+      "HIGH": 8,
+      "CRITICAL": 2
+    },
+    "eventsByType": {
+      "AUTH_FAILURE": 50,
+      "RATE_LIMIT": 30,
+      "SUSPICIOUS_ACTIVITY": 20
+    },
+    "uniqueIpsWithIssues": 15,
+    "recentSuspiciousActivity": [...],
+    "topRiskIps": [...]
+  },
+  "throttlerStats": {
+    "blockedIps": 5,
+    "recentEvents": 25,
+    "topViolatingIps": [...]
+  },
+  "timestamp": "2024-01-01T12:00:00.000Z",
+  "timeRange": "hour"
+}
+```
+
+#### Security Health Check
+```http
+GET /api/security/health
+Authorization: Bearer {jwt_token}
+```
+
+#### Active Alerts
+```http
+GET /api/security/alerts
+Authorization: Bearer {jwt_token}
+```
 
 ### User Context
 Authenticated requests include user context for:
@@ -297,6 +614,7 @@ Authenticated requests include user context for:
 - User-specific data (notes, favorites)
 - Rate limiting per user
 - Access control and permissions
+- Demo user restrictions
 
 ---
 
@@ -326,11 +644,13 @@ Authenticated requests include user context for:
 
 ### Common HTTP Status Codes
 - `200` - Success
+- `201` - Created (user registration)
 - `202` - Accepted (async operation queued)
 - `400` - Bad Request (validation errors)
-- `401` - Unauthorized (missing/invalid API key)
-- `403` - Forbidden (access denied)
+- `401` - Unauthorized (missing/invalid credentials)
+- `403` - Forbidden (access denied, demo user restrictions)
 - `404` - Not Found (wallet/resource not found)
+- `409` - Conflict (user already exists, email already verified)
 - `429` - Too Many Requests (rate limit exceeded)
 - `500` - Internal Server Error
 - `503` - Service Unavailable (system overload)

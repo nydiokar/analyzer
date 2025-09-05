@@ -2,6 +2,8 @@ import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, Forbi
 import { Request } from 'express';
 import { JwtDatabaseService } from '../services/jwt-database.service';
 import { AuthService } from '../services/auth.service';
+import { ApiKeyService, ApiKeyScope } from '../services/api-key.service';
+import { JwtKeyRotationService } from '../services/jwt-key-rotation.service';
 import { SecurityLoggerService } from '../services/security-logger.service';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
@@ -11,6 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 
 interface AuthenticatedRequest extends Request {
   user?: User;
+  apiKeyScopes?: ApiKeyScope[];
 }
 
 @Injectable()
@@ -25,6 +28,8 @@ export class CompositeAuthGuard implements CanActivate {
   constructor(
     private readonly databaseService: JwtDatabaseService,
     private readonly authService: AuthService,
+    private readonly apiKeyService: ApiKeyService,
+    private readonly keyRotationService: JwtKeyRotationService,
     private readonly jwtService: JwtService,
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
@@ -72,12 +77,13 @@ export class CompositeAuthGuard implements CanActivate {
     const apiKey = request.headers['x-api-key'] as string | undefined;
     if (apiKey) {
       try {
-        const user = await this.validateApiKey(apiKey);
-        if (user) {
-          request.user = user;
-          this.checkDemoPermissions(request, user);
+        const result = await this.validateApiKey(apiKey);
+        if (result && result.user) {
+          request.user = result.user;
+          request.apiKeyScopes = result.scopes;
+          this.checkDemoPermissions(request, result.user);
           // Security logging handled at controller level
-          this.logger.debug(`User ${user.id} authenticated via API key`);
+          this.logger.debug(`User ${result.user.id} authenticated via API key with scopes: ${result.scopes?.join(', ')}`);
           return true;
         }
       } catch (error) {
@@ -111,13 +117,31 @@ export class CompositeAuthGuard implements CanActivate {
         }
       }
 
-      // Verify JWT token
-      const payload = this.jwtService.verify(token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-      });
+      // Verify JWT token using key rotation service
+      const decoded = this.decodeJwtHeader(token);
+      const keyId = decoded?.kid;
+      let secret = this.configService.get<string>('JWT_SECRET');
+      
+      if (keyId) {
+        const key = this.keyRotationService.getKey(keyId);
+        if (key && key.isActive) {
+          secret = key.secret;
+        }
+      }
+
+      const payload = this.jwtService.verify(token, { secret, clockTolerance: 120, ignoreExpiration: false });
 
       if (!payload.sub || !payload.email) {
         throw new UnauthorizedException('Invalid token payload');
+      }
+      // Validate issuer/audience if present
+      const expectedIssuer = this.configService.get<string>('JWT_ISSUER') || 'analyzer-api';
+      const expectedAudience = this.configService.get<string>('JWT_AUDIENCE') || 'analyzer-client';
+      if (payload.iss && payload.iss !== expectedIssuer) {
+        throw new UnauthorizedException('Invalid token issuer');
+      }
+      if (payload.aud && payload.aud !== expectedAudience) {
+        throw new UnauthorizedException('Invalid token audience');
       }
 
       // Get user from database
@@ -152,38 +176,23 @@ export class CompositeAuthGuard implements CanActivate {
     }
   }
 
-  private async validateApiKey(apiKey: string): Promise<User | null> {
-    // Check cache first
-    const cached = this.apiKeyCache.get(apiKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      // Even with cache hit, validate user is still active
-      const freshUser = await this.databaseService.findActiveUserById(cached.user.id);
-      if (freshUser && freshUser.isActive) {
-        this.logger.debug(`API key cache hit for user: ${freshUser.id}`);
-        return freshUser;
-      } else {
-        // User is no longer active, remove from cache
-        this.apiKeyCache.delete(apiKey);
-        this.logger.warn(`Cached API key user is no longer active, removed from cache: ${cached.user.id}`);
+  private async validateApiKey(apiKey: string): Promise<{ user: User; scopes: ApiKeyScope[] } | null> {
+    try {
+      // Use the new API key service for validation
+      const result = await this.apiKeyService.validateApiKey(apiKey);
+      
+      if (!result.isValid || !result.user) {
+        throw new UnauthorizedException('Invalid or inactive API key');
       }
+
+      return {
+        user: result.user,
+        scopes: result.scopes || []
+      };
+    } catch (error) {
+      this.logger.warn(`Enhanced API key validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new UnauthorizedException('API key validation failed');
     }
-
-    // If not in cache or expired, validate against DB
-    const user = await this.databaseService.validateApiKey(apiKey);
-    if (!user) {
-      throw new UnauthorizedException('Invalid or inactive API key');
-    }
-
-    // Add to cache with TTL
-    this.apiKeyCache.set(apiKey, {
-      user,
-      expiresAt: Date.now() + this.API_KEY_CACHE_TTL
-    });
-
-    // Clean cache if it gets too large
-    this.cleanCacheIfNeeded();
-
-    return user;
   }
 
   private checkDemoPermissions(request: Request, user: User) {
@@ -244,6 +253,17 @@ export class CompositeAuthGuard implements CanActivate {
     if (this.apiKeyCache.size > 1000) {
       this.logger.log('API key cache size limit exceeded, clearing all entries');
       this.apiKeyCache.clear();
+    }
+  }
+
+  private decodeJwtHeader(token: string): any {
+    try {
+      const headerB64 = token.split('.')[0];
+      const headerJson = Buffer.from(headerB64, 'base64url').toString();
+      return JSON.parse(headerJson);
+    } catch (error) {
+      this.logger.warn('Failed to decode JWT header:', error);
+      return null;
     }
   }
 

@@ -6,6 +6,8 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { JwtDatabaseService } from './jwt-database.service';
 import { SecurityLoggerService } from './security-logger.service';
+import { RefreshTokenService } from './refresh-token.service';
+import { JwtKeyRotationService } from './jwt-key-rotation.service';
 
 export interface RegisterDto {
   email: string;
@@ -20,12 +22,16 @@ export interface LoginDto {
 export interface JwtPayload {
   sub: string; // user id
   email: string;
+  iss?: string; // issuer
+  aud?: string; // audience
   iat?: number;
   exp?: number;
+  nbf?: number; // not before
 }
 
 export interface AuthResponse {
   access_token: string;
+  refresh_token: string;
   user: {
     id: string;
     email: string;
@@ -47,6 +53,8 @@ export class AuthService {
     private readonly databaseService: JwtDatabaseService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly refreshTokenService: RefreshTokenService,
+    private readonly keyRotationService: JwtKeyRotationService,
     // Security logger will be injected via method calls to avoid circular dependency
   ) {
     // Load password pepper from environment
@@ -108,10 +116,14 @@ export class AuthService {
         sub: user.id,
         email: user.email!,
       };
-      const access_token = this.jwtService.sign(payload);
+      const access_token = this.signJwtWithEnhancedSecurity(payload);
+
+      // Generate refresh token
+      const refresh_token = await this.refreshTokenService.createRefreshSession(user.id, 'Registration Device');
 
       return {
         access_token,
+        refresh_token,
         user: {
           id: user.id,
           email: user.email!,
@@ -158,10 +170,14 @@ export class AuthService {
         sub: user.id,
         email: user.email!,
       };
-      const access_token = this.jwtService.sign(payload);
+      const access_token = this.signJwtWithEnhancedSecurity(payload);
+
+      // Generate refresh token
+      const refresh_token = await this.refreshTokenService.createRefreshSession(user.id, 'Login Device');
 
       return {
         access_token,
+        refresh_token,
         user: {
           id: user.id,
           email: user.email!,
@@ -368,10 +384,293 @@ export class AuthService {
       const passwordHash = await this.hashPassword(passwordWithPepper);
       
       await this.databaseService.updateUserPassword(userId, passwordHash);
+      
+      // Revoke all refresh sessions after password change for security
+      await this.refreshTokenService.revokeAllUserSessions(userId);
+      
       this.logger.log(`Password updated for user: ${userId}`);
     } catch (error) {
       this.logger.error(`Failed to update password for user: ${userId}`, error);
       throw new UnauthorizedException('Password update failed');
     }
+  }
+
+  /**
+   * Generate password reset token
+   */
+  generatePasswordResetToken(): string {
+    return crypto.randomBytes(32).toString('hex');
+  }
+
+  /**
+   * Request password reset
+   */
+  async requestPasswordReset(email: string): Promise<{ token: string; message: string }> {
+    // Always perform timing-consistent operations
+    const user = await this.databaseService.findUserByEmail(email);
+    const resetToken = this.generatePasswordResetToken();
+    
+    // Add random delay to prevent timing attacks for user enumeration
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 100 + 50)); // 50-150ms delay
+
+    if (user && user.isActive) {
+      // Invalidate any existing reset tokens for this user
+      await this.databaseService.invalidateExistingPasswordResetTokens(user.id);
+
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+      
+      // Store the hashed token in database
+      const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+      await this.databaseService.createPasswordResetToken(user.id, hashedToken, expiresAt);
+      
+      this.logger.log(`Password reset requested for user: ${user.id}`);
+      
+      return { 
+        token: resetToken,
+        message: 'If this email is associated with an account, a password reset token has been generated.' 
+      };
+    }
+
+    // Don't reveal whether the email exists
+    return { 
+      token: resetToken, // Return a dummy token to maintain consistent timing
+      message: 'If this email is associated with an account, a password reset token has been generated.'
+    };
+  }
+
+  /**
+   * Reset password with token - SECURE IMPLEMENTATION
+   */
+  async resetPassword(email: string, token: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    // Validate token format
+    if (!token || typeof token !== 'string' || token.length < 32) {
+      this.logger.warn(`Invalid reset token format for email: ${email}`);
+      throw new UnauthorizedException('Invalid password reset token format');
+    }
+
+    // Validate new password strength
+    if (!this.isStrongPassword(newPassword)) {
+      throw new UnauthorizedException('Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number');
+    }
+
+    const user = await this.databaseService.findUserByEmail(email);
+    if (!user || !user.isActive) {
+      this.logger.warn(`Password reset attempt for non-existent or inactive user: ${email}`);
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    // Hash the token to find in database
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    
+    // Find and validate the token in database
+    const resetToken = await this.databaseService.findValidPasswordResetToken(user.id, hashedToken);
+    
+    if (!resetToken) {
+      this.logger.warn(`Invalid or expired password reset token for user: ${user.id}`);
+      throw new UnauthorizedException('Invalid or expired password reset token');
+    }
+
+    if (resetToken.used) {
+      this.logger.warn(`Already used password reset token for user: ${user.id}`);
+      throw new UnauthorizedException('This password reset token has already been used');
+    }
+
+    if (resetToken.expiresAt < new Date()) {
+      this.logger.warn(`Expired password reset token for user: ${user.id}`);
+      throw new UnauthorizedException('Password reset token has expired');
+    }
+
+    // Update password and mark token as used
+    await this.updateUserPassword(user.id, newPassword);
+    await this.databaseService.markPasswordResetTokenAsUsed(resetToken.id);
+    
+    this.logger.log(`Password successfully reset for user: ${user.id}`);
+    
+    return { success: true, message: 'Password reset successfully' };
+  }
+
+  /**
+   * Request email change
+   */
+  async requestEmailChange(userId: string, newEmail: string): Promise<{ token: string; message: string }> {
+    // Validate email format
+    if (!this.isValidEmail(newEmail)) {
+      throw new UnauthorizedException('Invalid email format');
+    }
+
+    const user = await this.databaseService.findUserById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Check if new email is already in use
+    const existingUser = await this.databaseService.findUserByEmail(newEmail);
+    if (existingUser && existingUser.id !== userId) {
+      throw new ConflictException('Email already in use');
+    }
+
+    // Invalidate any existing email change tokens for this user
+    await this.databaseService.invalidateExistingEmailChangeTokens(userId);
+
+    const changeToken = this.generateVerificationToken();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    
+    // Store the hashed token in database with new email
+    const hashedToken = crypto.createHash('sha256').update(changeToken).digest('hex');
+    await this.databaseService.createEmailChangeToken(userId, hashedToken, newEmail, expiresAt);
+    
+    this.logger.log(`Email change requested for user: ${userId} to ${newEmail}`);
+    
+    return { 
+      token: changeToken,
+      message: 'Email change token generated. Verify with the new email address.' 
+    };
+  }
+
+  /**
+   * Verify email change with token - SECURE IMPLEMENTATION
+   */
+  async verifyEmailChange(userId: string, token: string): Promise<{ success: boolean; message: string; newEmail?: string }> {
+    // Validate token format
+    if (!token || typeof token !== 'string' || token.length < 32) {
+      this.logger.warn(`Invalid email change token format for user: ${userId}`);
+      throw new UnauthorizedException('Invalid email change token format');
+    }
+
+    const user = await this.databaseService.findUserById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Hash the token to find in database
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    
+    // Find and validate the token in database
+    const changeToken = await this.databaseService.findValidEmailChangeToken(userId, hashedToken);
+    
+    if (!changeToken) {
+      this.logger.warn(`Invalid or expired email change token for user: ${userId}`);
+      throw new UnauthorizedException('Invalid or expired email change token');
+    }
+
+    if (changeToken.used) {
+      this.logger.warn(`Already used email change token for user: ${userId}`);
+      throw new UnauthorizedException('This email change token has already been used');
+    }
+
+    if (changeToken.expiresAt < new Date()) {
+      this.logger.warn(`Expired email change token for user: ${userId}`);
+      throw new UnauthorizedException('Email change token has expired');
+    }
+
+    // Check if the new email is still available
+    const existingUser = await this.databaseService.findUserByEmail(changeToken.newEmail);
+    if (existingUser && existingUser.id !== userId) {
+      this.logger.warn(`Email change failed - email now in use: ${changeToken.newEmail}`);
+      throw new ConflictException('The new email address is now in use by another account');
+    }
+
+    // Update email, mark token as used, and revoke all sessions for security
+    await this.databaseService.updateUserEmail(userId, changeToken.newEmail);
+    await this.databaseService.markEmailChangeTokenAsUsed(changeToken.id);
+    await this.refreshTokenService.revokeAllUserSessions(userId);
+    
+    this.logger.log(`Email successfully changed for user: ${userId} to ${changeToken.newEmail}`);
+    
+    return { 
+      success: true, 
+      message: 'Email address updated successfully. Please log in again.',
+      newEmail: changeToken.newEmail 
+    };
+  }
+
+  /**
+   * Refresh access token using refresh token
+   */
+  async refreshAccessToken(refreshToken: string): Promise<AuthResponse> {
+    // Detect potential replay attacks
+    const isReplay = await this.refreshTokenService.detectReplay(refreshToken);
+    if (isReplay) {
+      throw new UnauthorizedException('Security violation detected - all sessions revoked');
+    }
+
+    // Rotate the refresh token and get session
+    const result = await this.refreshTokenService.rotateRefreshToken(refreshToken);
+    if (!result) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const { newRefreshToken, session } = result;
+
+    // Get user data
+    const user = await this.databaseService.findActiveUserById(session.userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    // Generate new access token
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email!,
+    };
+    const access_token = this.signJwtWithEnhancedSecurity(payload);
+
+    this.logger.log(`Access token refreshed for user: ${user.id}`);
+
+    return {
+      access_token,
+      refresh_token: newRefreshToken,
+      user: {
+        id: user.id,
+        email: user.email!,
+        isDemo: user.isDemo,
+        emailVerified: user.emailVerified,
+      },
+    };
+  }
+
+  /**
+   * Logout - revoke specific session
+   */
+  async logout(refreshToken: string): Promise<void> {
+    const session = await this.refreshTokenService.getSessionByRefreshToken(refreshToken);
+    if (session) {
+      await this.refreshTokenService.revokeSession(session.sessionId);
+      this.logger.log(`User logged out: ${session.userId}, session: ${session.sessionId}`);
+    }
+  }
+
+  /**
+   * Logout all sessions for a user
+   */
+  async logoutAllSessions(userId: string): Promise<void> {
+    await this.refreshTokenService.revokeAllUserSessions(userId);
+    this.logger.log(`All sessions revoked for user: ${userId}`);
+  }
+
+  /**
+   * Sign JWT with enhanced security (kid header, iss/aud/nbf claims)
+   */
+  private signJwtWithEnhancedSecurity(payload: JwtPayload): string {
+    const currentKey = this.keyRotationService.getCurrentKey();
+    const now = Math.floor(Date.now() / 1000);
+    
+    // Add enhanced claims
+    const enhancedPayload: JwtPayload = {
+      ...payload,
+      iss: this.configService.get<string>('JWT_ISSUER') || 'analyzer-api',
+      aud: this.configService.get<string>('JWT_AUDIENCE') || 'analyzer-client',
+      nbf: now, // Not valid before now
+    };
+
+    // Sign with current key and add kid to header
+    return this.jwtService.sign(enhancedPayload, {
+      secret: currentKey.secret,
+      header: {
+        alg: 'HS256',
+        typ: 'JWT',
+        kid: currentKey.id,
+      },
+    });
   }
 }

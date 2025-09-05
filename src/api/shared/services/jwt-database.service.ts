@@ -21,7 +21,8 @@ export class JwtDatabaseService {
 
   async findActiveUserById(userId: string): Promise<User | null> {
     try {
-      return await (this.databaseService as any).prismaClient.user.findUnique({
+      // Use findFirst with filter on isActive; Prisma findUnique cannot include non-unique fields
+      return await (this.databaseService as any).prismaClient.user.findFirst({
         where: { 
           id: userId,
           isActive: true,
@@ -151,5 +152,245 @@ export class JwtDatabaseService {
       where: { id: userId },
       data: { passwordHash },
     });
+  }
+
+  // Update user email
+  async updateUserEmail(userId: string, email: string): Promise<void> {
+    await (this.databaseService as any).prismaClient.user.update({
+      where: { id: userId },
+      data: { email },
+    });
+  }
+
+  // Password reset token methods
+  async createPasswordResetToken(userId: string, hashedToken: string, expiresAt: Date): Promise<void> {
+    await (this.databaseService as any).prismaClient.passwordResetToken.create({
+      data: {
+        userId,
+        token: hashedToken,
+        expiresAt,
+      },
+    });
+  }
+
+  async findValidPasswordResetToken(userId: string, hashedToken: string): Promise<any> {
+    try {
+      return await (this.databaseService as any).prismaClient.passwordResetToken.findFirst({
+        where: {
+          userId,
+          token: hashedToken,
+          used: false,
+          expiresAt: {
+            gt: new Date(),
+          },
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to find password reset token for user: ${userId}`, error);
+      return null;
+    }
+  }
+
+  async markPasswordResetTokenAsUsed(tokenId: string): Promise<void> {
+    await (this.databaseService as any).prismaClient.passwordResetToken.update({
+      where: { id: tokenId },
+      data: { used: true },
+    });
+  }
+
+  async invalidateExistingPasswordResetTokens(userId: string): Promise<void> {
+    await (this.databaseService as any).prismaClient.passwordResetToken.updateMany({
+      where: {
+        userId,
+        used: false,
+      },
+      data: { used: true },
+    });
+  }
+
+  // Email change token methods
+  async createEmailChangeToken(userId: string, hashedToken: string, newEmail: string, expiresAt: Date): Promise<void> {
+    await (this.databaseService as any).prismaClient.emailChangeToken.create({
+      data: {
+        userId,
+        token: hashedToken,
+        newEmail,
+        expiresAt,
+      },
+    });
+  }
+
+  async findValidEmailChangeToken(userId: string, hashedToken: string): Promise<any> {
+    try {
+      return await (this.databaseService as any).prismaClient.emailChangeToken.findFirst({
+        where: {
+          userId,
+          token: hashedToken,
+          used: false,
+          expiresAt: {
+            gt: new Date(),
+          },
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to find email change token for user: ${userId}`, error);
+      return null;
+    }
+  }
+
+  async markEmailChangeTokenAsUsed(tokenId: string): Promise<void> {
+    await (this.databaseService as any).prismaClient.emailChangeToken.update({
+      where: { id: tokenId },
+      data: { used: true },
+    });
+  }
+
+  async invalidateExistingEmailChangeTokens(userId: string): Promise<void> {
+    await (this.databaseService as any).prismaClient.emailChangeToken.updateMany({
+      where: {
+        userId,
+        used: false,
+      },
+      data: { used: true },
+    });
+  }
+
+  // Cleanup expired tokens (should be called periodically)
+  async cleanupExpiredPasswordResetTokens(): Promise<void> {
+    const deletedCount = await (this.databaseService as any).prismaClient.passwordResetToken.deleteMany({
+      where: {
+        expiresAt: {
+          lt: new Date(),
+        },
+      },
+    });
+    this.logger.log(`Cleaned up ${deletedCount.count} expired password reset tokens`);
+  }
+
+  async cleanupExpiredEmailChangeTokens(): Promise<void> {
+    const deletedCount = await (this.databaseService as any).prismaClient.emailChangeToken.deleteMany({
+      where: {
+        expiresAt: {
+          lt: new Date(),
+        },
+      },
+    });
+    this.logger.log(`Cleaned up ${deletedCount.count} expired email change tokens`);
+  }
+
+  // Enhanced API Key methods
+  async createApiKey(data: {
+    prefix: string;
+    keyHash: string;
+    userId: string;
+    description: string;
+    scopes: string[];
+    isActive: boolean;
+    expiresAt?: Date;
+  }): Promise<any> {
+    return await (this.databaseService as any).prismaClient.apiKey.create({
+      data: {
+        ...data,
+        scopes: JSON.stringify(data.scopes), // Store as JSON string
+      },
+    });
+  }
+
+  async findApiKeyByPrefix(prefix: string): Promise<any> {
+    try {
+      const key = await (this.databaseService as any).prismaClient.apiKey.findFirst({
+        where: { prefix },
+      });
+      
+      if (key && key.scopes) {
+        // Parse JSON scopes back to array
+        key.scopes = JSON.parse(key.scopes);
+      }
+      
+      return key;
+    } catch (error) {
+      this.logger.error(`Failed to find API key by prefix: ${prefix}`, error);
+      return null;
+    }
+  }
+
+  async findApiKeyById(keyId: string): Promise<any> {
+    try {
+      const key = await (this.databaseService as any).prismaClient.apiKey.findUnique({
+        where: { id: keyId },
+      });
+      
+      if (key && key.scopes) {
+        key.scopes = JSON.parse(key.scopes);
+      }
+      
+      return key;
+    } catch (error) {
+      this.logger.error(`Failed to find API key by ID: ${keyId}`, error);
+      return null;
+    }
+  }
+
+  async findApiKeysByUserId(userId: string): Promise<any[]> {
+    try {
+      const keys = await (this.databaseService as any).prismaClient.apiKey.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      });
+      
+      return keys.map(key => ({
+        ...key,
+        scopes: key.scopes ? JSON.parse(key.scopes) : [],
+      }));
+    } catch (error) {
+      this.logger.error(`Failed to find API keys for user: ${userId}`, error);
+      return [];
+    }
+  }
+
+  async updateApiKeyLastUsed(keyId: string): Promise<void> {
+    try {
+      await (this.databaseService as any).prismaClient.apiKey.update({
+        where: { id: keyId },
+        data: { lastUsedAt: new Date() },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to update last used for API key: ${keyId}`, error);
+    }
+  }
+
+  async updateApiKeyStatus(keyId: string, isActive: boolean): Promise<void> {
+    await (this.databaseService as any).prismaClient.apiKey.update({
+      where: { id: keyId },
+      data: { isActive },
+    });
+  }
+
+  async updateApiKeyMetadata(keyId: string, updates: { description?: string; scopes?: string[] }): Promise<void> {
+    const updateData: any = {};
+    
+    if (updates.description !== undefined) {
+      updateData.description = updates.description;
+    }
+    
+    if (updates.scopes !== undefined) {
+      updateData.scopes = JSON.stringify(updates.scopes);
+    }
+    
+    await (this.databaseService as any).prismaClient.apiKey.update({
+      where: { id: keyId },
+      data: updateData,
+    });
+  }
+
+  async deleteExpiredApiKeys(): Promise<number> {
+    const deletedResult = await (this.databaseService as any).prismaClient.apiKey.deleteMany({
+      where: {
+        expiresAt: {
+          lt: new Date(),
+        },
+      },
+    });
+    return deletedResult.count;
   }
 }
