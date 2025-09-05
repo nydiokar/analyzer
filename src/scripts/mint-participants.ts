@@ -17,6 +17,7 @@ interface CliArgs {
   until: string;
   limitBuyers: number;
   addressType: 'mint' | 'bonding-curve' | 'auto';
+  bondingCurve?: string;
   txCountLimit: number;
   output: 'jsonl' | 'csv';
   outFile?: string;
@@ -45,6 +46,7 @@ async function main() {
         .option('until', { type: 'string', demandOption: true, desc: 'Cutoff time (ISO, unix s, or unix ms)' })
         .option('limitBuyers', { type: 'number', default: 20, desc: 'Number of last buyers to return' })
         .option('addressType', { choices: ['mint', 'bonding-curve', 'auto'] as const, default: 'auto', desc: 'Source address type' })
+        .option('bondingCurve', { type: 'string', desc: 'Bonding-curve address (use with --addressType bonding-curve or auto)' })
         .option('txCountLimit', { type: 'number', default: 500, desc: 'Max signatures to scan per wallet for counts' })
         .option('output', { choices: ['jsonl', 'csv'] as const, default: 'jsonl', desc: 'Output format' })
         .option('outFile', { type: 'string', desc: 'Output file path (defaults per format)' })
@@ -54,17 +56,25 @@ async function main() {
         .option('dryRun', { type: 'boolean', default: false })
         .option('verbose', { type: 'boolean', default: false })
     )
+    .command('parse', 'Reduce mint-participants JSONL into a minimal mutual schema', (y) =>
+      y
+        .option('inFile', { type: 'string', desc: 'Input JSONL file (defaults to analyses/mint_participants/index.jsonl)' })
+        .option('outFile', { type: 'string', desc: 'Output file path (default analyses/mint_participants/mutual.jsonl or .csv)' })
+        .option('output', { choices: ['jsonl', 'csv'] as const, default: 'jsonl', desc: 'Output format' })
+    )
     .demandCommand(1)
     .strict()
     .parseAsync() as unknown as { _: [string]; [k: string]: unknown } & Partial<CliArgs>;
 
   const command = argv._[0];
-  if (command !== 'scan') {
+  if (command !== 'scan' && command !== 'parse') {
     console.error('Unknown command');
     process.exit(1);
   }
 
-  // Validate core args
+  // scan subcommand
+  if (command === 'scan') {
+    // Validate core args
   const mint = String(argv.mint || '').trim();
   const untilStr = String(argv.until || '').trim();
   if (!mint) {
@@ -90,6 +100,7 @@ async function main() {
     until: untilStr,
     limitBuyers: Number(argv.limitBuyers ?? 20),
     addressType: (argv.addressType as CliArgs['addressType']) ?? 'auto',
+    bondingCurve: (argv.bondingCurve as string | undefined),
     txCountLimit: Number(argv.txCountLimit ?? 500),
     output: (argv.output as CliArgs['output']) ?? 'jsonl',
     outFile: (argv.outFile as string | undefined),
@@ -100,6 +111,11 @@ async function main() {
     creationSkipIfTokenAccountsOver: argv.creationSkipIfTokenAccountsOver as number | undefined,
   };
 
+  // Apply safe default skip threshold for massive wallets when doing creation scans
+  if (args.creationScan === 'full' && (args.creationSkipIfTokenAccountsOver == null)) {
+    args.creationSkipIfTokenAccountsOver = 10000;
+  }
+
   if (!process.env.HELIUS_API_KEY) {
     console.error('HELIUS_API_KEY is not set in environment.');
     process.exit(1);
@@ -109,11 +125,11 @@ async function main() {
   const dbService = new DatabaseService();
   const heliusClient = new HeliusApiClient({ apiKey: process.env.HELIUS_API_KEY!, network: 'mainnet' }, dbService);
 
-  // Step 1: signatures pre-filter around cutoff
-  const fetchAddress = args.mint; // MVP: use mint directly; addressType hooks added later
-  const candidateSignatures = await prefilterMintSignaturesBeforeCutoff(
+  // Step 1: signatures pre-filter around cutoff using one or more addresses
+  const fetchAddresses = determineFetchAddresses(args);
+  const candidateSignatures = await prefilterSignaturesBeforeCutoffMulti(
     heliusClient,
-    fetchAddress,
+    fetchAddresses,
     cutoffTs,
     args.candidateWindow
   );
@@ -142,15 +158,17 @@ async function main() {
   if (!args.dryRun) {
     const outfile = resolveOutPath(args.outFile, args.output);
     ensureDir(path.dirname(outfile));
-    if (args.output === 'jsonl') writeJsonl(outfile, enriched, args.mint, cutoffTs);
-    else writeCsv(outfile, enriched, args.mint, cutoffTs);
+    const runScannedAtIso = new Date().toISOString();
+    const runSource = args.addressType;
+    if (args.output === 'jsonl') writeJsonl(outfile, enriched, args.mint, cutoffTs, { runScannedAtIso, runSource });
+    else writeCsv(outfile, enriched, args.mint, cutoffTs, { runScannedAtIso, runSource });
   }
 
   if (args.verbose) {
     console.log(JSON.stringify({
       args: { ...args, cutoffTs },
       prefilter: {
-        fetchAddress,
+        fetchAddresses,
         candidateCount: candidateSignatures.length,
         sample: candidateSignatures.slice(0, 10),
       },
@@ -166,8 +184,45 @@ async function main() {
       }
     }, null, 2));
   } else {
-    console.log(`prefilter candidates=${candidateSignatures.length} fetchAddress=${fetchAddress} buyers=${enriched.length}`);
+    console.log(`prefilter candidates=${candidateSignatures.length} fetchAddresses=${JSON.stringify(fetchAddresses)} buyers=${enriched.length}`);
   }
+    return;
+  }
+
+  // parse subcommand
+  const inFile = (argv as any).inFile as string | undefined;
+  const outFormat = ((argv as any).output as 'jsonl' | 'csv') ?? 'jsonl';
+  const inPath = inFile || path.join(process.cwd(), 'analyses', 'mint_participants', 'index.jsonl');
+  const outFile = (argv as any).outFile as string | undefined || path.join(process.cwd(), 'analyses', 'mint_participants', outFormat === 'jsonl' ? 'mutual.jsonl' : 'mutual.csv');
+  ensureDir(path.dirname(outFile));
+  if (!fs.existsSync(inPath)) {
+    console.error(`Input not found: ${inPath}`);
+    process.exit(1);
+  }
+  const records = readJsonl(inPath);
+  const minimal = records.map(mapToMutualRecord);
+  if (outFormat === 'jsonl') {
+    const content = minimal.map(r => JSON.stringify(r)).join('\n') + '\n';
+    fs.writeFileSync(outFile, content, 'utf8');
+  } else {
+    const header = 'wallet,mint,buyTs,buyIso,signature,tokenAmount,stakeSol,accountAgeDays,creationScanMode,creationScanPages,runScannedAtIso,runSource\n';
+    const lines = minimal.map(r => [
+      r.wallet,
+      r.mint,
+      r.buyTs,
+      r.buyIso,
+      r.signature,
+      r.tokenAmount,
+      r.stakeSol,
+      r.accountAgeDays ?? '',
+      r.creationScanMode ?? '',
+      r.creationScanPages ?? '',
+      r.runScannedAtIso ?? '',
+      r.runSource ?? '',
+    ].join(','));
+    fs.writeFileSync(outFile, header + lines.join('\n') + '\n', 'utf8');
+  }
+  console.log(`wrote ${minimal.length} mutual rows → ${outFile}`);
 }
 
 main().catch((err) => {
@@ -207,6 +262,31 @@ async function prefilterMintSignaturesBeforeCutoff(
   }
 
   return filtered.map((x) => x.signature);
+}
+
+function determineFetchAddresses(args: CliArgs): string[] {
+  if (args.addressType === 'mint') return [args.mint];
+  if (args.addressType === 'bonding-curve') return args.bondingCurve ? [args.bondingCurve] : [args.mint];
+  // auto: prefer provided bonding-curve if any, plus mint as fallback to maximize coverage
+  const addresses: string[] = [];
+  if (args.bondingCurve) addresses.push(args.bondingCurve);
+  addresses.push(args.mint);
+  return Array.from(new Set(addresses));
+}
+
+async function prefilterSignaturesBeforeCutoffMulti(
+  heliusClient: HeliusApiClient,
+  addresses: string[],
+  cutoffTs: number,
+  candidateWindow: number
+): Promise<string[]> {
+  const perAddress = Math.max(1, Math.floor(candidateWindow / Math.max(1, addresses.length)));
+  const all: Set<string> = new Set();
+  for (const addr of addresses) {
+    const sigs = await prefilterMintSignaturesBeforeCutoff(heliusClient, addr, cutoffTs, perAddress);
+    for (const s of sigs) all.add(s);
+  }
+  return Array.from(all);
 }
 
 interface DetectedBuyer {
@@ -433,16 +513,112 @@ function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-function writeJsonl(file: string, rows: EnrichedBuyer[], mint: string, cutoffTs: number) {
-  const content = rows.map(r => JSON.stringify(toOutputRow(r, mint, cutoffTs))).join('\n') + '\n';
-  fs.appendFileSync(file, content, 'utf8');
-  console.log(`wrote ${rows.length} rows → ${file}`);
+function readJsonl(file: string): any[] {
+  const out: any[] = [];
+  try {
+    const data = fs.readFileSync(file, 'utf8');
+    const lines = data.split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try { out.push(JSON.parse(line)); } catch {}
+    }
+  } catch {}
+  return out;
 }
 
-function writeCsv(file: string, rows: EnrichedBuyer[], mint: string, cutoffTs: number) {
-  const header = 'wallet,mint,cutoffTs,buyTs,buyIso,signature,tokenAmount,stakeSol,tokenAccountsCount,txCountScanned,walletCreatedAtTs,walletCreatedAtIso,accountAgeDays\n';
-  const lines = rows.map(r => {
-    const o = toOutputRow(r, mint, cutoffTs);
+function mapToMutualRecord(o: any) {
+  return {
+    wallet: o.wallet,
+    mint: o.mint,
+    buyTs: o.buyTs,
+    buyIso: o.buyIso,
+    signature: o.signature,
+    tokenAmount: o.tokenAmount,
+    stakeSol: o.stakeSol,
+    accountAgeDays: o.accountAgeDays,
+    creationScanMode: o.creationScanMode,
+    creationScanPages: o.creationScanPages,
+    runScannedAtIso: o.runScannedAtIso,
+    runSource: o.runSource,
+  };
+}
+
+function buildExistingKeySetFromJsonl(file: string): Set<string> {
+  const set = new Set<string>();
+  if (!fs.existsSync(file)) return set;
+  try {
+    const data = fs.readFileSync(file, 'utf8');
+    const lines = data.split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj && obj.wallet && obj.signature) {
+          set.add(`${obj.wallet}|${obj.signature}`);
+        }
+      } catch {}
+    }
+  } catch {}
+  return set;
+}
+
+function buildExistingKeySetFromCsv(file: string): Set<string> {
+  const set = new Set<string>();
+  if (!fs.existsSync(file)) return set;
+  try {
+    const data = fs.readFileSync(file, 'utf8');
+    const lines = data.split(/\r?\n/);
+    // skip header
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line || !line.trim()) continue;
+      const parts = line.split(',');
+      if (parts.length < 6) continue;
+      const wallet = parts[0];
+      const signature = parts[5];
+      if (wallet && signature) set.add(`${wallet}|${signature}`);
+    }
+  } catch {}
+  return set;
+}
+
+function writeJsonl(
+  file: string,
+  rows: EnrichedBuyer[],
+  mint: string,
+  cutoffTs: number,
+  runMeta: { runScannedAtIso: string; runSource: 'mint' | 'bonding-curve' | 'auto' }
+) {
+  const existing = buildExistingKeySetFromJsonl(file);
+  const fresh = rows.filter(r => !existing.has(`${r.walletAddress}|${r.firstBuySignature}`));
+  if (fresh.length === 0) {
+    console.log(`no new rows (dedupe) → ${file}`);
+    return;
+  }
+  const content = fresh.map(r => JSON.stringify(toOutputRow(r, mint, cutoffTs, runMeta))).join('\n') + '\n';
+  fs.appendFileSync(file, content, 'utf8');
+  console.log(`wrote ${fresh.length} rows → ${file}`);
+}
+
+function writeCsv(
+  file: string,
+  rows: EnrichedBuyer[],
+  mint: string,
+  cutoffTs: number,
+  runMeta: { runScannedAtIso: string; runSource: 'mint' | 'bonding-curve' | 'auto' }
+) {
+  const header = 'wallet,mint,cutoffTs,buyTs,buyIso,signature,tokenAmount,stakeSol,tokenAccountsCount,txCountScanned,walletCreatedAtTs,walletCreatedAtIso,accountAgeDays,creationScanMode,creationScanPages,runScannedAtIso,runSource\n';
+  const existing = buildExistingKeySetFromCsv(file);
+  const fresh = rows.filter(r => !existing.has(`${r.walletAddress}|${r.firstBuySignature}`));
+  if (fresh.length === 0) {
+    if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
+      fs.appendFileSync(file, header, 'utf8');
+    }
+    console.log(`no new rows (dedupe) → ${file}`);
+    return;
+  }
+  const lines = fresh.map(r => {
+    const o = toOutputRow(r, mint, cutoffTs, runMeta);
     return [
       o.wallet,
       o.mint,
@@ -457,16 +633,25 @@ function writeCsv(file: string, rows: EnrichedBuyer[], mint: string, cutoffTs: n
       o.walletCreatedAtTs ?? '',
       o.walletCreatedAtIso ?? '',
       o.accountAgeDays ?? '',
+      o.creationScanMode,
+      o.creationScanPages,
+      o.runScannedAtIso,
+      o.runSource,
     ].join(',');
   });
   if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
     fs.appendFileSync(file, header, 'utf8');
   }
   fs.appendFileSync(file, lines.join('\n') + '\n', 'utf8');
-  console.log(`wrote ${rows.length} rows → ${file}`);
+  console.log(`wrote ${fresh.length} rows → ${file}`);
 }
 
-function toOutputRow(r: EnrichedBuyer, mint: string, cutoffTs: number) {
+function toOutputRow(
+  r: EnrichedBuyer,
+  mint: string,
+  cutoffTs: number,
+  runMeta?: { runScannedAtIso: string; runSource: 'mint' | 'bonding-curve' | 'auto' }
+) {
   const walletCreatedAtTs = r.stats.firstSeenTs ?? undefined;
   const walletCreatedAtIso = walletCreatedAtTs ? new Date(walletCreatedAtTs * 1000).toISOString() : undefined;
   return {
@@ -483,6 +668,10 @@ function toOutputRow(r: EnrichedBuyer, mint: string, cutoffTs: number) {
     walletCreatedAtTs,
     walletCreatedAtIso,
     accountAgeDays: r.stats.accountAgeDays,
+    creationScanMode: r.stats.creationScanMode,
+    creationScanPages: r.stats.creationScanPages,
+    runScannedAtIso: runMeta?.runScannedAtIso,
+    runSource: runMeta?.runSource,
   };
 }
 
