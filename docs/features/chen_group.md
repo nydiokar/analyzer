@@ -51,9 +51,9 @@
    - stake: run the existing transaction mapper against that single buy transaction for this wallet and sum associatedSolValue for the target mint (direction=in) → stakeSol.
    - tokenAmount: from the transfer row for the mint in that transaction.
    - tokenAccountsCount: call getTokenAccountsByOwner(owner) and count entries.
-   - tx counts & creation time (lean and fast-first):
+   - tx counts & creation time:
      - Quick txCountScanned: getSignaturesForAddress(owner, limit=txCountLimit) → use length.
-     - Optional full creation scan (off by default): paginate owner signatures until exhaustion to get earliest blockTime as firstSeenTs and totalTxCount; guard with a hard cap to avoid extremes.
+     - Creation scan by default: walk signatures to earliest page to get firstSeenTs; auto-skip/cap for very large wallets (tokenAccountsCount > 10k → treat as old, use first page).
 5) Append results to file (JSONL default)
    - Ensure directory exists; append one JSON object per wallet to outFile.
    - CSV option writes/updates a flat CSV with the same core fields.
@@ -91,7 +91,7 @@
 ### Performance & Safety
 - Only fetch parsed tx details for the candidate set required to confirm N buyers and compute stake; all other counts use signature metadata only.
 - Built-in pacing from HeliusApiClient protects against rate limits.
-- Creation scan is optional, disabled by default, and guarded by a hard limit.
+- Creation scan is enabled by default with safeguards: auto-skip for massive wallets and a max-page cap to avoid hangs; we record scan mode (first_page | full | capped) and pages.
 
 ### Later (Non-breaking) Enhancements
 - Add explicit bonding-curve discovery or parameter for more accurate pre-migration buyers.
@@ -99,6 +99,13 @@
 - Add DB-backed mode (new table) behind a flag; default remains file-only.
 
 ### Acceptance (MVP)
-- Given mint + cutoff, returns up to N last buyers with: wallet, firstBuyTs/signature, tokenAmount, stakeSol, tokenAccountsCount, txCountScanned, optional firstSeenTs/accountAgeDays.
+- Given mint + cutoff, returns up to N last buyers with: wallet, firstBuyTs/signature, tokenAmount, stakeSol, tokenAccountsCount, txCountScanned, firstSeenTs/accountAgeDays, creationScanMode/pages for transparency.
+
+### Implementation Status (current)
+- CLI implemented at `src/scripts/mint-participants.ts`.
+- Detection: newest→older across candidate transactions; stop when N wallets found.
+- Enrichment: stake via mapper on the buy tx; tokenAccountsCount via SPL program; txCountScanned from signature metadata.
+- Creation scan: default full scan with auto-skip for `tokenAccountsCount > 10k` and a safety page cap; output records scan mode and pages.
+- Output JSONL/CSV schema includes: wallet, mint, cutoffTs, buyTs/buyIso, signature, tokenAmount, stakeSol, tokenAccountsCount, txCountScanned, walletCreatedAtTs/ISO, accountAgeDays, creationScanMode, creationScanPages.
 - Writes append-only JSONL/CSV to a single file without touching the database.
 

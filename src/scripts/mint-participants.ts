@@ -6,6 +6,9 @@ import dotenv from 'dotenv';
 import { HeliusApiClient } from 'core/services/helius-api-client';
 import { DatabaseService } from 'core/services/database-service';
 import type { HeliusTransaction } from '@/types/helius-api';
+import { mapHeliusTransactionsToIntermediateRecords } from 'core/services/helius-transaction-mapper';
+import * as fs from 'fs';
+import * as path from 'path';
 
 dotenv.config();
 
@@ -20,6 +23,8 @@ interface CliArgs {
   candidateWindow: number;
   dryRun?: boolean;
   verbose?: boolean;
+  creationScan?: 'none' | 'full';
+  creationSkipIfTokenAccountsOver?: number;
 }
 
 function parseCutoff(until: string): number {
@@ -44,6 +49,8 @@ async function main() {
         .option('output', { choices: ['jsonl', 'csv'] as const, default: 'jsonl', desc: 'Output format' })
         .option('outFile', { type: 'string', desc: 'Output file path (defaults per format)' })
         .option('candidateWindow', { type: 'number', default: 300, desc: 'Max latest signatures (<= cutoff) per iteration to parse' })
+        .option('creationScan', { choices: ['none', 'full'] as const, default: 'full', desc: 'Wallet creation scan mode (default full: walk pages to earliest signature)' })
+        .option('creationSkipIfTokenAccountsOver', { type: 'number', desc: 'Optional: if set, skip full scan when token accounts exceed this' })
         .option('dryRun', { type: 'boolean', default: false })
         .option('verbose', { type: 'boolean', default: false })
     )
@@ -89,6 +96,8 @@ async function main() {
     candidateWindow: Number(argv.candidateWindow ?? 300),
     dryRun: Boolean(argv.dryRun),
     verbose: Boolean(argv.verbose),
+    creationScan: (argv.creationScan as CliArgs['creationScan']) ?? 'full',
+    creationSkipIfTokenAccountsOver: argv.creationSkipIfTokenAccountsOver as number | undefined,
   };
 
   if (!process.env.HELIUS_API_KEY) {
@@ -118,6 +127,25 @@ async function main() {
     cutoffTs
   );
 
+  // Step 3: per-buyer stats and stake (concurrency-capped)
+  const enriched = await enrichBuyers(
+    heliusClient,
+    args.mint,
+    detectedBuyers,
+    args.txCountLimit,
+    args.creationScan || 'none',
+    Boolean(args.verbose),
+    args.creationSkipIfTokenAccountsOver
+  );
+
+  // Step 4: output
+  if (!args.dryRun) {
+    const outfile = resolveOutPath(args.outFile, args.output);
+    ensureDir(path.dirname(outfile));
+    if (args.output === 'jsonl') writeJsonl(outfile, enriched, args.mint, cutoffTs);
+    else writeCsv(outfile, enriched, args.mint, cutoffTs);
+  }
+
   if (args.verbose) {
     console.log(JSON.stringify({
       args: { ...args, cutoffTs },
@@ -127,12 +155,18 @@ async function main() {
         sample: candidateSignatures.slice(0, 10),
       },
       buyers: {
-        count: detectedBuyers.length,
-        wallets: detectedBuyers.map(b => b.walletAddress).slice(0, 20),
+        count: enriched.length,
+        rows: enriched.slice(0, 20).map(r => ({
+          wallet: r.walletAddress,
+          ts: r.firstBuyTimestamp,
+          iso: new Date(r.firstBuyTimestamp * 1000).toISOString(),
+          tokenAmount: r.tokenAmount,
+          stakeSol: r.stakeSol,
+        }))
       }
     }, null, 2));
   } else {
-    console.log(`prefilter candidates=${candidateSignatures.length} fetchAddress=${fetchAddress} buyers=${detectedBuyers.length}`);
+    console.log(`prefilter candidates=${candidateSignatures.length} fetchAddress=${fetchAddress} buyers=${enriched.length}`);
   }
 }
 
@@ -180,6 +214,7 @@ interface DetectedBuyer {
   firstBuyTimestamp: number;
   firstBuySignature: string;
   tokenAmount: number;
+  tx?: HeliusTransaction;
 }
 
 async function detectLastBuyersFromCandidates(
@@ -230,6 +265,7 @@ async function detectLastBuyersFromCandidates(
           firstBuyTimestamp: tx.timestamp!,
           firstBuySignature: tx.signature,
           tokenAmount,
+          tx,
         });
         if (buyers.size >= limitBuyers) break;
       }
@@ -239,6 +275,224 @@ async function detectLastBuyersFromCandidates(
 
   // Return newest→older
   return Array.from(buyers.values()).sort((a, b) => b.firstBuyTimestamp - a.firstBuyTimestamp);
+}
+
+// ---- Enrichment ----
+
+interface EnrichedBuyer extends DetectedBuyer {
+  stakeSol: number;
+  stats: {
+    tokenAccountsCount: number;
+    txCountScanned: number;
+    creationScanMode: 'first_page' | 'full' | 'capped';
+    creationScanPages: number;
+    firstSeenTs?: number | null;
+    accountAgeDays?: number | null;
+  };
+}
+
+async function enrichBuyers(
+  heliusClient: HeliusApiClient,
+  mintAddress: string,
+  buyers: DetectedBuyer[],
+  txCountLimit: number,
+  creationScan: 'none' | 'full',
+  verbose: boolean,
+  creationSkipIfTokenAccountsOver?: number
+): Promise<EnrichedBuyer[]> {
+  const results: EnrichedBuyer[] = [];
+
+  // Simple concurrency cap
+  const CONCURRENCY = 6;
+  let index = 0;
+  async function worker() {
+    while (index < buyers.length) {
+      const i = index++;
+      const b = buyers[i];
+      // Fetch token accounts count first to decide creation-scan behavior safely
+      const tokenAccountsCount = await getTokenAccountsCount(heliusClient, b.walletAddress);
+      const shouldFullScan = creationScan === 'full' && (!creationSkipIfTokenAccountsOver || tokenAccountsCount <= creationSkipIfTokenAccountsOver);
+
+      const [txCountData, stakeSol] = await Promise.all([
+        getTxCounts(heliusClient, b.walletAddress, txCountLimit, shouldFullScan, verbose),
+        computeStakeSolForBuy(heliusClient, mintAddress, b),
+      ]);
+
+      const firstSeenTs = txCountData.firstSeenTs ?? null;
+      const accountAgeDays = firstSeenTs ? Math.max(0, Math.floor((Date.now() / 1000 - firstSeenTs) / 86400)) : null;
+
+      results[i] = {
+        ...b,
+        stakeSol,
+        stats: {
+          tokenAccountsCount,
+          txCountScanned: txCountData.count,
+          creationScanMode: txCountData.mode,
+          creationScanPages: txCountData.pages,
+          firstSeenTs,
+          accountAgeDays,
+        },
+      };
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, buyers.length) }, () => worker()));
+  return results;
+}
+
+async function getTokenAccountsCount(heliusClient: HeliusApiClient, owner: string): Promise<number> {
+  try {
+    // Use defaults: SPL token program + jsonParsed
+    const res = await heliusClient.getTokenAccountsByOwner(owner);
+    const arr = (res as any).value as any[] | undefined;
+    return Array.isArray(arr) ? arr.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function getTxCounts(
+  heliusClient: HeliusApiClient,
+  owner: string,
+  limit: number,
+  fullScan: boolean,
+  verbose: boolean
+): Promise<{ count: number; firstSeenTs?: number; mode: 'first_page' | 'full' | 'capped'; pages: number }> {
+  let total = 0;
+  let before: string | null = null;
+  const pageLimit = Math.min(1000, Math.max(1, limit));
+  let firstSeen: number | undefined;
+
+  if (!fullScan) {
+    const firstPage: Array<{ signature: string; blockTime?: number | null }> = await (heliusClient as any)['getSignaturesViaRpcPage'](owner, limit, null);
+    total = firstPage.length;
+    if (firstPage.length > 0) {
+      const last = firstPage[firstPage.length - 1];
+      firstSeen = typeof last.blockTime === 'number' ? last.blockTime : undefined;
+    }
+    return { count: total, firstSeenTs: firstSeen, mode: 'first_page', pages: 1 };
+  }
+
+  // Full scan to earliest
+  let pages = 0;
+  const MAX_PAGES = 50; // safety guard (~50k signatures) to avoid hangs
+  while (true) {
+    const page: Array<{ signature: string; blockTime?: number | null }> = await (heliusClient as any)['getSignaturesViaRpcPage'](owner, pageLimit, before);
+    if (!page || page.length === 0) break;
+    total += page.length;
+    before = page[page.length - 1].signature;
+    pages++;
+    if (verbose && pages % 10 === 0) {
+      console.log(`[creation-scan] owner=${owner} pages=${pages} total=${total}`);
+    }
+    if (pages >= MAX_PAGES) {
+      if (verbose) console.warn(`[creation-scan] owner=${owner} hit MAX_PAGES=${MAX_PAGES}; stopping early.`);
+      const last = page[page.length - 1];
+      firstSeen = typeof last.blockTime === 'number' ? last.blockTime : undefined;
+      return { count: total, firstSeenTs: firstSeen, mode: 'capped', pages };
+    }
+    if (page.length < pageLimit) {
+      const last = page[page.length - 1];
+      firstSeen = typeof last.blockTime === 'number' ? last.blockTime : undefined;
+      return { count: total, firstSeenTs: firstSeen, mode: 'full', pages };
+    }
+  }
+  return { count: total, firstSeenTs: firstSeen, mode: 'full', pages };
+}
+
+async function computeStakeSolForBuy(
+  heliusClient: HeliusApiClient,
+  mintAddress: string,
+  buyer: DetectedBuyer
+): Promise<number> {
+  try {
+    const tx = buyer.tx || (await (heliusClient as any)['getTransactionsBySignatures']([buyer.firstBuySignature]))[0];
+    if (!tx) return 0;
+    const mapped = mapHeliusTransactionsToIntermediateRecords(buyer.walletAddress, [tx]);
+    const rows = mapped.analysisInputs || [];
+    let stake = 0;
+    for (const r of rows as any[]) {
+      if (r.mint === mintAddress && r.direction === 'in') {
+        const v = typeof r.associatedSolValue === 'number' ? r.associatedSolValue : 0;
+        stake += v;
+      }
+    }
+    return stake;
+  } catch {
+    return 0;
+  }
+}
+
+function resolveOutPath(outFile: string | undefined, format: 'jsonl' | 'csv'): string {
+  if (outFile) return outFile;
+  const dir = path.join(process.cwd(), 'analyses', 'mint_participants');
+  const name = format === 'jsonl' ? 'index.jsonl' : 'index.csv';
+  return path.join(dir, name);
+}
+
+function ensureDir(dir: string) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function writeJsonl(file: string, rows: EnrichedBuyer[], mint: string, cutoffTs: number) {
+  const content = rows.map(r => JSON.stringify(toOutputRow(r, mint, cutoffTs))).join('\n') + '\n';
+  fs.appendFileSync(file, content, 'utf8');
+  console.log(`wrote ${rows.length} rows → ${file}`);
+}
+
+function writeCsv(file: string, rows: EnrichedBuyer[], mint: string, cutoffTs: number) {
+  const header = 'wallet,mint,cutoffTs,buyTs,buyIso,signature,tokenAmount,stakeSol,tokenAccountsCount,txCountScanned,walletCreatedAtTs,walletCreatedAtIso,accountAgeDays\n';
+  const lines = rows.map(r => {
+    const o = toOutputRow(r, mint, cutoffTs);
+    return [
+      o.wallet,
+      o.mint,
+      o.cutoffTs,
+      o.buyTs,
+      o.buyIso,
+      o.signature,
+      o.tokenAmount,
+      o.stakeSol,
+      o.tokenAccountsCount,
+      o.txCountScanned,
+      o.walletCreatedAtTs ?? '',
+      o.walletCreatedAtIso ?? '',
+      o.accountAgeDays ?? '',
+    ].join(',');
+  });
+  if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
+    fs.appendFileSync(file, header, 'utf8');
+  }
+  fs.appendFileSync(file, lines.join('\n') + '\n', 'utf8');
+  console.log(`wrote ${rows.length} rows → ${file}`);
+}
+
+function toOutputRow(r: EnrichedBuyer, mint: string, cutoffTs: number) {
+  const walletCreatedAtTs = r.stats.firstSeenTs ?? undefined;
+  const walletCreatedAtIso = walletCreatedAtTs ? new Date(walletCreatedAtTs * 1000).toISOString() : undefined;
+  return {
+    wallet: r.walletAddress,
+    mint,
+    cutoffTs,
+    buyTs: r.firstBuyTimestamp,
+    buyIso: new Date(r.firstBuyTimestamp * 1000).toISOString(),
+    signature: r.firstBuySignature,
+    tokenAmount: r.tokenAmount,
+    stakeSol: normalizeStake(r.stakeSol),
+    tokenAccountsCount: r.stats.tokenAccountsCount,
+    txCountScanned: r.stats.txCountScanned,
+    walletCreatedAtTs,
+    walletCreatedAtIso,
+    accountAgeDays: r.stats.accountAgeDays,
+  };
+}
+
+function normalizeStake(value: number): number {
+  // Guard against accidental lamports written as SOL
+  if (value > 1000) {
+    const maybeSol = value / 1e9;
+    if (maybeSol < 1000) return maybeSol;
+  }
+  return value;
 }
 
 
