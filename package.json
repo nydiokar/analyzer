@@ -49,7 +49,7 @@
   "dependencies": {
     "@nestjs/axios": "^4.0.0",
     "@nestjs/bullmq": "^11.0.3",
-    "@nestjs/cli": "^11.0.7",
+    "@nestjs/cli": "^11.0.10",
     "@nestjs/common": "^11.1.6",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.2",
