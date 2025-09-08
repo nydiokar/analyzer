@@ -222,3 +222,275 @@ This project uses NestJS modules and providers with the default singleton scope.
 ---
 
 This map is sourced from the current code under `src/`, including modules in `src/api/**` and queues in `src/queues/**`.
+
+## Visual Diagrams (Mermaid)
+
+Below are Mermaid graphs you can view directly on GitHub or in editors that support Mermaid.
+
+### Module Imports
+
+```mermaid
+graph TD
+  %% Root
+  AppModule --> ConfigModule
+  AppModule --> ThrottlerModule
+  AppModule --> DatabaseModule
+  AppModule --> HeliusModule
+  AppModule --> QueueModule
+  AppModule --> ApiModule
+  AppModule --> UsersModule
+
+  %% ApiModule imports
+  ApiModule --> DatabaseModule
+  ApiModule --> WalletsModule
+  ApiModule --> AnalysesModule
+  ApiModule --> UsersModule
+  ApiModule --> DexscreenerModule
+  ApiModule --> TokenInfoModule
+  ApiModule --> HealthModule
+  ApiModule --> JobsModule
+  ApiModule --> WebSocketModule
+  ApiModule --> QueueModule
+  ApiModule --> HeliusIntegrationModule
+
+  %% Wallets
+  WalletsModule --> DatabaseModule
+  WalletsModule --> PnlOverviewModule
+  WalletsModule --> BehaviorModule
+  WalletsModule --> TokenPerformanceModule
+  WalletsModule --> TokenInfoModule
+  WalletsModule --> DexscreenerModule
+
+  %% Analyses
+  AnalysesModule --> ConfigModule
+  AnalysesModule --> DatabaseModule
+  AnalysesModule --> PnlAnalysisModule
+  AnalysesModule --> BehaviorModule
+  AnalysesModule --> SimilarityModule
+  AnalysesModule --> QueueModule
+  AnalysesModule --> JobsModule
+
+  %% PnL Overview
+  PnlOverviewModule --> DatabaseModule
+  PnlOverviewModule --> TokenInfoModule
+  PnlOverviewModule --> HeliusModule
+  PnlOverviewModule --> DexscreenerModule
+
+  %% Similarity
+  SimilarityModule --> DatabaseModule
+  SimilarityModule --> HeliusModule
+  SimilarityModule --> TokenInfoModule
+  SimilarityModule --> DexscreenerModule
+  SimilarityModule --> BalanceCacheModule
+
+  %% Pnl Analysis
+  PnlAnalysisModule --> DatabaseModule
+  PnlAnalysisModule --> HeliusModule
+  PnlAnalysisModule --> TokenInfoModule
+
+  %% Token info
+  TokenInfoModule --> DatabaseModule
+  TokenInfoModule --> DexscreenerModule
+
+  %% WebSocket / Queue Infra
+  WebSocketModule --> RedisModule
+  QueueModule --> ConfigModule
+  QueueModule --> RedisModule
+  QueueModule --> DatabaseModule
+  QueueModule --> HeliusModule
+  QueueModule --> SimilarityModule
+  QueueModule --> BehaviorModule
+  QueueModule --> PnlAnalysisModule
+  QueueModule --> TokenInfoModule
+  QueueModule --> DexscreenerModule
+  QueueModule --> WebSocketModule
+  QueueModule --> BalanceCacheModule
+```
+
+### Core Providers and Dependencies
+
+```mermaid
+graph LR
+  %% Globals
+  subgraph DatabaseModule
+    DB[DatabaseService]
+  end
+
+  subgraph HeliusModule
+    HClient[HeliusApiClient]
+    WClass[WalletClassificationService]
+    SFetch[SmartFetchService]
+    HSync[HeliusSyncService]
+  end
+
+  Cfg[ConfigService]
+  Http[HttpService]
+
+  %% Helius factories
+  HClient --> Cfg
+  HClient --> DB
+  SFetch --> WClass
+  HSync --> DB
+  HSync --> HClient
+  HSync --> SFetch
+
+  %% Dexscreener
+  subgraph DexscreenerModule
+    DEX[DexscreenerService]
+  end
+  DEX --> DB
+  DEX --> Http
+
+  %% Token Info
+  subgraph TokenInfoModule
+    TInfo[TokenInfoService]
+  end
+  TInfo --> DB
+  TInfo --> DEX
+
+  %% PnL
+  subgraph PnlAnalysisModule
+    PnlA[PnlAnalysisService]
+  end
+  PnlA --> DB
+  PnlA --> HClient
+  PnlA --> TInfo
+
+  subgraph PnlOverviewModule
+    PnlO[PnlOverviewService]
+  end
+  PnlO --> PnlA
+  PnlO --> TInfo
+  PnlO --> DEX
+
+  %% Behavior
+  subgraph BehaviorModule
+    Beh[BehaviorService]
+  end
+  Beh --> DB
+
+  %% Similarity
+  subgraph SimilarityModule
+    SimAPI[SimilarityApiService]
+  end
+  SimAPI --> DB
+  SimAPI --> TInfo
+
+  %% Balance Cache
+  subgraph BalanceCacheModule
+    BCache[BalanceCacheService]
+  end
+  BCache --> DB
+  BCache --> HClient
+
+  %% WebSocket / Redis
+  subgraph RedisModule
+    REDIS[REDIS_CLIENT]
+  end
+  subgraph WebSocketModule
+    JGW[JobProgressGateway]
+  end
+  JGW --> REDIS
+
+  %% Guards
+  subgraph Guards
+    Guard[ApiKeyAuthGuard]
+    Refl[Reflector]
+  end
+  Guard --> DB
+  Guard --> Cfg
+  Guard --> Refl
+```
+
+### Controllers and Injected Services
+
+```mermaid
+graph LR
+  WCtrl[WalletsController] --> DB
+  WCtrl --> Beh
+  WCtrl --> TPerf[TokenPerformanceService]
+  WCtrl --> PnlO
+  WCtrl --> TInfo
+  WCtrl --> WClass
+  WCtrl --> SFetch
+  WCtrl --> DEX
+
+  ACtrl[AnalysesController] --> DB
+  ACtrl --> SimQ[SimilarityOperationsQueue]
+  ACtrl --> EnrichQ[EnrichmentOperationsQueue]
+  ACtrl --> AnalQ[AnalysisOperationsQueue]
+  ACtrl --> EStrat[EnrichmentStrategyService]
+
+  JCtrl[JobsController] --> JSvc[JobsService]
+  JCtrl --> DLQ[DeadLetterQueueService]
+
+  TICtrl[TokenInfoController] --> TInfo
+  HCtrl[HealthController] --> HCS[HealthCheckService]
+  HCtrl --> HH[HttpHealthIndicator]
+  HCtrl --> DB
+  HCtrl --> QHS[QueueHealthService]
+
+  Webhook[HeliusWebhookController] --> Cfg
+  Webhook --> MPQ[MintParticipantsJobsQueue]
+  Webhook --> Alert[AlertingService]
+```
+
+### Queues, Processors, and Tokens
+
+```mermaid
+graph LR
+  subgraph QueueModule
+    RLock[RedisLockService]
+    Alert[AlertingService]
+    DLQ[DeadLetterQueueService]
+    QHS[QueueHealthService]
+    JBridge[JobEventsBridgeService]
+    WOQ[WalletOperationsQueue]
+    AOQ[AnalysisOperationsQueue]
+    SOQ[SimilarityOperationsQueue]
+    EOQ[EnrichmentOperationsQueue]
+    MPQ[MintParticipantsJobsQueue]
+    WOP[WalletOperationsProcessor]
+    AOP[AnalysisOperationsProcessor]
+    SOP[SimilarityOperationsProcessor]
+    EOP[EnrichmentOperationsProcessor]
+  end
+
+  REDIS --> RLock
+  REDIS --> JGW
+
+  %% Processor injections
+  WOP --> RLock
+  WOP --> HSync
+  WOP --> DB
+  WOP --> HClient
+
+  AOP --> RLock
+  AOP --> PnlA
+  AOP --> Beh
+  AOP --> DB
+  AOP --> HSync
+  AOP --> EOQ
+  AOP --> HClient
+  AOP --> JGW
+  AOP --> TInfo
+  AOP --> Alert
+
+  SOP --> RLock
+  SOP --> SimAPI
+  SOP --> DB
+  SOP --> HClient
+  SOP --> TInfo
+  SOP --> HSync
+  SOP --> PnlA
+  SOP --> Beh
+  SOP --> EOQ
+  SOP --> BCache
+  SOP --> JGW
+
+  EOP --> RLock
+  EOP --> TInfo
+  EOP --> DEX
+  EOP --> BCache
+  EOP --> JGW
+```

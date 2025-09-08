@@ -49,3 +49,7 @@ analyses/
 
 *.ps1
 *.bat
+
+
+*db.backup*
+
