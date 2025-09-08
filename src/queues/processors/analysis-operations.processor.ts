@@ -16,6 +16,8 @@ import { SyncOptions } from '../../core/services/helius-sync-service';
 import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { TokenInfoService } from '../../api/services/token-info.service';
+import { AlertingService } from '../services/alerting.service';
+import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 
 @Injectable()
 export class AnalysisOperationsProcessor implements OnModuleDestroy {
@@ -31,7 +33,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly heliusApiClient: HeliusApiClient,
     private readonly jobProgressGateway: JobProgressGateway,
-    private readonly tokenInfoService: TokenInfoService
+    private readonly tokenInfoService: TokenInfoService,
+    private readonly alertingService: AlertingService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -67,6 +70,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         return this.processAnalyzeBehavior(job as Job<AnalyzeBehaviorJobData>);
       case 'dashboard-wallet-analysis':
         return this.processDashboardWalletAnalysis(job as Job<DashboardWalletAnalysisJobData>);
+      case 'mint-participants-run':
+        return this.processMintParticipants(job as Job<{ mint: string; cutoffTs: number; signature?: string }>);
       default:
         this.logger.error(`Unknown job name: ${jobName} for job ID ${job.id}`);
         throw new Error(`Unknown job type: ${jobName}`);
@@ -393,6 +398,85 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
       
       throw error;
+    } finally {
+      await this.redisLockService.releaseLock(lockKey, job.id!);
+    }
+  }
+
+  private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {
+    const { mint, cutoffTs } = job.data;
+    const startTime = Date.now();
+
+    const lockKey = `lock:mint-participants:${mint}:${cutoffTs}`;
+    const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, 30_000);
+    if (!lockAcquired) {
+      this.logger.warn(`MintParticipants already processing for ${mint}@${cutoffTs}`);
+      return { success: true, written: 0, zeroDayAlerts: 0, processingTimeMs: Date.now() - startTime };
+    }
+    try {
+      await job.updateProgress(10);
+      const trackedWallet = process.env.MINT_PARTICIPANTS_TRACKED_WALLET;
+      const result = await runMintParticipantsFlow(
+        this.heliusApiClient,
+        this.databaseService,
+        {
+          mint,
+          cutoffTs,
+          addressType: 'auto',
+          sourceWallet: trackedWallet,
+          // Only apply a time window if explicitly configured (in seconds).
+          // If not set, we rely on limitBuyers to select the last N buyers.
+          windowSeconds: process.env.MINT_PARTICIPANTS_WINDOW_SECONDS
+            ? Number(process.env.MINT_PARTICIPANTS_WINDOW_SECONDS)
+            : undefined,
+          limitBuyers: Number(process.env.MINT_PARTICIPANTS_LIMIT_BUYERS || 20),
+          txCountLimit: Number(process.env.MINT_PARTICIPANTS_TX_COUNT_LIMIT || 500),
+          candidateWindow: Number(process.env.MINT_PARTICIPANTS_CANDIDATE_WINDOW || 300),
+          creationScan: (process.env.MINT_PARTICIPANTS_CREATION_SCAN === 'none' ? 'none' : 'full') as 'none' | 'full',
+          creationSkipIfTokenAccountsOver: Number(process.env.MINT_PARTICIPANTS_CREATION_SKIP_IF_TOKEN_ACCOUNTS_OVER || 10000),
+          excludeWallets: (process.env.MINT_PARTICIPANTS_EXCLUDE_WALLETS || '')
+            .split(',')
+            .map(w => w.trim())
+            .filter(Boolean),
+          output: (process.env.MINT_PARTICIPANTS_OUTPUT as any) || 'jsonl',
+          outFile: process.env.MINT_PARTICIPANTS_OUTFILE || undefined,
+          verbose: process.env.MINT_PARTICIPANTS_VERBOSE === 'true',
+        },
+        { runScannedAtIso: new Date().toISOString(), runSource: 'auto' }
+      );
+
+      // Alerts: zero-day and sub-5-day (configurable)
+      const alertAgeThresholdDays = Number(process.env.MINT_PARTICIPANTS_ALERT_AGE_DAYS || 0);
+      let alertCount = 0;
+      if (alertAgeThresholdDays === 0) {
+        const zeroDay = result.buyers.filter(b => (b.stats.accountAgeDays ?? 1) === 0);
+        if (zeroDay.length > 0) {
+          await this.alertingService.sendAlert({
+            severity: 'high',
+            title: 'Zero-day buyers detected',
+            message: `mint=${mint} cutoff=${cutoffTs} zeroDayCount=${zeroDay.length}`,
+            context: { mint, cutoffTs, wallets: zeroDay.slice(0, 20).map(z => z.walletAddress) },
+          });
+        }
+        alertCount = zeroDay.length;
+      } else {
+        const young = result.buyers.filter(b => typeof b.stats.accountAgeDays === 'number' && (b.stats.accountAgeDays as number) <= alertAgeThresholdDays);
+        if (young.length > 0) {
+          await this.alertingService.sendAlert({
+            severity: alertAgeThresholdDays <= 1 ? 'high' : 'medium',
+            title: `Young buyers detected (<=${alertAgeThresholdDays}d)`,
+            message: `mint=${mint} cutoff=${cutoffTs} count=${young.length}`,
+            context: { mint, cutoffTs, wallets: young.slice(0, 20).map(z => z.walletAddress) },
+          });
+        }
+        alertCount = young.length;
+      }
+
+      await job.updateProgress(100);
+      return { success: true, written: result.writtenCount, zeroDayAlerts: alertCount, processingTimeMs: Date.now() - startTime };
+    } catch (err) {
+      this.logger.error(`mint-participants-run failed for ${mint}@${cutoffTs}`, err as Error);
+      throw err;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
     }
