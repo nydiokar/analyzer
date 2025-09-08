@@ -45,7 +45,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     );
 
     this.worker.on('completed', (job) => {
-      this.logger.log(`Job ${job.id} from queue ${job.queueName} completed successfully`);
+      this.logger.debug(`Job ${job.id} from queue ${job.queueName} completed successfully`);
     });
 
     this.worker.on('failed', (job, err) => {
@@ -61,7 +61,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
   private async processJob(job: Job): Promise<any> {
     const jobName = job.name;
-    this.logger.log(`Processing job '${jobName}' with ID ${job.id}`);
+    this.logger.debug(`Processing job '${jobName}' with ID ${job.id}`);
     
     switch (jobName) {
       case 'analyze-pnl':

@@ -24,6 +24,7 @@ run_vacuum.py
 
 *.audit.json
 *audit.json
+*db.backup*
 
 
 ## DATA 
