@@ -9,7 +9,7 @@ import {
 } from '@/types/helius-api';
 import { DatabaseService } from '../../api/services/database.service';
 import { Injectable } from '@nestjs/common';
-import { HELIUS_CONFIG } from '../../config/constants';
+import { HELIUS_CONFIG, HELIUS_V2_CONFIG } from '../../config/constants';
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
 interface SignatureInfo {
@@ -55,6 +55,8 @@ export class HeliusApiClient {
   private readonly rpcUrl: string; // Store the full RPC URL with API key
   private readonly RPC_SIGNATURE_LIMIT = 1000; // Max limit for getSignaturesForAddress
   private dbService: DatabaseService; // Add DatabaseService member
+  private disableV2ForProcess: boolean = false; // circuit breaker for V2 if hard-fails
+  private loggedV2DisableOnce: boolean = false;
   
   // Global rate limiter - shared across all instances to prevent overwhelming API
   private static globalLastRequestTime: number = 0;
@@ -776,6 +778,24 @@ export class HeliusApiClient {
     throw new Error(`RPC method ${method} failed unexpectedly after retries.`);
   }
 
+  // Lightweight raw RPC poster for specialized flows (e.g., V2 pagination) without wrapping errors
+  private async postRpcRaw(method: string, params: any[]): Promise<{ result?: any; error?: { code?: number; message: string } }> {
+    await this.rateLimit();
+    const payload = {
+      jsonrpc: '2.0',
+      id: `helius-rpc-${method}-${Date.now()}`,
+      method,
+      params,
+    };
+    try {
+      const response = await this.api.post(this.rpcUrl, payload);
+      return response.data;
+    } catch (e) {
+      // For network/transport errors, shape as generic error to let caller decide
+      return { error: { message: (e as Error)?.message || 'network error' } };
+    }
+  }
+
   /**
    * Fetches account information for a list of public keys using the `getMultipleAccounts` RPC method.
    *
@@ -863,6 +883,30 @@ export class HeliusApiClient {
       throw new Error('ownerPubkey is required for get.TokenAccountsByOwner.');
     }
 
+    // Prefer V2 cursor-based pagination if enabled and not tripped
+    if (HELIUS_V2_CONFIG.enablePagination && !this.disableV2ForProcess) {
+      try {
+        const v2 = await this.fetchAllTokenAccountsByOwnerV2(ownerPubkey, {
+          mintPubkey,
+          programId,
+          commitment,
+          encoding,
+          dataSlice,
+        });
+        logger.info(`Successfully fetched token accounts (V2) for owner ${ownerPubkey}. Count: ${v2.value.length}`);
+        return v2;
+      } catch (e: any) {
+        const code = e?.code as number | undefined;
+        const hardFail = Boolean(e?.hardFail);
+        if (hardFail && !this.loggedV2DisableOnce) {
+          this.loggedV2DisableOnce = true;
+          this.disableV2ForProcess = true;
+          logger.warn(`Helius V2 disabled for this process due to hard failure (code=${code ?? 'n/a'}): ${e?.message}`);
+        }
+        // Fall back to V1
+      }
+    }
+
     const programFilter = mintPubkey ? { mint: mintPubkey } : { programId };
     const params: any[] = [ownerPubkey, programFilter];
 
@@ -878,7 +922,7 @@ export class HeliusApiClient {
     params.push(options);
 
     logger.debug(
-      `Fetching token accounts for owner ${ownerPubkey} with program/mint filter: `,
+      `Fetching token accounts (V1) for owner ${ownerPubkey} with program/mint filter: `,
       programFilter,
       ` and options: `,
       options
@@ -899,4 +943,54 @@ export class HeliusApiClient {
       throw error; // Re-throw to allow the caller to handle it
     }
   }
-} 
+
+  // Internal V2 cursor-based fetch loop with legacy shape adaptation
+  private async fetchAllTokenAccountsByOwnerV2(
+    ownerPubkey: string,
+    args: {
+      mintPubkey?: string;
+      programId?: string;
+      commitment?: string;
+      encoding?: string;
+      dataSlice?: { offset: number; length: number };
+      changedSinceSlot?: number; // reserved for incremental mode
+    }
+  ): Promise<GetTokenAccountsByOwnerResult> {
+    const limit = HELIUS_V2_CONFIG.pageLimit;
+    let paginationKey: string | undefined;
+    const aggregated: any[] = [];
+    let contextSlot = 0;
+
+    const base: any = {
+      encoding: args.encoding ?? 'jsonParsed',
+      limit,
+    };
+    if (args.mintPubkey) base.mint = args.mintPubkey; else if (args.programId) base.programId = args.programId;
+    if (args.dataSlice) base.dataSlice = args.dataSlice;
+    if (Number.isFinite(args.changedSinceSlot)) base.changedSinceSlot = args.changedSinceSlot;
+    if (args.commitment) base.commitment = args.commitment;
+
+    do {
+      const options = paginationKey ? { ...base, paginationKey } : base;
+      const { result, error } = await this.postRpcRaw('getTokenAccountsByOwnerV2', [ownerPubkey, options]);
+      if (error) {
+        // Hard-fail on method not found or invalid params
+        const code = (error as any).code;
+        const msg = String((error as any).message || '').toLowerCase();
+        const isHard = code === -32601 || code === -32602 || msg.includes('method not found') || msg.includes('invalid param');
+        const err: any = new Error(`V2 token accounts fetch failed: ${error.message || 'unknown'}`);
+        err.code = code;
+        if (isHard) err.hardFail = true;
+        throw err;
+      }
+      const page = result as { accounts?: any[]; paginationKey?: string; context?: { slot?: number } };
+      if (page?.accounts?.length) aggregated.push(...page.accounts);
+      paginationKey = page?.paginationKey;
+      contextSlot = page?.context?.slot ?? contextSlot;
+      // yield to event loop lightly to avoid starvation
+      await delay(0);
+    } while (paginationKey);
+
+    return { context: { slot: contextSlot }, value: aggregated };
+  }
+}
