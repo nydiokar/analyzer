@@ -995,9 +995,16 @@ export class HeliusApiClient {
         if (isHard) err.hardFail = true;
         throw err;
       }
-      const page = result as { accounts?: any[]; paginationKey?: string; context?: { slot?: number } };
-      if (page?.accounts?.length) aggregated.push(...page.accounts);
-      paginationKey = page?.paginationKey;
+      // V2 API returns: { context, value: { accounts: [...] }, paginationKey, totalResults }
+      const page = result as { 
+        value?: { accounts?: any[] }; 
+        paginationKey?: string; 
+        context?: { slot?: number }; 
+        totalResults?: number 
+      };
+      
+      if (page?.value?.accounts?.length) aggregated.push(...page.value.accounts);
+      paginationKey = page?.paginationKey; // This should now work correctly
       contextSlot = page?.context?.slot ?? contextSlot;
       // yield to event loop lightly to avoid starvation
       await delay(0);
