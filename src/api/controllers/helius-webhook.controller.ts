@@ -2,7 +2,6 @@ import { Body, Controller, Headers, HttpCode, Logger, Post } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../shared/decorators/public.decorator';
 import { MintParticipantsJobsQueue } from '../../queues/queues/mint-participants.queue';
-import { AlertingService } from '../../queues/services/alerting.service';
 
 interface EnhancedWebhookTx {
   signature: string;
@@ -23,7 +22,6 @@ export class HeliusWebhookController {
   constructor(
     private readonly configService: ConfigService,
     private readonly jobsQueue: MintParticipantsJobsQueue,
-    private readonly alerting: AlertingService,
   ) {}
 
   @Public()

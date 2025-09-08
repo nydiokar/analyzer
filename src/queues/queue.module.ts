@@ -37,6 +37,7 @@ import { DexscreenerModule } from '../api/integrations/dexscreener.module';
 import { WebSocketModule } from '../api/modules/websocket.module';
 import { BalanceCacheModule } from '../api/modules/balance-cache.module';
 import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
+import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
 
 @Global()
 @Module({
@@ -80,6 +81,7 @@ import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
     DeadLetterQueueService,
     QueueHealthService,
     JobEventsBridgeService,
+    TelegramAlertsService,
     
     // Queue Services
     WalletOperationsQueue,
@@ -109,6 +111,7 @@ import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
     DeadLetterQueueService,
     QueueHealthService,
     JobEventsBridgeService,
+    TelegramAlertsService,
     
     // Export processors if needed by other modules
     WalletOperationsProcessor,

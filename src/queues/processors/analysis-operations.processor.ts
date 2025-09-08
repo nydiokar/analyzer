@@ -16,8 +16,8 @@ import { SyncOptions } from '../../core/services/helius-sync-service';
 import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { TokenInfoService } from '../../api/services/token-info.service';
-import { AlertingService } from '../services/alerting.service';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
+import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 
 @Injectable()
 export class AnalysisOperationsProcessor implements OnModuleDestroy {
@@ -34,7 +34,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly heliusApiClient: HeliusApiClient,
     private readonly jobProgressGateway: JobProgressGateway,
     private readonly tokenInfoService: TokenInfoService,
-    private readonly alertingService: AlertingService,
+    private readonly telegramAlerts: TelegramAlertsService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -448,26 +448,33 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // Alerts: zero-day and sub-5-day (configurable)
       const alertAgeThresholdDays = Number(process.env.MINT_PARTICIPANTS_ALERT_AGE_DAYS || 0);
       let alertCount = 0;
+      const nowIso = new Date().toISOString();
+      const formatAlert = (wallets: typeof result.buyers) => {
+        const MAX_LINES = 50;
+        const listArr = wallets.map(w => {
+          const age = w.stats.accountAgeDays ?? null;
+          const ageStr = age == null ? '?' : `${age}`;
+          const addr = `<code>${w.walletAddress}</code>`;
+          return `• ${addr} (<b>${ageStr}d</b>)`;
+        });
+        const list = listArr.slice(0, MAX_LINES).join('\n') + (listArr.length > MAX_LINES ? `\n…and ${listArr.length - MAX_LINES} more` : '');
+        const cohort = alertAgeThresholdDays === 0 ? '0d' : `≤${alertAgeThresholdDays}d`;
+        const header = `<b>Chen Group alert</b> • <b>${wallets.length}</b> wallet(s) ${cohort}\n<code>${mint}</code>\ncutoff: ${cutoffTs} (${nowIso})`;
+        return `${header}\n\n${list}`;
+      };
+
       if (alertAgeThresholdDays === 0) {
         const zeroDay = result.buyers.filter(b => (b.stats.accountAgeDays ?? 1) === 0);
         if (zeroDay.length > 0) {
-          await this.alertingService.sendAlert({
-            severity: 'high',
-            title: 'Zero-day buyers detected',
-            message: `mint=${mint} cutoff=${cutoffTs} zeroDayCount=${zeroDay.length}`,
-            context: { mint, cutoffTs, wallets: zeroDay.slice(0, 20).map(z => z.walletAddress) },
-          });
+          const msg = formatAlert(zeroDay);
+          await this.telegramAlerts.broadcast(msg, { html: true });
         }
         alertCount = zeroDay.length;
       } else {
         const young = result.buyers.filter(b => typeof b.stats.accountAgeDays === 'number' && (b.stats.accountAgeDays as number) <= alertAgeThresholdDays);
         if (young.length > 0) {
-          await this.alertingService.sendAlert({
-            severity: alertAgeThresholdDays <= 1 ? 'high' : 'medium',
-            title: `Young buyers detected (<=${alertAgeThresholdDays}d)`,
-            message: `mint=${mint} cutoff=${cutoffTs} count=${young.length}`,
-            context: { mint, cutoffTs, wallets: young.slice(0, 20).map(z => z.walletAddress) },
-          });
+          const msg = formatAlert(young);
+          await this.telegramAlerts.broadcast(msg, { html: true });
         }
         alertCount = young.length;
       }
