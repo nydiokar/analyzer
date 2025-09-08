@@ -156,7 +156,7 @@ export class HeliusApiClient {
     }
     // Check for specific non-retryable RPC error messages
     const errorMessage = error?.message?.toLowerCase() || '';
-    if (errorMessage.includes('invalid param') || errorMessage.includes('wrongsize')) {
+    if (errorMessage.includes('invalid param') || errorMessage.includes('wrongsize') || errorMessage.includes('invalid limit')) {
       return false;
     }
     
@@ -183,6 +183,8 @@ export class HeliusApiClient {
     limit: number,
     before?: string | null
   ): Promise<SignatureInfo[]> {
+    // Cap limit to Helius RPC maximum
+    const cappedLimit = Math.min(limit, 1000);
     const url = `${this.rpcUrl}`;
     const payload = {
         jsonrpc: '2.0',
@@ -191,7 +193,7 @@ export class HeliusApiClient {
         params: [
             address,
             {
-                limit: limit,
+                limit: cappedLimit,
                 before: before || undefined 
             }
         ]
@@ -933,7 +935,7 @@ export class HeliusApiClient {
         'getTokenAccountsByOwner',
         params
       );
-      logger.info(`Successfully fetched token accounts for owner ${ownerPubkey}. Count: ${result.value.length}`);
+      logger.debug(`Successfully fetched token accounts for owner ${ownerPubkey}. Count: ${result.value.length}`);
       return result;
     } catch (error) {
       logger.error(
@@ -971,8 +973,18 @@ export class HeliusApiClient {
     if (args.commitment) base.commitment = args.commitment;
 
     do {
-      const options = paginationKey ? { ...base, paginationKey } : base;
-      const { result, error } = await this.postRpcRaw('getTokenAccountsByOwnerV2', [ownerPubkey, options]);
+      // Separate filter and options for V2 API (3 params instead of V1's 2 params)
+      const filter = args.mintPubkey ? { mint: args.mintPubkey } : { programId: args.programId || 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' };
+      const options: any = {
+        encoding: args.encoding ?? 'jsonParsed',
+        limit: HELIUS_V2_CONFIG.pageLimit  // Use V2 config limit (up to 10k!)
+      };
+      if (args.dataSlice) options.dataSlice = args.dataSlice;
+      if (Number.isFinite(args.changedSinceSlot)) options.changedSinceSlot = args.changedSinceSlot;
+      if (args.commitment) options.commitment = args.commitment;
+      if (paginationKey) options.paginationKey = paginationKey;
+      
+      const { result, error } = await this.postRpcRaw('getTokenAccountsByOwnerV2', [ownerPubkey, filter, options]);
       if (error) {
         // Hard-fail on method not found or invalid params
         const code = (error as any).code;
