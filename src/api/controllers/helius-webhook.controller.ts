@@ -30,7 +30,7 @@ export class HeliusWebhookController {
   async handleWebhook(@Headers() headers: Record<string, string>, @Body() payload: any) {
     const secret = this.configService.get<string>('HELIUS_WEBHOOK_SECRET');
     if (secret) {
-      const incoming = headers['x-helius-signature'] || headers['x-signature'] || '';
+      const incoming = headers['x-helius-signature'] || headers['x-signature'] || headers['authorization'] || '';
       if (!incoming || incoming !== secret) {
         this.logger.warn('Invalid webhook signature');
         return { ok: true };

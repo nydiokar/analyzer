@@ -26,16 +26,7 @@ export class TelegramAlertsService {
       const n = parseInt(groupIdStr, 10);
       if (!Number.isNaN(n)) chatIds.add(n);
     }
-    if (adminIdStr) {
-      const n = parseInt(adminIdStr, 10);
-      if (!Number.isNaN(n)) chatIds.add(n);
-    }
-    if (allowedStr) {
-      for (const part of allowedStr.split(',')) {
-        const n = parseInt(part.trim(), 10);
-        if (!Number.isNaN(n)) chatIds.add(n);
-      }
-    }
+    // Only send to group, not admin or other users
     this.defaultChats = Array.from(chatIds);
   }
 
