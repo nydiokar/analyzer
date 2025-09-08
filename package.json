@@ -83,7 +83,7 @@
     "express": "^5.1.0",
     "ioredis": "^5.7.0",
     "json-bigint": "^1.0.0",
-    "p-limit": "^6.2.0",
+    "p-limit": "^7.1.1",
     "papaparse": "^5.5.3",
     "react-wrap-balancer": "^1.1.1",
     "reflect-metadata": "^0.2.2",
