@@ -7,7 +7,7 @@ import { WalletInfo, WalletCluster } from '@/types/wallet';
 import { SingleSimilarityResult } from '@/types/similarity';
 import { SwapAnalysisSummary, OnChainAnalysisResult, AdvancedTradeStats } from '@/types/helius-api';
 import Papa from 'papaparse';
-import { table, getBorderCharacters } from 'table'; // Added getBorderCharacters
+import { table, getBorderCharacters } from 'table'; // Added getBorderCharacterse
 import { formatTimestamp, formatSolAmount, formatNumber } from 'core/utils/formatters';
 import { WalletBalance } from '@/types/wallet';
 
