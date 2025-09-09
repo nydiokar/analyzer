@@ -203,6 +203,17 @@ async function detectLastBuyersFromCandidates(
       // older than window; since sorted desc, we can break
       break;
     }
+    
+    // Skip transactions that only involve SOL or WSOL (native transfers)
+    // Only process transactions that have actual SPL token transfers beyond just SOL/WSOL
+    const hasNonSolTokenTransfers = tx.tokenTransfers.some(tr => 
+      tr.mint && 
+      tr.mint !== 'So11111111111111111111111111111111111111112' // Skip WSOL
+    );
+    
+    if (!hasNonSolTokenTransfers) {
+      continue; // Skip SOL/WSOL-only transactions
+    }
     const receivedByWallet = new Map<string, number>();
     for (const tr of tx.tokenTransfers) {
       if (tr.mint !== mintAddress) continue;
