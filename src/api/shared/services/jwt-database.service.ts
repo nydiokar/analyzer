@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { User } from '@prisma/client';
 import { DatabaseService } from '../../services/database.service';
 
@@ -90,10 +91,11 @@ export class JwtDatabaseService {
 
   // Email verification token methods
   async createVerificationToken(userId: string, token: string, expiresAt: Date): Promise<void> {
+    const hashed = crypto.createHash('sha256').update(token).digest('hex');
     await (this.databaseService as any).prismaClient.emailVerificationToken.create({
       data: {
         userId,
-        token,
+        token: hashed,
         expiresAt,
       },
     });
@@ -101,10 +103,11 @@ export class JwtDatabaseService {
 
   async findValidVerificationToken(userId: string, token: string): Promise<any> {
     try {
+      const hashed = crypto.createHash('sha256').update(token).digest('hex');
       return await (this.databaseService as any).prismaClient.emailVerificationToken.findFirst({
         where: {
           userId,
-          token,
+          token: hashed,
           used: false,
           expiresAt: {
             gt: new Date(),
@@ -208,52 +211,7 @@ export class JwtDatabaseService {
     });
   }
 
-  // Email change token methods
-  async createEmailChangeToken(userId: string, hashedToken: string, newEmail: string, expiresAt: Date): Promise<void> {
-    await (this.databaseService as any).prismaClient.emailChangeToken.create({
-      data: {
-        userId,
-        token: hashedToken,
-        newEmail,
-        expiresAt,
-      },
-    });
-  }
-
-  async findValidEmailChangeToken(userId: string, hashedToken: string): Promise<any> {
-    try {
-      return await (this.databaseService as any).prismaClient.emailChangeToken.findFirst({
-        where: {
-          userId,
-          token: hashedToken,
-          used: false,
-          expiresAt: {
-            gt: new Date(),
-          },
-        },
-      });
-    } catch (error) {
-      this.logger.error(`Failed to find email change token for user: ${userId}`, error);
-      return null;
-    }
-  }
-
-  async markEmailChangeTokenAsUsed(tokenId: string): Promise<void> {
-    await (this.databaseService as any).prismaClient.emailChangeToken.update({
-      where: { id: tokenId },
-      data: { used: true },
-    });
-  }
-
-  async invalidateExistingEmailChangeTokens(userId: string): Promise<void> {
-    await (this.databaseService as any).prismaClient.emailChangeToken.updateMany({
-      where: {
-        userId,
-        used: false,
-      },
-      data: { used: true },
-    });
-  }
+  // Email change token methods removed (feature dropped)
 
   // Cleanup expired tokens (should be called periodically)
   async cleanupExpiredPasswordResetTokens(): Promise<void> {
@@ -267,16 +225,7 @@ export class JwtDatabaseService {
     this.logger.log(`Cleaned up ${deletedCount.count} expired password reset tokens`);
   }
 
-  async cleanupExpiredEmailChangeTokens(): Promise<void> {
-    const deletedCount = await (this.databaseService as any).prismaClient.emailChangeToken.deleteMany({
-      where: {
-        expiresAt: {
-          lt: new Date(),
-        },
-      },
-    });
-    this.logger.log(`Cleaned up ${deletedCount.count} expired email change tokens`);
-  }
+  // cleanupExpiredEmailChangeTokens removed (feature dropped)
 
   // Enhanced API Key methods
   async createApiKey(data: {

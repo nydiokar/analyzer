@@ -56,16 +56,7 @@ class PasswordResetDto {
   newPassword: string;
 }
 
-class EmailChangeRequestDto {
-  @IsEmail({}, { message: 'Please provide a valid email address' })
-  newEmail: string;
-}
-
-class EmailChangeDto {
-  @IsString()
-  @IsNotEmpty({ message: 'Change token is required' })
-  token: string;
-}
+ 
 
 interface AuthenticatedRequest extends Request {
   user?: User;
@@ -482,10 +473,12 @@ export class AuthController {
     try {
       const result = await this.authService.requestPasswordReset(body.email);
       
-      // TODO: Send email with reset token to user's email address
-      // For development, log the token
+      // Attempt to send password reset email
       if (result.token) {
-        this.logger.warn(`🔑 DEVELOPMENT MODE - Password Reset Token for ${body.email}: ${result.token}`);
+        const emailSent = await this.emailService.sendPasswordResetEmail(body.email, result.token);
+        if (!emailSent) {
+          this.logger.warn(`🔑 DEVELOPMENT MODE - Password Reset Token for ${body.email}: ${result.token}`);
+        }
       }
       
       return { message: result.message };
@@ -524,74 +517,5 @@ export class AuthController {
     }
   }
 
-  @Post('change-email')
-  @UseGuards(CompositeAuthGuard, CsrfGuard, ThrottlerGuard)
-  @Throttle({ default: { limit: 5, ttl: 300000 } }) // 5 requests per 5 minutes
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Request email change' })
-  @ApiBody({ type: EmailChangeRequestDto })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
-    description: 'Email change requested',
-    schema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string' },
-      }
-    }
-  })
-  @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Email already in use' })
-  async changeEmail(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: EmailChangeRequestDto
-  ): Promise<{ message: string }> {
-    try {
-      const user = req.user!;
-      const result = await this.authService.requestEmailChange(user.id, body.newEmail);
-      
-      // TODO: Send email with change token to new email address
-      // For development, log the token
-      this.logger.warn(`🔑 DEVELOPMENT MODE - Email Change Token for user ${user.id}: ${result.token}`);
-      
-      return { message: result.message };
-    } catch (error) {
-      this.logger.error(`Email change request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw error;
-    }
-  }
-
-  @Post('verify-email-change')
-  @UseGuards(CompositeAuthGuard, CsrfGuard, ThrottlerGuard)
-  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Verify email change with token' })
-  @ApiBody({ type: EmailChangeDto })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
-    description: 'Email changed successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean' },
-        message: { type: 'string' },
-        newEmail: { type: 'string' },
-      }
-    }
-  })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Invalid change token' })
-  async verifyEmailChange(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: EmailChangeDto
-  ): Promise<{ success: boolean; message: string; newEmail?: string }> {
-    try {
-      const user = req.user!;
-      const result = await this.authService.verifyEmailChange(user.id, body.token);
-      
-      this.logger.log(`Email change verified for user: ${user.id}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Email change verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw error;
-    }
-  }
+ 
 }

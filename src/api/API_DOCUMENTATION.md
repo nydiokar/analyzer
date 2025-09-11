@@ -410,9 +410,9 @@ The API supports two authentication methods with automatic fallback:
 
 #### 1. JWT Authentication (Preferred)
 - **Header:** `Authorization: Bearer {jwt_token}`
-- **Cookie:** `analyzer.sid` (if cookie mode enabled)
+- **Cookie:** If cookie mode is enabled, an HTTP-only cookie carries the short-lived access token
 - **Token Type:** JWT (JSON Web Token)
-- **Expiration:** 7 days (configurable)
+- **Expiration:** 30 minutes by default (configurable via `JWT_EXPIRES_IN`)
 - **Features:** 
   - Stateless authentication
   - Built-in expiration handling
@@ -435,13 +435,13 @@ The API supports optional HTTP-only cookie authentication for enhanced security:
 - **Environment Variable:** `AUTH_COOKIE_MODE=true`
 - **Cookie Name:** `analyzer.sid` (configurable via `AUTH_COOKIE_NAME`)
 - **Security:** HTTP-only, Secure, SameSite=strict
-- **Expiration:** 7 days (matches JWT expiration)
+- **Expiration:** Matches access token TTL (default 30 minutes)
 
 #### Cookie Behavior
 - **Auto-Set:** Cookies are automatically set on successful login/registration
 - **Auto-Clear:** Cookies are cleared on logout
 - **Fallback:** Header authentication still works when cookies are disabled
-- **Security:** Prevents XSS attacks via HTTP-only flag
+- **Security:** Prevents XSS attacks via HTTP-only flag; CSRF protection is enforced for mutating requests when cookie mode is enabled
 
 ### Authentication Flow
 

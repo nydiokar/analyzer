@@ -259,7 +259,6 @@ export class AuthService {
     
     this.logger.log(`Email verification requested for user: ${userId}`);
     
-    // TODO: Send email with verification token to user's email address
     // For now, we'll store the token in the database and return it for manual verification
     return { token: verificationToken };
   }
@@ -490,146 +489,6 @@ export class AuthService {
   }
 
   /**
-   * Request email change
-   */
-  async requestEmailChange(userId: string, newEmail: string): Promise<{ token: string; message: string }> {
-    // Validate email format
-    if (!this.isValidEmail(newEmail)) {
-      throw new UnauthorizedException('Invalid email format');
-    }
-
-    const user = await this.databaseService.findUserById(userId);
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    // Check if new email is already in use
-    const existingUser = await this.databaseService.findUserByEmail(newEmail);
-    if (existingUser && existingUser.id !== userId) {
-      throw new ConflictException('Email already in use');
-    }
-
-    // Invalidate any existing email change tokens for this user
-    await this.databaseService.invalidateExistingEmailChangeTokens(userId);
-
-    const changeToken = this.generateVerificationToken();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
-    
-    // Store the hashed token in database with new email
-    const hashedToken = crypto.createHash('sha256').update(changeToken).digest('hex');
-    await this.databaseService.createEmailChangeToken(userId, hashedToken, newEmail, expiresAt);
-    
-    this.logger.log(`Email change requested for user: ${userId} to ${newEmail}`);
-    
-    return { 
-      token: changeToken,
-      message: 'Email change token generated. Verify with the new email address.' 
-    };
-  }
-
-  /**
-   * Verify email change with token - SECURE IMPLEMENTATION
-   */
-  async verifyEmailChange(userId: string, token: string): Promise<{ success: boolean; message: string; newEmail?: string }> {
-    // Validate token format
-    if (!token || typeof token !== 'string' || token.length < 32) {
-      this.logger.warn(`Invalid email change token format for user: ${userId}`);
-      throw new UnauthorizedException('Invalid email change token format');
-    }
-
-    const user = await this.databaseService.findUserById(userId);
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    // Hash the token to find in database
-    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-    
-    // Find and validate the token in database
-    const changeToken = await this.databaseService.findValidEmailChangeToken(userId, hashedToken);
-    
-    if (!changeToken) {
-      this.logger.warn(`Invalid or expired email change token for user: ${userId}`);
-      throw new UnauthorizedException('Invalid or expired email change token');
-    }
-
-    if (changeToken.used) {
-      this.logger.warn(`Already used email change token for user: ${userId}`);
-      throw new UnauthorizedException('This email change token has already been used');
-    }
-
-    if (changeToken.expiresAt < new Date()) {
-      this.logger.warn(`Expired email change token for user: ${userId}`);
-      throw new UnauthorizedException('Email change token has expired');
-    }
-
-    // Check if the new email is still available
-    const existingUser = await this.databaseService.findUserByEmail(changeToken.newEmail);
-    if (existingUser && existingUser.id !== userId) {
-      this.logger.warn(`Email change failed - email now in use: ${changeToken.newEmail}`);
-      throw new ConflictException('The new email address is now in use by another account');
-    }
-
-    // Update email, mark token as used, and revoke all sessions for security
-    await this.databaseService.updateUserEmail(userId, changeToken.newEmail);
-    await this.databaseService.markEmailChangeTokenAsUsed(changeToken.id);
-    await this.refreshTokenService.revokeAllUserSessions(userId);
-    
-    this.logger.log(`Email successfully changed for user: ${userId} to ${changeToken.newEmail}`);
-    
-    return { 
-      success: true, 
-      message: 'Email address updated successfully. Please log in again.',
-      newEmail: changeToken.newEmail 
-    };
-  }
-
-  /**
-   * Refresh access token using refresh token
-   */
-  async refreshAccessToken(refreshToken: string): Promise<AuthResponse> {
-    // Detect potential replay attacks
-    const isReplay = await this.refreshTokenService.detectReplay(refreshToken);
-    if (isReplay) {
-      throw new UnauthorizedException('Security violation detected - all sessions revoked');
-    }
-
-    // Rotate the refresh token and get session
-    const result = await this.refreshTokenService.rotateRefreshToken(refreshToken);
-    if (!result) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
-    }
-
-    const { newRefreshToken, session } = result;
-
-    // Get user data
-    const user = await this.databaseService.findActiveUserById(session.userId);
-    if (!user) {
-      throw new UnauthorizedException('User not found or inactive');
-    }
-
-    // Generate new access token
-    const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email!,
-    };
-    const access_token = this.signJwtWithEnhancedSecurity(payload);
-
-    this.logger.log(`Access token refreshed for user: ${user.id}`);
-
-    return {
-      access_token,
-      refresh_token: newRefreshToken,
-      user: {
-        id: user.id,
-        email: user.email!,
-        isDemo: user.isDemo,
-        emailVerified: user.emailVerified,
-      },
-    };
-  }
-
-  /**
    * Logout - revoke specific session
    */
   async logout(refreshToken: string): Promise<void> {
@@ -646,6 +505,56 @@ export class AuthService {
   async logoutAllSessions(userId: string): Promise<void> {
     await this.refreshTokenService.revokeAllUserSessions(userId);
     this.logger.log(`All sessions revoked for user: ${userId}`);
+  }
+
+  /**
+   * Refresh access token using refresh token
+   */
+  async refreshAccessToken(refreshToken: string): Promise<AuthResponse> {
+    try {
+      // Rotate the refresh token and get new session
+      const rotationResult = await this.refreshTokenService.rotateRefreshToken(refreshToken);
+      
+      if (!rotationResult) {
+        this.logger.warn('Invalid or expired refresh token');
+        throw new UnauthorizedException('Invalid or expired refresh token');
+      }
+
+      const { newRefreshToken, session } = rotationResult;
+
+      // Get user data
+      const user = await this.databaseService.findActiveUserById(session.userId);
+      if (!user) {
+        this.logger.warn(`User not found for refresh token: ${session.userId}`);
+        throw new UnauthorizedException('User not found');
+      }
+
+      // Generate new access token
+      const payload: JwtPayload = {
+        sub: user.id,
+        email: user.email!,
+      };
+      const access_token = this.signJwtWithEnhancedSecurity(payload);
+
+      this.logger.log(`Access token refreshed for user: ${user.id}`);
+
+      return {
+        access_token,
+        refresh_token: newRefreshToken,
+        user: {
+          id: user.id,
+          email: user.email!,
+          isDemo: user.isDemo,
+          emailVerified: user.emailVerified,
+        },
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      this.logger.error('Failed to refresh access token:', error);
+      throw new UnauthorizedException('Token refresh failed');
+    }
   }
 
   /**

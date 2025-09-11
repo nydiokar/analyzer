@@ -29,15 +29,15 @@ model Wallet {
   analyzedTimestampEnd         Int?
 
   // Wallet classification for bot detection
-  classification               String?   @default("unknown") // "bot", "human", "unknown", "institutional"
-  classificationConfidence     Float?    // 0.0-1.0 confidence score
-  classificationUpdatedAt      DateTime? // When classification was last updated
-  classificationMethod         String?   // "behavioral", "pattern", "manual", "api"
-  isVerifiedBot               Boolean   @default(false) // Manual verification flag
-  
+  classification           String?   @default("unknown") // "bot", "human", "unknown", "institutional"
+  classificationConfidence Float? // 0.0-1.0 confidence score
+  classificationUpdatedAt  DateTime? // When classification was last updated
+  classificationMethod     String? // "behavioral", "pattern", "manual", "api"
+  isVerifiedBot            Boolean   @default(false) // Manual verification flag
+
   // Bot-specific metadata
-  botType                     String?   // "arbitrage", "mev", "market_maker", "liquidity", "spam"
-  botPatternTags              Json?     // Array of detected patterns: ["high_frequency", "micro_transactions", "true_flipper"]
+  botType        String? // "arbitrage", "mev", "market_maker", "liquidity", "spam"
+  botPatternTags Json? // Array of detected patterns: ["high_frequency", "micro_transactions", "true_flipper"]
 
   // Relations to the latest summaries and profiles - fixed to be referenced by children
   pnlSummary      WalletPnlSummary?
@@ -250,25 +250,27 @@ model AnalysisRun {
 }
 
 model User {
-  id              String               @id @default(cuid())
-  apiKey          String               @unique // For API authentication
-  description     String? // e.g., "Dashboard Primary Access", "Analyst X"
-  isDemo          Boolean              @default(false) // New field for demo users
-  createdAt       DateTime             @default(now())
-  lastSeenAt      DateTime?
-  isActive        Boolean              @default(true)
-  
+  id          String    @id @default(cuid())
+  apiKey      String    @unique // For API authentication
+  description String? // e.g., "Dashboard Primary Access", "Analyst X"
+  isDemo      Boolean   @default(false) // New field for demo users
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime?
+  isActive    Boolean   @default(true)
+
   // New JWT authentication fields
-  email           String?              @unique // Email for JWT authentication
-  passwordHash    String?              // Bcrypt hashed password
-  emailVerified   Boolean              @default(false)
-  lastLoginAt     DateTime?            // Track last login for JWT sessions
-  
+  email         String?   @unique // Email for JWT authentication
+  passwordHash  String? // Bcrypt hashed password
+  emailVerified Boolean   @default(false)
+  lastLoginAt   DateTime? // Track last login for JWT sessions
+
   // Relations
-  activityLogs    ActivityLog[]
-  favoriteWallets UserFavoriteWallet[] // Added for User-FavoriteWallets relationship
-  walletNotes     WalletNote[]
-  verificationTokens EmailVerificationToken[] // Email verification tokens
+  activityLogs        ActivityLog[]
+  favoriteWallets     UserFavoriteWallet[] // Added for User-FavoriteWallets relationship
+  walletNotes         WalletNote[]
+  verificationTokens  EmailVerificationToken[] // Email verification tokens
+  apiKeys             ApiKey[] // API keys for this user
+  passwordResetTokens PasswordResetToken[] // Password reset tokens for this user
 }
 
 model EmailVerificationToken {
@@ -278,18 +280,55 @@ model EmailVerificationToken {
   expiresAt DateTime
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
-  
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([token])
   @@index([userId])
   @@index([expiresAt])
 }
 
+/// Scoped API keys for users (prefix + hashed secret + scopes JSON)
+model ApiKey {
+  id          String    @id @default(cuid())
+  prefix      String
+  keyHash     String
+  userId      String
+  description String?
+  scopes      String? // JSON array stored as string
+  isActive    Boolean   @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([prefix])
+  @@index([expiresAt])
+}
+
+/// Password reset tokens (store hashed token in `token`)
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// Email change feature removed
+
 model ActivityLog {
   id                String   @id @default(cuid()) // Or use autoincrement Int
   userId            String?
-  user              User?     @relation(fields: [userId], references: [id])
+  user              User?    @relation(fields: [userId], references: [id])
   actionType        String // e.g., 'get_wallet_summary', 'get_token_performance', 'run_pnl_analysis'
   timestamp         DateTime @default(now())
   requestParameters String? // Input parameters for the action (stored as JSON string)
@@ -371,13 +410,13 @@ model UserFavoriteWallet {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   wallet        Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
   createdAt     DateTime @default(now())
-  
+
   // Simple organization fields
-  nickname      String?  // User-defined nickname/title for the wallet
-  tags          String?  // JSON array: ["DeFi", "High Performer", "Research"]
-  collections   String?  // JSON array: ["Main Portfolio", "Watchlist"]
-  metadata      Json?    // Future flexibility for any custom data
-  lastViewedAt  DateTime? // Track when user last viewed this wallet
+  nickname     String? // User-defined nickname/title for the wallet
+  tags         String? // JSON array: ["DeFi", "High Performer", "Research"]
+  collections  String? // JSON array: ["Main Portfolio", "Watchlist"]
+  metadata     Json? // Future flexibility for any custom data
+  lastViewedAt DateTime? // Track when user last viewed this wallet
 
   @@id([userId, walletAddress])
   @@index([userId])
@@ -386,25 +425,25 @@ model UserFavoriteWallet {
 }
 
 model TokenInfo {
-  tokenAddress String   @id @unique
+  tokenAddress String  @id @unique
   name         String?
   symbol       String?
   imageUrl     String?
   websiteUrl   String?
   twitterUrl   String?
   telegramUrl  String?
-  
+
   // DexScreener market data for enhanced spam detection
-  marketCapUsd       Float?   // Market capitalization in USD
-  liquidityUsd       Float?   // Liquidity in USD
-  pairCreatedAt      BigInt?  // Unix timestamp when the pair was created
-  fdv                Float?   // Fully diluted value
-  volume24h          Float?   // 24h trading volume
-  priceUsd           String?  // Current price in USD (string to preserve precision)
+  marketCapUsd         Float? // Market capitalization in USD
+  liquidityUsd         Float? // Liquidity in USD
+  pairCreatedAt        BigInt? // Unix timestamp when the pair was created
+  fdv                  Float? // Fully diluted value
+  volume24h            Float? // 24h trading volume
+  priceUsd             String? // Current price in USD (string to preserve precision)
   dexscreenerUpdatedAt DateTime? // When DexScreener data was last fetched
-  
-  fetchedAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+
+  fetchedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([name])
   @@index([symbol])

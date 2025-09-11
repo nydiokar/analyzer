@@ -105,6 +105,49 @@ export class EmailService {
     }
   }
 
+  async sendPasswordResetEmail(email: string, token: string): Promise<boolean> {
+    if (!this.isConfigured || !this.transporter) {
+      this.logger.warn(`Email not configured - would send password reset email to ${email} with token: ${token}`);
+      return false;
+    }
+
+    const fromEmail = this.configService.get<string>('SMTP_FROM_EMAIL');
+    const appName = this.configService.get<string>('APP_NAME', 'Sova Intel');
+
+    try {
+      const mailOptions = {
+        from: `"${appName}" <${fromEmail}>`,
+        to: email,
+        subject: `Reset your ${appName} password`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Password reset</title>
+          </head>
+          <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #333;">Password reset request</h2>
+            <p>Use the token below to reset your password. If you did not request this, you can ignore this email.</p>
+            <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0; font-family: monospace; font-size: 16px; text-align: center;">
+              <strong>${token}</strong>
+            </div>
+            <p>This token will expire in 1 hour.</p>
+          </body>
+          </html>
+        `,
+        text: `Use this token to reset your password: ${token}\nThis token expires in 1 hour.`,
+      } as any;
+
+      await this.transporter.sendMail(mailOptions);
+      this.logger.log(`Password reset email sent successfully to ${email}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send password reset email to ${email}:`, error);
+      return false;
+    }
+  }
+
   isEmailConfigured(): boolean {
     return this.isConfigured;
   }
