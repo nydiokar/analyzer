@@ -61,6 +61,12 @@ export async function runMintParticipantsFlow(
   params: MintParticipantsParams,
   meta?: RunFlowMeta
 ): Promise<RunMintParticipantsResult> {
+  // Block SOL/WSOL mint addresses completely
+  const SOL_MINT = 'So11111111111111111111111111111111111111112';
+  if (params.mint === SOL_MINT) {
+    throw new Error(`Mint-participants analysis is not supported for SOL/WSOL (${SOL_MINT}). Only SPL tokens are supported.`);
+  }
+
   const fetchAddresses = determineFetchAddresses(params);
   const candidateSignatures = await prefilterSignaturesBeforeCutoffMulti(
     heliusClient,
