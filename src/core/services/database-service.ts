@@ -147,6 +147,17 @@ export class DatabaseService {
         }
     }
 
+    /**
+     * Exposes Prisma $transaction to callers while preserving the service as the single DB entry point.
+     */
+    public async $transaction<T>(
+        fn: (
+            tx: Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$extends'>
+        ) => Promise<T>
+    ): Promise<T> {
+        return this.prismaClient.$transaction(fn);
+    }
+
     // --- Mapping Activity Log Methods ---
     /**
      * Saves a mapping activity log entry to the database.
