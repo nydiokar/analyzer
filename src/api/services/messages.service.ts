@@ -30,7 +30,7 @@ export class MessagesService {
     const mentions = parseMentions(input.body);
     // Resolve mentions (symbol -> address) at controller layer for now; keep service pure
     return this.db.$transaction(async (tx) => {
-      const client = tx as unknown as { message: any; messageMention: any };
+      const client = tx as unknown as { message: any; messageMention: any; tokenTag: any; tag: any };
       const message = await client.message.create({
         data: {
           body: input.body,
@@ -51,6 +51,32 @@ export class MessagesService {
             metaJson: m.metaJson as unknown as Prisma.InputJsonValue,
           })),
         });
+      }
+
+      // Upsert TokenTags if token + tag co-mentioned
+      try {
+        const tokenRefs = mentions.filter((m) => m.kind === 'token' && m.refId).map((m) => m.refId as string);
+        const tagItems = mentions.filter((m) => m.kind === 'tag' && m.metaJson && (m.metaJson as any).name);
+        if (tokenRefs.length > 0 && tagItems.length > 0) {
+          for (const t of tokenRefs) {
+            for (const tg of tagItems) {
+              const name = (tg.metaJson as any).name.toLowerCase();
+              const type = (tg.metaJson as any).type?.toUpperCase() || 'META';
+              const tagRow = await client.tag.upsert({
+                where: { name },
+                update: {},
+                create: { name, type },
+              });
+              await client.tokenTag.upsert({
+                where: { tokenAddress_tagId: { tokenAddress: t, tagId: tagRow.id } },
+                create: { tokenAddress: t, tagId: tagRow.id, source: 'user-note', confidence: 1 },
+                update: { confidence: 1 },
+              });
+            }
+          }
+        }
+      } catch (e) {
+        this.logger.warn('Failed to upsert TokenTags from message', e as any);
       }
 
       // Publish events
