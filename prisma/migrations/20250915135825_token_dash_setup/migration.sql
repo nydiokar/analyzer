@@ -19,7 +19,7 @@ PRAGMA foreign_keys=on;
 -- DropTable
 PRAGMA foreign_keys=off;
 DROP TABLE "PasswordResetToken";
-PRAGMA foreign_keys=on;
+PRAGMA foreign_keys=on;px 
 
 -- CreateTable
 CREATE TABLE "Tag" (
