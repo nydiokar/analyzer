@@ -74,6 +74,9 @@ export default function GlobalChat() {
     onMessageCreated: () => {
       mutate();
     },
+    onMessageEdited: () => {
+      mutate();
+    },
   });
 
   return (

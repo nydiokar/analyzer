@@ -40,4 +40,18 @@ export class TokenInfoController {
     );
     return safe;
   }
+
+  @Post('batch')
+  @HttpCode(200)
+  async getTokenInfoBatch(@Body(new ValidationPipe()) body: GetTokenInfoRequestDto, @Req() req: Request & { user?: any }) {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User could not be identified.');
+    }
+    // Same behavior as main route
+    this.tokenInfoService.triggerTokenInfoEnrichment(body.tokenAddresses, userId);
+    const rows = await this.tokenInfoService.findMany(body.tokenAddresses);
+    const safe = JSON.parse(JSON.stringify(rows, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
+    return safe;
+  }
 } 

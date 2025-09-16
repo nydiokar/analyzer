@@ -64,6 +64,8 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         } else if (channel.startsWith('message-events:token:')) {
           const address = channel.split(':')[2];
           this.server.to(`token-thread:${address}`).emit('message.created', payload);
+        } else if (channel === 'message-events:edited') {
+          this.server.emit('message.edited', payload);
         }
       } catch (e) {
         this.logger.warn('Failed to parse message event', e as any);
@@ -77,6 +79,10 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
 
   async publishToken(address: string, event: any) {
     await this.redisPublisher.publish(`message-events:token:${address}`, JSON.stringify(event));
+  }
+
+  async publishEdited(event: any) {
+    await this.redisPublisher.publish('message-events:edited', JSON.stringify(event));
   }
 }
 

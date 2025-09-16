@@ -174,6 +174,9 @@ export class MessagesService {
           })),
         });
       }
+      try {
+        await this.messageGateway.publishEdited({ id: updated.id, body: updated.body, createdAt: updated.createdAt, updatedAt: updated.updatedAt });
+      } catch {}
       return updated;
     });
   }

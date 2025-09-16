@@ -109,6 +109,41 @@ export class WatchedTokensService {
       return rows;
     });
   }
+
+  async addTags(tokenAddress: string, items: Array<{ type: string; name: string }>, userId?: string) {
+    const normalized = Array.from(new Set(items
+      .map((i) => ({ type: (i.type || 'meta').toUpperCase(), name: (i.name || '').toLowerCase().trim() }))
+      .filter((i) => i.name.length > 0)
+    ));
+    if (normalized.length === 0) return { added: 0 };
+    if (normalized.length > 10) {
+      // rudimentary rate/size limit: cap per request
+      normalized.length = 10;
+    }
+    return this.db.$transaction(async (tx) => {
+      const client = tx as any;
+      let added = 0;
+      for (const it of normalized) {
+        const tag = await client.tag.upsert({
+          where: { name: it.name },
+          update: { type: it.type },
+          create: { name: it.name, type: it.type },
+        });
+        const existed = await client.tokenTag.findUnique({ where: { tokenAddress_tagId: { tokenAddress, tagId: tag.id } } });
+        if (!existed) {
+          await client.tokenTag.create({ data: { tokenAddress, tagId: tag.id, source: 'user-note', confidence: 1 } });
+          added++;
+        }
+      }
+      // ensure token is watched so UI reflects tags
+      await client.watchedToken.upsert({
+        where: { tokenAddress_list: { tokenAddress, list: 'FAVORITES' } },
+        update: {},
+        create: { tokenAddress, list: 'FAVORITES', createdBy: userId ?? null },
+      });
+      return { added };
+    });
+  }
 }
 
 

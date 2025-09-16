@@ -90,6 +90,9 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
     onMessageCreated: () => {
       mutate();
     },
+    onMessageEdited: () => {
+      mutate();
+    },
   });
 
   return (
@@ -101,6 +104,32 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
           <Metric label="MCap" value={meta?.marketCapUsd ? `$${Math.round(meta.marketCapUsd).toLocaleString()}` : null} />
           <Metric label="Liq" value={meta?.liquidityUsd ? `$${Math.round(meta.liquidityUsd).toLocaleString()}` : null} />
         </div>
+      </div>
+      <div className="px-3 py-2 border-b border-border flex items-center gap-2">
+        <span className="text-[10px] text-muted-foreground">Tags:</span>
+        {/* Simple inline add form - minimal UX */}
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.currentTarget as HTMLFormElement;
+            const input = form.querySelector('input[name="tag-input"]') as HTMLInputElement;
+            const value = (input.value || '').trim().toLowerCase();
+            if (!value) return;
+            try {
+              await fetch((process.env.NEXT_PUBLIC_API_BASE_URL || '') + `/watched-tokens/${encodeURIComponent(tokenAddress)}/tags`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: [{ type: 'meta', name: value }] }),
+              });
+              input.value = '';
+              // Refresh thread header metrics/tags by reloading watched list implicitly (next page visit) or keep simple for now
+            } catch {}
+          }}
+          className="flex items-center gap-2"
+        >
+          <input name="tag-input" placeholder="add tag e.g. meta:elon" className="h-7 px-2 text-xs bg-background border rounded" />
+          <button className="h-7 px-2 text-xs border rounded">Add</button>
+        </form>
       </div>
       <div className="flex-1 overflow-auto">
         {isLoading && <div className="p-3 text-sm">Loading…</div>}
