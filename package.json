@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "engines": {
@@ -34,6 +34,7 @@
     "clear-locks": "npx ts-node scripts/clear-stale-locks.ts",
     "clean-cache": "npx ts-node scripts/clean-wallet-cache.ts",
     "clean-logs": "npx ts-node scripts/clean-logs.ts",
+    "cleanup-watched-tokens-chat": "npx ts-node -r tsconfig-paths/register scripts/cleanup-watched-tokens-chat.ts",
     "emergency-stop": "pm2 stop all && npm run clear-queues && npm run clear-locks",
     "reset-system": "npm run emergency-stop && pm2 start ecosystem.config.js",
     "reset": "npm run build && pm2 restart all"

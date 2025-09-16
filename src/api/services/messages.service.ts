@@ -79,13 +79,18 @@ export class MessagesService {
         this.logger.warn('Failed to upsert TokenTags from message', e as any);
       }
 
+      // Note: WatchedToken upsert and enrichment are handled at the controller layer
+      // via WatchedTokensService.ensureWatchedAndEnrich to avoid duplicate writes.
+
+      // Enrichment is handled in controller via WatchedTokensService.ensureWatchedAndEnrich
+
       // Publish events
       try {
-        await this.messageGateway.publishGlobal({ id: message.id, createdAt: message.createdAt });
+        await this.messageGateway.publishGlobal({ id: message.id, body: message.body, createdAt: message.createdAt });
         // Emit per-token events for any token mentions with refId
         for (const m of mentions) {
           if (m.kind === 'token' && m.refId) {
-            await this.messageGateway.publishToken(m.refId, { id: message.id, createdAt: message.createdAt });
+            await this.messageGateway.publishToken(m.refId, { id: message.id, body: message.body, createdAt: message.createdAt });
           }
         }
       } catch (e) {
@@ -179,11 +184,34 @@ export class MessagesService {
     return this.db.$transaction(async (tx) => {
       const client = tx as any;
       const items = await client.tokenInfo.findMany({
-        where: { symbol: { equals: symbol, mode: 'insensitive' } },
-        select: { tokenAddress: true, name: true, symbol: true },
+        where: { symbol: { contains: symbol, mode: 'insensitive' } },
+        select: { tokenAddress: true, name: true, symbol: true, marketCapUsd: true, liquidityUsd: true },
         take: 20,
       });
-      return items;
+
+      // Enrich with isWatched and latestMessageAt for ranking
+      const enriched = [] as any[];
+      for (const it of items) {
+        const isWatched = (await client.watchedToken.findFirst({ where: { tokenAddress: it.tokenAddress } })) ? true : false;
+        const latest = await client.message.findFirst({
+          where: { mentions: { some: { kind: 'TOKEN', refId: it.tokenAddress } } },
+          select: { createdAt: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        enriched.push({ ...it, isWatched, latestMessageAt: latest?.createdAt ?? null });
+      }
+
+      // Rank: watched first, then latestMessageAt desc, then liquidity, then marketCap
+      enriched.sort((a, b) => {
+        if (a.isWatched !== b.isWatched) return a.isWatched ? -1 : 1;
+        const at = a.latestMessageAt ? new Date(a.latestMessageAt).getTime() : 0;
+        const bt = b.latestMessageAt ? new Date(b.latestMessageAt).getTime() : 0;
+        if (bt !== at) return bt - at;
+        const bliq = (b.liquidityUsd ?? 0) - (a.liquidityUsd ?? 0);
+        if (bliq !== 0) return bliq;
+        return (b.marketCapUsd ?? 0) - (a.marketCapUsd ?? 0);
+      });
+      return enriched;
     });
   }
 }

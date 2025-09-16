@@ -55,6 +55,19 @@ export function extractUnresolvedSymbols(body: string): string[] {
   return syms;
 }
 
+// Extract bare @SYMBOL that are not already namespaced and not a known namespace like @meta/@time/@user
+export function extractBareSymbols(body: string): string[] {
+  const bareRe = /@([A-Za-z0-9_\.\-]{1,15})\b/g;
+  const disallowedPrefixes = ['ca:', 'sym:', 'meta:', 'risk:', 'thesis:', 'time:', 'user:'];
+  const results: string[] = [];
+  for (const match of body.matchAll(bareRe)) {
+    const afterAt = body.slice(match.index! + 1).toLowerCase();
+    if (disallowedPrefixes.some((p) => afterAt.startsWith(p))) continue;
+    results.push(match[1]);
+  }
+  return results;
+}
+
 export const mentionNamespaces = [
   { key: 'ca', label: 'Contract address', example: '@ca:V5cCi…' },
   { key: 'sym', label: 'Symbol', example: '@sym:JUP' },

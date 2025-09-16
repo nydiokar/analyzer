@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, ValidationPipe, ConflictException } from '@nestjs/common';
 import { MessagesService } from '../services/messages.service';
 import { parseMentions } from '../shared/mention-parser';
+import { WatchedTokensService } from '../services/watched-tokens.service';
 
 class PostMessageDto {
   body!: string;
@@ -9,7 +10,7 @@ class PostMessageDto {
 
 @Controller('messages')
 export class MessagesController {
-  constructor(private readonly messages: MessagesService) {}
+  constructor(private readonly messages: MessagesService, private readonly watchedTokens: WatchedTokensService) {}
 
   @Post()
   async postMessage(@Body(new ValidationPipe()) dto: PostMessageDto) {
@@ -33,9 +34,20 @@ export class MessagesController {
         const re = new RegExp(`@sym:${sym}\\b`, 'gi');
         rewritten = rewritten.replace(re, `@ca:${address}`);
       }
-      return this.messages.createMessage({ body: rewritten, source: dto.source });
+      const created = await this.messages.createMessage({ body: rewritten, source: dto.source });
+      const tokenMentions = parseMentions(rewritten).filter((m: any) => m.kind === 'token' && m.refId).map((m: any) => m.refId as string);
+      if (tokenMentions.length) {
+        // Ensure watched + enrichment handled in dedicated service to keep concerns clean
+        await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, created.authorUserId ?? 'system');
+      }
+      return created;
     }
-    return this.messages.createMessage({ body: dto.body, source: dto.source });
+    const created = await this.messages.createMessage({ body: dto.body, source: dto.source });
+    const tokenMentions = parseMentions(dto.body).filter((m: any) => m.kind === 'token' && m.refId).map((m: any) => m.refId as string);
+    if (tokenMentions.length) {
+      await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, created.authorUserId ?? 'system');
+    }
+    return created;
   }
 
   @Get()

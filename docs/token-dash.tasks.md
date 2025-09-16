@@ -12,14 +12,15 @@
 - [x] Smoke test: create → list global/thread → edit → WS publish
 
 ### Next
-- [ ] Frontend: GlobalChat + MessageComposer with @ autocomplete and unresolved @sym: blocking
-- [ ] Frontend: TokenThread panel with metrics strip, infinite scroll, and inline composer
-- [ ] Shared mention-grammar between web/server; client pre-parse + server re-validate
-- [ ] WebSocket integration: message.created append to global/thread stores (rooms join)
-- [ ] Token List: use `WatchedToken` join; show tags and last message time; open thread on click
+- [x] Frontend: GlobalChat + MessageComposer with @ autocomplete and unresolved @sym: blocking
+- [x] Frontend: TokenThread panel with metrics strip, infinite scroll, and inline composer
+- [x] Shared mention-grammar between web/server; client pre-parse + server re-validate
+- [x] WebSocket integration: message.created append to global/thread stores (rooms join)
+- [x] Token List: use `WatchedToken` join; show tags and last message time; open thread on click
 - [ ] Tag editor chips on token: POST /tokens/:addr/tags; rate-limit on server
-- [ ] Symbol resolver UX: modal to disambiguate @sym:, rewrite to @ca: before submit
+- [x] Symbol resolver UX: modal to disambiguate @sym:, rewrite to @ca: before submit
 
 ### Progress log
 - 2025-09-15: Added models and enums to prisma/schema.prisma and documented indexes.
 - 2025-09-15: Module + endpoints + gateway implemented; smoke test passed.
+- 2025-09-15: Implemented GlobalChat + Composer, TokenThread, shared mention grammar, and WS live updates.

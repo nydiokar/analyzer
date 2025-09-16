@@ -58,7 +58,7 @@ interface JobQueueToStartEvent {
     credentials: true,
   },
   transports: [ 'websocket', 'polling'],
-  path: "/socket.io/",
+  path: "/socket.io/jobs",
 })
 export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()

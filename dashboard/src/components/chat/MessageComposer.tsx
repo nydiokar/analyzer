@@ -1,10 +1,13 @@
 "use client";
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { parseMentionsClient, extractUnresolvedSymbols, mentionNamespaces } from '@/lib/mention-grammar';
+import { parseMentionsClient, extractUnresolvedSymbols, mentionNamespaces, extractBareSymbols } from '@/lib/mention-grammar';
 import { postMessage } from '@/hooks/useMessages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import useSWR from 'swr';
+import { fetcher } from '@/lib/fetcher';
+// SymbolResolverModal intentionally not used. We auto-resolve bare @SYMBOL on submit for convenience.
 
 interface MessageComposerProps {
   onPosted?: () => void;
@@ -17,11 +20,32 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
 
   const mentions = useMemo(() => parseMentionsClient(text), [text]);
   const unresolvedSymbols = useMemo(() => extractUnresolvedSymbols(text), [text]);
+  const bareSymbols = useMemo(() => extractBareSymbols(text), [text]);
 
   const canSubmit = text.trim().length > 0 && unresolvedSymbols.length === 0 && !isSubmitting;
 
+  // No modal; we resolve inline on submit when a unique match exists.
+
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
+    // If there are bare symbols like @FARTCOIN, try to resolve the first one inline
+    if (bareSymbols.length > 0) {
+      const sym = bareSymbols[0];
+      const results = await fetcher(`/messages/resolve/symbol?sym=${encodeURIComponent(sym)}`);
+      if (Array.isArray(results) && results.length === 1) {
+        const address = results[0].tokenAddress as string;
+        const re = new RegExp(`@${sym}\\b`, 'i');
+        const next = text.trim().replace(re, `@ca:${address}`);
+        await postMessage(tokenAddress && !next.includes(`@ca:${tokenAddress}`) ? `@ca:${tokenAddress} ${next}` : next);
+        setText('');
+        onPosted?.();
+        setIsSubmitting(false);
+        return;
+      }
+      // Ambiguous or not found → show a small inline hint and abort
+      setIsSubmitting(false);
+      return;
+    }
     setIsSubmitting(true);
     try {
       const base = text.trim();
@@ -34,7 +58,7 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
     } finally {
       setIsSubmitting(false);
     }
-  }, [canSubmit, onPosted, text, tokenAddress]);
+  }, [bareSymbols, canSubmit, onPosted, text, tokenAddress]);
 
   return (
     <div className="w-full border-t border-border p-3 space-y-2">
@@ -71,6 +95,9 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
       <div className="text-[10px] text-muted-foreground">
         Tips: {mentionNamespaces.map((n) => n.example).join('  •  ')}
       </div>
+
+      {/* Symbol Resolver Modal */}
+      {/* No resolver modal; handled inline on submit. */}
     </div>
   );
 }

@@ -428,4 +428,6 @@ model WatchedToken {
   createdBy    String?
 
   TokenInfo    TokenInfo        @relation(fields: [tokenAddress], references: [tokenAddress])
+
+  @@unique([tokenAddress, list])
 }

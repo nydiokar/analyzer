@@ -32,6 +32,11 @@ export class TokenInfoController {
     this.tokenInfoService.triggerTokenInfoEnrichment(body.tokenAddresses, userId);
     
     // Immediately return whatever data we have in the database right now.
-    return this.tokenInfoService.findMany(body.tokenAddresses);
+    const rows = await this.tokenInfoService.findMany(body.tokenAddresses);
+    // Ensure JSON-safe response (convert BigInt to string)
+    const safe = JSON.parse(
+      JSON.stringify(rows, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))
+    );
+    return safe;
   }
 } 
