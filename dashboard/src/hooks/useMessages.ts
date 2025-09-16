@@ -21,6 +21,7 @@ export const useGlobalMessages = (limit: number = 50) => {
   const key = useMemo(() => [`/messages?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`], [cursor, limit]);
   const { data, error, isLoading, mutate } = useSWR<PagedResult<MessageDto>>(key, ([url]) => fetcher(url), {
     revalidateOnFocus: false,
+    refreshInterval: 5000,
   });
   const loadMore = useCallback(() => {
     if (data?.nextCursor) setCursor(data.nextCursor);
@@ -44,7 +45,7 @@ export const useTokenMessages = (tokenAddress: string, limit: number = 50) => {
   const { data, error, isLoading, mutate } = useSWR<PagedResult<MessageDto>>(
     tokenAddress ? (key as any) : null,
     ([url]) => fetcher(url),
-    { revalidateOnFocus: false }
+    { revalidateOnFocus: false, refreshInterval: 5000 }
   );
   const loadMore = useCallback(() => {
     if (data?.nextCursor) setCursor(data.nextCursor);

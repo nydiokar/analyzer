@@ -1,26 +1,9 @@
 /*
   Warnings:
 
-  - You are about to drop the `ApiKey` table. If the table is not empty, all the data it contains will be lost.
-  - You are about to drop the `EmailVerificationToken` table. If the table is not empty, all the data it contains will be lost.
-  - You are about to drop the `PasswordResetToken` table. If the table is not empty, all the data it contains will be lost.
+  - Adding new tables for token dashboard functionality
 
 */
--- DropTable
-PRAGMA foreign_keys=off;
-DROP TABLE "ApiKey";
-PRAGMA foreign_keys=on;
-
--- DropTable
-PRAGMA foreign_keys=off;
-DROP TABLE "EmailVerificationToken";
-PRAGMA foreign_keys=on;
-
--- DropTable
-PRAGMA foreign_keys=off;
-DROP TABLE "PasswordResetToken";
-PRAGMA foreign_keys=on;px 
-
 -- CreateTable
 CREATE TABLE "Tag" (
     "id" TEXT NOT NULL PRIMARY KEY,

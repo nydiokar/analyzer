@@ -6,6 +6,9 @@ import { useTokenInfo } from '@/hooks/useTokenInfo';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import MessageComposer from './MessageComposer';
 import { useMessagesSocket } from '@/hooks/useMessagesSocket';
+import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
+import type { TokenInfoByMint } from '@/hooks/useTokenInfoMany';
+import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 
 function Metric({ label, value }: { label: string; value: string | number | null | undefined }) {
   if (value === null || value === undefined) return null;
@@ -17,7 +20,7 @@ function Metric({ label, value }: { label: string; value: string | number | null
   );
 }
 
-function MessageItem({ message }: { message: { body: string; createdAt: string; mentions?: Array<{ kind: string; refId?: string | null; rawValue: string }> } }) {
+function MessageItem({ message, byMint, threadAddress }: { message: { body: string; createdAt: string; mentions?: Array<{ kind: string; refId?: string | null; rawValue: string }> }; byMint: TokenInfoByMint; threadAddress: string }) {
   const nodes = useMemo(() => {
     const body = message.body || '';
     const mentions = (message.mentions || []).filter((m) => (m.kind === 'TOKEN' || m.kind === 'token') && m.refId);
@@ -43,14 +46,22 @@ function MessageItem({ message }: { message: { body: string; createdAt: string; 
       const o = occs[i];
       if (o.start < cursor) continue; // skip overlaps
       if (o.start > cursor) out.push(body.slice(cursor, o.start));
+      // If this mention is the scoped thread token, omit it entirely (no label, no address)
+      if (o.mint === threadAddress) {
+        cursor = o.end;
+        continue;
+      }
+      const label = byMint[o.mint]?.symbol || byMint[o.mint]?.name || `${o.mint.slice(0, 4)}...${o.mint.slice(-4)}`;
       out.push(
-        <TokenBadge key={`t-${o.mint}-${o.start}`} mint={o.mint} size="sm" className="inline-flex align-middle mx-1" />
+        <span key={`twrap-${o.mint}-${o.start}`} className="inline-flex items-center mx-1 text-xs px-1 py-0.5 rounded bg-muted text-muted-foreground">
+          {label}
+        </span>
       );
       cursor = o.end;
     }
     if (cursor < body.length) out.push(body.slice(cursor));
     return out;
-  }, [message.body, message.mentions]);
+  }, [message.body, message.mentions, byMint, threadAddress]);
 
   return (
     <div className="px-3 py-2 border-b border-border">
@@ -64,6 +75,11 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
   const { data: tokenInfoRows } = useTokenInfo(tokenAddress);
   const meta = useMemo(() => tokenInfoRows?.[0] ?? null, [tokenInfoRows]);
   const { data, isLoading, error, mutate, loadMore } = useTokenMessages(tokenAddress, 50);
+  const tokenMentions = (data?.items || [])
+    .flatMap((m) => (m.mentions || []).filter((x) => (x.kind === 'TOKEN' || x.kind === 'token') && x.refId).map((x) => x.refId as string));
+  const { byMint } = useTokenInfoMany(tokenMentions);
+  const { data: watched } = useWatchedTokens('FAVORITES');
+  const watchedMeta = useMemo(() => (watched || []).find((w) => w.tokenAddress === tokenAddress) || null, [watched, tokenAddress]);
 
   const handlePosted = useCallback(() => {
     mutate();
@@ -79,7 +95,7 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
   return (
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-border flex items-center justify-between">
-        <TokenBadge mint={tokenAddress} metadata={{ name: meta?.name ?? undefined, symbol: meta?.symbol ?? undefined, imageUrl: meta?.imageUrl ?? undefined }} />
+        <TokenBadge mint={tokenAddress} metadata={{ name: (watchedMeta?.name ?? meta?.name) ?? undefined, symbol: (watchedMeta?.symbol ?? meta?.symbol) ?? undefined, imageUrl: (watchedMeta?.imageUrl as any) ?? meta?.imageUrl ?? undefined }} />
         <div className="flex items-center gap-4">
           <Metric label="Price" value={meta?.priceUsd ?? null} />
           <Metric label="MCap" value={meta?.marketCapUsd ? `$${Math.round(meta.marketCapUsd).toLocaleString()}` : null} />
@@ -90,7 +106,7 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
         {isLoading && <div className="p-3 text-sm">Loading…</div>}
         {error && <div className="p-3 text-sm text-red-500">Failed to load thread</div>}
         {data?.items?.map((m) => (
-          <MessageItem key={m.id} message={m as any} />
+          <MessageItem key={m.id} message={m as any} byMint={byMint} threadAddress={tokenAddress} />
         ))}
         {data?.nextCursor && (
           <button className="w-full py-2 text-xs text-muted-foreground hover:text-foreground" onClick={loadMore}>

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, ValidationPipe, Logger, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Body, ValidationPipe, Logger, Req, ForbiddenException, HttpCode } from '@nestjs/common';
 import { TokenInfoService } from '../services/token-info.service';
 import { GetTokenInfoRequestDto } from '../shared/dto/get-token-info.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
@@ -12,6 +12,7 @@ export class TokenInfoController {
   constructor(private readonly tokenInfoService: TokenInfoService) {}
 
   @Post()
+  @HttpCode(200)
   @ApiOperation({ summary: 'Get information for a list of tokens' })
   @ApiBody({ type: GetTokenInfoRequestDto })
   @ApiResponse({ status: 200, description: 'Returns a list of token information objects.'})

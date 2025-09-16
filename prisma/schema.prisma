@@ -196,21 +196,17 @@ model AnalysisRun {
 }
 
 model User {
-  id                     String                   @id @default(cuid())
-  apiKey                 String                   @unique
-  description            String?
-  isDemo                 Boolean                  @default(false)
-  createdAt              DateTime                 @default(now())
-  lastSeenAt             DateTime?
-  isActive               Boolean                  @default(true)
-  email                  String?                  @unique
-  passwordHash           String?
-  emailVerified          Boolean                  @default(false)
-  lastLoginAt            DateTime?
-  activityLogs           ActivityLog[]
-  favoriteWallets        UserFavoriteWallet[]
-  walletNotes            WalletNote[]
-  messages               Message[]
+  id              String               @id @default(cuid())
+  apiKey          String               @unique
+  description     String?
+  isDemo          Boolean              @default(false)
+  createdAt       DateTime             @default(now())
+  lastSeenAt      DateTime?
+  isActive        Boolean              @default(true)
+  activityLogs    ActivityLog[]
+  messages        Message[]
+  favoriteWallets UserFavoriteWallet[]
+  walletNotes     WalletNote[]
 }
 
 model ActivityLog {
@@ -301,7 +297,7 @@ model UserFavoriteWallet {
 }
 
 model TokenInfo {
-  tokenAddress         String    @id @unique
+  tokenAddress         String         @id @unique
   name                 String?
   symbol               String?
   imageUrl             String?
@@ -315,22 +311,83 @@ model TokenInfo {
   volume24h            Float?
   priceUsd             String?
   dexscreenerUpdatedAt DateTime?
-  fetchedAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  fetchedAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  tokenTags            TokenTag[]
+  watchedTokens        WatchedToken[]
 
   @@index([name])
   @@index([symbol])
   @@index([marketCapUsd])
   @@index([liquidityUsd])
   @@index([pairCreatedAt])
-
-  // Back-relations
-  tokenTags            TokenTag[]
-  watchedTokens        WatchedToken[]
 }
 
+model Tag {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  type      TagType
+  tokenTags TokenTag[]
+}
 
+model TokenTag {
+  tokenAddress String
+  tagId        String
+  source       String
+  confidence   Float     @default(1.0)
+  createdAt    DateTime  @default(now())
+  Tag          Tag       @relation(fields: [tagId], references: [id])
+  TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
 
+  @@id([tokenAddress, tagId])
+  @@index([tagId])
+}
+
+model Message {
+  id           String            @id @default(cuid())
+  body         String
+  authorUserId String?
+  source       MessageSource
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  author       User?             @relation(fields: [authorUserId], references: [id])
+  mentions     MessageMention[]
+  revisions    MessageRevision[]
+
+  @@index([createdAt, id])
+}
+
+model MessageRevision {
+  id        String   @id @default(cuid())
+  messageId String
+  body      String
+  editedAt  DateTime @default(now())
+  Message   Message  @relation(fields: [messageId], references: [id])
+}
+
+model MessageMention {
+  id        String             @id @default(cuid())
+  messageId String
+  kind      MessageMentionKind
+  refId     String?
+  rawValue  String
+  metaJson  Json?
+  Message   Message            @relation(fields: [messageId], references: [id])
+
+  @@index([kind, refId])
+  @@index([messageId])
+}
+
+model WatchedToken {
+  id           String           @id @default(cuid())
+  tokenAddress String
+  list         WatchedTokenList
+  createdAt    DateTime         @default(now())
+  createdBy    String?
+  TokenInfo    TokenInfo        @relation(fields: [tokenAddress], references: [tokenAddress])
+
+  @@unique([tokenAddress, list])
+}
 
 enum MessageSource {
   DASHBOARD
@@ -355,79 +412,4 @@ enum WatchedTokenList {
   FAVORITES
   GRADUATION
   HOLDSTRONG
-}
-
-// --- Messaging & Tagging Models ---
-
-model Tag {
-  id    String @id @default(cuid())
-  name  String @unique
-  type  TagType
-
-  // Back-relation
-  tokenTags TokenTag[]
-}
-
-model TokenTag {
-  tokenAddress String
-  tagId        String
-  source       String   // "user-note" | "system" | "import"
-  confidence   Float    @default(1.0)
-  createdAt    DateTime @default(now())
-
-  TokenInfo TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
-  Tag       Tag       @relation(fields: [tagId], references: [id])
-
-  @@id([tokenAddress, tagId])
-  @@index([tagId])
-}
-
-model Message {
-  id           String        @id @default(cuid())
-  body         String
-  authorUserId String?
-  source       MessageSource
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-
-  author   User?            @relation(fields: [authorUserId], references: [id])
-  mentions MessageMention[]
-  revisions MessageRevision[]
-
-  @@index([createdAt, id])
-}
-
-model MessageRevision {
-  id        String   @id @default(cuid())
-  messageId String
-  body      String
-  editedAt  DateTime @default(now())
-
-  Message   Message  @relation(fields: [messageId], references: [id])
-}
-
-model MessageMention {
-  id        String             @id @default(cuid())
-  messageId String
-  kind      MessageMentionKind
-  refId     String?
-  rawValue  String
-  metaJson  Json?
-
-  Message   Message            @relation(fields: [messageId], references: [id])
-
-  @@index([kind, refId])
-  @@index([messageId])
-}
-
-model WatchedToken {
-  id           String           @id @default(cuid())
-  tokenAddress String
-  list         WatchedTokenList
-  createdAt    DateTime         @default(now())
-  createdBy    String?
-
-  TokenInfo    TokenInfo        @relation(fields: [tokenAddress], references: [tokenAddress])
-
-  @@unique([tokenAddress, list])
 }
