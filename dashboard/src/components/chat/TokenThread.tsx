@@ -2,7 +2,6 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { useTokenMessages } from '@/hooks/useMessages';
-import { useTokenInfo } from '@/hooks/useTokenInfo';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import MessageComposer from './MessageComposer';
 import { useMessagesSocket } from '@/hooks/useMessagesSocket';
@@ -72,8 +71,6 @@ function MessageItem({ message, byMint, threadAddress }: { message: { body: stri
 }
 
 export default function TokenThread({ tokenAddress }: { tokenAddress: string }) {
-  const { data: tokenInfoRows } = useTokenInfo(tokenAddress);
-  const meta = useMemo(() => tokenInfoRows?.[0] ?? null, [tokenInfoRows]);
   const { data, isLoading, error, mutate, loadMore } = useTokenMessages(tokenAddress, 50);
   const tokenMentions = (data?.items || [])
     .flatMap((m) => (m.mentions || []).filter((x) => (x.kind === 'TOKEN' || x.kind === 'token') && x.refId).map((x) => x.refId as string));
@@ -98,11 +95,11 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
   return (
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-border flex items-center justify-between">
-        <TokenBadge mint={tokenAddress} metadata={{ name: (watchedMeta?.name ?? meta?.name) ?? undefined, symbol: (watchedMeta?.symbol ?? meta?.symbol) ?? undefined, imageUrl: (watchedMeta?.imageUrl as any) ?? meta?.imageUrl ?? undefined }} />
+        <TokenBadge mint={tokenAddress} metadata={{ name: watchedMeta?.name ?? undefined, symbol: watchedMeta?.symbol ?? undefined, imageUrl: (watchedMeta?.imageUrl as any) ?? undefined }} />
         <div className="flex items-center gap-4">
-          <Metric label="Price" value={meta?.priceUsd ?? null} />
-          <Metric label="MCap" value={meta?.marketCapUsd ? `$${Math.round(meta.marketCapUsd).toLocaleString()}` : null} />
-          <Metric label="Liq" value={meta?.liquidityUsd ? `$${Math.round(meta.liquidityUsd).toLocaleString()}` : null} />
+          <Metric label="Price" value={watchedMeta?.priceUsd ?? null} />
+          <Metric label="MCap" value={watchedMeta?.marketCapUsd ? `$${Math.round(watchedMeta.marketCapUsd).toLocaleString()}` : null} />
+          <Metric label="Liq" value={watchedMeta?.liquidityUsd ? `$${Math.round(watchedMeta.liquidityUsd).toLocaleString()}` : null} />
         </div>
       </div>
       <div className="px-3 py-2 border-b border-border flex items-center gap-2">

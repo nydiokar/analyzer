@@ -28,11 +28,9 @@ export class TokenInfoController {
       throw new ForbiddenException('User could not be identified.');
     }
 
-    // This is a fire-and-forget operation.
-    // It triggers enrichment for any new or stale tokens in the background.
-    this.tokenInfoService.triggerTokenInfoEnrichment(body.tokenAddresses, userId);
-    
-    // Immediately return whatever data we have in the database right now.
+    // Await enrichment so first-time tokens return usable data immediately.
+    await this.tokenInfoService.triggerTokenInfoEnrichment(body.tokenAddresses, userId);
+    // Return the latest data in the database.
     const rows = await this.tokenInfoService.findMany(body.tokenAddresses);
     // Ensure JSON-safe response (convert BigInt to string)
     const safe = JSON.parse(

@@ -24,9 +24,9 @@ export class TokenInfoService implements ITokenInfoService {
     });
 
     const existingTokens = await this.findMany(tokenAddresses);
-    // FIXED: Use more reasonable cache expiry - 1 hour for metadata, 5 minutes for prices
-    const oneHourAgo = new Date(Date.now() - 1 * 60 * 1000); // 1 hour for metadata
-    const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000); // 5 minutes for prices
+    // Reasonable cache expiry: 1 hour for metadata, 5 minutes for prices
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
     const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
     

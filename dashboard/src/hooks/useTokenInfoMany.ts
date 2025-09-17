@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR from 'swr';
-import { fetcher } from '@/lib/fetcher';
+import { aggregateTokenInfo, primeTokenInfoCache } from '@/lib/tokenInfoAggregator';
 import type { TokenInfoRow } from './useTokenInfo';
 
 export type TokenInfoByMint = Record<string, TokenInfoRow | undefined>;
@@ -13,10 +13,8 @@ export const useTokenInfoMany = (tokenAddresses: string[]) => {
     key,
     async () => {
       if (addrs.length === 0) return null;
-      const rows = await fetcher('/token-info', {
-        method: 'POST',
-        body: JSON.stringify({ tokenAddresses: addrs }),
-      });
+      const rows = await aggregateTokenInfo(addrs);
+      primeTokenInfoCache(rows);
       return rows as TokenInfoRow[];
     },
     { revalidateOnFocus: false }

@@ -9,6 +9,8 @@ export interface WatchedTokenRow {
   imageUrl?: string | null;
   marketCapUsd?: number | null;
   liquidityUsd?: number | null;
+  priceUsd?: string | null;
+  volume24h?: number | null;
   latestMessageAt?: string | null; // ISO
   tags: Array<{ name: string; type: string }>; // normalized lower-case names
 }
@@ -49,7 +51,7 @@ export class WatchedTokensService {
 
       let watched = await client.watchedToken.findMany({
         where: { list },
-        select: { tokenAddress: true, TokenInfo: { select: { name: true, symbol: true, imageUrl: true, marketCapUsd: true, liquidityUsd: true } } },
+        select: { tokenAddress: true, TokenInfo: { select: { name: true, symbol: true, imageUrl: true, marketCapUsd: true, liquidityUsd: true, priceUsd: true, volume24h: true } } },
       });
       // Dedupe by tokenAddress in case of historical duplicates
       const seen = new Set<string>();
@@ -95,6 +97,8 @@ export class WatchedTokensService {
         imageUrl: w.TokenInfo?.imageUrl ?? null,
         marketCapUsd: w.TokenInfo?.marketCapUsd ?? null,
         liquidityUsd: w.TokenInfo?.liquidityUsd ?? null,
+        priceUsd: w.TokenInfo?.priceUsd ?? null,
+        volume24h: w.TokenInfo?.volume24h ?? null,
         latestMessageAt: latestByToken.get(w.tokenAddress) ?? null,
         tags: tagsByToken.get(w.tokenAddress) ?? [],
       }));

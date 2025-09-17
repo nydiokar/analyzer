@@ -34,19 +34,19 @@ export class MessagesController {
         const re = new RegExp(`@sym:${sym}\\b`, 'gi');
         rewritten = rewritten.replace(re, `@ca:${address}`);
       }
-      const created = await this.messages.createMessage({ body: rewritten, source: dto.source });
+      // Ensure WatchedToken upsert happens BEFORE message event publish to avoid race
       const tokenMentions = parseMentions(rewritten).filter((m: any) => m.kind === 'token' && m.refId).map((m: any) => m.refId as string);
       if (tokenMentions.length) {
-        // Ensure watched + enrichment handled in dedicated service to keep concerns clean
-        await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, created.authorUserId ?? 'system');
+        await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, 'system');
       }
+      const created = await this.messages.createMessage({ body: rewritten, source: dto.source });
       return created;
     }
-    const created = await this.messages.createMessage({ body: dto.body, source: dto.source });
     const tokenMentions = parseMentions(dto.body).filter((m: any) => m.kind === 'token' && m.refId).map((m: any) => m.refId as string);
     if (tokenMentions.length) {
-      await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, created.authorUserId ?? 'system');
+      await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, 'system');
     }
+    const created = await this.messages.createMessage({ body: dto.body, source: dto.source });
     return created;
   }
 

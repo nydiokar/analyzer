@@ -15,7 +15,10 @@ export default function WatchedTokenList({ onSelect }: WatchedTokenListProps) {
   // Revalidate list on any new message so newly mentioned tokens appear quickly
   useMessagesSocket({
     onMessageCreated: () => {
+      // Immediate revalidate so first mentions appear quickly
       mutate();
+      // Schedule a delayed revalidate to pick up enriched metadata (price/symbol) once backend updates
+      setTimeout(() => mutate(), 1200);
     },
   });
 
@@ -38,8 +41,12 @@ export default function WatchedTokenList({ onSelect }: WatchedTokenListProps) {
                 {t.tags.length > 4 && <span className="text-[10px] text-muted-foreground">+{t.tags.length - 4}</span>}
               </div>
             </div>
-            <div className="text-[10px] text-muted-foreground">
-              {t.latestMessageAt ? new Date(t.latestMessageAt).toLocaleString() : '—'}
+            <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
+              {t.priceUsd ? <span>${Number(t.priceUsd).toFixed(6)}</span> : null}
+              {t.marketCapUsd ? <span>MCap ${Math.round(t.marketCapUsd).toLocaleString()}</span> : null}
+              {t.liquidityUsd ? <span>Liq ${Math.round(t.liquidityUsd).toLocaleString()}</span> : null}
+              {t.volume24h ? <span>Vol24h ${Math.round(t.volume24h).toLocaleString()}</span> : null}
+              <span>{t.latestMessageAt ? new Date(t.latestMessageAt).toLocaleString() : '—'}</span>
             </div>
           </div>
         );

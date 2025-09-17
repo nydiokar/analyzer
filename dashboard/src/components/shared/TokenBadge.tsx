@@ -60,8 +60,13 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
                     src={metadata?.imageUrl ?? undefined} 
                     alt={tokenName}
                     className={sizeClasses[size]} // Ensure image respects size constraints
+                    onError={(e) => {
+                      // Avoid broken image icon; hide if fails
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                    }}
                   />
-                  <AvatarFallback className={cn("text-xs", sizeClasses[size])}>{tokenName.charAt(0)}</AvatarFallback>
+                  <AvatarFallback className={cn("text-xs", sizeClasses[size])}>{(metadata?.symbol || tokenName || mint).charAt(0)}</AvatarFallback>
                 </Avatar>
                 <span className={cn("font-mono group-hover:underline", textSizeClasses[size])}>
                   {tokenName} ({tokenSymbol})
@@ -79,7 +84,7 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
           <div className="flex items-center gap-2">
             <div className="font-bold text-sm text-blue-400">{tokenName}</div>
             {tokenName === 'Unknown Token' && (
-              <span className="text-xs text-orange-500 font-medium">(probably spam/rug)</span>
+              <span className="text-xs text-orange-500 font-medium">(loading metadata…)</span>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-1 pt-1">
