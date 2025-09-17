@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, ValidationPipe, ConflictException } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, ValidationPipe, ConflictException, Delete } from '@nestjs/common';
 import { MessagesService } from '../services/messages.service';
 import { parseMentions } from '../shared/mention-parser';
 import { WatchedTokensService } from '../services/watched-tokens.service';
@@ -77,6 +77,11 @@ export class MessagesController {
   @Patch(':id')
   async editMessage(@Param('id') id: string, @Body('body') body: string) {
     return this.messages.editMessage(id, body);
+  }
+
+  @Delete(':id')
+  async deleteMessage(@Param('id') id: string) {
+    return this.messages.deleteMessage(id);
   }
 }
 

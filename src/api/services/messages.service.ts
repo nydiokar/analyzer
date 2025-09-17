@@ -107,7 +107,9 @@ export class MessagesService {
 
     return this.db.$transaction(async (tx) => {
       const client = tx as any;
-      const where = beforeDate ? { createdAt: { lt: beforeDate } } : undefined;
+      const where = beforeDate
+        ? { createdAt: { lt: beforeDate }, deletedAt: null }
+        : { deletedAt: null };
       const items = await client.message.findMany({
         where,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -127,6 +129,7 @@ export class MessagesService {
       const client = tx as any;
       const where = {
         ...(beforeDate ? { createdAt: { lt: beforeDate } } : {}),
+        deletedAt: null,
         mentions: { some: { kind: 'TOKEN', refId: tokenAddress } },
       };
       const items = await client.message.findMany({
@@ -176,6 +179,20 @@ export class MessagesService {
       }
       try {
         await this.messageGateway.publishEdited({ id: updated.id, body: updated.body, createdAt: updated.createdAt, updatedAt: updated.updatedAt });
+      } catch {}
+      return updated;
+    });
+  }
+
+  async deleteMessage(messageId: string) {
+    return this.db.$transaction(async (tx) => {
+      const client = tx as any;
+      const existing = await client.message.findUnique({ where: { id: messageId }, include: { mentions: true } });
+      if (!existing) return null;
+      if (existing.deletedAt) return existing;
+      const updated = await client.message.update({ where: { id: messageId }, data: { deletedAt: new Date() } });
+      try {
+        await this.messageGateway.publishDeleted({ id: updated.id, deletedAt: updated.deletedAt });
       } catch {}
       return updated;
     });

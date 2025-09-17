@@ -350,6 +350,7 @@ model Message {
   source       MessageSource
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
+  deletedAt    DateTime?
   author       User?             @relation(fields: [authorUserId], references: [id])
   mentions     MessageMention[]
   revisions    MessageRevision[]

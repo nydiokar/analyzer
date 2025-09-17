@@ -8,7 +8,7 @@ import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import type { TokenInfoByMint } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 
-function MessageItem({ message, byMint, watchedByMint }: { message: { body: string; createdAt: string; mentions?: Array<{ kind: string; refId?: string | null; rawValue: string }> }; byMint: TokenInfoByMint; watchedByMint: Record<string, { symbol?: string | null; name?: string | null }> }) {
+function MessageItem({ message, byMint, watchedByMint }: { message: { id?: string; body: string; createdAt: string; mentions?: Array<{ kind: string; refId?: string | null; rawValue: string }> }; byMint: TokenInfoByMint; watchedByMint: Record<string, { symbol?: string | null; name?: string | null }> }) {
   const nodes = useMemo(() => {
     const body = message.body || '';
     const mentions = (message.mentions || []).filter((m) => (m.kind === 'TOKEN' || m.kind === 'token') && m.refId);
@@ -46,9 +46,19 @@ function MessageItem({ message, byMint, watchedByMint }: { message: { body: stri
     return out;
   }, [message.body, message.mentions, byMint, watchedByMint]);
 
+  const copyBody = useCallback(() => {
+    try {
+      // Best-effort; ignore errors silently per user preference for minimal logging
+      void navigator.clipboard?.writeText(message.body);
+    } catch {}
+  }, [message.body]);
+
   return (
     <div className="px-3 py-2 border-b border-border">
-      <div className="text-sm whitespace-pre-wrap">{nodes}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-sm whitespace-pre-wrap flex-1">{nodes}</div>
+        <button onClick={copyBody} className="text-[10px] text-muted-foreground hover:text-foreground">Copy</button>
+      </div>
       <div className="text-[10px] text-muted-foreground">{new Date(message.createdAt).toLocaleString()}</div>
     </div>
   );
@@ -75,6 +85,9 @@ export default function GlobalChat() {
       mutate();
     },
     onMessageEdited: () => {
+      mutate();
+    },
+    onMessageDeleted: () => {
       mutate();
     },
   });
