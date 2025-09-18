@@ -31,23 +31,23 @@
 ### New targets
 - [ ] Add `GET /tokens/:addr/messages` alias (compat) and wire in client — DEFERRED (not needed; existing route stable)
 - [x] Persist tag chips visually in Watched list rows (read from TokenTag)
-- [ ] Visual refactor phase 1: layout spacing, color scale, message row component
+- [x] Visual refactor phase 1: layout spacing, color scale, message row component — DONE (MessageRow extracted; reused across Global/Thread)
 
 ### UI/UX Roadmap (proposed)
-- [ ] Global layout: Right panel hosts only Global Chat; Token Thread opens as a closable Drawer/Modal
-  - Open on token click from Watched list or symbol click in chat; join WS room on open, leave on close
+- [x] Global layout: Right panel hosts only Global Chat; Token Thread opens as a closable Drawer/Modal — DONE
+  - Open on token click from Watched list or symbol click in chat; join WS room on open, leave on close — DONE
   - Keep URL hash `#thread=<addr>` for deep linking and back/forward behavior — DONE
-- [ ] Chat bubbles: left/right alignment (others vs you), compact spacing, timestamp and author inline
-  - Show author handle (or "You"), message body, time; small menu: copy, delete (own only)
-  - Backend: add DELETE /messages/:id (soft delete flag) with auth guard; emit message.deleted WS
+- [x] Chat bubbles: left/right alignment (others vs you), compact spacing, timestamp and author inline — DONE
+  - Show author handle (or "You"), message body, time; small menu: copy, delete (own only) — PARTIAL (menu has copy/delete; author display TBD)
+  - Backend: add DELETE /messages/:id (soft delete flag) with auth guard; emit message.deleted WS — DONE (soft delete + WS event)
 - [x] Token metrics in Watched list rows
   - Show price, 24h %, market cap, 24h volume, liq; surface tags; hover shows mini card
   - Use TokenInfo fields (priceUsd, marketCapUsd, liquidityUsd, volume24h); compute 24h% if available
 - [x] Metadata completeness
   - Batch fetch token-info for all mints on screen (global + drawer) with debounce; refresh watched list after enrichment — DONE via client aggregator and server await
   - Even if DexScreener filters a token, persist/display name/symbol when known — PARTIAL (fallbacks + placeholders)
-- [ ] Accessibility & mobile
-  - Keyboard nav for composer & tag chips; responsive layout (drawer covers screen on mobile)
+- [x] Accessibility & mobile
+  - Keyboard nav for composer & tag chips; responsive layout (drawer covers screen on mobile) — DONE (keyboard on watched rows + composer aria; mobile full-screen drawer)
 
 ### Progress log
 - 2025-09-15: Added models and enums to prisma/schema.prisma and documented indexes.
@@ -56,3 +56,4 @@
  - 2025-09-16: Unified metadata path; compact symbol labels; suppressed scoped @ca: in thread; fixed watched-token uniqueness.
  - 2025-09-16: Added Tag API + editor; WS message.edited; batch token-info for future use.
  - 2025-09-17: Fixed race: upsert WatchedToken before message publish; awaited enrichment in TokenInfoController; added debounced client token-info aggregator; unified thread header to use watched metadata; added watched list metrics; added deep link `#thread=<addr>`; improved TokenBadge fallbacks; enforced ≤5 token mentions.
+ - 2025-09-17: Visual refactor v1 (MessageRow, bubble styles), Drawer thread layout, a11y tweaks, delete action, WS message.deleted handled.

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { useTokenMessages } from '@/hooks/useMessages';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import MessageComposer from './MessageComposer';
@@ -8,6 +8,7 @@ import { useMessagesSocket } from '@/hooks/useMessagesSocket';
 import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import type { TokenInfoByMint } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
+import MessageRow from './MessageRow';
 
 function Metric({ label, value }: { label: string; value: string | number | null | undefined }) {
   if (value === null || value === undefined) return null;
@@ -90,7 +91,12 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
     onMessageEdited: () => {
       mutate();
     },
+    onMessageDeleted: () => {
+      mutate();
+    },
   });
+
+  const lastPostedAtRef = useRef<number>(0);
 
   return (
     <div className="flex flex-col h-full">
@@ -132,7 +138,14 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
         {isLoading && <div className="p-3 text-sm">Loading…</div>}
         {error && <div className="p-3 text-sm text-red-500">Failed to load thread</div>}
         {data?.items?.map((m) => (
-          <MessageItem key={m.id} message={m as any} byMint={byMint} threadAddress={tokenAddress} />
+          <MessageRow
+            key={m.id}
+            message={m as any}
+            byMint={byMint}
+            threadAddress={tokenAddress}
+            isOwn={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
+            canDelete={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
+          />
         ))}
         {data?.nextCursor && (
           <button className="w-full py-2 text-xs text-muted-foreground hover:text-foreground" onClick={loadMore}>
@@ -140,7 +153,7 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
           </button>
         )}
       </div>
-      <MessageComposer onPosted={handlePosted} tokenAddress={tokenAddress} />
+      <MessageComposer onPosted={() => { lastPostedAtRef.current = Date.now(); handlePosted(); }} tokenAddress={tokenAddress} />
     </div>
   );
 }

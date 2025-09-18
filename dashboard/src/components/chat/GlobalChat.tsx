@@ -5,64 +5,9 @@ import { useGlobalMessages } from '@/hooks/useMessages';
 import { useMessagesSocket } from '@/hooks/useMessagesSocket';
 import MessageComposer from './MessageComposer';
 import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
-import type { TokenInfoByMint } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
-
-function MessageItem({ message, byMint, watchedByMint }: { message: { id?: string; body: string; createdAt: string; mentions?: Array<{ kind: string; refId?: string | null; rawValue: string }> }; byMint: TokenInfoByMint; watchedByMint: Record<string, { symbol?: string | null; name?: string | null }> }) {
-  const nodes = useMemo(() => {
-    const body = message.body || '';
-    const mentions = (message.mentions || []).filter((m) => (m.kind === 'TOKEN' || m.kind === 'token') && m.refId);
-    if (mentions.length === 0) return [body];
-
-    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    type Occ = { start: number; end: number; raw: string; mint: string };
-    const occs: Occ[] = [];
-    for (const m of mentions) {
-      const raw = m.rawValue;
-      const re = new RegExp(escapeRegExp(raw), 'g');
-      let match: RegExpExecArray | null;
-      while ((match = re.exec(body)) !== null) {
-        occs.push({ start: match.index, end: match.index + raw.length, raw, mint: m.refId as string });
-      }
-    }
-    if (occs.length === 0) return [body];
-    occs.sort((a, b) => a.start - b.start);
-
-    const out: React.ReactNode[] = [];
-    let cursor = 0;
-    for (let i = 0; i < occs.length; i++) {
-      const o = occs[i];
-      if (o.start < cursor) continue; // skip overlaps
-      if (o.start > cursor) out.push(body.slice(cursor, o.start));
-      const label = watchedByMint[o.mint]?.symbol || watchedByMint[o.mint]?.name || byMint[o.mint]?.symbol || byMint[o.mint]?.name || `${o.mint.slice(0, 4)}...${o.mint.slice(-4)}`;
-      out.push(
-        <span key={`twrap-${o.mint}-${o.start}`} className="inline-flex items-center mx-1 text-xs px-1 py-0.5 rounded bg-muted text-muted-foreground">
-          {label}
-        </span>
-      );
-      cursor = o.end;
-    }
-    if (cursor < body.length) out.push(body.slice(cursor));
-    return out;
-  }, [message.body, message.mentions, byMint, watchedByMint]);
-
-  const copyBody = useCallback(() => {
-    try {
-      // Best-effort; ignore errors silently per user preference for minimal logging
-      void navigator.clipboard?.writeText(message.body);
-    } catch {}
-  }, [message.body]);
-
-  return (
-    <div className="px-3 py-2 border-b border-border">
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-sm whitespace-pre-wrap flex-1">{nodes}</div>
-        <button onClick={copyBody} className="text-[10px] text-muted-foreground hover:text-foreground">Copy</button>
-      </div>
-      <div className="text-[10px] text-muted-foreground">{new Date(message.createdAt).toLocaleString()}</div>
-    </div>
-  );
-}
+import MessageRow from './MessageRow';
+import { useRef } from 'react';
 
 export default function GlobalChat() {
   const { data, isLoading, error, mutate, loadMore } = useGlobalMessages(50);
@@ -92,13 +37,24 @@ export default function GlobalChat() {
     },
   });
 
+  // Track last posted id to style own bubble; minimal heuristic via time
+  const lastPostedAtRef = useRef<number>(0);
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto">
         {isLoading && <div className="p-3 text-sm">Loading…</div>}
         {error && <div className="p-3 text-sm text-red-500">Failed to load messages</div>}
         {data?.items?.map((m) => (
-          <MessageItem key={m.id} message={m as any} byMint={byMint} watchedByMint={watchedByMint} />
+          <MessageRow
+            key={m.id}
+            message={m as any}
+            byMint={byMint}
+            watchedByMint={watchedByMint}
+            showCopy
+            isOwn={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
+            canDelete={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
+          />
         ))}
         {data?.nextCursor && (
           <button className="w-full py-2 text-xs text-muted-foreground hover:text-foreground" onClick={loadMore}>
@@ -106,7 +62,7 @@ export default function GlobalChat() {
           </button>
         )}
       </div>
-      <MessageComposer onPosted={handlePosted} />
+      <MessageComposer onPosted={() => { lastPostedAtRef.current = Date.now(); handlePosted(); }} />
     </div>
   );
 }

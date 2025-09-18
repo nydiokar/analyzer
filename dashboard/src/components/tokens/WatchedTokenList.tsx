@@ -29,7 +29,15 @@ export default function WatchedTokenList({ onSelect }: WatchedTokenListProps) {
     <div className="divide-y divide-border">
       {data.map((t) => {
         const row = (
-          <div key={t.tokenAddress} className="flex items-center justify-between px-3 py-2 hover:bg-muted/40 cursor-pointer" onClick={() => onSelect?.(t.tokenAddress)}>
+          <div
+            key={t.tokenAddress}
+            className="flex items-center justify-between px-3 py-2 hover:bg-muted/40 cursor-pointer"
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect?.(t.tokenAddress)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(t.tokenAddress); } }}
+            aria-label={`Open thread for ${t.symbol || t.name || t.tokenAddress}`}
+          >
             <div className="flex items-center gap-3">
               <TokenBadge mint={t.tokenAddress} metadata={{ name: t.name ?? undefined, symbol: t.symbol ?? undefined, imageUrl: t.imageUrl ?? undefined }} size="sm" />
               <div className="flex items-center gap-1 flex-wrap">

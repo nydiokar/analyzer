@@ -67,6 +67,7 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={tokenAddress ? `Discuss token ${tokenAddress.slice(0,4)}… use @meta:, @risk:` : "Share insight… use @ca:, @sym:, @meta:"}
+          aria-label={tokenAddress ? `Message input for token ${tokenAddress}` : 'Global message input'}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
@@ -74,7 +75,7 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
             }
           }}
         />
-        <Button disabled={!canSubmit} onClick={handleSubmit}>
+        <Button disabled={!canSubmit} onClick={handleSubmit} aria-label="Post message">
           Post
         </Button>
       </div>

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import WatchedTokenList from '@/components/tokens/WatchedTokenList';
 import GlobalChat from '@/components/chat/GlobalChat';
 import TokenThread from '@/components/chat/TokenThread';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 export default function TokensPage() {
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
@@ -36,14 +37,24 @@ export default function TokensPage() {
           <WatchedTokenList onSelect={handleSelect} />
         </div>
         <div className="h-full flex flex-col overflow-hidden">
-          <div className="flex-1 min-h-0 overflow-auto border-b border-border">
+          <div className="flex-1 min-h-0 overflow-auto">
             <GlobalChat />
-          </div>
-          <div className="h-1/2 min-h-[220px] overflow-auto">
-            {selectedToken ? <TokenThread tokenAddress={selectedToken} /> : <div className="p-3 text-xs text-muted-foreground">Select a token to open its thread below. Global chat stays visible.</div>}
           </div>
         </div>
       </div>
+
+      <Dialog open={!!selectedToken} onOpenChange={(open) => {
+        if (!open) {
+          if (typeof window !== 'undefined') {
+            window.location.hash = '';
+          }
+          setSelectedToken(null);
+        }
+      }}>
+        <DialogContent className="max-w-3xl w-full p-0 sm:max-w-3xl sm:rounded-lg rounded-none h-[100dvh] sm:h-auto">
+          {selectedToken ? <TokenThread tokenAddress={selectedToken} /> : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

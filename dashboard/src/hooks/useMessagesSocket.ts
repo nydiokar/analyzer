@@ -49,7 +49,7 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
       socket.off('message.deleted', handleMessageDeleted);
       socket.disconnect();
     };
-  }, [onMessageCreated, onMessageEdited, tokenAddress]);
+  }, [onMessageCreated, onMessageEdited, onMessageDeleted, tokenAddress]);
 };
 
 
