@@ -516,7 +516,7 @@ export default function AnalysisLabPage() {
             </DialogTrigger>
             <DialogContent className="max-w-5xl">
               <DialogHeader>
-                <DialogTitle>Add holders by token</DialogTitle>
+                <DialogTitle>Add wallets from token top holders</DialogTitle>
               </DialogHeader>
               <TopHoldersPanel onAddToSet={(owners) => setWalletList(prev => Array.from(new Set([...prev, ...owners])))} />
             </DialogContent>
@@ -531,19 +531,7 @@ export default function AnalysisLabPage() {
           progressMessage={syncMessage || ''}
           externalWallets={walletList}
         />
-        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-          <div>
-            Similarity set: <span className="font-medium text-foreground">{walletList.length}</span> wallet{walletList.length === 1 ? '' : 's'}
-          </div>
-          {walletList.length > 0 && (
-            <button
-              onClick={() => setWalletList([])}
-              className="underline hover:no-underline"
-            >
-              Clear set
-            </button>
-          )}
-        </div>
+        {/* Removed separate similarity set counter/clear to avoid confusion since we write directly into the textarea */}
       </div>
 
       {/* Lightweight launcher to the standalone Top Holders page */}

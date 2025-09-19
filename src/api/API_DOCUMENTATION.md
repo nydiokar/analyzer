@@ -199,6 +199,51 @@ Comprehensive job management and monitoring system.
 - Token metadata retrieval and caching
 - Integration with external token data providers
 
+##### Top Token Holders
+- `GET /token-info/{mint}/top-holders` – Returns up to the 20 largest token accounts for a given SPL token mint, with owner resolution when available.
+  - Path Parameters:
+    - `mint` (string, required): Base-58 SPL token mint address. Validated by SolanaAddressPipe.
+  - Query Parameters:
+    - `commitment` (string, optional): One of `finalized`, `confirmed`, or `processed`. Defaults to `finalized`.
+  - Response:
+    - `mint` (string): Echoed token mint
+    - `context` (object): `{ slot: number, apiVersion?: string }` from RPC
+    - `holders` (array): Up to 20 entries sorted by balance desc
+      - `rank` (number): 1-based rank
+      - `tokenAccount` (string): Token account public key
+      - `ownerAccount` (string, optional): Resolved wallet owner; may be absent for program/unknown accounts
+      - `amount` (string): Raw token balance
+      - `decimals` (number): Token mint decimals
+      - `uiAmount` (number | null): Balance as number (may be null)
+      - `uiAmountString` (string): Balance as string (preferred for display)
+  - Notes:
+    - Backed by Helius RPC `getTokenLargestAccounts` (fixed top 20). Owner addresses are resolved via `getMultipleAccounts` with `jsonParsed` encoding.
+    - Read-only; does not enqueue jobs or touch the database.
+  - Example cURL:
+```
+curl -s \
+  -H "x-api-key: $API_KEY" \
+  "http://localhost:3001/api/v1/token-info/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/top-holders?commitment=finalized"
+```
+  - Example Response (truncated):
+```
+{
+  "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "context": { "slot": 123456789 },
+  "holders": [
+    {
+      "rank": 1,
+      "tokenAccount": "TokenAccountPubkey1",
+      "ownerAccount": "WalletOwnerPubkey1",
+      "amount": "1000000000000",
+      "decimals": 6,
+      "uiAmount": 1000000,
+      "uiAmountString": "1000000.0"
+    }
+  ]
+}
+```
+
 #### User Favorites (`/user-favorites`)  
 - Personal wallet favorites management
 - User-specific collections and tags
