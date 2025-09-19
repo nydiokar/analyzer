@@ -293,3 +293,20 @@ export interface DashboardAnalysisResponse {
 
 // Note: JobProgressEvent, JobCompletedEvent, and JobFailedEvent are now imported from websockets.ts
 // to maintain consistency with the existing useJobProgress hook
+
+// --- Top Holders Types ---
+export interface TopHolderItem {
+  tokenAccount: string;
+  ownerAccount?: string;
+  amount: string;
+  decimals: number;
+  uiAmount: number | null;
+  uiAmountString: string;
+  rank: number;
+}
+
+export interface TopHoldersResponse {
+  mint: string;
+  context: { slot: number; apiVersion?: string };
+  holders: TopHolderItem[];
+}

@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; // Import the new form
+import { TopHoldersPanel } from '@/components/similarity-lab/TopHoldersPanel';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ArrowUp } from 'lucide-react';
 
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
@@ -501,10 +503,25 @@ export default function AnalysisLabPage() {
       </header>
       
       <div className="bg-card p-6 rounded-lg shadow-sm border">
-        <h2 className="text-xl font-semibold mb-2">Wallet Group Similarity</h2>
-        <p className="text-muted-foreground mb-4">
-          Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold mb-2">Wallet Group Similarity</h2>
+            <p className="text-muted-foreground mb-4">
+              Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
+            </p>
+          </div>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline">Add from token holders</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-5xl">
+              <DialogHeader>
+                <DialogTitle>Add holders by token</DialogTitle>
+              </DialogHeader>
+              <TopHoldersPanel onAddToSet={(owners) => setWalletList(prev => Array.from(new Set([...prev, ...owners])))} />
+            </DialogContent>
+          </Dialog>
+        </div>
         
         <WalletInputForm
           onWalletsChange={handleWalletsChange}
@@ -512,7 +529,26 @@ export default function AnalysisLabPage() {
           isRunning={isRunning}
           jobProgress={jobProgress}
           progressMessage={syncMessage || ''}
+          externalWallets={walletList}
         />
+        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+          <div>
+            Similarity set: <span className="font-medium text-foreground">{walletList.length}</span> wallet{walletList.length === 1 ? '' : 's'}
+          </div>
+          {walletList.length > 0 && (
+            <button
+              onClick={() => setWalletList([])}
+              className="underline hover:no-underline"
+            >
+              Clear set
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Lightweight launcher to the standalone Top Holders page */}
+      <div className="mt-2 text-xs text-muted-foreground">
+        Prefer a dedicated tool? <a href="/tools/top-holders" className="underline hover:no-underline">Open the standalone Top Holders utility</a>
       </div>
 
       {analysisResult && (

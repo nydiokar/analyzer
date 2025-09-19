@@ -40,7 +40,7 @@
 1) Add a "Top Holders" panel inside Similarity Lab
    - Inputs: `mint` (required), `commitment` (optional; default finalized)
    - CTA: Fetch → renders a table (rank, ownerAccount, tokenAccount, uiAmountString)
-   - Selection: checkboxes + "Select all"
+   - Selection: checkboxes + "Select all"; actions: Copy Selected, Add Selected to Similarity Set
    - Actions:
      - "Add selected to Similarity Set" → merges owner addresses into the Similarity Lab set (dedupe)
      - "+ Add another token" → allows multiple mints; aggregate holders across tokens
@@ -57,7 +57,7 @@
 ### Implementation Steps
 1. Define typed DTO for API response (TopHoldersResponseDto) and use it in controller.
 2. Frontend: add API hook `getTopHolders(mint, commitment?)`.
-3. Frontend: build "Top Holders" panel with selection and add-to-set.
+3. Frontend: build "Top Holders" panel with selection, owners-only toggle, copy selected, and add-to-set.
 4. Frontend: implement Similarity Set state, dedupe, "Run Similarity" using existing endpoint.
 5. Optional: add "Hide program-owned accounts" UI filter (client-side heuristic or backend tag later).
 6. Docs: Update API documentation with endpoint usage and curl examples.
