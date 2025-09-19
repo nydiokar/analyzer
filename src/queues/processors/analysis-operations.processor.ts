@@ -407,12 +407,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const { mint, cutoffTs } = job.data;
     const startTime = Date.now();
 
-    // Skip SOL/WSOL tokens silently without any processing
-    const SOL_MINT = 'So11111111111111111111111111111111111111112';
-    if (mint === SOL_MINT) {
-      this.logger.debug(`Skipping mint-participants analysis for SOL/WSOL token: ${mint}`);
-      return { success: true, written: 0, zeroDayAlerts: 0, processingTimeMs: Date.now() - startTime };
-    }
+    // Note: SOL/WSOL filtering is now handled upstream in the webhook controller
+    // No jobs for SOL/WSOL should reach this processor
 
     const lockKey = `lock:mint-participants:${mint}:${cutoffTs}`;
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, 30_000);

@@ -2,6 +2,7 @@ import { Body, Controller, Headers, HttpCode, Logger, Post } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../shared/decorators/public.decorator';
 import { MintParticipantsJobsQueue } from '../../queues/queues/mint-participants.queue';
+import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 
 interface EnhancedWebhookTx {
   signature: string;
@@ -47,6 +48,16 @@ export class HeliusWebhookController {
       if (buys.length === 0) continue;
       for (const tr of buys) {
         const mint = tr.mint;
+        
+        // IMPORTANT: Excluded tokens are filtered from mint-participants analysis
+        // This includes SOL/WSOL, USDC, USDT and other common tokens as defined in DEFAULT_EXCLUDED_MINTS
+        // Mint-participants analysis only works with SPL tokens, not system/native tokens
+        // If you need to support these tokens in the future, update DEFAULT_EXCLUDED_MINTS in constants.ts
+        if (DEFAULT_EXCLUDED_MINTS.includes(mint)) {
+          this.logger.debug(`Skipping mint-participants analysis for excluded token: ${mint}`);
+          continue; // Skip excluded tokens at the source
+        }
+        
         await this.jobsQueue.enqueueRun({
           mint,
           cutoffTs: ts,
