@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "0.15.2",
+  "version": "0.15.4",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "engines": {
@@ -36,7 +36,8 @@
     "clean-logs": "npx ts-node scripts/clean-logs.ts",
     "emergency-stop": "pm2 stop all && npm run clear-queues && npm run clear-locks",
     "reset-system": "npm run emergency-stop && pm2 start ecosystem.config.js",
-    "reset": "npm run build && pm2 restart all"
+    "reset": "npm run build && pm2 restart all",
+    "top-holders": "ts-node -r tsconfig-paths/register src/scripts/topTokenHolders.ts"
   },
   "keywords": [
     "crypto",

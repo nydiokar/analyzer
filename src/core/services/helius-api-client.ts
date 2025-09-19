@@ -5,6 +5,7 @@ import {
   HeliusTransaction,
   GetMultipleAccountsResult,
   GetTokenAccountsByOwnerResult,
+  GetTokenLargestAccountsResult,
   // RpcAccountInfo, // Not directly used as a parameter/return type of public methods here yet
 } from '@/types/helius-api';
 import { DatabaseService } from '../../api/services/database.service';
@@ -1011,5 +1012,45 @@ export class HeliusApiClient {
     } while (paginationKey);
 
     return { context: { slot: contextSlot }, value: aggregated };
+  }
+
+  /**
+   * Fetches up to the 20 largest token accounts for a given mint using the `getTokenLargestAccounts` RPC method.
+   * Per Helius docs, this method does not support a `limit` parameter.
+   * @param mintPubkey The base-58 encoded public key of the token mint.
+   * @param commitment Optional commitment level (e.g., "finalized", "confirmed", "processed").
+   */
+  public async getTokenLargestAccounts(
+    mintPubkey: string,
+    commitment?: string
+  ): Promise<GetTokenLargestAccountsResult> {
+    if (!mintPubkey) {
+      throw new Error('mintPubkey is required for getTokenLargestAccounts.');
+    }
+
+    const params: any[] = [mintPubkey];
+    const options: { commitment?: string } = {};
+    if (commitment) options.commitment = commitment;
+    if (Object.keys(options).length > 0) params.push(options);
+
+    logger.debug(
+      `Fetching largest token accounts for mint ${mintPubkey}`,
+      options
+    );
+
+    try {
+      const result = await this.makeRpcRequest<GetTokenLargestAccountsResult>(
+        'getTokenLargestAccounts',
+        params
+      );
+      logger.debug(`Successfully fetched ${result.value.length} largest token accounts for mint ${mintPubkey}`);
+      return result;
+    } catch (error) {
+      logger.error(
+        `Failed to fetch largest token accounts for mint ${mintPubkey}`,
+        { error: this.sanitizeError(error), mintPubkey, options }
+      );
+      throw error; // Re-throw to allow the caller to handle it
+    }
   }
 }

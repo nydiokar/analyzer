@@ -4,6 +4,7 @@
 import { HeliusApiClient } from './helius-api-client';
 import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 import type { GetTokenAccountsByOwnerResult } from '../../types/helius-api';
+import type { GetTokenLargestAccountsResult } from '../../types/helius-api';
 
 const LARGE_WALLET = 'DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm';
 
@@ -97,6 +98,21 @@ async function testV2FallbackToV1(): Promise<void> {
     console.log('PASS: V2 pagination aggregates and returns legacy shape');
     await testV2FallbackToV1();
     console.log('PASS: V2 hard-fail triggers V1 fallback and circuit breaker');
+
+    // Minimal smoke test for getTokenLargestAccounts contract shape
+    const client = new HeliusApiClient(
+      { apiKey: 'test-key', network: 'mainnet', requestsPerSecond: 1000 },
+      {} as any
+    );
+    (client as any).api.post = async (_url: string, payload: any) => {
+      if (payload?.method === 'getTokenLargestAccounts') {
+        return { data: { jsonrpc: '2.0', id: '1', result: { context: { slot: 1 }, value: [ { address: 'acc', amount: '100', decimals: 6, uiAmount: 0.0001, uiAmountString: '0.0001' } ] } } };
+      }
+      throw new Error('Unexpected method');
+    };
+    const largest: GetTokenLargestAccountsResult = await client.getTokenLargestAccounts('Mint1111111111111111111111111111111111', 'finalized');
+    if (!(largest.value.length === 1)) throw new Error('LargestAccounts: expected 1 value');
+    console.log('PASS: getTokenLargestAccounts returns expected shape');
   } catch (e: any) {
     console.error('FAIL:', e?.message || e);
     process.exit(1);

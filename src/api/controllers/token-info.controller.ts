@@ -1,15 +1,21 @@
-import { Controller, Post, Body, ValidationPipe, Logger, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Body, ValidationPipe, Logger, Req, ForbiddenException, Get, Param, Query, UsePipes } from '@nestjs/common';
 import { TokenInfoService } from '../services/token-info.service';
 import { GetTokenInfoRequestDto } from '../shared/dto/get-token-info.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { Request } from 'express';
+import { TokenHoldersService } from '../services/token-holders.service';
+import { SolanaAddressPipe } from '../shared/solana-address.pipe';
+import { TopHoldersResponseDto } from '../shared/dto/top-holders.dto';
 
 @ApiTags('token-info')
 @Controller('token-info')
 export class TokenInfoController {
   private readonly logger = new Logger(TokenInfoController.name);
 
-  constructor(private readonly tokenInfoService: TokenInfoService) {}
+  constructor(
+    private readonly tokenInfoService: TokenInfoService,
+    private readonly tokenHoldersService: TokenHoldersService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Get information for a list of tokens' })
@@ -34,4 +40,19 @@ export class TokenInfoController {
     // Immediately return whatever data we have in the database right now.
     return this.tokenInfoService.findMany(body.tokenAddresses);
   }
-} 
+
+  // New endpoint for top holders (reads only)
+  @Get(':mint/top-holders')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  @ApiOperation({ summary: 'Get top token holders for a specific token mint' })
+  @ApiParam({ name: 'mint', description: 'Token mint address', example: 'So11111111111111111111111111111111111111112' })
+  @ApiQuery({ name: 'commitment', required: false, description: 'RPC commitment (finalized|confirmed|processed)' })
+  @ApiResponse({ status: 200, description: 'Top token holders returned.', type: TopHoldersResponseDto })
+  async getTopHolders(
+    @Param('mint', SolanaAddressPipe) mint: string,
+    @Query('commitment') commitment?: string,
+  ): Promise<TopHoldersResponseDto> {
+    const result = await this.tokenHoldersService.getTopHolders(mint, commitment);
+    return result;
+  }
+}
