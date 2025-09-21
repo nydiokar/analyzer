@@ -512,7 +512,12 @@ export default function AnalysisLabPage() {
           </div>
           <Dialog>
             <DialogTrigger asChild>
-              <Button variant="outline">Add from token holders</Button>
+              <Button
+                variant="outline"
+                className="relative border-primary/40 text-primary bg-gradient-to-r from-primary/5 via-indigo-500/5 to-fuchsia-500/5 shadow-[0_0_0_1px_rgba(59,130,246,0.35)] hover:shadow-[0_0_18px_rgba(99,102,241,0.35)] hover:border-primary/60 transition-all duration-300 hover:-translate-y-0.5"
+              >
+                Add from token holders
+              </Button>
             </DialogTrigger>
             <DialogContent className="max-w-5xl">
               <DialogHeader>
@@ -535,8 +540,14 @@ export default function AnalysisLabPage() {
       </div>
 
       {/* Lightweight launcher to the standalone Top Holders page */}
-      <div className="mt-2 text-xs text-muted-foreground">
-        Prefer a dedicated tool? <a href="/tools/top-holders" className="underline hover:no-underline">Open the standalone Top Holders utility</a>
+      <div className="mt-2 text-xs text-muted-foreground/90">
+        Prefer a dedicated tool?{' '}
+        <a
+          href="/tools/top-holders"
+          className="underline decoration-primary/40 underline-offset-2 hover:decoration-primary text-foreground/90 hover:text-foreground transition-colors"
+        >
+          Open the standalone Top Holders utility
+        </a>
       </div>
 
       {analysisResult && (
