@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
-import type { GetTokenLargestAccountsResult, TokenLargestAccount, GetMultipleAccountsResult } from '../../types/helius-api';
+import type { GetTokenLargestAccountsResult, TokenLargestAccount, GetMultipleAccountsResult, RpcAccountInfo } from '../../types/helius-api';
+import { KNOWN_SYSTEM_WALLETS } from '../../config/constants';
 
 export interface TopHoldersResponse {
   mint: string;
@@ -29,6 +30,8 @@ export class TokenHoldersService {
 
     // Resolve owner wallets for each token account via getMultipleAccounts (jsonParsed)
     let owners: (string | undefined)[] = new Array(tokenAccountPubkeys.length).fill(undefined);
+    // Map of ownerAccount -> RpcAccountInfo for program/system detection
+    const ownerAccountInfo: Record<string, RpcAccountInfo | undefined> = {};
     try {
       if (tokenAccountPubkeys.length > 0) {
         const multi: GetMultipleAccountsResult = await this.heliusClient.getMultipleAccounts(
@@ -42,7 +45,25 @@ export class TokenHoldersService {
       this.logger.warn('Failed to resolve token account owners; returning token accounts only');
     }
 
-    const holdersWithRank = rpcResult.value.map((acc: TokenLargestAccount, idx: number) => ({
+    // Best-effort pass: fetch account info for owner accounts to identify AMM/system PDAs
+    try {
+      const uniqueOwners = Array.from(new Set(owners.filter(Boolean) as string[]));
+      if (uniqueOwners.length > 0) {
+        const ownersInfo: GetMultipleAccountsResult = await this.heliusClient.getMultipleAccounts(
+          uniqueOwners,
+          commitment,
+          'base64'
+        );
+        ownersInfo.value.forEach((info, idx) => {
+          const key = uniqueOwners[idx];
+          ownerAccountInfo[key] = info as unknown as RpcAccountInfo;
+        });
+      }
+    } catch (e) {
+      this.logger.warn('Failed to fetch owner account infos for system filtering. Proceeding without filter.');
+    }
+
+    const holdersWithRankRaw = rpcResult.value.map((acc: TokenLargestAccount, idx: number) => ({
       tokenAccount: acc.address,
       ownerAccount: owners[idx],
       amount: acc.amount,
@@ -51,6 +72,20 @@ export class TokenHoldersService {
       uiAmountString: acc.uiAmountString,
       rank: idx + 1,
     }));
+
+    // Filter out owner accounts that are clearly program-owned (AMM PDAs) or known system wallets
+    const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
+    const knownSystemSet: Set<string> = new Set<string>(KNOWN_SYSTEM_WALLETS as readonly string[]);
+    const holdersWithRank = holdersWithRankRaw.filter((h) => {
+      const owner = h.ownerAccount;
+      if (!owner) return true; // If no owner resolved, keep; frontend can toggle ownersOnly
+      if (knownSystemSet.has(owner)) return false;
+      const info = ownerAccountInfo[owner];
+      if (!info) return true; // If we couldn't fetch, be conservative
+      // External wallets are owned by System Program with empty data
+      const isProgramOwned = info.owner && info.owner !== SYSTEM_PROGRAM_ID;
+      return !isProgramOwned;
+    });
 
     return {
       mint,
