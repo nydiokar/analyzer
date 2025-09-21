@@ -13,9 +13,11 @@ import { toast } from 'sonner';
 
 interface Props {
   onAddToSet?: (wallets: string[]) => void;
+  // Optional: override the scroll container height. Example: "max-h-[75vh]".
+  maxHeightClass?: string;
 }
 
-export function TopHoldersPanel({ onAddToSet }: Props) {
+export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
   const [mint, setMint] = useState('');
   const [commitment, setCommitment] = useState<'finalized' | 'confirmed' | 'processed' | undefined>('finalized');
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -101,7 +103,7 @@ export function TopHoldersPanel({ onAddToSet }: Props) {
         </div>
       )}
 
-      <ScrollArea className="h-96 border rounded-md">
+      <ScrollArea className={`${maxHeightClass || 'h-96'} border rounded-md overflow-auto`}> 
         <div className="min-w-full">
           {isLoading && <div className="p-3 text-sm text-muted-foreground">Loading...</div>}
           {!isLoading && holders.length === 0 && mint && (

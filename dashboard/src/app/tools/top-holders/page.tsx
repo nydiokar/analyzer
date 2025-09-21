@@ -12,7 +12,8 @@ export default function TopHoldersToolPage() {
         </h1>
       </header>
       <Card className="p-4">
-        <TopHoldersPanel />
+        {/* Make the list fill most of viewport height while staying scrollable */}
+        <TopHoldersPanel maxHeightClass="max-h-[73vh]" />
       </Card>
     </div>
   );
