@@ -523,7 +523,10 @@ export default function AnalysisLabPage() {
               <DialogHeader>
                 <DialogTitle>Add wallets from token top holders</DialogTitle>
               </DialogHeader>
-              <TopHoldersPanel onAddToSet={(owners) => setWalletList(prev => Array.from(new Set([...prev, ...owners])))} />
+              <TopHoldersPanel
+                maxHeightClass="max h-[70vh]"
+                onAddToSet={(owners) => setWalletList(prev => Array.from(new Set([...prev, ...owners])))}
+              />
             </DialogContent>
           </Dialog>
         </div>

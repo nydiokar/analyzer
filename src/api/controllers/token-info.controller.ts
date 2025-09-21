@@ -38,7 +38,12 @@ export class TokenInfoController {
     this.tokenInfoService.triggerTokenInfoEnrichment(body.tokenAddresses, userId);
     
     // Immediately return whatever data we have in the database right now.
-    return this.tokenInfoService.findMany(body.tokenAddresses);
+    const records = await this.tokenInfoService.findMany(body.tokenAddresses);
+    // Convert BigInt fields to JSON-safe values
+    return records.map((t: any) => ({
+      ...t,
+      pairCreatedAt: t?.pairCreatedAt != null ? Number(t.pairCreatedAt) : null,
+    }));
   }
 
   // New endpoint for top holders (reads only)
