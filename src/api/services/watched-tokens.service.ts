@@ -148,6 +148,31 @@ export class WatchedTokensService {
       return { added };
     });
   }
+
+  async setWatched(tokenAddress: string, on: boolean, userId?: string) {
+    return this.db.$transaction(async (tx) => {
+      const client = tx as any;
+      if (on) {
+        // Ensure TokenInfo exists to satisfy FK
+        const ti = await client.tokenInfo.findUnique({ where: { tokenAddress } });
+        if (!ti) {
+          await client.tokenInfo.create({ data: { tokenAddress, name: 'Unknown Token' } });
+        }
+        await client.watchedToken.upsert({
+          where: { tokenAddress_list: { tokenAddress, list: 'FAVORITES' } },
+          update: {},
+          create: { tokenAddress, list: 'FAVORITES', createdBy: userId ?? null },
+        });
+        return { ok: true, watched: true };
+      } else {
+        const existed = await client.watchedToken.findUnique({ where: { tokenAddress_list: { tokenAddress, list: 'FAVORITES' } } });
+        if (existed) {
+          await client.watchedToken.delete({ where: { tokenAddress_list: { tokenAddress, list: 'FAVORITES' } } });
+        }
+        return { ok: true, watched: false };
+      }
+    });
+  }
 }
 
 

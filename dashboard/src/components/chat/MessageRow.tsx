@@ -13,9 +13,12 @@ export interface MessageRowProps {
   showCopy?: boolean;
   isOwn?: boolean;
   canDelete?: boolean;
+  isPinned?: boolean;
+  onTogglePin?: (messageId: string) => void;
+  highlighted?: boolean;
 }
 
-export default function MessageRow({ message, byMint, watchedByMint = {}, threadAddress, showCopy = false, isOwn = false, canDelete = false }: MessageRowProps) {
+export default function MessageRow({ message, byMint, watchedByMint = {}, threadAddress, showCopy = false, isOwn = false, canDelete = false, isPinned = false, onTogglePin, highlighted = false }: MessageRowProps) {
   const nodes = useMemo(() => {
     const body = message.body || '';
     const mentions = (message.mentions || []).filter((m) => (m.kind === 'TOKEN' || m.kind === 'token') && m.refId);
@@ -77,18 +80,28 @@ export default function MessageRow({ message, byMint, watchedByMint = {}, thread
   }, [message.id]);
 
   return (
-    <div className="px-3 py-2 border-b border-border">
+    <div
+      id={message.id ? `msg-${message.id}` : undefined}
+      className="px-3 py-1.5"
+      style={{ contentVisibility: 'auto' as any, containIntrinsicSize: '72px' as any }}
+    >
       <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-        <div className={`max-w-[80%] px-3 py-2 rounded-2xl shadow-sm ${isOwn ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
+        <div className={`group max-w-[80%] px-3 py-1.5 rounded-2xl ${highlighted ? 'ring-2 ring-primary/60' : ''} focus-within:ring-2 focus-within:ring-primary outline-none ${isOwn ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`} tabIndex={0}>
           <div className="text-sm whitespace-pre-wrap leading-relaxed">{nodes}</div>
           <div className="mt-1 flex items-center justify-between gap-2">
-            <div className="text-[10px] text-muted-foreground">{new Date(message.createdAt).toLocaleString()}</div>
-            {(showCopy || canDelete) ? (
+            <div className="flex items-center gap-2">
+              <div className="text-[10px] text-muted-foreground">{new Date(message.createdAt).toLocaleString()}</div>
+              {isPinned ? <span className="text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-700">Pinned</span> : null}
+            </div>
+            {(showCopy || canDelete || onTogglePin) ? (
               <DropdownMenu>
                 <DropdownMenuTrigger className="text-[10px] text-muted-foreground hover:text-foreground">•••</DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {showCopy ? <DropdownMenuItem onClick={copyBody}>Copy</DropdownMenuItem> : null}
                   {canDelete ? <DropdownMenuItem onClick={handleDelete}>Delete</DropdownMenuItem> : null}
+                  {onTogglePin && message.id ? (
+                    <DropdownMenuItem onClick={() => onTogglePin(message.id!)}>{isPinned ? 'Unpin' : 'Pin'}</DropdownMenuItem>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}

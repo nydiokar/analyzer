@@ -28,33 +28,39 @@ export default function WatchedTokenList({ onSelect }: WatchedTokenListProps) {
   return (
     <div className="divide-y divide-border">
       {data.map((t) => {
+        const fmtPrice = (p?: string | null) => {
+          if (!p) return null;
+          const n = Number(p);
+          if (!isFinite(n)) return null;
+          if (n >= 1) return `$${n.toFixed(2)}`;
+          if (n >= 0.01) return `$${n.toFixed(4)}`;
+          return `$${n.toFixed(6)}`;
+        };
         const row = (
           <div
             key={t.tokenAddress}
-            className="flex items-center justify-between px-3 py-2 hover:bg-muted/40 cursor-pointer"
+            className="flex items-center justify-between px-3 py-2 hover:bg-muted/40 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             role="button"
             tabIndex={0}
             onClick={() => onSelect?.(t.tokenAddress)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(t.tokenAddress); } }}
             aria-label={`Open thread for ${t.symbol || t.name || t.tokenAddress}`}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <TokenBadge mint={t.tokenAddress} metadata={{ name: t.name ?? undefined, symbol: t.symbol ?? undefined, imageUrl: t.imageUrl ?? undefined }} size="sm" />
               <div className="flex items-center gap-1 flex-wrap">
-                {t.tags.slice(0, 4).map((tag, idx) => (
+                {t.tags.slice(0, 3).map((tag, idx) => (
                   <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                     {tag.name}
                   </span>
                 ))}
-                {t.tags.length > 4 && <span className="text-[10px] text-muted-foreground">+{t.tags.length - 4}</span>}
+                {t.tags.length > 3 && <span className="text-[10px] text-muted-foreground">+{t.tags.length - 3}</span>}
               </div>
             </div>
-            <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
-              {t.priceUsd ? <span>${Number(t.priceUsd).toFixed(6)}</span> : null}
-              {t.marketCapUsd ? <span>MCap ${Math.round(t.marketCapUsd).toLocaleString()}</span> : null}
-              {t.liquidityUsd ? <span>Liq ${Math.round(t.liquidityUsd).toLocaleString()}</span> : null}
-              {t.volume24h ? <span>Vol24h ${Math.round(t.volume24h).toLocaleString()}</span> : null}
-              <span>{t.latestMessageAt ? new Date(t.latestMessageAt).toLocaleString() : '—'}</span>
+            <div className="flex items-center gap-3 text-[10px] text-muted-foreground whitespace-nowrap">
+              {fmtPrice(t.priceUsd) ? <span className="text-foreground">{fmtPrice(t.priceUsd)}</span> : null}
+              {t.marketCapUsd ? <span className="hidden 2xl:inline">MCap ${Math.round(t.marketCapUsd).toLocaleString()}</span> : null}
+              {t.liquidityUsd ? <span className="hidden 2xl:inline">Liq ${Math.round(t.liquidityUsd).toLocaleString()}</span> : null}
             </div>
           </div>
         );

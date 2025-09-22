@@ -336,8 +336,8 @@ model TokenTag {
   source       String
   confidence   Float     @default(1.0)
   createdAt    DateTime  @default(now())
-  Tag          Tag       @relation(fields: [tagId], references: [id])
   TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
+  Tag          Tag       @relation(fields: [tagId], references: [id])
 
   @@id([tokenAddress, tagId])
   @@index([tagId])
@@ -351,6 +351,7 @@ model Message {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
   deletedAt    DateTime?
+  isPinned     Boolean           @default(false)
   author       User?             @relation(fields: [authorUserId], references: [id])
   mentions     MessageMention[]
   revisions    MessageRevision[]

@@ -59,6 +59,11 @@ export class MessagesController {
     return this.messages.listGlobal({ cursor: cursor ?? undefined, limit: take });
   }
 
+  @Get(':id')
+  async getById(@Param('id') id: string) {
+    return this.messages.getById(id);
+  }
+
   @Get('resolve/symbol')
   async resolveSymbol(@Query('sym') sym: string) {
     return this.messages.resolveSymbol(sym);
@@ -82,6 +87,12 @@ export class MessagesController {
   @Delete(':id')
   async deleteMessage(@Param('id') id: string) {
     return this.messages.deleteMessage(id);
+  }
+
+  @Post(':id/pin')
+  async setPinned(@Param('id') id: string, @Body('isPinned') isPinned: boolean) {
+    await this.messages.setPinned(id, !!isPinned);
+    return { ok: true };
   }
 }
 

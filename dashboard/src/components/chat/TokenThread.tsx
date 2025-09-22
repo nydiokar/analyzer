@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTokenMessages } from '@/hooks/useMessages';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import MessageComposer from './MessageComposer';
@@ -9,6 +9,8 @@ import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import type { TokenInfoByMint } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 import MessageRow from './MessageRow';
+import { fetcher } from '@/lib/fetcher';
+import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 
 function Metric({ label, value }: { label: string; value: string | number | null | undefined }) {
   if (value === null || value === undefined) return null;
@@ -71,12 +73,13 @@ function MessageItem({ message, byMint, threadAddress }: { message: { body: stri
   );
 }
 
-export default function TokenThread({ tokenAddress }: { tokenAddress: string }) {
+export default function TokenThread({ tokenAddress, highlightId }: { tokenAddress: string; highlightId?: string }) {
   const { data, isLoading, error, mutate, loadMore } = useTokenMessages(tokenAddress, 50);
+  const pinnedItems = (data?.items || []).filter((m: any) => (m as any).isPinned);
   const tokenMentions = (data?.items || [])
     .flatMap((m) => (m.mentions || []).filter((x) => (x.kind === 'TOKEN' || x.kind === 'token') && x.refId).map((x) => x.refId as string));
   const { byMint } = useTokenInfoMany(tokenMentions);
-  const { data: watched } = useWatchedTokens('FAVORITES');
+  const { data: watched, mutate: mutateWatched } = useWatchedTokens('FAVORITES');
   const watchedMeta = useMemo(() => (watched || []).find((w) => w.tokenAddress === tokenAddress) || null, [watched, tokenAddress]);
 
   const handlePosted = useCallback(() => {
@@ -94,9 +97,24 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
     onMessageDeleted: () => {
       mutate();
     },
+    onMessagePinned: () => {
+      mutate();
+    },
   });
 
   const lastPostedAtRef = useRef<number>(0);
+  const didScrollRef = useRef(false);
+  const sentinelRef = useInfiniteScroll(data?.nextCursor ? loadMore : undefined);
+  
+  // Scroll the highlighted message into view once when data arrives
+  useEffect(() => {
+    if (!highlightId || didScrollRef.current) return;
+    const el = typeof document !== 'undefined' ? document.getElementById(`msg-${highlightId}`) : null;
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      didScrollRef.current = true;
+    }
+  }, [highlightId, data]);
 
   return (
     <div className="flex flex-col h-full">
@@ -106,8 +124,37 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
           <Metric label="Price" value={watchedMeta?.priceUsd ?? null} />
           <Metric label="MCap" value={watchedMeta?.marketCapUsd ? `$${Math.round(watchedMeta.marketCapUsd).toLocaleString()}` : null} />
           <Metric label="Liq" value={watchedMeta?.liquidityUsd ? `$${Math.round(watchedMeta.liquidityUsd).toLocaleString()}` : null} />
+          <button
+            className="h-7 px-2 text-xs border rounded hover:bg-muted"
+            onClick={async () => {
+              try {
+                const on = watchedMeta ? false : true;
+                await fetcher(`/watched-tokens/${encodeURIComponent(tokenAddress)}/watch`, { method: 'POST', body: JSON.stringify({ on }) });
+                mutateWatched();
+              } catch {}
+            }}
+            aria-label={watchedMeta ? 'Unwatch token' : 'Watch token'}
+          >
+            {watchedMeta ? 'Unwatch' : 'Watch'}
+          </button>
         </div>
       </div>
+      {pinnedItems.length > 0 && (
+        <div className="p-2 border-b border-border bg-muted/40">
+          <div className="text-[10px] text-muted-foreground mb-1">Pinned</div>
+          <div className="flex gap-2 overflow-x-auto">
+            {pinnedItems.map((m: any) => (
+              <span
+                key={`pin-${m.id}`}
+                className="text-xs px-2 py-1 rounded border bg-background whitespace-nowrap"
+                title={m.body}
+              >
+                {m.body.length > 40 ? `${m.body.slice(0, 40)}…` : m.body}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="px-3 py-2 border-b border-border flex items-center gap-2">
         <span className="text-[10px] text-muted-foreground">Tags:</span>
         {/* Simple inline add form - minimal UX */}
@@ -145,6 +192,15 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
             threadAddress={tokenAddress}
             isOwn={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
             canDelete={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
+            isPinned={!!(m as any).isPinned}
+            highlighted={highlightId === m.id}
+            onTogglePin={async (id) => {
+              try {
+                const next = !(m as any).isPinned;
+                await fetcher(`/messages/${encodeURIComponent(id)}/pin`, { method: 'POST', body: JSON.stringify({ isPinned: next }) });
+                mutate();
+              } catch {}
+            }}
           />
         ))}
         {data?.nextCursor && (
@@ -153,6 +209,8 @@ export default function TokenThread({ tokenAddress }: { tokenAddress: string }) 
           </button>
         )}
       </div>
+      {/* Infinite loader sentinel */}
+      {data?.nextCursor ? <div ref={sentinelRef} className="h-1" /> : null}
       <MessageComposer onPosted={() => { lastPostedAtRef.current = Date.now(); handlePosted(); }} tokenAddress={tokenAddress} />
     </div>
   );

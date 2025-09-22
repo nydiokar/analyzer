@@ -8,6 +8,7 @@ export interface MessageDto {
   id: string;
   body: string;
   createdAt: string;
+  isPinned?: boolean;
   mentions?: Array<{ kind: string; refId?: string | null; rawValue: string; metaJson?: unknown }>;
 }
 

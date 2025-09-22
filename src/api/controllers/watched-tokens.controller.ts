@@ -18,6 +18,14 @@ export class WatchedTokensController {
     const items = Array.isArray(body?.items) ? body.items : [];
     return this.svc.addTags(tokenAddress, items);
   }
+
+  @Post(':tokenAddress/watch')
+  async setWatch(
+    @Param('tokenAddress') tokenAddress: string,
+    @Body('on') on: boolean,
+  ) {
+    return this.svc.setWatched(tokenAddress, on === undefined ? true : !!on);
+  }
 }
 
 

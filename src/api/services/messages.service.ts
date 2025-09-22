@@ -198,6 +198,28 @@ export class MessagesService {
     });
   }
 
+  async getById(messageId: string) {
+    return this.db.$transaction(async (tx) => {
+      const client = tx as any;
+      const row = await client.message.findUnique({ where: { id: messageId }, include: { mentions: true } });
+      return row;
+    });
+  }
+
+  async setPinned(messageId: string, isPinned: boolean) {
+    return this.db.$transaction(async (tx) => {
+      const client = tx as any;
+      const existing = await client.message.findUnique({ where: { id: messageId } });
+      if (!existing) return null;
+      if (existing.isPinned === isPinned) return existing;
+      const updated = await client.message.update({ where: { id: messageId }, data: { isPinned } });
+      try {
+        await this.messageGateway.publishPinned({ id: updated.id, isPinned: updated.isPinned });
+      } catch {}
+      return updated;
+    });
+  }
+
   async resolveSymbol(sym: string) {
     const symbol = sym.trim();
     if (!symbol) return [];

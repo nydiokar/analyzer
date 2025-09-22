@@ -69,7 +69,8 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
           placeholder={tokenAddress ? `Discuss token ${tokenAddress.slice(0,4)}… use @meta:, @risk:` : "Share insight… use @ca:, @sym:, @meta:"}
           aria-label={tokenAddress ? `Message input for token ${tokenAddress}` : 'Global message input'}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            const isCmdEnter = (e.key === 'Enter') && (e.metaKey || e.ctrlKey);
+            if ((e.key === 'Enter' && !e.shiftKey) || isCmdEnter) {
               e.preventDefault();
               handleSubmit();
             }
@@ -94,7 +95,7 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
         </div>
       )}
       <div className="text-[10px] text-muted-foreground">
-        Tips: {mentionNamespaces.map((n) => n.example).join('  •  ')}
+        Tips: {mentionNamespaces.map((n) => n.example).join('  •  ')}  •  Ctrl/⌘+Enter to send
       </div>
 
       {/* Symbol Resolver Modal */}

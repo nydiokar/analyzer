@@ -8,9 +8,10 @@ interface Options {
   onMessageCreated?: (payload: { id: string; createdAt: string }) => void;
   onMessageEdited?: (payload: { id: string; body: string; updatedAt: string }) => void;
   onMessageDeleted?: (payload: { id: string; deletedAt: string }) => void;
+  onMessagePinned?: (payload: { id: string; isPinned: boolean }) => void;
 }
 
-export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdited, onMessageDeleted }: Options) => {
+export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned }: Options) => {
   useEffect(() => {
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '';
     const socket: Socket = io(baseUrl, {
@@ -36,20 +37,25 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
     const handleMessageDeleted = (payload: any) => {
       onMessageDeleted?.(payload);
     };
+    const handleMessagePinned = (payload: any) => {
+      onMessagePinned?.(payload);
+    };
 
     socket.on('connect', handleConnect);
     socket.on('message.created', handleMessageCreated);
     socket.on('message.edited', handleMessageEdited);
     socket.on('message.deleted', handleMessageDeleted);
+    socket.on('message.pinned', handleMessagePinned);
 
     return () => {
       socket.off('connect', handleConnect);
       socket.off('message.created', handleMessageCreated);
       socket.off('message.edited', handleMessageEdited);
       socket.off('message.deleted', handleMessageDeleted);
+      socket.off('message.pinned', handleMessagePinned);
       socket.disconnect();
     };
-  }, [onMessageCreated, onMessageEdited, onMessageDeleted, tokenAddress]);
+  }, [onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned, tokenAddress]);
 };
 
 

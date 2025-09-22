@@ -68,6 +68,8 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
           this.server.emit('message.edited', payload);
         } else if (channel === 'message-events:deleted') {
           this.server.emit('message.deleted', payload);
+        } else if (channel === 'message-events:pinned') {
+          this.server.emit('message.pinned', payload);
         }
       } catch (e) {
         this.logger.warn('Failed to parse message event', e as any);
@@ -89,6 +91,10 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
 
   async publishDeleted(event: any) {
     await this.redisPublisher.publish('message-events:deleted', JSON.stringify(event));
+  }
+
+  async publishPinned(event: any) {
+    await this.redisPublisher.publish('message-events:pinned', JSON.stringify(event));
   }
 }
 
