@@ -42,13 +42,7 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
 
   const { data, isLoading } = useTopHolders(isValidMint ? debouncedMint : undefined, commitment);
   const { meta: tokenMeta } = useTokenMetadata(isValidMint ? debouncedMint : undefined);
-  useEffect(() => {
-    if (debouncedMint) {
-      // Temporary debug: verify what we pass into TokenBadge
-      // eslint-disable-next-line no-console
-      console.log('TopHoldersPanel tokenMeta', { mint: debouncedMint, tokenMeta });
-    }
-  }, [debouncedMint, tokenMeta]);
+  // Remove verbose logs now that things load correctly
   const holdersRaw: TopHolderItem[] = data?.holders || [];
   const holders: TopHolderItem[] = useMemo(() => ownersOnly ? holdersRaw.filter(h => !!h.ownerAccount) : holdersRaw, [holdersRaw, ownersOnly]);
 

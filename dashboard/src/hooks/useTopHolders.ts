@@ -12,7 +12,7 @@ export function useTokenMetadata(mint?: string) {
       method: 'POST',
       body: JSON.stringify({ tokenAddresses: [mint] }),
     }),
-    { revalidateOnFocus: false, revalidateOnReconnect: false, revalidateOnMount: true, dedupingInterval: 300 }
+    { revalidateOnFocus: false, revalidateOnReconnect: false, revalidateOnMount: true, dedupingInterval: 1500 }
   );
   // Normalize: API may return an array or a single object
   let meta: any | undefined;
@@ -28,15 +28,16 @@ export function useTokenMetadata(mint?: string) {
   } else if (data && typeof data === 'object') {
     meta = data;
   }
-  if (mint && data) {
-    // eslint-disable-next-line no-console
-    console.log('useTokenMetadata resolved', {
-      mint,
-      items: Array.isArray(data) ? data.length : 1,
-      chosen: meta?.name,
-      symbol: meta?.symbol,
-    });
-  }
+  // Single lightweight retry: if first response is an empty array, revalidate once
+  const retriedRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (!mint) return;
+    const emptyArray = Array.isArray(data) && data.length === 0;
+    if (!emptyArray || retriedRef.current) return;
+    retriedRef.current = true;
+    const t = setTimeout(() => { mutate(); }, 800);
+    return () => clearTimeout(t);
+  }, [mint, data, mutate]);
 
   // If DB returned no record initially (enrichment pending), retry a few times with backoff
   const attemptsRef = useRef<number>(0);
