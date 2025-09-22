@@ -201,38 +201,49 @@ export class MessagesService {
   async resolveSymbol(sym: string) {
     const symbol = sym.trim();
     if (!symbol) return [];
-    return this.db.$transaction(async (tx) => {
-      const client = tx as any;
-      const items = await client.tokenInfo.findMany({
-        where: { symbol: { contains: symbol, mode: 'insensitive' } },
-        select: { tokenAddress: true, name: true, symbol: true, marketCapUsd: true, liquidityUsd: true },
-        take: 20,
-      });
-
-      // Enrich with isWatched and latestMessageAt for ranking
-      const enriched = [] as any[];
-      for (const it of items) {
-        const isWatched = (await client.watchedToken.findFirst({ where: { tokenAddress: it.tokenAddress } })) ? true : false;
-        const latest = await client.message.findFirst({
-          where: { mentions: { some: { kind: 'TOKEN', refId: it.tokenAddress } } },
-          select: { createdAt: true },
-          orderBy: { createdAt: 'desc' },
+    try {
+      return await this.db.$transaction(async (tx) => {
+        const client = tx as any;
+        const items = await client.tokenInfo.findMany({
+          where: {
+            OR: [
+              { symbol: { contains: symbol } },
+              { name: { contains: symbol } },
+            ],
+          },
+          select: { tokenAddress: true, name: true, symbol: true, marketCapUsd: true, liquidityUsd: true },
+          take: 20,
         });
-        enriched.push({ ...it, isWatched, latestMessageAt: latest?.createdAt ?? null });
-      }
 
-      // Rank: watched first, then latestMessageAt desc, then liquidity, then marketCap
-      enriched.sort((a, b) => {
-        if (a.isWatched !== b.isWatched) return a.isWatched ? -1 : 1;
-        const at = a.latestMessageAt ? new Date(a.latestMessageAt).getTime() : 0;
-        const bt = b.latestMessageAt ? new Date(b.latestMessageAt).getTime() : 0;
-        if (bt !== at) return bt - at;
-        const bliq = (b.liquidityUsd ?? 0) - (a.liquidityUsd ?? 0);
-        if (bliq !== 0) return bliq;
-        return (b.marketCapUsd ?? 0) - (a.marketCapUsd ?? 0);
+        // Enrich with isWatched and latestMessageAt for ranking
+        const enriched = [] as any[];
+        for (const it of items) {
+          const isWatched = (await client.watchedToken.findFirst({ where: { tokenAddress: it.tokenAddress } })) ? true : false;
+          const latest = await client.message.findFirst({
+            where: { mentions: { some: { kind: 'TOKEN', refId: it.tokenAddress } } },
+            select: { createdAt: true },
+            orderBy: { createdAt: 'desc' },
+          });
+          enriched.push({ ...it, isWatched, latestMessageAt: latest?.createdAt ?? null });
+        }
+
+        // Rank: watched first, then latestMessageAt desc, then liquidity, then marketCap
+        enriched.sort((a, b) => {
+          if (a.isWatched !== b.isWatched) return a.isWatched ? -1 : 1;
+          const at = a.latestMessageAt ? new Date(a.latestMessageAt).getTime() : 0;
+          const bt = b.latestMessageAt ? new Date(b.latestMessageAt).getTime() : 0;
+          if (bt !== at) return bt - at;
+          const bliq = (b.liquidityUsd ?? 0) - (a.liquidityUsd ?? 0);
+          if (bliq !== 0) return bliq;
+          return (b.marketCapUsd ?? 0) - (a.marketCapUsd ?? 0);
+        });
+        return enriched;
       });
-      return enriched;
-    });
+    } catch (e) {
+      // Graceful fallback: if validation or other DB error occurs, do not throw
+      this.logger.debug(`resolveSymbol search failed for input '${symbol}': ${String((e as any)?.message ?? e)}`);
+      return [];
+    }
   }
 }
 

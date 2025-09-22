@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import WatchedTokenList from '@/components/tokens/WatchedTokenList';
 import GlobalChat from '@/components/chat/GlobalChat';
 import TokenThread from '@/components/chat/TokenThread';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 export default function TokensPage() {
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
@@ -52,6 +52,7 @@ export default function TokensPage() {
         }
       }}>
         <DialogContent className="max-w-3xl w-full p-0 sm:max-w-3xl sm:rounded-lg rounded-none h-[100dvh] sm:h-auto">
+          <DialogTitle className="sr-only">Token Thread</DialogTitle>
           {selectedToken ? <TokenThread tokenAddress={selectedToken} /> : null}
         </DialogContent>
       </Dialog>
