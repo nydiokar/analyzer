@@ -198,7 +198,6 @@ export function TopHoldersBubbleMap({ holders, selected, onToggle, className }: 
         <span>Tip: Click to copy and select • Double‑click to open on Solscan</span>
         <span className="ml-auto opacity-70">{holders.length} holders</span>
       </div>
-      {/* @ts-ignore - component loads dynamically */}
       <ReactECharts option={option} style={{ height: '100%', width: '100%' }} onEvents={onEvents} opts={{ renderer: 'canvas' }} />
     </div>
   );
