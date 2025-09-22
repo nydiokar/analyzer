@@ -10,6 +10,7 @@ import { TopHoldersBubbleMap } from './TopHoldersBubbleMap';
 import { useTopHolders, useTokenMetadata } from '@/hooks/useTopHolders';
 import type { TopHolderItem } from '@/types/api';
 import { WalletBadge } from '@/components/shared/WalletBadge';
+import { TokenBadge } from '@/components/shared/TokenBadge';
 import { toast } from 'sonner';
 
 interface Props {
@@ -41,6 +42,13 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
 
   const { data, isLoading } = useTopHolders(isValidMint ? debouncedMint : undefined, commitment);
   const { meta: tokenMeta } = useTokenMetadata(isValidMint ? debouncedMint : undefined);
+  useEffect(() => {
+    if (debouncedMint) {
+      // Temporary debug: verify what we pass into TokenBadge
+      // eslint-disable-next-line no-console
+      console.log('TopHoldersPanel tokenMeta', { mint: debouncedMint, tokenMeta });
+    }
+  }, [debouncedMint, tokenMeta]);
   const holdersRaw: TopHolderItem[] = data?.holders || [];
   const holders: TopHolderItem[] = useMemo(() => ownersOnly ? holdersRaw.filter(h => !!h.ownerAccount) : holdersRaw, [holdersRaw, ownersOnly]);
 
@@ -89,12 +97,21 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
     <Card className="p-4 space-y-3">
       <div className="flex gap-2 items-center">
         <Input placeholder="Enter token mint" value={mint} onChange={e => setMint(e.target.value.trim())} />
-        {mint && tokenMeta && (
-          <div className="flex items-center gap-2 px-2 py-1 rounded border bg-background/40">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={tokenMeta.imageUrl || '/favicon.ico'} alt={tokenMeta.symbol || 'token'} className="h-5 w-5 rounded" />
-            <span className="text-sm font-medium">{tokenMeta.symbol || tokenMeta.name || 'Token'}</span>
-          </div>
+        {(debouncedMint || mint) && (
+          <TokenBadge
+            key={`badge-${debouncedMint || mint}-${tokenMeta?.name || 'unknown'}`}
+            mint={debouncedMint || mint}
+            metadata={tokenMeta ? {
+              name: tokenMeta.name,
+              symbol: tokenMeta.symbol,
+              imageUrl: tokenMeta.imageUrl,
+              websiteUrl: tokenMeta.websiteUrl,
+              twitterUrl: tokenMeta.twitterUrl,
+              telegramUrl: tokenMeta.telegramUrl,
+            } : undefined}
+            className="px-2 py-1 rounded border bg-background/40"
+            size="md"
+          />
         )}
         <Select value={commitment} onValueChange={(v: any) => setCommitment(v)}>
           <SelectTrigger className="w-[140px]"><SelectValue placeholder="commitment" /></SelectTrigger>
@@ -130,7 +147,7 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
               Note: entries without ownerAccount will not be added to the similarity set.
             </div>
           )}
-          <ScrollArea className={`${maxHeightClass || 'h-96'} border rounded-md overflow-auto h-full`}>
+          <ScrollArea className={`${maxHeightClass || 'max-h-96'} border rounded-md overflow-auto`}>
             <div className="min-w-full">
               {isLoading && <div className="p-3 text-sm text-muted-foreground">Loading...</div>}
               {!isLoading && holders.length === 0 && mint && (

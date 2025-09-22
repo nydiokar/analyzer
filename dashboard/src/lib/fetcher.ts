@@ -55,15 +55,10 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         throw error;
     }
 
-    // Handle responses that are successful but have no content body.
-    // This is common for DELETE (204) or sometimes POST (201) requests.
+    // Handle responses that are successful but may have no content body.
+    // Only treat 204 as no-content. Some of our POST endpoints (201) still return JSON payloads.
     const contentLength = res.headers.get('content-length');
-    
-
-    
-    // Handle responses that are successful but have no content body.
-    // This is common for DELETE (204) or sometimes POST (201) requests.
-    if (res.status === 204 || res.status === 201 || (contentLength && parseInt(contentLength, 10) === 0)) {
+    if (res.status === 204 || (contentLength && parseInt(contentLength, 10) === 0)) {
         return null;
     }
 

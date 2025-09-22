@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; // Import the new form
 import { TopHoldersPanel } from '@/components/similarity-lab/TopHoldersPanel';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { ArrowUp } from 'lucide-react';
 
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
@@ -522,9 +522,12 @@ export default function AnalysisLabPage() {
             <DialogContent className="max-w-5xl">
               <DialogHeader>
                 <DialogTitle>Add wallets from token top holders</DialogTitle>
+                <DialogDescription>
+                  Enter a token mint, inspect the top holders, then add selected owners to your similarity set.
+                </DialogDescription>
               </DialogHeader>
               <TopHoldersPanel
-                maxHeightClass="max h-[70vh]"
+                maxHeightClass="h-[70vh]"
                 onAddToSet={(owners) => setWalletList(prev => Array.from(new Set([...prev, ...owners])))}
               />
             </DialogContent>
