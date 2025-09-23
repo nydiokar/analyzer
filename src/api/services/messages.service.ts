@@ -8,6 +8,7 @@ export interface CreateMessageInput {
   body: string;
   source: 'dashboard' | 'telegram' | 'bot';
   authorUserId?: string;
+  parentId?: string | null;
 }
 
 export interface ListOptions {
@@ -37,6 +38,7 @@ export class MessagesService {
           // Use string literal to avoid dependency on generated Prisma enums pre-generate
           source: input.source.toUpperCase() as unknown as string,
           authorUserId: input.authorUserId ?? null,
+          parentId: input.parentId ?? null,
         },
       });
 
@@ -114,7 +116,7 @@ export class MessagesService {
         where,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: limit,
-        include: { mentions: true },
+        include: { mentions: true, reactions: true },
       });
       const nextCursor = items.length === limit ? items[items.length - 1].createdAt.toISOString() : null;
       return { items, nextCursor };
@@ -136,7 +138,7 @@ export class MessagesService {
         where,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: limit,
-        include: { mentions: true },
+        include: { mentions: true, reactions: true },
       });
       const nextCursor = items.length === limit ? items[items.length - 1].createdAt.toISOString() : null;
       return { items, nextCursor };
@@ -217,6 +219,82 @@ export class MessagesService {
         await this.messageGateway.publishPinned({ id: updated.id, isPinned: updated.isPinned });
       } catch {}
       return updated;
+    });
+  }
+
+  async setReaction(messageId: string, type: string, on: boolean) {
+    return this.db.$transaction(async (tx) => {
+      const client = tx as any;
+      
+      // Check if message exists
+      const message = await client.message.findUnique({ where: { id: messageId } });
+      if (!message) {
+        throw new Error('Message not found');
+      }
+
+      if (on) {
+        // Add or increment reaction
+        await client.messageReaction.upsert({
+          where: {
+            messageId_type: {
+              messageId,
+              type,
+            },
+          },
+          update: {
+            count: { increment: 1 },
+          },
+          create: {
+            messageId,
+            type,
+            count: 1,
+          },
+        });
+      } else {
+        // Decrement or remove reaction
+        const existing = await client.messageReaction.findUnique({
+          where: {
+            messageId_type: {
+              messageId,
+              type,
+            },
+          },
+        });
+
+        if (existing) {
+          if (existing.count > 1) {
+            await client.messageReaction.update({
+              where: {
+                messageId_type: {
+                  messageId,
+                  type,
+                },
+              },
+              data: {
+                count: { decrement: 1 },
+              },
+            });
+          } else {
+            await client.messageReaction.delete({
+              where: {
+                messageId_type: {
+                  messageId,
+                  type,
+                },
+              },
+            });
+          }
+        }
+      }
+
+      // Publish reaction event
+      try {
+        await this.messageGateway.publishReaction({ messageId, type, on });
+      } catch (e) {
+        this.logger.warn('Failed to publish reaction event', e as any);
+      }
+
+      return { ok: true };
     });
   }
 

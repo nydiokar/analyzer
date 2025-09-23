@@ -234,14 +234,24 @@ V1 Implementation Notes (Least-Action Pass)
 - Composer polish: Ctrl/⌘+Enter send; inline symbol resolution preserved; scoped `@ca:<addr>` auto-prefix when composing inside a token thread.
 - Watch toggle: Added backend `POST /watched-tokens/:addr/watch { on }` and a simple Watch/Unwatch button in the thread header; watched list revalidates live.
 - Accessibility: Landmarks (nav/main/aside), focus-visible rings on interactive rows, compact labels.
-- Routing: Kept `#thread=<addr>` hash for selection to avoid churn; can migrate to `?view=token&addr=` in a follow-up.
-- Virtualization: Deferred (no new deps). Current feeds paginate with “Load more…”.
+- Routing: Added query-based selection (`?view=token&addr=&mid=`) and `/m/[id]` permalinks that resolve, scroll, and highlight.
+- Virtualization: Lightweight pass using CSS `content-visibility` and IntersectionObserver-based infinite scroll (no external deps).
 - Rendering: In scoped token threads, inline token pill for the scoped token is suppressed (as specified).
 
-Open Questions / Next Steps
+Phase 1 Status — Done
 
-- Server pins: Implemented basic boolean `isPinned` on Message, endpoint, and socket broadcast. Future: richer pin metadata (pinnedAt, pinnedBy) and fetching pins outside current slice.
-- Virtualized feed: Introduce `react-virtuoso` for large rooms once dependency installs are green-lit.
-- Quote-reply and reactions: Add lightweight UI affordances and SSE/socket events; aligns with Phase 2.
-- URL state: Migrate from hash to query param, then add `/m/[id]` permalinks and scroll anchors.
-- Token drawer: Split drawer from thread for richer KPIs (mini chart, tag management) without duplicating the feed.
+- Tri-pane layout widths: Tokens list widened (xl: 360px, 2xl: 420px). Drawer matches for balance.
+- Pinned messages: Server-side pins with socket updates and a pinned band.
+- Composer: Ctrl/⌘+Enter; scoped auto-@ca.
+- Deep links: `/m/[id]` → `/tokens?view=token&addr=&mid=` + scroll-to + highlight.
+- Full-height layout: Only feed scrolls; composer fixed and visible.
+- Perf: Content-visibility on rows + sentinel auto-load.
+
+ Phase 2 Progress
+
+ - Server pins: Implemented basic boolean `isPinned` on Message, endpoint, and socket broadcast. Future: richer pin metadata (pinnedAt, pinnedBy) and fetching pins outside current slice.
+ - Quote-reply: Reply-to bar in composer + parent preview rendered above message.
+ - Reactions: Buttons (like/warn/test) with counts; socket `reaction.updated`; optimistic UI refresh.
+ - Unread anchors: Track last-seen per scope; show “Jump to latest” when new messages arrive above.
+ - Edit window: Minimal prompt-based edit for last posted message window.
+ - Saved views and tag filters: Deferred per request.

@@ -9,9 +9,10 @@ interface Options {
   onMessageEdited?: (payload: { id: string; body: string; updatedAt: string }) => void;
   onMessageDeleted?: (payload: { id: string; deletedAt: string }) => void;
   onMessagePinned?: (payload: { id: string; isPinned: boolean }) => void;
+  onReactionUpdated?: (payload: { id: string; type: string; delta: 1|-1 }) => void;
 }
 
-export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned }: Options) => {
+export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned, onReactionUpdated }: Options) => {
   useEffect(() => {
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '';
     const socket: Socket = io(baseUrl, {
@@ -40,12 +41,16 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
     const handleMessagePinned = (payload: any) => {
       onMessagePinned?.(payload);
     };
+    const handleReactionUpdated = (payload: any) => {
+      onReactionUpdated?.(payload);
+    };
 
     socket.on('connect', handleConnect);
     socket.on('message.created', handleMessageCreated);
     socket.on('message.edited', handleMessageEdited);
     socket.on('message.deleted', handleMessageDeleted);
     socket.on('message.pinned', handleMessagePinned);
+    socket.on('reaction.updated', handleReactionUpdated);
 
     return () => {
       socket.off('connect', handleConnect);
@@ -53,9 +58,10 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
       socket.off('message.edited', handleMessageEdited);
       socket.off('message.deleted', handleMessageDeleted);
       socket.off('message.pinned', handleMessagePinned);
+      socket.off('reaction.updated', handleReactionUpdated);
       socket.disconnect();
     };
-  }, [onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned, tokenAddress]);
+  }, [onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned, onReactionUpdated, tokenAddress]);
 };
 
 

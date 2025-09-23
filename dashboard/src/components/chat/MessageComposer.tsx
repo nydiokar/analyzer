@@ -12,9 +12,11 @@ import { fetcher } from '@/lib/fetcher';
 interface MessageComposerProps {
   onPosted?: () => void;
   tokenAddress?: string; // optional scope for token thread
+  replyTo?: { id: string; body: string } | null;
+  onCancelReply?: () => void;
 }
 
-export default function MessageComposer({ onPosted, tokenAddress }: MessageComposerProps) {
+export default function MessageComposer({ onPosted, tokenAddress, replyTo = null, onCancelReply }: MessageComposerProps) {
   const [text, setText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -36,7 +38,7 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
         const address = results[0].tokenAddress as string;
         const re = new RegExp(`@${sym}\\b`, 'i');
         const next = text.trim().replace(re, `@ca:${address}`);
-        await postMessage(tokenAddress && !next.includes(`@ca:${tokenAddress}`) ? `@ca:${tokenAddress} ${next}` : next);
+        await postMessage(tokenAddress && !next.includes(`@ca:${tokenAddress}`) ? `@ca:${tokenAddress} ${next}` : next, replyTo?.id || undefined);
         setText('');
         onPosted?.();
         setIsSubmitting(false);
@@ -52,16 +54,22 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
       const withScope = tokenAddress && !base.includes(`@ca:${tokenAddress}`)
         ? `@ca:${tokenAddress} ${base}`
         : base;
-      await postMessage(withScope);
+      await postMessage(withScope, replyTo?.id || undefined);
       setText('');
       onPosted?.();
     } finally {
       setIsSubmitting(false);
     }
-  }, [bareSymbols, canSubmit, onPosted, text, tokenAddress]);
+  }, [bareSymbols, canSubmit, onPosted, text, tokenAddress, replyTo?.id]);
 
   return (
     <div className="w-full border-t border-border p-3 space-y-2">
+      {replyTo ? (
+        <div className="flex items-center justify-between text-xs px-2 py-1 rounded border bg-muted">
+          <div className="truncate mr-2">Replying to: {(replyTo.body || '').slice(0, 80)}{(replyTo.body || '').length > 80 ? '…' : ''}</div>
+          <button className="text-muted-foreground hover:text-foreground" onClick={onCancelReply} aria-label="Cancel reply">✕</button>
+        </div>
+      ) : null}
       <div className="flex items-center gap-2">
         <Input
           value={text}
@@ -98,8 +106,7 @@ export default function MessageComposer({ onPosted, tokenAddress }: MessageCompo
         Tips: {mentionNamespaces.map((n) => n.example).join('  •  ')}  •  Ctrl/⌘+Enter to send
       </div>
 
-      {/* Symbol Resolver Modal */}
-      {/* No resolver modal; handled inline on submit. */}
+      {/* No modal; handled inline on submit. */}
     </div>
   );
 }

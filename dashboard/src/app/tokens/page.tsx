@@ -51,7 +51,7 @@ export default function TokensPage() {
     <div className="min-h-[100dvh] h-[100dvh] overflow-hidden flex flex-col">
       <div className="p-3 border-b border-border text-sm font-medium">Watched Tokens</div>
       {/* Tri‑pane workspace: nav | main | drawer */}
-      <div className="flex-1 grid grid-cols-1 xl:grid-cols-[300px_1fr_380px] gap-0 h-full overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)_360px] 2xl:grid-cols-[420px_minmax(0,1fr)_420px] gap-0 h-full overflow-hidden">
         {/* Sidebar */}
         <nav className="border-r border-border overflow-auto" aria-label="Watched tokens">
           <WatchedTokenList onSelect={handleSelect} />

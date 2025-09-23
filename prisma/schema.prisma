@@ -352,9 +352,13 @@ model Message {
   updatedAt    DateTime          @updatedAt
   deletedAt    DateTime?
   isPinned     Boolean           @default(false)
+  parentId     String?
+  parent       Message?          @relation("MessageThread", fields: [parentId], references: [id])
+  replies      Message[]         @relation("MessageThread")
   author       User?             @relation(fields: [authorUserId], references: [id])
   mentions     MessageMention[]
   revisions    MessageRevision[]
+  reactions    MessageReaction[]
 
   @@index([createdAt, id])
 }
@@ -378,6 +382,18 @@ model MessageMention {
 
   @@index([kind, refId])
   @@index([messageId])
+}
+
+model MessageReaction {
+  messageId String
+  type      String
+  count     Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  Message   Message   @relation(fields: [messageId], references: [id])
+
+  @@id([messageId, type])
+  @@index([type])
 }
 
 model WatchedToken {

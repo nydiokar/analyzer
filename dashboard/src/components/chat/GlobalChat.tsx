@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { useGlobalMessages } from '@/hooks/useMessages';
 import { useMessagesSocket } from '@/hooks/useMessagesSocket';
 import MessageComposer from './MessageComposer';
@@ -41,11 +41,35 @@ export default function GlobalChat() {
     onMessagePinned: () => {
       mutate();
     },
+    onReactionUpdated: () => {
+      mutate();
+    },
   });
 
   // Track last posted id to style own bubble; minimal heuristic via time
   const lastPostedAtRef = useRef<number>(0);
-  const sentinelRef = useInfiniteScroll(data?.nextCursor ? loadMore : undefined);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Unread anchor tracking
+  const [lastSeen, setLastSeen] = useState<number>(() => {
+    if (typeof window === 'undefined') return Date.now();
+    const v = window.localStorage.getItem('lastSeen:global');
+    return v ? Number(v) : Date.now();
+  });
+  useEffect(() => {
+    if (typeof window !== 'undefined') window.localStorage.setItem('lastSeen:global', String(lastSeen));
+  }, [lastSeen]);
+  const newestTs = (data?.items?.[0]?.createdAt ? new Date(data.items[0].createdAt).getTime() : 0);
+  const showJump = newestTs > lastSeen;
+  const [replyTo, setReplyTo] = useState<{ id: string; body: string } | null>(null);
+
+  // Show newest at bottom: render ascending and auto-scroll to bottom on new items
+  const itemsAsc = useMemo(() => (data?.items || []).slice().reverse(), [data?.items]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [itemsAsc.length]);
 
   return (
     <div className="flex flex-col h-full">
@@ -66,10 +90,15 @@ export default function GlobalChat() {
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollRef} className="flex-1 overflow-auto">
+        {data?.nextCursor && (
+          <button className="w-full py-2 text-xs text-muted-foreground hover:text-foreground" onClick={loadMore}>
+            Load older…
+          </button>
+        )}
         {isLoading && <div className="p-3 text-sm">Loading…</div>}
         {error && <div className="p-3 text-sm text-red-500">Failed to load messages</div>}
-        {data?.items?.map((m) => (
+        {itemsAsc.map((m) => (
           <MessageRow
             key={m.id}
             message={m as any}
@@ -86,17 +115,23 @@ export default function GlobalChat() {
                 mutate();
               } catch {}
             }}
+            onReply={(mm) => setReplyTo(mm as any)}
+            onReact={async (_m, type) => {
+              try {
+                const count = ((m as any).reactions || []).find((r: any) => r.type === type)?.count || 0;
+                await fetcher(`/messages/${encodeURIComponent(m.id)}/react`, { method: 'POST', body: JSON.stringify({ type, on: count === 0 }) });
+                mutate();
+              } catch {}
+            }}
           />
         ))}
-        {data?.nextCursor && (
-          <button className="w-full py-2 text-xs text-muted-foreground hover:text-foreground" onClick={loadMore}>
-            Load more…
-          </button>
-        )}
       </div>
-      {/* Infinite loader sentinel */}
-      {data?.nextCursor ? <div ref={sentinelRef} className="h-1" /> : null}
-      <MessageComposer onPosted={() => { lastPostedAtRef.current = Date.now(); handlePosted(); }} />
+      {showJump ? (
+        <div className="sticky bottom-0 left-0 right-0 flex justify-center mb-1">
+          <button className="px-2 py-1 text-xs rounded border bg-background shadow" onClick={() => setLastSeen(Date.now())}>Jump to latest</button>
+        </div>
+      ) : null}
+      <MessageComposer replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onPosted={() => { lastPostedAtRef.current = Date.now(); setLastSeen(Date.now()); setReplyTo(null); handlePosted(); }} />
     </div>
   );
 }

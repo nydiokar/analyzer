@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTokenMessages } from '@/hooks/useMessages';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import MessageComposer from './MessageComposer';
@@ -116,6 +116,20 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
     }
   }, [highlightId, data]);
 
+  // Reply state
+  const [replyTo, setReplyTo] = useState<{ id: string; body: string } | null>(null);
+  // Unread anchor for this token
+  const [lastSeen, setLastSeen] = useState<number>(() => {
+    if (typeof window === 'undefined') return Date.now();
+    const v = window.localStorage.getItem(`lastSeen:token:${tokenAddress}`);
+    return v ? Number(v) : Date.now();
+  });
+  useEffect(() => {
+    if (typeof window !== 'undefined') window.localStorage.setItem(`lastSeen:token:${tokenAddress}`, String(lastSeen));
+  }, [lastSeen, tokenAddress]);
+  const newestTs = (data?.items?.[0]?.createdAt ? new Date(data.items[0].createdAt).getTime() : 0);
+  const showJump = newestTs > lastSeen;
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-border flex items-center justify-between">
@@ -184,7 +198,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
       <div className="flex-1 overflow-auto">
         {isLoading && <div className="p-3 text-sm">Loading…</div>}
         {error && <div className="p-3 text-sm text-red-500">Failed to load thread</div>}
-        {data?.items?.map((m) => (
+        {(data?.items || []).slice().reverse().map((m) => (
           <MessageRow
             key={m.id}
             message={m as any}
@@ -194,6 +208,14 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
             canDelete={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
             isPinned={!!(m as any).isPinned}
             highlighted={highlightId === m.id}
+            onReply={(mm) => setReplyTo({ id: mm.id as string, body: mm.body })}
+            onReact={async (_m, type) => {
+              try {
+                const count = ((m as any).reactions || []).find((r: any) => r.type === type)?.count || 0;
+                await fetcher(`/messages/${encodeURIComponent(m.id)}/react`, { method: 'POST', body: JSON.stringify({ type, on: count === 0 }) });
+                mutate();
+              } catch {}
+            }}
             onTogglePin={async (id) => {
               try {
                 const next = !(m as any).isPinned;
@@ -205,13 +227,18 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
         ))}
         {data?.nextCursor && (
           <button className="w-full py-2 text-xs text-muted-foreground hover:text-foreground" onClick={loadMore}>
-            Load more…
+            Load older…
           </button>
         )}
       </div>
       {/* Infinite loader sentinel */}
       {data?.nextCursor ? <div ref={sentinelRef} className="h-1" /> : null}
-      <MessageComposer onPosted={() => { lastPostedAtRef.current = Date.now(); handlePosted(); }} tokenAddress={tokenAddress} />
+      {showJump ? (
+        <div className="sticky bottom-0 left-0 right-0 flex justify-center mb-1">
+          <button className="px-2 py-1 text-xs rounded border bg-background shadow" onClick={() => setLastSeen(Date.now())}>Jump to latest</button>
+        </div>
+      ) : null}
+      <MessageComposer onPosted={() => { lastPostedAtRef.current = Date.now(); setLastSeen(Date.now()); handlePosted(); setReplyTo(null); }} tokenAddress={tokenAddress} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { WatchedTokensService } from '../services/watched-tokens.service';
 class PostMessageDto {
   body!: string;
   source!: 'dashboard' | 'telegram' | 'bot';
+  parentId?: string | null;
 }
 
 @Controller('messages')
@@ -39,14 +40,14 @@ export class MessagesController {
       if (tokenMentions.length) {
         await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, 'system');
       }
-      const created = await this.messages.createMessage({ body: rewritten, source: dto.source });
+      const created = await this.messages.createMessage({ body: rewritten, source: dto.source, parentId: dto.parentId ?? null });
       return created;
     }
     const tokenMentions = parseMentions(dto.body).filter((m: any) => m.kind === 'token' && m.refId).map((m: any) => m.refId as string);
     if (tokenMentions.length) {
       await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, 'system');
     }
-    const created = await this.messages.createMessage({ body: dto.body, source: dto.source });
+    const created = await this.messages.createMessage({ body: dto.body, source: dto.source, parentId: dto.parentId ?? null });
     return created;
   }
 
@@ -92,6 +93,12 @@ export class MessagesController {
   @Post(':id/pin')
   async setPinned(@Param('id') id: string, @Body('isPinned') isPinned: boolean) {
     await this.messages.setPinned(id, !!isPinned);
+    return { ok: true };
+  }
+
+  @Post(':id/react')
+  async react(@Param('id') id: string, @Body('type') type: string, @Body('on') on: boolean) {
+    await this.messages.setReaction(id, String(type || '').toLowerCase(), !!on);
     return { ok: true };
   }
 }

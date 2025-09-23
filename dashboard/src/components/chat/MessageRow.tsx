@@ -4,6 +4,7 @@ import React, { useMemo, useCallback } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { fetcher } from '@/lib/fetcher';
 import type { TokenInfoByMint } from '@/hooks/useTokenInfoMany';
+import useSWR from 'swr';
 
 export interface MessageRowProps {
   message: { id?: string; body: string; createdAt: string; mentions?: Array<{ kind: string; refId?: string | null; rawValue: string }> };
@@ -16,9 +17,11 @@ export interface MessageRowProps {
   isPinned?: boolean;
   onTogglePin?: (messageId: string) => void;
   highlighted?: boolean;
+  onReply?: (m: { id?: string; body: string }) => void;
+  onReact?: (m: { id?: string }, type: 'like'|'warn'|'test') => void;
 }
 
-export default function MessageRow({ message, byMint, watchedByMint = {}, threadAddress, showCopy = false, isOwn = false, canDelete = false, isPinned = false, onTogglePin, highlighted = false }: MessageRowProps) {
+export default function MessageRow({ message, byMint, watchedByMint = {}, threadAddress, showCopy = false, isOwn = false, canDelete = false, isPinned = false, onTogglePin, highlighted = false, onReply, onReact }: MessageRowProps) {
   const nodes = useMemo(() => {
     const body = message.body || '';
     const mentions = (message.mentions || []).filter((m) => (m.kind === 'TOKEN' || m.kind === 'token') && m.refId);
@@ -79,6 +82,9 @@ export default function MessageRow({ message, byMint, watchedByMint = {}, thread
     } catch {}
   }, [message.id]);
 
+  // Load parent preview if needed
+  const { data: parent } = useSWR(message && (message as any).parentId ? `/messages/${encodeURIComponent((message as any).parentId)}` : null, (url) => fetcher(url));
+
   return (
     <div
       id={message.id ? `msg-${message.id}` : undefined}
@@ -87,25 +93,63 @@ export default function MessageRow({ message, byMint, watchedByMint = {}, thread
     >
       <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
         <div className={`group max-w-[80%] px-3 py-1.5 rounded-2xl ${highlighted ? 'ring-2 ring-primary/60' : ''} focus-within:ring-2 focus-within:ring-primary outline-none ${isOwn ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`} tabIndex={0}>
+          {(message as any).parentId && parent ? (
+            <div className="mb-1 pl-2 border-l-2 border-border text-xs text-muted-foreground">
+              {(parent.body || '').slice(0, 120)}{(parent.body || '').length > 120 ? '…' : ''}
+            </div>
+          ) : null}
           <div className="text-sm whitespace-pre-wrap leading-relaxed">{nodes}</div>
           <div className="mt-1 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <div className="text-[10px] text-muted-foreground">{new Date(message.createdAt).toLocaleString()}</div>
               {isPinned ? <span className="text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-700">Pinned</span> : null}
             </div>
-            {(showCopy || canDelete || onTogglePin) ? (
+            {(showCopy || canDelete || onTogglePin || onReply) ? (
               <DropdownMenu>
                 <DropdownMenuTrigger className="text-[10px] text-muted-foreground hover:text-foreground">•••</DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {showCopy ? <DropdownMenuItem onClick={copyBody}>Copy</DropdownMenuItem> : null}
                   {canDelete ? <DropdownMenuItem onClick={handleDelete}>Delete</DropdownMenuItem> : null}
+                  {isOwn && canDelete ? (
+                    <DropdownMenuItem onClick={async () => {
+                      try {
+                        const next = typeof window !== 'undefined' ? window.prompt('Edit message', message.body) : null;
+                        if (next === null || next === undefined) return;
+                        await fetcher(`/messages/${encodeURIComponent(message.id || '')}`, { method: 'PATCH', body: JSON.stringify({ body: next }) });
+                      } catch {}
+                    }}>Edit</DropdownMenuItem>
+                  ) : null}
                   {onTogglePin && message.id ? (
                     <DropdownMenuItem onClick={() => onTogglePin(message.id!)}>{isPinned ? 'Unpin' : 'Pin'}</DropdownMenuItem>
+                  ) : null}
+                  {onReply ? <DropdownMenuItem onClick={() => onReply({ id: message.id, body: message.body })}>Reply</DropdownMenuItem> : null}
+                  {onReact ? (
+                    <>
+                      <DropdownMenuItem onClick={() => onReact({ id: message.id }, 'like')}>React 👍</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onReact({ id: message.id }, 'dislike')}>React 👎</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onReact({ id: message.id }, 'warn')}>React ⚠️</DropdownMenuItem>
+                    </>
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
           </div>
+          {/* Reactions: only show when used; add via menu */}
+          {(() => {
+            const reactions = ((message as any).reactions || []) as Array<{ type: string; count: number }>;
+            const like = reactions.find((r) => r.type === 'like')?.count || 0;
+            const dislike = reactions.find((r) => r.type === 'dislike')?.count || 0;
+            const warn = reactions.find((r) => r.type === 'warn')?.count || 0;
+            const any = like + dislike + warn > 0;
+            if (!any) return null;
+            return (
+              <div className="mt-1 flex items-center gap-3 text-xs">
+                {like > 0 ? <span>👍 {like}</span> : null}
+                {dislike > 0 ? <span>👎 {dislike}</span> : null}
+                {warn > 0 ? <span>⚠️ {warn}</span> : null}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

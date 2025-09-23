@@ -9,6 +9,8 @@ export interface MessageDto {
   body: string;
   createdAt: string;
   isPinned?: boolean;
+  parentId?: string | null;
+  reactions?: Array<{ messageId: string; type: string; count: number }>;
   mentions?: Array<{ kind: string; refId?: string | null; rawValue: string; metaJson?: unknown }>;
 }
 
@@ -30,10 +32,10 @@ export const useGlobalMessages = (limit: number = 50) => {
   return { data, error, isLoading, mutate, loadMore, cursor, setCursor };
 };
 
-export const postMessage = async (body: string) => {
+export const postMessage = async (body: string, parentId?: string) => {
   return fetcher('/messages', {
     method: 'POST',
-    body: JSON.stringify({ body, source: 'dashboard' }),
+    body: JSON.stringify({ body, source: 'dashboard', parentId: parentId ?? undefined }),
   });
 };
 
