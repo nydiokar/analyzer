@@ -1,14 +1,22 @@
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetcher } from '@/lib/fetcher';
 
-export default function MessagePermalinkPage({ params }: { params: { id: string } }) {
+export default function MessagePermalinkPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const id = params.id;
+  const [id, setId] = useState<string | null>(null);
 
   useEffect(() => {
+    params.then((resolvedParams) => {
+      setId(resolvedParams.id);
+    });
+  }, [params]);
+
+  useEffect(() => {
+    if (!id) return;
+    
     let cancelled = false;
     (async () => {
       try {

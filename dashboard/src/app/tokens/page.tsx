@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import WatchedTokenList from '@/components/tokens/WatchedTokenList';
 import GlobalChat from '@/components/chat/GlobalChat';
 import TokenThread from '@/components/chat/TokenThread';
@@ -9,6 +9,14 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function TokensPage() {
+  return (
+    <Suspense fallback={<div className="p-3 text-sm">Loading…</div>}>
+      <TokensPageInner />
+    </Suspense>
+  );
+}
+
+function TokensPageInner() {
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
   const isXL = useMediaQuery('(min-width: 1280px)');
   const router = useRouter();

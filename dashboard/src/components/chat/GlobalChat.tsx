@@ -7,7 +7,6 @@ import MessageComposer from './MessageComposer';
 import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 import MessageRow from './MessageRow';
-import { useRef } from 'react';
 import { fetcher } from '@/lib/fetcher';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 
