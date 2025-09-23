@@ -262,9 +262,11 @@ export class EnrichmentOperationsProcessor {
     const existingTokens = await this.tokenInfoService.findMany(meaningfulTokens);
     const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
     
-    // STEP 2: Filter to only fetch tokens that don't exist or are stale (1 hour for metadata, 5 minutes for prices)
+    // STEP 2: Filter to only fetch tokens that don't exist or are stale (1 hour for metadata, configurable minutes for prices)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes for prices
+    const priceTtlMinutes = Number(process.env.DEXSCREENER_PRICE_TTL_MINUTES ?? '5');
+    const priceTtlMs = Math.max(1, priceTtlMinutes) * 60 * 1000;
+    const priceCutoff = new Date(Date.now() - priceTtlMs); // price TTL
     
     const tokensToFetch = meaningfulTokens.filter(address => {
       const existingToken = existingTokenMap.get(address);
@@ -276,10 +278,10 @@ export class EnrichmentOperationsProcessor {
         return isPlaceholderStale;
       }
       
-      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (5 minutes)
+      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (configurable)
       if (existingToken) {
         const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
+        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < priceCutoff;
         
         // Only fetch if metadata is stale OR if we have price data but it's stale
         return metadataStale || (existingToken.priceUsd && priceStale);
@@ -301,8 +303,9 @@ export class EnrichmentOperationsProcessor {
       const existingToken = existingTokenMap.get(address);
       if (!existingToken) return false;
       
-      const oneHourAgo = new Date(Date.now() - 1 * 60 * 1000);
-      const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000);
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const priceTtlMinutesLog = Number(process.env.DEXSCREENER_PRICE_TTL_MINUTES ?? '5');
+      const fiveMinutesAgo = new Date(Date.now() - Math.max(1, priceTtlMinutesLog) * 60 * 1000);
       
       // Check if it's a placeholder that needs refresh
       if (existingToken.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {

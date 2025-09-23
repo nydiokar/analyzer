@@ -3,55 +3,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetcher } from '@/lib/fetcher';
 
-export function useMiniPriceSeries(tokenAddress: string, points: number = 20, intervalMs: number = 60000) {
+export function useMiniPriceSeries(tokenAddress: string, points: number = 24) {
   const [series, setSeries] = useState<number[]>([]);
-  const timerRef = useRef<number | null>(null);
-  const visibleRef = useRef<boolean>(true);
-
-  const fetchPrice = async () => {
-    try {
-      // Reuse token-info batch endpoint for current price; backend enriches price periodically
-      const rows = await fetcher('/token-info', { method: 'POST', body: JSON.stringify({ tokenAddresses: [tokenAddress] }) });
-      const priceStr = rows?.[0]?.priceUsd as string | undefined;
-      const price = priceStr ? Number(priceStr) : NaN;
-      if (!isFinite(price)) return;
-      setSeries((prev) => {
-        const next = prev.concat([price]);
-        if (next.length > points) next.shift();
-        return next.slice();
-      });
-    } catch {
-      // ignore
-    }
-  };
+  const loadedForRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!tokenAddress) return;
-    // Only poll when tab is visible to avoid waste
-    const onVisibility = () => {
-      visibleRef.current = typeof document !== 'undefined' ? document.visibilityState === 'visible' : true;
-      if (visibleRef.current) {
-        // fetch once on becoming visible
-        void fetchPrice();
-        if (!timerRef.current) timerRef.current = (setInterval(() => { if (visibleRef.current) void fetchPrice(); }, intervalMs) as unknown) as number;
-      } else {
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-          timerRef.current = null;
-        }
+    let aborted = false;
+    async function load() {
+      if (!tokenAddress) return;
+      try {
+        const res = await fetcher(`/token-info/${encodeURIComponent(tokenAddress)}/sparkline?points=${points}`);
+        const pts = (res?.points as Array<[number, number]> | undefined) || [];
+        if (aborted) return;
+        setSeries(pts.map(([, p]) => p));
+        loadedForRef.current = tokenAddress;
+      } catch {
+        // ignore
       }
-    };
+    }
+    // fetch once on token change
+    load();
+    return () => { aborted = true; };
+  }, [tokenAddress, points]);
 
-    // initial
-    onVisibility();
-    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility);
-
-    return () => {
-      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = null;
-    };
-  }, [tokenAddress, intervalMs]);
+  // Intentionally no websocket dependency here to avoid duplicate connections.
 
   // derive trend color
   const trend = useMemo(() => {

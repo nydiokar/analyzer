@@ -95,7 +95,14 @@ export class WalletAnalysisCommands {
 
     // Instantiate TokenInfo service dependencies
     const dexscreenerService = new DexscreenerService(this.databaseService, this.httpService);
-    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService);
+    
+    // Create a mock SparklineService for bot context (no Redis available)
+    const mockSparklineService = {
+      appendMany: async () => {}, // No-op for bot context
+      read: async () => [] // Return empty array for bot context
+    } as any;
+    
+    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService, mockSparklineService);
 
     this.pnlAnalysisService = new PnlAnalysisService(this.databaseService, this.heliusApiClient, tokenInfoService); 
     

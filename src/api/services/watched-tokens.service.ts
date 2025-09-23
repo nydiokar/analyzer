@@ -45,6 +45,23 @@ export class WatchedTokensService {
     }
   }
 
+  async listWatchedAddresses(list: 'FAVORITES' | 'GRADUATION' | 'HOLDSTRONG' = 'FAVORITES'): Promise<string[]> {
+    return this.db.$transaction(async (tx) => {
+      const client = tx as any;
+      const watched = await client.watchedToken.findMany({
+        where: { list },
+        select: { tokenAddress: true },
+      });
+      // Dedupe just in case
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const w of watched) {
+        if (!seen.has(w.tokenAddress)) { seen.add(w.tokenAddress); out.push(w.tokenAddress); }
+      }
+      return out;
+    });
+  }
+
   async listWatched(list: 'FAVORITES' | 'GRADUATION' | 'HOLDSTRONG' = 'FAVORITES'): Promise<WatchedTokenRow[]> {
     return this.db.$transaction(async (tx) => {
       const client = tx as any;

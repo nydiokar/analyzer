@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 interface Options {
@@ -13,37 +13,53 @@ interface Options {
 }
 
 export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned, onReactionUpdated }: Options) => {
+  const socketRef = useRef<Socket | null>(null);
+
+  // Keep latest callbacks in refs so listeners stay stable
+  const createdRef = useRef<typeof onMessageCreated | undefined>(undefined);
+  const editedRef = useRef<typeof onMessageEdited | undefined>(undefined);
+  const deletedRef = useRef<typeof onMessageDeleted | undefined>(undefined);
+  const pinnedRef = useRef<typeof onMessagePinned | undefined>(undefined);
+  const reactionRef = useRef<typeof onReactionUpdated | undefined>(undefined);
+  const tokenRef = useRef<string | undefined>(tokenAddress);
+
+  createdRef.current = onMessageCreated;
+  editedRef.current = onMessageEdited;
+  deletedRef.current = onMessageDeleted;
+  pinnedRef.current = onMessagePinned;
+  reactionRef.current = onReactionUpdated;
+  tokenRef.current = tokenAddress;
+
+  const connectionOptions = useMemo(() => ({
+    baseUrl: process.env.NEXT_PUBLIC_WEBSOCKET_URL || '',
+    path: '/socket.io/messages',
+  }), []);
+
+  // Establish a single socket connection for the lifetime of the component
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '';
-    const socket: Socket = io(baseUrl, {
-      path: '/socket.io/messages',
-      transports: ['websocket', 'polling'],
+    if (socketRef.current) return;
+    const socket: Socket = io(connectionOptions.baseUrl, {
+      path: connectionOptions.path,
+      transports: ['websocket'], // avoid long-polling noise
       withCredentials: true,
     });
+    socketRef.current = socket;
 
     const handleConnect = () => {
-      if (tokenAddress) {
-        socket.emit('join-token-thread', { tokenAddress });
+      const curr = tokenRef.current;
+      if (curr) {
+        socket.emit('join-token-thread', { tokenAddress: curr });
       } else {
         socket.emit('join-global');
       }
     };
 
-    const handleMessageCreated = (payload: any) => {
-      onMessageCreated?.(payload);
-    };
-    const handleMessageEdited = (payload: any) => {
-      onMessageEdited?.(payload);
-    };
-    const handleMessageDeleted = (payload: any) => {
-      onMessageDeleted?.(payload);
-    };
-    const handleMessagePinned = (payload: any) => {
-      onMessagePinned?.(payload);
-    };
-    const handleReactionUpdated = (payload: any) => {
-      onReactionUpdated?.(payload);
-    };
+    // Delegate to latest refs
+    const handleMessageCreated = (payload: unknown) => createdRef.current?.(payload as any);
+    const handleMessageEdited = (payload: unknown) => editedRef.current?.(payload as any);
+    const handleMessageDeleted = (payload: unknown) => deletedRef.current?.(payload as any);
+    const handleMessagePinned = (payload: unknown) => pinnedRef.current?.(payload as any);
+    const handleReactionUpdated = (payload: unknown) => reactionRef.current?.(payload as any);
 
     socket.on('connect', handleConnect);
     socket.on('message.created', handleMessageCreated);
@@ -60,8 +76,20 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
       socket.off('message.pinned', handleMessagePinned);
       socket.off('reaction.updated', handleReactionUpdated);
       socket.disconnect();
+      socketRef.current = null;
     };
-  }, [onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned, onReactionUpdated, tokenAddress]);
+  }, [connectionOptions]);
+
+  // When token changes, (re)join appropriate room without recreating socket
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+    if (tokenAddress) {
+      socket.emit('join-token-thread', { tokenAddress });
+    } else {
+      socket.emit('join-global');
+    }
+  }, [tokenAddress]);
 };
 
 

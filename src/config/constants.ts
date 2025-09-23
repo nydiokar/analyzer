@@ -147,7 +147,7 @@ export const METADATA_FETCHING_CONFIG = {
     // FIXED: Use 24 hours to allow old tokens like POKE6900 to be refreshed
     cacheExpiryHours: 1, // 24 hours - allows old tokens like POKE6900 to be refreshed
     // Price data should be refreshed more frequently
-    priceCacheExpiryMinutes: 1, // 5 minutes for price data
+    priceCacheExpiryMinutes: 1, // 1 minutes for price data
     prioritizeActiveTokens: true, // Prioritize tokens with recent trading activity
   },
   

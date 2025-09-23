@@ -23,6 +23,7 @@ export class DexscreenerService {
     }
     // Await the core service to ensure completion.
     await this.coreDexscreenerService.fetchAndSaveTokenInfo(tokenAddresses);
+    // Sparkline appends centralized in SparklineService via TokenInfoService
   }
 
   async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {

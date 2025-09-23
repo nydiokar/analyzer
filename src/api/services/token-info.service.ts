@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { SparklineService } from './sparkline.service';
 import { DatabaseService } from '../services/database.service';
 import { Prisma } from '@prisma/client';
 import { DexscreenerService } from '../services/dexscreener.service';
@@ -10,7 +11,8 @@ export class TokenInfoService implements ITokenInfoService {
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly dexscreenerService: DexscreenerService
+    private readonly dexscreenerService: DexscreenerService,
+    private readonly sparklineService: SparklineService,
     ) {}
 
   async triggerTokenInfoEnrichment(
@@ -24,9 +26,11 @@ export class TokenInfoService implements ITokenInfoService {
     });
 
     const existingTokens = await this.findMany(tokenAddresses);
-    // Reasonable cache expiry: 1 hour for metadata, 5 minutes for prices
+    // Reasonable cache expiry: 1 hour for metadata, configurable minutes for prices
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const priceTtlMinutes = Number(process.env.DEXSCREENER_PRICE_TTL_MINUTES ?? '1');
+    const priceTtlMs = Math.max(1, priceTtlMinutes) * 60 * 1000;
+    const priceCutoff = new Date(Date.now() - priceTtlMs);
 
     const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
     
@@ -39,10 +43,10 @@ export class TokenInfoService implements ITokenInfoService {
         return !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
       }
       
-      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (5 minutes)
+      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (configurable)
       if (existingToken) {
         const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
+        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < priceCutoff;
         
         // Only fetch if metadata is stale OR if we have price data but it's stale
         return metadataStale || (existingToken.priceUsd && priceStale);
@@ -54,6 +58,20 @@ export class TokenInfoService implements ITokenInfoService {
 
     // This is no longer fire-and-forget. We must await completion.
     await this.dexscreenerService.fetchAndSaveTokenInfo(newTokensToFetch);
+
+    // Append sparkline snapshots for tokens we just refreshed (Phase 3)
+    try {
+      const refreshed = await this.findMany(newTokensToFetch);
+      await this.sparklineService.appendMany(
+        refreshed.map((r) => {
+          const priceStr = (r as any).priceUsd as string | null;
+          const price = priceStr ? Number(priceStr) : NaN;
+          return { addr: r.tokenAddress, price };
+        })
+      );
+    } catch (e) {
+      this.logger.debug(`sparkline snapshot append failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
     
     // Log success status
     const durationMs = Date.now() - startTime;

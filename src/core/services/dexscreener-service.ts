@@ -392,9 +392,10 @@ export class DexscreenerService {
     private async preFilterTokensForDexScreener(tokenAddresses: string[]): Promise<string[]> {
         
         // FILTER 1: Check database for recently checked tokens (within configured hours)
+        // Use the shorter price TTL for recency to avoid serving stale prices
         const recentlyCheckedTokens = await this.databaseService.getRecentlyCheckedTokens(
-            tokenAddresses, 
-            METADATA_FETCHING_CONFIG.dexscreener.cacheExpiryHours
+            tokenAddresses,
+            METADATA_FETCHING_CONFIG.dexscreener.priceCacheExpiryMinutes / 60
         );
         const recentlyCheckedSet = new Set(recentlyCheckedTokens);
         

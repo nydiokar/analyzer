@@ -163,7 +163,14 @@ async function analyzeWalletWithHelius() {
   // Pass HeliusApiClient to PnlAnalysisService
   // Ensure PnlAnalysisService also uses dbService as its first argument if needed
   const dexscreenerService = new DexscreenerService(dbService, new HttpService());
-  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService);
+  
+  // Create a mock SparklineService for script context (no Redis available)
+  const mockSparklineService = {
+    appendMany: async () => {}, // No-op for script context
+    read: async () => [] // Return empty array for script context
+  } as any;
+  
+  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService, mockSparklineService);
   const pnlAnalysisService = new PnlAnalysisService(dbService, heliusApiClient, tokenInfoService);
   
   // Use undefined instead of null for optional service dependencies

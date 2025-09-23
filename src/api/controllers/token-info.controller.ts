@@ -1,15 +1,27 @@
-import { Controller, Post, Body, ValidationPipe, Logger, Req, ForbiddenException, HttpCode } from '@nestjs/common';
+import { Controller, Post, Body, ValidationPipe, Logger, Req, ForbiddenException, HttpCode, Get, Param, Query, Res, Headers } from '@nestjs/common';
 import { TokenInfoService } from '../services/token-info.service';
 import { GetTokenInfoRequestDto } from '../shared/dto/get-token-info.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { Request } from 'express';
+import type { Response } from 'express';
+import { SparklineService } from '../services/sparkline.service';
+
+function createSimpleHash(s: string): string {
+  // DJB2 variant for speed; adequate for ETag purposes
+  let hash = 5381;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) + hash) ^ s.charCodeAt(i);
+    hash = hash >>> 0;
+  }
+  return hash.toString(16);
+}
 
 @ApiTags('token-info')
 @Controller('token-info')
 export class TokenInfoController {
   private readonly logger = new Logger(TokenInfoController.name);
 
-  constructor(private readonly tokenInfoService: TokenInfoService) {}
+  constructor(private readonly tokenInfoService: TokenInfoService, private readonly sparklineService: SparklineService) {}
 
   @Post()
   @HttpCode(200)
@@ -37,6 +49,34 @@ export class TokenInfoController {
       JSON.stringify(rows, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))
     );
     return safe;
+  }
+
+  @Get(':addr/sparkline')
+  @ApiOperation({ summary: 'Get sparkline points for a token address' })
+  @ApiResponse({ status: 200, description: 'Returns compact sparkline series.' })
+  async getSparkline(
+    @Param('addr') addr: string,
+    @Query('points') pointsQ: string | undefined,
+    @Res() res: Response,
+    @Headers('if-none-match') ifNoneMatch?: string,
+  ) {
+    const points = Math.min(Math.max(Number(pointsQ ?? '24'), 2), 96);
+    try {
+      const compact = await this.sparklineService.read(addr, points);
+      res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=30');
+      // Stronger ETag: simple hash of payload
+      const payload = JSON.stringify(compact);
+      const hash = createSimpleHash(payload);
+      const etag = `W/"${hash}"`;
+      if (ifNoneMatch && ifNoneMatch === etag) {
+        return res.status(304).end();
+      }
+      res.setHeader('ETag', etag);
+      return res.status(200).json({ points: compact });
+    } catch (e) {
+      this.logger.debug(`sparkline read failed for ${addr}: ${e instanceof Error ? e.message : String(e)}`);
+      return res.status(200).json({ points: [] });
+    }
   }
 
   @Post('batch')

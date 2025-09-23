@@ -83,7 +83,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
   const { byMint } = useTokenInfoMany(tokenMentions);
   const { data: watched, mutate: mutateWatched } = useWatchedTokens('FAVORITES');
   const watchedMeta = useMemo(() => (watched || []).find((w) => w.tokenAddress === tokenAddress) || null, [watched, tokenAddress]);
-  const { series, trend } = useMiniPriceSeries(tokenAddress, 24, 30000);
+  const { series, trend } = useMiniPriceSeries(tokenAddress, 24);
 
   const handlePosted = useCallback(() => {
     mutate();
@@ -141,9 +141,6 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
       <div className="p-3 border-b border-border flex items-center justify-between">
         <TokenBadge mint={tokenAddress} metadata={{ name: watchedMeta?.name ?? undefined, symbol: watchedMeta?.symbol ?? undefined, imageUrl: (watchedMeta?.imageUrl as any) ?? undefined }} />
         <div className="flex items-center gap-4">
-          <Metric label="Price" value={watchedMeta?.priceUsd ?? null} />
-          <Metric label="MCap" value={watchedMeta?.marketCapUsd ? `$${Math.round(watchedMeta.marketCapUsd).toLocaleString()}` : null} />
-          <Metric label="Liq" value={watchedMeta?.liquidityUsd ? `$${Math.round(watchedMeta.liquidityUsd).toLocaleString()}` : null} />
           {/* Mini sparkline for quick trend glance */}
           <div className={`hidden md:flex items-center gap-2 ${trend > 0 ? 'text-emerald-500' : trend < 0 ? 'text-rose-500' : 'text-muted-foreground'}`} title={series.length ? `Trend ${trend > 0 ? 'up' : trend < 0 ? 'down' : 'flat'}` : 'No data yet'}>
             <Sparkline values={series} width={96} height={24} />

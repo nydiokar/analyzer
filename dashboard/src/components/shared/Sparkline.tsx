@@ -14,6 +14,19 @@ export default function Sparkline({ values, width = 120, height = 28, stroke = '
     return <svg width={width} height={height} />;
   }
 
+  if (values.length === 1) {
+    const v = values[0];
+    const min = v;
+    const max = v;
+    const y = height - 0.5 * height; // center
+    const x = width - 4; // right side dot
+    return (
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+        <circle cx={x} cy={y} r={2} stroke={stroke} strokeWidth={strokeWidth} fill={stroke} />
+      </svg>
+    );
+  }
+
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;

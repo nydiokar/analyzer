@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SchedulerModule } from './api/modules/scheduler.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ApiModule } from './api.module';
 import { ConfigModule } from '@nestjs/config'; // For .env variable support
@@ -21,6 +22,7 @@ import { ApiKeyAuthGuard } from './api/shared/guards/api-key-auth.guard';
     DatabaseModule, // Import DatabaseModule (it's @Global, so its providers are available everywhere)
     HeliusModule, // Import HeliusModule (it's @Global, so its providers are available everywhere)
     QueueModule, // Add queue module for BullMQ integration
+    SchedulerModule, // Lightweight periodic enrichment for sparkline snapshots
     ApiModule,
     UsersModule,
   ],
