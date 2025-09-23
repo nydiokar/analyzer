@@ -255,3 +255,66 @@ Phase 1 Status — Done
  - Unread anchors: Track last-seen per scope; show “Jump to latest” when new messages arrive above.
  - Edit window: Minimal prompt-based edit for last posted message window.
  - Saved views and tag filters: Deferred per request.
+
+---
+
+Phase 3 — Sparkline (no polling, no iframe)
+
+Goal: native, lightweight mini trend line in the token drawer without client-side polling or third‑party iframes.
+
+Approach (minimal, future‑proof)
+
+- Data pipeline (Redis, no DB migration):
+  - Producer: when `DexscreenerService.fetchAndSaveTokenInfo` updates a token's `priceUsd`, also append a point to a Redis ring buffer key `spark:<tokenAddress>` using `RPUSH` and `LTRIM` to keep the last 96 points. Value format: JSON `{ t: <epochMs>, p: <number> }`.
+  - Triggers:
+    - On-demand via `WatchedTokensService.ensureWatchedAndEnrich` (already called on token mentions and watch toggles).
+    - Light periodic job (every 2–5 minutes, jittered) over currently watched tokens. Cap batch size to avoid rate spikes.
+
+- API (read‑only, cached):
+  - `GET /token-info/:addr/sparkline?points=24` → `{ points: Array<[ts:number, price:number]> }`.
+  - Reads last N entries from Redis list; normalizes/compacts response. Add `Cache-Control: public, max-age=60` and ETag.
+
+- Frontend (no timers):
+  - Replace `useMiniPriceSeries` polling with a one-shot fetch when the drawer opens or token selection changes; re-fetch on socket reconnect or manual refresh.
+  - Render via the existing `Sparkline` component; color trend by first vs last point.
+  - If no data yet, hide sparkline gracefully.
+
+- Ops & safeguards:
+  - No Prisma migration required; avoids DB bloat. Optional later: move to a `TokenPriceSnapshot` table if long-term retention is needed.
+  - Backoff and cap periodic enrichment (top N watched tokens, jittered intervals). Timeouts and retries reuse Dexscreener settings.
+  - Feature flag the endpoint/use-site for safe rollout.
+
+Why this design
+
+- Eliminates client polling and iframe dependency.
+- Reuses existing enrichment flow and infra (Redis, Dexscreener).
+- Small blast radius; easy to extend to other UI surfaces.
+
+Scheduler + provider fallback (details)
+
+- Cadence & cohort
+  - Run every 2–5 minutes with jitter.
+  - Select a capped cohort per tick (e.g., 100–200) from watched tokens, prioritizing tokens with recent activity (recent messages or trades).
+  - Enforce per-token minimum interval (≥ 2–5 minutes) to avoid tight loops.
+
+- Source order and throttles
+  - Primary: Dexscreener via existing service (reuse `chunkSize`, `maxConcurrentRequests`, `baseWaitTimeMs`).
+  - Fallback (feature-flagged): Jupiter price API when Dexscreener misses/429s a token. Cache each fallback response for 60–120s.
+  - Backoff on 429/5xx; global ceilings per tick and per minute; abort early if error rate spikes.
+
+- Snapshot write policy
+  - After successful price fetch, append to Redis ring buffer only if: (a) last snapshot older than min interval OR (b) absolute/percent delta exceeds threshold to avoid flat spam.
+  - Key: `spark:<tokenAddress>`; value: JSON `{ t: <epochMs>, p: <number> }`; `RPUSH` + `LTRIM` to keep last 96 points; optional TTL (e.g., 72h) for inactive tokens.
+
+- API contract
+  - `GET /token-info/:addr/sparkline?points=24` → `{ points: Array<[ts:number, price:number]> }`.
+  - Reads from Redis only; `Cache-Control: public, max-age=60` + ETag.
+
+- Frontend behavior
+  - On token selection/drawer open: fetch once; re-fetch on socket reconnect or manual refresh.
+  - Render with `Sparkline`; color trend by first vs last; hide if fewer than 2 points.
+
+- Observability & safety
+  - Metrics: tokens processed per tick, API success/429/5xx, snapshot writes, endpoint hit rate.
+  - Logs: cohort size, duration, backoff decisions; circuit breaker triggers.
+  - Feature flags: enable/disable scheduler; enableJupiterApi (see `src/config/constants.ts`).
