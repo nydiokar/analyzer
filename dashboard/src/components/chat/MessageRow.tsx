@@ -18,7 +18,7 @@ export interface MessageRowProps {
   onTogglePin?: (messageId: string) => void;
   highlighted?: boolean;
   onReply?: (m: { id?: string; body: string }) => void;
-  onReact?: (m: { id?: string }, type: 'like'|'warn'|'test') => void;
+  onReact?: (m: { id?: string }, type: 'like'|'dislike'|'warn'|'test') => void;
 }
 
 export default function MessageRow({ message, byMint, watchedByMint = {}, threadAddress, showCopy = false, isOwn = false, canDelete = false, isPinned = false, onTogglePin, highlighted = false, onReply, onReact }: MessageRowProps) {

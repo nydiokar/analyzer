@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTokenMessages } from '@/hooks/useMessages';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import MessageComposer from './MessageComposer';
+import Sparkline from '@/components/shared/Sparkline';
+import { useMiniPriceSeries } from '@/hooks/useMiniPriceSeries';
 import { useMessagesSocket } from '@/hooks/useMessagesSocket';
 import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import type { TokenInfoByMint } from '@/hooks/useTokenInfoMany';
@@ -81,6 +83,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
   const { byMint } = useTokenInfoMany(tokenMentions);
   const { data: watched, mutate: mutateWatched } = useWatchedTokens('FAVORITES');
   const watchedMeta = useMemo(() => (watched || []).find((w) => w.tokenAddress === tokenAddress) || null, [watched, tokenAddress]);
+  const { series, trend } = useMiniPriceSeries(tokenAddress, 24, 30000);
 
   const handlePosted = useCallback(() => {
     mutate();
@@ -98,6 +101,9 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
       mutate();
     },
     onMessagePinned: () => {
+      mutate();
+    },
+    onReactionUpdated: () => {
       mutate();
     },
   });
@@ -138,6 +144,10 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
           <Metric label="Price" value={watchedMeta?.priceUsd ?? null} />
           <Metric label="MCap" value={watchedMeta?.marketCapUsd ? `$${Math.round(watchedMeta.marketCapUsd).toLocaleString()}` : null} />
           <Metric label="Liq" value={watchedMeta?.liquidityUsd ? `$${Math.round(watchedMeta.liquidityUsd).toLocaleString()}` : null} />
+          {/* Mini sparkline for quick trend glance */}
+          <div className={`hidden md:flex items-center gap-2 ${trend > 0 ? 'text-emerald-500' : trend < 0 ? 'text-rose-500' : 'text-muted-foreground'}`} title={series.length ? `Trend ${trend > 0 ? 'up' : trend < 0 ? 'down' : 'flat'}` : 'No data yet'}>
+            <Sparkline values={series} width={96} height={24} />
+          </div>
           <button
             className="h-7 px-2 text-xs border rounded hover:bg-muted"
             onClick={async () => {
