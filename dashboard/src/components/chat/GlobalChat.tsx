@@ -8,6 +8,7 @@ import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 import MessageRow from './MessageRow';
 import { fetcher } from '@/lib/fetcher';
+import { useChatKeyboard } from '@/hooks/useChatKeyboard';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 
 export default function GlobalChat() {
@@ -48,6 +49,7 @@ export default function GlobalChat() {
   // Track last posted id to style own bubble; minimal heuristic via time
   const lastPostedAtRef = useRef<number>(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useInfiniteScroll(data?.nextCursor ? loadMore : undefined);
 
   // Unread anchor tracking
   const [lastSeen, setLastSeen] = useState<number>(() => {
@@ -64,14 +66,46 @@ export default function GlobalChat() {
 
   // Show newest at bottom: render ascending and auto-scroll to bottom on new items
   const itemsAsc = useMemo(() => (data?.items || []).slice().reverse(), [data?.items]);
-  useEffect(() => {
+  const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [itemsAsc.length]);
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [itemsAsc.length, scrollToBottom]);
+
+  const { containerProps, isSelected } = useChatKeyboard({
+    items: itemsAsc as Array<{ id: string }>,
+    openActionsFor: (messageId: string) => {
+      const row = document.getElementById(`msg-${messageId}`);
+      const trigger = row?.querySelector('[data-msg-actions-trigger]') as HTMLElement | null;
+      trigger?.click();
+    },
+    onReply: (messageId: string) => {
+      const m = itemsAsc.find((x) => x.id === messageId) as any;
+      if (m) setReplyTo({ id: m.id, body: m.body });
+    },
+    onTogglePin: async (messageId: string, nextIsPinned: boolean) => {
+      try {
+        await fetcher(`/messages/${encodeURIComponent(messageId)}/pin`, { method: 'POST', body: JSON.stringify({ isPinned: nextIsPinned }) });
+        mutate();
+      } catch {}
+    },
+    getIsPinned: (messageId: string) => !!(itemsAsc.find((x: any) => x.id === messageId)?.isPinned),
+    options: {
+      isTyping: () => {
+        const ae = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+        if (!ae) return false;
+        const tag = ae.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || ae.getAttribute('role') === 'textbox';
+      },
+    },
+  });
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" {...containerProps} aria-label="Global chat keyboard area">
       {/* Pinned band */}
       {pinnedItems.length > 0 && (
         <div className="p-2 border-b border-border bg-muted/40">
@@ -97,7 +131,7 @@ export default function GlobalChat() {
         )}
         {isLoading && <div className="p-3 text-sm">Loading…</div>}
         {error && <div className="p-3 text-sm text-red-500">Failed to load messages</div>}
-        {itemsAsc.map((m) => (
+        {itemsAsc.map((m, idx) => (
           <MessageRow
             key={m.id}
             message={m as any}
@@ -107,6 +141,7 @@ export default function GlobalChat() {
             isOwn={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
             canDelete={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
             isPinned={!!m.isPinned}
+            selected={isSelected(idx)}
             onTogglePin={async (id) => {
               try {
                 const next = !m.isPinned;
@@ -130,7 +165,19 @@ export default function GlobalChat() {
           <button className="px-2 py-1 text-xs rounded border bg-background shadow" onClick={() => setLastSeen(Date.now())}>Jump to latest</button>
         </div>
       ) : null}
-      <MessageComposer replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onPosted={() => { lastPostedAtRef.current = Date.now(); setLastSeen(Date.now()); setReplyTo(null); handlePosted(); }} />
+      {/* Infinite loader sentinel */}
+      {data?.nextCursor ? <div ref={sentinelRef} className="h-1" /> : null}
+      <MessageComposer
+        replyTo={replyTo}
+        onCancelReply={() => setReplyTo(null)}
+        onPosted={() => {
+          lastPostedAtRef.current = Date.now();
+          setLastSeen(Date.now());
+          setReplyTo(null);
+          scrollToBottom();
+          handlePosted();
+        }}
+      />
     </div>
   );
 }

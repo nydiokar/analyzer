@@ -4,43 +4,43 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetcher } from '@/lib/fetcher';
 
-export default function MessagePermalinkPage({ params }: { params: Promise<{ id: string }> }) {
+export default function PermalinkPage({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const [id, setId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    params.then((resolvedParams) => {
-      setId(resolvedParams.id);
-    });
-  }, [params]);
-
-  useEffect(() => {
-    if (!id) return;
-    
-    let cancelled = false;
-    (async () => {
+    let aborted = false;
+    async function go() {
+      const id = params.id;
       try {
         const msg = await fetcher(`/messages/${encodeURIComponent(id)}`);
-        if (cancelled) return;
-        // Find first token mention
-        const tokenMention = Array.isArray(msg?.mentions)
-          ? msg.mentions.find((m: any) => (m.kind === 'TOKEN' || m.kind === 'token') && m.refId)
-          : null;
-        const addr = tokenMention?.refId as string | undefined;
-        if (addr) {
-          router.replace(`/tokens?view=token&addr=${encodeURIComponent(addr)}&mid=${encodeURIComponent(id)}`);
-        } else {
-          router.replace('/tokens');
+        if (aborted) return;
+        let addr: string | null = null;
+        const mentions = (msg?.mentions || []) as Array<{ kind?: string; refId?: string | null; rawValue?: string }>;
+        const tokenMentions = mentions.filter((m) => (m.kind === 'TOKEN' || m.kind === 'token') && m.refId);
+        if (tokenMentions.length > 0) {
+          addr = tokenMentions[0]!.refId as string;
+        } else if (typeof msg?.body === 'string') {
+          const m = msg.body.match(/@ca:([1-9A-HJ-NP-Za-km-z]{32,44})/);
+          if (m) addr = m[1];
         }
-      } catch {
-        router.replace('/tokens');
+        if (addr) {
+          router.replace(`/tokens?view=token&addr=${encodeURIComponent(addr)}&mid=${encodeURIComponent(id)}`, { scroll: false });
+        } else {
+          router.replace('/tokens', { scroll: false });
+        }
+      } catch (e) {
+        if (aborted) return;
+        setError(e instanceof Error ? e.message : String(e));
+        router.replace('/tokens', { scroll: false });
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [id, router]);
+    }
+    go();
+    return () => { aborted = true; };
+  }, [params.id, router]);
 
-  return null;
+  return (
+    <div className="p-4 text-sm text-muted-foreground">Resolving link…{error ? ` (${error})` : ''}</div>
+  );
 }
 

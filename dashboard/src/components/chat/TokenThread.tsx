@@ -13,6 +13,7 @@ import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 import MessageRow from './MessageRow';
 import { fetcher } from '@/lib/fetcher';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
+import { useChatKeyboard } from '@/hooks/useChatKeyboard';
 
 function Metric({ label, value }: { label: string; value: string | number | null | undefined }) {
   if (value === null || value === undefined) return null;
@@ -136,8 +137,44 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
   const newestTs = (data?.items?.[0]?.createdAt ? new Date(data.items[0].createdAt).getTime() : 0);
   const showJump = newestTs > lastSeen;
 
+  const itemsAsc = useMemo(() => (data?.items || []).slice().reverse(), [data?.items]);
+  const { containerProps, isSelected } = useChatKeyboard({
+    items: itemsAsc as Array<{ id: string }>,
+    openActionsFor: (messageId: string) => {
+      const row = document.getElementById(`msg-${messageId}`);
+      const trigger = row?.querySelector('[data-msg-actions-trigger]') as HTMLElement | null;
+      trigger?.click();
+    },
+    onReply: (messageId: string) => {
+      const m = itemsAsc.find((x) => x.id === messageId) as any;
+      if (m) setReplyTo({ id: m.id, body: m.body });
+    },
+    onTogglePin: async (messageId: string, nextIsPinned: boolean) => {
+      try {
+        await fetcher(`/messages/${encodeURIComponent(messageId)}/pin`, { method: 'POST', body: JSON.stringify({ isPinned: nextIsPinned }) });
+        mutate();
+      } catch {}
+    },
+    getIsPinned: (messageId: string) => !!((itemsAsc.find((x: any) => x.id === messageId) as any)?.isPinned),
+    onWatchToggle: async () => {
+      try {
+        const on = watchedMeta ? false : true;
+        await fetcher(`/watched-tokens/${encodeURIComponent(tokenAddress)}/watch`, { method: 'POST', body: JSON.stringify({ on }) });
+        mutateWatched();
+      } catch {}
+    },
+    options: {
+      isTyping: () => {
+        const ae = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+        if (!ae) return false;
+        const tag = ae.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || ae.getAttribute('role') === 'textbox';
+      },
+    },
+  });
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" {...containerProps} aria-label="Token thread keyboard area">
       <div className="p-3 border-b border-border flex items-center justify-between">
         <TokenBadge mint={tokenAddress} metadata={{ name: watchedMeta?.name ?? undefined, symbol: watchedMeta?.symbol ?? undefined, imageUrl: (watchedMeta?.imageUrl as any) ?? undefined }} />
         <div className="flex items-center gap-4">
@@ -205,7 +242,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
       <div className="flex-1 overflow-auto">
         {isLoading && <div className="p-3 text-sm">Loading…</div>}
         {error && <div className="p-3 text-sm text-red-500">Failed to load thread</div>}
-        {(data?.items || []).slice().reverse().map((m) => (
+        {itemsAsc.map((m, idx) => (
           <MessageRow
             key={m.id}
             message={m as any}
@@ -215,6 +252,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
             canDelete={lastPostedAtRef.current && new Date(m.createdAt).getTime() >= lastPostedAtRef.current - 500 ? true : false}
             isPinned={!!(m as any).isPinned}
             highlighted={highlightId === m.id}
+            selected={isSelected(idx)}
             onReply={(mm) => setReplyTo({ id: mm.id as string, body: mm.body })}
             onReact={async (_m, type) => {
               try {
@@ -245,7 +283,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
           <button className="px-2 py-1 text-xs rounded border bg-background shadow" onClick={() => setLastSeen(Date.now())}>Jump to latest</button>
         </div>
       ) : null}
-      <MessageComposer onPosted={() => { lastPostedAtRef.current = Date.now(); setLastSeen(Date.now()); handlePosted(); setReplyTo(null); }} tokenAddress={tokenAddress} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      <MessageComposer onPosted={() => { lastPostedAtRef.current = Date.now(); setLastSeen(Date.now()); handlePosted(); setReplyTo(null); const scroller = document.querySelector('[aria-label="Token thread keyboard area"]'); (scroller as HTMLElement | null)?.scrollTo?.({ top: (scroller as HTMLElement).scrollHeight }); }} tokenAddress={tokenAddress} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
     </div>
   );
 }
