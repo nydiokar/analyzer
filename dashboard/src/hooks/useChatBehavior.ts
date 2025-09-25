@@ -39,7 +39,14 @@ export function useChatBehavior(
 
   useMessagesSocket({
     tokenAddress: scope.kind === 'token' ? scope.tokenAddress : undefined,
-    onMessageCreated: () => { setCursor?.(null); mutate(); },
+    onMessageCreated: () => { 
+      setCursor?.(null); 
+      mutate(); 
+      // Auto-scroll if user is at bottom
+      if (isAtBottomRef.current) {
+        setTimeout(scrollToBottom, 100); // Small delay to ensure DOM is updated
+      }
+    },
     onMessageEdited: () => { setCursor?.(null); mutate(); },
     onMessageDeleted: () => { setCursor?.(null); mutate(); },
     onMessagePinned: () => { setCursor?.(null); mutate(); },
@@ -65,6 +72,35 @@ export function useChatBehavior(
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, []);
+
+  // Track if user is at bottom to auto-scroll on new messages
+  const isAtBottomRef = useRef(true);
+  const checkIfAtBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return false;
+    const threshold = 100; // pixels from bottom
+    return el.scrollTop + el.clientHeight >= el.scrollHeight - threshold;
+  }, []);
+
+  // Update isAtBottomRef when scrolling
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    
+    const handleScroll = () => {
+      isAtBottomRef.current = checkIfAtBottom();
+    };
+    
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [checkIfAtBottom]);
+
+  // Auto-scroll to bottom when new messages arrive and user is at bottom
+  useEffect(() => {
+    if (itemsAsc.length > 0 && isAtBottomRef.current) {
+      setTimeout(scrollToBottom, 50); // Small delay to ensure DOM is updated
+    }
+  }, [itemsAsc.length, scrollToBottom]);
 
   const { containerProps, isSelected } = useChatKeyboard({
     items: itemsAsc as Array<{ id: string }>,

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 import { fetcher } from '@/lib/fetcher';
@@ -17,11 +17,15 @@ export default function GlobalChat() {
   const [tokenMentions, setTokenMentions] = useState<string[]>([]);
   const { byMint } = useTokenInfoMany(tokenMentions);
 
+  const handleMentionsChange = useCallback((tokens: string[]) => {
+    setTokenMentions(tokens);
+  }, []);
+
   return (
     <ChatFeed
       scope={{ kind: 'global' }}
       rowPropsMapper={() => ({ byMint, watchedByMint, showCopy: true })}
-      onMentionsChange={(tokens) => setTokenMentions(tokens)}
+      onMentionsChange={handleMentionsChange}
       actions={{
         openActionsFor: (messageId) => {
           const row = document.getElementById(`msg-${messageId}`);

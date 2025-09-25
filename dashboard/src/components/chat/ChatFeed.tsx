@@ -85,7 +85,7 @@ export default function ChatFeed<RowProps extends { message: any } = DefaultRowP
   React.useEffect(() => {
     if (onItemsChange) onItemsChange(itemsAsc as any[]);
     if (onMentionsChange) onMentionsChange(extractTokenMentions(itemsAsc as any[]));
-  }, [onItemsChange, itemsAsc]);
+  }, [onItemsChange, onMentionsChange, itemsAsc]);
 
   const PinnedDefault = useMemo(() => {
     return function PinnedDefaultImpl({ items }: { items: any[] }) {
