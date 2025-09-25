@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useState } from 'react';
 import WatchedTokenList from '@/components/tokens/WatchedTokenList';
 import GlobalChat from '@/components/chat/GlobalChat';
 import TokenThread from '@/components/chat/TokenThread';
@@ -10,7 +10,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function TokensPage() {
   return (
-    <Suspense fallback={<div className="p-3 text-sm">Loading…</div>}>
+    <Suspense fallback={<div className="p-3 text-sm">Loading...</div>}>
       <TokensPageInner />
     </Suspense>
   );
@@ -56,28 +56,33 @@ function TokensPageInner() {
   }, [qpMid, router]);
 
   return (
-    <div className="min-h-[100dvh] h-[100dvh] overflow-hidden flex flex-col">
-      <div className="p-3 border-b border-border text-sm font-medium">Watched Tokens</div>
-      {/* Tri‑pane workspace: nav | main | drawer */}
-      <div className="flex-1 grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)_360px] 2xl:grid-cols-[420px_minmax(0,1fr)_420px] gap-0 h-full overflow-hidden">
-        {/* Sidebar */}
-        <nav className="border-r border-border overflow-auto" aria-label="Watched tokens">
-          <WatchedTokenList onSelect={handleSelect} />
-        </nav>
-
-        {/* Center feed */}
-        <main className="h-full flex flex-col overflow-hidden" aria-label="Global chat feed">
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <GlobalChat />
+    <div className="min-h-[100dvh] h-[100dvh] overflow-hidden bg-background">
+      <div className="h-full grid grid-cols-1 xl:grid-cols-[minmax(300px,0.33fr)_minmax(320px,0.34fr)_minmax(0,0.33fr)] 2xl:grid-cols-[minmax(340px,0.33fr)_minmax(360px,0.34fr)_minmax(0,0.33fr)] gap-0 overflow-hidden">
+        {/* Left: Global chat */}
+        <section className="order-1 flex min-h-0 flex-col border-b border-border/60 xl:border-b-0 xl:border-r bg-[#0E0E12] text-white/80" aria-label="Global chat panel">
+          <div className="px-4 py-3 border-b border-white/5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/50">Global Chat</div>
+          <div className="flex-1 min-h-0">
+            <GlobalChat surface="global-pane" />
           </div>
-        </main>
+        </section>
 
-        {/* Right drawer: shows token thread when selected; collapses below xl */}
-        <aside className={`hidden xl:flex h-full min-h-0 flex-col overflow-hidden border-l border-border ${selectedToken ? '' : 'opacity-60'}`} aria-label="Token thread drawer">
+        {/* Middle: Tokens anchor */}
+        <section className="order-2 flex min-h-0 flex-col bg-[#14141B] border-b border-border/60 xl:border-x xl:border-border/60 text-foreground" aria-label="Watched tokens">
+          <div className="px-4 py-3 border-b border-white/5 text-sm font-semibold tracking-tight text-white/80">Tokens</div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <WatchedTokenList onSelect={handleSelect} selectedToken={selectedToken ?? undefined} />
+          </div>
+        </section>
+
+        {/* Right: Token thread */}
+        <aside
+          className={`order-3 hidden xl:flex h-full min-h-0 flex-col overflow-hidden border-l border-border/60 bg-[#181820] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] ${selectedToken ? '' : 'opacity-60'}`}
+          aria-label="Token thread drawer"
+        >
           {selectedToken ? (
             <TokenThread tokenAddress={selectedToken} highlightId={qpMid || undefined} />
           ) : (
-            <div className="h-full w-full flex items-center justify-center text-sm text-muted-foreground p-6">
+            <div className="h-full w-full flex items-center justify-center text-sm text-muted-foreground/80 p-6">
               Select a token to open its thread
             </div>
           )}
@@ -96,7 +101,7 @@ function TokensPageInner() {
           }
         }}
       >
-        <DialogContent className="xl:hidden max-w-3xl w-full p-0 sm:max-w-3xl sm:rounded-lg rounded-none h-[100dvh] sm:h-auto">
+        <DialogContent className="xl:hidden max-w-3xl w-full p-0 sm:max-w-3xl sm:rounded-lg rounded-none h-[100dvh] sm:h-auto bg-[#181820] text-foreground">
           <DialogTitle className="sr-only">Token Thread</DialogTitle>
           {selectedToken ? <TokenThread tokenAddress={selectedToken} highlightId={qpMid || undefined} /> : null}
         </DialogContent>
