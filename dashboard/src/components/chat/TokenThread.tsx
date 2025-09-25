@@ -29,7 +29,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
   }, [highlightId, chat.messages, chat.scrollToMessage]);
 
   return (
-    <div className="flex flex-col h-full" aria-label="Token thread keyboard area">
+    <div className="flex flex-col h-full min-h-0" aria-label="Token thread keyboard area" {...chat.containerProps}>
       <div className="p-3 border-b border-border flex items-center justify-between">
         <TokenBadge mint={tokenAddress} metadata={{ name: watchedMeta?.name ?? undefined, symbol: watchedMeta?.symbol ?? undefined, imageUrl: (watchedMeta?.imageUrl as any) ?? undefined }} />
         <div className="flex items-center gap-4">
@@ -79,7 +79,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
           <button className="h-7 px-2 text-xs border rounded">Add</button>
         </form>
       </div>
-      <div className="flex-1 min-h-0" {...chat.containerProps}>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Pinned messages */}
         {chat.pinnedMessages.length > 0 && (
           <div className="p-2 border-b border-border bg-muted/40">

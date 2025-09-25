@@ -73,7 +73,7 @@ function TokensPageInner() {
         </main>
 
         {/* Right drawer: shows token thread when selected; collapses below xl */}
-        <aside className={`hidden xl:flex h-full flex-col overflow-hidden border-l border-border ${selectedToken ? '' : 'opacity-60'}`} aria-label="Token thread drawer">
+        <aside className={`hidden xl:flex h-full min-h-0 flex-col overflow-hidden border-l border-border ${selectedToken ? '' : 'opacity-60'}`} aria-label="Token thread drawer">
           {selectedToken ? (
             <TokenThread tokenAddress={selectedToken} highlightId={qpMid || undefined} />
           ) : (
