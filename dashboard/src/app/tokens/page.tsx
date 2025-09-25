@@ -62,7 +62,7 @@ function TokensPageInner() {
         <section className="order-1 flex min-h-0 flex-col border-b border-border/60 xl:border-b-0 xl:border-r bg-[#0E0E12] text-white/80" aria-label="Global chat panel">
           <div className="px-4 py-3 border-b border-white/5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/50">Global Chat</div>
           <div className="flex-1 min-h-0">
-            <GlobalChat surface="global-pane" />
+            <GlobalChat />
           </div>
         </section>
 
