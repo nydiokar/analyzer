@@ -21,7 +21,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   const lastPostedAtRef = useRef<number>(0);
 
   // Computed data
-  const messages = (data?.items || []) as MessageLite[];
+  const messages = useMemo(() => (data?.items || []) as MessageLite[], [data?.items]);
   const itemsAsc = useMemo(() => messages.slice().reverse(), [messages]);
   const pinnedMessages = useMemo(() => itemsAsc.filter((m) => !!m.isPinned), [itemsAsc]);
 

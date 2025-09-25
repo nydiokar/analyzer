@@ -24,7 +24,7 @@ export default function GlobalChat() {
   // Update token mentions when messages change
   React.useEffect(() => {
     setTokenMentions(extractTokenMentions(chat.messages));
-  }, [chat.messages]);
+  }, [chat.messages.length, chat.messages]);
 
   const PinnedBand = useMemo(() => {
     if (!chat.pinnedMessages.length) return null;

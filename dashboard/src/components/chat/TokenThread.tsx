@@ -269,10 +269,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
               selected={chat.isSelected(idx)}
               isOwn={meta.isOwn}
               canDelete={meta.isOwn}
-              groupPosition={meta.groupPosition}
-              authorName={meta.authorName}
               highlighted={meta.message.id === highlightId}
-              variant="thread"
               onTogglePin={(id: string) => chat.pinMessage(id, !meta.message.isPinned)}
               onReply={chat.startReply}
               onReact={(_, type: string) => {
