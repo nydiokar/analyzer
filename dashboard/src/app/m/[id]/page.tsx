@@ -4,14 +4,14 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetcher } from '@/lib/fetcher';
 
-export default function PermalinkPage({ params }: { params: { id: string } }) {
+export default function PermalinkPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let aborted = false;
     async function go() {
-      const id = params.id;
+      const { id } = await params;
       try {
         const msg = await fetcher(`/messages/${encodeURIComponent(id)}`);
         if (aborted) return;
@@ -37,7 +37,7 @@ export default function PermalinkPage({ params }: { params: { id: string } }) {
     }
     go();
     return () => { aborted = true; };
-  }, [params.id, router]);
+  }, [params, router]);
 
   return (
     <div className="p-4 text-sm text-muted-foreground">Resolving link…{error ? ` (${error})` : ''}</div>
