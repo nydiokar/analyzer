@@ -20,7 +20,7 @@ export const useWatchedTokens = (list: 'FAVORITES' | 'GRADUATION' | 'HOLDSTRONG'
   const key = [`/watched-tokens?list=${list}`];
   const { data, error, isLoading, mutate } = useSWR<WatchedTokenRow[]>(key, ([url]) => fetcher(url), {
     revalidateOnFocus: false,
-    refreshInterval: 8000,
+    // No refreshInterval: watched tokens change infrequently, explicit mutate() on user actions
   });
   return { data: data ?? [], error, isLoading, mutate };
 };

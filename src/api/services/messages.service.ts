@@ -315,20 +315,45 @@ export class MessagesService {
           take: 20,
         });
 
-        // Enrich with isWatched and latestMessageAt for ranking
-        const enriched = [] as any[];
-        for (const it of items) {
-          const isWatched = (await client.watchedToken.findFirst({ where: { tokenAddress: it.tokenAddress } })) ? true : false;
-          const latest = await client.message.findFirst({
-            where: { mentions: { some: { kind: 'TOKEN', refId: it.tokenAddress } } },
-            select: { createdAt: true },
-            orderBy: { createdAt: 'desc' },
-          });
-          enriched.push({ ...it, isWatched, latestMessageAt: latest?.createdAt ?? null });
+        if (items.length === 0) return [];
+
+        const addresses = items.map((it: any) => it.tokenAddress);
+
+        // Batch fetch watched tokens
+        const watchedRows = await client.watchedToken.findMany({
+          where: { tokenAddress: { in: addresses } },
+          select: { tokenAddress: true },
+        });
+        const watchedSet = new Set(watchedRows.map((w: any) => w.tokenAddress));
+
+        // Batch fetch latest messages per token
+        const latestMessages = await client.message.findMany({
+          where: { mentions: { some: { kind: 'TOKEN', refId: { in: addresses } } } },
+          select: { createdAt: true, mentions: { select: { refId: true, kind: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 100, // Limit scan; prioritize recent activity
+        });
+
+        // Build map of tokenAddress -> latest createdAt
+        const latestByToken = new Map<string, Date>();
+        for (const msg of latestMessages) {
+          const tokenMention = (msg.mentions as Array<{ refId: string | null; kind: string }>).find(
+            (m) => m.kind === 'TOKEN' && m.refId && addresses.includes(m.refId)
+          );
+          if (tokenMention?.refId && !latestByToken.has(tokenMention.refId)) {
+            latestByToken.set(tokenMention.refId, msg.createdAt);
+          }
         }
 
+        // Enrich items
+        const enriched = items.map((it: any) => ({
+          ...it,
+          isWatched: watchedSet.has(it.tokenAddress),
+          latestMessageAt: latestByToken.get(it.tokenAddress) ?? null,
+        }));
+
         // Rank: watched first, then latestMessageAt desc, then liquidity, then marketCap
-        enriched.sort((a, b) => {
+        enriched.sort((a: any, b: any) => {
           if (a.isWatched !== b.isWatched) return a.isWatched ? -1 : 1;
           const at = a.latestMessageAt ? new Date(a.latestMessageAt).getTime() : 0;
           const bt = b.latestMessageAt ? new Date(b.latestMessageAt).getTime() : 0;

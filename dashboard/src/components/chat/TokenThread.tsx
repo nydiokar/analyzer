@@ -119,6 +119,14 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
     const value = tagValue.trim().toLowerCase();
     if (!value) return;
     if (!tokenAddress) return;
+
+    // Validation: tags must be alphanumeric with hyphens/underscores, no @ prefix
+    const validTagRe = /^[a-z0-9_-]+$/;
+    if (!validTagRe.test(value)) {
+      alert('Tag must contain only lowercase letters, numbers, hyphens, and underscores');
+      return;
+    }
+
     setIsSavingTag(true);
     try {
       await fetch((process.env.NEXT_PUBLIC_API_BASE_URL || '') + `/watched-tokens/${encodeURIComponent(tokenAddress)}/tags`, {

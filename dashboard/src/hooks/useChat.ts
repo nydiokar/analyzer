@@ -118,13 +118,31 @@ export function useChat(scope: Scope, pageSize: number = 50) {
 
   const pinMessage = useCallback(async (messageId: string, isPinned: boolean) => {
     try {
+      // Optimistic update
+      mutate(
+        (current) => {
+          if (!current?.items) return current;
+          return {
+            ...current,
+            items: current.items.map((m) =>
+              m.id === messageId ? { ...m, isPinned } : m
+            ),
+          };
+        },
+        { revalidate: false }
+      );
+
       await fetcher(`/messages/${encodeURIComponent(messageId)}/pin`, {
         method: 'POST',
         body: JSON.stringify({ isPinned })
       });
+
+      // Revalidate after success
       mutate();
     } catch (error) {
       handleError(error, 'pin message');
+      // Rollback on error
+      mutate();
     }
   }, [mutate, handleError]);
 
@@ -202,13 +220,56 @@ export function useChat(scope: Scope, pageSize: number = 50) {
 
   const reactToMessage = useCallback(async (messageId: string, type: string, on: boolean) => {
     try {
+      // Optimistic update
+      mutate(
+        (current) => {
+          if (!current?.items) return current;
+          return {
+            ...current,
+            items: current.items.map((m) => {
+              if (m.id !== messageId) return m;
+              const reactions = (m.reactions || []) as Array<{ type: string; count: number; messageId: string }>;
+              const existing = reactions.find((r) => r.type === type);
+
+              let newReactions;
+              if (on) {
+                // Add or increment
+                if (existing) {
+                  newReactions = reactions.map((r) =>
+                    r.type === type ? { ...r, count: r.count + 1 } : r
+                  );
+                } else {
+                  newReactions = [...reactions, { type, count: 1, messageId }];
+                }
+              } else {
+                // Decrement or remove
+                if (existing && existing.count > 1) {
+                  newReactions = reactions.map((r) =>
+                    r.type === type ? { ...r, count: r.count - 1 } : r
+                  );
+                } else {
+                  newReactions = reactions.filter((r) => r.type !== type);
+                }
+              }
+
+              return { ...m, reactions: newReactions };
+            }),
+          };
+        },
+        { revalidate: false }
+      );
+
       await fetcher(`/messages/${encodeURIComponent(messageId)}/react`, {
         method: 'POST',
         body: JSON.stringify({ type, on })
       });
+
+      // Revalidate after success
       mutate();
     } catch (error) {
       handleError(error, 'react to message');
+      // Rollback on error
+      mutate();
     }
   }, [mutate, handleError]);
 
