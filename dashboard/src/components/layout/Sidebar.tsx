@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, SearchIcon, FlaskConical, ListIcon } from 'lucide-react';
 import {
     Tooltip,
@@ -23,30 +24,65 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
 
   return (
     <aside 
-      className={`h-screen p-3 border-r bg-gray-50 dark:bg-gray-800 flex flex-col transition-all duration-300 ease-in-out ${isCollapsed ? 'w-18' : 'w-56'}`}
+      className={`h-screen p-3 border-r bg-gray-50 dark:bg-gray-800 flex flex-col transition-all duration-300 ease-in-out ${isCollapsed ? 'w-16' : 'w-56'}`}
     >
       <TooltipProvider delayDuration={100}>
         {/* Header - Always visible */}
         <div className="flex items-center justify-between mb-5 flex-shrink-0">
-          {!isCollapsed && (
-            <Link href="/" className="text-xl font-semibold hover:text-primary transition-colors">
+          {!isCollapsed ? (
+            <Link href="/" className="flex items-center gap-3 text-xl font-semibold hover:text-primary transition-colors">
+              <Image 
+                src="/sova_badge_primary.svg" 
+                alt="Sova Intel Logo" 
+                width={30} 
+                height={30}
+                className="flex-shrink-0"
+              />
               Sova Intel
             </Link>
+          ) : (
+            <div className="flex flex-col items-center gap-1">
+              <Link href="/" className="p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                <Image 
+                  src="/sova_badge_primary.svg" 
+                  alt="Sova Intel Logo - Go to Home" 
+                  width={30} 
+                  height={30}
+                  className="flex-shrink-0"
+                />
+              </Link>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button 
+                    onClick={toggleSidebar} 
+                    className="p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+                    aria-label="Expand sidebar"
+                  >
+                    <ChevronRightIcon size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" align="center">
+                  <p>Expand sidebar</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
           )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button 
-                onClick={toggleSidebar} 
-                className="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
-                aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              >
-                {isCollapsed ? <ChevronRightIcon size={20} /> : <ChevronLeftIcon size={20} />}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side={isCollapsed? "right" : "bottom"} align="center">
-              <p>{isCollapsed ? "Expand sidebar" : "Collapse sidebar"}</p>
-            </TooltipContent>
-          </Tooltip>
+          {!isCollapsed && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button 
+                  onClick={toggleSidebar} 
+                  className="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+                  aria-label="Collapse sidebar"
+                >
+                  <ChevronLeftIcon size={20} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="center">
+                <p>Collapse sidebar</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {/* Search - Always visible */}
