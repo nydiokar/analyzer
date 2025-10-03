@@ -140,7 +140,7 @@ export function WalletSearch() {
           id="wallet-search"
           name="wallet-search"
           type="search" 
-          placeholder="Search or paste address..." 
+          placeholder="Search address..." 
           className="h-9 pl-8 w-full text-sm"
           value={inputValue}
           onChange={handleInputChange}
