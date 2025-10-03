@@ -79,28 +79,45 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     });
   }
 
+  private async publishWithRetry(channel: string, payload: any, retries = 3, delayMs = 100): Promise<void> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        await this.redisPublisher.publish(channel, JSON.stringify(payload));
+        return; // Success
+      } catch (error) {
+        this.logger.warn(`Redis publish failed (attempt ${attempt}/${retries}) on channel ${channel}:`, error);
+        if (attempt === retries) {
+          this.logger.error(`Redis publish failed after ${retries} attempts on channel ${channel}. Event lost:`, payload);
+          throw error; // Rethrow after final attempt
+        }
+        // Exponential backoff: 100ms, 200ms, 400ms
+        await new Promise((resolve) => setTimeout(resolve, delayMs * Math.pow(2, attempt - 1)));
+      }
+    }
+  }
+
   async publishGlobal(event: any) {
-    await this.redisPublisher.publish('message-events:global', JSON.stringify(event));
+    await this.publishWithRetry('message-events:global', event);
   }
 
   async publishToken(address: string, event: any) {
-    await this.redisPublisher.publish(`message-events:token:${address}`, JSON.stringify(event));
+    await this.publishWithRetry(`message-events:token:${address}`, event);
   }
 
   async publishEdited(event: any) {
-    await this.redisPublisher.publish('message-events:edited', JSON.stringify(event));
+    await this.publishWithRetry('message-events:edited', event);
   }
 
   async publishDeleted(event: any) {
-    await this.redisPublisher.publish('message-events:deleted', JSON.stringify(event));
+    await this.publishWithRetry('message-events:deleted', event);
   }
 
   async publishPinned(event: any) {
-    await this.redisPublisher.publish('message-events:pinned', JSON.stringify(event));
+    await this.publishWithRetry('message-events:pinned', event);
   }
 
   async publishReaction(event: any) {
-    await this.redisPublisher.publish('message-events:reaction', JSON.stringify(event));
+    await this.publishWithRetry('message-events:reaction', event);
   }
 }
 

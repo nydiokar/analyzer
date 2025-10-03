@@ -382,6 +382,7 @@ model MessageMention {
 
   @@index([kind, refId])
   @@index([messageId])
+  @@index([refId, kind]) // Optimized for watched-tokens.service.ts listWatched query
 }
 
 model MessageReaction {

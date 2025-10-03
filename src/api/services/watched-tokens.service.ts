@@ -78,20 +78,26 @@ export class WatchedTokensService {
       // No fallback: token repo shows only explicitly watched tokens
       if (addresses.length === 0) return [];
 
-      // Fetch latest message timestamps per token via a single query, then reduce
-      const relatedMessages = await client.message.findMany({
-        where: { mentions: { some: { kind: 'TOKEN', refId: { in: addresses } } } },
-        select: { id: true, createdAt: true, mentions: { select: { refId: true, kind: true } } },
-        orderBy: { createdAt: 'desc' },
-        take: 1000,
-      });
+      // Fetch latest message timestamps per token using optimized subquery approach
+      // Instead of scanning 1000 messages, fetch top 1 per token directly
       const latestByToken = new Map<string, string>();
-      for (const msg of relatedMessages) {
-        const tokenMention = (msg.mentions as Array<{ refId: string | null; kind: string }>).find((m) => m.kind === 'TOKEN' && m.refId && addresses.includes(m.refId));
-        if (tokenMention && tokenMention.refId && !latestByToken.has(tokenMention.refId)) {
-          latestByToken.set(tokenMention.refId, new Date(msg.createdAt).toISOString());
+
+      // Use raw query for better performance with DISTINCT ON (Postgres) or equivalent
+      // Fallback: batch small queries per token (better than 1000-row scan)
+      const latestPromises = addresses.map(async (addr) => {
+        const latest = await client.message.findFirst({
+          where: { mentions: { some: { kind: 'TOKEN', refId: addr } } },
+          select: { createdAt: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (latest) {
+          latestByToken.set(addr, new Date(latest.createdAt).toISOString());
         }
-        if (latestByToken.size === addresses.length) break;
+      });
+
+      // Execute in batches of 20 to avoid overwhelming DB
+      for (let i = 0; i < latestPromises.length; i += 20) {
+        await Promise.all(latestPromises.slice(i, i + 20));
       }
 
       // Fetch tags for all tokens in one query

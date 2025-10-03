@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, ValidationPipe, ConflictException, Delete } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { MessagesService } from '../services/messages.service';
 import { parseMentions } from '../shared/mention-parser';
 import { WatchedTokensService } from '../services/watched-tokens.service';
@@ -14,6 +15,7 @@ export class MessagesController {
   constructor(private readonly messages: MessagesService, private readonly watchedTokens: WatchedTokensService) {}
 
   @Post()
+  @Throttle({ default: { limit: 30, ttl: 60000 } }) // 30 messages per minute (0.5/sec avg, allows bursts)
   async postMessage(@Body(new ValidationPipe()) dto: PostMessageDto) {
     // Server-side enforcement per plan: reject unresolved @sym: with 409; rewrite to @ca: when unambiguous
     const mentions = parseMentions(dto.body ?? '');
@@ -91,12 +93,14 @@ export class MessagesController {
   }
 
   @Post(':id/pin')
+  @Throttle({ default: { limit: 60, ttl: 60000 } }) // 60 pins per minute (power users organizing threads)
   async setPinned(@Param('id') id: string, @Body('isPinned') isPinned: boolean) {
     await this.messages.setPinned(id, !!isPinned);
     return { ok: true };
   }
 
   @Post(':id/react')
+  @Throttle({ default: { limit: 100, ttl: 60000 } }) // 100 reactions per minute (scanning feed, rapid reactions)
   async react(@Param('id') id: string, @Body('type') type: string, @Body('on') on: boolean) {
     await this.messages.setReaction(id, String(type || '').toLowerCase(), !!on);
     return { ok: true };
