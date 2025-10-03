@@ -1,5 +1,39 @@
 # Token Alerts System - Architecture Document
 
+## 🚧 Implementation Status (Updated: 2025-10-03)
+
+### ✅ Phase 1 - Backend MVP (COMPLETED)
+
+**What's Done:**
+- ✅ Database schema (TokenAlert + AlertNotification models)
+- ✅ Prisma migration applied successfully
+- ✅ AlertsService with full CRUD operations
+- ✅ REST API endpoints (`/alerts`, `/alerts/notifications/list`)
+- ✅ AlertEvaluatorJob (cron job, runs every 5 minutes)
+- ✅ Price condition evaluation (gt/lt operators)
+- ✅ Cooldown logic implemented
+- ✅ Rate limiting (20 alerts/min)
+- ✅ Database operations tested and verified
+- ✅ Frontend hooks created (`useAlerts`, `useNotifications`)
+- ✅ AlertCreator component built
+
+**What's Next (Phase 1 Completion - ~30 min):**
+1. **Fix server startup** - Resolve unrelated similarity worker issue blocking backend
+2. **Test API endpoints** - Verify POST /alerts creates alert via HTTP
+3. **Test cron job** - Confirm AlertEvaluatorJob runs and triggers alerts
+4. **Wire socket listener** - Frontend needs `useEffect` to listen for `user:{id}:alert` events
+5. **Integrate UI** - Add AlertCreator to TokenThread drawer + notification bell icon
+
+**Phase 2 Features (Not Started):**
+- Percentage change alerts (±10% in 1h)
+- Activity alerts (new messages)
+- Market alerts (liquidity, volume)
+- Browser push notifications
+- Telegram delivery
+- Alert management page
+
+---
+
 ## Overview
 
 A production-ready alerts system for Solana token monitoring that enables users to receive notifications based on price movements, activity, market changes, and custom conditions.

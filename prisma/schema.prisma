@@ -196,17 +196,19 @@ model AnalysisRun {
 }
 
 model User {
-  id              String               @id @default(cuid())
-  apiKey          String               @unique
-  description     String?
-  isDemo          Boolean              @default(false)
-  createdAt       DateTime             @default(now())
-  lastSeenAt      DateTime?
-  isActive        Boolean              @default(true)
-  activityLogs    ActivityLog[]
-  messages        Message[]
-  favoriteWallets UserFavoriteWallet[]
-  walletNotes     WalletNote[]
+  id                 String               @id @default(cuid())
+  apiKey             String               @unique
+  description        String?
+  isDemo             Boolean              @default(false)
+  createdAt          DateTime             @default(now())
+  lastSeenAt         DateTime?
+  isActive           Boolean              @default(true)
+  activityLogs       ActivityLog[]
+  messages           Message[]
+  favoriteWallets    UserFavoriteWallet[]
+  walletNotes        WalletNote[]
+  tokenAlerts        TokenAlert[]
+  alertNotifications AlertNotification[]
 }
 
 model ActivityLog {
@@ -315,6 +317,7 @@ model TokenInfo {
   updatedAt            DateTime       @updatedAt
   tokenTags            TokenTag[]
   watchedTokens        WatchedToken[]
+  tokenAlerts          TokenAlert[]
 
   @@index([name])
   @@index([symbol])
@@ -431,4 +434,67 @@ enum WatchedTokenList {
   FAVORITES
   GRADUATION
   HOLDSTRONG
+}
+
+// ============================================
+// Token Alerts System (MVP Phase 1)
+// ============================================
+
+model TokenAlert {
+  id           String   @id @default(cuid())
+  userId       String
+  tokenAddress String
+
+  // Metadata
+  label        String?
+
+  // Simple condition (MVP: price only)
+  condition    Json
+  // Example: { "type": "price", "operator": "gt", "value": 0.01, "field": "priceUsd" }
+
+  // Behavior
+  isActive     Boolean  @default(true)
+
+  // Delivery
+  channels     Json
+  // Example: ["in_app", "telegram"] - default handled in application layer
+
+  // State
+  lastTriggeredAt DateTime?
+  triggerCount    Int      @default(0)
+  cooldownMinutes Int      @default(60)
+
+  // Timestamps
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  User         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  TokenInfo    TokenInfo    @relation(fields: [tokenAddress], references: [tokenAddress], onDelete: Cascade)
+  notifications AlertNotification[]
+
+  @@index([userId, isActive])
+  @@index([tokenAddress, isActive])
+}
+
+model AlertNotification {
+  id          String   @id @default(cuid())
+  alertId     String
+  userId      String
+
+  // Context
+  triggeredAt DateTime @default(now())
+  snapshot    Json
+
+  // Delivery status
+  delivered   Boolean  @default(false)
+
+  // User interaction
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+
+  Alert       TokenAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  User        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([triggeredAt])
 }
