@@ -13,7 +13,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     ? useGlobalMessages(pageSize)
     : useTokenMessages(scope.tokenAddress, pageSize);
 
-  const { data, isLoading, error, mutate, loadMore, hasMore } = dataHook;
+  const { data, isLoading, error, mutate, loadMore, hasMore, mutateMessage } = dataHook;
 
   // State
   const [replyTo, setReplyTo] = useState<{ id: string; body: string } | null>(null);
@@ -144,17 +144,10 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   const pinMessage = useCallback(async (messageId: string, isPinned: boolean) => {
     try {
       // Optimistic update
-      mutate(
-        (current) => {
-          if (!current?.items) return current;
-          return {
-            ...current,
-            items: current.items.map((m) =>
-              m.id === messageId ? { ...m, isPinned } : m
-            ),
-          };
-        },
-        { revalidate: false }
+      await mutateMessage(
+        messageId,
+        (m) => ({ ...m, isPinned }),
+        { revalidate: false },
       );
 
       await fetcher(`/messages/${encodeURIComponent(messageId)}/pin`, {
@@ -246,42 +239,34 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   const reactToMessage = useCallback(async (messageId: string, type: string, on: boolean) => {
     try {
       // Optimistic update
-      mutate(
-        (current) => {
-          if (!current?.items) return current;
-          return {
-            ...current,
-            items: current.items.map((m) => {
-              if (m.id !== messageId) return m;
-              const reactions = (m.reactions || []) as Array<{ type: string; count: number; messageId: string }>;
-              const existing = reactions.find((r) => r.type === type);
+      await mutateMessage(
+        messageId,
+        (m) => {
+          const reactions = (m.reactions || []) as Array<{ type: string; count: number; messageId: string }>;
+          const existing = reactions.find((r) => r.type === type);
 
-              let newReactions;
-              if (on) {
-                // Add or increment
-                if (existing) {
-                  newReactions = reactions.map((r) =>
-                    r.type === type ? { ...r, count: r.count + 1 } : r
-                  );
-                } else {
-                  newReactions = [...reactions, { type, count: 1, messageId }];
-                }
-              } else {
-                // Decrement or remove
-                if (existing && existing.count > 1) {
-                  newReactions = reactions.map((r) =>
-                    r.type === type ? { ...r, count: r.count - 1 } : r
-                  );
-                } else {
-                  newReactions = reactions.filter((r) => r.type !== type);
-                }
-              }
+          let newReactions;
+          if (on) {
+            if (existing) {
+              newReactions = reactions.map((r) =>
+                r.type === type ? { ...r, count: r.count + 1 } : r
+              );
+            } else {
+              newReactions = [...reactions, { type, count: 1, messageId }];
+            }
+          } else {
+            if (existing && existing.count > 1) {
+              newReactions = reactions.map((r) =>
+                r.type === type ? { ...r, count: r.count - 1 } : r
+              );
+            } else {
+              newReactions = reactions.filter((r) => r.type !== type);
+            }
+          }
 
-              return { ...m, reactions: newReactions };
-            }),
-          };
+          return { ...m, reactions: newReactions };
         },
-        { revalidate: false }
+        { revalidate: false },
       );
 
       await fetcher(`/messages/${encodeURIComponent(messageId)}/react`, {

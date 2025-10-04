@@ -51,6 +51,31 @@ export const useGlobalMessages = (limit: number = 50) => {
     await setSize((s) => s + 1);
   }, [nextCursor, setSize]);
 
+  const mutateMessage = useCallback(
+    async (
+      messageId: string,
+      transform: (message: MessageDto) => MessageDto,
+      options?: Parameters<typeof mutate>[1],
+    ) => {
+      await mutate((pages) => {
+        if (!pages) return pages;
+        let changed = false;
+        const next = pages.map((page) => {
+          let pageChanged = false;
+          const items = page.items.map((item) => {
+            if (item.id !== messageId) return item;
+            pageChanged = true;
+            changed = true;
+            return transform(item);
+          });
+          return pageChanged ? { ...page, items } : page;
+        });
+        return changed ? next : pages;
+      }, options);
+    },
+    [mutate],
+  );
+
   const reset = useCallback(async () => {
     await setSize(1);
   }, [setSize]);
@@ -65,6 +90,7 @@ export const useGlobalMessages = (limit: number = 50) => {
     hasMore: Boolean(nextCursor),
     size,
     setSize,
+    mutateMessage,
     reset,
   } as const;
 };
@@ -111,6 +137,31 @@ export const useTokenMessages = (tokenAddress: string, limit: number = 50) => {
     await setSize((s) => s + 1);
   }, [nextCursor, setSize]);
 
+  const mutateMessage = useCallback(
+    async (
+      messageId: string,
+      transform: (message: MessageDto) => MessageDto,
+      options?: Parameters<typeof mutate>[1],
+    ) => {
+      await mutate((pages) => {
+        if (!pages) return pages;
+        let changed = false;
+        const next = pages.map((page) => {
+          let pageChanged = false;
+          const items = page.items.map((item) => {
+            if (item.id !== messageId) return item;
+            pageChanged = true;
+            changed = true;
+            return transform(item);
+          });
+          return pageChanged ? { ...page, items } : page;
+        });
+        return changed ? next : pages;
+      }, options);
+    },
+    [mutate],
+  );
+
   const reset = useCallback(async () => {
     await setSize(1);
   }, [setSize]);
@@ -125,6 +176,7 @@ export const useTokenMessages = (tokenAddress: string, limit: number = 50) => {
     hasMore: Boolean(nextCursor),
     size,
     setSize,
+    mutateMessage,
     reset,
   } as const;
 };
