@@ -367,8 +367,10 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                   <div
                     key={token.tokenAddress}
                     className={cn(
-                      'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                      selectedToken === token.tokenAddress ? 'bg-white/10' : 'hover:bg-white/5'
+                      'group relative mx-3 my-2 flex flex-col gap-3 rounded-xl border p-4 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                      selectedToken === token.tokenAddress
+                        ? 'border-primary/50 bg-primary/5 shadow-lg shadow-primary/10'
+                        : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05] hover:shadow-md'
                     )}
                     role="button"
                     tabIndex={0}
@@ -383,8 +385,8 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                     onFocusCapture={() => fetchSparkline(token.tokenAddress)}
                     aria-label={`Open thread for ${token.symbol || token.name || token.tokenAddress}`}
                   >
-                    {/* Left: Token Badge + Tags */}
-                    <div className="flex min-w-0 flex-col gap-1.5">
+                    {/* Top Row: Badge + Pin */}
+                    <div className="flex items-start justify-between">
                       <div className="flex items-center gap-2">
                         <TokenBadge
                           mint={token.tokenAddress}
@@ -395,74 +397,10 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                           }}
                           size="md"
                         />
-                        {unread && <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" aria-label="Unread token" />}
-                        {selectedToken === token.tokenAddress && (
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase text-primary">Active</span>
+                        {unread && (
+                          <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" aria-label="Unread messages" />
                         )}
                       </div>
-                      {token.tags.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1 pl-10">
-                          {token.tags.slice(0, 3).map((tag, idx) => (
-                            <span
-                              key={`${token.tokenAddress}-tag-${idx}`}
-                              className="rounded-full bg-white/6 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-white/55"
-                            >
-                              {tag.name}
-                            </span>
-                          ))}
-                          {token.tags.length > 3 && (
-                            <span className="text-[9px] uppercase text-white/40">+{token.tags.length - 3}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Center: Price + Change */}
-                    <div className="flex flex-col items-end gap-0.5 min-w-[100px]">
-                      {priceLabel && <span className="text-sm font-medium text-white/90">{priceLabel}</span>}
-                      {changeLabel && <span className={cn('text-xs font-semibold', changeColor)}>{changeLabel}</span>}
-                    </div>
-
-                    {/* Right: Sparkline + Metadata + Pin */}
-                    <div className="ml-auto flex flex-shrink-0 items-center gap-3">
-                      {/* Metadata with icons */}
-                      <div className="flex flex-col gap-1 text-[10px] text-white/60">
-                        <div className="flex items-center gap-3">
-                          {marketCapLabel && (
-                            <div className="flex items-center gap-1">
-                              <TrendingUp className="h-3 w-3 text-white/40" />
-                              <span>{marketCapLabel}</span>
-                            </div>
-                          )}
-                          {liquidityLabel && (
-                            <div className="flex items-center gap-1">
-                              <Droplet className="h-3 w-3 text-white/40" />
-                              <span>{liquidityLabel}</span>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {volumeLabel && (
-                            <div className="flex items-center gap-1">
-                              <BarChart3 className="h-3 w-3 text-white/40" />
-                              <span>{volumeLabel}</span>
-                            </div>
-                          )}
-                          <span className="text-white/45">Last {formatRelativeTime(token.latestMessageAt)}</span>
-                        </div>
-                      </div>
-
-                      {/* Sparkline */}
-                      <div className={cn('flex items-center gap-1.5', trendColor)}>
-                        {sparkline && sparkline.series.length > 1 ? (
-                          <Sparkline values={sparkline.series} width={100} height={28} stroke="currentColor" />
-                        ) : (
-                          <div className="h-7 w-[100px] rounded bg-white/5" />
-                        )}
-                        <span className="text-[10px] text-white/45">24h</span>
-                      </div>
-
-                      {/* Pin button */}
                       <Button
                         type="button"
                         variant="ghost"
@@ -472,13 +410,65 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                           handlePinToggle(token.tokenAddress);
                         }}
                         className={cn(
-                          'h-7 w-7 rounded-full bg-transparent text-white/40 hover:bg-white/10 hover:text-amber-400',
-                          pinned && 'text-amber-400'
+                          'h-8 w-8 rounded-lg bg-transparent text-white/30 transition-all hover:bg-white/10 hover:text-amber-400',
+                          pinned && 'text-amber-400 shadow-sm'
                         )}
                         aria-label={pinned ? 'Unpin token' : 'Pin token'}
                       >
                         <Star className={cn('h-4 w-4', pinned && 'fill-amber-400')} />
                       </Button>
+                    </div>
+
+                    {/* Market Cap + Price Row */}
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[9px] uppercase tracking-wider text-white/50">MC</span>
+                        {marketCapLabel ? (
+                          <span className="text-lg font-bold text-white">{marketCapLabel}</span>
+                        ) : (
+                          <span className="text-lg font-bold text-white/30">--</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {priceLabel && <span className="text-base font-semibold text-white/80">{priceLabel}</span>}
+                        {changeLabel && (
+                          <span className={cn('rounded-md px-2 py-0.5 text-xs font-bold', changeColor)}>
+                            {changeLabel}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Sparkline */}
+                    {sparkline && sparkline.series.length > 1 && (
+                      <div className={cn('rounded-lg bg-black/20 p-2 -mx-1', trendColor)}>
+                        <Sparkline values={sparkline.series} width={240} height={40} stroke="currentColor" />
+                      </div>
+                    )}
+
+                    {/* Tags */}
+                    {token.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {token.tags.slice(0, 4).map((tag, idx) => (
+                          <span
+                            key={`${token.tokenAddress}-tag-${idx}`}
+                            className="rounded-md bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/75 shadow-sm ring-1 ring-white/10"
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
+                        {token.tags.length > 4 && (
+                          <span className="rounded-md bg-white/8 px-2 py-1 text-[10px] font-medium text-white/50">
+                            +{token.tags.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Footer: Activity */}
+                    <div className="flex items-center gap-2 border-t border-white/5 pt-2 text-xs text-white/50">
+                      <span>Activity</span>
+                      <span className="font-medium text-white/70">{formatRelativeTime(token.latestMessageAt)}</span>
                     </div>
                   </div>
                 );

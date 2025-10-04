@@ -68,31 +68,12 @@ export class WatchedTokensService {
 
       let watched = await client.watchedToken.findMany({
         where: { list },
-        select: { tokenAddress: true, TokenInfo: { select: { name: true, symbol: true, imageUrl: true, marketCapUsd: true, liquidityUsd: true, priceUsd: true, volume24h: true, updatedAt: true } } },
+        select: { tokenAddress: true, TokenInfo: { select: { name: true, symbol: true, imageUrl: true, marketCapUsd: true, liquidityUsd: true, priceUsd: true, volume24h: true } } },
       });
       // Dedupe by tokenAddress in case of historical duplicates
       const seen = new Set<string>();
       watched = watched.filter((w: any) => (seen.has(w.tokenAddress) ? false : (seen.add(w.tokenAddress), true)));
       let addresses: string[] = watched.map((w: any) => w.tokenAddress);
-
-      // Find tokens that need enrichment (Unknown Token or stale data > 24h)
-      const needsEnrichment: string[] = [];
-      const now = Date.now();
-      for (const w of watched) {
-        const isUnknown = w.TokenInfo?.name === 'Unknown Token' || !w.TokenInfo?.symbol;
-        const isStale = w.TokenInfo?.updatedAt && (now - new Date(w.TokenInfo.updatedAt).getTime() > 24 * 60 * 60 * 1000);
-        if (isUnknown || isStale) {
-          needsEnrichment.push(w.tokenAddress);
-        }
-      }
-
-      // Trigger re-enrichment for unknown/stale tokens (async, don't block UI)
-      if (needsEnrichment.length > 0) {
-        setTimeout(() => {
-          this.tokenInfoService.triggerTokenInfoEnrichment(needsEnrichment, 'auto-retry-enrichment')
-            .catch((e) => console.error('Auto-retry enrichment failed:', e));
-        }, 100);
-      }
 
       // No fallback: token repo shows only explicitly watched tokens
       if (addresses.length === 0) return [];

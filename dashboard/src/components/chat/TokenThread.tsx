@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import Sparkline from '@/components/shared/Sparkline';
 import { useMiniPriceSeries } from '@/hooks/useMiniPriceSeries';
@@ -77,6 +77,22 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
     for (const w of watched || []) map[w.tokenAddress] = { symbol: w.symbol, name: w.name };
     return map;
   }, [watched]);
+
+  const formatPinnedPreview = useCallback(
+    (message: { body?: string; mentions?: Array<{ kind: string; refId?: string | null }> }) => {
+      let text = message.body ?? '';
+      if (!text) return '';
+      (message.mentions || []).forEach((mention) => {
+        if (!mention || (mention.kind !== 'TOKEN' && mention.kind !== 'token') || !mention.refId) return;
+        const symbol = watchedByMint[mention.refId]?.symbol || byMint[mention.refId]?.symbol || watchedByMint[mention.refId]?.name || byMint[mention.refId]?.name;
+        const replacement = symbol ? `@${symbol}` : `@${mention.refId.slice(0, 4)}...${mention.refId.slice(-4)}`;
+        const regex = new RegExp(`@ca:${mention.refId}`, 'gi');
+        text = text.replace(regex, replacement);
+      });
+      return text;
+    },
+    [byMint, watchedByMint]
+  );
 
   const messageMeta = useMemo<MessageMeta[]>(() => {
     return chat.messages.map((message, idx) => {
@@ -182,15 +198,19 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
               key={`pin-${m.id}`}
               onClick={() => chat.onPinnedMessageClick(m.id)}
               className={threadPalette.pinnedButton}
-              title={m.body}
+              title={formatPinnedPreview(m) || m.body}
             >
-              {m.body && m.body.length > 40 ? `${m.body.slice(0, 40)}...` : m.body}
+              {(() => {
+                const preview = formatPinnedPreview(m);
+                if (!preview) return '';
+                return preview.length > 40 ? `${preview.slice(0, 40)}...` : preview;
+              })()}
             </button>
           ))}
         </div>
       </div>
     );
-  }, [chat.pinnedMessages, chat.onPinnedMessageClick, threadPalette]);
+  }, [chat.pinnedMessages, chat.onPinnedMessageClick, threadPalette, formatPinnedPreview]);
 
   return (
     <div className="flex h-full min-h-0 flex-col" {...chat.containerProps} aria-label="Token thread keyboard area">
@@ -277,58 +297,67 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
 
       {pinnedBand}
 
-      <div ref={chat.scrollRef} className="flex-1 min-h-0 overflow-auto px-5 py-4">
-        {chat.hasMore && <div ref={chat.sentinelRef} className="h-1" />}
-        {chat.hasMore && (
-          <button className={cn('w-full py-2 text-xs', threadPalette.loadMore)} onClick={chat.loadMore}>
-            Load older...
+      <div className="relative flex-1 min-h-0">
+        <div ref={chat.scrollRef} className="h-full overflow-auto px-5 py-4">
+          {chat.hasMore && <div ref={chat.sentinelRef} className="h-1" />}
+          {chat.hasMore && (
+            <button className={cn('w-full py-2 text-xs', threadPalette.loadMore)} onClick={chat.loadMore}>
+              Load older...
+            </button>
+          )}
+          {chat.isLoading && <div className={cn('p-3 text-sm', threadPalette.loading)}>Loading...</div>}
+          {Boolean(chat.error) && <div className={cn('p-3 text-sm', threadPalette.error)}>Failed to load messages</div>}
+
+          {messageMeta.map((meta, idx) => (
+            <React.Fragment key={meta.message.id}>
+              {firstUnreadIndex !== -1 && idx === firstUnreadIndex ? (
+                <div className="my-3 flex items-center gap-3">
+                  <span className={cn('flex-1 h-px', threadPalette.dividerLine)} />
+                  <span className={cn('rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wide', threadPalette.dividerBadge, threadPalette.dividerText)}>
+                    New
+                  </span>
+                  <span className={cn('flex-1 h-px', threadPalette.dividerLine)} />
+                </div>
+              ) : null}
+              <MessageRow
+                message={meta.message}
+                byMint={byMint}
+                watchedByMint={watchedByMint}
+                threadAddress={tokenAddress}
+                showCopy
+                isPinned={Boolean(meta.message.isPinned)}
+                selected={chat.isSelected(idx)}
+                isOwn={meta.isOwn}
+                canDelete={meta.isOwn}
+                highlighted={meta.message.id === highlightId}
+                onTogglePin={(id: string) => chat.pinMessage(id, !meta.message.isPinned)}
+                onReply={chat.startReply}
+                onReact={(_, type: string) => {
+                  const reactions = (meta.message.reactions || []) as Array<{ type: string; count: number }>;
+                  const count = reactions.find((r) => r.type === type)?.count || 0;
+                  const nextState = count === 0;
+                  chat.reactToMessage(meta.message.id, type, nextState);
+                }}
+              />
+            </React.Fragment>
+          ))}
+        </div>
+
+        {chat.showJumpToLatest && (
+          <button
+            className="absolute bottom-6 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-background px-5 py-2 text-sm font-semibold shadow-lg hover:bg-background/95"
+            onClick={chat.jumpToLatest}
+            aria-label="Jump to latest messages"
+          >
+            <span>Jump to latest</span>
+            {chat.unreadCount > 0 ? (
+              <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-primary px-2 text-xs font-semibold text-primary-foreground">
+                {chat.unreadCount}
+              </span>
+            ) : null}
           </button>
         )}
-        {chat.isLoading && <div className={cn('p-3 text-sm', threadPalette.loading)}>Loading...</div>}
-        {Boolean(chat.error) && <div className={cn('p-3 text-sm', threadPalette.error)}>Failed to load messages</div>}
-
-        {messageMeta.map((meta, idx) => (
-          <React.Fragment key={meta.message.id}>
-            {firstUnreadIndex !== -1 && idx === firstUnreadIndex ? (
-              <div className="my-3 flex items-center gap-3">
-                <span className={cn('flex-1 h-px', threadPalette.dividerLine)} />
-                <span className={cn('rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wide', threadPalette.dividerBadge, threadPalette.dividerText)}>
-                  New
-                </span>
-                <span className={cn('flex-1 h-px', threadPalette.dividerLine)} />
-              </div>
-            ) : null}
-            <MessageRow
-              message={meta.message}
-              byMint={byMint}
-              watchedByMint={watchedByMint}
-              threadAddress={tokenAddress}
-              showCopy
-              isPinned={Boolean(meta.message.isPinned)}
-              selected={chat.isSelected(idx)}
-              isOwn={meta.isOwn}
-              canDelete={meta.isOwn}
-              highlighted={meta.message.id === highlightId}
-              onTogglePin={(id: string) => chat.pinMessage(id, !meta.message.isPinned)}
-              onReply={chat.startReply}
-              onReact={(_, type: string) => {
-                const reactions = (meta.message.reactions || []) as Array<{ type: string; count: number }>;
-                const count = reactions.find((r) => r.type === type)?.count || 0;
-                const nextState = count === 0;
-                chat.reactToMessage(meta.message.id, type, nextState);
-              }}
-            />
-          </React.Fragment>
-        ))}
       </div>
-
-      {chat.showJumpToLatest && (
-        <div className="sticky bottom-0 left-0 right-0 flex justify-center pb-2">
-          <button className={threadPalette.jumpButton} onClick={chat.jumpToLatest}>
-            Jump to latest
-          </button>
-        </div>
-      )}
 
       <MessageComposer
         tokenAddress={tokenAddress}

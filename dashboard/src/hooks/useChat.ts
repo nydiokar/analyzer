@@ -47,6 +47,13 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     return v ? Number(v) : Date.now();
   });
 
+  const unreadCount = useMemo(() => {
+    return itemsAsc.reduce((acc, msg) => {
+      const ts = new Date(msg.createdAt).getTime();
+      return ts > lastSeen ? acc + 1 : acc;
+    }, 0);
+  }, [itemsAsc, lastSeen]);
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(lastSeenKey, String(lastSeen));
@@ -371,6 +378,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     const now = Date.now();
     updateLastSeen(now, true);
     scrollToBottom();
+    requestAnimationFrame(() => scrollToBottom());
   }, [updateLastSeen, scrollToBottom]);
 
   const cancelReply = useCallback(() => {
@@ -386,10 +394,15 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   const onMessageSent = useCallback(() => {
     const now = Date.now();
     lastPostedAtRef.current = now;
-    updateLastSeen(now, true);
+    const wasAtBottom = isAtBottomRef.current;
+    if (wasAtBottom) {
+      updateLastSeen(now, true);
+    }
     setReplyTo(null);
-    scrollToBottom();
-    requestAnimationFrame(() => scrollToBottom());
+    if (wasAtBottom) {
+      scrollToBottom();
+      requestAnimationFrame(() => scrollToBottom());
+    }
     mutate();
   }, [scrollToBottom, mutate, updateLastSeen]);
 
@@ -413,6 +426,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     selectedId,
     lastSeen,
     showJumpToLatest,
+    unreadCount,
 
     // Refs
     scrollRef,
