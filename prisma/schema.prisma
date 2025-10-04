@@ -448,9 +448,13 @@ model TokenAlert {
   // Metadata
   label        String?
 
-  // Simple condition (MVP: price only)
+  // Simple condition (price or percentage)
   condition    Json
   // Example: { "type": "price", "operator": "gt", "value": 0.01, "field": "priceUsd" }
+  // Example: { "type": "percentage", "operator": "gt", "value": 300, "field": "priceUsd" }
+
+  // Baseline price (for percentage alerts - price at alert creation time)
+  baselinePrice String?
 
   // Behavior
   isActive     Boolean  @default(true)

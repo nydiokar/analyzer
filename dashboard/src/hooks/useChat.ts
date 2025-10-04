@@ -13,7 +13,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     ? useGlobalMessages(pageSize)
     : useTokenMessages(scope.tokenAddress, pageSize);
 
-  const { data, isLoading, error, mutate, loadMore, setCursor } = dataHook;
+  const { data, isLoading, error, mutate, loadMore, hasMore } = dataHook;
 
   // State
   const [replyTo, setReplyTo] = useState<{ id: string; body: string } | null>(null);
@@ -45,6 +45,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   // Scroll functionality
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef(true);
+  const loadingOlderRef = useRef(false);
 
   const checkIfAtBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -57,6 +58,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
+    isAtBottomRef.current = true;
   }, []);
 
   const scrollToMessage = useCallback((messageId: string) => {
@@ -80,26 +82,49 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   // Real-time updates
   useMessagesSocket({
     tokenAddress: scope.kind === 'token' ? scope.tokenAddress : undefined,
-    onMessageCreated: () => {
-      setCursor?.(null);
-      mutate();
-      // Auto-scroll will be handled by the effect below after mutate completes
+    onMessageCreated: async () => {
+      await mutate();
+      if (isAtBottomRef.current) {
+        requestAnimationFrame(() => scrollToBottom());
+      }
+      // Auto-scroll will also run through the effect below
     },
-    onMessageEdited: () => { setCursor?.(null); mutate(); },
-    onMessageDeleted: () => { setCursor?.(null); mutate(); },
-    onMessagePinned: () => { setCursor?.(null); mutate(); },
-    onReactionUpdated: () => { setCursor?.(null); mutate(); },
+    onMessageEdited: async () => { await mutate(); },
+    onMessageDeleted: async () => { await mutate(); },
+    onMessagePinned: async () => { await mutate(); },
+    onReactionUpdated: async () => { await mutate(); },
   });
 
   // Auto-scroll to bottom when new messages arrive and user is at bottom
   useEffect(() => {
-    if (itemsAsc.length > 0 && isAtBottomRef.current) {
-      setTimeout(scrollToBottom, 50);
-    }
+    if (!itemsAsc.length || !isAtBottomRef.current) return;
+    const frame = requestAnimationFrame(() => scrollToBottom());
+    return () => cancelAnimationFrame(frame);
   }, [itemsAsc.length, scrollToBottom]);
 
   // Infinite scroll
-  const sentinelRef = useInfiniteScroll(data?.nextCursor ? loadMore : undefined);
+  const loadOlder = useCallback(async () => {
+    if (!hasMore || loadingOlderRef.current) return;
+    const el = scrollRef.current;
+    const prevScrollHeight = el?.scrollHeight ?? 0;
+    const prevScrollTop = el?.scrollTop ?? 0;
+
+    loadingOlderRef.current = true;
+    try {
+      await loadMore();
+    } finally {
+      requestAnimationFrame(() => {
+        const target = scrollRef.current;
+        if (target) {
+          const newScrollHeight = target.scrollHeight;
+          target.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+        }
+        loadingOlderRef.current = false;
+      });
+    }
+  }, [hasMore, loadMore]);
+
+  const sentinelRef = useInfiniteScroll(hasMore ? loadOlder : undefined, { rootMargin: '200px 0px 0px 0px' });
 
   // Selection functionality
   const selectedId = useMemo(() => (selectedIndex != null ? itemsAsc[selectedIndex]?.id : undefined), [itemsAsc, selectedIndex]);
@@ -304,9 +329,9 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     setLastSeen(Date.now());
     setReplyTo(null);
     scrollToBottom();
+    requestAnimationFrame(() => scrollToBottom());
     mutate();
-    setCursor?.(null);
-  }, [scrollToBottom, mutate, setCursor]);
+  }, [scrollToBottom, mutate]);
 
   // Click pinned message to scroll to original
   const onPinnedMessageClick = useCallback((messageId: string) => {
@@ -320,7 +345,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     pinnedMessages,
     isLoading,
     error,
-    hasMore: !!data?.nextCursor,
+    hasMore: Boolean(hasMore),
 
     // State
     replyTo,
@@ -353,6 +378,6 @@ export function useChat(scope: Scope, pageSize: number = 50) {
       lastPostedAtRef.current && new Date(message.createdAt).getTime() >= lastPostedAtRef.current - 500,
 
     // Load more
-    loadMore,
+    loadMore: loadOlder,
   } as const;
 }

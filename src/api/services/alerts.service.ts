@@ -43,6 +43,26 @@ export class AlertsService {
       return this.serializeBigInt(updated);
     }
 
+    // For percentage alerts, store the current price as baseline
+    let baselinePrice: string | null = null;
+    if (data.condition.type === 'percentage') {
+      try {
+        const tokenInfo = await this.db.tokenInfo.findUnique({
+          where: { tokenAddress: data.tokenAddress },
+          select: { priceUsd: true },
+        });
+        baselinePrice = tokenInfo?.priceUsd || null;
+
+        if (!baselinePrice) {
+          this.logger.warn(`Creating percentage alert but no current price available for ${data.tokenAddress}`);
+        } else {
+          this.logger.log(`Percentage alert baseline price: ${baselinePrice} for ${data.tokenAddress}`);
+        }
+      } catch (error) {
+        this.logger.error(`Failed to fetch baseline price for ${data.tokenAddress}:`, error);
+      }
+    }
+
     const alert = await this.db.tokenAlert.create({
       data: {
         userId,
@@ -51,6 +71,7 @@ export class AlertsService {
         condition: data.condition,
         channels: data.channels || ['in_app'],
         cooldownMinutes: data.cooldownMinutes || 60,
+        ...(baselinePrice ? { baselinePrice } : {}),
       },
       include: { TokenInfo: true }
     });
@@ -77,6 +98,7 @@ export class AlertsService {
     const alerts = await this.db.tokenAlert.findMany({
       where: {
         userId,
+        isActive: true, // Only show active alerts
         ...(tokenAddress ? { tokenAddress } : {}),
       },
       include: { TokenInfo: true },

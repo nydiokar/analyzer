@@ -100,8 +100,17 @@ export function AlertsList({ isCollapsed }: AlertsListProps) {
   const renderAlertCondition = (alert: any) => {
     const condition = alert.condition;
     const currentPrice = alert.TokenInfo?.priceUsd;
-    const targetPrice = condition?.value;
+    const targetValue = condition?.value;
     const isAbove = condition?.operator === 'gt';
+    const isPercentage = condition?.type === 'percentage';
+
+    // Calculate trigger price for percentage alerts
+    let triggerPrice: string | null = null;
+    if (isPercentage && alert.baselinePrice) {
+      const baseline = parseFloat(alert.baselinePrice);
+      const multiplier = isAbove ? (1 + targetValue / 100) : (1 - targetValue / 100);
+      triggerPrice = (baseline * multiplier).toFixed(baseline >= 1 ? 2 : baseline >= 0.01 ? 4 : 6);
+    }
 
     return (
       <div className="flex items-center justify-between p-2 rounded bg-muted/30 group/alert">
@@ -113,7 +122,18 @@ export function AlertsList({ isCollapsed }: AlertsListProps) {
           )}
           <div className="flex flex-col min-w-0 text-xs flex-1">
             <span className="font-medium truncate">
-              {isAbove ? '>' : '<'} <span className="text-primary font-bold">${targetPrice}</span>
+              {isPercentage ? (
+                <>
+                  {isAbove ? '+' : '-'}<span className="text-primary font-bold">{targetValue}%</span>
+                  {triggerPrice && (
+                    <span className="text-muted-foreground ml-1">(${triggerPrice})</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  {isAbove ? '>' : '<'} <span className="text-primary font-bold">${targetValue}</span>
+                </>
+              )}
             </span>
             {currentPrice && (
               <span className="text-muted-foreground font-mono text-[10px]">
@@ -171,8 +191,9 @@ export function AlertsList({ isCollapsed }: AlertsListProps) {
       const alert = tokenAlerts[0];
       const condition = alert.condition;
       const currentPrice = alert.TokenInfo?.priceUsd;
-      const targetPrice = condition?.value;
+      const targetValue = condition?.value;
       const isAbove = condition?.operator === 'gt';
+      const isPercentage = condition?.type === 'percentage';
 
       return (
         <div
@@ -198,7 +219,15 @@ export function AlertsList({ isCollapsed }: AlertsListProps) {
                   <TrendingDown className="h-3 w-3 text-red-500 flex-shrink-0" />
                 )}
                 <span className="font-medium truncate">
-                  {isAbove ? '>' : '<'} <span className="text-primary font-bold">${targetPrice}</span>
+                  {isPercentage ? (
+                    <>
+                      {isAbove ? '+' : '-'}<span className="text-primary font-bold">{targetValue}%</span>
+                    </>
+                  ) : (
+                    <>
+                      {isAbove ? '>' : '<'} <span className="text-primary font-bold">${targetValue}</span>
+                    </>
+                  )}
                 </span>
               </div>
               {currentPrice && (
@@ -274,7 +303,7 @@ export function AlertsList({ isCollapsed }: AlertsListProps) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="px-3 pb-2 space-y-1">
-            {tokenAlerts.map((alert) => (
+            {tokenAlerts.map((alert: any) => (
               <div key={alert.id}>{renderAlertCondition(alert)}</div>
             ))}
           </AccordionContent>
@@ -410,7 +439,7 @@ export function AlertsList({ isCollapsed }: AlertsListProps) {
         <PopoverContent
           side={isCollapsed ? "right" : "left"}
           align="start"
-          className="w-[420px] p-4 bg-card/95 backdrop-blur-sm border-2 shadow-2xl"
+          className="w-[420px] p-4 bg-card/95 backdrop-blur-sm border-2 border-border/60 shadow-[0_0_30px_rgba(255,255,255,0.08)] ring-1 ring-white/10"
           sideOffset={isCollapsed ? 8 : 12}
         >
           <CardHeader className="px-0 pt-0 pb-3 border-b">

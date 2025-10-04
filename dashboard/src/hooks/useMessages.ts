@@ -1,7 +1,7 @@
 "use client";
 
-import useSWR from 'swr';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import useSWRInfinite from 'swr/infinite';
+import { useCallback, useMemo } from 'react';
 import { fetcher } from '@/lib/fetcher';
 
 export interface MessageDto {
@@ -20,16 +20,53 @@ export interface PagedResult<T> {
 }
 
 export const useGlobalMessages = (limit: number = 50) => {
-  const [cursor, setCursor] = useState<string | null>(null);
-  const key = useMemo(() => [`/messages?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`], [cursor, limit]);
-  const { data, error, isLoading, mutate } = useSWR<PagedResult<MessageDto>>(key, ([url]) => fetcher(url), {
-    revalidateOnFocus: false,
-    // refreshInterval removed: socket handles real-time updates via useMessagesSocket
-  });
-  const loadMore = useCallback(() => {
-    if (data?.nextCursor) setCursor(data.nextCursor);
-  }, [data?.nextCursor]);
-  return { data, error, isLoading, mutate, loadMore, cursor, setCursor };
+  const {
+    data,
+    error,
+    isValidating,
+    mutate,
+    setSize,
+    size,
+  } = useSWRInfinite<PagedResult<MessageDto>>(
+    (pageIndex, previousPageData) => {
+      if (previousPageData && !previousPageData.nextCursor) return null;
+      if (pageIndex === 0) return `/messages?limit=${limit}`;
+      const cursor = previousPageData?.nextCursor;
+      if (!cursor) return null;
+      return `/messages?limit=${limit}&cursor=${encodeURIComponent(cursor)}`;
+    },
+    (url) => fetcher(url),
+    {
+      revalidateOnFocus: false,
+    }
+  );
+
+  const combinedItems = useMemo(() => data?.flatMap((page) => page.items) ?? [], [data]);
+  const lastPage = data?.[data.length - 1];
+  const nextCursor = lastPage?.nextCursor ?? null;
+  const isLoading = !data && isValidating;
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor) return;
+    await setSize((s) => s + 1);
+  }, [nextCursor, setSize]);
+
+  const reset = useCallback(async () => {
+    await setSize(1);
+  }, [setSize]);
+
+  return {
+    data: data ? ({ items: combinedItems, nextCursor } as PagedResult<MessageDto>) : undefined,
+    error,
+    isLoading,
+    isValidating,
+    mutate,
+    loadMore,
+    hasMore: Boolean(nextCursor),
+    size,
+    setSize,
+    reset,
+  } as const;
 };
 
 export const postMessage = async (body: string, parentId?: string) => {
@@ -40,23 +77,56 @@ export const postMessage = async (body: string, parentId?: string) => {
 };
 
 export const useTokenMessages = (tokenAddress: string, limit: number = 50) => {
-  const [cursor, setCursor] = useState<string | null>(null);
-  const key = useMemo(
-    () => [tokenAddress ? `/messages/tokens/${encodeURIComponent(tokenAddress)}/messages?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}` : null],
-    [cursor, limit, tokenAddress]
-  );
-  const { data, error, isLoading, mutate } = useSWR<PagedResult<MessageDto>>(
-    tokenAddress ? (key as any) : null,
-    ([url]) => fetcher(url),
+  const {
+    data,
+    error,
+    isValidating,
+    mutate,
+    setSize,
+    size,
+  } = useSWRInfinite<PagedResult<MessageDto>>(
+    (pageIndex, previousPageData) => {
+      if (!tokenAddress) return null;
+      if (previousPageData && !previousPageData.nextCursor) return null;
+      if (pageIndex === 0) {
+        return `/messages/tokens/${encodeURIComponent(tokenAddress)}/messages?limit=${limit}`;
+      }
+      const cursor = previousPageData?.nextCursor;
+      if (!cursor) return null;
+      return `/messages/tokens/${encodeURIComponent(tokenAddress)}/messages?limit=${limit}&cursor=${encodeURIComponent(cursor)}`;
+    },
+    (url) => fetcher(url),
     {
       revalidateOnFocus: false,
-      // refreshInterval removed: socket handles real-time updates via useMessagesSocket
     }
   );
-  const loadMore = useCallback(() => {
-    if (data?.nextCursor) setCursor(data.nextCursor);
-  }, [data?.nextCursor]);
-  return { data, error, isLoading, mutate, loadMore, cursor, setCursor };
+
+  const combinedItems = useMemo(() => data?.flatMap((page) => page.items) ?? [], [data]);
+  const lastPage = data?.[data.length - 1];
+  const nextCursor = lastPage?.nextCursor ?? null;
+  const isLoading = !data && isValidating;
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor) return;
+    await setSize((s) => s + 1);
+  }, [nextCursor, setSize]);
+
+  const reset = useCallback(async () => {
+    await setSize(1);
+  }, [setSize]);
+
+  return {
+    data: data ? ({ items: combinedItems, nextCursor } as PagedResult<MessageDto>) : undefined,
+    error,
+    isLoading,
+    isValidating,
+    mutate,
+    loadMore,
+    hasMore: Boolean(nextCursor),
+    size,
+    setSize,
+    reset,
+  } as const;
 };
 
 

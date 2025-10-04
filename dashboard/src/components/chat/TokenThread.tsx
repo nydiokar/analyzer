@@ -14,6 +14,18 @@ import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { AlertCreator } from '@/components/alerts/AlertCreator';
+import { Bell } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type MessageMeta = {
   message: any;
@@ -182,8 +194,8 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
 
   return (
     <div className="flex h-full min-h-0 flex-col" {...chat.containerProps} aria-label="Token thread keyboard area">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-5 py-4 backdrop-blur">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-5 py-3 backdrop-blur">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <TokenBadge
               mint={tokenAddress}
@@ -194,23 +206,38 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
               }}
               size="md"
             />
-            <div className="flex flex-col gap-1">
-              <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
-                <span>{watchedMeta?.symbol || watchedMeta?.name || tokenAddress.slice(0, 6)}</span>
-                <span className="text-xs text-muted-foreground">{tokenAddress.slice(0, 4)}...{tokenAddress.slice(-4)}</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                {priceLabel ? <span>{priceLabel}</span> : null}
-                {marketCapLabel ? <span>MC {marketCapLabel}</span> : null}
-                {liquidityLabel ? <span>Liq {liquidityLabel}</span> : null}
-                <span>Trend {trend > 0 ? 'up' : trend < 0 ? 'down' : 'flat'}</span>
-              </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Trend {trend > 0 ? 'up' : trend < 0 ? 'down' : 'flat'}</span>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2 text-xs text-muted-foreground">
-              <Sparkline values={series} width={128} height={28} stroke={trend > 0 ? '#34d399' : trend < 0 ? '#f87171' : '#a1a1aa'} />
-            </div>
+          <div className="flex items-center gap-2">
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="hidden md:flex items-center gap-2">
+                    <Sparkline values={series} width={160} height={32} stroke={trend > 0 ? '#34d399' : trend < 0 ? '#f87171' : '#a1a1aa'} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Price trend (24h)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            {userId && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Bell className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[320px] p-4">
+                  <div className="space-y-2">
+                    <h4 className="font-semibold text-sm">Create Price Alert</h4>
+                    <AlertCreator tokenAddress={tokenAddress} userId={userId} onCreated={() => {}} />
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
             <Button
               variant={watchedMeta ? 'outline' : 'default'}
               size="sm"
@@ -228,10 +255,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
             </Button>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {userId && (
-            <AlertCreator tokenAddress={tokenAddress} userId={userId} onCreated={() => {}} />
-          )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           {tags.map((tag, idx) => (
             <span key={`${tag.name}-${idx}`} className="rounded-full bg-muted px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               {tag.name}
@@ -242,9 +266,9 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
               value={tagValue}
               onChange={(event) => setTagValue(event.target.value)}
               placeholder="Add tag (meta:elon)"
-              className="h-8 w-40 text-xs"
+              className="h-7 w-36 text-xs"
             />
-            <Button type="submit" size="sm" disabled={isSavingTag || !tagValue.trim()}>
+            <Button type="submit" size="sm" className="h-7 text-xs px-2" disabled={isSavingTag || !tagValue.trim()}>
               Add
             </Button>
           </form>
@@ -254,6 +278,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
       {pinnedBand}
 
       <div ref={chat.scrollRef} className="flex-1 min-h-0 overflow-auto px-5 py-4">
+        {chat.hasMore && <div ref={chat.sentinelRef} className="h-1" />}
         {chat.hasMore && (
           <button className={cn('w-full py-2 text-xs', threadPalette.loadMore)} onClick={chat.loadMore}>
             Load older...
@@ -304,8 +329,6 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
           </button>
         </div>
       )}
-
-      {chat.hasMore && <div ref={chat.sentinelRef} className="h-1" />}
 
       <MessageComposer
         tokenAddress={tokenAddress}

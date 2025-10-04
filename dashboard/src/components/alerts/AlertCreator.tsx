@@ -15,11 +15,13 @@ interface AlertCreatorProps {
   onCreated?: () => void;
 }
 
+type AlertType = 'price' | 'percentage';
+
 export function AlertCreator({ tokenAddress: initialTokenAddress, userId, onCreated }: AlertCreatorProps) {
   const [tokenAddress, setTokenAddress] = useState(initialTokenAddress || '');
-  const [label, setLabel] = useState('');
+  const [alertType, setAlertType] = useState<AlertType>('price');
   const [operator, setOperator] = useState<'gt' | 'lt'>('gt');
-  const [targetPrice, setTargetPrice] = useState('');
+  const [targetValue, setTargetValue] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
 
@@ -67,9 +69,9 @@ export function AlertCreator({ tokenAddress: initialTokenAddress, userId, onCrea
   };
 
   const handleCreate = async () => {
-    // Validate target price
-    if (!targetPrice || isNaN(parseFloat(targetPrice)) || parseFloat(targetPrice) <= 0) {
-      toast.error('Please enter a valid price greater than 0');
+    // Validate target value
+    if (!targetValue || isNaN(parseFloat(targetValue)) || parseFloat(targetValue) <= 0) {
+      toast.error(`Please enter a valid ${alertType === 'price' ? 'price' : 'percentage'} greater than 0`);
       return;
     }
 
@@ -81,16 +83,30 @@ export function AlertCreator({ tokenAddress: initialTokenAddress, userId, onCrea
 
     setIsCreating(true);
     try {
+      const condition = alertType === 'price'
+        ? {
+            type: 'price',
+            operator,
+            value: parseFloat(targetValue),
+            field: 'priceUsd',
+          }
+        : {
+            type: 'percentage',
+            operator,
+            value: parseFloat(targetValue),
+            field: 'priceUsd',
+          };
+
+      // Auto-generate label for backend storage
+      const labelText = alertType === 'price'
+        ? `Price ${operator === 'gt' ? 'above' : 'below'} $${targetValue}`
+        : `Price ${operator === 'gt' ? 'increases' : 'decreases'} by ${targetValue}%`;
+
       await createAlert({
         userId,
         tokenAddress: tokenAddress.trim(),
-        label: label || `Price ${operator === 'gt' ? 'above' : 'below'} $${targetPrice}`,
-        condition: {
-          type: 'price',
-          operator,
-          value: parseFloat(targetPrice),
-          field: 'priceUsd',
-        },
+        label: labelText,
+        condition,
         channels: ['in_app'],
         cooldownMinutes: 60,
       });
@@ -101,8 +117,7 @@ export function AlertCreator({ tokenAddress: initialTokenAddress, userId, onCrea
       if (!initialTokenAddress) {
         setTokenAddress('');
       }
-      setLabel('');
-      setTargetPrice('');
+      setTargetValue('');
 
       onCreated?.();
     } catch (error) {
@@ -114,22 +129,10 @@ export function AlertCreator({ tokenAddress: initialTokenAddress, userId, onCrea
   };
 
   const showTokenInput = !initialTokenAddress;
-  const isDisabled = isCreating || isValidating || !targetPrice || !tokenAddress;
+  const isDisabled = isCreating || isValidating || !targetValue || !tokenAddress;
 
   return (
     <div className="space-y-3">
-      <div className="space-y-2">
-        <Label htmlFor="alert-label" className="text-xs font-medium">Label (optional)</Label>
-        <Input
-          id="alert-label"
-          placeholder="Moon alert"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          className="h-9 text-sm"
-          disabled={isCreating || isValidating}
-        />
-      </div>
-
       {showTokenInput && (
         <div className="space-y-2">
           <Label htmlFor="token-address" className="text-xs font-medium">Token Address *</Label>
@@ -147,6 +150,32 @@ export function AlertCreator({ tokenAddress: initialTokenAddress, userId, onCrea
         </div>
       )}
 
+      <div className="space-y-2">
+        <Label className="text-xs font-medium">Alert Type</Label>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant={alertType === 'price' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setAlertType('price')}
+            disabled={isCreating || isValidating}
+            className="h-9 text-xs"
+          >
+            Price
+          </Button>
+          <Button
+            type="button"
+            variant={alertType === 'percentage' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setAlertType('percentage')}
+            disabled={isCreating || isValidating}
+            className="h-9 text-xs"
+          >
+            % Change
+          </Button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label className="text-xs font-medium">Condition</Label>
@@ -156,23 +185,42 @@ export function AlertCreator({ tokenAddress: initialTokenAddress, userId, onCrea
             className="w-full h-9 text-sm rounded-md border border-input bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             disabled={isCreating || isValidating}
           >
-            <option value="gt">Price goes above</option>
-            <option value="lt">Price goes below</option>
+            {alertType === 'price' ? (
+              <>
+                <option value="gt">Price goes above</option>
+                <option value="lt">Price goes below</option>
+              </>
+            ) : (
+              <>
+                <option value="gt">Increases by</option>
+                <option value="lt">Decreases by</option>
+              </>
+            )}
           </select>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="target-price" className="text-xs font-medium">Target Price *</Label>
-          <Input
-            id="target-price"
-            type="number"
-            step="0.000001"
-            placeholder="0.00001"
-            value={targetPrice}
-            onChange={(e) => setTargetPrice(e.target.value)}
-            className="h-9 text-sm"
-            disabled={isCreating || isValidating}
-          />
+          <Label htmlFor="target-value" className="text-xs font-medium">
+            {alertType === 'price' ? 'Target Price *' : 'Percentage *'}
+          </Label>
+          <div className="relative">
+            {alertType === 'price' && (
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+            )}
+            <Input
+              id="target-value"
+              type="number"
+              step={alertType === 'price' ? '0.000001' : '1'}
+              placeholder={alertType === 'price' ? '0.00001' : '300'}
+              value={targetValue}
+              onChange={(e) => setTargetValue(e.target.value)}
+              className={`h-9 text-sm ${alertType === 'price' ? 'pl-6' : ''}`}
+              disabled={isCreating || isValidating}
+            />
+            {alertType === 'percentage' && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+            )}
+          </div>
         </div>
       </div>
 

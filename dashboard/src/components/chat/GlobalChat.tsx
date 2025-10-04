@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 import { useChat } from '@/hooks/useChat';
@@ -52,6 +52,7 @@ export default function GlobalChat() {
       {PinnedBand}
 
       <div ref={chat.scrollRef} className="flex-1 overflow-auto">
+        {chat.hasMore && <div ref={chat.sentinelRef} className="h-1" />}
         {chat.hasMore && (
           <button className="w-full py-2 text-xs text-muted-foreground hover:text-foreground" onClick={chat.loadMore}>
             Load older…
@@ -92,8 +93,6 @@ export default function GlobalChat() {
           </button>
         </div>
       )}
-
-      {chat.hasMore && <div ref={chat.sentinelRef} className="h-1" />}
 
       <MessageComposer
         replyTo={chat.replyTo}

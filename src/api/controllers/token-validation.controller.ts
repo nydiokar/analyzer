@@ -2,6 +2,7 @@ import { Controller, Get, Param, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { AxiosError } from 'axios';
 
 @ApiTags('token-validation')
 @Controller('token-validation')
@@ -47,7 +48,7 @@ export class TokenValidationController {
           hasLiquidity: !!firstPair.liquidity?.usd,
         },
       };
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Token validation failed for ${address}:`, error);
 
       // If it's a 404 or timeout, token doesn't exist

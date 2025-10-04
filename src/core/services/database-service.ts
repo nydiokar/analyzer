@@ -174,6 +174,13 @@ export class DatabaseService {
         return this.prismaClient.alertNotification;
     }
 
+    /**
+     * Exposes tokenInfo model for direct Prisma operations
+     */
+    get tokenInfo() {
+        return this.prismaClient.tokenInfo;
+    }
+
     // --- Mapping Activity Log Methods ---
     /**
      * Saves a mapping activity log entry to the database.
