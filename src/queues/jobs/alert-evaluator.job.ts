@@ -14,9 +14,10 @@ export class AlertEvaluatorJob {
     private readonly messageGateway: MessageGateway,
   ) {}
 
-  @Cron('*/5 * * * *') // Every 5 minutes
+  @Cron('*/30 * * * * *') // Every 30 seconds
   async evaluateAlerts() {
     const startTime = Date.now();
+    this.logger.log('🔔 AlertEvaluatorJob started');
 
     try {
       // Fetch active alerts
@@ -25,6 +26,8 @@ export class AlertEvaluatorJob {
         include: { TokenInfo: true },
         take: 500, // Max 500 per run
       });
+
+      this.logger.log(`Found ${alerts.length} active alerts to evaluate`);
 
       if (alerts.length === 0) {
         this.logger.debug('No active alerts to evaluate');
@@ -47,10 +50,13 @@ export class AlertEvaluatorJob {
           const shouldTrigger = await this.evaluateCondition(alert.condition, alert.TokenInfo);
           evaluated++;
 
+          this.logger.debug(`Alert ${alert.id}: condition=${JSON.stringify(alert.condition)}, priceUsd=${alert.TokenInfo?.priceUsd}, shouldTrigger=${shouldTrigger}`);
+
           if (shouldTrigger) {
             // Trigger alert
             await this.triggerAlert(alert, alert.TokenInfo);
             triggered++;
+            this.logger.log(`✅ Alert ${alert.id} triggered for user ${alert.userId}`);
           }
         } catch (error) {
           this.logger.error(`Failed to evaluate alert ${alert.id}:`, error);

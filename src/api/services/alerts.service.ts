@@ -14,7 +14,36 @@ export class AlertsService {
     channels?: string[];
     cooldownMinutes?: number;
   }) {
-    return this.db.tokenAlert.create({
+    // Ensure token exists (creates stub if not present) - centralized method
+    await this.db.ensureTokenExists(data.tokenAddress);
+
+    // Check for duplicate alert (same user, token, and condition)
+    const existingAlert = await this.db.tokenAlert.findFirst({
+      where: {
+        userId,
+        tokenAddress: data.tokenAddress,
+        condition: { equals: data.condition },
+        isActive: true,
+      },
+      include: { TokenInfo: true }
+    });
+
+    if (existingAlert) {
+      this.logger.log(`Alert already exists for user ${userId}, token ${data.tokenAddress}, condition ${JSON.stringify(data.condition)}`);
+      // Update existing alert instead of creating duplicate
+      const updated = await this.db.tokenAlert.update({
+        where: { id: existingAlert.id },
+        data: {
+          label: data.label,
+          channels: data.channels || existingAlert.channels,
+          cooldownMinutes: data.cooldownMinutes ?? existingAlert.cooldownMinutes,
+        },
+        include: { TokenInfo: true }
+      });
+      return this.serializeBigInt(updated);
+    }
+
+    const alert = await this.db.tokenAlert.create({
       data: {
         userId,
         tokenAddress: data.tokenAddress,
@@ -25,10 +54,27 @@ export class AlertsService {
       },
       include: { TokenInfo: true }
     });
+
+    // Convert BigInt to string for JSON serialization
+    return this.serializeBigInt(alert);
+  }
+
+  private serializeBigInt(obj: any): any {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'bigint') return obj.toString();
+    if (Array.isArray(obj)) return obj.map(item => this.serializeBigInt(item));
+    if (typeof obj === 'object') {
+      const result: any = {};
+      for (const key in obj) {
+        result[key] = this.serializeBigInt(obj[key]);
+      }
+      return result;
+    }
+    return obj;
   }
 
   async listUserAlerts(userId: string, tokenAddress?: string) {
-    return this.db.tokenAlert.findMany({
+    const alerts = await this.db.tokenAlert.findMany({
       where: {
         userId,
         ...(tokenAddress ? { tokenAddress } : {}),
@@ -36,13 +82,15 @@ export class AlertsService {
       include: { TokenInfo: true },
       orderBy: { createdAt: 'desc' },
     });
+    return alerts.map(alert => this.serializeBigInt(alert));
   }
 
   async getAlert(alertId: string) {
-    return this.db.tokenAlert.findUnique({
+    const alert = await this.db.tokenAlert.findUnique({
       where: { id: alertId },
       include: { TokenInfo: true },
     });
+    return alert ? this.serializeBigInt(alert) : null;
   }
 
   async updateAlert(alertId: string, data: {
@@ -87,7 +135,7 @@ export class AlertsService {
 
   // Get user notifications
   async getUserNotifications(userId: string, unreadOnly = false) {
-    return this.db.alertNotification.findMany({
+    const notifications = await this.db.alertNotification.findMany({
       where: {
         userId,
         ...(unreadOnly ? { isRead: false } : {}),
@@ -100,6 +148,7 @@ export class AlertsService {
       orderBy: { triggeredAt: 'desc' },
       take: 50,
     });
+    return notifications.map(notification => this.serializeBigInt(notification));
   }
 
   async markNotificationRead(notificationId: string) {

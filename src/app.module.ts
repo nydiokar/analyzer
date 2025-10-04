@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule'; // Enable cron jobs
 import { SchedulerModule } from './api/modules/scheduler.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ApiModule } from './api.module';
@@ -12,6 +13,7 @@ import { ApiKeyAuthGuard } from './api/shared/guards/api-key-auth.guard';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(), // Enable cron/interval scheduling
     ThrottlerModule.forRoot([{
       ttl: 60000, // 1 minute in milliseconds
       limit: 100, // 100 requests per minute

@@ -12,7 +12,9 @@ import {
     ActivityLog,   // Added ActivityLog
     WalletNote,    // Added WalletNote
     UserFavoriteWallet, // Added UserFavoriteWallet model import
-    TokenInfo
+    TokenInfo,
+    TokenAlert,
+    AlertNotification
 } from '@prisma/client';
 import { HeliusTransaction } from '@/types/helius-api'; // Assuming HeliusTransaction type is defined here
 import { TransactionData } from '@/types/correlation'; // Needed for getTransactionsForAnalysis
@@ -156,6 +158,20 @@ export class DatabaseService {
         ) => Promise<T>
     ): Promise<T> {
         return this.prismaClient.$transaction(fn);
+    }
+
+    /**
+     * Exposes tokenAlert model for direct Prisma operations
+     */
+    get tokenAlert() {
+        return this.prismaClient.tokenAlert;
+    }
+
+    /**
+     * Exposes alertNotification model for direct Prisma operations
+     */
+    get alertNotification() {
+        return this.prismaClient.alertNotification;
     }
 
     // --- Mapping Activity Log Methods ---
@@ -2252,6 +2268,21 @@ export class DatabaseService {
             where: {
                 tokenAddress: { in: tokenAddresses },
             },
+        });
+    }
+
+    /**
+     * Ensures a token exists in the database as a stub (with minimal data).
+     * If it doesn't exist, creates it with just the tokenAddress.
+     * This is the centralized method that all services should use to ensure FK constraints are satisfied.
+     * @param tokenAddress - The token address to ensure exists
+     * @returns The existing or newly created TokenInfo
+     */
+    async ensureTokenExists(tokenAddress: string): Promise<TokenInfo> {
+        return this.prismaClient.tokenInfo.upsert({
+            where: { tokenAddress },
+            update: {}, // Don't overwrite existing data
+            create: { tokenAddress, name: 'Unknown Token' }, // Minimal stub
         });
     }
 
