@@ -13,6 +13,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { FavoriteWalletsList } from '../sidebar/FavoriteWalletsList';
+import { AlertsList } from '../sidebar/AlertsList';
 import { WalletSearch } from '../sidebar/WalletSearch';
 
 interface SidebarProps {
@@ -151,6 +152,11 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
         {/* Favorites Section - Now uses popover */}
         <div className="flex-shrink-0">
           <FavoriteWalletsList isCollapsed={isCollapsed} />
+        </div>
+
+        {/* Alerts Section - Price alerts popover */}
+        <div className="flex-shrink-0 mt-2">
+          <AlertsList isCollapsed={isCollapsed} />
         </div>
 
         {/* Footer Navigation - Always visible */}

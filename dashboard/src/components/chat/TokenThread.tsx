@@ -7,11 +7,13 @@ import { useMiniPriceSeries } from '@/hooks/useMiniPriceSeries';
 import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 import { useChat } from '@/hooks/useChat';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import MessageRow from './MessageRow';
 import MessageComposer from './MessageComposer';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { AlertCreator } from '@/components/alerts/AlertCreator';
 
 type MessageMeta = {
   message: any;
@@ -49,6 +51,7 @@ function formatPrice(value?: string | number | null) {
 
 export default function TokenThread({ tokenAddress, highlightId }: { tokenAddress: string; highlightId?: string }) {
   const chat = useChat({ kind: 'token', tokenAddress });
+  const { userId } = useCurrentUser();
   const { data: watched, mutate: mutateWatched } = useWatchedTokens('FAVORITES');
   const watchedMeta = useMemo(() => (watched || []).find((w) => w.tokenAddress === tokenAddress) || null, [watched, tokenAddress]);
   const { series, trend } = useMiniPriceSeries(tokenAddress, 24);
@@ -226,6 +229,9 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
+          {userId && (
+            <AlertCreator tokenAddress={tokenAddress} userId={userId} onCreated={() => {}} />
+          )}
           {tags.map((tag, idx) => (
             <span key={`${tag.name}-${idx}`} className="rounded-full bg-muted px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               {tag.name}

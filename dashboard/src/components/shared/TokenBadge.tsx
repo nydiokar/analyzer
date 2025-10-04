@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Copy, ExternalLink, TrendingUp, Globe, Twitter, Send } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { memo } from "react";
+import { useTokenInfo } from "@/hooks/useTokenInfo";
 
 interface TokenMetadata {
   name?: string;
@@ -18,12 +19,19 @@ interface TokenMetadata {
 
 interface TokenBadgeProps {
   mint: string;
-  metadata?: TokenMetadata;
+  metadata?: TokenMetadata; // Optional - if not provided, will auto-fetch from DB
   className?: string;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xs";
 }
 
-const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeProps) => {
+const TokenBadge = memo(({ mint, metadata: metadataOverride, className, size = "md" }: TokenBadgeProps) => {
+  // Auto-fetch from DB if metadata not provided (unified data source)
+  const { data: tokenInfoData } = useTokenInfo(metadataOverride ? null : mint);
+  const fetchedMetadata = tokenInfoData?.[0];
+
+  // Use provided metadata (performance optimization) or auto-fetched data
+  const metadata = metadataOverride || fetchedMetadata;
+
   const tokenName = metadata?.name || 'Unknown Token';
   const tokenSymbol = metadata?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
 
@@ -37,12 +45,14 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
   };
 
   const sizeClasses = {
+    xs: "h-3 w-3",
     sm: "h-4 w-4",
-    md: "h-5 w-5", 
+    md: "h-5 w-5",
     lg: "h-8 w-8"
   };
 
   const textSizeClasses = {
+    xs: "text-[10px]",
     sm: "text-xs",
     md: "text-xs",
     lg: "text-sm"

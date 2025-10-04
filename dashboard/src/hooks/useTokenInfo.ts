@@ -8,6 +8,9 @@ export interface TokenInfoRow {
   name?: string | null;
   symbol?: string | null;
   imageUrl?: string | null;
+  websiteUrl?: string | null;
+  twitterUrl?: string | null;
+  telegramUrl?: string | null;
   marketCapUsd?: number | null;
   liquidityUsd?: number | null;
   priceUsd?: string | null;

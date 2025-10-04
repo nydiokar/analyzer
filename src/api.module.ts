@@ -12,10 +12,12 @@ import { JobsModule } from './api/modules/jobs.module'; // Import JobsModule for
 import { WebSocketModule } from './api/modules/websocket.module'; // Import WebSocketModule for real-time updates
 import { HeliusWebhookModule } from './api/integrations/helius-webhook.module';
 import { MessagesModule } from './api/modules/messages.module';
-
+import { TokenValidationController } from './api/controllers/token-validation.controller';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
+    HttpModule, // For token validation
     DatabaseModule, // Shared database access for any direct needs in ApiModule (e.g. Auth)
     WalletsModule,  // Imports all wallet-related features and controllers
     AnalysesModule, // Imports analysis triggering endpoints
@@ -32,6 +34,7 @@ import { MessagesModule } from './api/modules/messages.module';
   ],
   controllers: [
     TestController,
+    TokenValidationController, // Token address validation endpoint
      // WalletsController is now part of WalletsModule, so remove from here
      // HeliusWebhookController is now part of HeliusWebhookModule
   ],

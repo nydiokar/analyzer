@@ -2,7 +2,8 @@
 
 import useSWR from 'swr';
 import { fetcher } from '@/lib/fetcher';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { io, Socket } from 'socket.io-client';
 
 export interface TokenAlert {
   id: string;
@@ -88,4 +89,56 @@ export const markNotificationRead = async (notificationId: string) => {
   return fetcher(`/alerts/notifications/${notificationId}/read`, {
     method: 'PATCH',
   });
+};
+
+export const markAllNotificationsRead = async (userId: string) => {
+  return fetcher(`/alerts/notifications/read-all?userId=${userId}`, {
+    method: 'PATCH',
+  });
+};
+
+// Socket hook for real-time alert notifications
+export const useAlertSocket = (userId: string, onAlertTriggered?: (payload: any) => void) => {
+  const socketRef = useRef<Socket | null>(null);
+  const callbackRef = useRef(onAlertTriggered);
+
+  callbackRef.current = onAlertTriggered;
+
+  useEffect(() => {
+    if (!userId) return;
+
+    // Create socket connection
+    const socket: Socket = io(process.env.NEXT_PUBLIC_WEBSOCKET_URL || '', {
+      path: '/socket.io',
+      transports: ['websocket'],
+      withCredentials: true,
+    });
+
+    socketRef.current = socket;
+
+    const handleAlertTriggered = (payload: any) => {
+      console.log('[Alert Socket] Alert triggered:', payload);
+      callbackRef.current?.(payload);
+    };
+
+    // Listen for user-specific alert events
+    const eventName = `user:${userId}:alert`;
+    socket.on(eventName, handleAlertTriggered);
+
+    socket.on('connect', () => {
+      console.log('[Alert Socket] Connected');
+    });
+
+    socket.on('disconnect', () => {
+      console.log('[Alert Socket] Disconnected');
+    });
+
+    return () => {
+      socket.off(eventName, handleAlertTriggered);
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [userId]);
+
+  return socketRef;
 };

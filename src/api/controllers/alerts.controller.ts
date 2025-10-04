@@ -54,4 +54,9 @@ export class AlertsController {
   async markRead(@Param('id') id: string) {
     return this.alertsService.markNotificationRead(id);
   }
+
+  @Patch('notifications/read-all')
+  async markAllRead(@Query('userId') userId: string) {
+    return this.alertsService.markAllNotificationsRead(userId);
+  }
 }

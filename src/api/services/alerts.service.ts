@@ -160,4 +160,20 @@ export class AlertsService {
       },
     });
   }
+
+  async markAllNotificationsRead(userId: string) {
+    const result = await this.db.alertNotification.updateMany({
+      where: {
+        userId,
+        isRead: false,
+      },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
+
+    this.logger.log(`Marked ${result.count} notifications as read for user ${userId}`);
+    return { count: result.count };
+  }
 }
