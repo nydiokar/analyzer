@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from './database.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, MessageReadState } from '@prisma/client';
 import { parseMentions } from '../shared/mention-parser';
 import { MessageGateway } from '../shared/message.gateway';
 
@@ -369,6 +369,52 @@ export class MessagesService {
       this.logger.debug(`resolveSymbol search failed for input '${symbol}': ${String((e as any)?.message ?? e)}`);
       return [];
     }
+  }
+
+  async getReadStatesForUser(userId: string, scope?: string): Promise<MessageReadState[]> {
+    const where = scope ? { userId, scope } : { userId };
+    return this.db.messageReadState.findMany({ where, orderBy: { updatedAt: 'desc' } });
+  }
+
+  async updateReadState(userId: string, scope: string, lastReadAt: Date): Promise<MessageReadState> {
+    let row: MessageReadState | null = null;
+
+    await this.db.$transaction(async (tx) => {
+      const client = tx as any;
+      const existing = await client.messageReadState.findUnique({ where: { userId_scope: { userId, scope } } });
+
+      if (existing) {
+        if (existing.lastReadAt && existing.lastReadAt >= lastReadAt) {
+          row = existing;
+          return;
+        }
+
+        row = await client.messageReadState.update({
+          where: { userId_scope: { userId, scope } },
+          data: { lastReadAt },
+        });
+      } else {
+        row = await client.messageReadState.create({
+          data: { userId, scope, lastReadAt },
+        });
+      }
+    });
+
+    if (!row) {
+      throw new Error('Failed to persist read state');
+    }
+
+    try {
+      await this.messageGateway.publishReadState({
+        userId,
+        scope,
+        lastReadAt: row.lastReadAt.toISOString(),
+      });
+    } catch (err) {
+      this.logger.warn('Failed to publish read state update', err as any);
+    }
+
+    return row;
   }
 }
 

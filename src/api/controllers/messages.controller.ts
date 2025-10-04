@@ -1,13 +1,24 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, ValidationPipe, ConflictException, Delete } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, ValidationPipe, ConflictException, Delete, Req, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { MessagesService } from '../services/messages.service';
 import { parseMentions } from '../shared/mention-parser';
 import { WatchedTokensService } from '../services/watched-tokens.service';
+import { Request } from 'express';
+import { IsISO8601, IsNotEmpty, IsString } from 'class-validator';
 
 class PostMessageDto {
   body!: string;
   source!: 'dashboard' | 'telegram' | 'bot';
   parentId?: string | null;
+}
+
+class UpdateReadStateDto {
+  @IsString()
+  @IsNotEmpty()
+  scope!: string;
+
+  @IsISO8601()
+  lastReadAt!: string;
 }
 
 @Controller('messages')
@@ -62,6 +73,21 @@ export class MessagesController {
     return this.messages.listGlobal({ cursor: cursor ?? undefined, limit: take });
   }
 
+  @Get('read-state')
+  async getReadState(@Req() req: Request & { user?: any }, @Query('scope') scope?: string) {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException('User context missing');
+    const rows = await this.messages.getReadStatesForUser(userId, scope ?? undefined);
+    if (scope) {
+      const row = rows[0];
+      return {
+        scope,
+        lastReadAt: row?.lastReadAt ? row.lastReadAt.toISOString() : null,
+      };
+    }
+    return rows.map((row) => ({ scope: row.scope, lastReadAt: row.lastReadAt ? row.lastReadAt.toISOString() : null }));
+  }
+
   @Get(':id')
   async getById(@Param('id') id: string) {
     return this.messages.getById(id);
@@ -90,6 +116,24 @@ export class MessagesController {
   @Delete(':id')
   async deleteMessage(@Param('id') id: string) {
     return this.messages.deleteMessage(id);
+  }
+
+  @Post('read-state')
+  async setReadState(
+    @Req() req: Request & { user?: any },
+    @Body(new ValidationPipe({ transform: true })) dto: UpdateReadStateDto,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException('User context missing');
+    const scope = dto.scope.trim();
+    if (!scope) throw new BadRequestException('Scope must be provided');
+    const lastReadAt = new Date(dto.lastReadAt);
+    if (Number.isNaN(lastReadAt.getTime())) {
+      throw new BadRequestException('Invalid lastReadAt timestamp');
+    }
+
+    const updated = await this.messages.updateReadState(userId, scope, lastReadAt);
+    return { scope: updated.scope, lastReadAt: updated.lastReadAt.toISOString() };
   }
 
   @Post(':id/pin')

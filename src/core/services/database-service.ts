@@ -181,6 +181,10 @@ export class DatabaseService {
         return this.prismaClient.tokenInfo;
     }
 
+    get messageReadState() {
+        return this.prismaClient.messageReadState;
+    }
+
     // --- Mapping Activity Log Methods ---
     /**
      * Saves a mapping activity log entry to the database.

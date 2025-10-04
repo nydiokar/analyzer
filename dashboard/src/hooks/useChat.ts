@@ -1,11 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import useSWR from 'swr';
 import { useGlobalMessages, useTokenMessages } from '@/hooks/useMessages';
 import { useMessagesSocket } from '@/hooks/useMessagesSocket';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 import { fetcher } from '@/lib/fetcher';
 import type { Scope, MessageLite } from '@/chat/types';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+
+type ReadStateResponse = { scope: string; lastReadAt: string | null };
 
 export function useChat(scope: Scope, pageSize: number = 50) {
   // Data layer
@@ -13,12 +17,22 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     ? useGlobalMessages(pageSize)
     : useTokenMessages(scope.tokenAddress, pageSize);
 
+  const scopeKey = scope.kind === 'global' ? 'global' : `token:${scope.tokenAddress}`;
+  const { userId } = useCurrentUser();
+
   const { data, isLoading, error, mutate, loadMore, hasMore, mutateMessage } = dataHook;
+
+  const { data: readState, mutate: mutateReadState } = useSWR<ReadStateResponse>(
+    `/messages/read-state?scope=${encodeURIComponent(scopeKey)}`,
+    fetcher,
+    { revalidateOnFocus: false }
+  );
 
   // State
   const [replyTo, setReplyTo] = useState<{ id: string; body: string } | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const lastPostedAtRef = useRef<number>(0);
+  const lastPersistedRef = useRef<number>(0);
 
   // Computed data
   const messages = useMemo(() => (data?.items || []) as MessageLite[], [data?.items]);
@@ -79,22 +93,6 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     return () => el.removeEventListener('scroll', handleScroll);
   }, [checkIfAtBottom]);
 
-  // Real-time updates
-  useMessagesSocket({
-    tokenAddress: scope.kind === 'token' ? scope.tokenAddress : undefined,
-    onMessageCreated: async () => {
-      await mutate();
-      if (isAtBottomRef.current) {
-        requestAnimationFrame(() => scrollToBottom());
-      }
-      // Auto-scroll will also run through the effect below
-    },
-    onMessageEdited: async () => { await mutate(); },
-    onMessageDeleted: async () => { await mutate(); },
-    onMessagePinned: async () => { await mutate(); },
-    onReactionUpdated: async () => { await mutate(); },
-  });
-
   // Auto-scroll to bottom when new messages arrive and user is at bottom
   useEffect(() => {
     if (!itemsAsc.length || !isAtBottomRef.current) return;
@@ -134,6 +132,81 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   const handleError = useCallback((error: unknown, action: string) => {
     console.error(`Chat ${action} failed:`, error);
   }, []);
+
+  const persistReadState = useCallback(async (timestamp: number) => {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return;
+    const previous = lastPersistedRef.current;
+    if (timestamp <= previous) return;
+    lastPersistedRef.current = timestamp;
+    try {
+      await fetcher('/messages/read-state', {
+        method: 'POST',
+        body: JSON.stringify({ scope: scopeKey, lastReadAt: new Date(timestamp).toISOString() }),
+      });
+      mutateReadState();
+    } catch (error) {
+      lastPersistedRef.current = previous;
+      handleError(error, 'update read state');
+    }
+  }, [scopeKey, mutateReadState, handleError]);
+
+  const updateLastSeen = useCallback((timestamp: number, persist = false) => {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return;
+    setLastSeen((prev) => (timestamp > prev ? timestamp : prev));
+    if (persist) {
+      persistReadState(timestamp);
+    }
+  }, [persistReadState]);
+
+  const authoredByUser = useCallback((message: MessageLite) => {
+    if (!userId) return false;
+    const authorId = (message as any).authorUserId || (message as any).authorId || (message as any).author?.id;
+    return Boolean(authorId && authorId === userId);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!itemsAsc.length || !isAtBottomRef.current) return;
+    const latest = new Date(itemsAsc[itemsAsc.length - 1].createdAt).getTime();
+    if (!Number.isFinite(latest) || latest <= lastSeen) return;
+    updateLastSeen(latest, true);
+  }, [itemsAsc, lastSeen, updateLastSeen]);
+
+  // Real-time updates
+  useMessagesSocket({
+    tokenAddress: scope.kind === 'token' ? scope.tokenAddress : undefined,
+    onMessageCreated: async () => {
+      await mutate();
+      if (isAtBottomRef.current) {
+        requestAnimationFrame(() => scrollToBottom());
+      }
+    },
+    onMessageEdited: async () => { await mutate(); },
+    onMessageDeleted: async () => { await mutate(); },
+    onMessagePinned: async () => { await mutate(); },
+    onReactionUpdated: async () => { await mutate(); },
+    onReadStateUpdated: (payload) => {
+      if (!payload || payload.scope !== scopeKey) return;
+      if (payload.userId && userId && payload.userId !== userId) return;
+      const ts = Date.parse(payload.lastReadAt);
+      if (Number.isNaN(ts)) return;
+      if (ts > lastPersistedRef.current) {
+        lastPersistedRef.current = ts;
+      }
+      updateLastSeen(ts, false);
+      mutateReadState();
+    },
+  });
+
+  useEffect(() => {
+    const iso = readState?.lastReadAt;
+    if (!iso) return;
+    const ts = Date.parse(iso);
+    if (Number.isNaN(ts)) return;
+    if (ts > lastPersistedRef.current) {
+      lastPersistedRef.current = ts;
+    }
+    updateLastSeen(ts, false);
+  }, [readState?.lastReadAt, updateLastSeen]);
 
   const openActionsFor = useCallback((messageId: string) => {
     const row = document.getElementById(`msg-${messageId}`);
@@ -295,9 +368,10 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   }, [handleError]);
 
   const jumpToLatest = useCallback(() => {
-    setLastSeen(Date.now());
+    const now = Date.now();
+    updateLastSeen(now, true);
     scrollToBottom();
-  }, [scrollToBottom]);
+  }, [updateLastSeen, scrollToBottom]);
 
   const cancelReply = useCallback(() => {
     setReplyTo(null);
@@ -310,13 +384,14 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   }, []);
 
   const onMessageSent = useCallback(() => {
-    lastPostedAtRef.current = Date.now();
-    setLastSeen(Date.now());
+    const now = Date.now();
+    lastPostedAtRef.current = now;
+    updateLastSeen(now, true);
     setReplyTo(null);
     scrollToBottom();
     requestAnimationFrame(() => scrollToBottom());
     mutate();
-  }, [scrollToBottom, mutate]);
+  }, [scrollToBottom, mutate, updateLastSeen]);
 
   // Click pinned message to scroll to original
   const onPinnedMessageClick = useCallback((messageId: string) => {
@@ -359,8 +434,13 @@ export function useChat(scope: Scope, pageSize: number = 50) {
 
     // Utils
     isSelected,
-    isMessageOwn: (message: MessageLite) =>
-      lastPostedAtRef.current && new Date(message.createdAt).getTime() >= lastPostedAtRef.current - 500,
+    isMessageOwn: (message: MessageLite) => {
+      if (authoredByUser(message)) return true;
+      const createdAtMs = new Date(message.createdAt).getTime();
+      if (!Number.isFinite(createdAtMs)) return false;
+      const ref = lastPostedAtRef.current;
+      return Boolean(ref && createdAtMs >= ref - 2000);
+    },
 
     // Load more
     loadMore: loadOlder,

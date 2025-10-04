@@ -10,9 +10,10 @@ interface Options {
   onMessageDeleted?: (payload: { id: string; deletedAt: string }) => void;
   onMessagePinned?: (payload: { id: string; isPinned: boolean }) => void;
   onReactionUpdated?: (payload: { id: string; type: string; delta: 1|-1 }) => void;
+  onReadStateUpdated?: (payload: { userId: string; scope: string; lastReadAt: string }) => void;
 }
 
-export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned, onReactionUpdated }: Options) => {
+export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdited, onMessageDeleted, onMessagePinned, onReactionUpdated, onReadStateUpdated }: Options) => {
   const socketRef = useRef<Socket | null>(null);
 
   // Keep latest callbacks in refs so listeners stay stable
@@ -21,6 +22,7 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
   const deletedRef = useRef<typeof onMessageDeleted | undefined>(undefined);
   const pinnedRef = useRef<typeof onMessagePinned | undefined>(undefined);
   const reactionRef = useRef<typeof onReactionUpdated | undefined>(undefined);
+  const readStateRef = useRef<typeof onReadStateUpdated | undefined>(undefined);
   const tokenRef = useRef<string | undefined>(tokenAddress);
 
   createdRef.current = onMessageCreated;
@@ -28,6 +30,7 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
   deletedRef.current = onMessageDeleted;
   pinnedRef.current = onMessagePinned;
   reactionRef.current = onReactionUpdated;
+  readStateRef.current = onReadStateUpdated;
   tokenRef.current = tokenAddress;
 
   const connectionOptions = useMemo(() => ({
@@ -60,6 +63,7 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
     const handleMessageDeleted = (payload: unknown) => deletedRef.current?.(payload as any);
     const handleMessagePinned = (payload: unknown) => pinnedRef.current?.(payload as any);
     const handleReactionUpdated = (payload: unknown) => reactionRef.current?.(payload as any);
+    const handleReadStateUpdated = (payload: unknown) => readStateRef.current?.(payload as any);
 
     socket.on('connect', handleConnect);
     socket.on('message.created', handleMessageCreated);
@@ -67,6 +71,7 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
     socket.on('message.deleted', handleMessageDeleted);
     socket.on('message.pinned', handleMessagePinned);
     socket.on('reaction.updated', handleReactionUpdated);
+    socket.on('message.read-state', handleReadStateUpdated);
 
     return () => {
       socket.off('connect', handleConnect);
@@ -75,6 +80,7 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
       socket.off('message.deleted', handleMessageDeleted);
       socket.off('message.pinned', handleMessagePinned);
       socket.off('reaction.updated', handleReactionUpdated);
+      socket.off('message.read-state', handleReadStateUpdated);
       socket.disconnect();
       socketRef.current = null;
     };
@@ -91,5 +97,4 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
     }
   }, [tokenAddress]);
 };
-
 

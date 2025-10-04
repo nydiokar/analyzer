@@ -209,6 +209,7 @@ model User {
   walletNotes        WalletNote[]
   tokenAlerts        TokenAlert[]
   alertNotifications AlertNotification[]
+  messageReadStates  MessageReadState[]
 }
 
 model ActivityLog {
@@ -398,6 +399,18 @@ model MessageReaction {
 
   @@id([messageId, type])
   @@index([type])
+}
+
+model MessageReadState {
+  id         Int      @id @default(autoincrement())
+  userId     String
+  scope      String
+  lastReadAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  User       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scope])
+  @@index([scope])
 }
 
 model WatchedToken {
