@@ -58,7 +58,7 @@
     "@nestjs/cli": "^11.0.10",
     "@nestjs/common": "^11.1.6",
     "@nestjs/config": "^4.0.2",
-    "@nestjs/core": "^11.1.2",
+    "@nestjs/core": "^11.1.6",
     "@nestjs/platform-express": "^11.1.2",
     "@nestjs/platform-socket.io": "^11.1.6",
     "@nestjs/schedule": "^6.0.1",
@@ -71,7 +71,7 @@
     "@radix-ui/react-avatar": "^1.1.10",
     "@types/better-sqlite3": "^7.6.13",
     "@types/csv-stringify": "^1.4.3",
-    "axios": "^1.11.0",
+    "axios": "^1.12.2",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.2.0",
     "bignumber.js": "^9.3.1",
@@ -96,36 +96,35 @@
     "swagger-ui-express": "^5.0.1",
     "table": "^6.9.0",
     "telegraf": "^4.15.3",
-    "uuid": "^11.1.0",
+    "uuid": "^13.0.0",
     "winston": "^3.12.0",
     "winston-daily-rotate-file": "^5.0.0",
     "yargs": "^17.7.2"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
-    "@types/chai": "^5.2.2",
     "@types/crypto-js": "^4.2.2",
     "@types/express": "^5.0.3",
     "@types/json-bigint": "^1.0.4",
     "@types/lodash": "^4.17.18",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^24.3.1",
+    "@types/node": "^24.7.0",
     "@types/papaparse": "^5.3.15",
     "@types/uuid": "^10.0.0",
-    "chai": "^5.2.1",
+    "chai": "^6.2.0",
     "cross-env": "^10.0.0",
     "mocha": "^11.7.2",
     "nodemon": "^3.1.0",
-    "pm2": "^6.0.10",
+    "pm2": "^6.0.13",
     "prisma": "^6.16.3",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.9.3"
   },
   "overrides": {
     "glob": "^11.0.0",
-    "multer": "2.0.1",
+    "multer": "2.0.2",
     "chalk": "5.3.0",
     "color-convert": "2.0.1",
     "color-name": "1.1.4",
@@ -133,7 +132,7 @@
     "error-ex": "1.3.2",
     "has-ansi": "5.0.1",
     "@nestjs/platform-express": {
-      "multer": "2.0.1"
+      "multer": "2.0.2"
     }
   }
 }
