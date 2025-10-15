@@ -204,12 +204,12 @@ model User {
   lastSeenAt         DateTime?
   isActive           Boolean              @default(true)
   activityLogs       ActivityLog[]
+  alertNotifications AlertNotification[]
   messages           Message[]
+  messageReadStates  MessageReadState[]
+  tokenAlerts        TokenAlert[]
   favoriteWallets    UserFavoriteWallet[]
   walletNotes        WalletNote[]
-  tokenAlerts        TokenAlert[]
-  alertNotifications AlertNotification[]
-  messageReadStates  MessageReadState[]
 }
 
 model ActivityLog {
@@ -316,9 +316,10 @@ model TokenInfo {
   dexscreenerUpdatedAt DateTime?
   fetchedAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
+  priceChange24h       Float?
+  tokenAlerts          TokenAlert[]
   tokenTags            TokenTag[]
   watchedTokens        WatchedToken[]
-  tokenAlerts          TokenAlert[]
 
   @@index([name])
   @@index([symbol])
@@ -340,8 +341,8 @@ model TokenTag {
   source       String
   confidence   Float     @default(1.0)
   createdAt    DateTime  @default(now())
-  TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
   Tag          Tag       @relation(fields: [tagId], references: [id])
+  TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
 
   @@id([tokenAddress, tagId])
   @@index([tagId])
@@ -357,12 +358,12 @@ model Message {
   deletedAt    DateTime?
   isPinned     Boolean           @default(false)
   parentId     String?
+  author       User?             @relation(fields: [authorUserId], references: [id])
   parent       Message?          @relation("MessageThread", fields: [parentId], references: [id])
   replies      Message[]         @relation("MessageThread")
-  author       User?             @relation(fields: [authorUserId], references: [id])
   mentions     MessageMention[]
-  revisions    MessageRevision[]
   reactions    MessageReaction[]
+  revisions    MessageRevision[]
 
   @@index([createdAt, id])
 }
@@ -386,16 +387,16 @@ model MessageMention {
 
   @@index([kind, refId])
   @@index([messageId])
-  @@index([refId, kind]) // Optimized for watched-tokens.service.ts listWatched query
+  @@index([refId, kind])
 }
 
 model MessageReaction {
   messageId String
   type      String
-  count     Int       @default(0)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  Message   Message   @relation(fields: [messageId], references: [id])
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  Message   Message  @relation(fields: [messageId], references: [id])
 
   @@id([messageId, type])
   @@index([type])
@@ -424,6 +425,44 @@ model WatchedToken {
   @@unique([tokenAddress, list])
 }
 
+model TokenAlert {
+  id              String              @id @default(cuid())
+  userId          String
+  tokenAddress    String
+  label           String?
+  condition       Json
+  isActive        Boolean             @default(true)
+  channels        Json
+  lastTriggeredAt DateTime?
+  triggerCount    Int                 @default(0)
+  cooldownMinutes Int                 @default(60)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  baselinePrice   String?
+  notifications   AlertNotification[]
+  TokenInfo       TokenInfo           @relation(fields: [tokenAddress], references: [tokenAddress], onDelete: Cascade)
+  User            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([tokenAddress, isActive])
+}
+
+model AlertNotification {
+  id          String     @id @default(cuid())
+  alertId     String
+  userId      String
+  triggeredAt DateTime   @default(now())
+  snapshot    Json
+  delivered   Boolean    @default(false)
+  isRead      Boolean    @default(false)
+  readAt      DateTime?
+  User        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Alert       TokenAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([triggeredAt])
+}
+
 enum MessageSource {
   DASHBOARD
   TELEGRAM
@@ -447,71 +486,4 @@ enum WatchedTokenList {
   FAVORITES
   GRADUATION
   HOLDSTRONG
-}
-
-// ============================================
-// Token Alerts System (MVP Phase 1)
-// ============================================
-
-model TokenAlert {
-  id           String   @id @default(cuid())
-  userId       String
-  tokenAddress String
-
-  // Metadata
-  label        String?
-
-  // Simple condition (price or percentage)
-  condition    Json
-  // Example: { "type": "price", "operator": "gt", "value": 0.01, "field": "priceUsd" }
-  // Example: { "type": "percentage", "operator": "gt", "value": 300, "field": "priceUsd" }
-
-  // Baseline price (for percentage alerts - price at alert creation time)
-  baselinePrice String?
-
-  // Behavior
-  isActive     Boolean  @default(true)
-
-  // Delivery
-  channels     Json
-  // Example: ["in_app", "telegram"] - default handled in application layer
-
-  // State
-  lastTriggeredAt DateTime?
-  triggerCount    Int      @default(0)
-  cooldownMinutes Int      @default(60)
-
-  // Timestamps
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  User         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  TokenInfo    TokenInfo    @relation(fields: [tokenAddress], references: [tokenAddress], onDelete: Cascade)
-  notifications AlertNotification[]
-
-  @@index([userId, isActive])
-  @@index([tokenAddress, isActive])
-}
-
-model AlertNotification {
-  id          String   @id @default(cuid())
-  alertId     String
-  userId      String
-
-  // Context
-  triggeredAt DateTime @default(now())
-  snapshot    Json
-
-  // Delivery status
-  delivered   Boolean  @default(false)
-
-  // User interaction
-  isRead      Boolean  @default(false)
-  readAt      DateTime?
-
-  Alert       TokenAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
-  User        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, isRead])
-  @@index([triggeredAt])
 }

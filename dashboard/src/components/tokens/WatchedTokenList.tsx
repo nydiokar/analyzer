@@ -15,6 +15,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Search, Star, ArrowUpDown, Filter, TrendingUp, Droplet, BarChart3 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { fetcher } from '@/lib/fetcher';
 import { cn } from '@/lib/utils';
 
@@ -27,7 +33,7 @@ interface WatchedTokenListProps {
   selectedToken?: string;
 }
 
-type SparklineEntry = { series: number[]; trend: number };
+type SparklineEntry = { series: number[]; trend: number; hourSpan?: number };
 
 function readPinnedFromStorage(): string[] {
   if (typeof window === 'undefined') return [];
@@ -186,7 +192,11 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
         .map(([, price]) => Number(price))
         .filter((value) => Number.isFinite(value));
       const trend = series.length >= 2 ? Math.sign(series[series.length - 1] - series[0]) : 0;
-      sparklineCacheRef.current[addr] = { series, trend };
+
+      // Calculate actual hour span from data points (each point = 1 hour)
+      const hourSpan = points.length > 0 ? points.length : 24;
+
+      sparklineCacheRef.current[addr] = { series, trend, hourSpan };
       if (mountedRef.current) {
         setSparklineVersion((version) => version + 1);
       }
@@ -367,7 +377,7 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                   <div
                     key={token.tokenAddress}
                     className={cn(
-                      'group relative mx-3 my-2 flex flex-col gap-3 rounded-xl border p-4 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                      'group relative mx-3 my-2 flex flex-col gap-2.5 rounded-xl border p-3.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                       selectedToken === token.tokenAddress
                         ? 'border-primary/50 bg-primary/5 shadow-lg shadow-primary/10'
                         : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05] hover:shadow-md'
@@ -385,8 +395,8 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                     onFocusCapture={() => fetchSparkline(token.tokenAddress)}
                     aria-label={`Open thread for ${token.symbol || token.name || token.tokenAddress}`}
                   >
-                    {/* Top Row: Badge + Pin */}
-                    <div className="flex items-start justify-between">
+                    {/* Top Row: Badge + Activity + Pin */}
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <TokenBadge
                           mint={token.tokenAddress}
@@ -401,22 +411,43 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                           <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" aria-label="Unread messages" />
                         )}
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handlePinToggle(token.tokenAddress);
-                        }}
-                        className={cn(
-                          'h-8 w-8 rounded-lg bg-transparent text-white/30 transition-all hover:bg-white/10 hover:text-amber-400',
-                          pinned && 'text-amber-400 shadow-sm'
-                        )}
-                        aria-label={pinned ? 'Unpin token' : 'Pin token'}
-                      >
-                        <Star className={cn('h-4 w-4', pinned && 'fill-amber-400')} />
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="text-[10px] text-white/50 cursor-help">{formatRelativeTime(token.latestMessageAt)}</span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Last message activity</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handlePinToggle(token.tokenAddress);
+                                }}
+                                className={cn(
+                                  'h-7 w-7 rounded-lg bg-transparent text-white/30 transition-all hover:bg-white/10 hover:text-amber-400',
+                                  pinned && 'text-amber-400 shadow-sm'
+                                )}
+                                aria-label={pinned ? 'Unpin token' : 'Pin token'}
+                              >
+                                <Star className={cn('h-3.5 w-3.5', pinned && 'fill-amber-400')} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>{pinned ? 'Unpin token' : 'Pin to top'}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
                     </div>
 
                     {/* Market Cap + Price Row */}
@@ -439,10 +470,31 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                       </div>
                     </div>
 
-                    {/* Sparkline */}
+                    {/* Sparkline with hour span label */}
                     {sparkline && sparkline.series.length > 1 && (
-                      <div className={cn('rounded-lg bg-black/20 p-2 -mx-1', trendColor)}>
-                        <Sparkline values={sparkline.series} width={240} height={40} stroke="currentColor" />
+                      <div className="relative">
+                        <div className={cn('rounded-lg bg-gradient-to-br from-black/30 to-black/10 p-2.5 -mx-1', trendColor)}>
+                          <Sparkline values={sparkline.series} width={240} height={40} stroke="currentColor" />
+                        </div>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="absolute bottom-1 right-1 flex items-center gap-1.5 rounded-md bg-black/40 px-2 py-0.5 backdrop-blur-sm cursor-help">
+                                <span className="text-[9px] font-medium text-white/60">
+                                  {sparkline.hourSpan ? `${sparkline.hourSpan}h` : '24h'}
+                                </span>
+                                {changeLabel && (
+                                  <span className={cn('text-[10px] font-bold', changeColor)}>
+                                    {changeLabel}
+                                  </span>
+                                )}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>24h price change (DexScreener)</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
                     )}
 
@@ -464,12 +516,6 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                         )}
                       </div>
                     )}
-
-                    {/* Footer: Activity */}
-                    <div className="flex items-center gap-2 border-t border-white/5 pt-2 text-xs text-white/50">
-                      <span>Activity</span>
-                      <span className="font-medium text-white/70">{formatRelativeTime(token.latestMessageAt)}</span>
-                    </div>
                   </div>
                 );
               })}
