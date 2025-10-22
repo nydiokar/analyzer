@@ -71,7 +71,7 @@
     "@types/csv-stringify": "^1.4.3",
     "axios": "^1.12.2",
     "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^12.4.1",
     "bignumber.js": "^9.3.1",
     "bullmq": "^5.61.0",
     "class-transformer": "^0.5.1",
