@@ -4,7 +4,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
 import { SimilarityAnalysisRequestDto } from '../shared/dto/similarity-analysis.dto';
 import { WalletStatusRequestDto, WalletStatusResponseDto } from '../shared/dto/wallet-status.dto';
-import { DashboardAnalysisRequestDto, DashboardAnalysisResponseDto } from '../shared/dto/dashboard-analysis.dto';
+import { DashboardAnalysisRequestDto, DashboardAnalysisResponseDto, DashboardAnalysisScope } from '../shared/dto/dashboard-analysis.dto';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
 import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operations.queue';
@@ -12,6 +12,7 @@ import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations
 import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
 import { JobPriority } from '../../queues/config/queue.config';
+import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -249,11 +250,11 @@ export class AnalysesController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ 
     summary: 'Queue dashboard wallet analysis job',
-    description: 'Queues a comprehensive wallet analysis job for dashboard display. Returns job ID for monitoring via the Jobs API.'
+    description: 'Queues a scoped wallet analysis job for dashboard display. Returns job ID (if queued) and follow-up intent for monitoring.'
   })
   @ApiResponse({ 
     status: 202, 
-    description: 'Dashboard analysis job queued successfully',
+    description: 'Dashboard analysis job queued or skipped due to freshness.',
     type: DashboardAnalysisResponseDto
   })
   @ApiResponse({ status: 400, description: 'Invalid wallet address or request parameters' })
@@ -262,58 +263,145 @@ export class AnalysesController {
   async queueDashboardWalletAnalysis(
     @Body() dto: DashboardAnalysisRequestDto,
   ): Promise<DashboardAnalysisResponseDto> {
-    this.logger.log(`Received request to queue dashboard analysis for wallet: ${dto.walletAddress}`);
+    const scope = dto.analysisScope ?? 'deep';
+    const triggerSource = dto.triggerSource ?? 'manual';
+    this.logger.log(
+      `Received dashboard analysis request for wallet ${dto.walletAddress} [scope=${scope}, trigger=${triggerSource}]`,
+    );
 
-    // Validate wallet address
     if (!isValidSolanaAddress(dto.walletAddress)) {
       throw new BadRequestException(`Invalid Solana address: ${dto.walletAddress}`);
     }
 
+    const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[scope];
+    if (!scopeDefaults) {
+      throw new BadRequestException(`Unsupported analysis scope: ${scope}`);
+    }
+
+    const historyWindowDays =
+      scope === 'deep'
+        ? undefined
+        : dto.historyWindowDays ?? scopeDefaults.historyWindowDays ?? undefined;
+    const targetSignatureCount =
+      scope === 'deep'
+        ? dto.targetSignatureCount ?? undefined
+        : dto.targetSignatureCount ?? scopeDefaults.targetSignatureCount ?? undefined;
+
+    const queueWorkingAfter =
+      scope === 'flash' ? (dto.queueWorkingAfter ?? true) : false;
+    const queueDeepAfter =
+      scope === 'flash'
+        ? (dto.queueDeepAfter ?? false)
+        : scope === 'working'
+          ? (dto.queueDeepAfter ?? true)
+          : false;
+
     try {
-      // Generate request ID
-      const requestId = `dashboard-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const freshnessMinutes = scopeDefaults.freshnessMinutes ?? 0;
+      let skipReason: string | undefined;
+      let skipped = false;
 
-      // Check wallet status to estimate processing time
+      if (!dto.forceRefresh && freshnessMinutes > 0) {
+        const latestRun = await this.databaseService.getLatestDashboardAnalysisRun(dto.walletAddress, scope);
+        if (latestRun) {
+          const runTs = new Date(latestRun.runTimestamp).getTime();
+          const ageMinutes = (Date.now() - runTs) / 60000;
+          if (ageMinutes < freshnessMinutes) {
+            skipped = true;
+            skipReason = `fresh-within-${freshnessMinutes}m`;
+          }
+        }
+      }
+
+      const requestId = `dashboard-${scope}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      if (skipped) {
+        this.logger.log(
+          `Skipping dashboard analysis for ${dto.walletAddress} [scope=${scope}] due to ${skipReason}`,
+        );
+        return {
+          jobId: null,
+          requestId,
+          status: 'queued',
+          queueName: 'analysis-operations',
+          analysisScope: scope,
+          estimatedProcessingTime: '0 minutes',
+          monitoringUrl: '',
+          skipped: true,
+          skipReason,
+          queuedFollowUpScopes: [],
+        };
+      }
+
       const walletStatuses = await this.databaseService.getWalletsStatus([dto.walletAddress]);
-      const needsSync = walletStatuses.statuses[0].status === 'STALE' || 
-                       walletStatuses.statuses[0].status === 'MISSING' || 
-                       dto.forceRefresh;
+      const walletStatus = walletStatuses.statuses[0];
+      const needsSync =
+        walletStatus.status === 'STALE' ||
+        walletStatus.status === 'MISSING' ||
+        dto.forceRefresh;
 
-      // Prepare job data
+      const priority =
+        scope === 'flash'
+          ? JobPriority.CRITICAL
+          : scope === 'working'
+            ? JobPriority.HIGH
+            : JobPriority.NORMAL;
+
+      const timeoutMinutes =
+        dto.timeoutMinutes ??
+        scopeDefaults.timeoutMinutes ??
+        DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES;
+
       const jobData: DashboardWalletAnalysisJobData = {
         walletAddress: dto.walletAddress,
         requestId,
-        forceRefresh: dto.forceRefresh || false,
-        enrichMetadata: dto.enrichMetadata !== false, // Default to true
+        analysisScope: scope,
+        triggerSource,
+        historyWindowDays,
+        targetSignatureCount,
+        forceRefresh: dto.forceRefresh ?? false,
+        enrichMetadata: scope === 'deep' ? dto.enrichMetadata !== false : false,
+        queueWorkingAfter,
+        queueDeepAfter,
         failureThreshold: 0.8,
-        timeoutMinutes: needsSync ? 15 : 8, // Longer timeout if sync is needed
+        timeoutMinutes,
       };
 
-      // Add job to analysis operations queue
       const job = await this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
-        priority: JobPriority.CRITICAL, // High priority for user-initiated requests
-        delay: 0
+        priority,
+        delay: 0,
       });
 
-      // Calculate estimated processing time
-      const baseTimeMinutes = 3; // Base analysis time
-      const syncTimeMinutes = needsSync ? 10 : 0; // Additional time if sync needed
-      const estimatedMinutes = baseTimeMinutes + syncTimeMinutes;
-      const estimatedTime = estimatedMinutes > 60 
-        ? `${Math.round(estimatedMinutes / 60)} hour(s)`
-        : `${estimatedMinutes} minute(s)`;
+      const baseEstimate = scope === 'flash' ? 2 : scope === 'working' ? 5 : 8;
+      const syncEstimate = needsSync ? (scope === 'deep' ? 15 : 8) : 0;
+      const estimatedMinutes = baseEstimate + syncEstimate;
+      const estimatedTime =
+        estimatedMinutes > 60
+          ? `${Math.round(estimatedMinutes / 60)} hour(s)`
+          : `${estimatedMinutes} minute(s)`;
 
-      this.logger.log(`Queued dashboard analysis job ${job.id} for wallet ${dto.walletAddress}`);
+      const queuedFollowUpScopes: DashboardAnalysisScope[] = [];
+      if (queueWorkingAfter) {
+        queuedFollowUpScopes.push('working');
+      }
+      if (queueDeepAfter) {
+        queuedFollowUpScopes.push('deep');
+      }
+
+      this.logger.log(
+        `Queued dashboard analysis job ${job.id} for wallet ${dto.walletAddress} [scope=${scope}, followUps=${queuedFollowUpScopes.join(',') || 'none'}]`,
+      );
 
       return {
         jobId: job.id!,
         requestId,
         status: 'queued',
         queueName: 'analysis-operations',
+        analysisScope: scope,
         estimatedProcessingTime: estimatedTime,
-        monitoringUrl: `/jobs/${job.id}`
+        monitoringUrl: `/jobs/${job.id}`,
+        queuedFollowUpScopes,
       };
-
     } catch (error) {
       this.logger.error(`Failed to queue dashboard analysis:`, error);
       if (error instanceof BadRequestException) {

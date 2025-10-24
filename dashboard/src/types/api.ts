@@ -276,19 +276,33 @@ export interface JobStatusResponseDto {
 }
 
 // Dashboard Analysis Types
+export type DashboardAnalysisScope = 'flash' | 'working' | 'deep';
+export type DashboardAnalysisTriggerSource = 'auto' | 'manual' | 'system';
+
 export interface DashboardAnalysisRequest {
   walletAddress: string;
   forceRefresh?: boolean;
   enrichMetadata?: boolean;
+  analysisScope?: DashboardAnalysisScope;
+  historyWindowDays?: number;
+  targetSignatureCount?: number;
+  triggerSource?: DashboardAnalysisTriggerSource;
+  queueWorkingAfter?: boolean;
+  queueDeepAfter?: boolean;
+  timeoutMinutes?: number;
 }
 
 export interface DashboardAnalysisResponse {
-  jobId: string;
+  jobId: string | null;
   requestId: string;
   status: string;
   queueName: string;
+  analysisScope: DashboardAnalysisScope;
   estimatedProcessingTime: string;
   monitoringUrl: string;
+  skipped?: boolean;
+  skipReason?: string;
+  queuedFollowUpScopes?: DashboardAnalysisScope[];
 }
 
 // Note: JobProgressEvent, JobCompletedEvent, and JobFailedEvent are now imported from websockets.ts

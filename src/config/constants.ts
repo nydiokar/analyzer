@@ -69,6 +69,27 @@ export const ANALYSIS_EXECUTION_CONFIG = {
   DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 2000),
 } as const;
 
+export const DASHBOARD_ANALYSIS_SCOPE_DEFAULTS = {
+  flash: {
+    historyWindowDays: getEnvNumber('DASHBOARD_FLASH_HISTORY_DAYS', 7),
+    targetSignatureCount: getEnvNumber('DASHBOARD_FLASH_TARGET_SIGNATURES', 250),
+    freshnessMinutes: getEnvNumber('DASHBOARD_FLASH_FRESHNESS_MINUTES', 30),
+    timeoutMinutes: getEnvNumber('DASHBOARD_FLASH_TIMEOUT_MINUTES', 8),
+  },
+  working: {
+    historyWindowDays: getEnvNumber('DASHBOARD_WORKING_HISTORY_DAYS', 30),
+    targetSignatureCount: getEnvNumber('DASHBOARD_WORKING_TARGET_SIGNATURES', 2000),
+    freshnessMinutes: getEnvNumber('DASHBOARD_WORKING_FRESHNESS_MINUTES', 180), // 3 hours
+    timeoutMinutes: getEnvNumber('DASHBOARD_WORKING_TIMEOUT_MINUTES', 15),
+  },
+  deep: {
+    historyWindowDays: getEnvNumber('DASHBOARD_DEEP_HISTORY_DAYS', 0), // 0 = full history
+    targetSignatureCount: getEnvNumber('DASHBOARD_DEEP_TARGET_SIGNATURES', ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES),
+    freshnessMinutes: getEnvNumber('DASHBOARD_DEEP_FRESHNESS_MINUTES', 720), // 12 hours
+    timeoutMinutes: getEnvNumber('DASHBOARD_DEEP_TIMEOUT_MINUTES', 30),
+  },
+} as const;
+
 // Database configuration
 export const DB_CONFIG = {
   batchSize: 100, // General purpose batch size

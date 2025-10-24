@@ -1,3 +1,5 @@
+import type { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../../shared/dashboard-analysis.types';
+
 // Wallet Operations Job Data
 export interface SyncWalletJobData {
   walletAddress: string;
@@ -41,8 +43,14 @@ export interface AnalyzeBehaviorJobData {
 export interface DashboardWalletAnalysisJobData {
   walletAddress: string;
   requestId: string;
+  analysisScope: DashboardAnalysisScope;
+  triggerSource: DashboardAnalysisTriggerSource;
+  historyWindowDays?: number;
+  targetSignatureCount?: number;
   forceRefresh?: boolean;
   enrichMetadata?: boolean;
+  queueWorkingAfter?: boolean;
+  queueDeepAfter?: boolean;
   failureThreshold?: number;    // Partial failure tolerance (default 0.8)
   timeoutMinutes?: number;
 }

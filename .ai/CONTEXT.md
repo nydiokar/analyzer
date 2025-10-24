@@ -18,11 +18,11 @@
 
 ## Active
 
-**High Priority UX**: Auto-load dashboard wallet analysis (non-similarity) so users see data instantly on first visit.  
-- [ ] When `dashboard/src/app/(wallets)/[wallet]/page.tsx` mounts, trigger an analysis job automatically (no “Analyze” button press).  
-- [ ] Default payload: last 7 days (≈200–300 swaps) to give immediate charts; relay through `POST /api/v1/analyses/wallets/:walletAddress/trigger-analysis` or a new lightweight endpoint if needed (`src/api/controllers/analyses.controller.ts`, `src/api/services/pnl-analysis.service.ts`).  
-- [ ] Kick off a background fetch for deeper history (configurable `X` transactions/30 days) once the initial window is ready; keep rate limits (`src/queues/queues/wallet-operations.queue.ts`, Helius API) in mind.  
-- [ ] Update UI states to show “Loaded recent window / Fetching more…” instead of idle button, and document flow in `docs/1. scaling_plan.md` + `.ai/GUIDE.md` once implemented.
+- **High Priority UX**: Stage the dashboard auto-refresh pipeline so wallet pages feel instant while deep history streams in.  
+  - [x] Flash/working/deep scopes wired through controller, processor, queues, database, and websocket payloads.  
+  - [x] Dashboard auto-trigger + status chips live; summary renders cached data instantly.  
+  - [ ] Polish UI reconciliation for skipped follow-ups + respect restricted wallets before auto-trigger.  
+  - [ ] Update CTA copy/instrumentation and run manual verification checklist once fixes land.  
 
 **Task-with-low-priority** *DEFER for now*: Phase 6 - AI Expert Similarity Interpreter (see `docs/1. scaling_plan.md`, Immediate focus).  
 Deliverable: synchronous endpoint that transforms similarity output into an LLM-formatted dashboard report.
@@ -53,24 +53,7 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 
 ---
 
-## Blockers
+## Findings / Follow-ups
 
-- Mapper failure on DCA Keeper interaction (double spend) - reproduce with signature `K3VYZgVA9snNCb17o6vVcEvR3gdHGVaa2PxNGbGqJXQsvrDRynZjMZ17tasAiyrGUzBNnVJdY1S35vnAPjierM8`; fix expected in `src/core/services/helius-transaction-mapper.ts`
-- Similarity interpreter pending: dashboard must keep queue-backed fallback until the synchronous flow ships
-
----
-
-## Notes
-
-- Queue priorities and SLAs live in `src/queues/config/queue.config.ts`; job events feed websockets through `src/queues/services/job-events-bridge.service.ts`
-- CLI commands (`npm run analyze`, `npm run similarity`, `npm run top-holders`) reuse the same services - run after migrations and ensure Redis is reachable
-- Use DTOs from `src/api/shared/dto/` and throttling annotations already present in controllers to stay aligned with Swagger contracts
-
----
-
-## Quick Reference
-
-**Scaling Plan**: `docs/1. scaling_plan.md`  
-**Similarity internals**: `src/core/analysis/similarity/`  
-**Prompts**: `docs/behavioral_reconstruction_task.md`  
-**API surface**: Swagger `/api-docs` (mirrors `AnalysesController`, `JobsController`, etc.)
+- CTA copy/instrumentation polish pending; finalize wording + analytics now that scoped pipeline is stable.
+- Run manual verification matrix (heavy wallet, low-activity wallet, demo, multi-tab, skipped follow-up) before handoff.
