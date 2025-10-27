@@ -1249,37 +1249,6 @@ export default function WalletProfileLayout({
                 summaryError={summaryError}
                 summaryIsLoading={!walletSummary && !summaryError}
               />
-              <div className="flex flex-wrap items-center gap-1 mt-2">
-                {scopeSequence.map((scope) => {
-                  const state = scopeStates[scope];
-                  const progress = scopeProgress[scope];
-                  if (!state || state.status === 'idle') {
-                    return null;
-                  }
-                  const label = state.status === 'running'
-                    ? `${Math.min(100, Math.max(0, Math.round(progress)))}%`
-                    : state.status === 'completed'
-                      ? state.lastCompletedAt
-                        ? `Updated ${formatDistanceToNow(state.lastCompletedAt, { addSuffix: true })}`
-                        : 'Completed'
-                      : state.status === 'skipped'
-                        ? 'Fresh'
-                        : state.status === 'queued'
-                          ? 'Queued'
-                          : state.status === 'error'
-                            ? 'Failed'
-                            : 'Idle';
-                  return (
-                    <Badge
-                      key={scope}
-                      variant="secondary"
-                      className={cn('text-xs font-normal', scopeStatusStyles[state.status])}
-                    >
-                      {scopeLabels[scope]} · {label}
-                    </Badge>
-                  );
-                })}
-              </div>
               <TimeRangeSelector />
             </div>
             <div className={cn(
@@ -1330,12 +1299,12 @@ export default function WalletProfileLayout({
 
       <main className="flex-1 overflow-hidden p-0 flex flex-col">
         <div className="w-full h-full flex flex-col min-h-0">
-          <LazyTabContent value="overview" activeTab={activeTab} className="mt-4 flex-1" defer={false}>
-            <div>
+          <LazyTabContent value="overview" activeTab={activeTab} className="flex-1 flex flex-col overflow-hidden" defer={false}>
+            <div className="h-full flex flex-col p-4 overflow-auto">
               {children}
-              <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
-                <h3 className="text-lg font-semibold mb-2">AI Overview Coming Soon</h3>
-                <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center text-sm text-muted-foreground">
+              <div className="flex-1 flex flex-col border rounded-lg p-6 bg-card shadow-sm mt-4">
+                <h3 className="text-2xl font-bold mb-4">AI Overview Coming Soon</h3>
+                <div className="flex-1 bg-muted rounded-md flex items-center justify-center text-sm text-muted-foreground min-h-[300px]">
                   <div className="flex flex-col items-center gap-4">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                     <p>AI-powered wallet insights are being developed...</p>

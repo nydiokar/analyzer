@@ -30,10 +30,10 @@ interface AccountStatsPnlDisplayProps {
 const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, title }) => {
   if (!data) {
     return (
-      <Card className="w-full h-full">
+      <div className="w-full h-full overflow-auto p-6 border rounded-lg bg-card">
         <Title>{title}</Title>
         <Text>No data available for this period.</Text>
-      </Card>
+      </div>
     );
   }
 
@@ -60,7 +60,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
   };
   
   return (
-    <Card className="w-full h-full">
+    <div className="w-full h-full overflow-auto p-6 border rounded-lg bg-card">
       <Title>{title}</Title>
       {data?.dataFrom ? (
         <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-2">
@@ -213,12 +213,12 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
           </AccordionItem>
         </Accordion>
       </div>
-    </Card>
+    </div>
   );
 };
 
 const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
-  <Card className="w-full h-full">
+  <div className="w-full h-full overflow-auto p-6 border rounded-lg bg-card">
     <Title>{title}</Title>
     <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-2">
       <span className="inline-block animate-pulse rounded-md bg-primary/10 h-4 w-1/3">&nbsp;</span>
@@ -284,7 +284,7 @@ const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
         </AccordionItem>
       </Accordion>
     </div>
-  </Card>
+  </div>
 );
 
 export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, lastAnalysisTimestamp }: AccountStatsPnlTabProps) {
@@ -353,37 +353,35 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   
   if (isLoading && !isAnalyzingGlobal) {
     // Preserve the existing displayMode state for skeleton rendering
-    // const skeletonTitle = displayMode === 1 ? "Period Specific PNL" : "All-Time PNL"; // No longer needed directly here
     return (
-      <div className="space-y-6 p-1 md:p-0">
-        <Card className="space-y-1 p-1 w-full">
-          <Flex justifyContent="center">
-            {/* Skeleton for the TabGroup */}
-            <div className="max-w-xs flex space-x-1 p-1 bg-tremor-background-muted dark:bg-dark-tremor-background-muted rounded-lg">
-              <Skeleton className="h-8 w-20" />
-              <Skeleton className="h-8 w-20" />
-              <Skeleton className="h-8 w-20" />
-            </div>
-          </Flex>
-          <hr className="my-4 border-tremor-border dark:border-dark-tremor-border" />
+      <div className="h-full flex flex-col p-4">
+        <div className="flex justify-center mb-4">
+          {/* Skeleton for the TabGroup */}
+          <div className="max-w-xs flex space-x-1 p-1 bg-tremor-background-muted dark:bg-dark-tremor-background-muted rounded-lg">
+            <Skeleton className="h-8 w-20" />
+            <Skeleton className="h-8 w-20" />
+            <Skeleton className="h-8 w-20" />
+          </div>
+        </div>
 
-          {displayMode === 2 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start w-full">
+        {displayMode === 2 ? (
+          <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="min-h-0">
               <PnlDisplaySkeleton title="Period Specific PNL & Stats" />
-              <div className="border-l border-slate-700 pl-3 md:mt-0 mt-6">
-                <PnlDisplaySkeleton title="All-Time PNL & Stats" />
-              </div>
             </div>
-          ) : displayMode === 0 ? (
-            <Grid numItems={1} className="gap-6">
-              <PnlDisplaySkeleton title="Period Specific PNL & Stats" />
-            </Grid>
-          ) : (
-            <Grid numItems={1} className="gap-6">
+            <div className="min-h-0 border-l border-slate-700 pl-4">
               <PnlDisplaySkeleton title="All-Time PNL & Stats" />
-            </Grid>
-          )}
-        </Card>
+            </div>
+          </div>
+        ) : displayMode === 0 ? (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <PnlDisplaySkeleton title="Period Specific PNL & Stats" />
+          </div>
+        ) : (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <PnlDisplaySkeleton title="All-Time PNL & Stats" />
+          </div>
+        )}
       </div>
     );
   }
@@ -513,36 +511,33 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   }
 
   return (
-    <div className="space-y-6 p-1 md:p-0">
-      <Card className="space-y-1 p-1 w-full">
-        <Flex justifyContent="center">
-          <TabGroup index={displayMode} onIndexChange={setDisplayMode} className="max-w-xs">
-            <TabList variant="solid">
-              <Tab>Period</Tab>
-              <Tab>All-Time</Tab>
-              <Tab>Both</Tab>
-            </TabList>
-          </TabGroup>
-        </Flex>
-        <hr className="my-4 border-tremor-border dark:border-dark-tremor-border" />
+    <div className="h-full flex flex-col p-4">
+      <div className="flex justify-center mb-4">
+        <TabGroup index={displayMode} onIndexChange={setDisplayMode} className="max-w-xs">
+          <TabList variant="solid">
+            <Tab>Period</Tab>
+            <Tab>All-Time</Tab>
+            <Tab>Both</Tab>
+          </TabList>
+        </TabGroup>
+      </div>
 
-        {displayMode === 0 && (
-          <Grid numItems={1} className="gap-6">
-            {periodCardContent}
-          </Grid>
-        )}
-        {displayMode === 1 && (
-          <Grid numItems={1} className="gap-6">
-            {allTimeCardContent}
-          </Grid>
-        )}
-        {displayMode === 2 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start w-full">
-            {periodCardContent}
-            <div className="border-l border-slate-700 pl-3">{allTimeCardContent}</div>
-          </div>
-        )}
-      </Card>
+      {displayMode === 0 && (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {periodCardContent}
+        </div>
+      )}
+      {displayMode === 1 && (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {allTimeCardContent}
+        </div>
+      )}
+      {displayMode === 2 && (
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="min-h-0">{periodCardContent}</div>
+          <div className="min-h-0 border-l border-slate-700 pl-4">{allTimeCardContent}</div>
+        </div>
+      )}
     </div>
   );
 } 

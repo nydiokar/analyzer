@@ -747,7 +747,7 @@ const handleSort = useCallback((columnId: string) => {
         ? "No token activity or missing token data. Try expanding the date range, selecting 'All' or hit Refresh."
         : "No token activity detected for the selected filters.";
 
-      return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
+      return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data?" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
     }
 
     const virtualRows = rowVirtualizer.getVirtualItems();

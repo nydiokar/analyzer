@@ -5,7 +5,6 @@ import useSWR from 'swr';
 import { fetcher } from '@/lib/fetcher';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   Table,
   TableHeader,
@@ -247,7 +246,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
   // Loading State
   if (isLoadingNotes) {
     return (
-      <Card className="mt-8 flex flex-col items-center justify-center min-h-[300px]">
+      <div className="h-full flex items-center justify-center p-4">
         <EmptyState
           variant="default"
           icon={Loader2}
@@ -255,7 +254,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
           description="Please wait while we fetch your notes."
           className="border-none shadow-none"
         />
-      </Card>
+      </div>
     );
   }
 
@@ -264,7 +263,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
     if (notesError.status === 404) {
       // Wallet not found or no notes endpoint for this wallet (interpreted as wallet not found for notes)
       return (
-        <Card className="mt-8 flex flex-col items-center justify-center min-h-[300px]">
+        <div className="h-full flex items-center justify-center p-4">
           <EmptyState
             variant="error"
             icon={AlertTriangle}
@@ -272,12 +271,12 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
             description="This wallet address may be invalid or notes cannot be accessed for it."
             className="border-none shadow-none"
           />
-        </Card>
+        </div>
       );
     }
     // Generic error for other issues
     return (
-      <Card className="mt-8 flex flex-col items-center justify-center min-h-[300px]">
+      <div className="h-full flex items-center justify-center p-4">
         <EmptyState
           variant="error"
           icon={AlertTriangle}
@@ -287,25 +286,26 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
           onActionClick={() => mutateNotes()}
           className="border-none shadow-none"
         />
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card className="mt-2">
-      <CardHeader>
-        <CardTitle> Notes</CardTitle>
-        <CardDescription>Add and view notes for this wallet.</CardDescription>
-        <div className="mt-4">
-            <Button onClick={handleAddNoteClick} variant={showInputArea ? "outline" : "default"} size="sm">
-                <PlusCircle className="mr-2 h-4 w-4" />
-                {showInputArea ? 'Cancel' : 'Add New Note'}
-            </Button>
+    <div className="h-full flex flex-col p-4 overflow-hidden">
+      <div className="flex-shrink-0 mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <h2 className="text-2xl font-bold">Notes</h2>
+            <p className="text-sm text-muted-foreground">Add and view notes for this wallet.</p>
+          </div>
+          <Button onClick={handleAddNoteClick} variant={showInputArea ? "outline" : "default"} size="sm">
+            <PlusCircle className="mr-2 h-4 w-4" />
+            {showInputArea ? 'Cancel' : 'Add New Note'}
+          </Button>
         </div>
-      </CardHeader>
-      <CardContent>
+
         {showInputArea && (
-          <form onSubmit={handleNoteSubmit} className="space-y-4 my-6 p-4 border rounded-md bg-muted/30">
+          <form onSubmit={handleNoteSubmit} className="space-y-4 my-4 p-4 border rounded-md bg-muted/30">
             <Textarea
               placeholder="Type your note here..."
               value={newNoteContent}
@@ -323,23 +323,29 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
             </Button>
           </form>
         )}
+      </div>
 
-        <h3 className="text-lg font-semibold my-3 pt-3 border-t">Existing Notes</h3>
+      <div className="flex-1 overflow-hidden flex flex-col border rounded-lg">
+        <div className="flex-shrink-0 px-4 py-3 border-b bg-muted/30">
+          <h3 className="text-lg font-semibold">Existing Notes</h3>
+        </div>
         
         {sortedNotes.length === 0 && !showInputArea && (
-           <EmptyState
-            variant="info"
-            icon={FileText}
-            title="No Notes Available"
-            description="You haven't added any notes for this wallet yet."
-            actionText="Add Note"
-            onActionClick={() => setShowInputArea(true)}
-            className="my-6"
-          />
+          <div className="flex-1 flex items-center justify-center p-4">
+            <EmptyState
+              variant="info"
+              icon={FileText}
+              title="No Notes Available"
+              description="You haven't added any notes for this wallet yet."
+              actionText="Add Note"
+              onActionClick={() => setShowInputArea(true)}
+              className="border-none shadow-none"
+            />
+          </div>
         )}
 
         {sortedNotes.length > 0 && (
-          <ScrollArea className="h-[400px] pr-4">
+          <div className="flex-1 overflow-auto">
             <Table>
               <TableHeader className="sticky top-0 bg-muted/80 z-10">
                 <TableRow>
@@ -441,65 +447,65 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
                 ))}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </div>
         )}
 
-        {/* Dialog for Viewing Full Note */}
-        {noteToViewFull && (
-          <Dialog open={!!noteToViewFull} onOpenChange={(open: boolean) => !open && setNoteToViewFull(null)}>
-            <DialogContent className="sm:max-w-2xl max-h-[80vh]">
-              <DialogHeader>
-                <DialogTitle>Full Note Content</DialogTitle>
-                <DialogDescription>
-                  Author: {noteToViewFull.user?.description || noteToViewFull.user?.id || 'Unknown'} | Added: {format(new Date(noteToViewFull.createdAt), 'MMM d, yyyy, hh:mm a')}
-                </DialogDescription>
-              </DialogHeader>
-              <ScrollArea className="max-h-[60vh] my-4 pr-3">
-                  <p className="text-sm whitespace-pre-wrap break-words">{noteToViewFull.content}</p>
-              </ScrollArea>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline">Close</Button>
-                </DialogClose>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
+      </div>
 
-        {/* Dialog for Editing Note */}
-        {editingNote && (
-          <Dialog open={!!editingNote} onOpenChange={(open: boolean) => { if (!open) handleCancelEdit(); }}>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Edit Note</DialogTitle>
-                <DialogDescription>
-                  Modify your note content below. Click save when you&apos;re done.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <Textarea
-                  value={editingNote.content}
-                  onChange={(e) => handleUpdateNoteContentChange(e.target.value)}
-                  rows={10}
-                  className="min-h-[150px]"
-                  disabled={isUpdatingNote}
-                />
-              </div>
-              <DialogFooter>
-                <DialogClose asChild>
-                   <Button type="button" variant="outline" onClick={handleCancelEdit} disabled={isUpdatingNote}>
-                      Cancel
-                  </Button>
-                </DialogClose>
-                <Button type="button" onClick={handleSaveUpdatedNote} disabled={isUpdatingNote || !editingNote.content.trim()}>
-                  {isUpdatingNote ? <><Hourglass className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : "Save Changes"}
+      {/* Dialog for Viewing Full Note */}
+      {noteToViewFull && (
+        <Dialog open={!!noteToViewFull} onOpenChange={(open: boolean) => !open && setNoteToViewFull(null)}>
+          <DialogContent className="sm:max-w-2xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>Full Note Content</DialogTitle>
+              <DialogDescription>
+                Author: {noteToViewFull.user?.description || noteToViewFull.user?.id || 'Unknown'} | Added: {format(new Date(noteToViewFull.createdAt), 'MMM d, yyyy, hh:mm a')}
+              </DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="max-h-[60vh] my-4 pr-3">
+                <p className="text-sm whitespace-pre-wrap break-words">{noteToViewFull.content}</p>
+            </ScrollArea>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Close</Button>
+              </DialogClose>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Dialog for Editing Note */}
+      {editingNote && (
+        <Dialog open={!!editingNote} onOpenChange={(open: boolean) => { if (!open) handleCancelEdit(); }}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Edit Note</DialogTitle>
+              <DialogDescription>
+                Modify your note content below. Click save when you&apos;re done.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <Textarea
+                value={editingNote.content}
+                onChange={(e) => handleUpdateNoteContentChange(e.target.value)}
+                rows={10}
+                className="min-h-[150px]"
+                disabled={isUpdatingNote}
+              />
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                 <Button type="button" variant="outline" onClick={handleCancelEdit} disabled={isUpdatingNote}>
+                    Cancel
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-
-      </CardContent>
-    </Card>
+              </DialogClose>
+              <Button type="button" onClick={handleSaveUpdatedNote} disabled={isUpdatingNote || !editingNote.content.trim()}>
+                {isUpdatingNote ? <><Hourglass className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
   );
 } 

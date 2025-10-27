@@ -488,7 +488,21 @@ export function mapHeliusTransactionsToIntermediateRecords(
       let totalUsdcMovement = 0;
       for (const transfer of tx.tokenTransfers || []) {
           if (transfer.mint === SOL_MINT) {
-              const wsolAmount = Math.abs(safeParseAmount(transfer));
+              let wsolAmount = Math.abs(safeParseAmount(transfer));
+
+              // Apply same Helius bug mitigation as main WSOL processing
+              if (wsolAmount > 100000) {
+                  const expectedSolChange = Math.abs(finalNetUserSolChange);
+                  const scaledAmount = wsolAmount / LAMPORTS_PER_SOL;
+                  const tolerance = 0.20;
+                  const lowerBound = expectedSolChange * (1 - tolerance);
+                  const upperBound = expectedSolChange * (1 + tolerance);
+
+                  if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
+                      wsolAmount = scaledAmount; // Auto-correct raw lamports
+                  }
+              }
+
               totalWsolMovement += wsolAmount;
               if (wsolAmount > largestWsolTransfer) largestWsolTransfer = wsolAmount;
           }
@@ -762,12 +776,48 @@ export function mapHeliusTransactionsToIntermediateRecords(
              }
 
              if (applyFeeHeuristic) {
-                associatedSolValue = 0; 
+                associatedSolValue = 0;
                 associatedUsdcValue = 0;
              } else {
                  // --- Original Value Association Logic (if not a heuristic-identified fee) ---
                  if (isWsol) {
-                      associatedSolValue = currentAbsTransferAmount; // WSOL value is its amount
+                      // HELIUS API BUG MITIGATION:
+                      // Helius claims tokenAmount is human-readable (already scaled by decimals),
+                      // but sometimes provides RAW lamport values for WSOL instead.
+                      // Self-healing approach: Cross-validate with native balance changes.
+
+                      let wsolAmount = currentAbsTransferAmount;
+
+                      // Threshold: If WSOL amount > 100,000, it's likely raw lamports (not scaled)
+                      // Reasoning: Lamports are always in millions+ range, real SOL amounts rarely exceed 100k in single transfers
+                      if (wsolAmount > 100000) {
+                          // Potential raw lamports detected - validate against actual native SOL changes
+                          const expectedSolChange = Math.abs(finalNetUserSolChange); // This is already in SOL
+                          const scaledAmount = wsolAmount / LAMPORTS_PER_SOL;
+
+                          // Cross-validate: If scaled amount matches native change (within 20% tolerance), it was raw lamports
+                          // Tolerance accounts for: fees, multiple WSOL transfers, wrapped/unwrapped amounts
+                          const tolerance = 0.20; // 20% tolerance
+                          const lowerBound = expectedSolChange * (1 - tolerance);
+                          const upperBound = expectedSolChange * (1 + tolerance);
+
+                          if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
+                              // CONFIRMED: This was raw lamports, not human-readable SOL
+                              wsolAmount = scaledAmount;
+                              logger.warn(
+                                  `Tx ${tx.signature}: Helius API bug detected - WSOL tokenAmount provided as raw lamports (${currentAbsTransferAmount}). ` +
+                                  `Auto-corrected to ${wsolAmount.toFixed(9)} SOL (validated against native change: ${expectedSolChange.toFixed(9)} SOL)`
+                              );
+                          } else {
+                              // Value is genuinely large (whale transfer) - keep as-is but log for visibility
+                              logger.info(
+                                  `Tx ${tx.signature}: Large WSOL transfer detected: ${wsolAmount.toFixed(9)} SOL. ` +
+                                  `Native change: ${expectedSolChange.toFixed(9)} SOL. No auto-correction applied.`
+                              );
+                          }
+                      }
+
+                      associatedSolValue = wsolAmount;
                  } else if (isUsdc) {
                       associatedUsdcValue = currentAbsTransferAmount; // USDC value is its amount
                  } else {
