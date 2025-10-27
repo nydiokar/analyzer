@@ -186,6 +186,12 @@ export interface TokenPerformanceDataDto {
   realizedPnlSol?: number | null;
   realizedPnlPercentage?: number | null;
   unrealizedPnlPercentage?: number | null;
+
+  // Server-provided spam risk analysis (precomputed to avoid heavy client work)
+  spamRiskLevel?: 'safe' | 'high-risk' | null;
+  spamRiskScore?: number | null;
+  spamRiskReasons?: string[] | null;
+  spamPrimaryReason?: string | null;
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts

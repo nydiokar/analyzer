@@ -24,6 +24,7 @@ import {
   ColumnDef,
   ColumnFiltersState,
 } from '@tanstack/react-table';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { 
   InfoIcon,
   ArrowUpRight,
@@ -49,144 +50,6 @@ import { Button as UiButton } from "@/components/ui/button";
 import { useApiKeyStore } from '@/store/api-key-store';
 import { fetcher } from '@/lib/fetcher';
 import { TokenBadge } from "@/components/shared/TokenBadge";
-
-
-// Enhanced spam detection using DexScreener data and transaction patterns  
-// MOVED OUTSIDE COMPONENT TO PREVENT RE-CREATION ON EVERY RENDER
-const analyzeTokenSpamRisk = (token: TokenPerformanceDataDto): {
-  riskLevel: 'safe' | 'high-risk';
-  riskScore: number;
-  reasons: string[];
-  primaryReason: string;
-} => {
-  let riskScore = 0;
-  const reasons: string[] = [];
-  
-  // Whitelist of well-known legitimate tokens (by symbol or name)
-  const LEGITIMATE_TOKENS = [
-    'SOL', 'USDC', 'USDT', 'BTC', 'ETH', 'WBTC', 'WETH', 'RAY', 'SRM', 'FTT',
-    'MNGO', 'STEP', 'ROPE', 'COPE', 'FIDA', 'KIN', 'MAPS', 'OXY', 'MEDIA',
-    'Wrapped SOL', 'USD Coin', 'Tether USD', 'Bitcoin', 'Ethereum', 'Wrapped Bitcoin',
-    'Raydium', 'Serum', 'FTX Token', 'Mango', 'Step Finance', 'Rope Token'
-  ];
-  
-  // If it's a legitimate token, mark as safe regardless of other factors
-  if (token.symbol && LEGITIMATE_TOKENS.includes(token.symbol)) {
-    return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'], primaryReason: 'Whitelisted legitimate token' };
-  }
-  if (token.name && LEGITIMATE_TOKENS.includes(token.name)) {
-    return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'], primaryReason: 'Whitelisted legitimate token' };
-  }
-  
-  const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
-  const totalSpent = token.totalSolSpent ?? 0;
-  const totalReceived = token.totalSolReceived ?? 0;
-  const transfersIn = token.transferCountIn ?? 0;
-  const transfersOut = token.transferCountOut ?? 0;
-  const totalTransfers = transfersIn + transfersOut;
-
-  // ULTIMATE SCAM PATTERN: Single transaction with zero SOL movement
-  if (totalTransfers === 1 && totalSpent === 0 && totalReceived === 0) {
-    riskScore += 85;
-    reasons.push('Airdrop scam (1 tx, no SOL movement)');
-  }
-
-  // Honeypot detection: Only spent SOL, never received SOL from selling
-  if (transfersIn > 0 && transfersOut === 0 && totalSpent > 0.01 && totalReceived === 0) {
-    riskScore += 45;
-    reasons.push('Potential honeypot (can buy, cannot sell)');
-  }
-
-  // Failed exit patterns: Multiple attempts to sell with minimal success
-  if (transfersOut >= 3 && totalReceived < (totalSpent * 0.1) && totalSpent > 0.05) {
-    riskScore += 35;
-    reasons.push('Failed exit attempts (multiple sells, minimal returns)');
-  }
-
-  // High-frequency micro transactions (potential bot/scam activity)
-  if (totalTransfers >= 10 && totalSpent < 0.1 && totalReceived < 0.1) {
-    riskScore += 60;
-    reasons.push('Bot activity (high frequency micro-transactions)');
-  }
-
-  // Dust attack pattern: Very small amounts with no real trading activity
-  if (totalSpent < 0.001 && totalReceived < 0.001 && totalTransfers > 0) {
-    riskScore += 30;
-    reasons.push('Dust attack pattern');
-  }
-
-  // Pump and dump pattern: Quick buy followed by immediate sell attempt
-  if (transfersIn === 1 && transfersOut >= 1 && token.firstTransferTimestamp && token.lastTransferTimestamp) {
-    const tradingDuration = token.lastTransferTimestamp - token.firstTransferTimestamp;
-    if (tradingDuration < 3600 && totalReceived < (totalSpent * 0.5)) {
-      riskScore += 25;
-      reasons.push('Pump & dump pattern (rapid trading, big loss)');
-    }
-  }
-
-  // Very recent token activity (less than 24 hours) with unknown metadata
-  const now = Date.now() / 1000;
-  if (isUnknown && token.firstTransferTimestamp && (now - token.firstTransferTimestamp) < (24 * 60 * 60)) {
-    riskScore += 15;
-    reasons.push('Very recent token (<24h old)');
-  }
-
-  // No social links or web presence for unknown tokens
-  if (isUnknown && !token.websiteUrl && !token.twitterUrl && !token.telegramUrl) {
-    riskScore += 20;
-    reasons.push('No web presence or social links');
-  }
-
-  // Unknown token metadata (base risk) - only add if no other significant reasons
-  if (isUnknown && reasons.length === 0) {
-    riskScore += 25;
-    reasons.push('Unknown token metadata');
-  }
-
-  // DexScreener data integration for enhanced risk assessment
-  if ((token as any).marketCapUsd && (token as any).marketCapUsd < 10000) {
-    riskScore += 30;
-    const marketCapK = ((token as any).marketCapUsd / 1000).toFixed(1);
-    reasons.push(`Very low market cap ($${marketCapK}K)`);
-  }
-  
-  if ((token as any).liquidityUsd && (token as any).liquidityUsd < 1000) {
-    riskScore += 25;
-    const liquidityK = ((token as any).liquidityUsd / 1000).toFixed(1);
-    reasons.push(`Very low liquidity ($${liquidityK}K)`);
-  }
-
-  // Very new trading pair (less than 7 days old)
-  if ((token as any).pairCreatedAt) {
-    const pairAge = (Date.now() - (token as any).pairCreatedAt) / (1000 * 60 * 60 * 24);
-    if (pairAge < 7) {
-      riskScore += 20;
-      reasons.push(`Very new trading pair (${pairAge.toFixed(1)} days old)`);
-    }
-  }
-
-  // No trading volume (dead token)
-  if ((token as any).volume24h !== undefined && (token as any).volume24h < 100) {
-    riskScore += 15;
-    reasons.push('Very low trading volume (<$100/24h)');
-  }
-
-  // Cap risk score at 100 to avoid confusion
-  riskScore = Math.min(riskScore, 100);
-
-  // Determine risk level
-  let riskLevel: 'safe' | 'high-risk';
-  if (riskScore >= 35) {
-    riskLevel = 'high-risk';
-  } else {
-    riskLevel = 'safe';
-  }
-
-  // Get the most important reason (first one is usually most critical)
-  const primaryReason = reasons.length > 0 ? reasons[0] : 'Low risk score';
-
-  return { riskLevel, riskScore, reasons, primaryReason };
-};
 
 export interface TokenPerformanceTabProps {
   walletAddress: string;
@@ -232,16 +95,15 @@ const BACKEND_SORTABLE_IDS = [
 
 // This definition should be outside the component to prevent re-creation on every render.
 // TanStack Table Column Definitions
-const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyzeTokenSpamRisk>>): ColumnDef<TokenPerformanceDataDto>[] => [
+const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   {
     accessorKey: 'tokenAddress',
     header: 'Token',
     cell: ({ row }) => {
       const item = row.original;
-      const spamAnalysis = spamAnalysisResults.get(item.tokenAddress);
-      if (!spamAnalysis) return null;
-      
-      const pnl = item.netSolProfitLoss ?? 0;
+      const riskLevel = item.spamRiskLevel ?? 'safe';
+      const riskScore = item.spamRiskScore ?? 0;
+      const primaryReason = item.spamPrimaryReason ?? (riskLevel === 'safe' ? 'Low risk indicators detected' : 'Flagged for review');
       const totalPnl = item.totalPnlSol ?? 0;
       const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (totalPnl / item.totalSolSpent) * 100 : (totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0);
       
@@ -261,7 +123,7 @@ const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyz
             className="flex-1"
           />
           <div className="flex items-center gap-1">
-            {spamAnalysis.riskLevel === 'high-risk' ? (
+            {riskLevel === 'high-risk' ? (
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -271,13 +133,13 @@ const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyz
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
                     <div className="space-y-1">
-                      <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({spamAnalysis.riskScore}%)</p>
-                      <p>{spamAnalysis.primaryReason}</p>
+                      <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({riskScore}%)</p>
+                      <p>{primaryReason}</p>
                     </div>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-            ) : (!item.name || !item.symbol || item.name === 'Unknown Token') && spamAnalysis.riskLevel === 'safe' ? (
+            ) : (!item.name || !item.symbol || item.name === 'Unknown Token') && riskLevel === 'safe' ? (
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -528,6 +390,8 @@ const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyz
   },
 ];
 
+const ESTIMATED_ROW_HEIGHT = 64;
+
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const { apiKey, isInitialized } = useApiKeyStore();
@@ -550,6 +414,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const [fallbackResponse, setFallbackResponse] = useState<PaginatedTokenPerformanceResponse | null>(null);
   const [isUsingFallback, setIsUsingFallback] = useState(false);
   const initialLoadNotifiedRef = useRef(false);
+  const tableRef = useRef<HTMLTableElement | null>(null);
 
   useEffect(() => {
     fallbackCacheRef.current.clear();
@@ -558,6 +423,21 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     setEnrichmentMessage(null);
     initialLoadNotifiedRef.current = false;
   }, [walletAddress]);
+
+  useEffect(() => {
+    const wrapper = tableRef.current?.parentElement as HTMLDivElement | null;
+    if (!wrapper) {
+      return;
+    }
+    const previousMaxHeight = wrapper.style.maxHeight;
+    const previousMinHeight = wrapper.style.minHeight;
+    wrapper.style.maxHeight = '560px';
+    wrapper.style.minHeight = '320px';
+    return () => {
+      wrapper.style.maxHeight = previousMaxHeight;
+      wrapper.style.minHeight = previousMinHeight;
+    };
+  }, []);
 
   // TanStack Table state - RESTORED BACKEND SORTING
   const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
@@ -690,45 +570,8 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     }
   }, [isAnalyzingGlobal, isUsingFallback]);
 
-  // CRITICAL PERFORMANCE FIX: Cache spam analysis results per token to avoid recalculation
-  // Use a stable cache that persists across renders and only recalculates for new/changed tokens
-  const spamAnalysisCache = useRef(new Map<string, { result: ReturnType<typeof analyzeTokenSpamRisk>; timestamp: number }>());
-  
-  const spamAnalysisResults = useMemo(() => {
-    const results = new Map<string, ReturnType<typeof analyzeTokenSpamRisk>>();
-    const currentTime = Date.now();
-    const cacheTimeout = 5 * 60 * 1000; // 5 minutes cache timeout
-    
-    tableData.forEach(token => {
-      const cached = spamAnalysisCache.current.get(token.tokenAddress);
-      
-      // Use cached result if it exists and is not expired
-      if (cached && (currentTime - cached.timestamp) < cacheTimeout) {
-        results.set(token.tokenAddress, cached.result);
-      } else {
-        // Only compute for new or expired tokens
-        const analysis = analyzeTokenSpamRisk(token);
-        results.set(token.tokenAddress, analysis);
-        spamAnalysisCache.current.set(token.tokenAddress, {
-          result: analysis,
-          timestamp: currentTime
-        });
-      }
-    });
-    
-    // Clean up old cache entries to prevent memory leaks
-    const allCurrentAddresses = new Set(tableData.map(t => t.tokenAddress));
-    for (const [address, cached] of spamAnalysisCache.current.entries()) {
-      if (!allCurrentAddresses.has(address) || (currentTime - cached.timestamp) > cacheTimeout) {
-        spamAnalysisCache.current.delete(address);
-      }
-    }
-    
-    return results;
-  }, [tableData]);
-
-  // PERFORMANCE FIX: Memoize columns creation with stable dependency
-  const columns = useMemo(() => createColumns(spamAnalysisResults), [spamAnalysisResults]);
+  // PERFORMANCE FIX: Columns reference server-provided risk metadata; generate once
+  const columns = useMemo(() => createColumns(), []);
 
   // PERFORMANCE FIX: Memoize table configuration to prevent unnecessary re-creation
   const tableConfig = useMemo(() => ({
@@ -745,6 +588,20 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
   // TanStack Table instance - SYNCED WITH BACKEND SORTING
   const table = useReactTable(tableConfig);
+  const tableRows = table.getRowModel().rows;
+  const rowVirtualizer = useVirtualizer({
+    count: tableRows.length,
+    getScrollElement: () => tableRef.current?.parentElement ?? null,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    overscan: 6,
+  });
+
+  useEffect(() => {
+    const wrapper = tableRef.current?.parentElement;
+    if (wrapper) {
+      wrapper.scrollTop = 0;
+    }
+  }, [currentPage, tableRows.length]);
 
   // Effect for initial load and wallet change - REMOVED automatic enrichment trigger
   // Enrichment should only be triggered manually or by the dashboard analysis job
@@ -852,7 +709,7 @@ const handleSort = useCallback((columnId: string) => {
   // PERFORMANCE FIX: Memoize skeleton rendering to prevent unnecessary re-creation
   const renderSkeletonTableRows = useCallback(() => {
     return Array.from({ length: 3 }).map((_, rowIndex) => (
-      <TableRow key={`skeleton-row-${rowIndex}`}>
+      <TableRow key={`skeleton-row-${rowIndex}`} style={{ height: `${ESTIMATED_ROW_HEIGHT}px` }}>
         {table.getAllColumns().map((column, colIndex) => (
           <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn((column.columnDef.meta as any)?.className, column.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
             <Skeleton className={cn("h-5", column.id === 'tokenAddress' ? "w-3/4" : "w-full")} />
@@ -891,18 +748,46 @@ const handleSort = useCallback((columnId: string) => {
       return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
     }
 
-    // If we have data, render it with TanStack Table.
+    const virtualRows = rowVirtualizer.getVirtualItems();
+    const totalColumns = table.getAllColumns().length;
+    const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+    const paddingBottom =
+      virtualRows.length > 0
+        ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
+        : 0;
+
     return (
       <TableBody>
-        {table.getRowModel().rows.map((row) => (
-          <TableRow key={row.id}>
-            {row.getVisibleCells().map((cell) => (
-              <TableCell key={cell.id} className={(cell.column.columnDef.meta as any)?.className}>
-                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-              </TableCell>
-            ))}
+        {paddingTop > 0 && (
+          <TableRow style={{ height: `${paddingTop}px` }} aria-hidden="true">
+            <TableCell colSpan={totalColumns} />
           </TableRow>
-        ))}
+        )}
+        {virtualRows.map((virtualRow) => {
+          const row = tableRows[virtualRow.index];
+          return (
+            <TableRow
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={virtualRow.measureElement}
+              style={{ height: `${virtualRow.size}px` }}
+            >
+              {row.getVisibleCells().map((cell) => (
+                <TableCell
+                  key={cell.id}
+                  className={(cell.column.columnDef.meta as any)?.className}
+                >
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </TableCell>
+              ))}
+            </TableRow>
+          );
+        })}
+        {paddingBottom > 0 && (
+          <TableRow style={{ height: `${paddingBottom}px` }} aria-hidden="true">
+            <TableCell colSpan={totalColumns} />
+          </TableRow>
+        )}
       </TableBody>
     );
   };
@@ -982,7 +867,7 @@ const handleSort = useCallback((columnId: string) => {
       
       {/* Table */}
       <div className="overflow-x-auto bg-white dark:bg-slate-900">
-        <Table className="min-w-full">
+        <Table ref={tableRef} className="min-w-full">
           <TableHeader className="bg-slate-50 dark:bg-slate-800">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="border-b border-slate-200 dark:border-slate-700">

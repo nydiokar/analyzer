@@ -3,7 +3,7 @@
 **Project**: Sova Intel - Wallet Analysis System (Scaling Plan Phase 6)  
 **Goal**: Expose reliable Solana wallet analytics (sync, similarity, reporting) across API, queues, CLI, and dashboard.  
 **Status**: In Progress  
-**Last Updated**: 2025-10-27 14:48 UTC  
+**Last Updated**: 2025-10-27 14:28 UTC  
 **Updated By**: Codex
 
 ---
@@ -16,6 +16,8 @@
 - [x] REST plus CLI entry points that trigger analyses and expose queue status (`src/api/controllers/analyses.controller.ts`, `src/scripts/helius-analyzer.ts`, `src/scripts/walletSimilarity.ts`)
 - [x] Dashboard tabs now load via dynamic imports with the token performance tab set as default, cutting initial bundle size while keeping default UX on token metrics (`dashboard/src/components/layout/WalletProfileLayout.tsx`)
 - [x] Dashboard-analysis API now returns existing job metadata instead of failing on locks, exposing `status: 'queued' | 'running'` and `alreadyRunning` for clients (`src/api/controllers/analyses.controller.ts`, `src/api/shared/dto/dashboard-analysis.dto.ts`, `dashboard/src/types/api.ts`, `src/queues/services/redis-lock.service.ts`)
+- [x] Token performance responses now include server-computed spam risk metadata consumed by the dashboard (risk filtering happens without client-side heuristics) (`src/api/services/token-performance.service.ts`, `src/api/shared/dto/token-performance-data.dto.ts`, `dashboard/src/types/api.ts`, `dashboard/src/components/dashboard/TokenPerformanceTab.tsx`)
+- [x] Virtualized token performance table with stabilized skeleton heights and min-height container to reduce DOM cost and CLS (`dashboard/src/components/dashboard/TokenPerformanceTab.tsx`, `dashboard/package.json`)
 ---
 
 ## Active
@@ -25,9 +27,10 @@
   - [ ] Tighten restricted-wallet guardrails before auto-triggering flash (respect server-side status sooner in the layout).
   - [ ] Refresh CTA copy/instrumentation once the above checks pass.
 - **Dashboard performance hardening**
-  - [ ] Move spam-risk and token formatting logic server-side so clients render pre-computed fields (`src/api/services/token-performance.service.ts`, DTO updates).
-  - [ ] Introduce virtualization in `TokenPerformanceTab` (e.g. `@tanstack/react-virtual`) to cap DOM rows at ~15.
-  - [ ] Stabilise skeleton/layout heights to drop CLS below 0.05 and add Lighthouse smoke-test gates (see `dashboard/docs/front-end-performance.md`).
+  - [x] Move spam-risk and token formatting logic server-side so clients render pre-computed fields (`src/api/services/token-performance.service.ts`, DTO updates).
+  - [x] Introduce virtualization in `TokenPerformanceTab` (e.g. `@tanstack/react-virtual`) to cap DOM rows at ~15.
+  - [x] Stabilise skeleton/layout heights to drop CLS below ~0.05 (min-height shell, consistent skeleton rows) (`dashboard/src/components/dashboard/TokenPerformanceTab.tsx`).
+  - [ ] Add automated Lighthouse smoke-test gates once the above settles (see `dashboard/docs/front-end-performance.md`).
 
 **Task-with-low-priority** *DEFER for now*: Phase 6 - AI Expert Similarity Interpreter (see `docs/1. scaling_plan.md`).
 Deliverable: synchronous endpoint that transforms similarity output into an LLM-formatted dashboard report.
@@ -61,4 +64,6 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 
 - CTA copy/instrumentation polish pending; finalize wording + analytics now that scoped pipeline is stable.
 - Run manual verification matrix (heavy wallet, low-activity wallet, demo, multi-tab, skipped follow-up) before handoff.
-- Frontend still shows poor metrics (LCP ~9.7 s, INP ~2 s, CLS ~0.11). Definitive fix plan captured in `dashboard/docs/front-end-performance.md`; virtualization + server-side precompute + layout stabilization are blockers before GA.
+- Frontend metrics expected to improve after shipping server-side spam risk and virtualization; need fresh Lighthouse run post-install (`npm install --prefix dashboard`) and add automated gate per `dashboard/docs/front-end-performance.md`.
+- Dashboard lint/build skipped: local `dashboard` dependencies (incl. new `@tanstack/react-virtual`) are not installed in this workspace; run `npm install --prefix dashboard` then `npm run lint` to verify.
+- Tests: `npm run verify` ✅; `npm run lint` (dashboard) ❌ `next: not found` because dashboard dependencies are missing.

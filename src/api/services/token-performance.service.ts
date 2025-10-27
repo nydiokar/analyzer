@@ -314,7 +314,7 @@ export class TokenPerformanceService {
         unrealizedPnlPercentage = null;
       }
       
-      return {
+      const tokenData: TokenPerformanceDataDto = {
         walletAddress: ar.walletAddress,
         tokenAddress: ar.tokenAddress,
         totalAmountIn: ar.totalAmountIn,
@@ -358,6 +358,14 @@ export class TokenPerformanceService {
         realizedPnlPercentage,
         unrealizedPnlPercentage,
       };
+
+      const spamAnalysis = this.analyzeTokenSpamRisk(tokenData);
+      tokenData.spamRiskLevel = spamAnalysis.riskLevel;
+      tokenData.spamRiskScore = spamAnalysis.riskScore;
+      tokenData.spamRiskReasons = spamAnalysis.reasons;
+      tokenData.spamPrimaryReason = spamAnalysis.primaryReason;
+
+      return tokenData;
     });
 
       // Apply meaningful holdings filter (remove dust positions)
@@ -390,17 +398,15 @@ export class TokenPerformanceService {
       const originalCount = tokenPerformanceDataList.length;
       
       tokenPerformanceDataList = tokenPerformanceDataList.filter(token => {
-        const spamAnalysis = this.analyzeTokenSpamRisk(token);
+        const riskLevel = token.spamRiskLevel ?? this.analyzeTokenSpamRisk(token).riskLevel;
         const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
-        
 
-        
         switch (spamFilter) {
           case SpamFilterType.SAFE:
             // Include tokens that are either known safe tokens OR unknown tokens that analyze as safe
-            return spamAnalysis.riskLevel === 'safe';
+            return riskLevel === 'safe';
           case SpamFilterType.HIGH_RISK:
-            return spamAnalysis.riskLevel === 'high-risk';
+            return riskLevel === 'high-risk';
           case SpamFilterType.UNKNOWN:
             return isUnknown;
           default:
@@ -493,7 +499,7 @@ export class TokenPerformanceService {
 
     const tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => {
       const tokenInfo = tokenInfoMap.get(ar.tokenAddress);
-      return {
+      const tokenData: TokenPerformanceDataDto = {
         walletAddress: ar.walletAddress,
         tokenAddress: ar.tokenAddress,
         totalAmountIn: ar.totalAmountIn,
@@ -519,6 +525,14 @@ export class TokenPerformanceService {
         twitterUrl: tokenInfo?.twitterUrl,
         telegramUrl: tokenInfo?.telegramUrl,
       };
+
+      const spamAnalysis = this.analyzeTokenSpamRisk(tokenData);
+      tokenData.spamRiskLevel = spamAnalysis.riskLevel;
+      tokenData.spamRiskScore = spamAnalysis.riskScore;
+      tokenData.spamRiskReasons = spamAnalysis.reasons;
+      tokenData.spamPrimaryReason = spamAnalysis.primaryReason;
+
+      return tokenData;
     });
 
     return tokenPerformanceDataList;
@@ -552,13 +566,15 @@ export class TokenPerformanceService {
     riskLevel: 'safe' | 'high-risk';
     riskScore: number;
     reasons: string[];
+    primaryReason: string;
   } {
     const reasons: string[] = [];
     let riskScore = 0;
 
     // Check if this is a well-known legitimate token
     if (isWellKnownToken(token.tokenAddress)) {
-      return { riskLevel: 'safe', riskScore: 0, reasons: ['Well-known legitimate token'] };
+      const reason = 'Well-known legitimate token';
+      return { riskLevel: 'safe', riskScore: 0, reasons: [reason], primaryReason: reason };
     }
     
     // Additional whitelist for tokens that might not be in our well-known list but are legitimate
@@ -568,10 +584,12 @@ export class TokenPerformanceService {
     ];
     
     if (token.symbol && ADDITIONAL_LEGITIMATE_TOKENS.includes(token.symbol)) {
-      return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'] };
+      const reason = 'Whitelisted legitimate token';
+      return { riskLevel: 'safe', riskScore: 0, reasons: [reason], primaryReason: reason };
     }
     if (token.name && ADDITIONAL_LEGITIMATE_TOKENS.includes(token.name)) {
-      return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'] };
+      const reason = 'Whitelisted legitimate token';
+      return { riskLevel: 'safe', riskScore: 0, reasons: [reason], primaryReason: reason };
     }
 
     // Check if token has name/symbol (unknown tokens)
@@ -670,7 +688,8 @@ export class TokenPerformanceService {
       riskLevel = 'safe';
     }
 
-    return { riskLevel, riskScore, reasons };
+    const primaryReason = reasons.length > 0 ? reasons[0] : 'Low risk indicators detected';
+    return { riskLevel, riskScore, reasons, primaryReason };
   }
 
 
