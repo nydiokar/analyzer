@@ -117,12 +117,12 @@ export class BalanceCacheService {
   /**
    * Cache balance data for a wallet.
    * Ensures the TTL is consistent.
+   * @param ttlSeconds Optional TTL in seconds (default: 30). Use longer TTL for dashboard analysis chains.
    */
-  async cacheBalances(walletAddress: string, balances: any): Promise<void> {
+  async cacheBalances(walletAddress: string, balances: any, ttlSeconds: number = 30): Promise<void> {
     const cacheKey = `balance:${walletAddress}`;
-    // Use a consistent 30-second TTL for fresh data.
-    await this.redis.set(cacheKey, JSON.stringify(balances), 'EX', 30);
-    this.logger.debug(`Cached balances for wallet ${walletAddress}`);
+    await this.redis.set(cacheKey, JSON.stringify(balances), 'EX', ttlSeconds);
+    this.logger.debug(`Cached balances for wallet ${walletAddress} (TTL: ${ttlSeconds}s)`);
   }
 
   /**

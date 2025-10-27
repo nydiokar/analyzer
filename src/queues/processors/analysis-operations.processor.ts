@@ -20,6 +20,9 @@ import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
 import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../shared/dashboard-analysis.types';
+import { DexscreenerService } from '../../api/services/dexscreener.service';
+import { BalanceCacheService } from '../../api/services/balance-cache.service';
+import { WalletBalance } from '../../types/wallet';
 
 @Injectable()
 export class AnalysisOperationsProcessor implements OnModuleDestroy {
@@ -38,6 +41,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly jobProgressGateway: JobProgressGateway,
     private readonly tokenInfoService: TokenInfoService,
     private readonly telegramAlerts: TelegramAlertsService,
+    private readonly dexscreenerService: DexscreenerService,
+    private readonly balanceCacheService: BalanceCacheService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -324,17 +329,47 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(45);
 
       this.logger.log(`Fetching balances for ${walletAddress}...`);
-      const walletBalanceService = new WalletBalanceService(
-        this.heliusApiClient,
-        this.databaseService,
-        this.tokenInfoService,
-      );
-      const balanceData = await walletBalanceService.fetchWalletBalances([walletAddress], 'default', true);
+      
+      // Try to get cached balances first (cache set by previous scope in this chain)
+      let balanceData: Map<string, WalletBalance> | undefined;
+      const cachedBalance = await this.balanceCacheService.getBalances(walletAddress);
+      
+      if (cachedBalance) {
+        this.logger.debug(`Using cached balances for ${walletAddress} (saved ${scope} from API call)`);
+        balanceData = new Map([[walletAddress, cachedBalance]]);
+      } else {
+        // Cache miss - fetch fresh and cache for follow-up scopes
+        this.logger.debug(`Balance cache miss for ${walletAddress}, fetching from Helius`);
+        const walletBalanceService = new WalletBalanceService(
+          this.heliusApiClient,
+          this.databaseService,
+          this.tokenInfoService,
+        );
+        balanceData = await walletBalanceService.fetchWalletBalances([walletAddress], 'default', true);
+        
+        // Cache with 10-minute TTL for dashboard analysis chains
+        const fetchedBalance = balanceData?.get(walletAddress);
+        if (fetchedBalance) {
+          await this.balanceCacheService.cacheBalances(walletAddress, fetchedBalance, 600);
+          this.logger.debug(`Cached balances for ${walletAddress} for follow-up scopes`);
+        }
+      }
+      await job.updateProgress(50);
+
+      // Fetch SOL price for unrealized PNL calculations
+      let solPriceUsd: number | undefined;
+      try {
+        solPriceUsd = await this.dexscreenerService.getSolPrice();
+        this.logger.debug(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
+      } catch (error) {
+        this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
+      }
       await job.updateProgress(55);
 
       this.logger.log(`Running PNL analysis for ${walletAddress} [scope=${scope}]`);
       const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, timeRange, {
         preFetchedBalances: balanceData,
+        solPriceUsd,
       });
       await job.updateProgress(75);
 
