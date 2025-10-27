@@ -8,6 +8,7 @@ import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import EmptyState from '@/components/shared/EmptyState'
 import { 
   CopyIcon, 
   WalletIcon, 
@@ -92,7 +93,18 @@ const TokenPerformanceTabLazy = dynamic<TokenPerformanceTabProps>(
 );
 
 const AccountStatsPnlTabLazy = dynamic<AccountStatsPnlTabProps>(
-  () => import('@/components/dashboard/AccountStatsPnlTab'),
+  () => import('@/components/dashboard/AccountStatsPnlTab').catch(err => {
+    console.error('Error loading AccountStatsPnlTab:', err);
+    return { default: (props: AccountStatsPnlTabProps) => (
+      <div className="p-6">
+        <EmptyState 
+          variant="error" 
+          title="Failed to load Account Stats" 
+          description="There was an error loading this component. Please try refreshing the page." 
+        />
+      </div>
+    )};
+  }),
   {
     loading: () => <TabLoadingFallback label="account statistics" />,
     ssr: false,
@@ -1026,8 +1038,8 @@ export default function WalletProfileLayout({
   // Only block rendering for critical errors, not for loading states
 
   return (
-    <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col w-full bg-muted/40">
-      <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col w-full h-full bg-muted/40 overflow-hidden">
+      <header className="flex-shrink-0 z-30 bg-background border-b shadow-sm">
         <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
           
           <div className='flex flex-col items-start gap-3 md:gap-2 md:pl-11'> 
@@ -1316,9 +1328,9 @@ export default function WalletProfileLayout({
         </TabsList>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-0">
-        <div className="w-full h-full flex flex-col">
-          <LazyTabContent value="overview" activeTab={activeTab} className="mt-4" defer={false}>
+      <main className="flex-1 overflow-hidden p-0 flex flex-col">
+        <div className="w-full h-full flex flex-col min-h-0">
+          <LazyTabContent value="overview" activeTab={activeTab} className="mt-4 flex-1" defer={false}>
             <div>
               {children}
               <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
@@ -1333,11 +1345,11 @@ export default function WalletProfileLayout({
             </div>
           </LazyTabContent>
 
-          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col" defer={true}>
+          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} />
           </LazyTabContent>
 
-          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0" defer={true}>
+          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0 flex-1" defer={true}>
             <MemoizedAccountStatsPnlTab 
               walletAddress={walletAddress} 
               triggerAnalysisGlobal={handleTriggerAnalysis} 
@@ -1346,11 +1358,11 @@ export default function WalletProfileLayout({
             />
           </LazyTabContent>
 
-          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0" defer={true}>
+          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0 flex-1" defer={true}>
             <MemoizedBehavioralPatternsTab walletAddress={walletAddress} />
           </LazyTabContent>
 
-          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0" defer={true}>
+          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0 flex-1" defer={true}>
             <MemoizedReviewerLogTab walletAddress={walletAddress} />
           </LazyTabContent>
         </div>

@@ -424,18 +424,18 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     initialLoadNotifiedRef.current = false;
   }, [walletAddress]);
 
+  // Set up container for virtualization
   useEffect(() => {
     const wrapper = tableRef.current?.parentElement as HTMLDivElement | null;
     if (!wrapper) {
       return;
     }
-    const previousMaxHeight = wrapper.style.maxHeight;
-    const previousMinHeight = wrapper.style.minHeight;
-    wrapper.style.maxHeight = '560px';
-    wrapper.style.minHeight = '320px';
+    
+    // Set styles for proper virtualization
+    wrapper.style.overflow = 'auto';
+    
     return () => {
-      wrapper.style.maxHeight = previousMaxHeight;
-      wrapper.style.minHeight = previousMinHeight;
+      // Cleanup if needed
     };
   }, []);
 
@@ -593,7 +593,9 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     count: tableRows.length,
     getScrollElement: () => tableRef.current?.parentElement ?? null,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
-    overscan: 6,
+    overscan: 10,
+    scrollPaddingStart: 8,
+    scrollPaddingEnd: 8,
   });
 
   useEffect(() => {
@@ -769,8 +771,7 @@ const handleSort = useCallback((columnId: string) => {
             <TableRow
               key={virtualRow.key}
               data-index={virtualRow.index}
-              ref={virtualRow.measureElement}
-              style={{ height: `${virtualRow.size}px` }}
+              className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
             >
               {row.getVisibleCells().map((cell) => (
                 <TableCell
@@ -810,8 +811,9 @@ const handleSort = useCallback((columnId: string) => {
   }
 
   return (
-    <Card className="p-0 md:p-0 mt-0 flex flex-col border border-slate-200 dark:border-slate-700 shadow-sm">
-      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+    <div className="flex flex-col h-full w-full">
+      <Card className="p-0 md:p-0 mt-0 flex flex-col border border-slate-200 dark:border-slate-700 shadow-sm flex-1 min-h-0">
+      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-shrink-0">
         <Flex flexDirection="row" alignItems="center" justifyContent="between" className="gap-3 flex-wrap">
           <Flex flexDirection="row" alignItems="center" className="gap-3 flex-wrap">
             <div className="space-y-4">
@@ -866,7 +868,7 @@ const handleSort = useCallback((columnId: string) => {
       </div>
       
       {/* Table */}
-      <div className="overflow-x-auto bg-white dark:bg-slate-900">
+      <div className="overflow-auto bg-white dark:bg-slate-900 flex-1 min-h-0">
         <Table ref={tableRef} className="min-w-full">
           <TableHeader className="bg-slate-50 dark:bg-slate-800">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -929,8 +931,8 @@ const handleSort = useCallback((columnId: string) => {
       </div>
 
       {totalPages > 0 && tableData.length > 0 && (
-        <div className="px-4 py-2 border-t">
-          <div className="flex items-center justify-between gap-2 min-h-8 w-full">
+        <div className="px-4 py-3 border-t flex-shrink-0">
+          <div className="flex items-center justify-between gap-2 w-full">
             <div className="flex items-center gap-2 flex-shrink-0">
               <span className="text-xs text-muted-foreground whitespace-nowrap">Per Page:</span>
               <Select value={pageSize.toString()} onValueChange={(value) => startTransition(() => { setPageSize(Number(value)); setPage(1); })}>
@@ -943,7 +945,7 @@ const handleSort = useCallback((columnId: string) => {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 flex justify-center min-w-0 overflow-hidden">
+            <div className="flex-1 flex justify-center">
               <Pagination>
                 <PaginationContent className="gap-1">
                   <PaginationItem><UiButton variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handlePageChange(1)} disabled={currentPage === 1} aria-label="Go to first page"><ChevronsLeft className="h-3 w-3" /></UiButton></PaginationItem>
@@ -954,10 +956,12 @@ const handleSort = useCallback((columnId: string) => {
                 </PaginationContent>
               </Pagination>
             </div>
+            <div className="flex-shrink-0 w-16"></div>
           </div>
         </div>
       )}
     </Card>
+    </div>
   );
 }
 // Helper to format date timestamps (assuming they are Unix seconds)
