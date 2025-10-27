@@ -147,11 +147,11 @@ export class PnlOverviewService {
     walletAddress: string,
     timeRange?: { startTs?: number; endTs?: number },
   ): Promise<PnlOverviewResponse> {
-    // Fetch SOL price for unrealized PNL calculation
+    // Fetch SOL price for unrealized PNL calculation (cached in Redis with 30s TTL)
     let solPriceUsd = 0;
     try {
-      solPriceUsd = await this.dexscreenerService.getSolPrice();
-      this.logger.debug(`[PnlOverview] Fetched SOL price: $${solPriceUsd}`);
+      solPriceUsd = await this.dexscreenerService.getSolPriceCached();
+      this.logger.log(`[PnlOverview] Fetched SOL price: $${solPriceUsd}`);
     } catch (error) {
       this.logger.warn(`[PnlOverview] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
     }
@@ -196,10 +196,19 @@ export class PnlOverviewService {
     walletAddress: string,
     timeRange?: { startTs?: number; endTs?: number },
   ): Promise<(SwapAnalysisSummary & { runId?: undefined }) | null> { 
+    // Fetch SOL price for unrealized PNL calculation (cached in Redis with 30s TTL)
+    let solPriceUsd: number | undefined;
+    try {
+      solPriceUsd = await this.dexscreenerService.getSolPriceCached();
+      this.logger.log(`[PnlAnalysisForSummary] Fetched SOL price: $${solPriceUsd}`);
+    } catch (error) {
+      this.logger.warn(`[PnlAnalysisForSummary] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
+    }
+
     const analysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
       walletAddress,
       timeRange,
-      { isViewOnly: true, skipBalanceFetch: true },
+      { isViewOnly: true, skipBalanceFetch: true, solPriceUsd },
     );
     return analysisSummary as (SwapAnalysisSummary & { runId?: undefined }) | null;
   }

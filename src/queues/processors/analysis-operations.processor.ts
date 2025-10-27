@@ -322,13 +322,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         },
       };
 
-      this.logger.log(
+      this.logger.debug(
         `Syncing wallet data for ${walletAddress} [scope=${scope}, fetchOlder=${syncOptions.fetchOlder}, maxSignatures=${syncOptions.maxSignatures}]`,
       );
       await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
       await job.updateProgress(45);
 
-      this.logger.log(`Fetching balances for ${walletAddress}...`);
+      this.logger.debug(`Fetching balances for ${walletAddress}...`);
       
       // Try to get cached balances first (cache set by previous scope in this chain)
       let balanceData: Map<string, WalletBalance> | undefined;
@@ -356,24 +356,24 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
       await job.updateProgress(50);
 
-      // Fetch SOL price for unrealized PNL calculations
+      // Fetch SOL price for unrealized PNL calculations (cached in Redis with 30s TTL)
       let solPriceUsd: number | undefined;
       try {
-        solPriceUsd = await this.dexscreenerService.getSolPrice();
-        this.logger.debug(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
+        solPriceUsd = await this.dexscreenerService.getSolPriceCached();
+        this.logger.log(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
       } catch (error) {
         this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
       }
       await job.updateProgress(55);
 
-      this.logger.log(`Running PNL analysis for ${walletAddress} [scope=${scope}]`);
+      this.logger.debug(`Running PNL analysis for ${walletAddress} [scope=${scope}]`);
       const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, timeRange, {
         preFetchedBalances: balanceData,
         solPriceUsd,
       });
       await job.updateProgress(75);
 
-      this.logger.log(`Running behavior analysis for ${walletAddress} [scope=${scope}]`);
+      this.logger.debug(`Running behavior analysis for ${walletAddress} [scope=${scope}]`);
       const behaviorConfig: BehaviorAnalysisConfig = {
         ...this.behaviorService.getDefaultBehaviorAnalysisConfig(),
         ...(timeRange ? { timeRange } : {}),
@@ -407,7 +407,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
             const allBalancesForEnrichment = [...allTokenBalances, ...placeholderBalances];
 
-            this.logger.log(
+            this.logger.debug(
               `Queuing enrichment for ${allBalancesForEnrichment.length} mapped tokens (scope=${scope}) for wallet ${walletAddress}`,
             );
 
@@ -429,7 +429,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             });
             enrichmentJobId = enrichmentJob.id;
           } else {
-            this.logger.log(`No mapped tokens found for ${walletAddress}, skipping enrichment.`);
+            this.logger.debug(`No mapped tokens found for ${walletAddress}, skipping enrichment.`);
           }
         } catch (error) {
           this.logger.warn(
