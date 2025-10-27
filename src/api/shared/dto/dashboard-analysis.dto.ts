@@ -120,8 +120,8 @@ export class DashboardAnalysisResponseDto {
   @ApiProperty({ description: 'Request identifier for this analysis' })
   requestId: string;
   
-  @ApiProperty({ description: 'Initial job status', enum: ['queued'] })
-  status: string;
+  @ApiProperty({ description: 'Initial job status', enum: ['queued', 'running'] })
+  status: 'queued' | 'running';
   
   @ApiProperty({ description: 'Queue name', example: 'analysis-operations' })
   queueName: string;
@@ -158,4 +158,11 @@ export class DashboardAnalysisResponseDto {
   @IsOptional()
   @IsArray()
   queuedFollowUpScopes?: DashboardAnalysisScope[];
+
+  @ApiProperty({
+    description: 'Indicates the request detected an existing in-progress analysis',
+    required: false,
+  })
+  @IsOptional()
+  alreadyRunning?: boolean;
 }

@@ -10,6 +10,7 @@ import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operat
 import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operations.queue';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
+import { RedisLockService } from '../../queues/services/redis-lock.service';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
 import { JobPriority } from '../../queues/config/queue.config';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
@@ -25,6 +26,7 @@ export class AnalysesController {
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
+    private readonly redisLockService: RedisLockService,
   ) {}
 
   @Post('/similarity/enrich-balances')
@@ -330,6 +332,54 @@ export class AnalysesController {
           skipped: true,
           skipReason,
           queuedFollowUpScopes: [],
+        };
+      }
+
+      const queue = this.analysisOperationsQueue.getQueue();
+      const existingJobs = await queue.getJobs(['active', 'waiting', 'delayed']);
+      const matchingJob = existingJobs.find((job) => {
+        const jobData = job?.data as DashboardWalletAnalysisJobData | undefined;
+        if (!jobData) {
+          return false;
+        }
+        const jobScope = jobData.analysisScope ?? 'deep';
+        return jobData.walletAddress === dto.walletAddress && jobScope === scope;
+      });
+
+      if (matchingJob) {
+        const jobData = matchingJob.data as DashboardWalletAnalysisJobData;
+        const jobId = matchingJob.id ?? undefined;
+        const isActive = await matchingJob.isActive();
+        const existingStatus: 'queued' | 'running' = isActive ? 'running' : 'queued';
+        const existingRequestId = jobData.requestId ?? requestId;
+        this.logger.log(`Dashboard analysis already ${existingStatus} for ${dto.walletAddress} [scope=${scope}] via job ${jobId ?? existingRequestId}`);
+        return {
+          jobId: jobId ?? null,
+          requestId: existingRequestId,
+          status: existingStatus,
+          queueName: 'analysis-operations',
+          analysisScope: scope,
+          estimatedProcessingTime: existingStatus === 'running' ? 'in-progress' : 'waiting in queue',
+          monitoringUrl: jobId ? `/jobs/${jobId}` : '',
+          queuedFollowUpScopes: [],
+          alreadyRunning: existingStatus === 'running',
+        };
+      }
+
+      const lockKey = RedisLockService.createWalletLockKey(dto.walletAddress, 'dashboard-analysis');
+      const existingLockJobId = await this.redisLockService.getLockValue(lockKey);
+      if (existingLockJobId) {
+        this.logger.log(`Dashboard analysis already in progress for ${dto.walletAddress} [scope=${scope}] via job ${existingLockJobId}`);
+        return {
+          jobId: existingLockJobId,
+          requestId,
+          status: 'running',
+          queueName: 'analysis-operations',
+          analysisScope: scope,
+          estimatedProcessingTime: 'in-progress',
+          monitoringUrl: `/jobs/${existingLockJobId}`,
+          queuedFollowUpScopes: [],
+          alreadyRunning: true,
         };
       }
 

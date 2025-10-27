@@ -72,6 +72,15 @@ export class RedisLockService {
     }
   }
 
+  async getLockValue(lockKey: string): Promise<string | null> {
+    try {
+      return await this.redis.get(lockKey);
+    } catch (error) {
+      this.logger.error(`Failed to read lock ${truncate(lockKey)}:`, error);
+      return null;
+    }
+  }
+
   /**
    * Check if a lock exists and optionally verify ownership
    * @param lockKey - The key to check

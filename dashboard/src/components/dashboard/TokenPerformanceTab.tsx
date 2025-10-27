@@ -192,6 +192,7 @@ interface TokenPerformanceTabProps {
   walletAddress: string;
   isAnalyzingGlobal: boolean;
   triggerAnalysisGlobal: () => void;
+  onInitialLoad?: (info: { hasData: boolean }) => void;
 }
 
 // Define PNL filter options
@@ -527,7 +528,7 @@ const createColumns = (spamAnalysisResults: Map<string, ReturnType<typeof analyz
   },
 ];
 
-function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: TokenPerformanceTabProps) {
+function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const { apiKey, isInitialized } = useApiKeyStore();
   const [page, setPage] = useState(1);
@@ -543,8 +544,19 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   // Use deferred value for search to prevent blocking main thread during typing
   const deferredSearchTerm = useDeferredValue(searchTerm);
 
-  const [isEnriching, setIsEnriching] = useState<boolean>(false);
   const [enrichmentMessage, setEnrichmentMessage] = useState<string | null>(null);
+  const fallbackCacheRef = useRef(new Map<string, PaginatedTokenPerformanceResponse>());
+  const [fallbackResponse, setFallbackResponse] = useState<PaginatedTokenPerformanceResponse | null>(null);
+  const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const initialLoadNotifiedRef = useRef(false);
+
+  useEffect(() => {
+    fallbackCacheRef.current.clear();
+    setFallbackResponse(null);
+    setIsUsingFallback(false);
+    setEnrichmentMessage(null);
+    initialLoadNotifiedRef.current = false;
+  }, [walletAddress]);
 
   // TanStack Table state - RESTORED BACKEND SORTING
   const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
@@ -592,7 +604,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
   const { data, error, isLoading: isLoadingData, mutate: localMutate } = useSWR<PaginatedTokenPerformanceResponse, Error>(
     // Do not fetch data while enrichment is happening.
-    !isEnriching && swrKey ? [swrKey, apiKey] : null,
+    swrKey ? [swrKey, apiKey] : null,
     ([url]: [string]) => fetcher(url),
     {
       revalidateOnFocus: false,
@@ -602,7 +614,80 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     }
   );
 
-  const tableData = useMemo(() => data?.data || [], [data]);
+  useEffect(() => {
+    if (!swrKey) {
+      if (!isAnalyzingGlobal) {
+        setFallbackResponse(null);
+        setIsUsingFallback(false);
+        setEnrichmentMessage(null);
+      }
+      return;
+    }
+
+    if (data && data.data.length > 0) {
+      fallbackCacheRef.current.set(swrKey, data);
+      setFallbackResponse(null);
+      setIsUsingFallback(false);
+      if (!isAnalyzingGlobal) {
+        setEnrichmentMessage(null);
+      }
+      return;
+    }
+
+    if (data && data.data.length === 0) {
+      if (isAnalyzingGlobal) {
+        const cached = fallbackCacheRef.current.get(swrKey);
+        if (cached) {
+          setFallbackResponse(cached);
+          setIsUsingFallback(true);
+          setEnrichmentMessage((prev) => prev ?? 'Showing previous analysis while new data syncs...');
+          return;
+        }
+      } else {
+        fallbackCacheRef.current.delete(swrKey);
+        setEnrichmentMessage(null);
+      }
+    }
+
+    if (!isAnalyzingGlobal) {
+      setFallbackResponse(null);
+      setIsUsingFallback(false);
+      setEnrichmentMessage(null);
+    }
+  }, [data, swrKey, isAnalyzingGlobal]);
+
+  const effectiveResponse = useMemo<PaginatedTokenPerformanceResponse | null>(() => {
+    if (isUsingFallback && fallbackResponse) {
+      return fallbackResponse;
+    }
+    return data ?? null;
+  }, [data, fallbackResponse, isUsingFallback]);
+
+  const tableData = useMemo(() => effectiveResponse?.data || [], [effectiveResponse]);
+  const hasTableData = tableData.length > 0;
+  const totalItems = effectiveResponse?.total ?? 0;
+  const totalPages = effectiveResponse?.totalPages ?? 0;
+  const currentPage = effectiveResponse?.page ?? page;
+
+  useEffect(() => {
+    if (!onInitialLoad || initialLoadNotifiedRef.current) {
+      return;
+    }
+    if (isLoadingData && !effectiveResponse && !isUsingFallback && !error) {
+      return;
+    }
+
+    initialLoadNotifiedRef.current = true;
+    onInitialLoad({ hasData: hasTableData });
+  }, [onInitialLoad, effectiveResponse, isLoadingData, isUsingFallback, hasTableData, error]);
+
+  useEffect(() => {
+    if (isAnalyzingGlobal) {
+      setEnrichmentMessage((prev) => prev ?? 'Syncing latest token data...');
+    } else if (!isUsingFallback) {
+      setEnrichmentMessage(null);
+    }
+  }, [isAnalyzingGlobal, isUsingFallback]);
 
   // CRITICAL PERFORMANCE FIX: Cache spam analysis results per token to avoid recalculation
   // Use a stable cache that persists across renders and only recalculates for new/changed tokens
@@ -745,10 +830,11 @@ const handleSort = useCallback((columnId: string) => {
   }, []);
 
   const handlePageChange = useCallback((newPage: number) => {
-    if (newPage > 0 && newPage <= Math.ceil((data?.total || 0) / pageSize)) {
+    const maxPage = totalPages || Math.ceil(totalItems / pageSize) || 1;
+    if (newPage > 0 && newPage <= maxPage) {
       setPage(newPage);
     }
-  }, [data?.total, pageSize]);
+  }, [totalPages, totalItems, pageSize]);
 
   const handleRefresh = useCallback(async () => {
     if (isLoadingData) return;
@@ -793,16 +879,14 @@ const handleSort = useCallback((columnId: string) => {
 
     // If there's no data, check if we're enriching before declaring "No Token Data".
     if (tableData.length === 0) {
-      if (isEnriching) {
-        // It's too early to say "No data" if enrichment is running. Show skeleton.
+      if (isAnalyzingGlobal) {
         return <TableBody>{renderSkeletonTableRows()}</TableBody>;
       }
-      // If not enriching and still no data, then it's final.
       const hasDateFilter = startDate || endDate;
-      const emptyMessage = hasDateFilter 
+      const emptyMessage = hasDateFilter
         ? "No token activity or missing token data. Try expanding the date range, selecting 'All' or hit Refresh."
         : "No token activity detected for the selected filters.";
-      
+
       return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
     }
 
@@ -823,16 +907,15 @@ const handleSort = useCallback((columnId: string) => {
   };
   
   const renderPaginationItems = () => {
-    if (!data || !data.totalPages) return null; 
-    const { page: currentPage, totalPages } = data; 
+    if (!totalPages) return null;
     const items = [];
     const maxPagesToShow = 5;
     let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
     let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
-    if (endPage - startPage + 1 < maxPagesToShow) { startPage = Math.max(1, endPage - maxPagesToShow + 1);}
-    if (startPage > 1) { items.push(<PaginationItem key="start-ellipsis"><PaginationLink onClick={() => handlePageChange(startPage - 1)} className="h-7 w-7 p-0 text-xs">...</PaginationLink></PaginationItem>);}
-    for (let i = startPage; i <= endPage; i++) { items.push(<PaginationItem key={i}><PaginationLink onClick={() => handlePageChange(i)} isActive={currentPage === i} className="h-7 min-w-7 px-1 text-xs">{i}</PaginationLink></PaginationItem>);}
-    if (endPage < totalPages) { items.push(<PaginationItem key="end-ellipsis"><PaginationLink onClick={() => handlePageChange(endPage + 1)} className="h-7 w-7 p-0 text-xs">...</PaginationLink></PaginationItem>);}
+    if (endPage - startPage + 1 < maxPagesToShow) { startPage = Math.max(1, endPage - maxPagesToShow + 1); }
+    if (startPage > 1) { items.push(<PaginationItem key="start-ellipsis"><PaginationLink onClick={() => handlePageChange(startPage - 1)} className="h-7 w-7 p-0 text-xs">...</PaginationLink></PaginationItem>); }
+    for (let i = startPage; i <= endPage; i++) { items.push(<PaginationItem key={i}><PaginationLink onClick={() => handlePageChange(i)} isActive={currentPage === i} className="h-7 min-w-7 px-1 text-xs">{i}</PaginationLink></PaginationItem>); }
+    if (endPage < totalPages) { items.push(<PaginationItem key="end-ellipsis"><PaginationLink onClick={() => handlePageChange(endPage + 1)} className="h-7 w-7 p-0 text-xs">...</PaginationLink></PaginationItem>); }
     return items;
   };
 
@@ -959,7 +1042,7 @@ const handleSort = useCallback((columnId: string) => {
         </Table>
       </div>
 
-      {data && data.totalPages > 0 && tableData.length > 0 && (
+      {totalPages > 0 && tableData.length > 0 && (
         <div className="px-4 py-2 border-t">
           <div className="flex items-center justify-between gap-2 min-h-8 w-full">
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -976,11 +1059,11 @@ const handleSort = useCallback((columnId: string) => {
             <div className="flex-1 flex justify-center min-w-0 overflow-hidden">
               <Pagination>
                 <PaginationContent className="gap-1">
-                  <PaginationItem><UiButton variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handlePageChange(1)} disabled={data.page === 1} aria-label="Go to first page"><ChevronsLeft className="h-3 w-3" /></UiButton></PaginationItem>
-                  <PaginationItem><PaginationPrevious onClick={() => handlePageChange(data.page - 1)} className={cn("h-7 px-2 text-xs", data.page === 1 && "pointer-events-none opacity-50")} /></PaginationItem>
+                  <PaginationItem><UiButton variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handlePageChange(1)} disabled={currentPage === 1} aria-label="Go to first page"><ChevronsLeft className="h-3 w-3" /></UiButton></PaginationItem>
+                  <PaginationItem><PaginationPrevious onClick={() => handlePageChange(currentPage - 1)} className={cn("h-7 px-2 text-xs", currentPage === 1 && "pointer-events-none opacity-50")} /></PaginationItem>
                   {renderPaginationItems()}
-                  <PaginationItem><PaginationNext onClick={() => handlePageChange(data.page + 1)} className={cn("h-7 px-2 text-xs", !data.totalPages || data.page === data.totalPages && "pointer-events-none opacity-50")} /></PaginationItem>
-                  <PaginationItem><UiButton variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handlePageChange(data.totalPages)} disabled={!data.totalPages || data.page === data.totalPages} aria-label="Go to last page"><ChevronsRight className="h-3 w-3" /></UiButton></PaginationItem>
+                  <PaginationItem><PaginationNext onClick={() => handlePageChange(currentPage + 1)} className={cn("h-7 px-2 text-xs", (totalPages === 0 || currentPage === totalPages) && "pointer-events-none opacity-50")} /></PaginationItem>
+                  <PaginationItem><UiButton variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handlePageChange(totalPages)} disabled={totalPages === 0 || currentPage === totalPages} aria-label="Go to last page"><ChevronsRight className="h-3 w-3" /></UiButton></PaginationItem>
                 </PaginationContent>
               </Pagination>
             </div>
@@ -1079,5 +1162,3 @@ const formatMarketCap = (value: number | null | undefined) => {
 
 // Memoize the component to prevent unnecessary re-renders
 export default memo(TokenPerformanceTab);
-
-

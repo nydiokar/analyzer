@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
@@ -41,7 +41,7 @@ import { createCacheKey, invalidateWalletCache } from '@/lib/swr-config';
 import { useFavorites } from '@/hooks/useFavorites';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { useJobProgress, UseJobProgressCallbacks } from '@/hooks/useJobProgress';
-import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
+import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData, JobQueueToStartData } from '@/types/websockets';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -72,6 +72,9 @@ interface WalletProfileLayoutProps {
   children: React.ReactNode;
   walletAddress: string;
 }
+
+type SubscribeToJobFn = (jobId: string) => Promise<void>;
+type UnsubscribeFromJobFn = (jobId: string) => void;
 
 function truncateWalletAddress(address: string, startChars = 6, endChars = 4): string {
   if (!address) return '';
@@ -160,6 +163,9 @@ export default function WalletProfileLayout({
 
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
 
+  const [hasInitialTokenSnapshot, setHasInitialTokenSnapshot] = useState(false);
+  const isAutoTriggeringRef = useRef(false);
+
   const jobIdToScopeRef = useRef<Record<string, DashboardAnalysisScope>>({});
 
   const isAnalyzing = React.useMemo(
@@ -167,16 +173,17 @@ export default function WalletProfileLayout({
     [scopeStates],
   );
 
-  const searchParams = useSearchParams();
-
   useEffect(() => {
-    const jobIdFromUrl = searchParams.get('jobId');
-    if (jobIdFromUrl && !jobIdToScopeRef.current[jobIdFromUrl]) {
-      registerJobSubscription('deep', jobIdFromUrl).catch((error) =>
-        console.error('Failed to subscribe to job from URL', error),
-      );
-    }
-  }, [searchParams, registerJobSubscription]);
+    setHasInitialTokenSnapshot(false);
+    isAutoTriggeringRef.current = false;
+  }, [walletAddress]);
+
+  const subscribeToJobRef = useRef<SubscribeToJobFn | null>(null);
+  const unsubscribeFromJobRef = useRef<UnsubscribeFromJobFn | null>(null);
+
+  const handleTokenDataPrimed = useCallback(() => {
+    setHasInitialTokenSnapshot(true);
+  }, []);
 
   const registerJobSubscription = useCallback(
     async (scope: DashboardAnalysisScope, jobId: string) => {
@@ -191,9 +198,16 @@ export default function WalletProfileLayout({
         },
       }));
       setScopeProgress((prev) => ({ ...prev, [scope]: 0 }));
-      await subscribeToJob(jobId);
+
+      const subscribeFn = subscribeToJobRef.current;
+      if (!subscribeFn) {
+        console.warn('subscribeToJob not ready when registering job subscription', jobId);
+        return;
+      }
+
+      await subscribeFn(jobId);
     },
-    [subscribeToJob],
+    [],
   );
 
   const clearJobSubscription = useCallback(
@@ -201,14 +215,31 @@ export default function WalletProfileLayout({
       if (jobIdToScopeRef.current[jobId]) {
         delete jobIdToScopeRef.current[jobId];
       }
+
+      const unsubscribeFn = unsubscribeFromJobRef.current;
+      if (!unsubscribeFn) {
+        return;
+      }
+
       try {
-        await unsubscribeFromJob(jobId);
+        unsubscribeFn(jobId);
       } catch (err) {
         // ignore unsubscribe failures
       }
     },
-    [unsubscribeFromJob],
+    [],
   );
+
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const jobIdFromUrl = searchParams.get('jobId');
+    if (jobIdFromUrl && !jobIdToScopeRef.current[jobIdFromUrl]) {
+      registerJobSubscription('deep', jobIdFromUrl).catch((error) =>
+        console.error('Failed to subscribe to job from URL', error),
+      );
+    }
+  }, [searchParams, registerJobSubscription]);
 
   // Job progress callbacks
   const jobProgressCallbacks: UseJobProgressCallbacks = {
@@ -289,7 +320,10 @@ export default function WalletProfileLayout({
 
       if (resultData?.enrichmentJobId) {
         setEnrichmentJobId(resultData.enrichmentJobId);
-        await subscribeToJob(resultData.enrichmentJobId);
+        const subscribeFn = subscribeToJobRef.current;
+        if (subscribeFn) {
+          await subscribeFn(resultData.enrichmentJobId);
+        }
       }
 
       toast.success(`${scopeLabels[scope]} ready`, {
@@ -366,6 +400,8 @@ export default function WalletProfileLayout({
 
   // Use the existing job progress hook
   const { subscribeToJob, unsubscribeFromJob, isConnected } = useJobProgress(jobProgressCallbacks);
+  subscribeToJobRef.current = subscribeToJob;
+  unsubscribeFromJobRef.current = unsubscribeFromJob;
   
   // Quick add modal state
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
@@ -450,14 +486,20 @@ export default function WalletProfileLayout({
   useEffect(() => {
     return () => {
       Object.keys(jobIdToScopeRef.current).forEach((jobId) => {
-        unsubscribeFromJob(jobId).catch(() => {});
+        const unsubscribeFn = unsubscribeFromJobRef.current;
+        if (unsubscribeFn) {
+          try { unsubscribeFn(jobId); } catch { /* ignore unsubscribe failures */ }
+        }
       });
       if (enrichmentJobId) {
-        unsubscribeFromJob(enrichmentJobId).catch(() => {});
+        const unsubscribeFn = unsubscribeFromJobRef.current;
+        if (unsubscribeFn) {
+          try { unsubscribeFn(enrichmentJobId); } catch { /* ignore unsubscribe failures */ }
+        }
       }
       setSubscribedEnrichmentJobId(null);
     };
-  }, [unsubscribeFromJob, enrichmentJobId]);
+  }, [enrichmentJobId]);
 
   // Subscribe to enrichment job when it's set (with duplicate prevention)
   const [subscribedEnrichmentJobId, setSubscribedEnrichmentJobId] = useState<string | null>(null);
@@ -469,10 +511,13 @@ export default function WalletProfileLayout({
     }
     return () => {
       if (subscribedEnrichmentJobId && subscribedEnrichmentJobId !== enrichmentJobId) {
-        unsubscribeFromJob(subscribedEnrichmentJobId).catch(() => {});
+        const unsubscribeFn = unsubscribeFromJobRef.current;
+        if (unsubscribeFn) {
+          try { unsubscribeFn(subscribedEnrichmentJobId); } catch { /* ignore unsubscribe failures */ }
+        }
       }
     };
-  }, [enrichmentJobId, subscribedEnrichmentJobId, isConnected, subscribeToJob, unsubscribeFromJob]);
+  }, [enrichmentJobId, subscribedEnrichmentJobId, isConnected, subscribeToJob]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(walletAddress)
@@ -553,7 +598,28 @@ export default function WalletProfileLayout({
           body: JSON.stringify(payload),
         });
 
-        if (response.skipped) {
+        if (response.alreadyRunning && response.jobId) {
+          jobIdToScopeRef.current[response.jobId] = scope;
+          const subscribeFn = subscribeToJobRef.current;
+          if (subscribeFn) {
+            await subscribeFn(response.jobId);
+          }
+          setScopeStates((prev) => ({
+            ...prev,
+            [scope]: {
+              ...prev[scope],
+              status: 'running',
+              jobId: response.jobId,
+              errorMessage: undefined,
+            },
+          }));
+          setScopeProgress((prev) => ({ ...prev, [scope]: prev[scope] ?? 0 }));
+          if (options.triggerSource !== 'auto') {
+            toast.info(`${scopeLabels[scope]} already running`, {
+              description: 'Live updates will continue.',
+            });
+          }
+        } else if (response.skipped) {
           setScopeStates((prev) => ({
             ...prev,
             [scope]: {
@@ -647,20 +713,27 @@ export default function WalletProfileLayout({
   }, [walletSummary, walletAddress, scopeStates.flash.status, isDemoAccount]);
 
   useEffect(() => {
-    if (!walletAddress) {
+    if (!walletAddress || !hasInitialTokenSnapshot) {
+      return;
+    }
+    if (isAutoTriggeringRef.current) {
       return;
     }
     if (!shouldAutoTriggerFlash()) {
       return;
     }
+
+    isAutoTriggeringRef.current = true;
     triggerDashboardScope('flash', {
       triggerSource: 'auto',
       historyWindowDays: 7,
       targetSignatureCount: 250,
       queueWorkingAfter: true,
       queueDeepAfter: false,
+    }).finally(() => {
+      isAutoTriggeringRef.current = false;
     });
-  }, [walletAddress, shouldAutoTriggerFlash, triggerDashboardScope]);
+  }, [walletAddress, hasInitialTokenSnapshot, shouldAutoTriggerFlash, triggerDashboardScope]);
 
   const handleTriggerAnalysis = useCallback(async () => {
     if (!isValidSolanaAddress(walletAddress)) {
@@ -1104,6 +1177,9 @@ export default function WalletProfileLayout({
                 {scopeSequence.map((scope) => {
                   const state = scopeStates[scope];
                   const progress = scopeProgress[scope];
+                  if (!state || state.status === 'idle') {
+                    return null;
+                  }
                   const label = state.status === 'running'
                     ? `${Math.min(100, Math.max(0, Math.round(progress)))}%`
                     : state.status === 'completed'
@@ -1194,7 +1270,7 @@ export default function WalletProfileLayout({
           </LazyTabContent>
 
           <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col" defer={true}>
-            <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} />
+            <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} />
           </LazyTabContent>
 
           <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0" defer={true}>
@@ -1318,4 +1394,4 @@ export default function WalletProfileLayout({
       </AlertDialog>
     </Tabs>
   );
-} 
+}

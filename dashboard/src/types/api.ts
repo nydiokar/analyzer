@@ -295,7 +295,7 @@ export interface DashboardAnalysisRequest {
 export interface DashboardAnalysisResponse {
   jobId: string | null;
   requestId: string;
-  status: string;
+  status: 'queued' | 'running';
   queueName: string;
   analysisScope: DashboardAnalysisScope;
   estimatedProcessingTime: string;
@@ -303,6 +303,7 @@ export interface DashboardAnalysisResponse {
   skipped?: boolean;
   skipReason?: string;
   queuedFollowUpScopes?: DashboardAnalysisScope[];
+  alreadyRunning?: boolean;
 }
 
 // Note: JobProgressEvent, JobCompletedEvent, and JobFailedEvent are now imported from websockets.ts
