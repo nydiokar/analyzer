@@ -3,7 +3,7 @@
 **Project**: Sova Intel - Wallet Analysis System (Scaling Plan Phase 6)  
 **Goal**: Expose reliable Solana wallet analytics (sync, similarity, reporting) across API, queues, CLI, and dashboard.  
 **Status**: In Progress  
-**Last Updated**: 2025-10-27 00:08 UTC
+**Last Updated**: 2025-10-27 14:48 UTC  
 **Updated By**: Codex
 
 ---
@@ -14,7 +14,7 @@
 - [x] BullMQ orchestration stack spanning wallet, analysis, similarity, and enrichment operations with locking, DLQ, and job event streaming (`src/queues/queue.module.ts`, `src/queues/queues/*.ts`, `src/queues/services/*`, `src/api/controllers/jobs.controller.ts`)
 - [x] Wallet ingestion and swap analysis persisted via Prisma (Helius client, transaction mapper, P/L summaries) (`src/core/services/helius-api-client.v2.ts`, `src/core/services/helius-transaction-mapper.ts`, `prisma/schema.prisma`)
 - [x] REST plus CLI entry points that trigger analyses and expose queue status (`src/api/controllers/analyses.controller.ts`, `src/scripts/helius-analyzer.ts`, `src/scripts/walletSimilarity.ts`)
-- [x] Dashboard auto-trigger flow stabilized: token tab renders cached data instantly, flash scope runs once per wallet, and frontend subscribes to already-running jobs without blank states (`dashboard/src/components/layout/WalletProfileLayout.tsx`, `dashboard/src/components/dashboard/TokenPerformanceTab.tsx`)
+- [x] Dashboard tabs now load via dynamic imports with the token performance tab set as default, cutting initial bundle size while keeping default UX on token metrics (`dashboard/src/components/layout/WalletProfileLayout.tsx`)
 - [x] Dashboard-analysis API now returns existing job metadata instead of failing on locks, exposing `status: 'queued' | 'running'` and `alreadyRunning` for clients (`src/api/controllers/analyses.controller.ts`, `src/api/shared/dto/dashboard-analysis.dto.ts`, `dashboard/src/types/api.ts`, `src/queues/services/redis-lock.service.ts`)
 ---
 
@@ -24,6 +24,10 @@
   - [ ] Re-run manual verification matrix (heavy wallet, low-activity wallet, demo, multi-tab, skipped follow-up) now that the auto-trigger pipeline is stable.
   - [ ] Tighten restricted-wallet guardrails before auto-triggering flash (respect server-side status sooner in the layout).
   - [ ] Refresh CTA copy/instrumentation once the above checks pass.
+- **Dashboard performance hardening**
+  - [ ] Move spam-risk and token formatting logic server-side so clients render pre-computed fields (`src/api/services/token-performance.service.ts`, DTO updates).
+  - [ ] Introduce virtualization in `TokenPerformanceTab` (e.g. `@tanstack/react-virtual`) to cap DOM rows at ~15.
+  - [ ] Stabilise skeleton/layout heights to drop CLS below 0.05 and add Lighthouse smoke-test gates (see `dashboard/docs/front-end-performance.md`).
 
 **Task-with-low-priority** *DEFER for now*: Phase 6 - AI Expert Similarity Interpreter (see `docs/1. scaling_plan.md`).
 Deliverable: synchronous endpoint that transforms similarity output into an LLM-formatted dashboard report.
@@ -57,3 +61,4 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 
 - CTA copy/instrumentation polish pending; finalize wording + analytics now that scoped pipeline is stable.
 - Run manual verification matrix (heavy wallet, low-activity wallet, demo, multi-tab, skipped follow-up) before handoff.
+- Frontend still shows poor metrics (LCP ~9.7 s, INP ~2 s, CLS ~0.11). Definitive fix plan captured in `dashboard/docs/front-end-performance.md`; virtualization + server-side precompute + layout stabilization are blockers before GA.

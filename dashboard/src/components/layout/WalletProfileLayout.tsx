@@ -115,6 +115,9 @@ const ReviewerLogTabLazy = dynamic<ReviewerLogTabProps>(
   },
 );
 
+const TAB_VALUES = new Set<string>(['overview', 'token-performance', 'account-stats', 'behavioral-patterns', 'notes']);
+const DEFAULT_TAB = 'token-performance';
+
 function truncateWalletAddress(address: string, startChars = 6, endChars = 4): string {
   if (!address) return '';
   if (address.length <= startChars + endChars) return address;
@@ -493,7 +496,7 @@ export default function WalletProfileLayout({
     if (tabParam && TAB_VALUES.has(tabParam)) {
       return tabParam;
     }
-    return 'overview';
+    return DEFAULT_TAB;
   });
 
   useEffect(() => {
@@ -1281,12 +1284,6 @@ export default function WalletProfileLayout({
         </div>
         <TabsList className="flex items-center justify-start gap-0.5 p-0.5 px-1 border-t w-full bg-muted/20">
           <TabsTrigger 
-            value="overview" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <LayoutDashboard className="h-3.5 w-3.5" />
-            Overview
-          </TabsTrigger>
-          <TabsTrigger 
             value="token-performance" 
             className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
             <ListChecks className="h-3.5 w-3.5" />
@@ -1309,6 +1306,12 @@ export default function WalletProfileLayout({
             className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
             <FileText className="h-3.5 w-3.5" />
             Notes
+          </TabsTrigger>
+          <TabsTrigger 
+            value="overview" 
+            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+            <LayoutDashboard className="h-3.5 w-3.5" />
+            Overview
           </TabsTrigger>
         </TabsList>
       </header>
