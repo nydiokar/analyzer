@@ -55,7 +55,7 @@ interface WalletNote {
   };
 }
 
-interface ReviewerLogTabProps {
+export interface ReviewerLogTabProps {
   walletAddress: string;
 }
 

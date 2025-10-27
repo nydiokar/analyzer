@@ -359,7 +359,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // Fetch SOL price for unrealized PNL calculations (cached in Redis with 30s TTL)
       let solPriceUsd: number | undefined;
       try {
-        solPriceUsd = await this.dexscreenerService.getSolPriceCached();
+        solPriceUsd = await this.tokenInfoService.getSolPrice();
         this.logger.log(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
       } catch (error) {
         this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);

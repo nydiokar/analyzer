@@ -188,7 +188,7 @@ const analyzeTokenSpamRisk = (token: TokenPerformanceDataDto): {
   return { riskLevel, riskScore, reasons, primaryReason };
 };
 
-interface TokenPerformanceTabProps {
+export interface TokenPerformanceTabProps {
   walletAddress: string;
   isAnalyzingGlobal: boolean;
   triggerAnalysisGlobal: () => void;
@@ -532,7 +532,8 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const { startDate, endDate } = useTimeRangeStore();
   const { apiKey, isInitialized } = useApiKeyStore();
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  // Default to a smaller page size to reduce initial render cost and improve interactivity
+  const [pageSize, setPageSize] = useState(10);
   const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
@@ -1050,6 +1051,7 @@ const handleSort = useCallback((columnId: string) => {
               <Select value={pageSize.toString()} onValueChange={(value) => startTransition(() => { setPageSize(Number(value)); setPage(1); })}>
                 <SelectTrigger className="w-16 h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
                   <SelectItem value="20">20</SelectItem>
                   <SelectItem value="50">50</SelectItem>
                   <SelectItem value="100">100</SelectItem>

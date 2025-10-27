@@ -434,7 +434,7 @@ export class EnrichmentOperationsProcessor {
     // Process batches with delays to avoid rate limiting
     for (const batch of batches) {
       try {
-        await this.dexscreenerService.fetchAndSaveTokenInfo(batch);
+        await this.tokenInfoService.enrichTokensBackground(batch);
         // Small delay between batches
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {

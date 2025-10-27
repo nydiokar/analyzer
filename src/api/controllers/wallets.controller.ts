@@ -179,7 +179,7 @@ export class WalletsController {
       // 3. Fetch the main persisted Behavior Profile in parallel with SOL price
       const [overallBehaviorProfile, solPriceUsd] = await Promise.all([
         this.databaseService.getWalletBehaviorProfile(walletAddress),
-        this.dexscreenerService.getSolPrice().catch(() => undefined) // Don't fail if SOL price fetch fails
+        this.tokenInfoService.getSolPrice().catch(() => undefined) // Don't fail if SOL price fetch fails (cached in Redis with 30s TTL)
       ]);
       
       // 4. Determine lastAnalyzedAt from the PNL summary's updatedAt field

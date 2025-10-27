@@ -150,7 +150,7 @@ export class PnlOverviewService {
     // Fetch SOL price for unrealized PNL calculation (cached in Redis with 30s TTL)
     let solPriceUsd = 0;
     try {
-      solPriceUsd = await this.dexscreenerService.getSolPriceCached();
+      solPriceUsd = await this.tokenInfoService.getSolPrice();
       this.logger.log(`[PnlOverview] Fetched SOL price: $${solPriceUsd}`);
     } catch (error) {
       this.logger.warn(`[PnlOverview] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
@@ -199,7 +199,7 @@ export class PnlOverviewService {
     // Fetch SOL price for unrealized PNL calculation (cached in Redis with 30s TTL)
     let solPriceUsd: number | undefined;
     try {
-      solPriceUsd = await this.dexscreenerService.getSolPriceCached();
+      solPriceUsd = await this.tokenInfoService.getSolPrice();
       this.logger.log(`[PnlAnalysisForSummary] Fetched SOL price: $${solPriceUsd}`);
     } catch (error) {
       this.logger.warn(`[PnlAnalysisForSummary] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);

@@ -209,9 +209,9 @@ export class TokenPerformanceService {
     const tokenAddresses = analysisResults.map(ar => ar.tokenAddress);
     const tokenInfoMap = await this.getTokenInfoMap(tokenAddresses);
     
-    // Fetch SOL price once to avoid multiple API calls in synchronous operations  
+    // Fetch SOL price once (cached in Redis with 30s TTL)
     // SOL is too liquid to not have price data - this should never fail
-    const estimatedSolPriceUsd = await this.dexscreenerService.getSolPrice();
+    const estimatedSolPriceUsd = await this.tokenInfoService.getSolPrice();
 
     // Create the token performance data with calculated ROI and unrealized P&L
     let tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => {

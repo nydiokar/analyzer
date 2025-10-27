@@ -15,7 +15,7 @@ import { format, isValid } from 'date-fns'; // Import isValid
 import useSWR from 'swr'; // Added SWR import
 import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 
-interface AccountStatsPnlTabProps {
+export interface AccountStatsPnlTabProps {
   walletAddress: string;
   isAnalyzingGlobal?: boolean;
   triggerAnalysisGlobal?: () => void;

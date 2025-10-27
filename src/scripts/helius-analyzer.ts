@@ -162,8 +162,13 @@ async function analyzeWalletWithHelius() {
   
   // Pass HeliusApiClient to PnlAnalysisService
   // Ensure PnlAnalysisService also uses dbService as its first argument if needed
-  const dexscreenerService = new DexscreenerService(dbService, new HttpService());
-  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService);
+  const httpService = new HttpService();
+  const dexscreenerService = new DexscreenerService(dbService, httpService);
+  const dexscreenerProvider = new (require('../api/services/dexscreener-price-provider').DexscreenerPriceProvider)(
+    dbService,
+    httpService
+  );
+  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService, dexscreenerProvider);
   const pnlAnalysisService = new PnlAnalysisService(dbService, heliusApiClient, tokenInfoService);
   
   // Use undefined instead of null for optional service dependencies

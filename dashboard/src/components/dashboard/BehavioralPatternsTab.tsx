@@ -22,7 +22,7 @@ import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
 
-interface BehavioralPatternsTabProps {
+export interface BehavioralPatternsTabProps {
   walletAddress: string;
   isAnalyzingGlobal?: boolean;
   triggerAnalysisGlobal?: () => void;

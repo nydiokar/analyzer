@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import useSWR, { useSWRConfig } from 'swr';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
@@ -23,7 +24,8 @@ import {
   Tags,
   FolderOpen,
   Edit2,
-  Bot          // Edit icon for wallet data
+  Bot,          // Edit icon for wallet data
+  Loader2
 } from 'lucide-react' 
 import { toast } from 'sonner';
 import {
@@ -55,13 +57,11 @@ import {
 import { getTagColor, getCollectionColor } from '@/lib/color-utils';
 import { useSearchParams } from 'next/navigation';
 
-
-// Import the new tab component
-import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
-import TokenPerformanceTab from '@/components/dashboard/TokenPerformanceTab';
-import AccountStatsPnlTab from '@/components/dashboard/AccountStatsPnlTab';
+import type { BehavioralPatternsTabProps } from '@/components/dashboard/BehavioralPatternsTab';
+import type { TokenPerformanceTabProps } from '@/components/dashboard/TokenPerformanceTab';
+import type { AccountStatsPnlTabProps } from '@/components/dashboard/AccountStatsPnlTab';
+import type { ReviewerLogTabProps } from '@/components/dashboard/ReviewerLogTab';
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
-import ReviewerLogTab from '@/components/dashboard/ReviewerLogTab';
 import { WalletEditForm } from './WalletEditForm';
 import QuickAddForm from './QuickAddForm';
 import LazyTabContent from './LazyTabContent';
@@ -76,18 +76,67 @@ interface WalletProfileLayoutProps {
 type SubscribeToJobFn = (jobId: string) => Promise<void>;
 type UnsubscribeFromJobFn = (jobId: string) => void;
 
+const TabLoadingFallback = ({ label }: { label: string }) => (
+  <div className="flex flex-col items-center justify-center gap-3 py-10 px-6 text-sm text-muted-foreground">
+    <Loader2 className="h-5 w-5 animate-spin" />
+    <span>Loading {label}...</span>
+  </div>
+);
+
+const TokenPerformanceTabLazy = dynamic<TokenPerformanceTabProps>(
+  () => import('@/components/dashboard/TokenPerformanceTab'),
+  {
+    loading: () => <TabLoadingFallback label="token performance" />,
+    ssr: false,
+  },
+);
+
+const AccountStatsPnlTabLazy = dynamic<AccountStatsPnlTabProps>(
+  () => import('@/components/dashboard/AccountStatsPnlTab'),
+  {
+    loading: () => <TabLoadingFallback label="account statistics" />,
+    ssr: false,
+  },
+);
+
+const BehavioralPatternsTabLazy = dynamic<BehavioralPatternsTabProps>(
+  () => import('@/components/dashboard/BehavioralPatternsTab'),
+  {
+    loading: () => <TabLoadingFallback label="behavioral patterns" />,
+    ssr: false,
+  },
+);
+
+const ReviewerLogTabLazy = dynamic<ReviewerLogTabProps>(
+  () => import('@/components/dashboard/ReviewerLogTab'),
+  {
+    loading: () => <TabLoadingFallback label="notes" />,
+    ssr: false,
+  },
+);
+
 function truncateWalletAddress(address: string, startChars = 6, endChars = 4): string {
   if (!address) return '';
   if (address.length <= startChars + endChars) return address;
   return `${address.substring(0, startChars)}...${address.substring(address.length - endChars)}`;
 }
 
-// Memoized components to prevent unnecessary re-renders during tab switching
-const MemoizedTokenPerformanceTab = memo(TokenPerformanceTab);
-const MemoizedAccountStatsPnlTab = memo(AccountStatsPnlTab);
-const MemoizedBehavioralPatternsTab = memo(BehavioralPatternsTab);
-const MemoizedReviewerLogTab = memo(ReviewerLogTab);
+// Memoized wrappers prevent unnecessary re-renders during tab switching once modules are loaded
+const MemoizedTokenPerformanceTab = memo(function MemoizedTokenPerformanceTab(props: TokenPerformanceTabProps) {
+  return <TokenPerformanceTabLazy {...props} />;
+});
 
+const MemoizedAccountStatsPnlTab = memo(function MemoizedAccountStatsPnlTab(props: AccountStatsPnlTabProps) {
+  return <AccountStatsPnlTabLazy {...props} />;
+});
+
+const MemoizedBehavioralPatternsTab = memo(function MemoizedBehavioralPatternsTab(props: BehavioralPatternsTabProps) {
+  return <BehavioralPatternsTabLazy {...props} />;
+});
+
+const MemoizedReviewerLogTab = memo(function MemoizedReviewerLogTab(props: ReviewerLogTabProps) {
+  return <ReviewerLogTabLazy {...props} />;
+});
 
 
 export default function WalletProfileLayout({
@@ -437,9 +486,21 @@ export default function WalletProfileLayout({
 
   // Each component will handle its own data loading
   // No detailed data loading at layout level
-  
+  const tabParam = searchParams.get('tab');
+
   // Tab state management - simplified without debouncing
-  const [activeTab, setActiveTab] = useState<string>('token-performance');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (tabParam && TAB_VALUES.has(tabParam)) {
+      return tabParam;
+    }
+    return 'overview';
+  });
+
+  useEffect(() => {
+    if (tabParam && TAB_VALUES.has(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam, activeTab]);
   
   // Direct tab change handler - no debouncing needed
   const handleTabChange = useCallback((value: string) => {
@@ -962,7 +1023,7 @@ export default function WalletProfileLayout({
   // Only block rendering for critical errors, not for loading states
 
   return (
-    <Tabs defaultValue="token-performance" value={activeTab} onValueChange={handleTabChange} className="flex flex-col w-full bg-muted/40">
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col w-full bg-muted/40">
       <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
         <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
           
@@ -1220,6 +1281,12 @@ export default function WalletProfileLayout({
         </div>
         <TabsList className="flex items-center justify-start gap-0.5 p-0.5 px-1 border-t w-full bg-muted/20">
           <TabsTrigger 
+            value="overview" 
+            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+            <LayoutDashboard className="h-3.5 w-3.5" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger 
             value="token-performance" 
             className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
             <ListChecks className="h-3.5 w-3.5" />
@@ -1242,12 +1309,6 @@ export default function WalletProfileLayout({
             className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
             <FileText className="h-3.5 w-3.5" />
             Notes
-          </TabsTrigger>
-          <TabsTrigger 
-            value="overview" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <LayoutDashboard className="h-3.5 w-3.5" />
-            Overview
           </TabsTrigger>
         </TabsList>
       </header>

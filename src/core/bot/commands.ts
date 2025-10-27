@@ -93,9 +93,13 @@ export class WalletAnalysisCommands {
     this.behaviorService = new BehaviorService(this.databaseService, behaviorConfig);
     this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
 
-    // Instantiate TokenInfo service dependencies
+    // Instantiate TokenInfo service dependencies (manual instantiation for bot, not using NestJS DI)
     const dexscreenerService = new DexscreenerService(this.databaseService, this.httpService);
-    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService);
+    const dexscreenerProvider = new (require('../../../api/services/dexscreener-price-provider').DexscreenerPriceProvider)(
+      this.databaseService,
+      this.httpService
+    );
+    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService, dexscreenerProvider);
 
     this.pnlAnalysisService = new PnlAnalysisService(this.databaseService, this.heliusApiClient, tokenInfoService); 
     
