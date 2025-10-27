@@ -411,6 +411,32 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       const processingTimeMs = Date.now() - startTime;
 
+      // Record the analysis run BEFORE releasing lock
+      await this.databaseService.recordDashboardAnalysisRun({
+        walletAddress,
+        scope,
+        status: 'COMPLETED',
+        triggerSource,
+        runTimestamp: new Date(),
+        durationMs: processingTimeMs,
+        signaturesConsidered,
+        inputDataStartTs: timeRange?.startTs,
+        inputDataEndTs: timeRange?.endTs,
+        historyWindowDays: effectiveHistoryWindowDays,
+        notes: {
+          followUpRequested: { working: job.data.queueWorkingAfter, deep: job.data.queueDeepAfter },
+          followUpQueued: [], // Will be updated after queueing
+        },
+      });
+
+      await job.updateProgress(100);
+
+      // ✅ CRITICAL: Release lock BEFORE queuing follow-ups
+      // This prevents lock contention when follow-up jobs start immediately
+      await this.redisLockService.releaseLock(lockKey, job.id!);
+      this.logger.debug(`Released lock for ${walletAddress} [scope=${scope}] before queueing follow-ups`);
+
+      // Now queue follow-ups - they can acquire the lock immediately
       if (scope === 'flash' && job.data.queueWorkingAfter) {
         const queuedJobId = await this.queueFollowUpAnalysis({
           walletAddress,
@@ -434,25 +460,6 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           followUpJobsQueued.push({ scope: 'deep', jobId: queuedJobId });
         }
       }
-
-      await this.databaseService.recordDashboardAnalysisRun({
-        walletAddress,
-        scope,
-        status: 'COMPLETED',
-        triggerSource,
-        runTimestamp: new Date(),
-        durationMs: processingTimeMs,
-        signaturesConsidered,
-        inputDataStartTs: timeRange?.startTs,
-        inputDataEndTs: timeRange?.endTs,
-        historyWindowDays: effectiveHistoryWindowDays,
-        notes: {
-          followUpRequested: { working: job.data.queueWorkingAfter, deep: job.data.queueDeepAfter },
-          followUpQueued: followUpJobsQueued,
-        },
-      });
-
-      await job.updateProgress(100);
 
       const result = {
         success: true,
@@ -501,10 +508,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
       }
 
-      throw error;
-    } finally {
+      // Release lock before throwing error
       await this.redisLockService.releaseLock(lockKey, job.id!);
+      throw error;
     }
+    // No finally block - lock is released in both success and error paths
   }
 
   private async queueFollowUpAnalysis(params: {

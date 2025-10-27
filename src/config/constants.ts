@@ -66,7 +66,7 @@ const getEnvNumber = (key: string, fallback: number): number => {
 
 export const ANALYSIS_EXECUTION_CONFIG = {
   SIMILARITY_LAB_MAX_SIGNATURES: getEnvNumber('SIMILARITY_LAB_MAX_SIGNATURES', 500),
-  DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 2000),
+  DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 4000),
 } as const;
 
 export const DASHBOARD_ANALYSIS_SCOPE_DEFAULTS = {
