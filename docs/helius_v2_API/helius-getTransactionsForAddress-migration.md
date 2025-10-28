@@ -139,7 +139,7 @@ Pagination (next page):
 3) Make default after burn-in.
 4) Optional next: For features that do not require Enhanced payloads, consider using `transactionDetails: "full"` or `signatures` directly to reduce costs.
 
-### Replacing Phase 2 using getTransactionsForAddress (full) — considerations and plan
+### Replacing Phase 2 using getTransactionsForAddress (full) — considerations and plan (DEFFER not worht the overhead)
 
 Helius `getTransactionsForAddress` supports `transactionDetails: "full"` (limit ≤ 100) with encodings identical to `getTransaction` (`json`, `jsonParsed`, `base64`, `base58`). Our current Phase 2 relies on Helius Enhanced Transactions (`/v0/transactions`) which include pre-parsed, enriched fields (`tokenTransfers`, `nativeTransfers`, `events.swap`, etc.) used by our mapper. Fully replacing Phase 2 means consuming standard Solana transaction/meta formats and re-implementing enrichment logic we currently get from Helius.
 
