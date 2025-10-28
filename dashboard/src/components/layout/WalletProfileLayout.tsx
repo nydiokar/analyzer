@@ -160,26 +160,30 @@ export default function WalletProfileLayout({
 }: WalletProfileLayoutProps) {
   const { mutate: globalMutate, cache } = useSWRConfig();
   const { apiKey, isDemo: isDemoAccount } = useApiKeyStore();
-  const [isHeaderExpanded, setIsHeaderExpanded] = useState(() => {
-    // Try to get the saved state from localStorage, default to true
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('wallet-profile-header-expanded');
-      return saved !== null ? JSON.parse(saved) : true;
+  const [isHeaderExpanded, setIsHeaderExpanded] = useState(true); // Start with true for SSR consistency
+  const [isHydrated, setIsHydrated] = useState(false); // Track hydration state
+
+  // Load saved header state from localStorage after hydration
+  useEffect(() => {
+    const saved = localStorage.getItem('wallet-profile-header-expanded');
+    if (saved !== null) {
+      setIsHeaderExpanded(JSON.parse(saved));
     }
-    return true;
-  });
+    setIsHydrated(true);
+  }, []);
 
   // Save the header expanded state to localStorage with throttling to prevent excessive writes
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    // Only save to localStorage after hydration to avoid conflicts
+    if (typeof window !== 'undefined' && isHydrated) {
       // Use a ref to throttle localStorage writes
       const timeoutId = setTimeout(() => {
         localStorage.setItem('wallet-profile-header-expanded', JSON.stringify(isHeaderExpanded));
       }, 500); // Throttle to 500ms to reduce excessive writes
-      
+
       return () => clearTimeout(timeoutId);
     }
-  }, [isHeaderExpanded]);
+  }, [isHeaderExpanded, isHydrated]);
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false);
@@ -390,14 +394,12 @@ export default function WalletProfileLayout({
         }
       }
 
-      toast.success(`${scopeLabels[scope]} ready`, {
-        description:
-          scope === 'deep'
-            ? 'Full history synced and enriched.'
-            : scope === 'working'
-              ? '30-day view synced. Deep history will continue in the background.'
-              : 'Recent snapshot refreshed.',
-      });
+      // Only show success notification for flash (7-day) analysis
+      if (scope === 'flash') {
+        toast.success(`${scopeLabels[scope]} ready`, {
+          description: 'Recent snapshot refreshed.',
+        });
+      }
 
       try {
         await globalMutate(
@@ -436,9 +438,7 @@ export default function WalletProfileLayout({
         globalMutate(
           (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
         );
-        toast.success("Token data updated", {
-          description: "Token metadata and prices have been updated.",
-        });
+        // Enrichment completes quietly without notification
       }, 1500);
     },
     onEnrichmentError: ({ error }) => {
@@ -942,44 +942,6 @@ export default function WalletProfileLayout({
     }
   }, [currentFavoriteData, walletAddress, mutateFavorites]);
 
-  const renderAnalysisProgress = () => {
-    const activeScope = scopeSequence.find(
-      (scope) => scopeStates[scope].status === 'running' || scopeStates[scope].status === 'queued',
-    );
-
-    if (!activeScope) {
-      return null;
-    }
-
-    const state = scopeStates[activeScope];
-    const progress = scopeProgress[activeScope];
-    const statusLabel =
-      state.status === 'queued'
-        ? 'Queued...'
-        : `Processing ${Math.min(100, Math.max(0, Math.round(progress)))}%`;
-
-    return (
-      <div className="space-y-2 w-full">
-        <div className="flex items-center justify-between text-sm">
-          <span className="flex items-center gap-2">
-            <RefreshCw className="h-4 w-4 animate-spin" />
-            {scopeLabels[activeScope]} · {statusLabel}
-          </span>
-          {state.status === 'running' && (
-            <span className="text-muted-foreground">{Math.min(100, Math.max(0, Math.round(progress)))}%</span>
-          )}
-        </div>
-        {state.status === 'running' && (
-          <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-2">
-            <div
-              className="bg-blue-600 dark:bg-blue-500 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${Math.max(Math.round(progress), 5)}%` }}
-            />
-          </div>
-        )}
-      </div>
-    );
-  };
 
   const ExpandedAnalysisControl = () => {
     const deepState = scopeStates.deep;
@@ -1008,8 +970,6 @@ export default function WalletProfileLayout({
           <RefreshCw className={`mr-2 h-4 w-4 ${ctaBusy ? 'animate-spin' : ''}`} />
           {ctaLabel}
         </Button>
-
-        {renderAnalysisProgress()}
 
         {!ctaBusy && !isRestrictedWallet && !isDemoAccount && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
           <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">

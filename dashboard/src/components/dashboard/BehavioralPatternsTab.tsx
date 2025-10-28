@@ -246,7 +246,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
                 {['heatmap', 'duration', 'windows'].map((tabValue) => (
                   <TabsContent key={`skel-viz-${tabValue}`} value={tabValue}>
-                    <Title className="mb-2 text-base font-medium"><Skeleton className="h-5 w-1/3" /></Title>
+                    <Skeleton className="h-5 w-1/3 mb-2" />
                     <Skeleton className="h-[200px] w-full" />
                   </TabsContent>
                 ))}
