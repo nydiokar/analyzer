@@ -149,14 +149,14 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
   if (behaviorIsLoading && !isAnalyzingGlobal) {
     return (
-      <Card className="p-4 md:p-6 space-y-6">
-        <Tabs defaultValue="summary" className="w-full">
+      <Card className="h-full p-4 md:p-6 space-y-6 flex flex-col">
+        <Tabs defaultValue="summary" className="w-full flex-1 flex flex-col">
           <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
             <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>
             <TabsTrigger value="visualizations">Visualizations</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="summary">
+          <TabsContent value="summary" className="flex-1 overflow-auto">
             <Title className="mb-4 text-lg font-semibold">Behavioral Summary & Metrics</Title>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
               {[...Array(5)].map((_, i) => ( // Increased skeleton items for more potential summary metrics
@@ -233,7 +233,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             </Accordion>
           </TabsContent>
 
-          <TabsContent value="visualizations">
+          <TabsContent value="visualizations" className="flex-1 overflow-auto">
             <div className="rounded-lg bg-muted/10 dark:bg-muted/5 px-4 py-2 mb-6">
               <Tabs defaultValue="heatmap" className="w-full mt-2">
                 <div className="sticky top-0 z-10 bg-card dark:bg-card p-2 -mx-4 md:-mx-6 border-b border-border mb-4">
@@ -331,33 +331,34 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
   const activeTradingPeriodsData = behaviorData?.activeTradingPeriods;
 
   return (
-    <Card className="p-4 md:p-6 space-y-6">
-      <Tabs defaultValue="summary" className="w-full">
+    <Card className="h-full max-h-full p-4 md:p-6 space-y-6 flex flex-col overflow-hidden">
+      <Tabs defaultValue="summary" className="w-full flex-1 flex flex-col min-h-0">
         <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
           <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>
           <TabsTrigger value="visualizations">Visualizations</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="summary">
+        <TabsContent value="summary" className="flex-1 overflow-auto min-h-0">
           <Title className="mb-4 text-lg font-semibold">Behavioral Summary & Metrics</Title>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4 mb-6 text-sm">
-            <MetricDisplay 
-              label="Trading Style" 
+            <MetricDisplay
+              label="Trading Style"
               value={behaviorData.tradingStyle}
               tooltipText="Overall trading approach identified (e.g., Flipper, HODLer). Based on typical holding durations and activity frequency."
             />
-            <MetricDisplay 
-              label="Confidence" 
+            <MetricDisplay
+              label="Confidence"
               value={typeof behaviorData.confidenceScore === 'number' ? `${(behaviorData.confidenceScore * 100).toFixed(1)}` : undefined}
               unit="%"
               tooltipText="Likelihood (0-100%) that the assigned Trading Style accurately reflects the wallet's dominant behavior."
             />
           </div>
-          
+
           <hr className="my-6 border-muted" />
           <Title className="text-lg font-semibold mt-6 mb-4">Detailed Behavioral Metrics</Title>
-          
-          <Accordion type="multiple" className="w-full space-y-3" defaultValue={["item-overall", "item-performance", "item-session", "item-risk"]}>
+
+          <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+            <Accordion type="multiple" className="w-full space-y-3" defaultValue={["item-overall", "item-performance", "item-session", "item-risk"]}>
             {/* Accordion Item 1: Behavioral Profile & Consistency */}
             <AccordionItem value="item-performance" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
               <AccordionTrigger className="py-3 hover:no-underline">
@@ -488,9 +489,10 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
               </AccordionContent>
             </AccordionItem>
           </Accordion>
+          </div>
         </TabsContent>
 
-        <TabsContent value="visualizations">
+        <TabsContent value="visualizations" className="flex-1 overflow-auto min-h-0">
           <div className="rounded-lg bg-muted/10 dark:bg-muted/5 px-4 py-2 mb-6">
             <Tabs defaultValue="heatmap" className="w-full mt-2">
               <div className="sticky top-0 z-10 bg-card dark:bg-card p-2 -mx-4 md:-mx-6 border-b border-border mb-4">
@@ -563,7 +565,8 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
       {/* Raw Data (for debugging) Section */}
       {rawDataForDebugging && Object.keys(rawDataForDebugging).length > 0 && (
-        <Accordion type="single" collapsible className="w-full mt-8">
+        <div className="mt-8">
+          <Accordion type="single" collapsible className="w-full">
           <AccordionItem value="item-1">
             <AccordionTrigger className="text-sm font-medium hover:no-underline">
                 <Flex alignItems="center">
@@ -580,6 +583,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+        </div>
       )}
     </Card>
   );

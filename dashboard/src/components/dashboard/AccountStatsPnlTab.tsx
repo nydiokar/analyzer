@@ -60,22 +60,22 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
   };
   
   return (
-    <div className="w-full h-full overflow-auto p-6 border rounded-lg bg-card">
-      <Title>{title}</Title>
+    <div className="w-full h-full p-4 border rounded-lg bg-card flex flex-col">
+      <Title className="text-lg">{title}</Title>
       {data?.dataFrom ? (
-        <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-2">
+        <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-3 text-sm">
           Data from: {data.dataFrom.replace(" UTC", "")}
         </Subtitle>
       ) : (
-        <span className="inline-block mt-1 mb-2 h-[1.25rem] w-px" />
+        <span className="inline-block mt-1 mb-3 h-[1rem] w-px" />
       )}
       
       {/* Section 1: Core Trading Metrics with bottom border */}
-      <div className="mt-4 pt-3 mb-4">
-        <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Core Trading Metrics</Text>
+      <div className="mb-3">
+        <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Core Trading Metrics</Text>
         <Card className="p-0">
-          <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
-            <Grid numItemsSm={2} numItemsMd={4} className="gap-x-4 gap-y-4">
+          <div className="px-3 py-2">
+            <Grid numItemsSm={2} numItemsMd={4} className="gap-x-3 gap-y-3">
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
                 <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Realized PNL</Text>
                 <Metric className="text-base">{formatMetric(data.realizedPnl, 'SOL')}</Metric>
@@ -107,11 +107,11 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
       </div>
 
       {/* Section 2: Volume & Capital Flow with bottom border */}
-      <div className="mt-4 pt-3 mb-4">
-        <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Volume & Capital Flow</Text>
+      <div className="mb-3">
+        <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Volume & Capital Flow</Text>
         <Card className="p-0">
-          <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
-            <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
+          <div className="px-3 py-2">
+            <Grid numItemsSm={2} numItemsMd={3} className="gap-x-3 gap-y-3">
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
                 <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total Volume Traded</Text>
                 <Metric className="text-base text-blue-500">{formatPlainNumber(data.totalVolume, 2)} SOL</Metric>
@@ -130,13 +130,13 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
       </div>
 
       {/* Section 3: Advanced Token Analytics */}
-      <div className="mt-4 pt-3 mb-4 p-3 rounded-md bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
-        <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong flex items-center mb-3">
+      <div className="flex-1 p-2 rounded-md bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle overflow-hidden flex flex-col">
+        <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong flex items-center mb-2">
           Advanced Token Analytics
           <TooltipProvider>
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
-                <HelpCircle className="h-3.5 w-3.5 ml-1.5 text-muted-foreground cursor-help" />
+                <HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" />
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
                 <p className="text-sm">Key statistical measures focusing on token-level profit, loss, and risk characteristics, excluding stablecoins.</p>
@@ -144,53 +144,53 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
             </Tooltip>
           </TooltipProvider>
         </Text>
-        
-        <Accordion type="single" collapsible className="w-full" defaultValue="item-advanced-metrics">
-          <AccordionItem value="item-advanced-metrics" className="border-none rounded-md data-[state=open]:bg-tremor-background-muted dark:data-[state=open]:bg-dark-tremor-background-muted px-2">
-            <AccordionTrigger className="py-2 hover:no-underline">
+
+        <Accordion type="single" collapsible className="w-full flex-1 overflow-hidden flex flex-col" defaultValue="item-advanced-metrics">
+          <AccordionItem value="item-advanced-metrics" className="border-none rounded-md data-[state=open]:bg-tremor-background-muted dark:data-[state=open]:bg-dark-tremor-background-muted px-2 flex-1 flex flex-col">
+            <AccordionTrigger className="py-1 hover:no-underline">
               <Flex alignItems="center">
-                <TrendingUp className="w-4 h-4 mr-2 text-blue-500" />
-                <Text className="text-sm font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">Detailed Token Metrics</Text>
+                <TrendingUp className="w-3 h-3 mr-1.5 text-blue-500" />
+                <Text className="text-xs font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">Detailed Token Metrics</Text>
               </Flex>
             </AccordionTrigger>
-            <AccordionContent className="pt-1 pb-2">
-              <Grid numItemsSm={2} numItemsMd={2} numItemsLg={2} className="gap-3 mt-1">
-                <Card className="p-2.5 text-left">
+            <AccordionContent className="pt-1 pb-2 overflow-auto">
+              <Grid numItemsSm={2} numItemsMd={2} numItemsLg={2} className="gap-2">
+                <Card className="p-2 text-left">
                   <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
                     Median P/L per Token
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">The median (middle value) of profit or loss across all individual tokens traded.</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
-                  <Metric className="text-base">{formatMetric(data.medianPLToken, 'SOL')}</Metric>
+                  <Metric className="text-sm">{formatMetric(data.medianPLToken, 'SOL')}</Metric>
                 </Card>
-                <Card className="p-2.5 text-left">
+                <Card className="p-2 text-left">
                   <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
                     PNL Standard Deviation
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Measures the dispersion or variability of PNL values across different tokens. Higher values indicate greater PNL volatility.</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
-                  <Metric className="text-base">{formatMetric(data.standardDeviationPnl, 'SOL')}</Metric>
+                  <Metric className="text-sm">{formatMetric(data.standardDeviationPnl, 'SOL')}</Metric>
                 </Card>
-                <Card className="p-2.5 text-left">
+                <Card className="p-2 text-left">
                   <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
                     Trimmed Mean PNL (Token)
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">The average PNL per token after removing extreme outliers (e.g., top/bottom 5-10% of PNL values).</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
-                  <Metric className="text-base">{formatMetric(data.trimmedMeanPnlPerToken, 'SOL')}</Metric>
+                  <Metric className="text-sm">{formatMetric(data.trimmedMeanPnlPerToken, 'SOL')}</Metric>
                 </Card>
-                <Card className="p-2.5 text-left">
+                <Card className="p-2 text-left">
                   <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
                     Median PNL/Volatility Ratio
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Median token PNL divided by PNL standard deviation. A measure of risk-adjusted return.</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
-                  <Metric className="text-base">{formatMetric(data.medianPnlToVolatilityRatio, '', 2)}</Metric>
+                  <Metric className="text-sm">{formatMetric(data.medianPnlToVolatilityRatio, '', 2)}</Metric>
                 </Card>
-                <Card className="p-2.5 text-left">
+                <Card className="p-2 text-left">
                   <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
                     Avg. PNL/Day Active (Approx)
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Average PnL per token divided by average trading duration per token. Shows trading intensity - how much PnL each token generated per day of active trading.</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
-                  <Metric className="text-base">{formatMetric(data.averagePnlPerDayActiveApprox, 'SOL')}</Metric>
+                  <Metric className="text-sm">{formatMetric(data.averagePnlPerDayActiveApprox, 'SOL')}</Metric>
                 </Card>
-                <Card className="p-2.5 text-left">
+                <Card className="p-2 text-left">
                   <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
                     Weighted Efficiency Score
                     <TooltipProvider>
@@ -206,7 +206,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
                       </Tooltip>
                     </TooltipProvider>
                   </Text>
-                  <Metric className="text-base">{formatMetric(data.weightedEfficiencyScore, '', 2)}</Metric>
+                  <Metric className="text-sm">{formatMetric(data.weightedEfficiencyScore, '', 2)}</Metric>
                 </Card>
               </Grid>
             </AccordionContent>
@@ -218,22 +218,22 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
 };
 
 const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
-  <div className="w-full h-full overflow-auto p-6 border rounded-lg bg-card">
-    <Title>{title}</Title>
-    <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-2">
-      <span className="inline-block animate-pulse rounded-md bg-primary/10 h-4 w-1/3">&nbsp;</span>
+  <div className="w-full h-full p-4 border rounded-lg bg-card flex flex-col">
+    <Title className="text-lg">{title}</Title>
+    <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-3 text-sm">
+      <span className="inline-block animate-pulse rounded-md bg-primary/10 h-3 w-1/3">&nbsp;</span>
     </Subtitle>
-    
+
     {/* Section 1: Core Trading Metrics Skeleton */}
-    <div className="mt-4 pt-3 mb-4">
-      <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Core Trading Metrics</Text>
+    <div className="mb-3">
+      <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Core Trading Metrics</Text>
       <Card className="p-0">
-        <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
-          <Grid numItemsSm={2} numItemsMd={4} className="gap-x-4 gap-y-4">
+        <div className="px-3 py-2">
+          <Grid numItemsSm={2} numItemsMd={4} className="gap-x-3 gap-y-3">
             {[...Array(4)].map((_, i) => (
               <Flex key={`core-metric-skel-${i}`} flexDirection="col" alignItems="start" justifyContent="start">
                 <Skeleton className="h-3 w-1/2 mb-1" />
-                <Skeleton className="h-6 w-3/4" />
+                <Skeleton className="h-5 w-3/4" />
               </Flex>
             ))}
           </Grid>
@@ -242,15 +242,15 @@ const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
     </div>
 
     {/* Section 2: Volume & Capital Flow Skeleton */}
-    <div className="mt-4 pt-3 mb-4">
-      <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-3">Volume & Capital Flow</Text>
+    <div className="mb-3">
+      <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Volume & Capital Flow</Text>
       <Card className="p-0">
-        <div className="px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border pb-4">
-          <Grid numItemsSm={2} numItemsMd={3} className="gap-x-4 gap-y-4">
+        <div className="px-3 py-2">
+          <Grid numItemsSm={2} numItemsMd={3} className="gap-x-3 gap-y-3">
             {[...Array(3)].map((_, i) => (
               <Flex key={`volume-metric-skel-${i}`} flexDirection="col" alignItems="start" justifyContent="start">
                 <Skeleton className="h-3 w-1/2 mb-1" />
-                <Skeleton className="h-6 w-3/4" />
+                <Skeleton className="h-5 w-3/4" />
               </Flex>
             ))}
           </Grid>
@@ -259,24 +259,24 @@ const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
     </div>
 
     {/* Section 3: Advanced Token Analytics Skeleton */}
-    <div className="mt-4 pt-3 mb-4 p-3 rounded-md bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
-      <Text className="text-base font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong flex items-center mb-3">
+    <div className="flex-1 p-2 rounded-md bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle overflow-hidden flex flex-col">
+      <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong flex items-center mb-2">
         Advanced Token Analytics
       </Text>
-      <Accordion type="single" collapsible className="w-full" defaultValue="item-advanced-metrics-skeleton">
-        <AccordionItem value="item-advanced-metrics-skeleton" className="border-none rounded-md data-[state=open]:bg-tremor-background-muted dark:data-[state=open]:bg-dark-tremor-background-muted px-2">
-          <AccordionTrigger className="py-2 hover:no-underline">
+      <Accordion type="single" collapsible className="w-full flex-1 overflow-hidden flex flex-col" defaultValue="item-advanced-metrics-skeleton">
+        <AccordionItem value="item-advanced-metrics-skeleton" className="border-none rounded-md data-[state=open]:bg-tremor-background-muted dark:data-[state=open]:bg-dark-tremor-background-muted px-2 flex-1 flex flex-col">
+          <AccordionTrigger className="py-1 hover:no-underline">
             <Flex alignItems="center">
-              <Skeleton className="h-4 w-4 mr-2 rounded-full" />
-              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-3 w-3 mr-1.5 rounded-full" />
+              <Skeleton className="h-3 w-1/3" />
             </Flex>
           </AccordionTrigger>
-          <AccordionContent className="pt-1 pb-2">
-            <Grid numItemsSm={2} numItemsMd={2} numItemsLg={2} className="gap-3 mt-1">
+          <AccordionContent className="pt-1 pb-2 overflow-auto">
+            <Grid numItemsSm={2} numItemsMd={2} numItemsLg={2} className="gap-2">
               {[...Array(6)].map((_, i) => (
-                <Card key={`adv-metric-card-skel-${i}`} className="p-2.5 text-left">
+                <Card key={`adv-metric-card-skel-${i}`} className="p-2 text-left">
                   <Skeleton className="h-3 w-3/4 mb-1" />
-                  <Skeleton className="h-6 w-1/2" />
+                  <Skeleton className="h-4 w-1/2" />
                 </Card>
               ))}
             </Grid>

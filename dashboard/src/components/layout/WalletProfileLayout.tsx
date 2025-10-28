@@ -956,7 +956,7 @@ export default function WalletProfileLayout({
           ? 'Deep sync running...'
           : ctaBusy
             ? 'Analysis running...'
-          : 'Run full rebuild';
+          : 'Refresh';
 
     return (
       <div className="flex flex-col items-start gap-1 w-full md:w-auto">
@@ -1278,7 +1278,7 @@ export default function WalletProfileLayout({
             <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} />
           </LazyTabContent>
 
-          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0 flex-1" defer={true}>
+          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedAccountStatsPnlTab 
               walletAddress={walletAddress} 
               triggerAnalysisGlobal={handleTriggerAnalysis} 
@@ -1287,11 +1287,11 @@ export default function WalletProfileLayout({
             />
           </LazyTabContent>
 
-          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0 flex-1" defer={true}>
+          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedBehavioralPatternsTab walletAddress={walletAddress} />
           </LazyTabContent>
 
-          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0 flex-1" defer={true}>
+          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedReviewerLogTab walletAddress={walletAddress} />
           </LazyTabContent>
         </div>
