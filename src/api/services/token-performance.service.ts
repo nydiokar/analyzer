@@ -333,12 +333,14 @@ export class TokenPerformanceService {
         currentUiBalanceString: ar.currentUiBalanceString,
         balanceDecimals: ar.balanceDecimals,
         balanceFetchedAt: ar.balanceFetchedAt ? ar.balanceFetchedAt.toISOString() : null,
-        name: tokenInfo?.name || fallbackMetadata?.name,
-        symbol: tokenInfo?.symbol || fallbackMetadata?.symbol,
-        imageUrl: tokenInfo?.imageUrl,
-        websiteUrl: tokenInfo?.websiteUrl,
-        twitterUrl: tokenInfo?.twitterUrl,
-        telegramUrl: tokenInfo?.telegramUrl,
+        // Display metadata - ONCHAIN FIRST (authoritative), fallback to DexScreener
+        name: tokenInfo?.onchainName || tokenInfo?.name || fallbackMetadata?.name,
+        symbol: tokenInfo?.onchainSymbol || tokenInfo?.symbol || fallbackMetadata?.symbol,
+        imageUrl: tokenInfo?.onchainImageUrl || tokenInfo?.imageUrl,
+        // Social links - DexScreener FIRST (more up-to-date), fallback to onchain
+        websiteUrl: tokenInfo?.websiteUrl || tokenInfo?.onchainWebsiteUrl,
+        twitterUrl: tokenInfo?.twitterUrl || tokenInfo?.onchainTwitterUrl,
+        telegramUrl: tokenInfo?.telegramUrl || tokenInfo?.onchainTelegramUrl,
         // DexScreener market data
         marketCapUsd: tokenInfo?.marketCapUsd,
         liquidityUsd: tokenInfo?.liquidityUsd,

@@ -1053,4 +1053,50 @@ export class HeliusApiClient {
       throw error; // Re-throw to allow the caller to handle it
     }
   }
+
+  /**
+   * Fetch multiple assets using Helius DAS API (Digital Asset Standard)
+   * Supports up to 1000 assets per call
+   *
+   * @param assetIds Array of token mint addresses
+   * @returns Array of asset objects with metadata
+   */
+  public async getAssetBatch(assetIds: string[]): Promise<any[]> {
+    if (!assetIds || assetIds.length === 0) {
+      return [];
+    }
+
+    // Deduplicate to avoid fetching same asset multiple times
+    const uniqueIds = [...new Set(assetIds)];
+
+    // DAS API supports up to 1000 assets per call
+    if (uniqueIds.length > 1000) {
+      logger.warn(`getAssetBatch called with ${uniqueIds.length} assets, will batch in chunks of 1000`);
+
+      const results: any[] = [];
+      for (let i = 0; i < uniqueIds.length; i += 1000) {
+        const chunk = uniqueIds.slice(i, i + 1000);
+        const chunkResults = await this.getAssetBatch(chunk);
+        results.push(...chunkResults);
+      }
+      return results;
+    }
+
+    logger.debug(`Fetching ${uniqueIds.length} assets via DAS API`);
+
+    try {
+      const result = await this.makeRpcRequest<any>('getAssetBatch', [
+        {
+          ids: uniqueIds,
+        }
+      ]);
+
+      return result || [];
+    } catch (error) {
+      logger.error(`Failed to fetch asset batch for ${uniqueIds.length} assets`, {
+        error: this.sanitizeError(error),
+      });
+      throw error;
+    }
+  }
 }

@@ -5,6 +5,7 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { HeliusSyncService } from '../../core/services/helius-sync-service';
 import { SmartFetchService } from '../../core/services/smart-fetch-service';
 import { WalletClassificationService } from '../../core/services/wallet-classification.service';
+import { OnchainMetadataService } from '../../core/services/onchain-metadata.service';
 import { DatabaseModule } from '../modules/database.module';
 
 @Global()
@@ -43,7 +44,31 @@ import { DatabaseModule } from '../modules/database.module';
       },
       inject: [DatabaseService, HeliusApiClient, SmartFetchService],
     },
+    {
+      provide: OnchainMetadataService,
+      useFactory: (configService: ConfigService, dbService: DatabaseService, heliusClient: HeliusApiClient) => {
+        const logger = new Logger('OnchainMetadataServiceFactory');
+
+        // Check if separate metadata API key is configured
+        const metadataApiKey = configService.get<string>('HELIUS_METADATA_API_KEY');
+
+        if (metadataApiKey) {
+          logger.log('Using separate Helius API key for metadata enrichment');
+          // Create dedicated client for metadata with separate rate limits
+          const metadataClient = new HeliusApiClient(
+            { apiKey: metadataApiKey, network: 'mainnet' },
+            dbService
+          );
+          return new OnchainMetadataService(metadataClient);
+        } else {
+          logger.log('Using main Helius API key for metadata enrichment');
+          // Reuse main client
+          return new OnchainMetadataService(heliusClient);
+        }
+      },
+      inject: [ConfigService, DatabaseService, HeliusApiClient],
+    },
   ],
-  exports: [HeliusApiClient, HeliusSyncService, SmartFetchService, WalletClassificationService],
+  exports: [HeliusApiClient, HeliusSyncService, SmartFetchService, WalletClassificationService, OnchainMetadataService],
 })
 export class HeliusModule {}

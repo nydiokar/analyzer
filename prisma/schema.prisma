@@ -365,13 +365,15 @@ model UserFavoriteWallet {
 
 model TokenInfo {
   tokenAddress String   @id @unique
+
+  // DexScreener fields (for trading data and fallback display)
   name         String?
   symbol       String?
   imageUrl     String?
   websiteUrl   String?
   twitterUrl   String?
   telegramUrl  String?
-  
+
   // DexScreener market data for enhanced spam detection
   marketCapUsd       Float?   // Market capitalization in USD
   liquidityUsd       Float?   // Liquidity in USD
@@ -380,7 +382,23 @@ model TokenInfo {
   volume24h          Float?   // 24h trading volume
   priceUsd           String?  // Current price in USD (string to preserve precision)
   dexscreenerUpdatedAt DateTime? // When DexScreener data was last fetched
-  
+
+  // Onchain metadata from Helius DAS API (PRIMARY for display)
+  onchainName         String?
+  onchainSymbol       String?
+  onchainDescription  String?
+  onchainImageUrl     String?
+  onchainCreator      String?
+  onchainMetadataUri  String?
+  onchainTwitterUrl   String?
+  onchainWebsiteUrl   String?
+  onchainTelegramUrl  String?
+  onchainDiscordUrl   String?
+  onchainBasicFetchedAt    DateTime? // When basic onchain metadata was fetched
+  onchainSocialsFetchedAt  DateTime? // When social links from URI were fetched
+
+  metadataSource      String?  // 'dexscreener' | 'onchain' | 'hybrid'
+
   fetchedAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -389,4 +407,7 @@ model TokenInfo {
   @@index([marketCapUsd])
   @@index([liquidityUsd])
   @@index([pairCreatedAt])
+  @@index([metadataSource])
+  @@index([onchainBasicFetchedAt])
+  @@index([dexscreenerUpdatedAt])
 }

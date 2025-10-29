@@ -1,5 +1,5 @@
 import { createLogger } from 'core/utils/logger';
-import { DatabaseService } from 'core/services/database-service';
+import { DatabaseService, prisma } from 'core/services/database-service';
 import { Prisma } from '@prisma/client';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -133,6 +133,37 @@ export class DexscreenerService {
         }
 
         logger.info(`🔍 DexScreener: Final results - ${actualApiCalls} API calls made, ${processedCount} tokens processed out of ${tokenAddresses.length} requested`);
+
+        // Update metadataSource to 'hybrid' for tokens with both onchain and dexscreener data
+        await this.updateMetadataSourceToHybrid(filteredTokens);
+    }
+
+    /**
+     * Update metadataSource to 'hybrid' for tokens that have both onchain and dexscreener data
+     * Called after saving DexScreener data
+     */
+    private async updateMetadataSourceToHybrid(tokenAddresses: string[]): Promise<void> {
+        if (tokenAddresses.length === 0) return;
+
+        try {
+            const result = await prisma.tokenInfo.updateMany({
+                where: {
+                    tokenAddress: { in: tokenAddresses },
+                    onchainBasicFetchedAt: { not: null },
+                    dexscreenerUpdatedAt: { not: null },
+                },
+                data: {
+                    metadataSource: 'hybrid',
+                },
+            });
+
+            if (result.count > 0) {
+                logger.debug(`Updated metadataSource to 'hybrid' for ${result.count} tokens with both data sources`);
+            }
+        } catch (error) {
+            logger.error('Failed to update metadataSource to hybrid:', error);
+            // Non-critical error, don't throw
+        }
     }
 
     async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {

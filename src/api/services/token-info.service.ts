@@ -5,6 +5,8 @@ import { Prisma } from '@prisma/client';
 import { DexscreenerService } from '../services/dexscreener.service';
 import { IPriceProvider } from '../../types/price-provider.interface';
 import { ITokenInfoService } from '../../types/token-info-service.interface';
+import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../core/services/onchain-metadata.service';
+import { prisma } from '../../core/services/database-service';
 
 /**
  * TokenInfoService - Unified Token Information & Price Management
@@ -26,13 +28,14 @@ export class TokenInfoService implements ITokenInfoService {
     private readonly db: DatabaseService,
     private readonly dexscreenerService: DexscreenerService, // Legacy, for backwards compatibility
     @Inject('IPriceProvider') private readonly priceProvider: IPriceProvider,
+    private readonly onchainMetadataService: OnchainMetadataService, // NEW: Onchain metadata enrichment
   ) {
     this.redis = new Redis({
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379'),
       maxRetriesPerRequest: 3,
     });
-    this.logger.log('TokenInfoService initialized with price caching (30s TTL)');
+    this.logger.log('TokenInfoService initialized with price caching (30s TTL) and onchain metadata enrichment');
   }
 
   /**
@@ -152,48 +155,209 @@ export class TokenInfoService implements ITokenInfoService {
   ): Promise<void> {
     const startTime = Date.now();
 
+    // Deduplicate input to avoid processing same token multiple times
+    tokenAddresses = [...new Set(tokenAddresses)];
+
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
       tokenCount: tokenAddresses.length,
     });
 
     const existingTokens = await this.findMany(tokenAddresses);
-    // FIXED: Use more reasonable cache expiry - 1 hour for metadata, 5 minutes for prices
-    const oneHourAgo = new Date(Date.now() - 1 * 60 * 1000); // 1 hour for metadata
-    const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000); // 5 minutes for prices
-
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata staleness
     const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
-    
-    const newTokensToFetch = tokenAddresses.filter(address => {
-      const existingToken = existingTokenMap.get(address);
-      
-      // Skip tokens that are clearly placeholders (Unknown Token with no real data)
-      if (existingToken?.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {
-        // Only refresh placeholders if they're older than 1 hour
-        return !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
+
+    // Determine which tokens need enrichment
+    const needsEnrichment = tokenAddresses.filter(address => {
+      const existing = existingTokenMap.get(address);
+
+      // If no data at all, needs enrichment
+      if (!existing) return true;
+
+      // If "Unknown Token" with no onchain data, needs enrichment
+      if (existing.name === 'Unknown Token' && !existing.onchainName) {
+        return true;
       }
-      
-      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (5 minutes)
-      if (existingToken) {
-        const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
-        
-        // Only fetch if metadata is stale OR if we have price data but it's stale
-        return metadataStale || (existingToken.priceUsd && priceStale);
-      }
-      
-      // New token - always fetch
-      return true;
+
+      // If stale data (both dex and onchain old), needs refresh
+      const dexStale = !existing.dexscreenerUpdatedAt || existing.dexscreenerUpdatedAt < oneHourAgo;
+      const onchainStale = !existing.onchainBasicFetchedAt || existing.onchainBasicFetchedAt < oneHourAgo;
+
+      return dexStale && onchainStale;
     });
 
-    // Use provider to fetch and save token info (abstracted, swappable)
-    await this.priceProvider.fetchAndSaveTokenInfo(newTokensToFetch);
-    
+    if (needsEnrichment.length === 0) {
+      this.logger.log('All tokens already have recent metadata');
+      return;
+    }
+
+    this.logger.log(`Enriching ${needsEnrichment.length} tokens with 3-stage enrichment (onchain-first)`);
+
+    // ═══════════════════════════════════════════════════════════
+    // STAGE 1: Helius DAS API (FAST - WAIT FOR THIS)
+    // ═══════════════════════════════════════════════════════════
+    let onchainMetadata: BasicTokenMetadata[] = [];
+    try {
+      onchainMetadata = await this.onchainMetadataService.fetchBasicMetadataBatch(needsEnrichment);
+
+      if (onchainMetadata.length > 0) {
+        await this.saveOnchainBasicMetadata(onchainMetadata);
+        this.logger.log(`✅ Stage 1: Saved basic metadata for ${onchainMetadata.length} tokens`);
+      }
+    } catch (error) {
+      this.logger.error('Stage 1 (DAS) failed:', error);
+      // Continue anyway - DexScreener might still work
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // STAGE 2: DexScreener (PARALLEL - DON'T WAIT)
+    // ═══════════════════════════════════════════════════════════
+    this.priceProvider
+      .fetchAndSaveTokenInfo(needsEnrichment)
+      .then(() => {
+        this.logger.log(`✅ Stage 2: DexScreener enrichment completed`);
+      })
+      .catch(err => {
+        this.logger.error('Stage 2 (DexScreener) failed:', err);
+      });
+
+    // ═══════════════════════════════════════════════════════════
+    // STAGE 3: URI Social Links (BACKGROUND - DON'T WAIT)
+    // ═══════════════════════════════════════════════════════════
+    // Extract URIs from Stage 1 results (no DB query needed!)
+    const tokensWithUris = onchainMetadata
+      .filter(m => m.metadataUri)
+      .map(m => ({ mint: m.mint, uri: m.metadataUri! }));
+
+    if (tokensWithUris.length > 0) {
+      this.fetchAndSaveSocialLinks(tokensWithUris)
+        .then(() => {
+          this.logger.log(`✅ Stage 3: Social links fetched for ${tokensWithUris.length} tokens`);
+        })
+        .catch(err => {
+          this.logger.error('Stage 3 (Social links) failed:', err);
+        });
+    }
+
+    const duration = Date.now() - startTime;
+    this.logger.log(`Token enrichment triggered in ${duration}ms (DAS completed, DexScreener and socials in background)`);
+
     // Log success status
-    const durationMs = Date.now() - startTime;
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
       tokenCount: tokenAddresses.length,
-      newTokensFetched: newTokensToFetch.length,
-    }, 'SUCCESS', durationMs);
+      needsEnrichment: needsEnrichment.length,
+      onchainMetadataFetched: onchainMetadata.length,
+    }, 'SUCCESS', duration);
+  }
+
+  /**
+   * Save basic onchain metadata to database
+   * Uses batched operations to avoid N+1 queries
+   */
+  private async saveOnchainBasicMetadata(metadata: BasicTokenMetadata[]): Promise<void> {
+    if (metadata.length === 0) return;
+
+    // Deduplicate by mint address
+    const uniqueMetadata = Array.from(
+      new Map(metadata.map(m => [m.mint, m])).values()
+    );
+
+    // Separate into new vs existing tokens (1 query for all)
+    const existingAddresses = await prisma.tokenInfo.findMany({
+      where: { tokenAddress: { in: uniqueMetadata.map(m => m.mint) } },
+      select: { tokenAddress: true },
+    });
+
+    const existingSet = new Set(existingAddresses.map(t => t.tokenAddress));
+    const newTokens = uniqueMetadata.filter(m => !existingSet.has(m.mint));
+    const existingTokens = uniqueMetadata.filter(m => existingSet.has(m.mint));
+
+    // Use transaction for atomic updates (1 transaction instead of N queries)
+    const operations = [];
+
+    // Bulk create new tokens
+    if (newTokens.length > 0) {
+      operations.push(
+        prisma.tokenInfo.createMany({
+          data: newTokens.map(m => ({
+            tokenAddress: m.mint,
+            onchainName: m.name,
+            onchainSymbol: m.symbol,
+            onchainDescription: m.description,
+            onchainImageUrl: m.imageUrl,
+            onchainCreator: m.creator,
+            onchainMetadataUri: m.metadataUri,
+            onchainBasicFetchedAt: new Date(),
+            metadataSource: 'onchain',
+          })),
+          skipDuplicates: true,
+        })
+      );
+    }
+
+    // Update existing tokens (batched in transaction)
+    operations.push(
+      ...existingTokens.map(m =>
+        prisma.tokenInfo.update({
+          where: { tokenAddress: m.mint },
+          data: {
+            onchainName: m.name,
+            onchainSymbol: m.symbol,
+            onchainDescription: m.description,
+            onchainImageUrl: m.imageUrl,
+            onchainCreator: m.creator,
+            onchainMetadataUri: m.metadataUri,
+            onchainBasicFetchedAt: new Date(),
+            // Keep existing metadataSource if already 'hybrid'
+          },
+        })
+      )
+    );
+
+    await prisma.$transaction(operations);
+    this.logger.log(`Batch saved ${newTokens.length} new + ${existingTokens.length} updated tokens`);
+  }
+
+  /**
+   * Fetch and save social links from metadata URIs
+   * Uses batched operations to avoid N+1 queries
+   */
+  private async fetchAndSaveSocialLinks(
+    tokens: Array<{ mint: string; uri: string }>
+  ): Promise<number> {
+    const socialLinks = await this.onchainMetadataService.fetchSocialLinksBatch(tokens);
+
+    if (socialLinks.length === 0) return 0;
+
+    // Deduplicate
+    const uniqueLinks = Array.from(
+      new Map(socialLinks.map(s => [s.mint, s])).values()
+    );
+
+    // Batch update - use Promise.allSettled to handle individual failures gracefully
+    const updatePromises = uniqueLinks.map(s =>
+      prisma.tokenInfo.update({
+        where: { tokenAddress: s.mint },
+        data: {
+          onchainTwitterUrl: s.twitter,
+          onchainWebsiteUrl: s.website,
+          onchainTelegramUrl: s.telegram,
+          onchainDiscordUrl: s.discord,
+          onchainSocialsFetchedAt: new Date(),
+        },
+      })
+    );
+
+    // Execute all updates, handle failures individually
+    const results = await Promise.allSettled(updatePromises);
+
+    const successCount = results.filter(r => r.status === 'fulfilled').length;
+    const failureCount = results.filter(r => r.status === 'rejected').length;
+
+    if (failureCount > 0) {
+      this.logger.debug(`Social links: ${successCount} succeeded, ${failureCount} failed (tokens might not exist)`);
+    }
+
+    return successCount;
   }
 
   async findMany(tokenAddresses: string[]) {

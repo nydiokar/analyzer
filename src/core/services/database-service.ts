@@ -105,7 +105,7 @@ interface WalletStatusResponse {
 @Injectable()
 export class DatabaseService {
     // Using the exported prisma instance
-    private prismaClient: PrismaClient = prisma; 
+    private prismaClient: PrismaClient = prisma;
     private logger = logger; // Use the module-level logger
 
     /**
