@@ -79,10 +79,10 @@ export default function AccountSummaryCard({
 
   if (isLoading) {
     return (
-      <Card className={cn("p-3 shadow-sm w-full md:w-auto md:min-w-[280px] lg:min-w-[320px]", className)}>
+      <Card className={cn("p-3 shadow-sm w-full max-w-sm", className)}>
         <div className="space-y-3">
           {/* Main metrics skeleton - match the actual layout */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2">
             <div className="flex flex-col items-center text-center">
               <Skeleton className="h-3 w-8 mb-1" />
               <Skeleton className="h-5 w-16" />
@@ -96,7 +96,7 @@ export default function AccountSummaryCard({
               <Skeleton className="h-5 w-12" />
             </div>
           </div>
-          
+
           {/* Additional info skeleton */}
           <div className="pt-2 border-t border-muted/50">
             <div className="flex items-center justify-between">
@@ -197,10 +197,10 @@ export default function AccountSummaryCard({
   };
 
   return (
-    <Card className={cn("p-3 shadow-sm w-full md:w-auto md:min-w-[280px] lg:min-w-[320px]", className)}>
-      <div className="space-y-3">
+    <Card className={cn("p-3 shadow-sm w-full max-w-sm", className)}>
+      <div className="space-y-2">
         {/* Main metrics in a horizontal layout */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2">
           <div className="flex flex-col items-center text-center">
             <Text className="text-xs text-muted-foreground">PNL</Text>
             <Metric color={(data.latestPnl ?? 0) >= 0 ? 'emerald' : 'red'} className="text-sm">

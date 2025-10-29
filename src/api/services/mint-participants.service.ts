@@ -33,7 +33,7 @@ export class MintParticipantsService {
       creationSkipIfTokenAccountsOver: opts?.creationSkipIfTokenAccountsOver ?? Number(this.configService.get('MINT_PARTICIPANTS_CREATION_SKIP_IF_TOKEN_ACCOUNTS_OVER') || 10000),
       output: opts?.output ?? (this.configService.get('MINT_PARTICIPANTS_OUTPUT') as any) ?? 'jsonl',
       outFile: opts?.outFile ?? this.configService.get('MINT_PARTICIPANTS_OUTFILE') ?? undefined,
-      verbose: opts?.verbose ?? (this.configService.get('MINT_PARTICIPANTS_VERBOSE') === 'true') ?? false,
+      verbose: opts?.verbose ?? (this.configService.get('MINT_PARTICIPANTS_VERBOSE') === 'true' ? true : false),
     };
 
     return await runMintParticipantsFlow(

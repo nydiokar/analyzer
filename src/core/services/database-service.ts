@@ -24,6 +24,7 @@ import * as bcrypt from 'bcrypt';
 import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger } from '@nestjs/common';
 import { WalletAnalysisStatus } from '@/types/wallet';
 import { DB_CONFIG } from '../../config/constants';
+import type { DashboardAnalysisScope } from '../../shared/dashboard-analysis.types';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -1830,6 +1831,102 @@ export class DatabaseService {
         } catch (error) {
             this.logger.error(`Error fetching latest AnalysisRun for wallet ${walletAddress}`, { error });
             return null;
+        }
+    }
+
+    async getLatestDashboardAnalysisRun(
+        walletAddress: string,
+        scope: DashboardAnalysisScope
+    ): Promise<AnalysisRun | null> {
+        this.logger.debug(`Fetching latest Dashboard AnalysisRun for wallet ${walletAddress} [scope=${scope}]`);
+        try {
+            return await this.prismaClient.analysisRun.findFirst({
+                where: {
+                    walletAddress,
+                    serviceInvoked: `DashboardAnalysis.${scope}`,
+                    status: 'COMPLETED',
+                },
+                orderBy: {
+                    runTimestamp: 'desc',
+                },
+            });
+        } catch (error) {
+            this.logger.error(`Error fetching Dashboard AnalysisRun for wallet ${walletAddress} [scope=${scope}]`, { error });
+            return null;
+        }
+    }
+
+    async recordDashboardAnalysisRun(params: {
+        walletAddress: string;
+        scope: DashboardAnalysisScope;
+        status: 'COMPLETED' | 'FAILED' | 'SKIPPED';
+        triggerSource: string;
+        runTimestamp?: Date;
+        durationMs?: number;
+        signaturesConsidered?: number;
+        inputDataStartTs?: number;
+        inputDataEndTs?: number;
+        historyWindowDays?: number;
+        notes?: Record<string, unknown>;
+    }): Promise<AnalysisRun | null> {
+        const {
+            walletAddress,
+            scope,
+            status,
+            triggerSource,
+            runTimestamp,
+            durationMs,
+            signaturesConsidered,
+            inputDataStartTs,
+            inputDataEndTs,
+            historyWindowDays,
+            notes,
+        } = params;
+
+        const payloadNotes = {
+            triggerSource,
+            historyWindowDays,
+            ...(notes || {}),
+        };
+
+        return this.createAnalysisRun({
+            walletAddress,
+            serviceInvoked: `DashboardAnalysis.${scope}`,
+            status,
+            runTimestamp: runTimestamp ?? new Date(),
+            durationMs,
+            signaturesConsidered,
+            inputDataStartTs,
+            inputDataEndTs,
+            notes: JSON.stringify(payloadNotes),
+        });
+    }
+
+    async countSwapInputs(
+        walletAddress: string,
+        options: { sinceTs?: number; untilTs?: number } = {}
+    ): Promise<number> {
+        this.logger.debug(`Counting swap inputs for wallet ${walletAddress}`, options);
+        try {
+            const where: Prisma.SwapAnalysisInputWhereInput = {
+                walletAddress,
+            };
+
+            if (options.sinceTs !== undefined || options.untilTs !== undefined) {
+                const timestampFilter: Prisma.IntFilter = {};
+                if (options.sinceTs !== undefined) {
+                    timestampFilter.gte = options.sinceTs;
+                }
+                if (options.untilTs !== undefined) {
+                    timestampFilter.lte = options.untilTs;
+                }
+                where.timestamp = timestampFilter;
+            }
+
+            return await this.prismaClient.swapAnalysisInput.count({ where });
+        } catch (error) {
+            this.logger.error(`Error counting swap inputs for wallet ${walletAddress}`, { error, options });
+            return 0;
         }
     }
 

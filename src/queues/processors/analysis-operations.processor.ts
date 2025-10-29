@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
-import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
+import { QueueNames, QueueConfigs, JobTimeouts, JobPriority } from '../config/queue.config';
 import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
@@ -13,11 +13,16 @@ import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { SyncOptions } from '../../core/services/helius-sync-service';
-import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_JOB_CONFIG } from '../../config/constants';
+import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
+import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
+import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../shared/dashboard-analysis.types';
+import { DexscreenerService } from '../../api/services/dexscreener.service';
+import { BalanceCacheService } from '../../api/services/balance-cache.service';
+import { WalletBalance } from '../../types/wallet';
 
 @Injectable()
 export class AnalysisOperationsProcessor implements OnModuleDestroy {
@@ -30,11 +35,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly behaviorService: BehaviorService,
     private readonly databaseService: DatabaseService,
     private readonly heliusSyncService: HeliusSyncService,
+    private readonly analysisQueueService: AnalysisOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly heliusApiClient: HeliusApiClient,
     private readonly jobProgressGateway: JobProgressGateway,
     private readonly tokenInfoService: TokenInfoService,
     private readonly telegramAlerts: TelegramAlertsService,
+    private readonly dexscreenerService: DexscreenerService,
+    private readonly balanceCacheService: BalanceCacheService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -236,158 +244,296 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
    * Implements comprehensive wallet analysis with sync, PNL, and behavior analysis
    */
   async processDashboardWalletAnalysis(job: Job<DashboardWalletAnalysisJobData>): Promise<any> {
-    const { walletAddress, forceRefresh, enrichMetadata, timeoutMinutes } = job.data;
-    const timeoutMs = (timeoutMinutes || DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES) * 60 * 1000;
+    const walletAddress = job.data.walletAddress;
+    const scope: DashboardAnalysisScope = job.data.analysisScope ?? 'deep';
+    const triggerSource: DashboardAnalysisTriggerSource = job.data.triggerSource ?? 'manual';
+    const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[scope];
+
+    if (!scopeDefaults) {
+      throw new Error(`Unsupported dashboard analysis scope '${scope}'`);
+    }
+
+    const effectiveHistoryWindowDays =
+      scope === 'deep' ? undefined : job.data.historyWindowDays ?? scopeDefaults.historyWindowDays ?? 7;
+
+    const targetSignatureBaseline =
+      job.data.targetSignatureCount ??
+      scopeDefaults.targetSignatureCount ??
+      ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES;
+    const effectiveTargetSignatures = Math.min(targetSignatureBaseline, ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES);
+
+    const effectiveTimeoutMinutes =
+      job.data.timeoutMinutes ?? scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES;
+    const timeoutMs = effectiveTimeoutMinutes * 60 * 1000;
     const startTime = Date.now();
-    
-    // Deduplication check
+
     const expectedJobId = generateJobId.dashboardWalletAnalysis(walletAddress, job.data.requestId);
     if (job.id !== expectedJobId) {
       this.logger.warn(`Job ID mismatch - possible duplicate: expected ${expectedJobId}, got ${job.id}`);
       throw new Error(`Job ID mismatch - possible duplicate`);
     }
 
-    // Acquire lock
     const lockKey = RedisLockService.createWalletLockKey(walletAddress, 'dashboard-analysis');
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
-    
+
     if (!lockAcquired) {
-      this.logger.warn(`Could not acquire lock for dashboard analysis on ${walletAddress}, job ${job.id} will be retried.`);
+      this.logger.warn(
+        `Could not acquire lock for dashboard analysis on ${walletAddress} [scope=${scope}], job ${job.id} will be retried.`,
+      );
       throw new Error(`Dashboard analysis already in progress for wallet ${walletAddress}`);
     }
 
     let enrichmentJob: Job | undefined;
+    const followUpJobsQueued: Array<{ scope: DashboardAnalysisScope; jobId: string }> = [];
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const timeRange =
+      scope === 'deep'
+        ? undefined
+        : {
+            startTs: Math.max(0, nowSeconds - Math.round((effectiveHistoryWindowDays ?? 7) * 86400)),
+            endTs: nowSeconds,
+          };
 
     try {
       await job.updateProgress(5);
-      this.logger.log(`Starting dashboard analysis for wallet: ${walletAddress}`);
+      this.logger.log(
+        `Starting dashboard analysis for wallet ${walletAddress} [scope=${scope}, trigger=${triggerSource}]`,
+      );
 
-      // 1. Check wallet status for smart sync
       await job.updateProgress(10);
       const walletStatuses = await this.databaseService.getWalletsStatus([walletAddress]);
-      const needsSync = walletStatuses.statuses[0].status === 'STALE' || 
-                       walletStatuses.statuses[0].status === 'MISSING' || 
-                       forceRefresh;
+      const needsSync =
+        walletStatuses.statuses[0].status === 'STALE' ||
+        walletStatuses.statuses[0].status === 'MISSING' ||
+        job.data.forceRefresh;
+
+      await job.updateProgress(15);
+      const syncOptions: SyncOptions = {
+        limit: 100,
+        fetchAll: scope === 'deep' || needsSync || !!job.data.forceRefresh,
+        skipApi: false,
+        fetchOlder: scope !== 'flash',
+        maxSignatures: effectiveTargetSignatures,
+        smartFetch: true,
+        onProgress: (progress) => {
+          const syncProgress = 15 + Math.floor(progress * 0.3);
+          job.updateProgress(Math.min(syncProgress, 40));
+        },
+      };
+
+      this.logger.debug(
+        `Syncing wallet data for ${walletAddress} [scope=${scope}, fetchOlder=${syncOptions.fetchOlder}, maxSignatures=${syncOptions.maxSignatures}]`,
+      );
+      await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+      await job.updateProgress(45);
+
+      this.logger.debug(`Fetching balances for ${walletAddress}...`);
       
-      // 2. Sync wallet data if necessary
-      if (needsSync) {
-        await job.updateProgress(15);
-        this.logger.log(`Syncing transaction data for ${walletAddress}...`);
+      // Try to get cached balances first (cache set by previous scope in this chain)
+      let balanceData: Map<string, WalletBalance> | undefined;
+      const cachedBalance = await this.balanceCacheService.getBalances(walletAddress);
+      
+      if (cachedBalance) {
+        this.logger.debug(`Using cached balances for ${walletAddress} (saved ${scope} from API call)`);
+        balanceData = new Map([[walletAddress, cachedBalance]]);
+      } else {
+        // Cache miss - fetch fresh and cache for follow-up scopes
+        this.logger.debug(`Balance cache miss for ${walletAddress}, fetching from Helius`);
+        const walletBalanceService = new WalletBalanceService(
+          this.heliusApiClient,
+          this.databaseService,
+          this.tokenInfoService,
+        );
+        balanceData = await walletBalanceService.fetchWalletBalances([walletAddress], 'default', true);
         
-        const syncOptions: SyncOptions = {
-          limit: 100,
-          fetchAll: true,
-          skipApi: false,
-          fetchOlder: true,
-          maxSignatures: ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES,
-          smartFetch: true,
-          onProgress: (progress) => {
-            const syncProgress = 15 + Math.floor(progress * 0.35); // Sync is 35% of total progress
-            job.updateProgress(syncProgress);
-          },
-        };
-        
-        await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-        this.logger.log(`Sync completed for ${walletAddress}`);
+        // Cache with 10-minute TTL for dashboard analysis chains
+        const fetchedBalance = balanceData?.get(walletAddress);
+        if (fetchedBalance) {
+          await this.balanceCacheService.cacheBalances(walletAddress, fetchedBalance, 600);
+          this.logger.debug(`Cached balances for ${walletAddress} for follow-up scopes`);
+        }
       }
-      
       await job.updateProgress(50);
-      
-      // 3. Fetch current balances
-      this.logger.log(`Fetching balances for ${walletAddress}...`);
-      const walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService, this.tokenInfoService);
-      const balanceData = await walletBalanceService.fetchWalletBalances([walletAddress], 'default', true);
-      
+
+      // Fetch SOL price for unrealized PNL calculations (cached in Redis with 30s TTL)
+      let solPriceUsd: number | undefined;
+      try {
+        solPriceUsd = await this.tokenInfoService.getSolPrice();
+        this.logger.log(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
+      } catch (error) {
+        this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
+      }
       await job.updateProgress(55);
-      
-      // 4. Run PNL and Behavior analysis
-      this.logger.log(`Running PNL and Behavior analysis for ${walletAddress}`);
-      await job.updateProgress(65);
-      
-      const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, { preFetchedBalances: balanceData });
-      await job.updateProgress(80);
-      
-      const behaviorResult = await this.behaviorService.getWalletBehavior(walletAddress, this.behaviorService.getDefaultBehaviorAnalysisConfig());
-      await job.updateProgress(90);
-      
-      // 5. Queue metadata enrichment job
+
+      this.logger.debug(`Running PNL analysis for ${walletAddress} [scope=${scope}]`);
+      const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, timeRange, {
+        preFetchedBalances: balanceData,
+        solPriceUsd,
+      });
+      await job.updateProgress(75);
+
+      this.logger.debug(`Running behavior analysis for ${walletAddress} [scope=${scope}]`);
+      const behaviorConfig: BehaviorAnalysisConfig = {
+        ...this.behaviorService.getDefaultBehaviorAnalysisConfig(),
+        ...(timeRange ? { timeRange } : {}),
+      };
+      const behaviorResult = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig, timeRange);
+      await job.updateProgress(85);
+
       let enrichmentJobId: string | undefined;
-      if (enrichMetadata) {
-        await job.updateProgress(95);
+      const shouldEnrich = scope === 'deep' && (job.data.enrichMetadata ?? true);
+      if (shouldEnrich) {
+        await job.updateProgress(92);
         try {
-          // Get ALL tokens mapped to this wallet from the database (not just current balances)
-          // This ensures we enrich all tokens that have ever been associated with this wallet
           const allWalletTokens = await this.databaseService.getUniqueTokenAddressesFromAnalysisResults(walletAddress);
-          
+
           if (allWalletTokens.length > 0) {
-            // Get current balances for all mapped tokens
             const walletBalanceData = balanceData?.get(walletAddress);
-            const allTokenBalances = walletBalanceData?.tokenBalances?.filter(tokenBalance => 
-              allWalletTokens.includes(tokenBalance.mint)
-            ) || [];
-            
-            // For tokens that don't have current balances, create placeholder entries
-            const tokensWithoutBalances = allWalletTokens.filter(tokenAddress => 
-              !allTokenBalances.some(tb => tb.mint === tokenAddress)
+            const allTokenBalances =
+              walletBalanceData?.tokenBalances?.filter((tokenBalance) =>
+                allWalletTokens.includes(tokenBalance.mint),
+              ) || [];
+
+            const tokensWithoutBalances = allWalletTokens.filter(
+              (tokenAddress) => !allTokenBalances.some((tb) => tb.mint === tokenAddress),
             );
-            
-            const placeholderBalances = tokensWithoutBalances.map(tokenAddress => ({
+
+            const placeholderBalances = tokensWithoutBalances.map((tokenAddress) => ({
               mint: tokenAddress,
               uiBalance: 0,
               balance: '0',
             }));
-            
+
             const allBalancesForEnrichment = [...allTokenBalances, ...placeholderBalances];
-            
-            this.logger.log(`Queuing enrichment for ${allBalancesForEnrichment.length} mapped tokens (${allTokenBalances.length} with current balances, ${placeholderBalances.length} without current balances) for wallet ${walletAddress}`);
-            
+
+            this.logger.debug(
+              `Queuing enrichment for ${allBalancesForEnrichment.length} mapped tokens (scope=${scope}) for wallet ${walletAddress}`,
+            );
+
             const walletBalancesForEnrichment = {
               [walletAddress]: {
-                tokenBalances: allBalancesForEnrichment.map(tokenBalance => ({
+                tokenBalances: allBalancesForEnrichment.map((tokenBalance) => ({
                   mint: tokenBalance.mint,
                   uiBalance: tokenBalance.uiBalance,
                   balance: tokenBalance.balance,
-                }))
-              }
+                })),
+              },
             };
-            
+
             enrichmentJob = await this.enrichmentOperationsQueue.addEnrichTokenBalances({
               walletBalances: walletBalancesForEnrichment,
               requestId: job.data.requestId,
-              priority: 3,
-              enrichmentContext: 'dashboard-analysis'
+              priority: JobPriority.LOW,
+              enrichmentContext: 'dashboard-analysis',
             });
             enrichmentJobId = enrichmentJob.id;
           } else {
-            this.logger.log(`No mapped tokens found for ${walletAddress}, skipping enrichment.`);
+            this.logger.debug(`No mapped tokens found for ${walletAddress}, skipping enrichment.`);
           }
         } catch (error) {
-          this.logger.warn(`Failed to queue enrichment job for ${walletAddress}, continuing without it:`, error);
+          this.logger.warn(
+            `Failed to queue enrichment job for ${walletAddress} (scope=${scope}), continuing without it:`,
+            error,
+          );
         }
       }
-      
+
+      const signaturesConsidered = await this.databaseService.countSwapInputs(
+        walletAddress,
+        timeRange ? { sinceTs: timeRange.startTs, untilTs: timeRange.endTs } : {},
+      );
+
+      const processingTimeMs = Date.now() - startTime;
+
+      // Record the analysis run BEFORE releasing lock
+      await this.databaseService.recordDashboardAnalysisRun({
+        walletAddress,
+        scope,
+        status: 'COMPLETED',
+        triggerSource,
+        runTimestamp: new Date(),
+        durationMs: processingTimeMs,
+        signaturesConsidered,
+        inputDataStartTs: timeRange?.startTs,
+        inputDataEndTs: timeRange?.endTs,
+        historyWindowDays: effectiveHistoryWindowDays,
+        notes: {
+          followUpRequested: { working: job.data.queueWorkingAfter, deep: job.data.queueDeepAfter },
+          followUpQueued: [], // Will be updated after queueing
+        },
+      });
+
       await job.updateProgress(100);
-      
+
+      // ✅ CRITICAL: Release lock BEFORE queuing follow-ups
+      // This prevents lock contention when follow-up jobs start immediately
+      await this.redisLockService.releaseLock(lockKey, job.id!);
+      this.logger.debug(`Released lock for ${walletAddress} [scope=${scope}] before queueing follow-ups`);
+
+      // Now queue follow-ups - they can acquire the lock immediately
+      if (scope === 'flash' && job.data.queueWorkingAfter) {
+        const queuedJobId = await this.queueFollowUpAnalysis({
+          walletAddress,
+          scope: 'working',
+          parentRequestId: job.data.requestId,
+          forceRefresh: job.data.forceRefresh ?? false,
+        });
+        if (queuedJobId) {
+          followUpJobsQueued.push({ scope: 'working', jobId: queuedJobId });
+        }
+      }
+
+      if (scope !== 'deep' && job.data.queueDeepAfter) {
+        const queuedJobId = await this.queueFollowUpAnalysis({
+          walletAddress,
+          scope: 'deep',
+          parentRequestId: job.data.requestId,
+          forceRefresh: job.data.forceRefresh ?? false,
+        });
+        if (queuedJobId) {
+          followUpJobsQueued.push({ scope: 'deep', jobId: queuedJobId });
+        }
+      }
+
       const result = {
         success: true,
         walletAddress,
         pnlResult,
         behaviorResult,
         enrichmentJobId,
+        analysisScope: scope,
+        triggerSource,
+        historyWindowDays: effectiveHistoryWindowDays ?? null,
+        targetSignatureCount: effectiveTargetSignatures,
+        signaturesConsidered,
+        timeRange,
+        followUpJobsQueued,
         timestamp: Date.now(),
-        processingTimeMs: Date.now() - startTime
+        processingTimeMs,
       };
 
-      const actualProcessingTime = Date.now() - startTime;
-      this.logger.log(`✅ Dashboard analysis for ${walletAddress} completed in ${actualProcessingTime}ms.`);
+      this.logger.log(
+        `✅ Dashboard analysis for ${walletAddress} [scope=${scope}] completed in ${processingTimeMs}ms. Follow-ups queued: ${
+          followUpJobsQueued.map((f) => `${f.scope}:${f.jobId}`).join(',') || 'none'
+        }`,
+      );
 
-      await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, actualProcessingTime);
+      await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
 
       return result;
-
     } catch (error) {
-      this.logger.error(`Dashboard analysis for ${walletAddress} failed:`, error);
-      
+      this.logger.error(`Dashboard analysis for ${walletAddress} [scope=${scope}] failed:`, error);
+
+      await this.databaseService.recordDashboardAnalysisRun({
+        walletAddress,
+        scope,
+        status: 'FAILED',
+        triggerSource,
+        runTimestamp: new Date(),
+        notes: { error: error instanceof Error ? error.message : 'unknown-error' },
+      });
+
       if (enrichmentJob) {
         try {
           this.logger.log(`Cancelling enrichment job ${enrichmentJob.id} due to main analysis failure.`);
@@ -396,11 +542,76 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           this.logger.warn(`Failed to cancel enrichment job ${enrichmentJob.id}:`, cancelError);
         }
       }
-      
-      throw error;
-    } finally {
+
+      // Release lock before throwing error
       await this.redisLockService.releaseLock(lockKey, job.id!);
+      throw error;
     }
+    // No finally block - lock is released in both success and error paths
+  }
+
+  private async queueFollowUpAnalysis(params: {
+    walletAddress: string;
+    scope: DashboardAnalysisScope;
+    parentRequestId: string;
+    forceRefresh: boolean;
+  }): Promise<string | null> {
+    if (params.scope === 'flash') {
+      return null;
+    }
+
+    const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[params.scope];
+    if (!scopeDefaults) {
+      return null;
+    }
+
+    const latestRun = await this.databaseService.getLatestDashboardAnalysisRun(params.walletAddress, params.scope);
+    if (latestRun && scopeDefaults.freshnessMinutes) {
+      const ageMinutes = (Date.now() - new Date(latestRun.runTimestamp).getTime()) / 60000;
+      if (ageMinutes < scopeDefaults.freshnessMinutes) {
+        this.logger.debug(
+          `Skipping follow-up ${params.scope} analysis for ${params.walletAddress} — fresh within ${scopeDefaults.freshnessMinutes}m`,
+        );
+        return null;
+      }
+    }
+
+    const requestId = `${params.parentRequestId}-${params.scope}-${Math.random().toString(36).slice(2, 8)}`;
+    const historyWindowDays = params.scope === 'deep' ? undefined : scopeDefaults.historyWindowDays;
+    const targetSignatureCount = scopeDefaults.targetSignatureCount;
+
+    const priority =
+      params.scope === 'working'
+        ? JobPriority.HIGH
+        : params.scope === 'deep'
+          ? JobPriority.NORMAL
+          : JobPriority.CRITICAL;
+
+    const jobData: DashboardWalletAnalysisJobData = {
+      walletAddress: params.walletAddress,
+      requestId,
+      analysisScope: params.scope,
+      triggerSource: 'system',
+      historyWindowDays,
+      targetSignatureCount,
+      forceRefresh: params.forceRefresh,
+      enrichMetadata: params.scope === 'deep',
+      queueWorkingAfter: false,
+      queueDeepAfter: params.scope === 'working',
+      failureThreshold: 0.8,
+      timeoutMinutes: scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES,
+    };
+
+    const job = await this.analysisQueueService.addDashboardWalletAnalysisJob(jobData, {
+      priority,
+      delay: 0,
+    });
+
+    this.logger.log(
+      `Queued follow-up ${params.scope} analysis job ${job.id} for wallet ${params.walletAddress} (parent=${params.parentRequestId})`,
+    );
+
+    return job.id ?? null;
   }
 
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {

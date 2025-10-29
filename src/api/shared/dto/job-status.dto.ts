@@ -1,5 +1,23 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsString, IsOptional, IsDateString, IsArray, IsBoolean } from 'class-validator';
+import {
+  IsEnum,
+  IsNumber,
+  IsString,
+  IsOptional,
+  IsDateString,
+  IsArray,
+  IsBoolean,
+  IsInt,
+  Min,
+  Max,
+  ValidateIf,
+} from 'class-validator';
+import {
+  DASHBOARD_ANALYSIS_SCOPES,
+  DASHBOARD_TRIGGER_SOURCES,
+  DashboardAnalysisScope,
+  DashboardAnalysisTriggerSource,
+} from '../../../shared/dashboard-analysis.types';
 
 export class JobStatusResponseDto {
   @ApiProperty({ description: 'Unique job identifier' })
@@ -212,6 +230,45 @@ export class DashboardAnalysisJobRequestDto {
   @IsString()
   walletAddress: string;
 
+  @ApiProperty({ description: 'Requested analysis scope', required: false, enum: DASHBOARD_ANALYSIS_SCOPES, default: 'deep' })
+  @IsOptional()
+  @IsEnum(DASHBOARD_ANALYSIS_SCOPES)
+  analysisScope?: DashboardAnalysisScope;
+
+  @ApiProperty({
+    description: 'Trailing history window in days for scoped analyses',
+    required: false,
+    minimum: 1,
+    maximum: 120,
+  })
+  @ValidateIf((o) => o.analysisScope && o.analysisScope !== 'deep')
+  @IsInt()
+  @Min(1)
+  @Max(120)
+  historyWindowDays?: number;
+
+  @ApiProperty({
+    description: 'Target signature count for scoped analyses',
+    required: false,
+    minimum: 50,
+    maximum: 10000,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(50)
+  @Max(10000)
+  targetSignatureCount?: number;
+
+  @ApiProperty({
+    description: 'Source of the trigger (auto/manual/system)',
+    required: false,
+    enum: DASHBOARD_TRIGGER_SOURCES,
+    default: 'manual',
+  })
+  @IsOptional()
+  @IsEnum(DASHBOARD_TRIGGER_SOURCES)
+  triggerSource?: DashboardAnalysisTriggerSource;
+
   @ApiProperty({ description: 'Force refresh even if recently analyzed', required: false, default: false })
   @IsOptional()
   @IsBoolean()
@@ -221,6 +278,24 @@ export class DashboardAnalysisJobRequestDto {
   @IsOptional()
   @IsBoolean()
   enrichMetadata?: boolean;
+
+  @ApiProperty({
+    description: 'Queue a working scope follow-up after completion',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  queueWorkingAfter?: boolean;
+
+  @ApiProperty({
+    description: 'Queue a deep scope follow-up after completion',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  queueDeepAfter?: boolean;
 
   @ApiProperty({ description: 'Timeout in minutes', required: false, default: 15 })
   @IsOptional()
@@ -244,6 +319,11 @@ export class JobSubmissionResponseDto {
   @ApiProperty({ description: 'Queue name where job was added' })
   @IsString()
   queueName: string;
+
+  @ApiProperty({ description: 'Analysis scope queued', required: false, enum: DASHBOARD_ANALYSIS_SCOPES })
+  @IsOptional()
+  @IsEnum(DASHBOARD_ANALYSIS_SCOPES)
+  analysisScope?: DashboardAnalysisScope;
 
   @ApiProperty({ description: 'Estimated processing time' })
   @IsString()

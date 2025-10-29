@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import useSWR, { useSWRConfig } from 'swr';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import EmptyState from '@/components/shared/EmptyState'
 import { 
   CopyIcon, 
   WalletIcon, 
@@ -23,7 +25,8 @@ import {
   Tags,
   FolderOpen,
   Edit2,
-  Bot          // Edit icon for wallet data
+  Bot,          // Edit icon for wallet data
+  Loader2
 } from 'lucide-react' 
 import { toast } from 'sonner';
 import {
@@ -36,12 +39,12 @@ import { isValid, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
-import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse } from '@/types/api';
+import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse, DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '@/types/api';
 import { createCacheKey, invalidateWalletCache } from '@/lib/swr-config';
 import { useFavorites } from '@/hooks/useFavorites';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { useJobProgress, UseJobProgressCallbacks } from '@/hooks/useJobProgress';
-import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
+import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData, JobQueueToStartData } from '@/types/websockets';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,13 +58,11 @@ import {
 import { getTagColor, getCollectionColor } from '@/lib/color-utils';
 import { useSearchParams } from 'next/navigation';
 
-
-// Import the new tab component
-import BehavioralPatternsTab from '@/components/dashboard/BehavioralPatternsTab';
-import TokenPerformanceTab from '@/components/dashboard/TokenPerformanceTab';
-import AccountStatsPnlTab from '@/components/dashboard/AccountStatsPnlTab';
+import type { BehavioralPatternsTabProps } from '@/components/dashboard/BehavioralPatternsTab';
+import type { TokenPerformanceTabProps } from '@/components/dashboard/TokenPerformanceTab';
+import type { AccountStatsPnlTabProps } from '@/components/dashboard/AccountStatsPnlTab';
+import type { ReviewerLogTabProps } from '@/components/dashboard/ReviewerLogTab';
 import { ThemeToggleButton } from "@/components/theme-toggle-button";
-import ReviewerLogTab from '@/components/dashboard/ReviewerLogTab';
 import { WalletEditForm } from './WalletEditForm';
 import QuickAddForm from './QuickAddForm';
 import LazyTabContent from './LazyTabContent';
@@ -73,18 +74,84 @@ interface WalletProfileLayoutProps {
   walletAddress: string;
 }
 
+type SubscribeToJobFn = (jobId: string) => Promise<void>;
+type UnsubscribeFromJobFn = (jobId: string) => void;
+
+const TabLoadingFallback = ({ label }: { label: string }) => (
+  <div className="flex flex-col items-center justify-center gap-3 py-10 px-6 text-sm text-muted-foreground">
+    <Loader2 className="h-5 w-5 animate-spin" />
+    <span>Loading {label}...</span>
+  </div>
+);
+
+const TokenPerformanceTabLazy = dynamic<TokenPerformanceTabProps>(
+  () => import('@/components/dashboard/TokenPerformanceTab'),
+  {
+    loading: () => <TabLoadingFallback label="token performance" />,
+    ssr: false,
+  },
+);
+
+const AccountStatsPnlTabLazy = dynamic<AccountStatsPnlTabProps>(
+  () => import('@/components/dashboard/AccountStatsPnlTab').catch(err => {
+    console.error('Error loading AccountStatsPnlTab:', err);
+    return { default: (props: AccountStatsPnlTabProps) => (
+      <div className="p-6">
+        <EmptyState 
+          variant="error" 
+          title="Failed to load Account Stats" 
+          description="There was an error loading this component. Please try refreshing the page." 
+        />
+      </div>
+    )};
+  }),
+  {
+    loading: () => <TabLoadingFallback label="account statistics" />,
+    ssr: false,
+  },
+);
+
+const BehavioralPatternsTabLazy = dynamic<BehavioralPatternsTabProps>(
+  () => import('@/components/dashboard/BehavioralPatternsTab'),
+  {
+    loading: () => <TabLoadingFallback label="behavioral patterns" />,
+    ssr: false,
+  },
+);
+
+const ReviewerLogTabLazy = dynamic<ReviewerLogTabProps>(
+  () => import('@/components/dashboard/ReviewerLogTab'),
+  {
+    loading: () => <TabLoadingFallback label="notes" />,
+    ssr: false,
+  },
+);
+
+const TAB_VALUES = new Set<string>(['overview', 'token-performance', 'account-stats', 'behavioral-patterns', 'notes']);
+const DEFAULT_TAB = 'token-performance';
+
 function truncateWalletAddress(address: string, startChars = 6, endChars = 4): string {
   if (!address) return '';
   if (address.length <= startChars + endChars) return address;
   return `${address.substring(0, startChars)}...${address.substring(address.length - endChars)}`;
 }
 
-// Memoized components to prevent unnecessary re-renders during tab switching
-const MemoizedTokenPerformanceTab = memo(TokenPerformanceTab);
-const MemoizedAccountStatsPnlTab = memo(AccountStatsPnlTab);
-const MemoizedBehavioralPatternsTab = memo(BehavioralPatternsTab);
-const MemoizedReviewerLogTab = memo(ReviewerLogTab);
+// Memoized wrappers prevent unnecessary re-renders during tab switching once modules are loaded
+const MemoizedTokenPerformanceTab = memo(function MemoizedTokenPerformanceTab(props: TokenPerformanceTabProps) {
+  return <TokenPerformanceTabLazy {...props} />;
+});
 
+const MemoizedAccountStatsPnlTab = memo(function MemoizedAccountStatsPnlTab(props: AccountStatsPnlTabProps) {
+  return <AccountStatsPnlTabLazy {...props} />;
+});
+
+const MemoizedBehavioralPatternsTab = memo(function MemoizedBehavioralPatternsTab(props: BehavioralPatternsTabProps) {
+  return <BehavioralPatternsTabLazy {...props} />;
+});
+
+const MemoizedReviewerLogTab = memo(function MemoizedReviewerLogTab(props: ReviewerLogTabProps) {
+  return <ReviewerLogTabLazy {...props} />;
+});
 
 
 export default function WalletProfileLayout({
@@ -92,164 +159,313 @@ export default function WalletProfileLayout({
   walletAddress,
 }: WalletProfileLayoutProps) {
   const { mutate: globalMutate, cache } = useSWRConfig();
-  const { apiKey } = useApiKeyStore();
-  const [isHeaderExpanded, setIsHeaderExpanded] = useState(() => {
-    // Try to get the saved state from localStorage, default to true
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('wallet-profile-header-expanded');
-      return saved !== null ? JSON.parse(saved) : true;
+  const { apiKey, isDemo: isDemoAccount } = useApiKeyStore();
+  const [isHeaderExpanded, setIsHeaderExpanded] = useState(true); // Start with true for SSR consistency
+  const [isHydrated, setIsHydrated] = useState(false); // Track hydration state
+
+  // Load saved header state from localStorage after hydration
+  useEffect(() => {
+    const saved = localStorage.getItem('wallet-profile-header-expanded');
+    if (saved !== null) {
+      setIsHeaderExpanded(JSON.parse(saved));
     }
-    return true;
-  });
+    setIsHydrated(true);
+  }, []);
 
   // Save the header expanded state to localStorage with throttling to prevent excessive writes
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    // Only save to localStorage after hydration to avoid conflicts
+    if (typeof window !== 'undefined' && isHydrated) {
       // Use a ref to throttle localStorage writes
       const timeoutId = setTimeout(() => {
         localStorage.setItem('wallet-profile-header-expanded', JSON.stringify(isHeaderExpanded));
       }, 500); // Throttle to 500ms to reduce excessive writes
-      
+
       return () => clearTimeout(timeoutId);
     }
-  }, [isHeaderExpanded]);
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  }, [isHeaderExpanded, isHydrated]);
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false);
-  const [analysisRequestTime, setAnalysisRequestTime] = useState<Date | null>(null);
-  const [isPolling, setIsPolling] = useState(false);
-  const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+  type ScopeStatusValue = {
+    jobId: string | null;
+    status: 'idle' | 'queued' | 'running' | 'completed' | 'skipped' | 'error';
+    lastCompletedAt?: Date;
+    errorMessage?: string;
+  };
+
+  const scopeLabels = React.useMemo<Record<DashboardAnalysisScope, string>>(
+    () => ({
+      flash: 'Recent snapshot',
+      working: '30-day view',
+      deep: 'Full history',
+    }),
+    [],
+  );
+
+  const scopeSequence = React.useMemo<DashboardAnalysisScope[]>(() => ['flash', 'working', 'deep'], []);
+
+  const scopeStatusStyles = React.useMemo<Record<ScopeStatusValue['status'], string>>(
+    () => ({
+      idle: 'bg-muted text-muted-foreground',
+      queued: 'bg-muted text-muted-foreground',
+      running: 'bg-blue-500/10 text-blue-500 border border-blue-500/30',
+      completed: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30',
+      skipped: 'bg-muted text-muted-foreground',
+      error: 'bg-destructive/10 text-destructive border border-destructive/30',
+    }),
+    [],
+  );
+
+  const [scopeStates, setScopeStates] = useState<Record<DashboardAnalysisScope, ScopeStatusValue>>({
+    flash: { jobId: null, status: 'idle' },
+    working: { jobId: null, status: 'idle' },
+    deep: { jobId: null, status: 'idle' },
+  });
+
+  const [scopeProgress, setScopeProgress] = useState<Record<DashboardAnalysisScope, number>>({
+    flash: 0,
+    working: 0,
+    deep: 0,
+  });
+
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
-  const [jobProgress, setJobProgress] = useState<number>(0);
+
+  const [hasInitialTokenSnapshot, setHasInitialTokenSnapshot] = useState(false);
+  const isAutoTriggeringRef = useRef(false);
+
+  const jobIdToScopeRef = useRef<Record<string, DashboardAnalysisScope>>({});
+
+  const isAnalyzing = React.useMemo(
+    () => Object.values(scopeStates).some((state) => state.status === 'queued' || state.status === 'running'),
+    [scopeStates],
+  );
+
+  useEffect(() => {
+    setHasInitialTokenSnapshot(false);
+    isAutoTriggeringRef.current = false;
+  }, [walletAddress]);
+
+  const subscribeToJobRef = useRef<SubscribeToJobFn | null>(null);
+  const unsubscribeFromJobRef = useRef<UnsubscribeFromJobFn | null>(null);
+
+  const handleTokenDataPrimed = useCallback(() => {
+    setHasInitialTokenSnapshot(true);
+  }, []);
+
+  const registerJobSubscription = useCallback(
+    async (scope: DashboardAnalysisScope, jobId: string) => {
+      jobIdToScopeRef.current[jobId] = scope;
+      setScopeStates((prev) => ({
+        ...prev,
+        [scope]: {
+          ...prev[scope],
+          jobId,
+          status: 'queued',
+          errorMessage: undefined,
+        },
+      }));
+      setScopeProgress((prev) => ({ ...prev, [scope]: 0 }));
+
+      const subscribeFn = subscribeToJobRef.current;
+      if (!subscribeFn) {
+        console.warn('subscribeToJob not ready when registering job subscription', jobId);
+        return;
+      }
+
+      await subscribeFn(jobId);
+    },
+    [],
+  );
+
+  const clearJobSubscription = useCallback(
+    async (jobId: string) => {
+      if (jobIdToScopeRef.current[jobId]) {
+        delete jobIdToScopeRef.current[jobId];
+      }
+
+      const unsubscribeFn = unsubscribeFromJobRef.current;
+      if (!unsubscribeFn) {
+        return;
+      }
+
+      try {
+        unsubscribeFn(jobId);
+      } catch (err) {
+        // ignore unsubscribe failures
+      }
+    },
+    [],
+  );
 
   const searchParams = useSearchParams();
 
   useEffect(() => {
     const jobIdFromUrl = searchParams.get('jobId');
-    if (jobIdFromUrl) {
-      setAnalysisJobId(jobIdFromUrl);
-      setIsAnalyzing(true);
-      setJobProgress(0);
-      subscribeToJob(jobIdFromUrl);
+    if (jobIdFromUrl && !jobIdToScopeRef.current[jobIdFromUrl]) {
+      registerJobSubscription('deep', jobIdFromUrl).catch((error) =>
+        console.error('Failed to subscribe to job from URL', error),
+      );
     }
-  }, [searchParams]);
-  
+  }, [searchParams, registerJobSubscription]);
+
   // Job progress callbacks
   const jobProgressCallbacks: UseJobProgressCallbacks = {
     onJobProgress: (data: JobProgressData) => {
-      // Throttle progress updates to reduce re-renders (only update every 5% change)
-      setJobProgress(prev => {
-        const newProgress = data.progress;
-        if (Math.abs(newProgress - prev) >= 5 || newProgress === 100) {
-          return newProgress;
-        }
-        return prev;
-      });
+      const scope = jobIdToScopeRef.current[data.jobId];
+      if (!scope) {
+        return;
+      }
+      if (typeof data.progress === 'number') {
+        setScopeProgress((prev) => {
+          const current = prev[scope];
+          if (Math.abs(data.progress - current) < 5 && data.progress !== 100) {
+            return prev;
+          }
+          return { ...prev, [scope]: data.progress };
+        });
+      }
+      setScopeStates((prev) => ({
+        ...prev,
+        [scope]: { ...prev[scope], status: 'running' },
+      }));
     },
     onJobCompleted: async (data: JobCompletionData) => {
-      // Case 1: The main analysis job has completed
-      if (data.jobId === analysisJobId) {
-        // Stop any polling immediately since WebSocket got the completion
-        setIsPolling(false);
-        setAnalysisRequestTime(null);
-        
-        setJobProgress(100);
-        setLastAnalysisStatus('success');
-        
-        try {
-          if (!data.result) {
-            throw new Error("WebSocket completion event missing result data");
-          }
-          const resultData = data.result;
-          
-          // Set the enrichment job ID from the result payload (like similarity lab)
-          if (resultData.enrichmentJobId) {
-            setEnrichmentJobId(resultData.enrichmentJobId);
-            toast.success("Analysis Complete", {
-              description: "Wallet data updated. Syncing token metadata...",
-            });
-          } else {
-            toast.success("Analysis Complete", {
-              description: "Wallet data has been successfully updated.",
-            });
+      const scope = jobIdToScopeRef.current[data.jobId];
+      if (!scope) {
+        return;
+      }
 
+      await clearJobSubscription(data.jobId);
+
+      const resultData = data.result;
+      const followUpQueue = Array.isArray(resultData?.followUpJobsQueued)
+        ? resultData.followUpJobsQueued
+        : [];
+
+      setScopeProgress((prev) => ({ ...prev, [scope]: 100 }));
+      setScopeStates((prev) => {
+        const nextState: typeof prev = {
+          ...prev,
+          [scope]: {
+            ...prev[scope],
+            status: 'completed',
+            jobId: null,
+            lastCompletedAt: new Date(data.timestamp),
+            errorMessage: undefined,
+          },
+        };
+
+        const followUpScopeSet = new Set(followUpQueue.map((f) => f.scope));
+        scopeSequence.forEach((seqScope) => {
+          if (seqScope === scope) {
+            return;
           }
-          // Immediately fetch fresh data from database - no cache to worry about
-          // Force-refetch the summary immediately; keepPreviousData makes sure UI doesn’t blank.
-          setAnalysisJobId(null);
-          
-          await globalMutate(
-            createCacheKey.walletSummary(walletAddress),
-            () => fetcher(createCacheKey.walletSummary(walletAddress)),
-            { populateCache: true, revalidate: false }
-          );
-         
-          // All jobs are done; clear analysis state
-          setIsAnalyzing(false);
-          
-        } catch (error: any) {
-          // ... error handling
-          console.error('Error handling dashboard job completion:', error);
-          setIsAnalyzing(false);
-          setJobProgress(0);
-          setEnrichmentJobId(null);
+          const existing = prev[seqScope];
+          if (existing.status === 'queued' && !followUpScopeSet.has(seqScope)) {
+            nextState[seqScope] = {
+              ...existing,
+              status: 'skipped',
+              jobId: null,
+              errorMessage: undefined,
+              lastCompletedAt: existing.lastCompletedAt ?? new Date(data.timestamp),
+            };
+          }
+        });
+
+        return nextState;
+      });
+      setLastAnalysisStatus('success');
+      setLastAnalysisTimestamp(new Date(data.timestamp));
+
+      if (followUpQueue.length) {
+        await Promise.all(
+          followUpQueue.map(async (followUp) => {
+            await registerJobSubscription(followUp.scope, followUp.jobId);
+          }),
+        );
+      }
+
+      if (resultData?.enrichmentJobId) {
+        setEnrichmentJobId(resultData.enrichmentJobId);
+        const subscribeFn = subscribeToJobRef.current;
+        if (subscribeFn) {
+          await subscribeFn(resultData.enrichmentJobId);
         }
-      } else {
-        // Safety net: if we get a job completion for an unknown job, but we're still analyzing,
-        // check if both our tracked jobs are null (meaning they've completed) and reset state
-        if (!analysisJobId && !enrichmentJobId && isAnalyzing) {
-          setIsAnalyzing(false);
-          setJobProgress(0);
-        }
+      }
+
+      // Only show success notification for flash (7-day) analysis
+      if (scope === 'flash') {
+        toast.success(`${scopeLabels[scope]} ready`, {
+          description: 'Recent snapshot refreshed.',
+        });
+      }
+
+      try {
+        await globalMutate(
+          createCacheKey.walletSummary(walletAddress),
+          () => fetcher(createCacheKey.walletSummary(walletAddress)),
+          { populateCache: true, revalidate: false },
+        );
+      } catch (error) {
+        console.error('Error refreshing wallet summary after completion', error);
       }
     },
     onJobFailed: (data: JobFailedData) => {
-      console.error('❌ Job failed:', data.jobId, data.error);
-      setIsAnalyzing(false);
-      setIsPolling(false);
-      setAnalysisJobId(null);
-      setEnrichmentJobId(null);
+      const scope = jobIdToScopeRef.current[data.jobId];
+      if (!scope) {
+        return;
+      }
+      clearJobSubscription(data.jobId);
+      setScopeStates((prev) => ({
+        ...prev,
+        [scope]: {
+          ...prev[scope],
+          status: 'error',
+          jobId: null,
+          errorMessage: data.error,
+        },
+      }));
+      setScopeProgress((prev) => ({ ...prev, [scope]: 0 }));
       setLastAnalysisStatus('error');
-      setJobProgress(0);
-      toast.error("Analysis Failed", {
+      toast.error(`${scopeLabels[scope]} failed`, {
         description: data.error || "An unexpected error occurred during analysis.",
       });
     },
     onEnrichmentComplete: () => {
-      // Handles completion of the background enrichment job
       setEnrichmentJobId(null);
-
-      // Refresh token performance data after a short delay to allow backend to sync
       setTimeout(() => {
         globalMutate(
-          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`)
+          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
         );
-        toast.success("Token Data Updated", {
-          description: "Token metadata and prices have been updated.",
-        });
-      }, 2500);
+        // Enrichment completes quietly without notification
+      }, 1500);
+    },
+    onEnrichmentError: ({ error }) => {
+      setEnrichmentJobId(null);
+      toast.error("Token enrichment failed", {
+        description: error || "An unexpected error occurred during enrichment.",
+      });
     },
     onConnectionChange: (connected) => {
-      if (!connected && isAnalyzing && analysisJobId) {
-        // Only start polling if WebSocket has been disconnected for more than 5 seconds
-        // This prevents temporary disconnections from triggering polling
-        setTimeout(() => {
-          if (!isConnected && isAnalyzing && analysisJobId) {
-            setIsPolling(true);
-            setAnalysisRequestTime(new Date());
-          }
-        }, 5000);
-      } else if (connected && isPolling) {
-        // WebSocket reconnected - stop polling immediately
-        setIsPolling(false);
-        setAnalysisRequestTime(null);
+      if (!connected) {
+        console.warn('WebSocket disconnected; awaiting reconnection for live job updates.');
       }
-    }
+    },
+    onJobQueueToStart: (data: JobQueueToStartData) => {
+      const scope = jobIdToScopeRef.current[data.jobId];
+      if (!scope) return;
+      setScopeStates((prev) => ({
+        ...prev,
+        [scope]: { ...prev[scope], status: 'running' },
+      }));
+    },
   };
 
   // Use the existing job progress hook
-  const { subscribeToJob, unsubscribeFromJob, isConnected, error: wsError } = useJobProgress(jobProgressCallbacks);
+  const { subscribeToJob, unsubscribeFromJob, isConnected } = useJobProgress(jobProgressCallbacks);
+  subscribeToJobRef.current = subscribeToJob;
+  unsubscribeFromJobRef.current = unsubscribeFromJob;
   
   // Quick add modal state
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
@@ -278,16 +494,28 @@ export default function WalletProfileLayout({
     walletSummaryKey,
     fetcher,
     {
-      refreshInterval: isPolling && !isConnected ? 10000 : 0, // Only poll when WebSocket is unavailable
+      refreshInterval: isConnected ? 0 : 15000,
       // Use global SWR config for all other settings
     }
   );
 
   // Each component will handle its own data loading
   // No detailed data loading at layout level
-  
+  const tabParam = searchParams.get('tab');
+
   // Tab state management - simplified without debouncing
-  const [activeTab, setActiveTab] = useState<string>('token-performance');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (tabParam && TAB_VALUES.has(tabParam)) {
+      return tabParam;
+    }
+    return DEFAULT_TAB;
+  });
+
+  useEffect(() => {
+    if (tabParam && TAB_VALUES.has(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam, activeTab]);
   
   // Direct tab change handler - no debouncing needed
   const handleTabChange = useCallback((value: string) => {
@@ -303,65 +531,7 @@ export default function WalletProfileLayout({
   // CRITICAL FIX: Add validation to prevent stale SWR data from causing errors.
   // This ensures that the rendered data actually belongs to the wallet address in the URL.
   const isValidData = walletSummary && walletSummary.walletAddress === walletAddress;
-
-  // Store the last analysis check time to prevent duplicate polling checks
-  const lastPollingCheckRef = React.useRef<number>(0);
-  
-  useEffect(() => {
-    // This effect handles the completion of polling - ONLY when WebSocket is unavailable
-    if (isPolling && walletSummary && analysisRequestTime && !isConnected) {
-      const now = Date.now();
-      // Throttle polling checks to prevent excessive re-renders (max once per 2 seconds)
-      if (now - lastPollingCheckRef.current < 2000) {
-        return;
-      }
-      lastPollingCheckRef.current = now;
-      
-      const lastAnalyzedDate = walletSummary.lastAnalyzedAt ? new Date(walletSummary.lastAnalyzedAt) : null;
-      if (lastAnalyzedDate && lastAnalyzedDate > analysisRequestTime) {
-        console.log('✅ Polling detected analysis completion');
-        setIsPolling(false);
-        setIsAnalyzing(false);
-        setAnalysisRequestTime(null);
-        setLastAnalysisStatus('success');
-        setLastAnalysisTimestamp(lastAnalyzedDate);
-        toast.success("Analysis Complete", {
-          description: "Wallet data has been successfully updated.",
-        });
-        
-        // Manually revalidate other wallet-related data, since polling will now stop.
-        if (cache instanceof Map) {
-          for (const key of cache.keys()) {
-            if (
-              typeof key === 'string' &&
-              key.startsWith(`/wallets/${walletAddress}`) &&
-              key !== walletSummaryKey
-            ) {
-              globalMutate(key);
-            }
-          }
-        }
-      }
-    }
-  }, [walletSummary, isPolling, analysisRequestTime, cache, globalMutate, walletAddress, walletSummaryKey, isConnected]);
-
-  useEffect(() => {
-    // This effect handles polling timeout
-    let timeoutId: NodeJS.Timeout;
-    if (isPolling) {
-      timeoutId = setTimeout(() => {
-        setIsPolling(false);
-        setIsAnalyzing(false);
-        setAnalysisRequestTime(null);
-        setLastAnalysisStatus('error');
-        setJobProgress(0); // Reset progress
-        toast.warning("Analysis Taking Longer Than Expected", {
-          description: "The button has been re-enabled. The dashboard will update automatically if the analysis completes.",
-        });
-      }, 180000); // 3 minute timeout
-    }
-    return () => clearTimeout(timeoutId);
-  }, [isPolling]);
+  const isRestrictedWallet = walletSummary?.status === 'restricted';
 
 
 
@@ -391,26 +561,38 @@ export default function WalletProfileLayout({
   // Cleanup job subscription when component unmounts or job completes
   useEffect(() => {
     return () => {
-      if (analysisJobId) {
-        unsubscribeFromJob(analysisJobId);
-      }
+      Object.keys(jobIdToScopeRef.current).forEach((jobId) => {
+        const unsubscribeFn = unsubscribeFromJobRef.current;
+        if (unsubscribeFn) {
+          try { unsubscribeFn(jobId); } catch { /* ignore unsubscribe failures */ }
+        }
+      });
       if (enrichmentJobId) {
-        unsubscribeFromJob(enrichmentJobId);
+        const unsubscribeFn = unsubscribeFromJobRef.current;
+        if (unsubscribeFn) {
+          try { unsubscribeFn(enrichmentJobId); } catch { /* ignore unsubscribe failures */ }
+        }
       }
-      // Reset subscription tracking
       setSubscribedEnrichmentJobId(null);
     };
-  }, [analysisJobId, enrichmentJobId, unsubscribeFromJob]);
+  }, [enrichmentJobId]);
 
   // Subscribe to enrichment job when it's set (with duplicate prevention)
   const [subscribedEnrichmentJobId, setSubscribedEnrichmentJobId] = useState<string | null>(null);
   
   useEffect(() => {
-    // Only subscribe if we have an enrichment job ID, we're connected, and we haven't subscribed to this job yet
     if (enrichmentJobId && isConnected && enrichmentJobId !== subscribedEnrichmentJobId) {
       subscribeToJob(enrichmentJobId);
       setSubscribedEnrichmentJobId(enrichmentJobId);
     }
+    return () => {
+      if (subscribedEnrichmentJobId && subscribedEnrichmentJobId !== enrichmentJobId) {
+        const unsubscribeFn = unsubscribeFromJobRef.current;
+        if (unsubscribeFn) {
+          try { unsubscribeFn(subscribedEnrichmentJobId); } catch { /* ignore unsubscribe failures */ }
+        }
+      }
+    };
   }, [enrichmentJobId, subscribedEnrichmentJobId, isConnected, subscribeToJob]);
 
   const copyToClipboard = () => {
@@ -430,6 +612,205 @@ export default function WalletProfileLayout({
       });
   };
 
+  const triggerDashboardScope = useCallback(
+    async (
+      scope: DashboardAnalysisScope,
+      options: {
+        triggerSource: DashboardAnalysisTriggerSource;
+        historyWindowDays?: number;
+        targetSignatureCount?: number;
+        queueWorkingAfter?: boolean;
+        queueDeepAfter?: boolean;
+        forceRefresh?: boolean;
+        enrichMetadata?: boolean;
+      },
+    ) => {
+      if (!isValidSolanaAddress(walletAddress)) {
+        toast.error("Invalid Wallet Address", {
+          description: "The address in the URL is not a valid Solana wallet address.",
+        });
+        return;
+      }
+
+      if (isRestrictedWallet) {
+        if (options.triggerSource !== 'auto') {
+          toast.info("Analysis unavailable", {
+            description: "This wallet is restricted; analysis cannot be triggered.",
+          });
+        }
+        return;
+      }
+
+      if (scopeStates[scope].status === 'running' || scopeStates[scope].status === 'queued') {
+        if (options.triggerSource !== 'auto') {
+          toast.info(`${scopeLabels[scope]} already in progress`, {
+            description: "Please wait for the current run to finish before starting another.",
+          });
+        }
+        return;
+      }
+
+      setScopeStates((prev) => ({
+        ...prev,
+        [scope]: { ...prev[scope], status: 'queued', errorMessage: undefined },
+      }));
+      setScopeProgress((prev) => ({ ...prev, [scope]: 0 }));
+
+      try {
+        const payload: DashboardAnalysisRequest = {
+          walletAddress,
+          analysisScope: scope,
+          triggerSource: options.triggerSource,
+          forceRefresh: options.forceRefresh ?? false,
+          historyWindowDays: options.historyWindowDays,
+          targetSignatureCount: options.targetSignatureCount,
+          queueWorkingAfter: options.queueWorkingAfter,
+          queueDeepAfter: options.queueDeepAfter,
+          enrichMetadata: options.enrichMetadata,
+        };
+
+        const response: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+
+        if (response.alreadyRunning && response.jobId) {
+          jobIdToScopeRef.current[response.jobId] = scope;
+          const subscribeFn = subscribeToJobRef.current;
+          if (subscribeFn) {
+            await subscribeFn(response.jobId);
+          }
+          setScopeStates((prev) => ({
+            ...prev,
+            [scope]: {
+              ...prev[scope],
+              status: 'running',
+              jobId: response.jobId,
+              errorMessage: undefined,
+            },
+          }));
+          setScopeProgress((prev) => ({ ...prev, [scope]: prev[scope] ?? 0 }));
+          if (options.triggerSource !== 'auto') {
+            toast.info(`${scopeLabels[scope]} already running`, {
+              description: 'Live updates will continue.',
+            });
+          }
+        } else if (response.skipped) {
+          setScopeStates((prev) => ({
+            ...prev,
+            [scope]: {
+              ...prev[scope],
+              status: 'skipped',
+              jobId: null,
+              lastCompletedAt: new Date(),
+            },
+          }));
+          if (options.triggerSource !== 'auto') {
+            toast.info(`${scopeLabels[scope]} already fresh`, {
+              description: response.skipReason ? response.skipReason.replace(/-/g, ' ') : 'No new data detected.',
+            });
+          }
+        } else if (response.jobId) {
+          await registerJobSubscription(scope, response.jobId);
+          if (options.triggerSource !== 'auto') {
+            toast.info(`${scopeLabels[scope]} queued`, {
+              description: "Live updates will appear as soon as the job starts.",
+            });
+          }
+          if (response.queuedFollowUpScopes?.length) {
+            response.queuedFollowUpScopes.forEach((followUpScope) => {
+              setScopeStates((prev) => ({
+                ...prev,
+                [followUpScope]: {
+                  ...prev[followUpScope],
+                  status: 'queued',
+                  errorMessage: undefined,
+                },
+              }));
+              setScopeProgress((prev) => ({ ...prev, [followUpScope]: 0 }));
+            });
+          }
+        }
+
+        if (typeof window !== 'undefined' && options.triggerSource === 'auto') {
+          sessionStorage.setItem(`autoTrigger:${walletAddress}`, new Date().toISOString());
+        }
+      } catch (error: any) {
+        console.error(`Failed to trigger ${scope} analysis`, error);
+        setScopeStates((prev) => ({
+          ...prev,
+          [scope]: {
+            ...prev[scope],
+            status: 'error',
+            jobId: null,
+            errorMessage: error?.message || 'Unexpected error',
+          },
+        }));
+        setScopeProgress((prev) => ({ ...prev, [scope]: 0 }));
+        toast.error(`Failed to trigger ${scopeLabels[scope]}`, {
+          description: error?.message || "An unexpected error occurred. Please try again.",
+        });
+      }
+    },
+    [walletAddress, registerJobSubscription, scopeLabels, scopeStates, isRestrictedWallet],
+  );
+
+  const shouldAutoTriggerFlash = useCallback(() => {
+    if (!walletSummary || !walletAddress) {
+      return false;
+    }
+    if (isDemoAccount) {
+      return false;
+    }
+    if (walletSummary.status === 'restricted') {
+      return false;
+    }
+    const currentStatus = scopeStates.flash.status;
+    if (currentStatus === 'queued' || currentStatus === 'running') {
+      return false;
+    }
+    const freshnessWindowMs = 30 * 60 * 1000; // 30 minutes
+    if (walletSummary.lastAnalyzedAt) {
+      const lastAnalyzed = new Date(walletSummary.lastAnalyzedAt);
+      if (!Number.isNaN(lastAnalyzed.getTime()) && Date.now() - lastAnalyzed.getTime() < freshnessWindowMs) {
+        return false;
+      }
+    }
+    if (typeof window !== 'undefined') {
+      const lastAuto = sessionStorage.getItem(`autoTrigger:${walletAddress}`);
+      if (lastAuto) {
+        const last = new Date(lastAuto);
+        if (!Number.isNaN(last.getTime()) && Date.now() - last.getTime() < freshnessWindowMs) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }, [walletSummary, walletAddress, scopeStates.flash.status, isDemoAccount]);
+
+  useEffect(() => {
+    if (!walletAddress || !hasInitialTokenSnapshot) {
+      return;
+    }
+    if (isAutoTriggeringRef.current) {
+      return;
+    }
+    if (!shouldAutoTriggerFlash()) {
+      return;
+    }
+
+    isAutoTriggeringRef.current = true;
+    triggerDashboardScope('flash', {
+      triggerSource: 'auto',
+      historyWindowDays: 7,
+      targetSignatureCount: 250,
+      queueWorkingAfter: true,
+      queueDeepAfter: false,
+    }).finally(() => {
+      isAutoTriggeringRef.current = false;
+    });
+  }, [walletAddress, hasInitialTokenSnapshot, shouldAutoTriggerFlash, triggerDashboardScope]);
+
   const handleTriggerAnalysis = useCallback(async () => {
     if (!isValidSolanaAddress(walletAddress)) {
       toast.error("Invalid Wallet Address", {
@@ -445,8 +826,7 @@ export default function WalletProfileLayout({
       return;
     }
 
-    const { isDemo } = useApiKeyStore.getState();
-    if (isDemo) {
+    if (isDemoAccount) {
       toast.info("This is a demo account", {
         description: "Triggering a new analysis is not available for demo accounts.",
         action: {
@@ -457,52 +837,16 @@ export default function WalletProfileLayout({
       return;
     }
 
-    if (!walletAddress) {
-      toast.error("Wallet Address Missing", {
-        description: "Cannot trigger analysis without a wallet address.",
-      });
-      return;
-    }
+    setLastAnalysisStatus('idle');
 
-    setIsAnalyzing(true);
-    setJobProgress(0);
-    setEnrichmentJobId(null); // Clear any previous enrichment job
-    toast.info("Analysis Queued", {
-      description: `Analysis submitted for ${truncateWalletAddress(walletAddress)}. Expect real-time updates shortly.`,
+    await triggerDashboardScope('deep', {
+      triggerSource: 'manual',
+      forceRefresh: true,
+      queueWorkingAfter: false,
+      queueDeepAfter: false,
+      enrichMetadata: true,
     });
-
-    try {
-      const requestData: DashboardAnalysisRequest = {
-        walletAddress,
-        forceRefresh: true,
-        enrichMetadata: true,
-      };
-
-      const response: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
-        method: 'POST',
-        body: JSON.stringify(requestData),
-      });
-
-      setAnalysisJobId(response.jobId);
-      
-      // Check WebSocket connection status before subscribing
-      if (isConnected) {
-        await subscribeToJob(response.jobId);
-      } else {
-        // Fall back to polling if WebSocket is not connected
-        setIsPolling(true);
-        setAnalysisRequestTime(new Date());
-      }
-
-    } catch (error: any) {
-      setIsAnalyzing(false);
-      setJobProgress(0);
-      
-      toast.error("Analysis Failed to Trigger", {
-        description: error.message || "An unexpected error occurred. Please try again.",
-      });
-    }
-  }, [walletAddress, isAnalyzing, isConnected, subscribeToJob]);
+  }, [triggerDashboardScope, isDemoAccount]);
 
   const handleToggleFavorite = async () => {
     if (!walletAddress || !apiKey || isTogglingFavorite) {
@@ -598,76 +942,64 @@ export default function WalletProfileLayout({
     }
   }, [currentFavoriteData, walletAddress, mutateFavorites]);
 
-  const renderAnalysisProgress = () => {
-    if (!isAnalyzing) return null;
+
+  const ExpandedAnalysisControl = () => {
+    const deepState = scopeStates.deep;
+    const deepBusy = deepState.status === 'running' || deepState.status === 'queued';
+    const ctaBusy = isAnalyzing;
+    const ctaDisabled = ctaBusy || !walletAddress || isRestrictedWallet || isDemoAccount;
+    const ctaLabel = isRestrictedWallet
+      ? 'Analysis restricted'
+      : isDemoAccount
+        ? 'Analysis unavailable in demo'
+        : deepBusy
+          ? 'Deep sync running...'
+          : ctaBusy
+            ? 'Analysis running...'
+          : 'Refresh';
 
     return (
-      <div className="space-y-2 w-full">
-        <div className="flex items-center justify-between text-sm">
-          <span className="flex items-center gap-2">
-            <RefreshCw className="h-4 w-4 animate-spin" />
-            {jobProgress === 0 && 'Queued...'}
-            {jobProgress > 0 && jobProgress < 100 && 'Analyzing wallet...'}
-            {jobProgress === 100 && 'Analysis complete'}
-          </span>
-          <span className="text-muted-foreground">{jobProgress}%</span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
-          <div 
-            className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
-            style={{ width: `${Math.max(jobProgress, 5)}%` }}
-          />
-        </div>
+      <div className="flex flex-col items-start gap-1 w-full md:w-auto">
+        <Button
+          onClick={handleTriggerAnalysis}
+          variant="outline"
+          size="sm"
+          className="w-full md:w-auto"
+          disabled={ctaDisabled}
+        >
+          <RefreshCw className={`mr-2 h-4 w-4 ${ctaBusy ? 'animate-spin' : ''}`} />
+          {ctaLabel}
+        </Button>
+
+        {!ctaBusy && !isRestrictedWallet && !isDemoAccount && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
+          <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                lastAnalysisStatus === 'success' && "bg-green-500",
+                lastAnalysisStatus === 'error' && "bg-red-500",
+                lastAnalysisStatus === 'idle' && "bg-yellow-500",
+              )}
+              title={
+                lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
+                lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
+                lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''
+              }
+            />
+            <span>{formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}</span>
+          </div>
+        ) : null}
       </div>
     );
   };
-
-  const ExpandedAnalysisControl = () => (
-    <div className="flex flex-col items-start gap-1 w-full md:w-auto">
-      <Button 
-        onClick={handleTriggerAnalysis} 
-        variant="outline"
-        size="sm"
-        className="w-full md:w-auto"
-        disabled={isAnalyzing || !walletAddress}
-      >
-        <RefreshCw className={`mr-2 h-4 w-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
-        {lastAnalysisTimestamp ? 'Refresh Wallet Data' : 'Analyze Wallet'}
-      </Button>
-      
-      {/* Show progress during analysis */}
-      {renderAnalysisProgress()}
-      
-      {/* Connection status is handled by useJobProgress internally */}
-      
-      {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
-        <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
-          <span
-            className={cn(
-              "h-2 w-2 rounded-full",
-              lastAnalysisStatus === 'success' && "bg-green-500",
-              lastAnalysisStatus === 'error' && "bg-red-500",
-              lastAnalysisStatus === 'idle' && "bg-yellow-500",
-            )}
-            title={
-              lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
-              lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
-              lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''
-            }
-          />
-          <span>{formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}</span>
-        </div>
-      ) : null }
-    </div>
-  );
 
   // REMOVED problematic global loading gate that was hiding the entire UI
   // Each component now handles its own loading state properly
   // Only block rendering for critical errors, not for loading states
 
   return (
-    <Tabs defaultValue="token-performance" value={activeTab} onValueChange={handleTabChange} className="flex flex-col w-full bg-muted/40">
-      <header className="sticky top-0 z-30 bg-background border-b shadow-sm">
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col w-full h-full bg-muted/40 overflow-hidden">
+      <header className="flex-shrink-0 z-30 bg-background border-b shadow-sm">
         <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
           
           <div className='flex flex-col items-start gap-3 md:gap-2 md:pl-11'> 
@@ -925,14 +1257,14 @@ export default function WalletProfileLayout({
         </TabsList>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-0">
-        <div className="w-full h-full flex flex-col">
-          <LazyTabContent value="overview" activeTab={activeTab} className="mt-4" defer={false}>
-            <div>
+      <main className="flex-1 overflow-hidden p-0 flex flex-col">
+        <div className="w-full h-full flex flex-col min-h-0">
+          <LazyTabContent value="overview" activeTab={activeTab} className="flex-1 flex flex-col overflow-hidden" defer={false}>
+            <div className="h-full flex flex-col p-4 overflow-auto">
               {children}
-              <div className="p-2 bg-card border rounded-lg shadow-sm mt-2">
-                <h3 className="text-lg font-semibold mb-2">AI Overview Coming Soon</h3>
-                <div className="h-64 bg-muted rounded-md mt-4 flex items-center justify-center text-sm text-muted-foreground">
+              <div className="flex-1 flex flex-col border rounded-lg p-6 bg-card shadow-sm mt-4">
+                <h3 className="text-2xl font-bold mb-4">AI Overview Coming Soon</h3>
+                <div className="flex-1 bg-muted rounded-md flex items-center justify-center text-sm text-muted-foreground min-h-[300px]">
                   <div className="flex flex-col items-center gap-4">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                     <p>AI-powered wallet insights are being developed...</p>
@@ -942,11 +1274,11 @@ export default function WalletProfileLayout({
             </div>
           </LazyTabContent>
 
-          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col" defer={true}>
-            <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} />
+          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
+            <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} />
           </LazyTabContent>
 
-          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0" defer={true}>
+          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedAccountStatsPnlTab 
               walletAddress={walletAddress} 
               triggerAnalysisGlobal={handleTriggerAnalysis} 
@@ -955,11 +1287,11 @@ export default function WalletProfileLayout({
             />
           </LazyTabContent>
 
-          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0" defer={true}>
+          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedBehavioralPatternsTab walletAddress={walletAddress} />
           </LazyTabContent>
 
-          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0" defer={true}>
+          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedReviewerLogTab walletAddress={walletAddress} />
           </LazyTabContent>
         </div>
@@ -1067,4 +1399,4 @@ export default function WalletProfileLayout({
       </AlertDialog>
     </Tabs>
   );
-} 
+}

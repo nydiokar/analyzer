@@ -36,9 +36,9 @@ export default function LayoutClientShell({ children }: LayoutClientShellProps) 
         enableSystem
         disableTransitionOnChange
       >
-        <div className="flex h-screen bg-background text-foreground">
+        <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden">
           <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
-          <main className="flex-1 overflow-auto transition-all duration-300 ease-in-out">
+          <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out">
             {children}
           </main>
         </div>

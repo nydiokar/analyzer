@@ -186,6 +186,12 @@ export interface TokenPerformanceDataDto {
   realizedPnlSol?: number | null;
   realizedPnlPercentage?: number | null;
   unrealizedPnlPercentage?: number | null;
+
+  // Server-provided spam risk analysis (precomputed to avoid heavy client work)
+  spamRiskLevel?: 'safe' | 'high-risk' | null;
+  spamRiskScore?: number | null;
+  spamRiskReasons?: string[] | null;
+  spamPrimaryReason?: string | null;
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts
@@ -276,19 +282,34 @@ export interface JobStatusResponseDto {
 }
 
 // Dashboard Analysis Types
+export type DashboardAnalysisScope = 'flash' | 'working' | 'deep';
+export type DashboardAnalysisTriggerSource = 'auto' | 'manual' | 'system';
+
 export interface DashboardAnalysisRequest {
   walletAddress: string;
   forceRefresh?: boolean;
   enrichMetadata?: boolean;
+  analysisScope?: DashboardAnalysisScope;
+  historyWindowDays?: number;
+  targetSignatureCount?: number;
+  triggerSource?: DashboardAnalysisTriggerSource;
+  queueWorkingAfter?: boolean;
+  queueDeepAfter?: boolean;
+  timeoutMinutes?: number;
 }
 
 export interface DashboardAnalysisResponse {
-  jobId: string;
+  jobId: string | null;
   requestId: string;
-  status: string;
+  status: 'queued' | 'running';
   queueName: string;
+  analysisScope: DashboardAnalysisScope;
   estimatedProcessingTime: string;
   monitoringUrl: string;
+  skipped?: boolean;
+  skipReason?: string;
+  queuedFollowUpScopes?: DashboardAnalysisScope[];
+  alreadyRunning?: boolean;
 }
 
 // Note: JobProgressEvent, JobCompletedEvent, and JobFailedEvent are now imported from websockets.ts
