@@ -6,7 +6,6 @@ import { DexscreenerService } from '../services/dexscreener.service';
 import { IPriceProvider } from '../../types/price-provider.interface';
 import { ITokenInfoService } from '../../types/token-info-service.interface';
 import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../core/services/onchain-metadata.service';
-import { prisma } from '../../core/services/database-service';
 
 /**
  * TokenInfoService - Unified Token Information & Price Management
@@ -262,59 +261,36 @@ export class TokenInfoService implements ITokenInfoService {
     );
 
     // Separate into new vs existing tokens (1 query for all)
-    const existingAddresses = await prisma.tokenInfo.findMany({
-      where: { tokenAddress: { in: uniqueMetadata.map(m => m.mint) } },
-      select: { tokenAddress: true },
-    });
+    const existingTokens = await this.db.findManyTokenInfo(uniqueMetadata.map(m => m.mint));
+    const existingSet = new Set(existingTokens.map(t => t.tokenAddress));
 
-    const existingSet = new Set(existingAddresses.map(t => t.tokenAddress));
-    const newTokens = uniqueMetadata.filter(m => !existingSet.has(m.mint));
-    const existingTokens = uniqueMetadata.filter(m => existingSet.has(m.mint));
+    const newTokens = uniqueMetadata
+      .filter(m => !existingSet.has(m.mint))
+      .map(m => ({
+        tokenAddress: m.mint,
+        onchainName: m.name,
+        onchainSymbol: m.symbol,
+        onchainDescription: m.description,
+        onchainImageUrl: m.imageUrl,
+        onchainCreator: m.creator,
+        onchainMetadataUri: m.metadataUri,
+      }));
 
-    // Use transaction for atomic updates (1 transaction instead of N queries)
-    const operations = [];
+    const existingTokenUpdates = uniqueMetadata
+      .filter(m => existingSet.has(m.mint))
+      .map(m => ({
+        tokenAddress: m.mint,
+        onchainName: m.name,
+        onchainSymbol: m.symbol,
+        onchainDescription: m.description,
+        onchainImageUrl: m.imageUrl,
+        onchainCreator: m.creator,
+        onchainMetadataUri: m.metadataUri,
+      }));
 
-    // Bulk create new tokens
-    if (newTokens.length > 0) {
-      operations.push(
-        prisma.tokenInfo.createMany({
-          data: newTokens.map(m => ({
-            tokenAddress: m.mint,
-            onchainName: m.name,
-            onchainSymbol: m.symbol,
-            onchainDescription: m.description,
-            onchainImageUrl: m.imageUrl,
-            onchainCreator: m.creator,
-            onchainMetadataUri: m.metadataUri,
-            onchainBasicFetchedAt: new Date(),
-            metadataSource: 'onchain',
-          })),
-          skipDuplicates: true,
-        })
-      );
-    }
-
-    // Update existing tokens (batched in transaction)
-    operations.push(
-      ...existingTokens.map(m =>
-        prisma.tokenInfo.update({
-          where: { tokenAddress: m.mint },
-          data: {
-            onchainName: m.name,
-            onchainSymbol: m.symbol,
-            onchainDescription: m.description,
-            onchainImageUrl: m.imageUrl,
-            onchainCreator: m.creator,
-            onchainMetadataUri: m.metadataUri,
-            onchainBasicFetchedAt: new Date(),
-            // Keep existing metadataSource if already 'hybrid'
-          },
-        })
-      )
-    );
-
-    await prisma.$transaction(operations);
-    this.logger.log(`Batch saved ${newTokens.length} new + ${existingTokens.length} updated tokens`);
+    // Use DatabaseService method for batched operation
+    await this.db.saveOnchainMetadataBatch(newTokens, existingTokenUpdates);
+    this.logger.log(`Batch saved ${newTokens.length} new + ${existingTokenUpdates.length} updated tokens`);
   }
 
   /**
@@ -335,15 +311,11 @@ export class TokenInfoService implements ITokenInfoService {
 
     // Batch update - use Promise.allSettled to handle individual failures gracefully
     const updatePromises = uniqueLinks.map(s =>
-      prisma.tokenInfo.update({
-        where: { tokenAddress: s.mint },
-        data: {
-          onchainTwitterUrl: s.twitter,
-          onchainWebsiteUrl: s.website,
-          onchainTelegramUrl: s.telegram,
-          onchainDiscordUrl: s.discord,
-          onchainSocialsFetchedAt: new Date(),
-        },
+      this.db.updateTokenSocialLinks(s.mint, {
+        twitter: s.twitter,
+        website: s.website,
+        telegram: s.telegram,
+        discord: s.discord,
       })
     );
 

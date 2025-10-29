@@ -87,7 +87,7 @@ export class OnchainMetadataService {
 
       const promises = batch.map(async ({ mint, uri }) => {
         try {
-          const metadata = await this.fetchMetadataFromUri(uri);
+          const metadata = await this.fetchMetadataFromUriWithRetry(uri);
           return {
             mint,
             twitter: metadata?.twitter || null,
@@ -118,6 +118,45 @@ export class OnchainMetadataService {
 
     logger.info(`Successfully fetched social links for ${results.filter(r => r.twitter || r.website).length}/${tokens.length} tokens`);
     return results;
+  }
+
+  /**
+   * Fetch metadata from URI with retry logic
+   * Retries up to 3 times with exponential backoff on network errors
+   */
+  private async fetchMetadataFromUriWithRetry(uri: string, maxAttempts = 3): Promise<any> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.fetchMetadataFromUri(uri);
+      } catch (error: any) {
+        lastError = error;
+
+        // Don't retry on client errors (4xx) - only retry on network issues
+        if (error.message.includes('HTTP 4')) {
+          throw error;
+        }
+
+        // Only retry on network errors and timeouts
+        const shouldRetry =
+          error.message.includes('Network error') ||
+          error.message.includes('Timeout') ||
+          error.message.includes('ECONNRESET') ||
+          error.message.includes('ETIMEDOUT');
+
+        if (!shouldRetry || attempt === maxAttempts) {
+          throw error;
+        }
+
+        // Exponential backoff: 1s, 2s, 4s
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        logger.debug(`Retry ${attempt}/${maxAttempts} for ${uri} after ${delay}ms`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    throw lastError || new Error('All retry attempts failed');
   }
 
   /**

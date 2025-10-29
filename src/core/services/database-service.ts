@@ -2364,7 +2364,7 @@ export class DatabaseService {
     }
 
     async getUniqueTokenAddressesFromAnalysisResults(walletAddress: string): Promise<string[]> {
-        const results = await prisma.analysisResult.findMany({
+        const results = await this.prismaClient.analysisResult.findMany({
             where: { walletAddress },
             select: { tokenAddress: true },
             distinct: ['tokenAddress'],
@@ -2390,5 +2390,105 @@ export class DatabaseService {
                 priceUsd: true,
             },
         });
+    }
+
+    /**
+     * Batch save onchain metadata for tokens
+     * Creates new tokens and updates existing ones in chunked transactions
+     * to avoid excessive memory usage with large batches
+     */
+    async saveOnchainMetadataBatch(
+        newTokens: Array<{
+            tokenAddress: string;
+            onchainName?: string;
+            onchainSymbol?: string;
+            onchainDescription?: string;
+            onchainImageUrl?: string;
+            onchainCreator?: string;
+            onchainMetadataUri?: string;
+        }>,
+        existingTokenUpdates: Array<{
+            tokenAddress: string;
+            onchainName?: string;
+            onchainSymbol?: string;
+            onchainDescription?: string;
+            onchainImageUrl?: string;
+            onchainCreator?: string;
+            onchainMetadataUri?: string;
+        }>
+    ): Promise<void> {
+        // Bulk create new tokens (createMany is already optimized)
+        if (newTokens.length > 0) {
+            await this.prismaClient.tokenInfo.createMany({
+                data: newTokens.map(t => ({
+                    ...t,
+                    onchainBasicFetchedAt: new Date(),
+                    metadataSource: 'onchain',
+                })),
+                skipDuplicates: true,
+            });
+        }
+
+        // Update existing tokens in chunks to avoid excessive memory usage
+        // Process 100 updates per transaction to balance performance and memory
+        const CHUNK_SIZE = 100;
+        for (let i = 0; i < existingTokenUpdates.length; i += CHUNK_SIZE) {
+            const chunk = existingTokenUpdates.slice(i, i + CHUNK_SIZE);
+            const operations = chunk.map(t =>
+                this.prismaClient.tokenInfo.update({
+                    where: { tokenAddress: t.tokenAddress },
+                    data: {
+                        ...t,
+                        onchainBasicFetchedAt: new Date(),
+                    },
+                })
+            );
+
+            await this.prismaClient.$transaction(operations);
+        }
+    }
+
+    /**
+     * Update social links for a single token
+     */
+    async updateTokenSocialLinks(
+        tokenAddress: string,
+        socialLinks: {
+            twitter?: string;
+            website?: string;
+            telegram?: string;
+            discord?: string;
+        }
+    ): Promise<void> {
+        await this.prismaClient.tokenInfo.update({
+            where: { tokenAddress },
+            data: {
+                onchainTwitterUrl: socialLinks.twitter,
+                onchainWebsiteUrl: socialLinks.website,
+                onchainTelegramUrl: socialLinks.telegram,
+                onchainDiscordUrl: socialLinks.discord,
+                onchainSocialsFetchedAt: new Date(),
+            },
+        });
+    }
+
+    /**
+     * Update metadataSource to 'hybrid' for tokens with both onchain and dexscreener data
+     */
+    async updateMetadataSourceToHybrid(tokenAddresses: string[]): Promise<number> {
+        if (tokenAddresses.length === 0) return 0;
+
+        const result = await this.prismaClient.tokenInfo.updateMany({
+            where: {
+                tokenAddress: { in: tokenAddresses },
+                onchainBasicFetchedAt: { not: null },
+                dexscreenerUpdatedAt: { not: null },
+            },
+            data: {
+                metadataSource: 'hybrid',
+            },
+        });
+
+        return result.count;
     }
 }

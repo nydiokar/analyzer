@@ -1,5 +1,5 @@
 import { createLogger } from 'core/utils/logger';
-import { DatabaseService, prisma } from 'core/services/database-service';
+import { DatabaseService } from 'core/services/database-service';
 import { Prisma } from '@prisma/client';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -146,19 +146,10 @@ export class DexscreenerService {
         if (tokenAddresses.length === 0) return;
 
         try {
-            const result = await prisma.tokenInfo.updateMany({
-                where: {
-                    tokenAddress: { in: tokenAddresses },
-                    onchainBasicFetchedAt: { not: null },
-                    dexscreenerUpdatedAt: { not: null },
-                },
-                data: {
-                    metadataSource: 'hybrid',
-                },
-            });
+            const count = await this.databaseService.updateMetadataSourceToHybrid(tokenAddresses);
 
-            if (result.count > 0) {
-                logger.debug(`Updated metadataSource to 'hybrid' for ${result.count} tokens with both data sources`);
+            if (count > 0) {
+                logger.debug(`Updated metadataSource to 'hybrid' for ${count} tokens with both data sources`);
             }
         } catch (error) {
             logger.error('Failed to update metadataSource to hybrid:', error);
