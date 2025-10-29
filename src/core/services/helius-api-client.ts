@@ -1086,9 +1086,7 @@ export class HeliusApiClient {
 
     try {
       const result = await this.makeRpcRequest<any>('getAssetBatch', [
-        {
-          ids: uniqueIds,
-        }
+        uniqueIds
       ]);
 
       return result || [];

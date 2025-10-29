@@ -53,9 +53,8 @@ export class OnchainMetadataService {
         name: asset.content?.metadata?.name || null,
         symbol: asset.content?.metadata?.symbol || null,
         description: asset.content?.metadata?.description || null,
-        // Prefer CDN URL for faster loading
-        imageUrl: asset.content?.files?.[0]?.cdn_uri ||
-                  asset.content?.files?.[0]?.uri || null,
+        // Use only the raw URI (IPFS/Arweave), never CDN
+        imageUrl: asset.content?.files?.[0]?.uri || null,
         creator: asset.creators?.[0]?.address || null,
         metadataUri: asset.content?.json_uri || null,
       }));

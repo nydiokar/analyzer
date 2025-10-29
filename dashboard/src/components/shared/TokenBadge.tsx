@@ -56,10 +56,10 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
             <PopoverTrigger asChild>
               <div className={cn("flex items-center space-x-2 cursor-pointer group", className)}>
                 <Avatar className={sizeClasses[size]}>
-                  <AvatarImage 
-                    src={metadata?.imageUrl ?? undefined} 
+                  <AvatarImage
+                    src={metadata?.imageUrl ?? undefined}
                     alt={tokenName}
-                    className={sizeClasses[size]} // Ensure image respects size constraints
+                    className={sizeClasses[size]}
                   />
                   <AvatarFallback className={cn("text-xs", sizeClasses[size])}>{tokenName.charAt(0)}</AvatarFallback>
                 </Avatar>

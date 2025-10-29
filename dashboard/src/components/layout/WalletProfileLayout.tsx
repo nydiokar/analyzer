@@ -407,6 +407,13 @@ export default function WalletProfileLayout({
           () => fetcher(createCacheKey.walletSummary(walletAddress)),
           { populateCache: true, revalidate: false },
         );
+        // Also refresh dependent views so UI stops showing skeletons
+        await globalMutate(
+          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
+        );
+        await globalMutate(
+          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/pnl-overview`),
+        );
       } catch (error) {
         console.error('Error refreshing wallet summary after completion', error);
       }
