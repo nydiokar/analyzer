@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,52 +7,33 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- Application Models ---
-
-// Stores metadata for each analyzed wallet, crucial for incremental fetching.
 model Wallet {
-  address                      String    @id @unique // Solana wallet address
-  // Oldest transaction timestamp ever processed for this wallet
+  address                      String                 @id @unique
   firstProcessedTimestamp      Int?
-  // Signature of the absolute newest transaction processed for this wallet
   newestProcessedSignature     String?
-  // Timestamp of the absolute newest transaction processed for this wallet
   newestProcessedTimestamp     Int?
-  // Timestamp of the last time a fetch was successfully run for this wallet
   lastSuccessfulFetchTimestamp DateTime?
-  // Timestamp of the OLDEST transaction included in the last successful analysis
   analyzedTimestampStart       Int?
-  // Timestamp of the NEWEST transaction included in the last successful analysis
   analyzedTimestampEnd         Int?
-
-  // Wallet classification for bot detection
-  classification               String?   @default("unknown") // "bot", "human", "unknown", "institutional"
-  classificationConfidence     Float?    // 0.0-1.0 confidence score
-  classificationUpdatedAt      DateTime? // When classification was last updated
-  classificationMethod         String?   // "behavioral", "pattern", "manual", "api"
-  isVerifiedBot               Boolean   @default(false) // Manual verification flag
-  
-  // Bot-specific metadata
-  botType                     String?   // "arbitrage", "mev", "market_maker", "liquidity", "spam"
-  botPatternTags              Json?     // Array of detected patterns: ["high_frequency", "micro_transactions", "true_flipper"]
-
-  // Relations to the latest summaries and profiles - fixed to be referenced by children
-  pnlSummary      WalletPnlSummary?
-  behaviorProfile WalletBehaviorProfile?
-  // analysisRuns              AnalysisRun[] // If you want to navigate from Wallet to its runs
-  activityLogs    ActivityLog[]          @relation("WalletActivityLogs") // Named relation
-  // Optional: Link to user-specific settings or saved wallet lists
-  walletNotes     WalletNote[]
-  favoritedBy     UserFavoriteWallet[] // Added for Wallet-FavoriteWallets relationship
-  AnalysisResult  AnalysisResult[]
+  classification               String?                @default("unknown")
+  classificationConfidence     Float?
+  classificationUpdatedAt      DateTime?
+  classificationMethod         String?
+  isVerifiedBot                Boolean                @default(false)
+  botType                      String?
+  botPatternTags               Json?
+  activityLogs                 ActivityLog[]          @relation("WalletActivityLogs")
+  AnalysisResult               AnalysisResult[]
+  favoritedBy                  UserFavoriteWallet[]
+  behaviorProfile              WalletBehaviorProfile?
+  walletNotes                  WalletNote[]
+  pnlSummary                   WalletPnlSummary?
 
   @@index([classification])
   @@index([classificationConfidence])
   @@index([isVerifiedBot])
 }
 
-// Stores lightweight cache of processed transaction signatures.
-// Used to avoid re-fetching already processed transactions from Helius API.
 model HeliusTransactionCache {
   signature String   @id @unique
   timestamp Int
@@ -64,21 +42,19 @@ model HeliusTransactionCache {
   @@index([timestamp])
 }
 
-// Stores PRE-CALCULATED data for a specific user swap leg, derived from Helius events.
-// One record per SPL token sent or received by the user in a swap.
 model SwapAnalysisInput {
   id                  Int    @id @default(autoincrement())
   walletAddress       String
   signature           String
-  timestamp           Int // Unix timestamp (seconds)
-  mint                String // SPL token mint address
-  amount              Float // Amount of the SPL token
-  direction           String // 'in' or 'out'
-  associatedSolValue  Float // Associated SOL/WSOL value for the transaction
-  associatedUsdcValue Float? // Associated USDC value for the transaction (optional)
-  interactionType     String // Original Helius transaction type (e.g., SWAP, TRANSFER)
-  feeAmount           Float? // Fee amount in SOL
-  feePercentage       Float? // Fee percentage relative to transaction size
+  timestamp           Int
+  mint                String
+  amount              Float
+  direction           String
+  associatedSolValue  Float
+  associatedUsdcValue Float?
+  interactionType     String
+  feeAmount           Float?
+  feePercentage       Float?
 
   @@unique([signature, mint, direction, amount], name: "signature_mint_direction_amount")
   @@index([walletAddress, timestamp])
@@ -86,38 +62,31 @@ model SwapAnalysisInput {
   @@index([mint])
 }
 
-// Stores per-token PNL & stats - LATEST ALL-TIME
 model AnalysisResult {
-  id            Int    @id @default(autoincrement())
-  walletAddress String
-  tokenAddress  String
-
-  totalAmountIn          Float
-  totalAmountOut         Float
-  netAmountChange        Float
-  totalSolSpent          Float
-  totalSolReceived       Float
-  totalFeesPaidInSol     Float?
-  netSolProfitLoss       Float
-  transferCountIn        Int
-  transferCountOut       Int
-  firstTransferTimestamp Int?
-  lastTransferTimestamp  Int?
-
+  id                      Int       @id @default(autoincrement())
+  walletAddress           String
+  tokenAddress            String
+  totalAmountIn           Float
+  totalAmountOut          Float
+  netAmountChange         Float
+  totalSolSpent           Float
+  totalSolReceived        Float
+  totalFeesPaidInSol      Float?
+  netSolProfitLoss        Float
+  transferCountIn         Int
+  transferCountOut        Int
+  firstTransferTimestamp  Int?
+  lastTransferTimestamp   Int?
   isValuePreservation     Boolean?
   estimatedPreservedValue Float?
-  preservationType        String? // Consider Enum: enum PreservationType { STABLECOIN HODL }
-
-  // New fields for current token balance snapshot
-  currentRawBalance      String? // Current raw token balance (string to preserve precision)
-  currentUiBalance       Float? // Or Decimal?
-  currentUiBalanceString String?
-  balanceDecimals        Int? // Decimals for the current balance fields
-  balanceFetchedAt       DateTime? // Timestamp when this specific token balance was part of a WalletState fetch
-
-  updatedAt DateTime @default(now()) @updatedAt
-
-  wallet Wallet @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+  preservationType        String?
+  currentRawBalance       String?
+  currentUiBalance        Float?
+  currentUiBalanceString  String?
+  balanceDecimals         Int?
+  balanceFetchedAt        DateTime?
+  updatedAt               DateTime  @default(now()) @updatedAt
+  wallet                  Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@unique([walletAddress, tokenAddress])
   @@index([walletAddress])
@@ -126,12 +95,9 @@ model AnalysisResult {
   @@index([netSolProfitLoss])
 }
 
-// Stores aggregated PNL metrics for a wallet - LATEST ALL-TIME
 model WalletPnlSummary {
-  id            Int    @id @default(autoincrement())
-  walletAddress String @unique
-  wallet        Wallet @relation(fields: [walletAddress], references: [address])
-
+  id                                Int                 @id @default(autoincrement())
+  walletAddress                     String              @unique
   totalVolume                       Float
   totalFees                         Float
   realizedPnl                       Float
@@ -145,27 +111,20 @@ model WalletPnlSummary {
   averageRealizedPnlPerExecutedSwap Float
   realizedPnlToTotalVolumeRatio     Float
   totalSignaturesProcessed          Int
-
-  overallFirstTimestamp Int?
-  overallLastTimestamp  Int?
-
-  advancedStats AdvancedTradeStats? // One-to-one relation via walletPnlSummaryId field on AdvancedTradeStats
-
-  // New fields for SOL balance snapshot
-  currentSolBalance   Float? // Current SOL balance at the time of analysis
-  solBalanceFetchedAt DateTime? // Timestamp when SOL balance was fetched (should be same as token balances)
-
-  updatedAt DateTime @updatedAt
+  overallFirstTimestamp             Int?
+  overallLastTimestamp              Int?
+  updatedAt                         DateTime            @updatedAt
+  currentSolBalance                 Float?
+  solBalanceFetchedAt               DateTime?
+  advancedStats                     AdvancedTradeStats?
+  wallet                            Wallet              @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])
 }
 
-// Stores advanced trade statistics for a wallet - LATEST ALL-TIME
 model AdvancedTradeStats {
-  id                 Int              @id @default(autoincrement())
-  walletPnlSummaryId Int              @unique
-  walletPnlSummary   WalletPnlSummary @relation(fields: [walletPnlSummaryId], references: [id], onDelete: Cascade)
-
+  id                           Int              @id @default(autoincrement())
+  walletPnlSummaryId           Int              @unique
   medianPnlPerToken            Float
   trimmedMeanPnlPerToken       Float
   tokenWinRatePercent          Float
@@ -175,75 +134,62 @@ model AdvancedTradeStats {
   averagePnlPerDayActiveApprox Float
   firstTransactionTimestamp    Int?
   lastTransactionTimestamp     Int?
-
-  updatedAt DateTime @updatedAt
+  updatedAt                    DateTime         @updatedAt
+  walletPnlSummary             WalletPnlSummary @relation(fields: [walletPnlSummaryId], references: [id], onDelete: Cascade)
 }
 
-// Stores behavioral profile for a wallet - LATEST ALL-TIME
 model WalletBehaviorProfile {
-  id            Int    @id @default(autoincrement())
-  walletAddress String @unique
-  wallet        Wallet @relation(fields: [walletAddress], references: [address])
-
-  buySellRatio             Float
-  buySellSymmetry          Float
-  averageFlipDurationHours Float
-  medianHoldTime           Float
-  sequenceConsistency      Float
-  flipperScore             Float
-  uniqueTokensTraded       Int
-  tokensWithBothBuyAndSell Int
-  totalTradeCount          Int
-  totalBuyCount            Int
-  totalSellCount           Int
-  completePairsCount       Int
-  averageTradesPerToken    Float
-
-  tradingTimeDistribution  Json // BehavioralMetrics.tradingTimeDistribution
-  percentTradesUnder1Hour  Float
-  percentTradesUnder4Hours Float
-
-  tradingStyle    String
-  confidenceScore Float
-
-  tradingFrequency Json // BehavioralMetrics.tradingFrequency
-  tokenPreferences Json // BehavioralMetrics.tokenPreferences
-  riskMetrics      Json // BehavioralMetrics.riskMetrics
-
-  reentryRate                Float
-  percentageOfUnpairedTokens Float
-
+  id                            Int      @id @default(autoincrement())
+  walletAddress                 String   @unique
+  buySellRatio                  Float
+  buySellSymmetry               Float
+  averageFlipDurationHours      Float
+  medianHoldTime                Float
+  sequenceConsistency           Float
+  flipperScore                  Float
+  uniqueTokensTraded            Int
+  tokensWithBothBuyAndSell      Int
+  totalTradeCount               Int
+  totalBuyCount                 Int
+  totalSellCount                Int
+  completePairsCount            Int
+  averageTradesPerToken         Float
+  tradingTimeDistribution       Json
+  percentTradesUnder1Hour       Float
+  percentTradesUnder4Hours      Float
+  tradingStyle                  String
+  confidenceScore               Float
+  tradingFrequency              Json
+  tokenPreferences              Json
+  riskMetrics                   Json
+  reentryRate                   Float
+  percentageOfUnpairedTokens    Float
   sessionCount                  Int
   avgTradesPerSession           Float
-  activeTradingPeriods          Json // BehavioralMetrics.activeTradingPeriods
+  activeTradingPeriods          Json
   averageSessionStartHour       Float
   averageSessionDurationMinutes Float
-
-  firstTransactionTimestamp Int?
-  lastTransactionTimestamp  Int?
-
-  updatedAt DateTime @updatedAt
+  firstTransactionTimestamp     Int?
+  lastTransactionTimestamp      Int?
+  updatedAt                     DateTime @updatedAt
+  wallet                        Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])
 }
 
-// Refined: Tracks metadata for each analysis PROCESS execution
 model AnalysisRun {
-  id             Int      @id @default(autoincrement())
-  walletAddress  String
-  serviceInvoked String // e.g., 'PnlAnalysisService', 'BehaviorService', 'FullWalletAnalysis'
-  runTimestamp   DateTime @default(now())
-  status         String // e.g., 'COMPLETED', 'FAILED', 'STARTED'
-
+  id                   Int      @id @default(autoincrement())
+  walletAddress        String
+  serviceInvoked       String
+  runTimestamp         DateTime @default(now())
+  status               String
   inputDataStartTs     Int?
   inputDataEndTs       Int?
   signaturesConsidered Int?
+  durationMs           Int?
+  errorMessage         String?
+  notes                String?
 
-  durationMs   Int?
-  errorMessage String?
-  notes        String?
-
-  // wallet               Wallet    @relation(fields: [walletAddress], references: [address]) // If linking back to Wallet
   @@index([walletAddress, runTimestamp])
   @@index([serviceInvoked])
   @@index([status])
@@ -251,51 +197,41 @@ model AnalysisRun {
 
 model User {
   id              String               @id @default(cuid())
-  apiKey          String               @unique // For API authentication
-  description     String? // e.g., "Dashboard Primary Access", "Analyst X"
-  isDemo          Boolean              @default(false) // New field for demo users
+  apiKey          String               @unique
+  description     String?
+  isDemo          Boolean              @default(false)
   createdAt       DateTime             @default(now())
   lastSeenAt      DateTime?
   isActive        Boolean              @default(true)
-  
-  // Relations
   activityLogs    ActivityLog[]
-  favoriteWallets UserFavoriteWallet[] // Added for User-FavoriteWallets relationship
+  Message         Message[]
+  favoriteWallets UserFavoriteWallet[]
   walletNotes     WalletNote[]
 }
 
 model ActivityLog {
-  id                String   @id @default(cuid()) // Or use autoincrement Int
+  id                String   @id @default(cuid())
   userId            String?
-  user              User?     @relation(fields: [userId], references: [id])
-  actionType        String // e.g., 'get_wallet_summary', 'get_token_performance', 'run_pnl_analysis'
+  actionType        String
   timestamp         DateTime @default(now())
-  requestParameters String? // Input parameters for the action (stored as JSON string)
-  status            String // 'SUCCESS', 'FAILURE', 'INITIATED'
-  durationMs        Int? // Duration of the action
+  requestParameters String?
+  status            String
+  durationMs        Int?
   errorMessage      String?
-  sourceIp          String? // Optional: for additional context
-
-  walletAddress String? // Optional: Link to a specific wallet
-  wallet        Wallet? @relation("WalletActivityLogs", fields: [walletAddress], references: [address]) // Named relation
+  sourceIp          String?
+  walletAddress     String?
+  wallet            Wallet?  @relation("WalletActivityLogs", fields: [walletAddress], references: [address])
+  user              User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([actionType])
   @@index([timestamp])
 }
 
-// Example Enum (if you want to use it for preservationType)
-// enum PreservationType {
-//   STABLECOIN
-//   HODL
-// }
-
-// New model for storing mapping statistics
 model MappingActivityLog {
-  id            String   @id @default(cuid())
-  walletAddress String
-  timestamp     DateTime @default(now())
-
+  id                                 String   @id @default(cuid())
+  walletAddress                      String
+  timestamp                          DateTime @default(now())
   totalTransactionsReceived          Int
   transactionsSkippedError           Int
   transactionsSuccessfullyProcessed  Int
@@ -320,8 +256,8 @@ model MappingActivityLog {
   associatedValueFromNetChange       Int
   smallOutgoingHeuristicApplied      Int
   skippedDuplicateRecordKey          Int
-  countByInteractionType             Json // Stores the { [type: string]: number } object
-  unknownTxSkippedNoJito             Int  @default(0) // Number of UNKNOWN txs skipped for not interacting with Jito
+  countByInteractionType             Json
+  unknownTxSkippedNoJito             Int      @default(0)
 
   @@index([walletAddress])
   @@index([timestamp])
@@ -333,29 +269,26 @@ model WalletNote {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   walletAddress String
-  wallet        Wallet   @relation(fields: [walletAddress], references: [address])
   userId        String
   user          User     @relation(fields: [userId], references: [id])
+  wallet        Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])
   @@index([userId])
   @@index([createdAt])
 }
 
-// Enhanced model for User Favorite Wallets with simple tagging
 model UserFavoriteWallet {
   userId        String
   walletAddress String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  wallet        Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
-  createdAt     DateTime @default(now())
-  
-  // Simple organization fields
-  nickname      String?  // User-defined nickname/title for the wallet
-  tags          String?  // JSON array: ["DeFi", "High Performer", "Research"]
-  collections   String?  // JSON array: ["Main Portfolio", "Watchlist"]
-  metadata      Json?    // Future flexibility for any custom data
-  lastViewedAt  DateTime? // Track when user last viewed this wallet
+  createdAt     DateTime  @default(now())
+  collections   String?
+  lastViewedAt  DateTime?
+  metadata      Json?
+  nickname      String?
+  tags          String?
+  wallet        Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, walletAddress])
   @@index([userId])
@@ -364,50 +297,126 @@ model UserFavoriteWallet {
 }
 
 model TokenInfo {
-  tokenAddress String   @id @unique
-
-  // DexScreener fields (for trading data and fallback display)
-  name         String?
-  symbol       String?
-  imageUrl     String?
-  websiteUrl   String?
-  twitterUrl   String?
-  telegramUrl  String?
-
-  // DexScreener market data for enhanced spam detection
-  marketCapUsd       Float?   // Market capitalization in USD
-  liquidityUsd       Float?   // Liquidity in USD
-  pairCreatedAt      BigInt?  // Unix timestamp when the pair was created
-  fdv                Float?   // Fully diluted value
-  volume24h          Float?   // 24h trading volume
-  priceUsd           String?  // Current price in USD (string to preserve precision)
-  dexscreenerUpdatedAt DateTime? // When DexScreener data was last fetched
-
-  // Onchain metadata from Helius DAS API (PRIMARY for display)
-  onchainName         String?
-  onchainSymbol       String?
-  onchainDescription  String?
-  onchainImageUrl     String?
-  onchainCreator      String?
-  onchainMetadataUri  String?
-  onchainTwitterUrl   String?
-  onchainWebsiteUrl   String?
-  onchainTelegramUrl  String?
-  onchainDiscordUrl   String?
-  onchainBasicFetchedAt    DateTime? // When basic onchain metadata was fetched
-  onchainSocialsFetchedAt  DateTime? // When social links from URI were fetched
-
-  metadataSource      String?  // 'dexscreener' | 'onchain' | 'hybrid'
-
-  fetchedAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  tokenAddress         String         @id @unique
+  name                 String?
+  symbol               String?
+  imageUrl             String?
+  websiteUrl           String?
+  twitterUrl           String?
+  telegramUrl          String?
+  marketCapUsd         Float?
+  liquidityUsd         Float?
+  pairCreatedAt        BigInt?
+  fdv                  Float?
+  volume24h            Float?
+  priceUsd             String?
+  dexscreenerUpdatedAt DateTime?
+  fetchedAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  // Onchain metadata fields
+  onchainName          String?
+  onchainSymbol        String?
+  onchainDescription   String?
+  onchainImageUrl      String?
+  onchainCreator       String?
+  onchainMetadataUri   String?
+  onchainBasicFetchedAt DateTime?
+  onchainWebsiteUrl    String?
+  onchainTwitterUrl    String?
+  onchainTelegramUrl   String?
+  onchainDiscordUrl    String?
+  onchainSocialsFetchedAt DateTime?
+  metadataSource       String?
+  TokenTag             TokenTag[]
+  WatchedToken         WatchedToken[]
 
   @@index([name])
   @@index([symbol])
   @@index([marketCapUsd])
   @@index([liquidityUsd])
   @@index([pairCreatedAt])
-  @@index([metadataSource])
-  @@index([onchainBasicFetchedAt])
-  @@index([dexscreenerUpdatedAt])
+}
+
+model Message {
+  id              String            @id
+  body            String
+  authorUserId    String?
+  source          String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime
+  deletedAt       DateTime?
+  isPinned        Boolean           @default(false)
+  parentId        String?
+  User            User?             @relation(fields: [authorUserId], references: [id])
+  Message         Message?          @relation("MessageToMessage", fields: [parentId], references: [id])
+  other_Message   Message[]         @relation("MessageToMessage")
+  MessageMention  MessageMention[]
+  MessageReaction MessageReaction[]
+  MessageRevision MessageRevision[]
+
+  @@index([createdAt, id])
+}
+
+model MessageMention {
+  id        String  @id
+  messageId String
+  kind      String
+  refId     String?
+  rawValue  String
+  metaJson  Json?
+  Message   Message @relation(fields: [messageId], references: [id])
+
+  @@index([messageId])
+  @@index([kind, refId])
+}
+
+model MessageReaction {
+  messageId String
+  type      String
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  Message   Message  @relation(fields: [messageId], references: [id])
+
+  @@id([messageId, type])
+  @@index([type])
+}
+
+model MessageRevision {
+  id        String   @id
+  messageId String
+  body      String
+  editedAt  DateTime @default(now())
+  Message   Message  @relation(fields: [messageId], references: [id])
+}
+
+model Tag {
+  id       String     @id
+  name     String     @unique
+  type     String
+  TokenTag TokenTag[]
+}
+
+model TokenTag {
+  tokenAddress String
+  tagId        String
+  source       String
+  confidence   Float     @default(1.0)
+  createdAt    DateTime  @default(now())
+  TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
+  Tag          Tag       @relation(fields: [tagId], references: [id])
+
+  @@id([tokenAddress, tagId])
+  @@index([tagId])
+}
+
+model WatchedToken {
+  id           String    @id
+  tokenAddress String
+  list         String
+  createdAt    DateTime  @default(now())
+  createdBy    String?
+  TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
+
+  @@unique([tokenAddress, list])
 }

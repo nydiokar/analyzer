@@ -3,6 +3,7 @@
 import { TokenFirstBuyersService } from '../core/services/token-first-buyers-service';
 import { HeliusApiClient } from '../core/services/helius-api-client';
 import { DatabaseService } from '../api/services/database.service';
+import { prisma } from '../core/services/database-service';
 import { createLogger } from '../core/utils/logger';
 import { mapHeliusTransactionsToIntermediateRecords } from '../core/services/helius-transaction-mapper';
 import * as path from 'path';
@@ -144,7 +145,7 @@ async function main(): Promise<void> {
         );
 
         // Get swap analysis input records from database for this wallet and token
-        const swapRecords = await databaseService.prismaClient.swapAnalysisInput.findMany({
+        const swapRecords = await prisma.swapAnalysisInput.findMany({
           where: {
             walletAddress: buyer.walletAddress,
             mint

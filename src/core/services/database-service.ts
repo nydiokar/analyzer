@@ -2419,14 +2419,21 @@ export class DatabaseService {
     ): Promise<void> {
         // Bulk create new tokens (createMany is already optimized)
         if (newTokens.length > 0) {
-            await this.prismaClient.tokenInfo.createMany({
-                data: newTokens.map(t => ({
-                    ...t,
-                    onchainBasicFetchedAt: new Date(),
-                    metadataSource: 'onchain',
-                })),
-                skipDuplicates: true,
-            });
+            try {
+                await this.prismaClient.tokenInfo.createMany({
+                    data: newTokens.map(t => ({
+                        ...t,
+                        onchainBasicFetchedAt: new Date(),
+                        metadataSource: 'onchain',
+                    })),
+                });
+            } catch (error: any) {
+                // If there are duplicate key errors, some tokens may already exist - that's OK
+                // We only log if it's not a known duplicate error
+                if (error?.code !== 'P2002') { // P2002 is unique constraint violation
+                    throw error;
+                }
+            }
         }
 
         // Update existing tokens in chunks to avoid excessive memory usage

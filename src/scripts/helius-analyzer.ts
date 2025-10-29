@@ -24,6 +24,7 @@ import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { HeliusApiClient } from 'core/services/helius-api-client';
 import { DexscreenerService } from '../api/services/dexscreener.service';
 import { TokenInfoService } from '../api/services/token-info.service';
+import { OnchainMetadataService } from '../core/services/onchain-metadata.service';
 import { HttpService } from '@nestjs/axios';
 
 // Initialize environment variables
@@ -168,7 +169,12 @@ async function analyzeWalletWithHelius() {
     dbService,
     httpService
   );
-  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService, dexscreenerProvider);
+  // OnchainMetadataService requires HeliusApiClient
+  if (!heliusApiClient) {
+    throw new Error('HeliusApiClient is required for TokenInfoService (needed for OnchainMetadataService)');
+  }
+  const onchainMetadataService = new OnchainMetadataService(heliusApiClient);
+  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService, dexscreenerProvider, onchainMetadataService);
   const pnlAnalysisService = new PnlAnalysisService(dbService, heliusApiClient, tokenInfoService);
   
   // Use undefined instead of null for optional service dependencies
