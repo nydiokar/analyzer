@@ -410,6 +410,17 @@ export default function WalletProfileLayout({
       } catch (error) {
         console.error('Error refreshing wallet summary after completion', error);
       }
+
+      // Refresh token performance when any analysis scope completes (progressive data quality)
+      if (scope === 'flash' || scope === 'working' || scope === 'deep') {
+        try {
+          await globalMutate(
+            (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
+          );
+        } catch (error) {
+          console.error('Error refreshing token performance after flash completion', error);
+        }
+      }
     },
     onJobFailed: (data: JobFailedData) => {
       const scope = jobIdToScopeRef.current[data.jobId];
