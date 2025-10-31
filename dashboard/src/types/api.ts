@@ -158,13 +158,25 @@ export interface TokenPerformanceDataDto {
   balanceDecimals?: number | null;
   balanceFetchedAt?: string | null; // ISO String
 
-  // Enriched data from TokenInfo
+  // Enriched data from TokenInfo (DexScreener)
   name?: string | null;
   symbol?: string | null;
   imageUrl?: string | null;
   websiteUrl?: string | null;
   twitterUrl?: string | null;
   telegramUrl?: string | null;
+
+  // Onchain metadata (IPFS/arweave - primary source for display)
+  onchainName?: string | null;
+  onchainSymbol?: string | null;
+  onchainImageUrl?: string | null;
+  onchainDescription?: string | null;
+  onchainWebsiteUrl?: string | null;
+  onchainTwitterUrl?: string | null;
+  onchainTelegramUrl?: string | null;
+  onchainDiscordUrl?: string | null;
+  onchainCreator?: string | null;
+  metadataSource?: string | null;
 
   // DexScreener market data
   marketCapUsd?: number | null;

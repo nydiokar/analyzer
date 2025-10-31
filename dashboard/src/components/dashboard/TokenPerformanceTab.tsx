@@ -56,6 +56,7 @@ export interface TokenPerformanceTabProps {
   isAnalyzingGlobal: boolean;
   triggerAnalysisGlobal: () => void;
   onInitialLoad?: (info: { hasData: boolean }) => void;
+  onMutateReady?: (mutate: () => Promise<void>) => void; // NEW: Expose mutate to parent
 }
 
 // Define PNL filter options
@@ -109,15 +110,16 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
       
       return (
         <div className="flex items-center gap-3">
-          <TokenBadge 
+          <TokenBadge
             mint={item.tokenAddress}
             metadata={{
-              name: item.name || undefined,
-              symbol: item.symbol || undefined,
-              imageUrl: item.imageUrl || undefined,
-              websiteUrl: item.websiteUrl || undefined,
-              twitterUrl: item.twitterUrl || undefined,
-              telegramUrl: item.telegramUrl || undefined,
+              name: item.onchainName || item.name || undefined,
+              symbol: item.onchainSymbol || item.symbol || undefined,
+              // FIXED: Prioritize onchainImageUrl (IPFS) over imageUrl (DexScreener CDN)
+              imageUrl: item.onchainImageUrl || item.imageUrl || undefined,
+              websiteUrl: item.websiteUrl || item.onchainWebsiteUrl || undefined,
+              twitterUrl: item.twitterUrl || item.onchainTwitterUrl || undefined,
+              telegramUrl: item.telegramUrl || item.onchainTelegramUrl || undefined,
             }}
             size="lg"
             className="flex-1"
@@ -392,7 +394,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
 
 const ESTIMATED_ROW_HEIGHT = 64;
 
-function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad }: TokenPerformanceTabProps) {
+function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const { apiKey, isInitialized } = useApiKeyStore();
   const [page, setPage] = useState(1);
@@ -486,12 +488,31 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const { data, error, isLoading: isLoadingData, mutate: localMutate } = useSWR<PaginatedTokenPerformanceResponse, Error>(
     // Do not fetch data while enrichment is happening.
     swrKey ? [swrKey, apiKey] : null,
-    ([url]: [string]) => fetcher(url),
+    ([url]: [string]) => {
+      console.log(`[TokenPerformance] 🔄 Fetching data:`, {
+        url,
+        startDate: startDate?.toISOString(),
+        endDate: endDate?.toISOString(),
+        timestamp: new Date().toISOString()
+      });
+      return fetcher(url);
+    },
     {
       revalidateOnFocus: false,
-      keepPreviousData: true,
-      dedupingInterval: 7000, // Shorter interval so enrichment refresh within ~7s is not skipped
+      keepPreviousData: false, // CHANGED: Don't show stale data - prevents showing old images
+      dedupingInterval: 3000, // CHANGED: 3 seconds - faster cache updates after enrichment
       revalidateOnReconnect: false, // Prevent revalidation on network reconnect
+      revalidateIfStale: true, // CHANGED: Allow revalidation when cache is stale
+      onSuccess: (data) => {
+        console.log(`[TokenPerformance] ✅ Data received:`, {
+          tokenCount: data?.data?.length || 0,
+          hasImages: data?.data?.filter(t => t.onchainImageUrl || t.imageUrl).length || 0,
+          timestamp: new Date().toISOString()
+        });
+      },
+      onError: (err) => {
+        console.error(`[TokenPerformance] ❌ Fetch error:`, err);
+      }
     }
   );
 
@@ -700,13 +721,27 @@ const handleSort = useCallback((columnId: string) => {
     if (isLoadingData) return;
     setIsRefreshing(true);
     try {
+      console.log('[TokenPerformance] 🔄 Manual refresh triggered');
       // Refresh the main data only
       await localMutate();
+      console.log('[TokenPerformance] ✅ Manual refresh complete');
       // Enrichment is now handled by the dashboard analysis job or manual trigger
     } finally {
       setIsRefreshing(false);
     }
   }, [isLoadingData, localMutate]);
+
+  // NEW: Expose mutate function to parent for cache invalidation
+  useEffect(() => {
+    if (onMutateReady && localMutate) {
+      const mutateWrapper = async () => {
+        console.log('[TokenPerformance] 🔄 Parent-triggered refetch starting');
+        await localMutate();
+        console.log('[TokenPerformance] ✅ Parent-triggered refetch complete');
+      };
+      onMutateReady(mutateWrapper);
+    }
+  }, [onMutateReady, localMutate]);
 
   // PERFORMANCE FIX: Memoize skeleton rendering to prevent unnecessary re-creation
   const renderSkeletonTableRows = useCallback(() => {

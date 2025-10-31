@@ -249,8 +249,16 @@ export default function WalletProfileLayout({
   const subscribeToJobRef = useRef<SubscribeToJobFn | null>(null);
   const unsubscribeFromJobRef = useRef<UnsubscribeFromJobFn | null>(null);
 
+  // NEW: Store reference to TokenPerformanceTab's mutate function
+  const tokenPerformanceMutateRef = useRef<(() => Promise<void>) | null>(null);
+
   const handleTokenDataPrimed = useCallback(() => {
     setHasInitialTokenSnapshot(true);
+  }, []);
+
+  const handleTokenPerformanceMutateReady = useCallback((mutate: () => Promise<void>) => {
+    tokenPerformanceMutateRef.current = mutate;
+    console.log('[WalletProfile] 📌 TokenPerformance mutate function registered');
   }, []);
 
   const registerJobSubscription = useCallback(
@@ -418,14 +426,20 @@ export default function WalletProfileLayout({
         console.error('Error refreshing wallet summary after completion', error);
       }
 
-      // Refresh token performance when any analysis scope completes (progressive data quality)
+      // CHANGED: Direct mutate call instead of global cache invalidation
+      // This ensures TokenPerformanceTab immediately refetches data
       if (scope === 'flash' || scope === 'working' || scope === 'deep') {
+        console.log(`[WalletProfile] 🔄 Triggering TokenPerformance refetch after ${scope} completion`);
         try {
-          await globalMutate(
-            (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
-          );
+          const mutateFn = tokenPerformanceMutateRef.current;
+          if (mutateFn) {
+            await mutateFn();
+            console.log(`[WalletProfile] ✅ TokenPerformance refetch complete for ${scope}`);
+          } else {
+            console.warn(`[WalletProfile] ⚠️ TokenPerformance mutate function not available yet`);
+          }
         } catch (error) {
-          console.error('Error refreshing token performance after flash completion', error);
+          console.error('Error refreshing token performance after scope completion', error);
         }
       }
     },
@@ -450,14 +464,22 @@ export default function WalletProfileLayout({
         description: data.error || "An unexpected error occurred during analysis.",
       });
     },
-    onEnrichmentComplete: () => {
+    onEnrichmentComplete: async () => {
+      console.log(`[WalletProfile] 🎨 Enrichment complete - triggering TokenPerformance refetch for images`);
       setEnrichmentJobId(null);
-      setTimeout(() => {
-        globalMutate(
-          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
-        );
+      // CHANGED: Direct mutate call for immediate image refresh
+      try {
+        const mutateFn = tokenPerformanceMutateRef.current;
+        if (mutateFn) {
+          await mutateFn();
+          console.log(`[WalletProfile] ✅ TokenPerformance refetch complete after enrichment`);
+        } else {
+          console.warn(`[WalletProfile] ⚠️ TokenPerformance mutate function not available for enrichment`);
+        }
         // Enrichment completes quietly without notification
-      }, 1500);
+      } catch (error) {
+        console.error('Error refreshing token performance after enrichment', error);
+      }
     },
     onEnrichmentError: ({ error }) => {
       setEnrichmentJobId(null);
@@ -1293,7 +1315,7 @@ export default function WalletProfileLayout({
           </LazyTabContent>
 
           <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
-            <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} />
+            <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} onMutateReady={handleTokenPerformanceMutateReady} />
           </LazyTabContent>
 
           <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>

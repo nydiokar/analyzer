@@ -28,9 +28,9 @@ export const defaultSWRConfig: SWRConfiguration = {
   revalidateOnFocus: false,
   revalidateOnReconnect: false, // Disable to prevent unnecessary requests
   revalidateOnMount: true, // Allow initial data loading
-  dedupingInterval: 300000, // 5 minutes - much longer to prevent rapid duplicates
-  keepPreviousData: true, // Keep previous data to prevent layout shifts
-  revalidateIfStale: false, // Disable automatic revalidation
+  dedupingInterval: 5000, // 5 seconds - allow faster cache updates after enrichment
+  keepPreviousData: false, // CHANGED: Don't show stale data - show loading state instead
+  revalidateIfStale: true, // CHANGED: Allow revalidation when cache is stale
   shouldRetryOnError: (error) => {
     // Don't retry on 4xx errors (client errors)
     if (error?.status >= 400 && error?.status < 500) {
@@ -42,7 +42,7 @@ export const defaultSWRConfig: SWRConfiguration = {
   errorRetryInterval: 2000, // Slightly longer retry interval
   refreshInterval: 0, // Disable auto refresh by default
   // Add focusThrottleInterval to prevent rapid revalidations
-  focusThrottleInterval: 300000, // 5 minutes
+  focusThrottleInterval: 60000, // 1 minute - allow more frequent updates
 };
 
 // Create cache keys with consistent patterns
