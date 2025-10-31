@@ -177,11 +177,20 @@ export class TokenInfoService implements ITokenInfoService {
         return true;
       }
 
-      // If stale data (both dex and onchain old), needs refresh
+      // Onchain metadata is IMMUTABLE - once fetched, never refetch
+      // Only check if DexScreener data is stale (prices/volume change)
+      const hasOnchainData = !!existing.onchainBasicFetchedAt;
       const dexStale = !existing.dexscreenerUpdatedAt || existing.dexscreenerUpdatedAt < oneHourAgo;
-      const onchainStale = !existing.onchainBasicFetchedAt || existing.onchainBasicFetchedAt < oneHourAgo;
 
-      return dexStale && onchainStale;
+      // Skip enrichment if:
+      // - We have onchain data (immutable, never changes) AND
+      // - DexScreener data is fresh (prices are recent)
+      if (hasOnchainData && !dexStale) {
+        return false;
+      }
+
+      // Enrich if we're missing onchain data OR DexScreener is stale
+      return !hasOnchainData || dexStale;
     });
 
     if (needsEnrichment.length === 0) {
@@ -189,32 +198,40 @@ export class TokenInfoService implements ITokenInfoService {
       return;
     }
 
-    this.logger.log(`Enriching ${needsEnrichment.length} tokens with 3-stage enrichment (onchain-first)`);
+    // Split enrichment needs: onchain metadata vs price data
+    const needsOnchainData = needsEnrichment.filter(address => {
+      const existing = existingTokenMap.get(address);
+      return !existing?.onchainBasicFetchedAt; // Missing onchain data (immutable)
+    });
+
+    const needsPriceData = needsEnrichment; // All tokens in needsEnrichment need price refresh
+
+    this.logger.log(`Enriching ${needsEnrichment.length} tokens (onchain: ${needsOnchainData.length}, prices: ${needsPriceData.length})`);
 
     // ═══════════════════════════════════════════════════════════
     // STAGE 1: Helius DAS API (FAST - WAIT FOR THIS)
+    // Only fetch onchain data for tokens that don't have it yet
     // ═══════════════════════════════════════════════════════════
     let onchainMetadata: BasicTokenMetadata[] = [];
-    try {
-      onchainMetadata = await this.onchainMetadataService.fetchBasicMetadataBatch(needsEnrichment);
+    if (needsOnchainData.length > 0) {
+      try {
+        onchainMetadata = await this.onchainMetadataService.fetchBasicMetadataBatch(needsOnchainData);
 
-      if (onchainMetadata.length > 0) {
-        await this.saveOnchainBasicMetadata(onchainMetadata);
-        this.logger.log(`✅ Stage 1: Saved basic metadata for ${onchainMetadata.length} tokens`);
+        if (onchainMetadata.length > 0) {
+          await this.saveOnchainBasicMetadata(onchainMetadata);
+        }
+      } catch (error) {
+        this.logger.error('Stage 1 (DAS) failed:', error);
+        // Continue anyway - DexScreener might still work
       }
-    } catch (error) {
-      this.logger.error('Stage 1 (DAS) failed:', error);
-      // Continue anyway - DexScreener might still work
     }
 
     // ═══════════════════════════════════════════════════════════
     // STAGE 2: DexScreener (PARALLEL - DON'T WAIT)
+    // Fetch fresh prices for all tokens that need enrichment
     // ═══════════════════════════════════════════════════════════
     this.priceProvider
-      .fetchAndSaveTokenInfo(needsEnrichment)
-      .then(() => {
-        this.logger.log(`✅ Stage 2: DexScreener enrichment completed`);
-      })
+      .fetchAndSaveTokenInfo(needsPriceData)
       .catch(err => {
         this.logger.error('Stage 2 (DexScreener) failed:', err);
       });
@@ -229,16 +246,13 @@ export class TokenInfoService implements ITokenInfoService {
 
     if (tokensWithUris.length > 0) {
       this.fetchAndSaveSocialLinks(tokensWithUris)
-        .then(() => {
-          this.logger.log(`✅ Stage 3: Social links fetched for ${tokensWithUris.length} tokens`);
-        })
         .catch(err => {
           this.logger.error('Stage 3 (Social links) failed:', err);
         });
     }
 
     const duration = Date.now() - startTime;
-    this.logger.log(`Token enrichment triggered in ${duration}ms (DAS completed, DexScreener and socials in background)`);
+    this.logger.log(`Token enrichment completed in ${duration}ms`);
 
     // Log success status
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
@@ -316,6 +330,7 @@ export class TokenInfoService implements ITokenInfoService {
         website: s.website,
         telegram: s.telegram,
         discord: s.discord,
+        imageUrl: s.imageUrl, // Save image from metadata JSON (fallback for tokens where DAS doesn't provide it)
       })
     );
 

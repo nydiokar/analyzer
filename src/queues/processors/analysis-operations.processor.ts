@@ -382,7 +382,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(85);
 
       let enrichmentJobId: string | undefined;
-      const shouldEnrich = scope === 'deep' && (job.data.enrichMetadata ?? true);
+      // Enrichment should run for ALL scopes - it's about data quality, not analysis depth
+      // Whether we analyze 750 txs or 3000 txs, we still need token metadata for display
+      const shouldEnrich = job.data.enrichMetadata ?? true;
       if (shouldEnrich) {
         await job.updateProgress(92);
         try {

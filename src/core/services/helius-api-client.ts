@@ -1082,7 +1082,6 @@ export class HeliusApiClient {
       return results;
     }
 
-    logger.debug(`Fetching ${uniqueIds.length} assets via DAS API`);
 
     try {
       const result = await this.makeRpcRequest<any>('getAssetBatch', [

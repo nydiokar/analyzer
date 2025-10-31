@@ -21,6 +21,7 @@ export interface SocialLinks {
   website: string | null;
   telegram: string | null;
   discord: string | null;
+  imageUrl: string | null; // Image from metadata JSON (fallback when DAS doesn't provide it)
 }
 
 @Injectable()
@@ -53,8 +54,9 @@ export class OnchainMetadataService {
         name: asset.content?.metadata?.name || null,
         symbol: asset.content?.metadata?.symbol || null,
         description: asset.content?.metadata?.description || null,
-        // Use only the raw URI (IPFS/Arweave), never CDN
-        imageUrl: asset.content?.files?.[0]?.uri || null,
+        // Prefer CDN for speed (100-300ms vs 2-10s for IPFS), fallback to raw URI
+        // CDN URLs are served by Helius edge servers, much faster than decentralized gateways
+        imageUrl: asset.content?.files?.[0]?.cdn_uri || asset.content?.files?.[0]?.uri || null,
         creator: asset.creators?.[0]?.address || null,
         metadataUri: asset.content?.json_uri || null,
       }));
@@ -76,7 +78,6 @@ export class OnchainMetadataService {
   ): Promise<SocialLinks[]> {
     if (!tokens || tokens.length === 0) return [];
 
-    logger.info(`Fetching social links from ${tokens.length} URIs`);
     const results: SocialLinks[] = [];
 
     // Process in smaller batches to avoid overwhelming gateways
@@ -93,6 +94,7 @@ export class OnchainMetadataService {
             website: metadata?.website || null,
             telegram: metadata?.telegram || null,
             discord: metadata?.discord || null,
+            imageUrl: metadata?.image || null, // Capture image from metadata JSON
           };
         } catch (error: any) {
           logger.debug(`Failed to fetch metadata for ${mint}: ${error.message}`);
@@ -102,6 +104,7 @@ export class OnchainMetadataService {
             website: null,
             telegram: null,
             discord: null,
+            imageUrl: null,
           };
         }
       });
@@ -115,7 +118,6 @@ export class OnchainMetadataService {
       }
     }
 
-    logger.info(`Successfully fetched social links for ${results.filter(r => r.twitter || r.website).length}/${tokens.length} tokens`);
     return results;
   }
 

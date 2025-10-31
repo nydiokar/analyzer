@@ -2465,6 +2465,7 @@ export class DatabaseService {
             website?: string;
             telegram?: string;
             discord?: string;
+            imageUrl?: string; // Image from metadata JSON (fallback when DAS doesn't provide it)
         }
     ): Promise<void> {
         await this.prismaClient.tokenInfo.update({
@@ -2474,6 +2475,8 @@ export class DatabaseService {
                 onchainWebsiteUrl: socialLinks.website,
                 onchainTelegramUrl: socialLinks.telegram,
                 onchainDiscordUrl: socialLinks.discord,
+                // Only update onchainImageUrl if we have one from metadata AND it's currently null
+                ...(socialLinks.imageUrl ? { onchainImageUrl: socialLinks.imageUrl } : {}),
                 onchainSocialsFetchedAt: new Date(),
             },
         });
