@@ -15,8 +15,9 @@ This project uses NestJS modules and providers with the default singleton scope.
   - imports: `ThrottlerModule`, `ConfigModule`, `DatabaseModule` (Global), `HeliusModule` (Global), `QueueModule`, `ApiModule`, `UsersModule`
   - providers (global guards): `APP_GUARD => ApiKeyAuthGuard`, `APP_GUARD => ThrottlerGuard`
 
-- ApiModule
-  - imports: `DatabaseModule`, `WalletsModule`, `AnalysesModule`, `UsersModule`, `DexscreenerModule`, `TokenInfoModule`, `HealthModule`, `JobsModule`, `WebSocketModule`, `QueueModule`, `HeliusIntegrationModule`
+ - ApiModule
+  - imports: `DatabaseModule`, `WalletsModule`, `AnalysesModule`, `UsersModule`, `DexscreenerModule`, `TokenInfoModule`, `HealthModule`, `JobsModule`, `WebSocketModule`, `HeliusWebhookModule`  
+    <!-- removed: `QueueModule` (global via AppModule) -->
   - controllers: `TestController`
 
 ## Global Modules (shared singletons)
@@ -50,13 +51,13 @@ This project uses NestJS modules and providers with the default singleton scope.
   - providers: `EnrichmentStrategyService`, `MintParticipantsService`
 
 - TokenInfoModule
-  - imports: `DatabaseModule`, `DexscreenerModule`
+  - imports: `DatabaseModule`, `DexscreenerModule`, `HeliusModule`
   - controllers: `TokenInfoController`
-  - providers/exports: `TokenInfoService`
+  - providers/exports: `TokenInfoService`, `TokenHoldersService`
 
 - DexscreenerModule
-  - imports: `HttpModule`
-  - providers/exports: `DexscreenerService`
+  - imports: `HttpModule`, `DatabaseModule`
+  - providers/exports: `DexscreenerService`, `DexscreenerPriceProvider`, `IPriceProvider`
 
 - PnlAnalysisModule
   - imports: `DatabaseModule`, `HeliusModule`, `TokenInfoModule`
@@ -83,8 +84,9 @@ This project uses NestJS modules and providers with the default singleton scope.
   - imports: `TerminusModule`, `DatabaseModule`, `QueueModule`
   - controllers: `HealthController`
 
-- HeliusIntegrationModule
-  - imports: `ConfigModule`, `QueueModule`
+ - HeliusWebhookModule
+  - imports: <!-- none (uses globals) -->  
+    <!-- removed: `ConfigModule`, `QueueModule` (provided globally) -->
   - controllers: `HeliusWebhookController`
 
 - WebSocketModule
@@ -101,7 +103,7 @@ This project uses NestJS modules and providers with the default singleton scope.
   - imports: `ConfigModule`, `RedisModule`, `BullModule.forRootAsync(ConfigService)`, `BullModule.registerQueue(...)`, and feature modules providing services
   - queue services: `WalletOperationsQueue`, `AnalysisOperationsQueue`, `SimilarityOperationsQueue`, `EnrichmentOperationsQueue`, `MintParticipantsJobsQueue`
   - processors (Nest providers that own BullMQ Workers): `WalletOperationsProcessor`, `AnalysisOperationsProcessor`, `SimilarityOperationsProcessor`, `EnrichmentOperationsProcessor`
-  - core queue services: `RedisLockService`, `AlertingService`, `DeadLetterQueueService`, `QueueHealthService`, `JobEventsBridgeService`
+  - core queue services: `RedisLockService`, `AlertingService`, `DeadLetterQueueService`, `QueueHealthService`, `JobEventsBridgeService`, `TelegramAlertsService`
   - exports: queue services, core queue services, processors
 
 ## DI Tokens and Factories
@@ -168,7 +170,7 @@ This project uses NestJS modules and providers with the default singleton scope.
 
 - Processors (BullMQ Workers)
   - WalletOperationsProcessor: injects `RedisLockService`, `HeliusSyncService`, `DatabaseService`, `HeliusApiClient`
-  - AnalysisOperationsProcessor: injects `RedisLockService`, `PnlAnalysisService`, `BehaviorService`, `DatabaseService`, `HeliusSyncService`, `EnrichmentOperationsQueue`, `HeliusApiClient`, `JobProgressGateway`, `TokenInfoService`, `AlertingService`
+  - AnalysisOperationsProcessor: injects `RedisLockService`, `PnlAnalysisService`, `BehaviorService`, `DatabaseService`, `HeliusSyncService`, `EnrichmentOperationsQueue`, `HeliusApiClient`, `JobProgressGateway`, `TokenInfoService`, `TelegramAlertsService`
   - SimilarityOperationsProcessor: injects `RedisLockService`, `SimilarityApiService`, `DatabaseService`, `HeliusApiClient`, `TokenInfoService`, `HeliusSyncService`, `PnlAnalysisService`, `BehaviorService`, `EnrichmentOperationsQueue`, `BalanceCacheService`, `JobProgressGateway`
   - EnrichmentOperationsProcessor: injects `RedisLockService`, `TokenInfoService`, `DexscreenerService`, `BalanceCacheService`, `JobProgressGateway`
 
@@ -178,7 +180,7 @@ This project uses NestJS modules and providers with the default singleton scope.
   - injects: `DatabaseService`, `BehaviorService`, `TokenPerformanceService`, `PnlOverviewService`, `TokenInfoService`, `WalletClassificationService`, `SmartFetchService`, `DexscreenerService`
 
 - AnalysesController
-  - injects: `DatabaseService`, `SimilarityOperationsQueue`, `EnrichmentOperationsQueue`, `AnalysisOperationsQueue`, `EnrichmentStrategyService`
+  - injects: `DatabaseService`, `SimilarityOperationsQueue`, `EnrichmentOperationsQueue`, `AnalysisOperationsQueue`, `EnrichmentStrategyService`, `RedisLockService`
 
 - JobsController
   - injects: `JobsService`, `DeadLetterQueueService`
@@ -190,7 +192,8 @@ This project uses NestJS modules and providers with the default singleton scope.
   - injects: `HealthCheckService`, `HttpHealthIndicator`, `DatabaseService`, `QueueHealthService`
 
 - HeliusWebhookController
-  - injects: `ConfigService`, `MintParticipantsJobsQueue`, `AlertingService`
+  - injects: `ConfigService`, `MintParticipantsJobsQueue`  
+    <!-- removed: `AlertingService` (not injected) -->
 
 ## Guards and Pipes
 
@@ -250,8 +253,8 @@ graph TD
   ApiModule --> HealthModule
   ApiModule --> JobsModule
   ApiModule --> WebSocketModule
-  ApiModule --> QueueModule
-  ApiModule --> HeliusIntegrationModule
+  %% removed: ApiModule --> QueueModule (global)
+  ApiModule --> HeliusWebhookModule
 
   %% Wallets
   WalletsModule --> DatabaseModule
@@ -291,6 +294,7 @@ graph TD
   %% Token info
   TokenInfoModule --> DatabaseModule
   TokenInfoModule --> DexscreenerModule
+  TokenInfoModule --> HeliusModule
 
   %% WebSocket / Queue Infra
   WebSocketModule --> RedisModule
@@ -445,6 +449,7 @@ graph LR
     DLQ[DeadLetterQueueService]
     QHS[QueueHealthService]
     JBridge[JobEventsBridgeService]
+    TAlerts[TelegramAlertsService]
     WOQ[WalletOperationsQueue]
     AOQ[AnalysisOperationsQueue]
     SOQ[SimilarityOperationsQueue]
@@ -474,7 +479,7 @@ graph LR
   AOP --> HClient
   AOP --> JGW
   AOP --> TInfo
-  AOP --> Alert
+  AOP --> TAlerts
 
   SOP --> RLock
   SOP --> SimAPI
