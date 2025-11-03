@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { getTagColor, getCollectionColor } from '@/lib/color-utils';
 import { useSearchParams } from 'next/navigation';
+import { useTimeRangeStore } from '@/store/time-range-store';
 
 import type { BehavioralPatternsTabProps } from '@/components/dashboard/BehavioralPatternsTab';
 import type { TokenPerformanceTabProps } from '@/components/dashboard/TokenPerformanceTab';
@@ -160,6 +161,7 @@ export default function WalletProfileLayout({
 }: WalletProfileLayoutProps) {
   const { mutate: globalMutate, cache } = useSWRConfig();
   const { apiKey, isDemo: isDemoAccount } = useApiKeyStore();
+  const { startDate, endDate } = useTimeRangeStore();
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true); // Start with true for SSR consistency
   const [isHydrated, setIsHydrated] = useState(false); // Track hydration state
 
@@ -410,10 +412,9 @@ export default function WalletProfileLayout({
       }
 
       try {
+        // Refresh wallet summary for all time ranges (invalidate all summary cache keys)
         await globalMutate(
-          createCacheKey.walletSummary(walletAddress),
-          () => fetcher(createCacheKey.walletSummary(walletAddress)),
-          { populateCache: true, revalidate: false },
+          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/summary`),
         );
         // Also refresh dependent views so UI stops showing skeletons
         await globalMutate(
@@ -529,7 +530,15 @@ export default function WalletProfileLayout({
 
   // Progressive loading: Start with summary, then load detailed data
   // Remove isInitialized dependency - let SWR handle the request with or without API key
-  const walletSummaryKey = walletAddress ? createCacheKey.walletSummary(walletAddress) : null;
+
+  // Build wallet summary key with time range parameters
+  let walletSummaryKey: string | null = null;
+  if (walletAddress) {
+    const params: Record<string, string> = {};
+    if (startDate) params.startDate = startDate.toISOString();
+    if (endDate) params.endDate = endDate.toISOString();
+    walletSummaryKey = createCacheKey.walletSummary(walletAddress, Object.keys(params).length > 0 ? params : undefined);
+  }
   const { data: walletSummary, error: summaryError } = useSWR<WalletSummaryData>(
     walletSummaryKey,
     fetcher,
@@ -1240,10 +1249,10 @@ export default function WalletProfileLayout({
               "flex flex-col md:flex-row items-start md:items-center gap-x-2 gap-y-2",
               isHeaderExpanded ? "opacity-100 visible" : "opacity-0 invisible h-0 overflow-hidden"
             )}>
-              <AccountSummaryCard 
+              <AccountSummaryCard
                 walletAddress={walletAddress}
                 className="w-full sm:w-auto md:max-w-none"
-                triggerAnalysis={handleTriggerAnalysis} 
+                triggerAnalysis={handleTriggerAnalysis}
                 isAnalyzingGlobal={isAnalyzing}
                 walletSummary={walletSummary}
                 summaryError={summaryError}

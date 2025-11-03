@@ -17,9 +17,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useApiKeyStore } from '@/store/api-key-store';
 import { Button } from '@/components/ui/button';
 
-// REMOVED: useSWR import and fetcher import - no longer needed
-// REMOVED: createCacheKey import - no longer needed
-
 interface AccountSummaryCardProps {
   walletAddress: string;
   className?: string;
@@ -53,10 +50,10 @@ const formatUsdValue = (value: number | null | undefined): string => {
   }
 };
 
-export default function AccountSummaryCard({ 
-  walletAddress, 
-  className, 
-  triggerAnalysis, 
+export default function AccountSummaryCard({
+  walletAddress,
+  className,
+  triggerAnalysis,
   isAnalyzingGlobal,
   // NEW: Destructure the data props
   walletSummary: data,
@@ -64,7 +61,7 @@ export default function AccountSummaryCard({
   summaryIsLoading: isLoading
 }: AccountSummaryCardProps) {
   const { isDemo } = useApiKeyStore();
-  
+
 
 
   if (!walletAddress) {
@@ -171,7 +168,7 @@ export default function AccountSummaryCard({
       </div>
     );
   }
-  
+
   // This is a fallback, but with the checks above, data should be valid here.
   if (!data.latestPnl) {
     return (
@@ -245,12 +242,12 @@ export default function AccountSummaryCard({
             <div className="flex items-center gap-1.5">
               <CalendarDays className="h-3.5 w-3.5" />
               <span>
-                {data.lastActiveTimestamp 
-                  ? format(new Date(data.lastActiveTimestamp * 1000), 'MMM d, yyyy') 
+                {data.lastActiveTimestamp
+                  ? format(new Date(data.lastActiveTimestamp * 1000), 'MMM d, yyyy')
                   : 'N/A'}
               </span>
             </div>
-            
+
             {data.behaviorClassification && (
               <Badge color="sky" size="xs">
                 {data.behaviorClassification}

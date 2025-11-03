@@ -47,7 +47,10 @@ export const defaultSWRConfig: SWRConfiguration = {
 
 // Create cache keys with consistent patterns
 export const createCacheKey = {
-  walletSummary: (walletAddress: string) => `/wallets/${walletAddress}/summary`,
+  walletSummary: (walletAddress: string, params?: Record<string, string>) => {
+    const searchParams = params ? new URLSearchParams(params).toString() : '';
+    return `/wallets/${walletAddress}/summary${searchParams ? '?' + searchParams : ''}`;
+  },
   tokenPerformance: (walletAddress: string, params?: Record<string, string>) => {
     const searchParams = params ? new URLSearchParams(params).toString() : '';
     return `/wallets/${walletAddress}/token-performance${searchParams ? '?' + searchParams : ''}`;
