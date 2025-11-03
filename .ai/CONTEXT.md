@@ -24,6 +24,42 @@
 
 ## Active
 
+- **Holder Risk Analysis & Predictive Holding Time** *(See `.ai/context/architecture-holder-risk-analysis.md` for full details)*
+  - [x] Document holding time methodology in `docs/3.metrics_compact_map.md`
+  - [x] Create architecture plan in `.ai/context/architecture-holder-risk-analysis.md`
+  - [x] Critical review completed - plan finalized and ready to start
+  - [ ] **Phase 1 (Core Calculation)**: 5-7 days
+    - [ ] Add `calculatePeakPosition()` and `detectPositionExit()` (exit threshold: 20% remaining)
+    - [ ] Add `buildTokenLifecycles()` to track position states (ACTIVE/EXITED/DUST)
+    - [ ] Add `calculateHistoricalPattern()` with weighted average from completed positions only
+    - [ ] Implement weighted average entry time calculation (matches weighted sell logic)
+    - [ ] Add `historicalPattern` field to `BehavioralMetrics` (optional, non-breaking)
+    - [ ] Mark `weightedAverageHoldingDurationHours` and `averageFlipDurationHours` as `@deprecated`
+    - [ ] Implement Redis caching for historical patterns (24h TTL)
+    - [ ] Write comprehensive unit tests (extend `test-fifo-holding-time.ts`)
+    - [ ] Validate accuracy on 10+ test wallets
+  - [ ] **Phase 2 (Prediction Layer)**: 3-5 days
+    - [ ] Add current position analysis (weighted entry time, percent sold, status)
+    - [ ] Calculate `estimatedTimeUntilExit = max(0, historical - weightedCurrentAge)`
+    - [ ] Add risk level classification (CRITICAL <24h, HIGH <48h, MEDIUM <120h, LOW ≥120h)
+    - [ ] Store predictions in DB with `StoredPrediction` schema
+    - [ ] Display predictions with confidence scores
+    - [ ] Background job: Track prediction accuracy weekly
+  - [ ] **Phase 3 (Holder Aggregation)**: 5-7 days
+    - [ ] Create `HolderRiskService` to orchestrate multi-wallet analysis
+    - [ ] Integrate with existing `GET /tokens/:mint/top-holders` endpoint (start with 10 holders)
+    - [ ] Implement parallel holder analysis using Promise.all()
+    - [ ] Calculate supply-weighted risk distribution
+    - [ ] Create API endpoints (async pattern if needed for scaling)
+    - [ ] Build dashboard components with data quality indicators (show "⚠️ Limited data" for <3 cycles)
+  - [ ] **Phase 4 (Time Filters & Polish)**: 3-4 days
+    - [ ] Add time window filters (7d, 30d, all-time) to show behavioral drift
+    - [ ] Display pattern changes over time (compare 7d vs 30d patterns)
+    - [ ] Remove deprecated metrics from codebase
+    - [ ] Add prediction accuracy dashboard ("Based on 142 predictions, avg error: ±18h")
+    - [ ] Performance optimization
+    - [ ] Documentation
+
 - **Helius Phase 1 migration (signatures mode) — behind a flag**
   - [ ] Add `getTransactionsForAddress` signatures wrapper in `HeliusApiClient` (`src/core/services/helius-api-client.ts`)
   - [ ] Feature‑flag routing in `getAllTransactionsForAddress` with fallback to legacy on hard failures
