@@ -19,6 +19,12 @@ else
     IS_WSL=false
 fi
 
+# Load nvm early (before any node version checks)
+if [ -d "$HOME/.nvm" ]; then
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+fi
+
 # Step 1: Check/Install Node.js 22
 echo ""
 echo "Step 1: Checking Node.js version..."
@@ -109,13 +115,54 @@ for i in {1..10}; do
     sleep 1
 done
 
+# Helper function to safely parse .env file
+parse_env_file() {
+    local env_file="$1"
+    local key="$2"
+    
+    # Read line by line, skip comments and empty lines
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Remove carriage return if present (handle CRLF)
+        line=$(printf '%s\n' "$line" | tr -d '\r')
+        
+        # Remove leading/trailing whitespace
+        line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        
+        # Check if line contains the key we're looking for
+        if [[ "$line" =~ ^${key}[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+            local value="${BASH_REMATCH[1]}"
+            # Remove surrounding quotes (single or double) if present
+            value=$(echo "$value" | sed -e "s/^['\"]//" -e "s/['\"]$//")
+            # Trim trailing commas or other unwanted characters
+            value=$(echo "$value" | sed 's/,$//')
+            echo "$value"
+            return 0
+        fi
+    done < "$env_file"
+    return 1
+}
+
 # Step 5: Check .env file
 echo ""
 echo "Step 5: Checking .env file..."
 if [ ! -f .env ]; then
     echo -e "${YELLOW}⚠${NC} .env file not found"
     echo "Creating .env from .env.example..."
-    cp .env.example .env
+    if [ -f .env.example ]; then
+        cp .env.example .env
+        # Convert line endings to Unix format
+        if command -v dos2unix &> /dev/null; then
+            dos2unix .env 2>/dev/null || true
+        else
+            sed -i 's/\r$//' .env 2>/dev/null || true
+        fi
+    else
+        echo -e "${RED}✗${NC} .env.example not found"
+        exit 1
+    fi
     echo -e "${YELLOW}⚠${NC} IMPORTANT: Edit .env and add your API keys:"
     echo "  - HELIUS_API_KEY"
     echo "  - HELIUS_METADATA_API_KEY (optional but recommended)"
@@ -124,9 +171,17 @@ if [ ! -f .env ]; then
     exit 0
 else
     echo -e "${GREEN}✓${NC} .env file exists"
+    
+    # Fix line endings if needed (convert CRLF to LF)
+    if command -v dos2unix &> /dev/null; then
+        dos2unix .env 2>/dev/null || true
+    else
+        sed -i 's/\r$//' .env 2>/dev/null || true
+    fi
 
-    # Check if critical env vars are set
-    source .env
+    # Check if critical env vars are set using safe parsing
+    HELIUS_API_KEY=$(parse_env_file .env "HELIUS_API_KEY")
+    
     if [ -z "$HELIUS_API_KEY" ] || [ "$HELIUS_API_KEY" = "your_helius_api_key_here" ]; then
         echo -e "${RED}✗${NC} HELIUS_API_KEY not set in .env"
         echo "Please edit .env and add your Helius API key"
@@ -134,6 +189,7 @@ else
     fi
     echo -e "${GREEN}✓${NC} HELIUS_API_KEY is configured"
 
+    HELIUS_METADATA_API_KEY=$(parse_env_file .env "HELIUS_METADATA_API_KEY")
     if [ -n "$HELIUS_METADATA_API_KEY" ] && [ "$HELIUS_METADATA_API_KEY" != "your_helius_metadata_api_key_here" ]; then
         echo -e "${GREEN}✓${NC} HELIUS_METADATA_API_KEY is configured (separate account)"
     else
