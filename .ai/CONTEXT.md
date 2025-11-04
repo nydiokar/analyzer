@@ -3,7 +3,7 @@
 **Project**: Sova Intel - Wallet Analysis System (Scaling Plan Phase 6)  
 **Goal**: Expose reliable Solana wallet analytics (sync, similarity, reporting) across API, queues, CLI, and dashboard.  
 **Status**: In Progress  
-**Last Updated**: 2025-10-28 00:00 UTC  
+**Last Updated**: 2025-11-04 00:00 UTC  
 **Updated By**: Codex
 
 ---
@@ -59,6 +59,26 @@
     - [ ] Add prediction accuracy dashboard ("Based on 142 predictions, avg error: ±18h")
     - [ ] Performance optimization
     - [ ] Documentation
+
+- **IPFS Metadata Fetching Security Hardening** *(See `.ai/context/security-ipfs-metadata-vulnerability.md` for full details)*
+  - [x] Security vulnerability identified and documented
+  - [ ] **Phase 1 (Critical Protections)**: 1-2 days
+    - [ ] Add size limits (5MB max) with streaming checks in `fetchMetadataFromUri()`
+    - [ ] Implement URI validation: reject IP addresses, private networks, localhost (`validateUri()`)
+    - [ ] Add prototype pollution protection: strip `__proto__`, `constructor`, `prototype` keys (`sanitizeMetadata()`)
+    - [ ] Update retry logic to skip security rejections (no retries for validation failures)
+  - [ ] **Phase 2 (Enhanced Security)**: 1-2 days
+    - [ ] Add JSON depth limits (max 20 levels) to prevent stack overflow
+    - [ ] Add array/value limits (max 1000 elements, 10k char strings)
+    - [ ] Add Content-Type verification (log warnings for unexpected types)
+    - [ ] Implement safe URI logging (`sanitizeUriForLogging()`)
+  - [ ] **Testing & Validation**: 1 day
+    - [ ] Test with large files (>5MB) → should reject
+    - [ ] Test with IP addresses → should reject
+    - [ ] Test with prototype pollution payloads → should sanitize
+    - [ ] Test with deeply nested JSON → should reject
+    - [ ] Test valid IPFS/Arweave URIs → should work
+    - [ ] Monitor logs for continued suspicious activity
 
 - **Helius Phase 1 migration (signatures mode) — behind a flag**
   - [ ] Add `getTransactionsForAddress` signatures wrapper in `HeliusApiClient` (`src/core/services/helius-api-client.ts`)

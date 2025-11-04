@@ -1131,29 +1131,15 @@ export function mapHeliusTransactionsToIntermediateRecords(
   const finalStats = { ...mappingStats };
   finalStats.analysisInputsGenerated = filteredAnalysisInputs.length;
 
-  // NEW: Filter out scam tokens before saving to database
-  // Tokens with zero or very low associatedSolValue despite being processed are likely scams
-  const scamFilteredInputs = filteredAnalysisInputs.filter(input => {
-    // Skip filtering for utility tokens (SOL, USDC, USDT)
-    if (input.mint === 'So11111111111111111111111111111111111111112' || // SOL
-        input.mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' || // USDC
-        input.mint === 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') { // USDT
-      return true;
-    }
+  // DISABLED: Scam token filtering removed - keeping ALL tokens regardless of associated value
+  // Reason: Many legitimate tokens don't have associatedSolValue/associatedUsdcValue due to:
+  // - Airdrops (no swap, no value attribution)
+  // - Complex transactions where value calculation failed
+  // - Transactions without proper swap event data
+  // We want to capture ALL token transfers, not just those with successful value attribution
+  // Scam filtering should happen at the analysis level (BehaviorAnalyzer), not here in the mapper
+  
+  // logger.debug(`Scam filtering: DISABLED - keeping all ${filteredAnalysisInputs.length} tokens regardless of associated value`);
 
-    // Check if this token has meaningful value in either SOL or USDC
-    const hasSolValue = input.associatedSolValue >= 0.001; // Minimum SOL value
-    const hasUsdcValue = input.associatedUsdcValue && input.associatedUsdcValue >= 0.01; // Minimum USDC value ($0.01)
-    
-    // Keep tokens that have meaningful value in either currency
-    return hasSolValue || hasUsdcValue;
-  });
-
-  // Update stats to reflect scam filtering
-  const scamFilteredStats = { ...finalStats };
-  scamFilteredStats.analysisInputsGenerated = scamFilteredInputs.length;
-
-  logger.debug(`Scam filtering: Filtered out ${filteredAnalysisInputs.length - scamFilteredInputs.length} scam tokens (${(((filteredAnalysisInputs.length - scamFilteredInputs.length) / filteredAnalysisInputs.length) * 100).toFixed(1)}%)`);
-
-  return { analysisInputs: scamFilteredInputs, stats: scamFilteredStats };
+  return { analysisInputs: filteredAnalysisInputs, stats: finalStats };
 }

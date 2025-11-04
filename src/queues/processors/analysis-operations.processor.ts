@@ -53,7 +53,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     );
 
     this.worker.on('completed', (job) => {
-      this.logger.debug(`Job ${job.id} from queue ${job.queueName} completed successfully`);
+      // this.logger.debug(`Job ${job.id} from queue ${job.queueName} completed successfully`);
     });
 
     this.worker.on('failed', (job, err) => {

@@ -543,18 +543,13 @@ export class HeliusApiClient {
                   if (result.status === 'fulfilled' && result.value) {
                     const txs = result.value.txs || [];
                     if (txs.length > 0) {
+                      // Always accumulate for final return value (filtering happens later)
+                      newlyFetchedTransactions.push(...txs);
+                      
                       if (onTransactionBatch) {
-                        // Stream process immediately - no memory accumulation!
+                        // Stream process ALL transactions - let the mapper handle filtering
                         await onTransactionBatch(txs);
-                        // Save streamed batches to cache for visibility and future runs
-                        try {
-                          await this.dbService.saveCachedTransactions(txs);
-                        } catch (e) {
-                          logger.warn('Failed to save streamed batch to cache (continuing).', { error: this.sanitizeError(e) });
-                        }
-                      } else {
-                        // Fallback: accumulate for existing callers
-                        newlyFetchedTransactions.push(...txs);
+                        // Cache is saved during streaming, no need to save again at the end
                       }
                       totalFetchedTxCount += txs.length;
                     }
@@ -586,6 +581,7 @@ export class HeliusApiClient {
         logger.debug(`Successfully fetched details for ${onTransactionBatch ? totalFetchedTxCount : newlyFetchedTransactions.length} out of ${totalSignaturesToFetch} new transactions attempted in Phase 2.`);
 
         // --- Save newly fetched transactions to DB Cache --- 
+        // Cache is lightweight (signatures/timestamps only), so save all at once even when streaming
         if (newlyFetchedTransactions.length > 0) {
             logger.debug(`Saving ${newlyFetchedTransactions.length} newly fetched transactions to database cache...`);
             // Use the dbService instance method
@@ -601,6 +597,11 @@ export class HeliusApiClient {
     // Cached signatures are used to avoid re-fetching, not to provide transaction data
     logger.debug(`Cache hit ${cacheHits} signatures (avoided re-fetching).`);
     logger.debug(`Fetched ${newlyFetchedTransactions.length} new transactions from API.`);
+    
+    // Note: When using stream processing (onTransactionBatch), transactions are processed immediately
+    // via the callback, but they're still accumulated in newlyFetchedTransactions for the return value.
+    // If all signatures were cached and nothing was fetched, newlyFetchedTransactions will be empty,
+    // which is correct - those transactions were already processed in previous runs.
 
     const allTransactions = [...newlyFetchedTransactions];
     
@@ -633,7 +634,18 @@ export class HeliusApiClient {
     logger.debug(`Total transactions before address relevance filter: ${filteredTransactions.length}`);
     // Filter *before* sorting 
     const lowerCaseAddress = address.toLowerCase();
+    
+    // Track filtering statistics for debugging
+    let filteredCount = 0;
+    let keptCount = 0;
+    
     const relevantFiltered = filteredTransactions.filter(tx => {
+        // Quick check for feePayer (most common case)
+        if (tx.feePayer?.toLowerCase() === lowerCaseAddress) {
+            keptCount++;
+            return true;
+        }
+        
         const hasTokenTransfer = tx.tokenTransfers?.some(t => 
             t.fromUserAccount?.toLowerCase() === lowerCaseAddress || 
             t.toUserAccount?.toLowerCase() === lowerCaseAddress ||
@@ -651,8 +663,10 @@ export class HeliusApiClient {
              (ad.nativeBalanceChange !== 0 || ad.tokenBalanceChanges?.length > 0)
         );
         
-        // Check if any swap event involves the wallet address
+        // Check if any swap event involves the wallet address (including native inputs/outputs)
         const hasSwapEvent = !!tx.events?.swap && (
+            tx.events.swap.nativeInput?.account?.toLowerCase() === lowerCaseAddress ||
+            tx.events.swap.nativeOutput?.account?.toLowerCase() === lowerCaseAddress ||
             tx.events.swap.tokenInputs?.some(i =>
                 [(i as any).userAccount, (i as any).fromUserAccount, (i as any).toUserAccount]
                     .some(u => u?.toLowerCase() === lowerCaseAddress)
@@ -660,17 +674,53 @@ export class HeliusApiClient {
             tx.events.swap.tokenOutputs?.some(o =>
                 [(o as any).userAccount, (o as any).fromUserAccount, (o as any).toUserAccount]
                     .some(u => u?.toLowerCase() === lowerCaseAddress)
+            ) ||
+            tx.events.swap.tokenFees?.some(f =>
+                f.userAccount?.toLowerCase() === lowerCaseAddress
+            ) ||
+            tx.events.swap.nativeFees?.some(f =>
+                f.account?.toLowerCase() === lowerCaseAddress
             )
         );
         
-        // Quick check for feePayer
-        if (tx.feePayer?.toLowerCase() === lowerCaseAddress) {
-            return true;
-        }
+        // Check if wallet appears in instruction accounts (signer or involved account)
+        // Since signatures are fetched for this address, it should appear in instructions
+        const hasInstructionInvolvement = tx.instructions?.some(inst => 
+            inst.accounts?.some(acc => acc?.toLowerCase() === lowerCaseAddress) ||
+            inst.innerInstructions?.some(inner => 
+                inner.accounts?.some(acc => acc?.toLowerCase() === lowerCaseAddress)
+            )
+        );
         
-        return hasTokenTransfer || hasNativeTransfer || hasAccountDataChange || hasSwapEvent;
+        // Check accountData more broadly - wallet might have token accounts that changed
+        const hasTokenAccountDataChange = tx.accountData?.some(ad => {
+            if (ad.account?.toLowerCase() === lowerCaseAddress) {
+                return ad.nativeBalanceChange !== 0 || ad.tokenBalanceChanges?.length > 0;
+            }
+            // Check if any token balance change references this wallet's user account
+            return ad.tokenBalanceChanges?.some(tbc => 
+                tbc.userAccount?.toLowerCase() === lowerCaseAddress
+            );
+        });
+        
+        const isRelevant = hasTokenTransfer || hasNativeTransfer || hasAccountDataChange || 
+                          hasTokenAccountDataChange || hasSwapEvent || hasInstructionInvolvement;
+        
+        if (isRelevant) {
+            keptCount++;
+            return true;
+        } else {
+            filteredCount++;
+            return false;
+        }
     });
-    logger.info(`Filtered combined transactions down to ${relevantFiltered.length} involving the target address.`);
+    
+    logger.info(`Filtered combined transactions down to ${relevantFiltered.length} involving the target address (kept: ${keptCount}, filtered: ${filteredCount}).`);
+    
+    // Log warning if filtering is very aggressive (more than 50% filtered)
+    if (filteredTransactions.length > 0 && (filteredCount / filteredTransactions.length) > 0.5) {
+        logger.warn(`⚠️ High filtering rate: ${((filteredCount / filteredTransactions.length) * 100).toFixed(1)}% of transactions filtered out for ${address}. This may indicate missing involvement patterns.`);
+    }
 
     // Sort the relevant transactions by timestamp (ascending - oldest first)
     relevantFiltered.sort((a, b) => a.timestamp - b.timestamp);

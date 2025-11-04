@@ -148,7 +148,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       }
       setCompletedJobs(prev => new Set(prev).add(data.jobId));
       
-      console.log('📢 Job completed (WebSocket):', data.jobId, 'Processing time:', data.processingTime);
+      // console.log('📢 Job completed (WebSocket):', data.jobId, 'Processing time:', data.processingTime);
       
       if (data.queue === 'enrichment-operations') {
         const enrichmentData: EnrichmentCompletionData = {
@@ -176,7 +176,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobQueueToStart = (data: JobQueueToStartData) => {
-      console.log('🚀 Job started processing (WebSocket):', data.jobId, 'Queue time:', data.queueToStartTime + 'ms');
+      // console.log('🚀 Job started processing (WebSocket):', data.jobId, 'Queue time:', data.queueToStartTime + 'ms');
       callbacksRef.current.onJobQueueToStart?.(data);
     };
 

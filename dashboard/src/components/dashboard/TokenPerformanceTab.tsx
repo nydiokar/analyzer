@@ -489,12 +489,12 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     // Do not fetch data while enrichment is happening.
     swrKey ? [swrKey, apiKey] : null,
     ([url]: [string]) => {
-      console.log(`[TokenPerformance] 🔄 Fetching data:`, {
-        url,
-        startDate: startDate?.toISOString(),
-        endDate: endDate?.toISOString(),
-        timestamp: new Date().toISOString()
-      });
+      // console.log(`[TokenPerformance] 🔄 Fetching data:`, {
+      //   url,
+      //   startDate: startDate?.toISOString(),
+      //   endDate: endDate?.toISOString(),
+      //   timestamp: new Date().toISOString()
+      // });
       return fetcher(url);
     },
     {
@@ -504,11 +504,11 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       revalidateOnReconnect: false, // Prevent revalidation on network reconnect
       revalidateIfStale: true, // CHANGED: Allow revalidation when cache is stale
       onSuccess: (data) => {
-        console.log(`[TokenPerformance] ✅ Data received:`, {
-          tokenCount: data?.data?.length || 0,
-          hasImages: data?.data?.filter(t => t.onchainImageUrl || t.imageUrl).length || 0,
-          timestamp: new Date().toISOString()
-        });
+        // console.log(`[TokenPerformance] ✅ Data received:`, {
+        //   tokenCount: data?.data?.length || 0,
+        //   hasImages: data?.data?.filter(t => t.onchainImageUrl || t.imageUrl).length || 0,
+        //   timestamp: new Date().toISOString()
+        // });
       },
       onError: (err) => {
         console.error(`[TokenPerformance] ❌ Fetch error:`, err);
@@ -721,10 +721,10 @@ const handleSort = useCallback((columnId: string) => {
     if (isLoadingData) return;
     setIsRefreshing(true);
     try {
-      console.log('[TokenPerformance] 🔄 Manual refresh triggered');
+      // console.log('[TokenPerformance] 🔄 Manual refresh triggered');
       // Refresh the main data only
       await localMutate();
-      console.log('[TokenPerformance] ✅ Manual refresh complete');
+      // console.log('[TokenPerformance] ✅ Manual refresh complete');
       // Enrichment is now handled by the dashboard analysis job or manual trigger
     } finally {
       setIsRefreshing(false);
@@ -735,9 +735,9 @@ const handleSort = useCallback((columnId: string) => {
   useEffect(() => {
     if (onMutateReady && localMutate) {
       const mutateWrapper = async () => {
-        console.log('[TokenPerformance] 🔄 Parent-triggered refetch starting');
+        // console.log('[TokenPerformance] 🔄 Parent-triggered refetch starting');
         await localMutate();
-        console.log('[TokenPerformance] ✅ Parent-triggered refetch complete');
+        // console.log('[TokenPerformance] ✅ Parent-triggered refetch complete');
       };
       onMutateReady(mutateWrapper);
     }

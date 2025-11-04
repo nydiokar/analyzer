@@ -142,7 +142,7 @@ export class WalletsController {
     const requestParameters = { walletAddress: walletAddress, query: req.query, startDate: queryDto.startDate, endDate: queryDto.endDate }; 
     const startTime = Date.now();
 
-    this.logger.debug(`getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
+    this.logger.verbose(`getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
 
     // Prepare timeRange for specific period data if dates are provided
     let serviceTimeRange: { startTs?: number; endTs?: number } | undefined = undefined;
@@ -153,7 +153,7 @@ export class WalletsController {
             serviceTimeRange = { startTs, endTs };
         }
     }
-    this.logger.debug(`ServiceTimeRange for period-specific data (if any): ${JSON.stringify(serviceTimeRange)}`);
+    this.logger.verbose(`ServiceTimeRange for period-specific data (if any): ${JSON.stringify(serviceTimeRange)}`);
 
     if (userId) {
       await this.databaseService.logActivity(userId, actionType, requestParameters, 'INITIATED', undefined, undefined, sourceIp)
@@ -481,7 +481,7 @@ export class WalletsController {
             serviceTimeRange = { startTs, endTs };
         }
     }
-    this.logger.debug(`[WalletsController] serviceTimeRange for BehaviorService: ${JSON.stringify(serviceTimeRange)} based on queryDto: ${JSON.stringify(queryDto)}`);
+    this.logger.verbose(`[WalletsController] serviceTimeRange for BehaviorService: ${JSON.stringify(serviceTimeRange)} based on queryDto: ${JSON.stringify(queryDto)}`);
 
     if (userId) {
       this.databaseService.logActivity(
@@ -557,7 +557,7 @@ export class WalletsController {
       throw new InternalServerErrorException('User identification failed.');
     }
 
-    this.logger.debug(`Attempting to create note for wallet ${walletAddress} by user ${userId}`);
+    this.logger.verbose(`Attempting to create note for wallet ${walletAddress} by user ${userId}`);
 
     await this.databaseService.logActivity(
       userId,
@@ -626,7 +626,7 @@ export class WalletsController {
       throw new InternalServerErrorException('User identification failed.');
     }
 
-    this.logger.debug(`Attempting to retrieve notes for wallet ${walletAddress} by user ${userId}`);
+    this.logger.verbose(`Attempting to retrieve notes for wallet ${walletAddress} by user ${userId}`);
 
     await this.databaseService.logActivity(
       userId,
@@ -698,7 +698,7 @@ export class WalletsController {
       throw new InternalServerErrorException('User identification failed.');
     }
 
-    this.logger.debug(`Attempting to delete note ${noteId} for wallet ${walletAddress} by user ${userId}`);
+    this.logger.verbose(`Attempting to delete note ${noteId} for wallet ${walletAddress} by user ${userId}`);
 
     await this.databaseService.logActivity(
       userId,
@@ -778,7 +778,7 @@ export class WalletsController {
         throw new InternalServerErrorException('Note content cannot be empty.');
     }
 
-    this.logger.debug(`Attempting to update note ${noteId} for wallet ${walletAddress} by user ${userId}`);
+    this.logger.verbose(`Attempting to update note ${noteId} for wallet ${walletAddress} by user ${userId}`);
 
     await this.databaseService.logActivity(
       userId,

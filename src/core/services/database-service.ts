@@ -113,7 +113,7 @@ export class DatabaseService {
      * Sets up the Prisma client and logger.
      */
     constructor() {
-        this.logger.info('DatabaseService instantiated.');
+        // this.logger.info('DatabaseService instantiated.');
     }
 
     private async sleep(ms: number): Promise<void> {
@@ -283,7 +283,7 @@ export class DatabaseService {
      * @returns A promise that resolves to the WalletBehaviorProfile object, or null if not found.
      */
     async getWalletBehaviorProfile(walletAddress: string): Promise<WalletBehaviorProfile | null> {
-        this.logger.debug(`Fetching WalletBehaviorProfile for wallet: ${walletAddress}`);
+        this.logger.trace(`Fetching WalletBehaviorProfile for wallet: ${walletAddress}`);
         try {
             // Use findFirst for better performance with potential indexes
             return await this.prismaClient.walletBehaviorProfile.findFirst({
@@ -591,7 +591,7 @@ export class DatabaseService {
      * @returns A promise that resolves to an array of User objects.
      */
     async getAllUsers(): Promise<User[]> {
-        this.logger.debug('Fetching all users.');
+        this.logger.trace('Fetching all users.');
         try {
             const users = await this.prismaClient.user.findMany();
             this.logger.info(`Retrieved ${users.length} users.`);
@@ -1108,7 +1108,7 @@ export class DatabaseService {
      * - Use true for: similarity analysis, classification checks, detailed wallet processing
      */
     async getWallets(walletAddresses: string[], includeFullData: boolean = false): Promise<Wallet[] | { address: string }[]> {
-        this.logger.debug(`Fetching wallet info for ${walletAddresses.length} addresses (full data: ${includeFullData}).`);
+        this.logger.trace(`Fetching wallet info for ${walletAddresses.length} addresses (full data: ${includeFullData}).`);
         try {
             const wallets = await this.prismaClient.wallet.findMany({
                 where: {
@@ -1135,11 +1135,11 @@ export class DatabaseService {
         const wallet = await this.prismaClient.wallet.findUnique({
           where: { address: walletAddress },
         });
-        if (wallet) {
-            this.logger.debug(`Found wallet data for: ${walletAddress}`);
-        } else {
-            this.logger.debug(`No wallet data found for: ${walletAddress}`);
-        }
+        // if (wallet) {
+        //     this.logger.debug(`Found wallet data for: ${walletAddress}`);
+        // } else {
+        //     this.logger.debug(`No wallet data found for: ${walletAddress}`);
+        // }
         return wallet;
       } catch (error) {
         this.logger.error(`Error fetching wallet ${walletAddress}`, { error });
@@ -1269,17 +1269,17 @@ export class DatabaseService {
                 },
             });
             existingSignatures = new Set(existingRecords.map(rec => rec.signature));
-             this.logger.debug(`Found ${existingSignatures.size} existing signatures in cache out of ${incomingSignatures.length} incoming.`);
+             // this.logger.debug(`Found ${existingSignatures.size} existing signatures in cache out of ${incomingSignatures.length} incoming.`);
         } catch (error) {
              this.logger.error('Error checking for existing signatures in cache', { error });
             return { count: 0 }; 
         }
         const newTransactions = transactions.filter(tx => !existingSignatures.has(tx.signature));
         if (newTransactions.length === 0) {
-             this.logger.debug('No new transactions to add to cache.');
+             // this.logger.debug('No new transactions to add to cache.');
             return { count: 0 };
         }
-         this.logger.debug(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
+         // this.logger.debug(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
         const dataToSave = newTransactions.map(tx => ({
             signature: tx.signature,
             timestamp: tx.timestamp,
@@ -1288,7 +1288,7 @@ export class DatabaseService {
             const result = await this.prismaClient.heliusTransactionCache.createMany({
                 data: dataToSave,
             });
-             this.logger.debug(`Cache save complete. ${result.count} new transaction signatures added to HeliusTransactionCache.`);
+             // this.logger.debug(`Cache save complete. ${result.count} new transaction signatures added to HeliusTransactionCache.`);
             return result;
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -1311,7 +1311,7 @@ export class DatabaseService {
     async saveSwapAnalysisInputs(
         inputs: Prisma.SwapAnalysisInputCreateInput[]
     ): Promise<Prisma.BatchPayload> {
-        this.logger.debug(`[DB] Attempting to save ${inputs.length} SwapAnalysisInput records efficiently...`);
+        // this.logger.debug(`[DB] Attempting to save ${inputs.length} SwapAnalysisInput records efficiently...`);
         if (inputs.length === 0) {
             return { count: 0 };
         }
@@ -1350,7 +1350,7 @@ export class DatabaseService {
                 const key = `${entry.mint.toLowerCase()}-${entry.direction.toLowerCase()}-${entry.amount.toFixed(9)}`;
                 existingRecordsDetails.get(entry.signature)!.add(key);
             }
-            this.logger.debug(`[DB] Found ${existingDbEntries.length} existing SwapAnalysisInput entries for ${distinctInputSignatures.length} distinct incoming signatures.`);
+            // this.logger.debug(`[DB] Found ${existingDbEntries.length} existing SwapAnalysisInput entries for ${distinctInputSignatures.length} distinct incoming signatures.`);
         }
 
         // 2. Filter out duplicates from the incoming 'inputs'
@@ -1383,7 +1383,7 @@ export class DatabaseService {
             batchRecordTracker.get(record.signature)!.add(recordKey);
         }
         
-        this.logger.debug(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
+        // this.logger.debug(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
 
         if (uniqueNewRecordsToInsert.length > 0) {
             // --- REMOVED Detailed Logging for Potential Float Precision Issues ---

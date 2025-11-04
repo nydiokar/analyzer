@@ -260,7 +260,7 @@ export default function WalletProfileLayout({
 
   const handleTokenPerformanceMutateReady = useCallback((mutate: () => Promise<void>) => {
     tokenPerformanceMutateRef.current = mutate;
-    console.log('[WalletProfile] 📌 TokenPerformance mutate function registered');
+    // console.log('[WalletProfile] 📌 TokenPerformance mutate function registered');
   }, []);
 
   const registerJobSubscription = useCallback(
@@ -430,12 +430,12 @@ export default function WalletProfileLayout({
       // CHANGED: Direct mutate call instead of global cache invalidation
       // This ensures TokenPerformanceTab immediately refetches data
       if (scope === 'flash' || scope === 'working' || scope === 'deep') {
-        console.log(`[WalletProfile] 🔄 Triggering TokenPerformance refetch after ${scope} completion`);
+        // console.log(`[WalletProfile] 🔄 Triggering TokenPerformance refetch after ${scope} completion`);
         try {
           const mutateFn = tokenPerformanceMutateRef.current;
           if (mutateFn) {
             await mutateFn();
-            console.log(`[WalletProfile] ✅ TokenPerformance refetch complete for ${scope}`);
+            // console.log(`[WalletProfile] ✅ TokenPerformance refetch complete for ${scope}`);
           } else {
             console.warn(`[WalletProfile] ⚠️ TokenPerformance mutate function not available yet`);
           }
@@ -466,14 +466,14 @@ export default function WalletProfileLayout({
       });
     },
     onEnrichmentComplete: async () => {
-      console.log(`[WalletProfile] 🎨 Enrichment complete - triggering TokenPerformance refetch for images`);
+      // console.log(`[WalletProfile] 🎨 Enrichment complete - triggering TokenPerformance refetch for images`);
       setEnrichmentJobId(null);
       // CHANGED: Direct mutate call for immediate image refresh
       try {
         const mutateFn = tokenPerformanceMutateRef.current;
         if (mutateFn) {
           await mutateFn();
-          console.log(`[WalletProfile] ✅ TokenPerformance refetch complete after enrichment`);
+          // console.log(`[WalletProfile] ✅ TokenPerformance refetch complete after enrichment`);
         } else {
           console.warn(`[WalletProfile] ⚠️ TokenPerformance mutate function not available for enrichment`);
         }
