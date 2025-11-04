@@ -96,12 +96,19 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
             key={`badge-${debouncedMint || mint}-${tokenMeta?.name || 'unknown'}`}
             mint={debouncedMint || mint}
             metadata={tokenMeta ? {
+              // Pass ALL fields raw - TokenBadge decides priority
               name: tokenMeta.name,
               symbol: tokenMeta.symbol,
               imageUrl: tokenMeta.imageUrl,
               websiteUrl: tokenMeta.websiteUrl,
               twitterUrl: tokenMeta.twitterUrl,
               telegramUrl: tokenMeta.telegramUrl,
+              onchainName: tokenMeta.onchainName,
+              onchainSymbol: tokenMeta.onchainSymbol,
+              onchainImageUrl: tokenMeta.onchainImageUrl,
+              onchainWebsiteUrl: tokenMeta.onchainWebsiteUrl,
+              onchainTwitterUrl: tokenMeta.onchainTwitterUrl,
+              onchainTelegramUrl: tokenMeta.onchainTelegramUrl,
             } : undefined}
             className="px-2 py-1 rounded border bg-background/40"
             size="md"

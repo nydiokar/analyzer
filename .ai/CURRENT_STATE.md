@@ -1,8 +1,8 @@
 # Current State: Onchain Metadata Enrichment
 
-**Branch:** `feature/onchain-metadata-enrichment`
-**Date:** October 29, 2025
-**Ready for:** Local testing
+**Branch:** `main`
+**Date:** November 4, 2025
+**Status:** ✅ Complete with centralized metadata priority logic
 
 ---
 
@@ -41,44 +41,79 @@ STAGE 3: Social Links from URIs (background)
 7. `prisma/schema.prisma` - Added onchain* fields + metadataSource
 
 **Frontend:**
-8. `dashboard/src/lib/tokenMetadataAggregator.ts` ⭐ NEW utility
+8. `dashboard/src/components/shared/TokenBadge.tsx` - Centralized metadata priority (SINGLE SOURCE OF TRUTH)
+9. `dashboard/src/components/dashboard/TokenPerformanceTab.tsx` - Pass all fields raw to TokenBadge
+10. `dashboard/src/components/similarity-lab/TopHoldersPanel.tsx` - Pass all fields raw to TokenBadge
+11. `dashboard/src/lib/tokenMetadataAggregator.ts` - ⚠️ DEPRECATED (use TokenBadge instead)
 
 **Setup & Config:**
-9. `.env.example` - Added HELIUS_METADATA_API_KEY, REDIS config
-10. `docker-compose.yml` ⭐ NEW - Redis setup
-11. `setup.sh` ⭐ NEW - Automated setup
-12. `test-enrichment.sh` ⭐ NEW - Test script
-13. `QUICKSTART.md` ⭐ NEW - User guide
+12. `.env.example` - Added HELIUS_METADATA_API_KEY, REDIS config
+13. `docker-compose.yml` ⭐ NEW - Redis setup
+14. `setup.sh` ⭐ NEW - Automated setup
+15. `test-enrichment.sh` ⭐ NEW - Test script
+16. `QUICKSTART.md` ⭐ NEW - User guide
 
 **Documentation:**
-14. `.ai/context/architecture-onchain-metadata-enrichment.md` ⭐ NEW
-15. `documentation/onchain-metadata-enrichment.md` - Updated with status
-16. `documentation/onchain-metadata-implementation-summary.md` ⭐ NEW
+17. `.ai/context/architecture-onchain-metadata-enrichment.md` ⭐ NEW
+18. `documentation/onchain-metadata-enrichment.md` - Updated with status
+19. `documentation/onchain-metadata-implementation-summary.md` ⭐ NEW
 
 ---
 
-## Priority Rules (Onchain First!)
+## Architecture: Centralized Metadata Priority (November 2025)
 
-### Display Fields (Name, Symbol, Image)
-```typescript
-name: token.onchainName || token.name || 'Unknown Token'
-symbol: token.onchainSymbol || token.symbol || truncateMint(address)
-imageUrl: token.onchainImageUrl || token.imageUrl
+### 🎯 Single Source of Truth: TokenBadge Component
+
+**Problem Solved:** Priority logic was scattered across backend, frontend, and utilities (changed 3-6 files per update)
+
+**Solution:** All metadata priority decisions now live in **one place** - `TokenBadge.tsx`
+
+```
+Backend → Sends BOTH fields raw
+    ↓
+Frontend → Passes BOTH fields raw
+    ↓
+TokenBadge → Decides priority (SINGLE SOURCE OF TRUTH)
 ```
 
-### Social Links (DexScreener First - More Up-to-date)
+### Priority Rules (Implemented in TokenBadge)
+
+**Display Fields (Name, Symbol):**
 ```typescript
-twitter: token.twitterUrl || token.onchainTwitterUrl
-website: token.websiteUrl || token.onchainWebsiteUrl
-telegram: token.telegramUrl || token.onchainTelegramUrl
+// Onchain FIRST (immutable, authoritative)
+name: metadata?.onchainName || metadata?.name || 'Unknown Token'
+symbol: metadata?.onchainSymbol || metadata?.symbol || truncateMint(mint)
 ```
 
-### Trading Data (DexScreener Only)
+**Image URL:**
 ```typescript
-priceUsd: token.priceUsd
-volume24h: token.volume24h
-marketCapUsd: token.marketCapUsd
+// DexScreener FIRST (fresher, working links), fallback to onchain
+imageUrl: metadata?.imageUrl || metadata?.onchainImageUrl
 ```
+
+**Social Links:**
+```typescript
+// DexScreener FIRST (more up-to-date), fallback to onchain
+website: metadata?.websiteUrl || metadata?.onchainWebsiteUrl
+twitter: metadata?.twitterUrl || metadata?.onchainTwitterUrl
+telegram: metadata?.telegramUrl || metadata?.onchainTelegramUrl
+```
+
+**Trading Data:**
+```typescript
+// DexScreener ONLY (onchain doesn't have this)
+priceUsd: metadata?.priceUsd
+volume24h: metadata?.volume24h
+marketCapUsd: metadata?.marketCapUsd
+```
+
+### Benefits
+
+✅ **Change priority = update 1 file** (was 3-6 files before)
+✅ **Consistent display** across all components using TokenBadge
+✅ **Flexible API** - consumers get both fields, can choose their own priority
+✅ **No performance impact** - simple property access (microseconds)
+✅ **Backward compatible** - old code still works
 
 ---
 
@@ -173,5 +208,26 @@ DATABASE_URL=file:./dev.db
 
 ---
 
-**Last Updated:** October 29, 2025
-**Status:** Code complete, awaiting user's .env file and testing
+## Recent Updates (November 4, 2025)
+
+### Centralized Metadata Priority Architecture
+
+**Problem:** Priority logic was scattered across backend, frontend, and utilities
+**Solution:** Moved all priority decisions to TokenBadge component (single source of truth)
+
+**Changes:**
+- TokenBadge now handles all metadata priority internally
+- Backend sends both `imageUrl` and `onchainImageUrl` raw (no merging)
+- Frontend passes all fields raw to TokenBadge
+- Image priority changed to DexScreener first (fixes broken IPFS images)
+- Deprecated `tokenMetadataAggregator.ts` utility
+
+**Benefits:**
+- Change priority = update 1 file (was 3-6 files)
+- More flexible for API consumers
+- Better maintainability
+
+---
+
+**Last Updated:** November 4, 2025
+**Status:** ✅ Production ready with centralized metadata priority

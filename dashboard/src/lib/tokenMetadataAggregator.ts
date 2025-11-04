@@ -1,8 +1,27 @@
 /**
  * Token Metadata Aggregator
  *
- * Merges token metadata from multiple sources with correct priority:
- * - Display fields (name, symbol, image): ONCHAIN FIRST (authoritative)
+ * @deprecated This utility is DEPRECATED. Priority logic is now centralized in TokenBadge component.
+ *
+ * DO NOT USE THIS for new code. Instead, pass ALL fields raw to TokenBadge and let it decide priority:
+ *
+ * @example
+ * // OLD (deprecated):
+ * const display = getDisplayMetadata(token);
+ * <TokenBadge metadata={{ imageUrl: display.imageUrl }} />
+ *
+ * // NEW (correct):
+ * <TokenBadge metadata={{
+ *   imageUrl: token.imageUrl,
+ *   onchainImageUrl: token.onchainImageUrl,
+ *   name: token.name,
+ *   onchainName: token.onchainName,
+ *   // ... pass all fields raw
+ * }} />
+ *
+ * Priority rules (implemented in TokenBadge):
+ * - Display fields (name, symbol): ONCHAIN FIRST (authoritative)
+ * - Image URL: DEXSCREENER FIRST (fresher, working images), fallback to onchain
  * - Trading data (price, volume, marketCap): DEXSCREENER ONLY
  * - Social links: DEXSCREENER FIRST (more up-to-date), fallback to onchain
  */
@@ -70,14 +89,17 @@ function truncateMint(mint: string): string {
 
 /**
  * Merge DexScreener and onchain metadata for display
- * Priority: ONCHAIN FIRST for display fields (name, symbol, image)
+ * Priority: ONCHAIN FIRST for name/symbol, DEXSCREENER FIRST for imageUrl
+ *
+ * @deprecated Use TokenBadge component directly instead. Pass all raw fields to TokenBadge.
  */
 export function getDisplayMetadata(token: TokenInfo): DisplayMetadata {
   return {
     // Basic metadata - prefer onchain (authoritative), fallback to dexscreener
     name: token.onchainName || token.name || 'Unknown Token',
     symbol: token.onchainSymbol || token.symbol || truncateMint(token.tokenAddress),
-    imageUrl: token.onchainImageUrl || token.imageUrl || null,
+    // Image URL - DexScreener FIRST (fresher, working images), fallback to onchain
+    imageUrl: token.imageUrl || token.onchainImageUrl || null,
     description: token.onchainDescription || null, // Onchain only
 
     // Trading data - DexScreener only
@@ -100,6 +122,8 @@ export function getDisplayMetadata(token: TokenInfo): DisplayMetadata {
 
 /**
  * Batch process multiple tokens with display metadata
+ *
+ * @deprecated Use TokenBadge component directly instead. Pass all raw fields to TokenBadge.
  */
 export function getDisplayMetadataBatch(tokens: TokenInfo[]): Map<string, DisplayMetadata> {
   const result = new Map<string, DisplayMetadata>();

@@ -10,7 +10,7 @@
 2. **ALWAYS set `keepPreviousData: false`** for frequently changing data
 3. **ALWAYS set `dedupingInterval` ≤ 5000ms** for real-time updates
 4. **ALWAYS set `revalidateIfStale: true`** to allow cache updates
-5. **ALWAYS prioritize `onchainImageUrl` over `imageUrl`** for images
+5. **ALWAYS pass ALL metadata fields to TokenBadge** (let it decide priority)
 
 ---
 
@@ -26,14 +26,22 @@ const mutateRef = useRef(null);
 await mutateRef.current();
 ```
 
-### Problem: Images don't appear
+### Problem: Images don't appear or Token metadata not updating
 ```typescript
-// ❌ DON'T
-imageUrl: item.imageUrl
+// ❌ DON'T - Merge fields yourself
+<TokenBadge metadata={{ imageUrl: item.imageUrl || item.onchainImageUrl }} />
 
-// ✅ DO
-imageUrl: item.onchainImageUrl || item.imageUrl
+// ✅ DO - Pass ALL fields raw, let TokenBadge decide
+<TokenBadge metadata={{
+  imageUrl: item.imageUrl,
+  onchainImageUrl: item.onchainImageUrl,
+  name: item.name,
+  onchainName: item.onchainName,
+  // ... pass all fields
+}} />
 ```
+
+**Why:** TokenBadge is the single source of truth for metadata priority. It knows which field to show first (DexScreener image preferred, onchain fallback).
 
 ### Problem: Scope changes show old data
 ```typescript

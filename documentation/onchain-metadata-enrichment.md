@@ -2,31 +2,45 @@
 
 **Date:** January 2025
 **Implementation Date:** October 29, 2025
-**Status:** ✅ **IMPLEMENTATION COMPLETE - READY FOR TESTING**
-**Branch:** `feature/onchain-metadata-enrichment`
+**Last Updated:** November 4, 2025 - Centralized metadata priority architecture
+**Status:** ✅ **PRODUCTION READY**
+**Branch:** `main`
 **Goal:** Multi-source token enrichment with optimal UX (fast display + progressive enhancement)
 
 ---
 
 ## 🎯 Current Status
 
-### ✅ What's Done
+### ✅ Production Ready (November 2025)
 - Database schema updated (`prisma/schema.prisma`)
 - Core service implemented (`src/core/services/onchain-metadata.service.ts`)
 - HeliusApiClient extended with `getAssetBatch()` method
 - TokenInfoService orchestration updated with 3-stage pipeline
 - DexscreenerService updates metadataSource to 'hybrid'
 - Module registration with optional separate API key support
-- Display logic updated (backend DTOs)
-- Frontend utility created (`dashboard/src/lib/tokenMetadataAggregator.ts`)
+- **Backend sends both fields raw** (November 2025)
+- **TokenBadge component - single source of truth** (November 2025)
+- **Frontend components pass all fields raw** (November 2025)
 - Setup automation (`setup.sh`, `docker-compose.yml`, `test-enrichment.sh`)
 - Documentation complete
 
-### 🔄 Ready to Test
+### 🎯 November 2025 Architecture Improvement
+**Problem:** Priority logic was scattered across backend, frontend, and utilities (3-6 files to change)
+**Solution:** Centralized all metadata priority decisions in TokenBadge component
+
+**Benefits:**
+- Change priority = update 1 file (was 3-6 files)
+- Single source of truth for metadata display
+- More flexible API for external consumers
+- Better maintainability
+
+### ⚠️ Deprecated
+- `dashboard/src/lib/tokenMetadataAggregator.ts` - Use TokenBadge component instead
+
+### 🔄 Quick Start
 **Location:** `/home/juksash/projects/analyzer` (WSL)
 **Requirements:** Node 22+, Docker, .env file with Helius API key
 
-**Quick Start:**
 ```bash
 ./setup.sh          # Auto-setup: Node upgrade, Docker, Redis, migrations
 npm run dev         # Start backend
@@ -794,44 +808,59 @@ const { subscribeToJob } = useJobProgress({
 });
 ```
 
-#### Token Display Logic (Frontend - Optional Enhancement)
+#### Token Display Logic (Frontend - Centralized Architecture)
 
-**File:** `dashboard/src/lib/tokenInfoAggregator.ts` or `useTokenInfo` hook
+**File:** `dashboard/src/components/shared/TokenBadge.tsx` ⭐ **SINGLE SOURCE OF TRUTH**
+
+**November 2025 Update:** Priority logic is now centralized in the TokenBadge component.
 
 ```typescript
-/**
- * Merge DexScreener and onchain metadata for display
- * Priority: DexScreener > Onchain > Fallback
- */
-export function getDisplayMetadata(token: TokenInfoRow) {
-  return {
-    // Basic metadata - prefer DexScreener, fallback to onchain
-    name: token.name || token.onchainName || 'Unknown Token',
-    symbol: token.symbol || token.onchainSymbol || truncateMint(token.tokenAddress),
-    imageUrl: token.imageUrl || token.onchainImageUrl || null,
-    description: token.onchainDescription || null, // Onchain only
-    
-    // Trading data - DexScreener only
-    priceUsd: token.priceUsd,
-    volume24h: token.volume24h,
-    marketCapUsd: token.marketCapUsd,
-    
-    // Social links - prefer DexScreener (more up-to-date), fallback to onchain
-    twitter: token.twitterUrl || token.onchainTwitterUrl || null,
-    website: token.websiteUrl || token.onchainWebsiteUrl || null,
-    telegram: token.telegramUrl || token.onchainTelegramUrl || null,
-    discord: token.discordUrl || token.onchainDiscordUrl || null,
-    
-    // Metadata source for debugging
-    metadataSource: token.metadataSource,
-    creator: token.onchainCreator || null, // Onchain only
-  };
+// TokenBadge component handles ALL metadata priority decisions
+interface TokenMetadata {
+  // DexScreener fields
+  name?: string;
+  symbol?: string;
+  imageUrl?: string;
+  websiteUrl?: string;
+  twitterUrl?: string;
+  telegramUrl?: string;
+
+  // Onchain fields
+  onchainName?: string;
+  onchainSymbol?: string;
+  onchainImageUrl?: string;
+  onchainWebsiteUrl?: string;
+  onchainTwitterUrl?: string;
+  onchainTelegramUrl?: string;
 }
 
-function truncateMint(mint: string): string {
-  return `${mint.slice(0, 4)}...${mint.slice(-4)}`;
-}
+// Priority rules (lines 43-48 in TokenBadge.tsx)
+const tokenName = metadata?.onchainName || metadata?.name || 'Unknown Token'
+const tokenSymbol = metadata?.onchainSymbol || metadata?.symbol || truncateMint(mint)
+const tokenImage = metadata?.imageUrl || metadata?.onchainImageUrl  // DexScreener first!
+const tokenWebsite = metadata?.websiteUrl || metadata?.onchainWebsiteUrl
+const tokenTwitter = metadata?.twitterUrl || metadata?.onchainTwitterUrl
+const tokenTelegram = metadata?.telegramUrl || metadata?.onchainTelegramUrl
 ```
+
+**Usage in Components:**
+```typescript
+// Pass ALL fields raw - TokenBadge decides priority
+<TokenBadge
+  mint={item.tokenAddress}
+  metadata={{
+    imageUrl: item.imageUrl,
+    onchainImageUrl: item.onchainImageUrl,
+    name: item.name,
+    onchainName: item.onchainName,
+    symbol: item.symbol,
+    onchainSymbol: item.onchainSymbol,
+    // ... etc
+  }}
+/>
+```
+
+**⚠️ Deprecated:** `dashboard/src/lib/tokenMetadataAggregator.ts` - Use TokenBadge instead
 
 **The WebSocket infrastructure handles everything automatically - no polling needed!**
 

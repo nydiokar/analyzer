@@ -1,8 +1,9 @@
 # Onchain Metadata Enrichment Architecture
 
-**Status:** ✅ Implementation Complete - Ready for Testing
-**Branch:** `feature/onchain-metadata-enrichment`
-**Date:** October 29, 2025
+**Status:** ✅ Production Ready with Centralized Priority Logic
+**Branch:** `main`
+**Date:** November 4, 2025
+**Last Updated:** November 4, 2025 - Centralized metadata priority in TokenBadge
 
 ---
 
@@ -48,35 +49,73 @@ TokenInfoService.triggerTokenInfoEnrichment()
 
 ---
 
-## Display Priority Rules
+## Display Priority Rules (Centralized in TokenBadge)
 
-### Name, Symbol, Image (Display Fields)
+### 🎯 Architecture: Single Source of Truth
+
+**Location:** `dashboard/src/components/shared/TokenBadge.tsx`
+
+All metadata priority decisions happen in ONE place - the TokenBadge component.
+
+**Data Flow:**
+```
+Backend API
+  ↓ (sends BOTH fields raw)
+Frontend Components
+  ↓ (pass BOTH fields raw)
+TokenBadge Component
+  ↓ (decides priority - SINGLE SOURCE OF TRUTH)
+Displayed to User
+```
+
+### Name & Symbol (Display Fields)
 **Priority:** ONCHAIN FIRST → DexScreener fallback
 
 ```typescript
-name: token.onchainName || token.name || 'Unknown Token'
-symbol: token.onchainSymbol || token.symbol || truncateMint(address)
-imageUrl: token.onchainImageUrl || token.imageUrl || null
+// Implemented in TokenBadge component
+const tokenName = metadata?.onchainName || metadata?.name || 'Unknown Token'
+const tokenSymbol = metadata?.onchainSymbol || metadata?.symbol || truncateMint(mint)
 ```
+
+**Rationale:** Onchain data is immutable and authoritative from the blockchain.
+
+### Image URL
+**Priority:** DEXSCREENER FIRST → Onchain fallback
+
+```typescript
+// Implemented in TokenBadge component
+const tokenImage = metadata?.imageUrl || metadata?.onchainImageUrl
+```
+
+**Rationale:**
+- DexScreener images are CDN-hosted (faster, more reliable)
+- Community can update images on DexScreener
+- Onchain IPFS links often break or are slow
+- Shows working images immediately
 
 ### Social Links
 **Priority:** DEXSCREENER FIRST (more up-to-date) → Onchain fallback
 
 ```typescript
-twitter: token.twitterUrl || token.onchainTwitterUrl || null
-website: token.websiteUrl || token.onchainWebsiteUrl || null
-telegram: token.telegramUrl || token.onchainTelegramUrl || null
-discord: token.onchainDiscordUrl || null // Onchain only
+// Implemented in TokenBadge component
+const tokenTwitter = metadata?.twitterUrl || metadata?.onchainTwitterUrl
+const tokenWebsite = metadata?.websiteUrl || metadata?.onchainWebsiteUrl
+const tokenTelegram = metadata?.telegramUrl || metadata?.onchainTelegramUrl
 ```
+
+**Rationale:** Social links change frequently, DexScreener is more current.
 
 ### Trading Data
 **Source:** DEXSCREENER ONLY
 
 ```typescript
-priceUsd: token.priceUsd
-volume24h: token.volume24h
-marketCapUsd: token.marketCapUsd
+// Passed directly from API - no priority logic needed
+priceUsd: metadata?.priceUsd
+volume24h: metadata?.volume24h
+marketCapUsd: metadata?.marketCapUsd
 ```
+
+**Rationale:** Onchain data doesn't include trading metrics.
 
 ---
 
@@ -145,19 +184,30 @@ marketCapUsd: token.marketCapUsd
 
 ---
 
-#### 5. `src/api/services/token-performance.service.ts` 🔄 UPDATED
-**Purpose:** Map token metadata to DTOs with onchain-first priority
+#### 5. `src/api/services/token-performance.service.ts` 🔄 UPDATED (Nov 2025)
+**Purpose:** Send ALL metadata fields raw to frontend (no priority merging)
 
-**Key Changes:**
+**Key Changes (November 2025):**
 ```typescript
-// Lines 336-343
-name: tokenInfo?.onchainName || tokenInfo?.name || fallbackMetadata?.name,
-symbol: tokenInfo?.onchainSymbol || tokenInfo?.symbol || fallbackMetadata?.symbol,
-imageUrl: tokenInfo?.onchainImageUrl || tokenInfo?.imageUrl,
-websiteUrl: tokenInfo?.websiteUrl || tokenInfo?.onchainWebsiteUrl,
-twitterUrl: tokenInfo?.twitterUrl || tokenInfo?.onchainTwitterUrl,
-telegramUrl: tokenInfo?.telegramUrl || tokenInfo?.onchainTelegramUrl,
+// Lines 337-350
+// Send ALL fields raw - TokenBadge will decide priority (centralized logic)
+// DexScreener fields
+name: tokenInfo?.name || fallbackMetadata?.name,
+symbol: tokenInfo?.symbol || fallbackMetadata?.symbol,
+imageUrl: tokenInfo?.imageUrl,
+websiteUrl: tokenInfo?.websiteUrl,
+twitterUrl: tokenInfo?.twitterUrl,
+telegramUrl: tokenInfo?.telegramUrl,
+// Onchain fields
+onchainName: tokenInfo?.onchainName,
+onchainSymbol: tokenInfo?.onchainSymbol,
+onchainImageUrl: tokenInfo?.onchainImageUrl,
+onchainWebsiteUrl: tokenInfo?.onchainWebsiteUrl,
+onchainTwitterUrl: tokenInfo?.onchainTwitterUrl,
+onchainTelegramUrl: tokenInfo?.onchainTelegramUrl,
 ```
+
+**Architecture Change:** Backend no longer merges fields - sends both sources raw for frontend to decide.
 
 **Location:** `/home/juksash/projects/analyzer/src/api/services/token-performance.service.ts`
 
@@ -208,17 +258,73 @@ metadataSource      String?  // 'dexscreener' | 'onchain' | 'hybrid'
 
 ---
 
-### Frontend (Optional Enhancement)
+### Frontend Components
 
-#### `dashboard/src/lib/tokenMetadataAggregator.ts` ⭐ NEW
-**Purpose:** Utility for merging onchain and dexscreener metadata
+#### `dashboard/src/components/shared/TokenBadge.tsx` ⭐ SINGLE SOURCE OF TRUTH
+**Purpose:** Centralized component for displaying token metadata with built-in priority logic
 
-**Key Function:**
+**Key Features (November 2025):**
+- Accepts BOTH `imageUrl` and `onchainImageUrl` fields
+- Internally decides priority: DexScreener first, onchain fallback
+- Handles name, symbol, image, and social links
+- Single place to update priority rules
+
+**Implementation:**
 ```typescript
-getDisplayMetadata(token: TokenInfo): DisplayMetadata
+interface TokenMetadata {
+  // DexScreener fields
+  name?: string;
+  symbol?: string;
+  imageUrl?: string;
+  websiteUrl?: string;
+  twitterUrl?: string;
+  telegramUrl?: string;
+
+  // Onchain fields
+  onchainName?: string;
+  onchainSymbol?: string;
+  onchainImageUrl?: string;
+  onchainWebsiteUrl?: string;
+  onchainTwitterUrl?: string;
+  onchainTelegramUrl?: string;
+}
+
+// Priority logic (lines 43-48)
+const tokenName = metadata?.onchainName || metadata?.name || 'Unknown Token'
+const tokenSymbol = metadata?.onchainSymbol || metadata?.symbol || truncateMint(mint)
+const tokenImage = metadata?.imageUrl || metadata?.onchainImageUrl  // DexScreener first!
+const tokenWebsite = metadata?.websiteUrl || metadata?.onchainWebsiteUrl
+const tokenTwitter = metadata?.twitterUrl || metadata?.onchainTwitterUrl
+const tokenTelegram = metadata?.telegramUrl || metadata?.onchainTelegramUrl
 ```
 
-**Usage:** Can be used in frontend components to consistently apply priority rules
+**Usage in Components:**
+```typescript
+// Pass ALL fields raw - TokenBadge decides priority
+<TokenBadge
+  mint={item.tokenAddress}
+  metadata={{
+    name: item.name,
+    symbol: item.symbol,
+    imageUrl: item.imageUrl,
+    onchainName: item.onchainName,
+    onchainSymbol: item.onchainSymbol,
+    onchainImageUrl: item.onchainImageUrl,
+    // ... etc
+  }}
+/>
+```
+
+**Location:** `/home/juksash/projects/analyzer/dashboard/src/components/shared/TokenBadge.tsx`
+
+---
+
+#### `dashboard/src/lib/tokenMetadataAggregator.ts` ⚠️ DEPRECATED
+**Status:** Deprecated as of November 2025
+
+**Reason:** Priority logic moved to TokenBadge component (single source of truth)
+
+**Migration:** Pass all fields raw to TokenBadge instead of using this utility
 
 **Location:** `/home/juksash/projects/analyzer/dashboard/src/lib/tokenMetadataAggregator.ts`
 
@@ -270,27 +376,36 @@ DATABASE_URL=file:./dev.db
 
 ## Current Status
 
-### ✅ Completed
+### ✅ Completed (Production Ready)
 1. Database schema updated with onchain fields
 2. OnchainMetadataService implemented with HTTP pooling
 3. HeliusApiClient.getAssetBatch() method added
 4. TokenInfoService orchestration updated (3-stage pipeline)
 5. DexscreenerService hybrid metadata marking
 6. Module registration with optional separate API key
-7. Display logic updated (backend DTO mapping)
-8. Frontend utility created (tokenMetadataAggregator)
-9. Environment variable documentation
-10. Setup scripts (setup.sh, docker-compose.yml)
+7. Backend sends both fields raw (no merging) - November 2025
+8. TokenBadge component centralized priority logic - November 2025
+9. Frontend components updated to pass raw fields - November 2025
+10. Environment variable documentation
+11. Setup scripts (setup.sh, docker-compose.yml)
 
-### 🔄 Ready for Testing
-- Database migration needs to be run: `npx prisma migrate dev`
-- Backend needs to start with new code
-- Test enrichment with real tokens
+### ⚠️ Deprecated
+- `tokenMetadataAggregator.ts` utility - Use TokenBadge component instead
 
-### 📝 Pending (After Testing)
-- Performance monitoring
-- Production deployment
-- Documentation updates based on real-world usage
+### 🎯 November 2025 Architecture Changes
+**Problem:** Priority logic was scattered across 3-6 files
+**Solution:** Centralized all priority decisions in TokenBadge component
+
+**Benefits:**
+- Single source of truth for metadata display
+- Change priority = update 1 file (was 3-6 files)
+- More flexible API for external consumers
+- Better maintainability
+
+### 📊 In Production
+- Image priority: DexScreener first (fixes broken IPFS images)
+- Name/Symbol priority: Onchain first (immutable, authoritative)
+- Social links priority: DexScreener first (more up-to-date)
 
 ---
 

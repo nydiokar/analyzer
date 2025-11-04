@@ -75,6 +75,25 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Token Telegram URL', type: String, nullable: true, required: false })
   telegramUrl?: string | null;
 
+  // Onchain metadata fields
+  @ApiProperty({ description: 'Token name from onchain metadata', type: String, nullable: true, required: false })
+  onchainName?: string | null;
+
+  @ApiProperty({ description: 'Token symbol from onchain metadata', type: String, nullable: true, required: false })
+  onchainSymbol?: string | null;
+
+  @ApiProperty({ description: 'Token image URL from onchain metadata', type: String, nullable: true, required: false })
+  onchainImageUrl?: string | null;
+
+  @ApiProperty({ description: 'Token website URL from onchain metadata', type: String, nullable: true, required: false })
+  onchainWebsiteUrl?: string | null;
+
+  @ApiProperty({ description: 'Token Twitter URL from onchain metadata', type: String, nullable: true, required: false })
+  onchainTwitterUrl?: string | null;
+
+  @ApiProperty({ description: 'Token Telegram URL from onchain metadata', type: String, nullable: true, required: false })
+  onchainTelegramUrl?: string | null;
+
   // DexScreener market data for enhanced spam detection
   @ApiProperty({ description: 'Market capitalization in USD', type: Number, nullable: true, required: false })
   marketCapUsd?: number | null;

@@ -8,12 +8,21 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { memo } from "react";
 
 interface TokenMetadata {
+  // DexScreener fields (fresher, updated by community)
   name?: string;
   symbol?: string;
   imageUrl?: string;
   websiteUrl?: string;
   twitterUrl?: string;
   telegramUrl?: string;
+
+  // Onchain fields (immutable, authoritative - fallback)
+  onchainName?: string;
+  onchainSymbol?: string;
+  onchainImageUrl?: string;
+  onchainWebsiteUrl?: string;
+  onchainTwitterUrl?: string;
+  onchainTelegramUrl?: string;
 }
 
 interface TokenBadgeProps {
@@ -24,8 +33,19 @@ interface TokenBadgeProps {
 }
 
 const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeProps) => {
-  const tokenName = metadata?.name || 'Unknown Token';
-  const tokenSymbol = metadata?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+  // ===== CENTRALIZED METADATA PRIORITY LOGIC =====
+  // This is the SINGLE SOURCE OF TRUTH for all metadata priority decisions
+  // Priority rules:
+  // - Name/Symbol: Onchain FIRST (immutable, authoritative)
+  // - Image: DexScreener FIRST (fresher, working links), fallback to onchain
+  // - Social links: DexScreener FIRST (more up-to-date), fallback to onchain
+
+  const tokenName = metadata?.onchainName || metadata?.name || 'Unknown Token';
+  const tokenSymbol = metadata?.onchainSymbol || metadata?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+  const tokenImage = metadata?.imageUrl || metadata?.onchainImageUrl;
+  const tokenWebsite = metadata?.websiteUrl || metadata?.onchainWebsiteUrl;
+  const tokenTwitter = metadata?.twitterUrl || metadata?.onchainTwitterUrl;
+  const tokenTelegram = metadata?.telegramUrl || metadata?.onchainTelegramUrl;
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -57,7 +77,7 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
               <div className={cn("flex items-center space-x-2 cursor-pointer group", className)}>
                 <Avatar className={sizeClasses[size]}>
                   <AvatarImage
-                    src={metadata?.imageUrl ?? undefined}
+                    src={tokenImage ?? undefined}
                     alt={tokenName}
                     className={sizeClasses[size]}
                   />
@@ -128,14 +148,14 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
             </TooltipProvider>
           </div>
           {/* Social links row */}
-          {(metadata?.websiteUrl || metadata?.twitterUrl || metadata?.telegramUrl) && (
+          {(tokenWebsite || tokenTwitter || tokenTelegram) && (
             <div className="flex items-center gap-1 pt-1">
-              {metadata?.websiteUrl && (
+              {tokenWebsite && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <a href={metadata.websiteUrl} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
+                        <a href={tokenWebsite} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
                           <Globe className="h-4 w-4" />
                         </a>
                       </Button>
@@ -146,12 +166,12 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
                   </Tooltip>
                 </TooltipProvider>
               )}
-              {metadata?.twitterUrl && (
+              {tokenTwitter && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <a href={metadata.twitterUrl} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
+                        <a href={tokenTwitter} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
                           <Twitter className="h-4 w-4" />
                         </a>
                       </Button>
@@ -162,12 +182,12 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
                   </Tooltip>
                 </TooltipProvider>
               )}
-              {metadata?.telegramUrl && (
+              {tokenTelegram && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <a href={metadata.telegramUrl} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
+                        <a href={tokenTelegram} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
                           <Send className="h-4 w-4" />
                         </a>
                       </Button>

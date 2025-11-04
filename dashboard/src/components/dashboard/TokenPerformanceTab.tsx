@@ -113,13 +113,19 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
           <TokenBadge
             mint={item.tokenAddress}
             metadata={{
-              name: item.onchainName || item.name || undefined,
-              symbol: item.onchainSymbol || item.symbol || undefined,
-              // FIXED: Prioritize onchainImageUrl (IPFS) over imageUrl (DexScreener CDN)
-              imageUrl: item.onchainImageUrl || item.imageUrl || undefined,
-              websiteUrl: item.websiteUrl || item.onchainWebsiteUrl || undefined,
-              twitterUrl: item.twitterUrl || item.onchainTwitterUrl || undefined,
-              telegramUrl: item.telegramUrl || item.onchainTelegramUrl || undefined,
+              // Pass ALL fields raw - TokenBadge decides priority
+              name: item.name || undefined,
+              symbol: item.symbol || undefined,
+              imageUrl: item.imageUrl || undefined,
+              websiteUrl: item.websiteUrl || undefined,
+              twitterUrl: item.twitterUrl || undefined,
+              telegramUrl: item.telegramUrl || undefined,
+              onchainName: item.onchainName || undefined,
+              onchainSymbol: item.onchainSymbol || undefined,
+              onchainImageUrl: item.onchainImageUrl || undefined,
+              onchainWebsiteUrl: item.onchainWebsiteUrl || undefined,
+              onchainTwitterUrl: item.onchainTwitterUrl || undefined,
+              onchainTelegramUrl: item.onchainTelegramUrl || undefined,
             }}
             size="lg"
             className="flex-1"
