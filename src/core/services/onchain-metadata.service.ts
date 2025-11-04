@@ -97,7 +97,7 @@ export class OnchainMetadataService {
             imageUrl: metadata?.image || null, // Capture image from metadata JSON
           };
         } catch (error: any) {
-          logger.debug(`Failed to fetch metadata for ${mint}: ${error.message}`);
+        //  logger.debug(`Failed to fetch metadata for ${mint}: ${error.message}`);
           return {
             mint,
             twitter: null,
@@ -123,9 +123,9 @@ export class OnchainMetadataService {
 
   /**
    * Fetch metadata from URI with retry logic
-   * Retries up to 3 times with exponential backoff on network errors
+   * Retries up to 2 times with exponential backoff on network errors
    */
-  private async fetchMetadataFromUriWithRetry(uri: string, maxAttempts = 3): Promise<any> {
+  private async fetchMetadataFromUriWithRetry(uri: string, maxAttempts = 2): Promise<any> {
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -169,10 +169,8 @@ export class OnchainMetadataService {
       try {
         const url = new URL(uri);
 
-        // Determine timeout based on gateway type
-        // Arweave gateways are slower than IPFS
-        const isArweave = uri.includes('irys.xyz') || uri.includes('arweave');
-        const timeout = isArweave ? 20000 : 10000; // 20s for Arweave, 10s for IPFS
+        // FAST timeout - fail quickly on broken URIs
+        const timeout = 3000; // 3 seconds max per URI
 
         const options: https.RequestOptions = {
           hostname: url.hostname,

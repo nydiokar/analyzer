@@ -219,6 +219,7 @@ export class TokenInfoService implements ITokenInfoService {
 
         if (onchainMetadata.length > 0) {
           await this.saveOnchainBasicMetadata(onchainMetadata);
+          this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
         }
       } catch (error) {
         this.logger.error('Stage 1 (DAS) failed:', error);
@@ -227,14 +228,20 @@ export class TokenInfoService implements ITokenInfoService {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // STAGE 2: DexScreener (PARALLEL - DON'T WAIT)
-    // Fetch fresh prices for all tokens that need enrichment
+    // STAGE 2: DexScreener (FIRE-AND-FORGET - DON'T WAIT)
+    // Fetch fresh prices in background - frontend will show DAS data immediately
     // ═══════════════════════════════════════════════════════════
-    this.priceProvider
-      .fetchAndSaveTokenInfo(needsPriceData)
-      .catch(err => {
-        this.logger.error('Stage 2 (DexScreener) failed:', err);
+    if (needsPriceData.length > 0) {
+      // Fire-and-forget DexScreener enrichment
+      setImmediate(async () => {
+        try {
+          await this.priceProvider.fetchAndSaveTokenInfo(needsPriceData);
+          this.logger.log(`DexScreener Stage complete: ${needsPriceData.length} tokens processed - Frontend can refresh to see updated images`);
+        } catch (err) {
+          this.logger.error('Stage 2 (DexScreener) failed:', err);
+        }
       });
+    }
 
     // ═══════════════════════════════════════════════════════════
     // STAGE 3: URI Social Links (BACKGROUND - DON'T WAIT)
@@ -252,7 +259,7 @@ export class TokenInfoService implements ITokenInfoService {
     }
 
     const duration = Date.now() - startTime;
-    this.logger.log(`Token enrichment completed in ${duration}ms`);
+    this.logger.log(`Token enrichment INITIATED in ${duration}ms - Frontend has onchain data, DexScreener updating in background`);
 
     // Log success status
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
