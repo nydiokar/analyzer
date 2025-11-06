@@ -58,6 +58,8 @@ export class HeliusApiClient {
   private dbService: DatabaseService; // Add DatabaseService member
   private disableV2ForProcess: boolean = false; // circuit breaker for V2 if hard-fails
   private loggedV2DisableOnce: boolean = false;
+  private disableV2TxForAddressForProcess: boolean = false; // circuit breaker for getTransactionsForAddress if hard-fails
+  private loggedV2TxForAddressDisableOnce: boolean = false;
   
   // Global rate limiter - shared across all instances to prevent overwhelming API
   private static globalLastRequestTime: number = 0;
@@ -269,6 +271,149 @@ export class HeliusApiClient {
   }
 
   /**
+   * Fetches transaction signatures using the new Helius `getTransactionsForAddress` RPC method (signatures mode).
+   * This method supports server-side filtering and pagination via `paginationToken`.
+   *
+   * @param address The wallet address to fetch signatures for.
+   * @param options Configuration options for the request.
+   * @param options.limit The maximum number of signatures to fetch in this page (up to 1000).
+   * @param options.sortOrder The order to fetch signatures: 'asc' (chronological) or 'desc' (newest-first).
+   * @param options.paginationToken Optional pagination token from a previous response to fetch the next page.
+   * @param options.filters Optional server-side filters (blockTime, signature, status).
+   * @returns A promise resolving to an object containing signatures and optional pagination token.
+   * @throws Throws an error if the RPC call fails after all retries.
+   */
+  private async getTransactionsForAddressSignatures(
+    address: string,
+    options: {
+      limit: number;
+      sortOrder: 'asc' | 'desc';
+      paginationToken?: string;
+      filters?: {
+        blockTime?: { gt?: number; gte?: number; lt?: number; lte?: number; eq?: number };
+        signature?: { lt?: string; lte?: string; gt?: string; gte?: string; eq?: string };
+        status?: 'succeeded' | 'failed';
+      };
+    }
+  ): Promise<{ signatures: SignatureInfo[]; paginationToken?: string }> {
+    const cappedLimit = Math.min(options.limit, HELIUS_V2_CONFIG.txForAddressSignaturesPageLimit);
+    const url = `${this.rpcUrl}`;
+
+    const params: any[] = [
+      address,
+      {
+        transactionDetails: 'signatures',
+        sortOrder: options.sortOrder,
+        limit: cappedLimit,
+        commitment: 'finalized',
+        maxSupportedTransactionVersion: 0,
+      }
+    ];
+
+    // Add pagination token if provided
+    if (options.paginationToken) {
+      params[1].paginationToken = options.paginationToken;
+    }
+
+    // Add filters if provided
+    if (options.filters && Object.keys(options.filters).length > 0) {
+      params[1].filters = options.filters;
+    }
+
+    const payload = {
+      jsonrpc: '2.0',
+      id: `fetch-tx-for-address-${address}-${options.paginationToken || 'first'}`,
+      method: 'getTransactionsForAddress',
+      params,
+    };
+
+    let retries = 0;
+    while (retries <= MAX_RETRIES) {
+      const attempt = retries + 1;
+      try {
+        await this.rateLimit();
+        const response = await this.api.post<{
+          result?: {
+            data?: SignatureInfo[]; // Helius uses "data" field for signatures mode
+            signatures?: SignatureInfo[]; // Alternative field name
+            paginationToken?: string;
+          };
+          error?: any;
+        }>(url, payload);
+
+        // Check for RPC-level errors
+        if (response.data.error) {
+          logger.warn(`Attempt ${attempt}: RPC call returned an error`, {
+            rpcError: response.data.error,
+            address,
+            sortOrder: options.sortOrder
+          });
+          throw new Error(`RPC Error: ${response.data.error.message || JSON.stringify(response.data.error)}`);
+        }
+
+        // Handle both "data" and "signatures" field names
+        const signaturesArray = response.data.result?.data || response.data.result?.signatures;
+
+        if (response.data.result && Array.isArray(signaturesArray)) {
+          return {
+            signatures: signaturesArray,
+            paginationToken: response.data.result.paginationToken,
+          };
+        } else {
+          logger.warn(`Attempt ${attempt}: Unexpected response structure from getTransactionsForAddress`, {
+            responseData: response.data
+          });
+          throw new Error('Unexpected RPC response structure');
+        }
+      } catch (error) {
+        // Abort immediately on non-retryable errors
+        if (!this.isRetryableError(error)) {
+          throw error;
+        }
+
+        const isAxiosError = axios.isAxiosError(error);
+        const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
+        const logLevel = retries === 0 ? 'debug' : 'warn';
+
+        logger[logLevel](`Attempt ${attempt} failed: Error fetching signatures via getTransactionsForAddress`, {
+          error: this.sanitizeError(error),
+          address,
+          sortOrder: options.sortOrder,
+          status,
+        });
+
+        if (attempt > MAX_RETRIES) {
+          logger.error('Max retries reached for getTransactionsForAddress. Aborting.', {
+            address,
+            sortOrder: options.sortOrder
+          });
+          throw new Error(`Failed to fetch signatures via getTransactionsForAddress for ${address} after ${MAX_RETRIES + 1} attempts: ${error}`);
+        }
+
+        // Retry logic
+        let shouldRetry = false;
+        if (isAxiosError && status && (status === 429 || status >= 500)) {
+          shouldRetry = true;
+        } else if (!isAxiosError) {
+          shouldRetry = true;
+        }
+
+        if (shouldRetry) {
+          const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries);
+          logger.debug(`Attempt ${attempt}: Retrying in ${backoffTime}ms...`);
+          await delay(backoffTime);
+          retries++;
+        } else {
+          logger.error(`Attempt ${attempt}: Unrecoverable error. Aborting.`, { address, status });
+          throw error;
+        }
+      }
+    }
+
+    throw new Error(`Failed to fetch signatures via getTransactionsForAddress for ${address} unexpectedly.`);
+  }
+
+  /**
    * Fetches full, parsed transaction details from Helius for a batch of signatures.
    * Implements retry logic with exponential backoff for rate limits (429) and server errors (5xx).
    *
@@ -408,20 +553,96 @@ export class HeliusApiClient {
     const signaturesToFetchDetails = new Set<string>();
 
     // === PHASE 1: Fetch Signatures via RPC ===
-    logger.debug(`Starting Phase 1: Fetching signatures via Solana RPC for ${address}`);
-    let lastRpcSignature: string | null = null;
+    logger.debug(`Starting Phase 1: Fetching signatures via ${HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures && !this.disableV2TxForAddressForProcess ? 'getTransactionsForAddress (V2)' : 'getSignaturesForAddress (legacy)'} for ${address}`);
+
+    // Telemetry data
+    const telemetry = {
+      startTime: Date.now(),
+      pageCount: 0,
+      creditUsage: 0, // 100 credits per V2 request
+      totalSignaturesFetched: 0,
+    };
+
+    let lastRpcSignature: string | null = null; // For legacy path: last signature for 'before' parameter
+    let v2PaginationToken: string | undefined = undefined; // For V2 path: pagination token
     let hasMoreSignatures = true;
     let fetchedSignaturesCount = 0;
     const rpcLimit = this.RPC_SIGNATURE_LIMIT;
 
     try {
       while (hasMoreSignatures) {
-        const signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
-        
+        let signatureInfos: SignatureInfo[];
+
+        // Try V2 endpoint if enabled and not circuit-broken
+        if (HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures && !this.disableV2TxForAddressForProcess) {
+          try {
+            // Build server-side filters based on parameters
+            const filters: any = {};
+
+            // Time-based filtering
+            if (newestProcessedTimestamp !== undefined) {
+              filters.blockTime = { gt: newestProcessedTimestamp };
+              if (HELIUS_V2_CONFIG.txForAddressUseStatusSucceededForNewer) {
+                filters.status = 'succeeded';
+              }
+            } else if (untilTimestamp !== undefined) {
+              filters.blockTime = { lte: untilTimestamp };
+            }
+
+            // Signature boundary filtering (only on first page)
+            if (stopAtSignature && !v2PaginationToken) {
+              filters.signature = { lt: stopAtSignature };
+            }
+
+            const sortOrder = newestProcessedTimestamp !== undefined ? 'asc' : 'desc';
+
+            const v2Result = await this.getTransactionsForAddressSignatures(address, {
+              limit: rpcLimit,
+              sortOrder,
+              paginationToken: v2PaginationToken,
+              filters: Object.keys(filters).length > 0 ? filters : undefined,
+            });
+
+            signatureInfos = v2Result.signatures;
+            v2PaginationToken = v2Result.paginationToken;
+            telemetry.pageCount++;
+            telemetry.creditUsage += 100; // V2 endpoint costs 100 credits per request
+
+            if (!v2Result.paginationToken) {
+              hasMoreSignatures = false;
+            }
+          } catch (v2Error: any) {
+            // Check for hard failures (method not found, invalid params)
+            const errorMsg = String(v2Error?.message || '').toLowerCase();
+            const isHardFail = errorMsg.includes('method not found') ||
+                               errorMsg.includes('invalid param') ||
+                               errorMsg.includes('rpc error');
+
+            if (isHardFail && !this.loggedV2TxForAddressDisableOnce) {
+              this.loggedV2TxForAddressDisableOnce = true;
+              this.disableV2TxForAddressForProcess = true;
+              logger.warn(`Helius getTransactionsForAddress V2 disabled for this process due to hard failure: ${v2Error?.message}. Falling back to legacy getSignaturesForAddress.`);
+            }
+
+            // Fall back to legacy method
+            signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
+            telemetry.pageCount++;
+          }
+        } else {
+          // Use legacy method
+          signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
+          telemetry.pageCount++;
+        }
+
         if (signatureInfos.length > 0) {
             allRpcSignaturesInfo.push(...signatureInfos);
             fetchedSignaturesCount += signatureInfos.length;
-            lastRpcSignature = signatureInfos[signatureInfos.length - 1].signature;
+            telemetry.totalSignaturesFetched += signatureInfos.length;
+
+            // For legacy path, update lastRpcSignature to the last signature in the batch
+            if (!HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures || this.disableV2TxForAddressForProcess) {
+              lastRpcSignature = signatureInfos[signatureInfos.length - 1].signature;
+            }
 
             // Check if we need to stop based on stopAtSignature
             if (stopAtSignature) {
@@ -437,7 +658,8 @@ export class HeliusApiClient {
             if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures && !stopAtSignature) {
                 logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, meeting conceptual target related to maxSignatures (${maxSignatures}). Stopping pagination.`);
                 hasMoreSignatures = false;
-            } else if (signatureInfos.length < rpcLimit) {
+            } else if (signatureInfos.length < rpcLimit && (!HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures || this.disableV2TxForAddressForProcess)) {
+                // For legacy path only - V2 uses paginationToken to determine continuation
                 logger.debug('Last page of RPC signatures reached (received less than limit).');
                 hasMoreSignatures = false;
             }
@@ -446,7 +668,10 @@ export class HeliusApiClient {
             hasMoreSignatures = false;
         }
       }
+
+      const phase1Duration = Date.now() - telemetry.startTime;
       logger.debug(`Finished Phase 1. Total signatures retrieved via RPC: ${allRpcSignaturesInfo.length}`);
+      logger.info(`Phase 1 Telemetry: Pages=${telemetry.pageCount}, Credits=${telemetry.creditUsage}, Duration=${phase1Duration}ms, Signatures=${telemetry.totalSignaturesFetched}`);
 
     } catch (rpcError) {
        if (!this.isRetryableError(rpcError)) {

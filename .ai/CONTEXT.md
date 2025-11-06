@@ -80,12 +80,15 @@
     - [ ] Test valid IPFS/Arweave URIs → should work
     - [ ] Monitor logs for continued suspicious activity
 
-- **Helius Phase 1 migration (signatures mode) — behind a flag**
-  - [ ] Add `getTransactionsForAddress` signatures wrapper in `HeliusApiClient` (`src/core/services/helius-api-client.ts`)
-  - [ ] Feature‑flag routing in `getAllTransactionsForAddress` with fallback to legacy on hard failures
-  - [ ] Map newer/older traversal to server‑side `filters.blockTime` and signature bounds; keep `sortOrder` semantics
-  - [ ] Preserve Phase 2 Enhanced `/v0/transactions` enrichment path unchanged
-  - [ ] Add minimal telemetry: page count, time‑to‑first‑results, and Helius credit usage per wallet
+- **Helius Phase 1 migration (signatures mode) — behind a flag** ✅ **COMPLETE** (2025-11-06)
+  - [x] Add `getTransactionsForAddress` signatures wrapper in `HeliusApiClient` (`src/core/services/helius-api-client.ts`)
+  - [x] Feature‑flag routing in `getAllTransactionsForAddress` with fallback to legacy on hard failures
+  - [x] Map newer/older traversal to server‑side `filters.blockTime` and signature bounds; keep `sortOrder` semantics
+  - [x] Preserve Phase 2 Enhanced `/v0/transactions` enrichment path unchanged
+  - [x] Add minimal telemetry: page count, time‑to‑first‑results, and Helius credit usage per wallet
+  - **Status**: Ready for testing with `ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES=true` environment variable
+  - **Branch**: `feature/helius-phase1-migration`
+  - **Docs**: Updated in `docs/helius_v2_API/helius-getTransactionsForAddress-migration.md`
 
 - **Merge and rollout**
   - [ ] Merge staged auto‑refresh branch into `main`; enable via config flags

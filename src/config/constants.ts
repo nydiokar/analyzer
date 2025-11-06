@@ -139,6 +139,10 @@ export const HELIUS_V2_CONFIG = {
   enablePagination: boolFromEnv('ENABLE_HELIUS_V2_PAGINATION', true),
   pageLimit: Math.max(1000, Math.min(10000, numFromEnv('HELIUS_V2_PAGE_LIMIT', 5000))),
   enableIncremental: boolFromEnv('ENABLE_HELIUS_V2_INCREMENTAL', false),
+  // Phase 1 migration: getTransactionsForAddress (signatures mode)
+  enableTransactionsForAddressSignatures: boolFromEnv('ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES', false),
+  txForAddressSignaturesPageLimit: Math.max(100, Math.min(1000, numFromEnv('HELIUS_TX_FOR_ADDRESS_PAGE_LIMIT', 1000))),
+  txForAddressUseStatusSucceededForNewer: boolFromEnv('HELIUS_TX_FOR_ADDRESS_USE_STATUS_SUCCEEDED', true),
 } as const;
 
 // Queue and processing configuration

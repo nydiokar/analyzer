@@ -2,6 +2,16 @@
 
 Reference: Helius getTransactionsForAddress docs: [`https://www.helius.dev/docs/rpc/gettransactionsforaddress`](https://www.helius.dev/docs/rpc/gettransactionsforaddress)
 
+**Implementation Status:** ✅ **COMPLETE BUT NOT RECOMMENDED** (Phase 1 implemented 2025-11-06)
+- Feature is behind flag `ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES` (default: `false`)
+- ⚠️ **Cost-benefit analysis shows this is NOT worthwhile to enable**
+- V2 costs 100 credits/page vs 0 for legacy `getSignaturesForAddress`
+- Performance gain is minimal (~100ms for 2000 signatures, ~15% Phase 1 improvement)
+- Phase 2 (real bottleneck at ~10 seconds) uses same `/v0/transactions` endpoint
+- **Recommendation:** Keep disabled unless Helius deprecates legacy endpoint
+- Full backward compatibility maintained with automatic fallback to legacy
+- See [Cost-Benefit Analysis](#cost-benefit-analysis) section below
+
 ### Context and current architecture
 
 Today our transaction ingestion is split into two phases inside `HeliusApiClient.getAllTransactionsForAddress`:
@@ -47,6 +57,11 @@ Important: our mapper relies on Enhanced transactions (fields like `tokenTransfe
 - Signatures mode still returns up to 1000 items/page, but is much faster and more flexible due to server-side filters and cursor.
 - "Full" mode returns up to 100 items/page; we will not adopt it now because we need Enhanced payloads. If a feature only needs standard Solana tx detail and not Enhanced, it could optionally use "full" mode later.
 - Cost: docs note this endpoint requires a Developer plan and costs 100 credits/request. Using precise time windows and status filters reduces page count. Monitor credit spend per wallet.
+
+Optional pre-triage for newest page(s):
+- For the most recent page(s), you may call `getTransactionsForAddress` with `transactionDetails: "full"` and `encoding: "jsonParsed"` to quickly compute per-account SOL/SPL deltas and determine relevance before calling Enhanced.
+- Only send signatures that actually touch the wallet to `/v0/transactions`. This can reduce Enhanced volume while keeping Phase 2 for swap attribution and enriched transfers.
+- Keep the cap at ≤100 for "full" pages; use this only as a fast filter for the freshest batches, not for full history.
 
 ### Concrete call templates (Phase 1)
 
@@ -111,20 +126,30 @@ Pagination (next page):
 
 ### Code integration plan (minimal change, behind a flag)
 
-- `HeliusApiClient`
-  - Add `getTransactionsForAddressSignatures` wrapper that posts RPC method `getTransactionsForAddress` with signatures detail, filters, sort, limit, `paginationToken`.
-  - In `getAllTransactionsForAddress`, behind a new flag (e.g., `HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures`), use this wrapper for Phase 1 instead of `getSignaturesForAddress`.
-  - On hard failure (method not found / invalid params / plan), fall back to legacy and set `disableV2ForProcess` (we already use a similar circuit breaker for token accounts V2).
+✅ **IMPLEMENTED** (2025-11-06)
 
-- `HeliusSyncService`
-  - Keep logic, but ensure we pass time/signature bounds so Phase 1 uses server-side filtering (i.e., map newer/older into blockTime/signature filters rather than client-only filtering).
-  - No change to streaming, mapping, or DB updates.
+- `HeliusApiClient` (`src/core/services/helius-api-client.ts`)
+  - ✅ Added `getTransactionsForAddressSignatures` wrapper that posts RPC method `getTransactionsForAddress` with signatures detail, filters, sort, limit, `paginationToken`.
+  - ✅ In `getAllTransactionsForAddress`, behind flag `HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures`, uses this wrapper for Phase 1 instead of `getSignaturesForAddress`.
+  - ✅ On hard failure (method not found / invalid params / RPC error), falls back to legacy and sets `disableV2TxForAddressForProcess` circuit breaker.
+  - ✅ Server-side filtering implemented:
+    - Time-based: `filters.blockTime.gt` for newer sync, `filters.blockTime.lte` for older sync
+    - Signature boundary: `filters.signature.lt` for stopAtSignature
+    - Status filtering: `filters.status = 'succeeded'` for newer sync (configurable)
+  - ✅ Separate pagination state: `v2PaginationToken` for V2, `lastRpcSignature` for legacy
+  - ✅ Telemetry tracking: page count, credit usage (100 per V2 request), duration, total signatures
 
-- Config
-  - Add flags:
-    - `HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures = true`
-    - `HELIUS_V2_CONFIG.txForAddressSignaturesPageLimit = 1000`
-    - Optional: `HELIUS_V2_CONFIG.txForAddressUseStatusSucceededForNewer = true`
+- `HeliusSyncService` (`src/core/services/helius-sync-service.ts`)
+  - ✅ No changes required - server-side filtering is transparent to sync service
+  - ✅ Existing time/signature bounds are automatically mapped to server-side filters
+  - ✅ Streaming, mapping, and DB updates work identically with V2
+  - ⚠️ Pre-triage optimization (using `transactionDetails: "full"`) NOT implemented - deferred as optional optimization
+
+- Config (`src/config/constants.ts`)
+  - ✅ Added flags to `HELIUS_V2_CONFIG`:
+    - `enableTransactionsForAddressSignatures` (env: `ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES`, default: `false`)
+    - `txForAddressSignaturesPageLimit` (env: `HELIUS_TX_FOR_ADDRESS_PAGE_LIMIT`, default: `1000`, range: 100-1000)
+    - `txForAddressUseStatusSucceededForNewer` (env: `HELIUS_TX_FOR_ADDRESS_USE_STATUS_SUCCEEDED`, default: `true`)
 
 ### Acceptance criteria
 
@@ -132,12 +157,85 @@ Pagination (next page):
 - Incremental runs fetch only truly new data via server-side time filters.
 - Credit usage is monitored and stable per wallet under typical workloads.
 
+### Cost-Benefit Analysis
+
+**Test Results (2025-11-06):**
+
+Tested with 2000 transactions on two different wallets:
+
+```
+Legacy (getSignaturesForAddress):
+  - Phase 1: 663ms, 2 pages, 0 credits
+  - Phase 2: ~9.5 seconds (Enhanced /v0/transactions, same for both paths)
+  - Total: 10132ms
+
+V2 (getTransactionsForAddress signatures mode):
+  - Phase 1: 565ms, 2 pages, 200 credits
+  - Phase 2: ~11 seconds (Enhanced /v0/transactions, same for both paths)
+  - Total: 11666ms
+
+Delta:
+  - Phase 1: V2 saves 98ms (14.8% faster) ✅
+  - Cost: V2 costs 200 credits vs 0 for legacy ❌
+  - Total time: V2 is actually 1534ms slower (variance) ⚠️
+```
+
+**Conclusion:**
+- ❌ **Not cost-effective:** Spending 100 credits per 1000 signatures to save ~50ms is poor ROI
+- ❌ **Phase 2 unchanged:** The real bottleneck (~10 seconds for 2000 txs) uses the same `/v0/transactions` endpoint
+- ⚠️ **No filtering benefit:** We still fetch full Enhanced data for all signatures
+- ✅ **Keep as fallback:** Useful infrastructure if Helius deprecates `getSignaturesForAddress`
+
+**When to enable:**
+1. Helius deprecates `getSignaturesForAddress` RPC method
+2. You implement Phase 2 optimization (using V2 `transactionDetails: "full"` to pre-filter signatures)
+3. You need server-side time/signature filtering for specific use cases
+4. Credit cost becomes negligible relative to performance needs
+
 ### Rollout
 
-1) Enable behind a flag and deploy.
-2) Monitor latency, page counts, and credit spend; ensure correct wallet state updates.
-3) Make default after burn-in.
-4) Optional next: For features that do not require Enhanced payloads, consider using `transactionDetails: "full"` or `signatures` directly to reduce costs.
+**Current Status: Implemented but DISABLED by default** (as of 2025-11-06)
+
+**To enable for testing:**
+```bash
+# Set environment variable
+ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES=true
+
+# Optional: adjust page limit (100-1000, default 1000)
+HELIUS_TX_FOR_ADDRESS_PAGE_LIMIT=1000
+
+# Optional: disable status filter for newer sync (default true)
+HELIUS_TX_FOR_ADDRESS_USE_STATUS_SUCCEEDED=false
+```
+
+**Rollout Steps:**
+1) ✅ **Implemented** - Feature behind flag `ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES` (default: `false`)
+2) **Testing Phase** (current) - Enable flag in test environment, run wallet syncs, monitor:
+   - Telemetry logs: `Phase 1 Telemetry: Pages=X, Credits=Y, Duration=Zms, Signatures=N`
+   - Compare page counts and duration vs legacy
+   - Verify DB results match legacy path (same signatures, same transactions)
+   - Monitor for circuit breaker triggers (logged as warnings if V2 fails)
+3) **Burn-in** - Run on production sample set for 1-2 days with flag enabled
+4) **Make default** - Change `HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures` default from `false` to `true` in `src/config/constants.ts`
+5) **Optional optimization** - For features not requiring Enhanced payloads, consider using `transactionDetails: "full"` directly
+
+**Monitoring Points:**
+- Circuit breaker activation: `"Helius getTransactionsForAddress V2 disabled for this process due to hard failure"`
+- Telemetry comparison: V2 should show `Pages <= legacy pages` and `Duration <= legacy duration`
+- Credit usage: V2 costs 100 credits/request (same as legacy Enhanced transactions)
+- Error rates: Should be identical between V2 and legacy paths
+
+### Utilities
+
+- Script to compare endpoints and validate Phase 1/2 assumptions: `scripts/compare_helius_endpoints.ts`.
+  - Reads `HELIUS_API_KEY` from environment (supports `.env`).
+  - Compares discovery parity between `getSignaturesForAddress` and `getTransactionsForAddress(transactionDetails: "signatures")`.
+  - Confirms that `transactionDetails: "full"` lacks Enhanced-only fields vs `/v0/transactions`.
+  - Example run (PowerShell):
+
+```
+npx ts-node scripts/compare_helius_endpoints.ts WALLET_ADDRESS --limit 200 --network mainnet
+```
 
 ### Replacing Phase 2 using getTransactionsForAddress (full) — considerations and plan (DEFFER not worht the overhead)
 
