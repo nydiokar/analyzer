@@ -169,9 +169,11 @@ export class BehaviorAnalyzer {
     const analysisTimestamp = latestTimestamp + 3600; // Add 1 hour buffer
     const lifecycles = this.buildTokenLifecycles(tokenSequences, analysisTimestamp);
 
-    // Filter to completed positions only (EXITED or DUST)
+    // Filter to completed positions only (EXITED ONLY, not DUST)
+    // DUST tokens (≤5% remaining) are often incomplete data (missing historical buys)
+    // and would corrupt the weighted average calculation
     const completedLifecycles = lifecycles.filter(
-      lc => lc.positionStatus === 'EXITED' || lc.positionStatus === 'DUST'
+      lc => lc.positionStatus === 'EXITED'
     );
 
     // Get config thresholds
@@ -191,6 +193,26 @@ export class BehaviorAnalyzer {
     if (filteredLifecycles.length < minCompletedCycles) {
       this.logger.debug(
         `Insufficient completed cycles (${filteredLifecycles.length}/${minCompletedCycles}) for reliable pattern.`
+      );
+      return null;
+    }
+
+    // Additional quality check: Ensure we have meaningful hold times
+    // Filter out any positions with hold times that seem corrupted (e.g., 0 hours or negative)
+    const validLifecycles = filteredLifecycles.filter(lc => {
+      const isValid = lc.weightedHoldingTimeHours > 0 && lc.weightedHoldingTimeHours < 8760; // Between 0 and 1 year
+      if (!isValid) {
+        this.logger.warn(
+          `Filtering out token ${lc.mint.substring(0, 8)} with invalid hold time: ${lc.weightedHoldingTimeHours}h`
+        );
+      }
+      return isValid;
+    });
+
+    // Re-check minimum after filtering invalid data
+    if (validLifecycles.length < minCompletedCycles) {
+      this.logger.debug(
+        `Insufficient valid cycles after quality filtering (${validLifecycles.length}/${minCompletedCycles}).`
       );
       return null;
     }
