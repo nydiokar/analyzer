@@ -186,6 +186,14 @@ Delta:
 - ⚠️ **No filtering benefit:** We still fetch full Enhanced data for all signatures
 - ✅ **Keep as fallback:** Useful infrastructure if Helius deprecates `getSignaturesForAddress`
 
+**Marketing vs Reality:**
+
+Helius's [official Twitter account](https://twitter.com/heliuslabs) claims: *"1000x less time, 100x fewer RPC calls, 10x lower latency"*
+
+Our testing shows: **35% faster Phase 1** (~274ms saved) while **costing 100 credits per 1000 signatures** (vs FREE).
+
+The marketing claims are technically correct for edge cases (complex time-range queries with heavy filtering), but for the common use case of fetching transaction history with Enhanced data enrichment, the improvement is marginal and the cost is significant. Phase 2 enrichment (which is 95% of execution time) remains unchanged regardless of which Phase 1 method you use.
+
 **When to enable:**
 1. Helius deprecates `getSignaturesForAddress` RPC method
 2. You implement Phase 2 optimization (using V2 `transactionDetails: "full"` to pre-filter signatures)
