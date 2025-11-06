@@ -15,17 +15,71 @@ export interface ActiveTradingPeriods {
   activityFocusScore: number; // Metric (e.g., 0-1) indicating how concentrated trades are
 }
 
+// --- New Types for Holder Risk Analysis ---
+
+/**
+ * Per-token position lifecycle tracking
+ */
+export interface TokenPositionLifecycle {
+  mint: string;
+  entryTimestamp: number;           // First buy timestamp
+  exitTimestamp: number | null;     // When crossed exit threshold (or null if active)
+  peakPosition: number;             // Max tokens ever held
+  currentPosition: number;          // Current balance (via FIFO)
+  percentOfPeakRemaining: number;   // current / peak
+
+  positionStatus: 'ACTIVE' | 'EXITED' | 'DUST';
+  behaviorType: 'FULL_HOLDER' | 'PROFIT_TAKER' | 'MOSTLY_EXITED' | null;
+
+  // Weighted average for THIS token only
+  weightedHoldingTimeHours: number; // For completed: actual, for active: partial
+
+  // Trade metadata
+  totalBought: number;
+  totalSold: number;
+  buyCount: number;
+  sellCount: number;
+}
+
+/**
+ * Wallet's historical pattern (aggregated across completed tokens)
+ */
+export interface WalletHistoricalPattern {
+  walletAddress: string;
+
+  // Aggregate metrics from COMPLETED positions only
+  historicalAverageHoldTimeHours: number;  // Weighted avg across completed tokens
+  completedCycleCount: number;             // Number of fully exited tokens
+  medianCompletedHoldTimeHours: number;    // Median of completed cycles
+
+  // Behavioral classification
+  behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
+  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';  // Based on sell distribution
+
+  // Confidence metrics
+  dataQuality: number;                     // 0-1, based on sample size
+  observationPeriodDays: number;           // Time span of historical data
+}
+
 export interface BehavioralMetrics {
   buySellRatio: number;
   buySellSymmetry: number;
+  /**
+   * @deprecated Use historicalPattern.historicalAverageHoldTimeHours instead.
+   * This metric uses unweighted average which is less accurate than the weighted version.
+   */
   averageFlipDurationHours: number;
   medianHoldTime: number;
   averageCurrentHoldingDurationHours: number;
   medianCurrentHoldingDurationHours: number;
+  /**
+   * @deprecated Use historicalPattern.historicalAverageHoldTimeHours for predictions.
+   * This metric mixes completed + active positions which is conceptually flawed for prediction.
+   */
   weightedAverageHoldingDurationHours: number;
   percentOfValueInCurrentHoldings: number; // Based on historical cost basis
   // Unrealized P&L metrics (requires current prices from TokenInfo/DexScreener)
-  currentHoldingsValueUsd?: number; // Current USD value of all holdings  
+  currentHoldingsValueUsd?: number; // Current USD value of all holdings
   unrealizedPnlUsd?: number; // Current value - historical cost basis in USD
   unrealizedPnlSol?: number; // Current value - historical cost basis in SOL
   percentOfCurrentPortfolioValue?: number; // % of current portfolio vs historical trades
@@ -75,4 +129,7 @@ export interface BehavioralMetrics {
   averageSessionDurationMinutes: number;
   firstTransactionTimestamp?: number;
   lastTransactionTimestamp?: number;
+
+  // New: Historical pattern (optional, non-breaking addition)
+  historicalPattern?: WalletHistoricalPattern;
 } 

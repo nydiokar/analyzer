@@ -28,15 +28,15 @@
   - [x] Document holding time methodology in `docs/3.metrics_compact_map.md`
   - [x] Create architecture plan in `.ai/context/architecture-holder-risk-analysis.md`
   - [x] Critical review completed - plan finalized and ready to start
-  - [ ] **Phase 1 (Core Calculation)**: 5-7 days
-    - [ ] Add `calculatePeakPosition()` and `detectPositionExit()` (exit threshold: 20% remaining)
-    - [ ] Add `buildTokenLifecycles()` to track position states (ACTIVE/EXITED/DUST)
-    - [ ] Add `calculateHistoricalPattern()` with weighted average from completed positions only
-    - [ ] Implement weighted average entry time calculation (matches weighted sell logic)
-    - [ ] Add `historicalPattern` field to `BehavioralMetrics` (optional, non-breaking)
-    - [ ] Mark `weightedAverageHoldingDurationHours` and `averageFlipDurationHours` as `@deprecated`
+  - [ ] **Phase 1 (Core Calculation)**: 5-7 days - **IN PROGRESS**
+    - [x] Add `calculatePeakPosition()` and `detectPositionExit()` (exit threshold: 20% remaining)
+    - [x] Add `buildTokenLifecycles()` to track position states (ACTIVE/EXITED/DUST)
+    - [x] Add `calculateHistoricalPattern()` with weighted average from completed positions only
+    - [x] Implement weighted average entry time calculation (matches weighted sell logic)
+    - [x] Add `historicalPattern` field to `BehavioralMetrics` (optional, non-breaking)
+    - [x] Mark `weightedAverageHoldingDurationHours` and `averageFlipDurationHours` as `@deprecated`
     - [ ] Implement Redis caching for historical patterns (24h TTL)
-    - [ ] Write comprehensive unit tests (extend `test-fifo-holding-time.ts`)
+    - [x] Write comprehensive unit tests (`test-holder-risk-analysis.ts` with 7 test scenarios)
     - [ ] Validate accuracy on 10+ test wallets
   - [ ] **Phase 2 (Prediction Layer)**: 3-5 days
     - [ ] Add current position analysis (weighted entry time, percent sold, status)

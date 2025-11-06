@@ -1,5 +1,5 @@
 import { BehaviorAnalysisConfig } from '@/types/analysis';
-import { BehavioralMetrics, ActiveTradingPeriods, IdentifiedTradingWindow } from '@/types/behavior';
+import { BehavioralMetrics, ActiveTradingPeriods, IdentifiedTradingWindow, WalletHistoricalPattern, TokenPositionLifecycle } from '@/types/behavior';
 import { SwapAnalysisInput } from '@prisma/client';
 import { createLogger } from 'core/utils/logger';
 
@@ -139,7 +139,398 @@ export class BehaviorAnalyzer {
     return metrics;
   }
 
+  /**
+   * Calculate historical pattern from completed token positions only.
+   * This provides a clean baseline for predicting future behavior.
+   *
+   * @param swapRecords - Array of SwapAnalysisInput records for the wallet
+   * @param walletAddress - Wallet address for the pattern
+   * @returns WalletHistoricalPattern or null if insufficient data
+   */
+  public calculateHistoricalPattern(
+    rawSwapRecords: SwapAnalysisInput[],
+    walletAddress: string
+  ): WalletHistoricalPattern | null {
+    this.logger.debug(`Calculating historical pattern for wallet ${walletAddress}`);
+
+    // Filter out excluded tokens
+    const swapRecords = rawSwapRecords.filter(
+      record => !EXCLUDED_TOKEN_MINTS.includes(record.mint)
+    );
+
+    if (swapRecords.length === 0) {
+      this.logger.warn('No swap records after filtering, cannot calculate historical pattern.');
+      return null;
+    }
+
+    // Build token sequences and lifecycles
+    const tokenSequences = this.buildTokenSequences(swapRecords);
+    const latestTimestamp = Math.max(...swapRecords.map(r => r.timestamp));
+    const analysisTimestamp = latestTimestamp + 3600; // Add 1 hour buffer
+    const lifecycles = this.buildTokenLifecycles(tokenSequences, analysisTimestamp);
+
+    // Filter to completed positions only (EXITED or DUST)
+    const completedLifecycles = lifecycles.filter(
+      lc => lc.positionStatus === 'EXITED' || lc.positionStatus === 'DUST'
+    );
+
+    // Get config thresholds
+    const minCompletedCycles = this.config.historicalPatternConfig?.minimumCompletedCycles ?? 3;
+    const maxDataAgeDays = this.config.historicalPatternConfig?.maximumDataAgeDays ?? 90;
+    const maxDataAgeSeconds = maxDataAgeDays * 24 * 60 * 60;
+
+    // Filter by data age if configured
+    const filteredLifecycles = maxDataAgeDays > 0
+      ? completedLifecycles.filter(lc => {
+          const age = analysisTimestamp - lc.entryTimestamp;
+          return age <= maxDataAgeSeconds;
+        })
+      : completedLifecycles;
+
+    // Check if we have enough data
+    if (filteredLifecycles.length < minCompletedCycles) {
+      this.logger.debug(
+        `Insufficient completed cycles (${filteredLifecycles.length}/${minCompletedCycles}) for reliable pattern.`
+      );
+      return null;
+    }
+
+    // Calculate weighted average holding time
+    let totalWeightedDuration = 0;
+    let totalWeight = 0;
+
+    for (const lc of filteredLifecycles) {
+      // Use peak position as weight (more significant positions have more influence)
+      const weight = lc.peakPosition;
+      totalWeightedDuration += lc.weightedHoldingTimeHours * weight;
+      totalWeight += weight;
+    }
+
+    const historicalAverageHoldTimeHours = totalWeight > 0
+      ? totalWeightedDuration / totalWeight
+      : 0;
+
+    // Calculate median
+    const sortedDurations = filteredLifecycles
+      .map(lc => lc.weightedHoldingTimeHours)
+      .sort((a, b) => a - b);
+    const medianCompletedHoldTimeHours = this.calculateMedian(sortedDurations);
+
+    // Classify behavior type based on average holding time
+    let behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
+    if (historicalAverageHoldTimeHours < 1) {
+      behaviorType = 'ULTRA_FLIPPER'; // < 1 hour
+    } else if (historicalAverageHoldTimeHours < 24) {
+      behaviorType = 'FLIPPER'; // 1-24 hours
+    } else if (historicalAverageHoldTimeHours < 168) {
+      behaviorType = 'SWING'; // 1-7 days
+    } else {
+      behaviorType = 'HOLDER'; // 7+ days
+    }
+
+    // Determine exit pattern by analyzing sell distribution
+    const sellPatterns = filteredLifecycles.map(lc => {
+      return lc.sellCount;
+    });
+    const avgSellsPerToken = sellPatterns.reduce((sum, count) => sum + count, 0) / sellPatterns.length;
+    const exitPattern: 'GRADUAL' | 'ALL_AT_ONCE' = avgSellsPerToken > 2 ? 'GRADUAL' : 'ALL_AT_ONCE';
+
+    // Calculate data quality score (0-1)
+    // Based on sample size relative to minimum required
+    const sampleSizeScore = Math.min(1, filteredLifecycles.length / (minCompletedCycles * 3)); // Perfect score at 3x minimum
+
+    // Calculate observation period
+    const oldestEntry = Math.min(...filteredLifecycles.map(lc => lc.entryTimestamp));
+    const newestExit = Math.max(
+      ...filteredLifecycles.map(lc => lc.exitTimestamp || lc.entryTimestamp)
+    );
+    const observationPeriodDays = (newestExit - oldestEntry) / (24 * 60 * 60);
+
+    this.logger.debug(
+      `Historical pattern calculated: ${historicalAverageHoldTimeHours.toFixed(2)}h avg, ` +
+      `${filteredLifecycles.length} completed cycles, ${behaviorType} type`
+    );
+
+    return {
+      walletAddress,
+      historicalAverageHoldTimeHours,
+      completedCycleCount: filteredLifecycles.length,
+      medianCompletedHoldTimeHours,
+      behaviorType,
+      exitPattern,
+      dataQuality: sampleSizeScore,
+      observationPeriodDays,
+    };
+  }
+
   // --- Private Helper Methods (Extracted Logic) ---
+
+  /**
+   * Calculate peak position for a token across all trades.
+   * Uses FIFO logic to track the maximum position ever held.
+   */
+  private calculatePeakPosition(trades: TokenTrade[]): number {
+    let peakPosition = 0;
+    let currentPosition = 0;
+    const buyQueue: Array<{ amount: number }> = [];
+
+    const sortedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+
+    for (const trade of sortedTrades) {
+      if (trade.direction === 'in') {
+        buyQueue.push({ amount: trade.amount });
+        currentPosition += trade.amount;
+        if (currentPosition > peakPosition) {
+          peakPosition = currentPosition;
+        }
+      } else if (trade.direction === 'out') {
+        let remainingSellAmount = trade.amount;
+
+        while (remainingSellAmount > 0 && buyQueue.length > 0) {
+          const oldestBuy = buyQueue[0];
+
+          if (oldestBuy.amount <= remainingSellAmount) {
+            currentPosition -= oldestBuy.amount;
+            remainingSellAmount -= oldestBuy.amount;
+            buyQueue.shift();
+          } else {
+            currentPosition -= remainingSellAmount;
+            oldestBuy.amount -= remainingSellAmount;
+            remainingSellAmount = 0;
+          }
+        }
+      }
+    }
+
+    return peakPosition;
+  }
+
+  /**
+   * Determine if/when a position was exited based on threshold.
+   * A position is considered "exited" when it drops to or below the exit threshold % of peak.
+   */
+  private detectPositionExit(
+    trades: TokenTrade[],
+    peakPosition: number
+  ): { exited: boolean; exitTimestamp: number | null } {
+    const exitThreshold = this.config.holdingThresholds?.exitThreshold ?? 0.20;
+    const exitThresholdAmount = peakPosition * exitThreshold;
+
+    let currentPosition = 0;
+    const buyQueue: Array<{ amount: number }> = [];
+    const sortedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+
+    for (const trade of sortedTrades) {
+      if (trade.direction === 'in') {
+        buyQueue.push({ amount: trade.amount });
+        currentPosition += trade.amount;
+      } else if (trade.direction === 'out') {
+        let remainingSellAmount = trade.amount;
+
+        while (remainingSellAmount > 0 && buyQueue.length > 0) {
+          const oldestBuy = buyQueue[0];
+
+          if (oldestBuy.amount <= remainingSellAmount) {
+            currentPosition -= oldestBuy.amount;
+            remainingSellAmount -= oldestBuy.amount;
+            buyQueue.shift();
+          } else {
+            currentPosition -= remainingSellAmount;
+            oldestBuy.amount -= remainingSellAmount;
+            remainingSellAmount = 0;
+          }
+        }
+
+        // Check if position dropped to or below exit threshold
+        if (currentPosition <= exitThresholdAmount) {
+          return { exited: true, exitTimestamp: trade.timestamp };
+        }
+      }
+    }
+
+    return { exited: false, exitTimestamp: null };
+  }
+
+  /**
+   * Calculate weighted average entry time for a position with multiple buys.
+   * Formula: Σ(amount_i × timestamp_i) / Σ(amount_i)
+   */
+  private calculateWeightedEntryTime(trades: TokenTrade[]): number {
+    let totalWeightedTime = 0;
+    let totalAmount = 0;
+
+    const buyTrades = trades.filter(t => t.direction === 'in');
+
+    for (const buy of buyTrades) {
+      totalWeightedTime += buy.amount * buy.timestamp;
+      totalAmount += buy.amount;
+    }
+
+    return totalAmount > 0 ? totalWeightedTime / totalAmount : 0;
+  }
+
+  /**
+   * Calculate weighted holding time for a SINGLE token.
+   * For completed positions: calculates actual weighted holding duration.
+   * For active positions: calculates current weighted holding duration.
+   */
+  private calculateTokenWeightedHoldTime(
+    trades: TokenTrade[],
+    isCompleted: boolean,
+    currentTimestamp?: number
+  ): number {
+    const buyQueue: Array<{ timestamp: number; amount: number }> = [];
+    let totalWeightedDuration = 0;
+    let totalAmountProcessed = 0;
+    const secondsToHours = (seconds: number) => seconds / 3600;
+
+    const sortedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+
+    for (const trade of sortedTrades) {
+      if (trade.direction === 'in') {
+        buyQueue.push({
+          timestamp: trade.timestamp,
+          amount: trade.amount
+        });
+      } else if (trade.direction === 'out' && buyQueue.length > 0) {
+        let remainingSellAmount = trade.amount;
+        const sellTimestamp = trade.timestamp;
+
+        while (remainingSellAmount > 0 && buyQueue.length > 0) {
+          const oldestBuy = buyQueue[0];
+          const durationSeconds = sellTimestamp - oldestBuy.timestamp;
+
+          if (oldestBuy.amount <= remainingSellAmount) {
+            // Fully consume this buy position
+            totalWeightedDuration += secondsToHours(durationSeconds) * oldestBuy.amount;
+            totalAmountProcessed += oldestBuy.amount;
+            remainingSellAmount -= oldestBuy.amount;
+            buyQueue.shift();
+          } else {
+            // Partially consume this buy position
+            totalWeightedDuration += secondsToHours(durationSeconds) * remainingSellAmount;
+            totalAmountProcessed += remainingSellAmount;
+            oldestBuy.amount -= remainingSellAmount;
+            remainingSellAmount = 0;
+          }
+        }
+      }
+    }
+
+    // For active positions, include remaining holdings
+    if (!isCompleted && currentTimestamp && buyQueue.length > 0) {
+      for (const position of buyQueue) {
+        const durationSeconds = currentTimestamp - position.timestamp;
+        totalWeightedDuration += secondsToHours(durationSeconds) * position.amount;
+        totalAmountProcessed += position.amount;
+      }
+    }
+
+    return totalAmountProcessed > 0 ? totalWeightedDuration / totalAmountProcessed : 0;
+  }
+
+  /**
+   * Build full position lifecycle for each token.
+   * Tracks entry, exit, peak position, and current state.
+   */
+  private buildTokenLifecycles(
+    sequences: TokenTradeSequence[],
+    currentTimestamp: number
+  ): TokenPositionLifecycle[] {
+    const lifecycles: TokenPositionLifecycle[] = [];
+    const exitThreshold = this.config.holdingThresholds?.exitThreshold ?? 0.20;
+    const dustThreshold = this.config.holdingThresholds?.dustThreshold ?? 0.05;
+
+    for (const seq of sequences) {
+      const peakPosition = this.calculatePeakPosition(seq.trades);
+      const exitInfo = this.detectPositionExit(seq.trades, peakPosition);
+
+      // Calculate current position using FIFO
+      let currentPosition = 0;
+      const buyQueue: Array<{ amount: number }> = [];
+      const sortedTrades = [...seq.trades].sort((a, b) => a.timestamp - b.timestamp);
+
+      for (const trade of sortedTrades) {
+        if (trade.direction === 'in') {
+          buyQueue.push({ amount: trade.amount });
+          currentPosition += trade.amount;
+        } else if (trade.direction === 'out') {
+          let remainingSellAmount = trade.amount;
+
+          while (remainingSellAmount > 0 && buyQueue.length > 0) {
+            const oldestBuy = buyQueue[0];
+
+            if (oldestBuy.amount <= remainingSellAmount) {
+              currentPosition -= oldestBuy.amount;
+              remainingSellAmount -= oldestBuy.amount;
+              buyQueue.shift();
+            } else {
+              currentPosition -= remainingSellAmount;
+              oldestBuy.amount -= remainingSellAmount;
+              remainingSellAmount = 0;
+            }
+          }
+        }
+      }
+
+      const percentOfPeakRemaining = peakPosition > 0 ? currentPosition / peakPosition : 0;
+
+      // Determine position status
+      let positionStatus: 'ACTIVE' | 'EXITED' | 'DUST';
+      if (percentOfPeakRemaining <= dustThreshold) {
+        positionStatus = 'DUST';
+      } else if (exitInfo.exited || percentOfPeakRemaining <= exitThreshold) {
+        positionStatus = 'EXITED';
+      } else {
+        positionStatus = 'ACTIVE';
+      }
+
+      // Determine behavior type (for active/exited positions)
+      let behaviorType: 'FULL_HOLDER' | 'PROFIT_TAKER' | 'MOSTLY_EXITED' | null = null;
+      if (positionStatus === 'ACTIVE') {
+        if (percentOfPeakRemaining > 0.75) {
+          behaviorType = 'FULL_HOLDER';
+        } else if (percentOfPeakRemaining > exitThreshold) {
+          behaviorType = 'PROFIT_TAKER';
+        }
+      } else if (positionStatus === 'EXITED') {
+        behaviorType = 'MOSTLY_EXITED';
+      }
+
+      // Calculate weighted holding time
+      const isCompleted = positionStatus === 'EXITED' || positionStatus === 'DUST';
+      const weightedHoldingTimeHours = this.calculateTokenWeightedHoldTime(
+        seq.trades,
+        isCompleted,
+        currentTimestamp
+      );
+
+      // Get entry timestamp (first buy)
+      const entryTimestamp = Math.min(...seq.trades.filter(t => t.direction === 'in').map(t => t.timestamp));
+
+      // Calculate total bought/sold
+      const totalBought = seq.trades.filter(t => t.direction === 'in').reduce((sum, t) => sum + t.amount, 0);
+      const totalSold = seq.trades.filter(t => t.direction === 'out').reduce((sum, t) => sum + t.amount, 0);
+
+      lifecycles.push({
+        mint: seq.mint,
+        entryTimestamp,
+        exitTimestamp: exitInfo.exitTimestamp,
+        peakPosition,
+        currentPosition,
+        percentOfPeakRemaining,
+        positionStatus,
+        behaviorType,
+        weightedHoldingTimeHours,
+        totalBought,
+        totalSold,
+        buyCount: seq.buyCount,
+        sellCount: seq.sellCount,
+      });
+    }
+
+    return lifecycles;
+  }
 
   /**
    * Returns an empty/default metrics structure.

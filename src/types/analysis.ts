@@ -21,6 +21,8 @@ export interface BehaviorAnalysisConfig extends BaseAnalysisConfig {
     minimumSolValue?: number;      // Minimum SOL value to consider (default: 0.001)
     minimumPercentageRemaining?: number; // Minimum % of original position (default: 0.05 = 5%)
     minimumHoldingTimeSeconds?: number;  // Minimum time held to count (default: 300 = 5 minutes)
+    exitThreshold?: number;        // Position considered exited when <= this % of peak remains (default: 0.20 = 20%)
+    dustThreshold?: number;        // Position considered dust when <= this % of peak remains (default: 0.05 = 5%)
   };
   // Scam token filtering options
   scamFiltering?: {
@@ -32,6 +34,11 @@ export interface BehaviorAnalysisConfig extends BaseAnalysisConfig {
       minTotalValue?: number;      // Minimum total SOL value to be considered legitimate (default: 0.001)
       minTotalUsdcValue?: number;  // Minimum total USDC value to be considered legitimate (default: 0.01)
     };
+  };
+  // Historical pattern calculation config
+  historicalPatternConfig?: {
+    minimumCompletedCycles?: number;        // Minimum completed token cycles for reliable pattern (default: 3)
+    maximumDataAgeDays?: number;            // Only use data from last N days (default: 90)
   };
 }
 
