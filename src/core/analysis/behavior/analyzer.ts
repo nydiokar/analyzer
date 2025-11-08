@@ -498,10 +498,9 @@ export class BehaviorAnalyzer {
       const percentOfPeakRemaining = peakPosition > 0 ? currentPosition / peakPosition : 0;
 
       // Determine position status
+      // Simple binary classification: EXITED (≤20% of peak) or ACTIVE (>20% of peak)
       let positionStatus: 'ACTIVE' | 'EXITED' | 'DUST';
-      if (percentOfPeakRemaining <= dustThreshold) {
-        positionStatus = 'DUST';
-      } else if (exitInfo.exited || percentOfPeakRemaining <= exitThreshold) {
+      if (exitInfo.exited || percentOfPeakRemaining <= exitThreshold) {
         positionStatus = 'EXITED';
       } else {
         positionStatus = 'ACTIVE';
@@ -520,7 +519,7 @@ export class BehaviorAnalyzer {
       }
 
       // Calculate weighted holding time
-      const isCompleted = positionStatus === 'EXITED' || positionStatus === 'DUST';
+      const isCompleted = positionStatus === 'EXITED';
       const weightedHoldingTimeHours = this.calculateTokenWeightedHoldTime(
         seq.trades,
         isCompleted,

@@ -28,16 +28,27 @@
   - [x] Document holding time methodology in `docs/3.metrics_compact_map.md`
   - [x] Create architecture plan in `.ai/context/architecture-holder-risk-analysis.md`
   - [x] Critical review completed - plan finalized and ready to start
-  - [ ] **Phase 1 (Core Calculation)**: 5-7 days - **IN PROGRESS**
+  - [x] **Phase 1 (Core Calculation)**: ✅ **COMPLETE** (2025-11-08)
     - [x] Add `calculatePeakPosition()` and `detectPositionExit()` (exit threshold: 20% remaining)
-    - [x] Add `buildTokenLifecycles()` to track position states (ACTIVE/EXITED/DUST)
+    - [x] Add `buildTokenLifecycles()` to track position states (ACTIVE/EXITED)
     - [x] Add `calculateHistoricalPattern()` with weighted average from completed positions only
     - [x] Implement weighted average entry time calculation (matches weighted sell logic)
     - [x] Add `historicalPattern` field to `BehavioralMetrics` (optional, non-breaking)
     - [x] Mark `weightedAverageHoldingDurationHours` and `averageFlipDurationHours` as `@deprecated`
-    - [ ] Implement Redis caching for historical patterns (24h TTL)
     - [x] Write comprehensive unit tests (`test-holder-risk-analysis.ts` with 7 test scenarios)
-    - [ ] Validate accuracy on 10+ test wallets
+    - [x] **Validate accuracy on 19 real wallets with 4,007+ exited positions** ✅
+    - [x] **Critical bug fix**: Exit detection logic corrected (was misclassifying exits as dust)
+    - [x] **Smart sampling strategy**: Handle high-volume wallets (500k+ txs) via 2000-signature sampling
+    - [ ] Implement Redis caching for historical patterns (24h TTL) - DEFERRED to Phase 2
+    - **Key Findings from Validation (2025-11-08)**:
+      - **Bug discovered**: DUST threshold (≤5%) was checked before EXIT threshold (≤20%), causing all exits to be misclassified as dust
+      - **Root cause**: Position at 0% would hit dust check first, never reaching exit logic despite `exitInfo.exited` being true
+      - **Fix**: Removed DUST concept entirely, simplified to binary ACTIVE/EXITED classification based on 20% threshold
+      - **DUST redefinition needed**: Should be value-based (e.g., <$0.001 SOL) not supply-based, deferred to future work
+      - **Validation results**: 6 ULTRA_FLIPPER wallets (avg 35min hold), 13 FLIPPER wallets (avg 5.5h hold), 100% success rate
+      - **Smart sampling validated**: 2000 signatures yields 50-357 exited positions per wallet, sufficient for reliable patterns
+      - **Performance**: 12.8s avg sync time, <0.05s analysis time per wallet
+      - **Files**: `src/core/analysis/behavior/analyzer.ts` (fixed), `test-holder-risk-sampled.ts` (validation), `holder-risk-test-report.md` (results)
   - [ ] **Phase 2 (Prediction Layer)**: 3-5 days
     - [ ] Add current position analysis (weighted entry time, percent sold, status)
     - [ ] Calculate `estimatedTimeUntilExit = max(0, historical - weightedCurrentAge)`

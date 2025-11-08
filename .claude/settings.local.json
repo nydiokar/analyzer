@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(node check-cache-issue.js:*)"
-    ],
-    "deny": [],
-    "ask": []
-  }
-}
