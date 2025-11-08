@@ -238,16 +238,28 @@ export class BehaviorAnalyzer {
       .sort((a, b) => a - b);
     const medianCompletedHoldTimeHours = this.calculateMedian(sortedDurations);
 
-    // Classify behavior type based on average holding time
+    // Classify behavior type based on average holding time (granular buckets)
     let behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
-    if (historicalAverageHoldTimeHours < 1) {
-      behaviorType = 'ULTRA_FLIPPER'; // < 1 hour
+    const minutes = historicalAverageHoldTimeHours * 60;
+
+    if (minutes < 1) {
+      behaviorType = 'ULTRA_FLIPPER'; // < 1 min: ULTRA_FAST
+    } else if (minutes < 3) {
+      behaviorType = 'ULTRA_FLIPPER'; // 1-3 min: ULTRA_FAST
+    } else if (minutes < 5) {
+      behaviorType = 'ULTRA_FLIPPER'; // 3-5 min: ULTRA_FAST
+    } else if (minutes < 10) {
+      behaviorType = 'ULTRA_FLIPPER'; // 5-10 min: VERY_FAST
+    } else if (minutes < 30) {
+      behaviorType = 'ULTRA_FLIPPER'; // 10-30 min: FAST
+    } else if (historicalAverageHoldTimeHours < 1) {
+      behaviorType = 'ULTRA_FLIPPER'; // 30-60 min: SUB_HOUR
     } else if (historicalAverageHoldTimeHours < 24) {
-      behaviorType = 'FLIPPER'; // 1-24 hours
+      behaviorType = 'FLIPPER'; // 1-24 hours: INTRADAY
     } else if (historicalAverageHoldTimeHours < 168) {
-      behaviorType = 'SWING'; // 1-7 days
+      behaviorType = 'SWING'; // 1-7 days: SWING
     } else {
-      behaviorType = 'HOLDER'; // 7+ days
+      behaviorType = 'HOLDER'; // 7+ days: POSITION
     }
 
     // Determine exit pattern by analyzing sell distribution
