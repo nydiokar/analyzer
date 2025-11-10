@@ -61,6 +61,36 @@ export interface WalletHistoricalPattern {
   observationPeriodDays: number;           // Time span of historical data
 }
 
+/**
+ * Wallet's predicted exit time for a specific token
+ */
+export interface WalletTokenPrediction {
+  // Identity
+  walletAddress: string;
+  tokenMint: string;
+  predictedAt: number;                      // When prediction was made (unix timestamp)
+
+  // Historical context (from OTHER completed tokens)
+  historicalMedianHoldHours: number;        // Wallet's typical median hold time
+  historicalSampleSize: number;             // Number of completed cycles
+  behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
+  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
+
+  // Current position (for THIS specific token)
+  entryTimestamp: number;                   // When they bought THIS token
+  currentPositionAgeHours: number;          // How long they've held it
+  percentAlreadySold: number;               // 0-100%
+  positionStatus: 'ACTIVE' | 'EXITED';
+
+  // THE PREDICTION
+  estimatedExitHours: number;               // Hours from now until exit
+  estimatedExitTimestamp: number;           // Absolute unix timestamp
+  riskLevel: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+  // Confidence
+  predictionConfidence: number;             // 0-1 based on data quality
+}
+
 export interface BehavioralMetrics {
   buySellRatio: number;
   buySellSymmetry: number;

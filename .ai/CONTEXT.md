@@ -49,7 +49,26 @@
       - **Smart sampling validated**: 2000 signatures yields 50-357 exited positions per wallet, sufficient for reliable patterns
       - **Performance**: 12.8s avg sync time, <0.05s analysis time per wallet
       - **Files**: `src/core/analysis/behavior/analyzer.ts` (fixed), `test-holder-risk-sampled.ts` (validation), `holder-risk-test-report.md` (results)
-  - [ ] **Phase 2 (Prediction Layer)**: 3-5 days
+  - [ ] **CRITICAL BUG DISCOVERED (2025-11-10)**: ⚠️ **BLOCKER FOR PHASE 2**
+    - **Issue**: `buildTokenLifecycles()` creates ONE lifecycle per token mint, does NOT handle re-entries
+    - **Impact**: When trader buys → sells → buys again (balance = 0 then re-entry), the code:
+      - Counts ALL trades as a single lifecycle
+      - Uses FIRST exit timestamp (ignores subsequent re-entries)
+      - Example: Wallet `B32Q...` traded `Ayif4n78...`:
+        - 03:36:05 BUY 36M → 03:36:42 SELL 36M (**37 seconds**)
+        - 03:37:49 BUY 11M → gradual exit over **51 minutes**
+        - **Code sees**: 1 lifecycle with 37-second hold time, exit at 03:36:42
+        - **Reality**: Should be 2 lifecycles (37s + 51min), or 1 lifecycle with 51min total hold
+      - **Result**: Median shows 23s when actual hold time is 26 minutes (confirmed by external source)
+    - **Root Cause**: Lines 577-649 in `analyzer.ts` loop once per token mint, create single lifecycle
+    - **Files**: `src/core/analysis/behavior/analyzer.ts` (lines 570-665, `buildTokenLifecycles()`)
+    - **Investigation**: `investigate-wallet.ts` shows wallet `B32QbbdDAyhvUQzjcaM5j6ZVKwjCxAwGH5Xgvb9SJqnC` has 233 "completed" tokens but actual hold times are undercounted
+    - **Decision Needed**:
+      - Option A: Create separate lifecycles for each buy→exit cycle (could have 2+ lifecycles per token)
+      - Option B: Treat re-entry within time window (e.g., <5min) as same lifecycle (reset entry timestamp)
+      - Option C: Ignore quick flip-backs, only count sustained holds
+    - **Action Required**: Fix `buildTokenLifecycles()` before proceeding with Phase 2 predictions
+  - [ ] **Phase 2 (Prediction Layer)**: 3-5 days **[BLOCKED by lifecycle bug]**
     - [ ] Add current position analysis (weighted entry time, percent sold, status)
     - [ ] Calculate `estimatedTimeUntilExit = max(0, historical - weightedCurrentAge)`
     - [ ] Add risk level classification (CRITICAL <24h, HIGH <48h, MEDIUM <120h, LOW ≥120h)

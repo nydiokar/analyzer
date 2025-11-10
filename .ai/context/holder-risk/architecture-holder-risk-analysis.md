@@ -803,6 +803,82 @@ interface StoredPrediction {
 
 ---
 
+## 🎯 UPDATED PLAN (2025-11-10)
+
+### Phase 1 Status: ✅ **100% COMPLETE**
+
+**Key Discovery**: Entry timestamps already exist in `TokenPositionLifecycle.entryTimestamp` (line 542 in analyzer.ts)
+
+**What We Have**:
+- ✅ Historical patterns (medianCompletedHoldTimeHours) - tested on 37 wallets, 6,292 cycles
+- ✅ Token lifecycles with entry/exit timestamps for every token
+- ✅ Position status (ACTIVE/EXITED), current balance, percent sold
+- ✅ Behavioral classification (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
+- ✅ Exit pattern detection (GRADUAL/ALL_AT_ONCE)
+- ✅ All timestamps stored in SwapAnalysisInput + HeliusTransactionCache
+
+### Ultimate Goal: Token Death Meter 💀
+
+**User Need**: "When will this token die?" (based on top holder behavior)
+
+**Approach**:
+1. Per-wallet prediction: "Wallet exits after 20m median, held THIS token 18m → exits in 2m"
+2. Aggregate to token: "Top 10 holders average 2.3h hold → token dies in 1.8h"
+
+### Phase 2 Revised: Build & Validate Foundation FIRST
+
+**Phase 2A: Per-Wallet Prediction + Validation** (2 weeks) ← START HERE
+1. Build `predictTokenExit()` method (1 day)
+   - Input: wallet + tokenMint + swapRecords
+   - Output: estimated exit time, risk level, confidence
+   - Math: `timeRemaining = max(0, historicalMedian - currentAge)`
+
+2. Add prediction storage (1 day)
+   - New table: `WalletTokenPrediction` with actual exit tracking
+   - Store predictions to validate later
+
+3. Build validation system (2 days)
+   - Daily job: check predictions vs actual exits
+   - Measure accuracy: % within ±20% of predicted time
+   - Break down by behavior type
+
+4. Historical backtest (2 days)
+   - Test on past data: predict 7 days ago, validate against today
+   - Measure accuracy on 37 test wallets
+
+5. Accuracy measurement (1 week)
+   - Run predictions, wait, validate
+   - **Target**: 70%+ accuracy for ULTRA_FLIPPER/FLIPPER
+   - If <70%, iterate on prediction logic
+
+**Success Criteria**:
+- ✅ 70%+ overall accuracy
+- ✅ 80%+ for ULTRA_FLIPPER (most predictable)
+- ✅ Can measure accuracy by behavior type
+- ✅ Validation system running
+
+**Phase 2B: Token Aggregation** (1 week) ← ONLY AFTER 2A
+1. Supply integration (DexScreener API for top holders)
+2. Token death meter service (aggregate wallet predictions)
+3. API endpoints + simple UI
+
+### Why This Order?
+
+**Critical Insight**: Need to validate atomic predictions before composing them.
+- If wallet predictions are 40% accurate → token aggregation is garbage
+- If wallet predictions are 85% accurate → token aggregation is reliable
+- Must measure and trust foundation before building on it
+
+### Next Immediate Steps
+
+1. Implement `BehaviorAnalyzer.predictTokenExit()` (uses existing data)
+2. Add `WalletTokenPrediction` Prisma schema
+3. Build validation service
+4. Test and measure accuracy
+5. **Decision Point**: If accuracy ≥70%, proceed to Phase 2B (token aggregation)
+
+---
+
 ## References
 
 - Main documentation: `docs/3.metrics_compact_map.md` (Holding Time Methodology section)
