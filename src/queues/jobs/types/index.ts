@@ -39,6 +39,12 @@ export interface AnalyzeBehaviorJobData {
   requestId?: string;
 }
 
+export interface AnalyzeHolderProfilesJobData {
+  tokenMint: string;
+  topN: number;              // Number of top holders to analyze (default: 10)
+  requestId: string;
+}
+
 // Dashboard Wallet Analysis Job Data
 export interface DashboardWalletAnalysisJobData {
   walletAddress: string;
@@ -134,5 +140,35 @@ export interface EnrichTokenBalancesResult extends JobResult {
     enrichedTokens: number;
     backgroundProcessedTokens: number;
     processingStrategy: 'sync' | 'background' | 'hybrid';
+  };
+}
+
+// Holder Profiles Types
+export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+
+export interface HolderProfile {
+  walletAddress: string;
+  rank: number;
+  supplyPercent: number;
+  medianHoldTimeHours: number | null;
+  avgHoldTimeHours: number | null;
+  dailyFlipRatio: number | null;        // Percentage of tokens held <5min vs ≥1h
+  behaviorType: string | null;          // ULTRA_FLIPPER, FLIPPER, SWING_TRADER, HOLDER
+  exitPattern: string | null;           // GRADUAL, ALL_AT_ONCE
+  dataQualityTier: DataQualityTier;
+  completedCycleCount: number;
+  confidence: number;
+  insufficientDataReason?: string;
+  processingTimeMs: number;
+}
+
+export interface HolderProfilesResult extends JobResult {
+  tokenMint: string;
+  profiles: HolderProfile[];
+  metadata: {
+    totalHoldersRequested: number;
+    totalHoldersAnalyzed: number;
+    totalProcessingTimeMs: number;
+    avgProcessingTimePerWalletMs: number;
   };
 } 

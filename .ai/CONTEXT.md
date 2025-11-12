@@ -1,10 +1,61 @@
 # Current State
 
-**Project**: Sova Intel - Wallet Analysis System (Scaling Plan Phase 6)  
-**Goal**: Expose reliable Solana wallet analytics (sync, similarity, reporting) across API, queues, CLI, and dashboard.  
-**Status**: In Progress  
-**Last Updated**: 2025-11-04 00:00 UTC  
-**Updated By**: Codex
+**Project**: Sova Intel - Wallet Analysis System (Scaling Plan Phase 6)
+**Goal**: Expose reliable Solana wallet analytics (sync, similarity, reporting) across API, queues, CLI, and dashboard.
+**Status**: In Progress
+**Last Updated**: 2025-11-12 00:00 UTC
+**Updated By**: Claude Code
+
+---
+
+## Architecture Principles
+
+**⚠️ CRITICAL: Follow the existing async job-based pattern. DO NOT create "god services".**
+
+### System Architecture Pattern:
+```
+1. Controller (HTTP) → Enqueues job, returns job ID
+2. BullMQ Queue → Stores job
+3. Processor (Worker) → Executes job asynchronously
+4. Core Services → Business logic (BehaviorAnalyzer, TokenHoldersService, etc.)
+5. Database → Data access (Prisma)
+```
+
+### DO:
+- ✅ Controllers enqueue jobs (`await this.queue.add('job-type', data)`)
+- ✅ Return job ID to frontend immediately
+- ✅ Extend existing processors (`AnalysisOperationsProcessor`, `EnrichmentOperationsProcessor`)
+- ✅ Reuse existing core services (`BehaviorAnalyzer`, `TokenHoldersService`, etc.)
+- ✅ Frontend polls job status until complete
+
+### DO NOT:
+- ❌ Create synchronous API endpoints that do heavy processing
+- ❌ Create centralized "god services" that orchestrate everything
+- ❌ Process jobs directly in controllers
+- ❌ Create new services when existing core services can be reused
+
+### Example:
+```typescript
+// ❌ WRONG: God service doing everything
+class HolderProfileService {
+  async getTokenHolderProfiles() { /* synchronous heavy processing */ }
+}
+
+// ✅ CORRECT: Job-based async pattern
+// Controller
+POST /analyses/holder-profiles → enqueue job → return { jobId }
+
+// Processor
+AnalysisOperationsProcessor.processAnalyzeHolderProfiles()
+  → TokenHoldersService.getTopHolders()
+  → BehaviorAnalyzer.calculateHistoricalPattern()
+  → Store results in DB
+
+// Frontend
+Poll GET /jobs/:jobId until status = 'completed'
+```
+
+**References**: See `.ai/context/holder-risk/architecture-holder-risk-analysis.md` for detailed implementation examples.
 
 ---
 
@@ -49,44 +100,92 @@
       - **Smart sampling validated**: 2000 signatures yields 50-357 exited positions per wallet, sufficient for reliable patterns
       - **Performance**: 12.8s avg sync time, <0.05s analysis time per wallet
       - **Files**: `src/core/analysis/behavior/analyzer.ts` (fixed), `test-holder-risk-sampled.ts` (validation), `holder-risk-test-report.md` (results)
-  - [ ] **CRITICAL BUG DISCOVERED (2025-11-10)**: ⚠️ **BLOCKER FOR PHASE 2**
-    - **Issue**: `buildTokenLifecycles()` creates ONE lifecycle per token mint, does NOT handle re-entries
-    - **Impact**: When trader buys → sells → buys again (balance = 0 then re-entry), the code:
-      - Counts ALL trades as a single lifecycle
-      - Uses FIRST exit timestamp (ignores subsequent re-entries)
-      - Example: Wallet `B32Q...` traded `Ayif4n78...`:
-        - 03:36:05 BUY 36M → 03:36:42 SELL 36M (**37 seconds**)
-        - 03:37:49 BUY 11M → gradual exit over **51 minutes**
-        - **Code sees**: 1 lifecycle with 37-second hold time, exit at 03:36:42
-        - **Reality**: Should be 2 lifecycles (37s + 51min), or 1 lifecycle with 51min total hold
-      - **Result**: Median shows 23s when actual hold time is 26 minutes (confirmed by external source)
-    - **Root Cause**: Lines 577-649 in `analyzer.ts` loop once per token mint, create single lifecycle
-    - **Files**: `src/core/analysis/behavior/analyzer.ts` (lines 570-665, `buildTokenLifecycles()`)
-    - **Investigation**: `investigate-wallet.ts` shows wallet `B32QbbdDAyhvUQzjcaM5j6ZVKwjCxAwGH5Xgvb9SJqnC` has 233 "completed" tokens but actual hold times are undercounted
-    - **Decision Needed**:
-      - Option A: Create separate lifecycles for each buy→exit cycle (could have 2+ lifecycles per token)
-      - Option B: Treat re-entry within time window (e.g., <5min) as same lifecycle (reset entry timestamp)
-      - Option C: Ignore quick flip-backs, only count sustained holds
-    - **Action Required**: Fix `buildTokenLifecycles()` before proceeding with Phase 2 predictions
-  - [ ] **Phase 2 (Prediction Layer)**: 3-5 days **[BLOCKED by lifecycle bug]**
-    - [ ] Add current position analysis (weighted entry time, percent sold, status)
-    - [ ] Calculate `estimatedTimeUntilExit = max(0, historical - weightedCurrentAge)`
-    - [ ] Add risk level classification (CRITICAL <24h, HIGH <48h, MEDIUM <120h, LOW ≥120h)
-    - [ ] Store predictions in DB with `StoredPrediction` schema
-    - [ ] Display predictions with confidence scores
-    - [ ] Background job: Track prediction accuracy weekly
-  - [ ] **Phase 3 (Holder Aggregation)**: 5-7 days
-    - [ ] Create `HolderRiskService` to orchestrate multi-wallet analysis
-    - [ ] Integrate with existing `GET /tokens/:mint/top-holders` endpoint (start with 10 holders)
-    - [ ] Implement parallel holder analysis using Promise.all()
-    - [ ] Calculate supply-weighted risk distribution
-    - [ ] Create API endpoints (async pattern if needed for scaling)
-    - [ ] Build dashboard components with data quality indicators (show "⚠️ Limited data" for <3 cycles)
+  - [x] **Re-entry lifecycle bug FIXED** (2025-11-10): ✅ **RESOLVED**
+    - **Issue**: `buildTokenLifecycles()` was creating ONE lifecycle per token mint, not handling re-entries
+    - **Fix**: Lines 583-626 in `analyzer.ts` now split trades into separate cycles whenever balance hits 0
+    - **Result**: Accurate hold time calculations for wallets that exit and re-enter positions
+  - [x] **Phase 2 (Prediction Layer)**: ✅ **FUNCTIONALLY COMPLETE** (2025-11-12)
+    - [x] Add `predictTokenExit()` method (`analyzer.ts:312-397`)
+    - [x] Add current position analysis (weighted entry time, percent sold, status)
+    - [x] Calculate `estimatedTimeUntilExit = max(0, historical - weightedCurrentAge)`
+    - [x] Add risk level classification (CRITICAL <5min, HIGH <30min, MEDIUM <2h, LOW ≥2h) - optimized for memecoin flippers
+    - [x] Add `WalletTokenPrediction` TypeScript interface (`src/types/behavior.ts:67-92`)
+    - [x] Display predictions with confidence scores via scripts
+    - [x] **Validation via scripts**: `generate-prediction-report.ts` and `generate-holder-analysis.ts` demonstrate working predictions
+  - [ ] **Phase 2B (Validation Infrastructure)**: 4-5 days **← DEFERRED** (See `.ai/context/holder-risk/PHASE2-VALIDATION-PLAN.md` for details)
+    - **Goal**: Track prediction accuracy over time to validate and improve the model
+    - [ ] **Database Layer** (2 days):
+      - [ ] Add `WalletTokenPrediction` Prisma model with validation fields
+      - [ ] Add `PredictionAccuracyMetrics` model for aggregated stats
+      - [ ] Run migrations
+    - [ ] **Service Layer** (2 days):
+      - [ ] Create `PredictionService` (store, retrieve, validate predictions)
+      - [ ] Implement validation logic (check if positions actually exited)
+      - [ ] Implement accuracy calculation (by behavior type, risk level)
+    - [ ] **Background Worker** (1 day):
+      - [ ] Create BullMQ validation processor (daily validation job)
+      - [ ] Setup cron schedules (daily validation, weekly reports)
+      - [ ] Implement manual validation trigger
+    - [ ] **API & Dashboard** (1 day):
+      - [ ] Create `/api/v1/predictions` endpoints (CRUD)
+      - [ ] Create `/api/v1/predictions/accuracy/latest` endpoint
+      - [ ] Build accuracy dashboard component
+      - [ ] Add prediction history view
+    - [ ] **Testing** (1 day):
+      - [ ] Historical backtest on 19 test wallets
+      - [ ] Validate accuracy thresholds
+      - [ ] End-to-end test: predict → validate → metrics
+    - **Success Metrics**: After 30 days, achieve ≥70% overall accuracy, ≥80% for ULTRA_FLIPPER
+  - [ ] **Phase 3 (Token Holder Profiles Dashboard)**: 3-4 days **← NEXT PRIORITY** (See `.ai/context/holder-risk/architecture-holder-risk-analysis.md` for complete plan)
+    - **Goal**: Show holding behavior profiles for top holders of any token (build foundation first, add prediction/validation later)
+    - **Architecture**: ASYNC JOB-BASED (Controller → Queue → Processor → Core Services)
+    - **Key Advantage**: Reuses existing `TokenHoldersService` + `BehaviorAnalyzer` (no new core services needed!)
+    - **User Flow**: Enter token → Backend enqueues job → Frontend polls status → Display profiles when complete
+    - [ ] **Day 1: Queue & Processor** (6h):
+      - [ ] Add job types to `src/queues/jobs/types.ts` (AnalyzeHolderProfilesJobData, HolderProfile, HolderProfilesResult)
+      - [ ] Extend `AnalysisOperationsProcessor` with new handler: `processAnalyzeHolderProfiles()`
+      - [ ] Implement batch DB query (fetch all wallet swap records in one query - avoid N+1)
+      - [ ] Implement parallel analysis with Promise.all()
+      - [ ] Calculate holding metrics per holder:
+        - [ ] Median hold time (hours/days)
+        - [ ] Average hold time (weighted)
+        - [ ] **NEW: Daily flip ratio** (% tokens held <5m vs ≥1h) ⭐
+        - [ ] Behavior classification (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
+        - [ ] Data quality tiers (HIGH/MEDIUM/LOW/INSUFFICIENT)
+      - [ ] Unit tests for daily flip ratio and data quality tiers
+    - [ ] **Day 2: API Endpoint** (4h):
+      - [ ] Add endpoint to `AnalysesController`: `POST /analyses/holder-profiles`
+      - [ ] Enqueue job, return job ID (not synchronous processing!)
+      - [ ] Test with curl on 3 real tokens
+    - [ ] **Day 3: Dashboard Page** (6h):
+      - [ ] New page: `/tools/holder-profiles`
+      - [ ] Token input form (submits job)
+      - [ ] Poll job status until complete
+      - [ ] `HolderProfilesTable` component (wallet, supply %, median, avg, flip ratio, type, confidence)
+      - [ ] Show loading state with progress
+      - [ ] Styling and polish
+    - [ ] **Day 4: Testing & Documentation** (2h):
+      - [ ] End-to-end testing with 5 real tokens
+      - [ ] Verify batch query optimization (check DB logs for N+1)
+      - [ ] Verify parallel processing
+      - [ ] Performance: <15s for 10 holders
+    - **What We Show Per Holder**:
+      - Wallet address + % of supply + rank
+      - Median hold time + Average hold time
+      - **Daily flip ratio** (trader accuracy filter - % held <5m vs ≥1h)
+      - Behavior type (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
+      - Exit pattern (GRADUAL/ALL_AT_ONCE)
+      - Data quality tier (HIGH/MEDIUM/LOW/INSUFFICIENT with tooltips)
+    - **Performance Optimizations**:
+      - Top 10 holders only (not 20-50)
+      - Batch DB fetch: `{ walletAddress: { in: [...] } }`
+      - Parallel analysis: `Promise.all(wallets.map(...))`
+      - Show incremental results as they arrive
   - [ ] **Phase 4 (Time Filters & Polish)**: 3-4 days
     - [ ] Add time window filters (7d, 30d, all-time) to show behavioral drift
     - [ ] Display pattern changes over time (compare 7d vs 30d patterns)
+    - [ ] Implement Redis caching for historical patterns (24h TTL)
     - [ ] Remove deprecated metrics from codebase
-    - [ ] Add prediction accuracy dashboard ("Based on 142 predictions, avg error: ±18h")
     - [ ] Performance optimization
     - [ ] Documentation
 

@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts, JobPriority } from '../config/queue.config';
-import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult } from '../jobs/types';
+import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult, AnalyzeHolderProfilesJobData, HolderProfilesResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
@@ -16,6 +16,7 @@ import { SyncOptions } from '../../core/services/helius-sync-service';
 import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { TokenInfoService } from '../../api/services/token-info.service';
+import { TokenHoldersService } from '../../api/services/token-holders.service';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
@@ -40,6 +41,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly heliusApiClient: HeliusApiClient,
     private readonly jobProgressGateway: JobProgressGateway,
     private readonly tokenInfoService: TokenInfoService,
+    private readonly tokenHoldersService: TokenHoldersService,
     private readonly telegramAlerts: TelegramAlertsService,
     private readonly dexscreenerService: DexscreenerService,
     private readonly balanceCacheService: BalanceCacheService,
@@ -78,6 +80,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         return this.processAnalyzeBehavior(job as Job<AnalyzeBehaviorJobData>);
       case 'dashboard-wallet-analysis':
         return this.processDashboardWalletAnalysis(job as Job<DashboardWalletAnalysisJobData>);
+      case 'analyze-holder-profiles':
+        return this.processAnalyzeHolderProfiles(job as Job<AnalyzeHolderProfilesJobData>);
       case 'mint-participants-run':
         return this.processMintParticipants(job as Job<{ mint: string; cutoffTs: number; signature?: string }>);
       default:
@@ -616,6 +620,134 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     return job.id ?? null;
   }
 
+  /**
+   * Process holder profiles analysis job
+   * Analyzes holding behavior for top holders of a token
+   */
+  async processAnalyzeHolderProfiles(job: Job<AnalyzeHolderProfilesJobData>): Promise<HolderProfilesResult> {
+    const { tokenMint, topN, requestId } = job.data;
+    const startTime = Date.now();
+    const timeoutMs = 5 * 60 * 1000; // 5 minutes timeout
+
+    this.logger.log(`Starting holder profiles analysis for token ${tokenMint} [topN=${topN}]`);
+
+    try {
+      await job.updateProgress(5);
+
+      // 1. Fetch top holders using existing service
+      this.logger.debug(`Fetching top ${topN} holders for ${tokenMint}...`);
+      const topHoldersResponse = await this.tokenHoldersService.getTopHolders(tokenMint);
+      await job.updateProgress(15);
+
+      // Limit to topN and extract wallet addresses
+      const topHolders = topHoldersResponse.holders.slice(0, topN);
+      const walletAddresses = topHolders
+        .map(h => h.ownerAccount)
+        .filter((addr): addr is string => addr !== undefined);
+
+      if (walletAddresses.length === 0) {
+        this.logger.warn(`No holder wallet addresses found for ${tokenMint}`);
+        return {
+          success: true,
+          tokenMint,
+          profiles: [],
+          metadata: {
+            totalHoldersRequested: topN,
+            totalHoldersAnalyzed: 0,
+            totalProcessingTimeMs: Date.now() - startTime,
+            avgProcessingTimePerWalletMs: 0,
+          },
+          timestamp: Date.now(),
+          processingTimeMs: Date.now() - startTime,
+        };
+      }
+
+      this.logger.log(`Analyzing ${walletAddresses.length} holder wallets for ${tokenMint}...`);
+      await job.updateProgress(20);
+
+      // 2. BATCH fetch swap records for ALL wallets (avoid N+1 queries)
+      this.logger.debug(`Batch fetching swap records for ${walletAddresses.length} wallets...`);
+      const allSwapRecords = await this.databaseService.prisma.swapAnalysisInput.findMany({
+        where: {
+          walletAddress: { in: walletAddresses },
+        },
+        orderBy: [
+          { walletAddress: 'asc' },
+          { timestamp: 'asc' },
+        ],
+      });
+      await job.updateProgress(40);
+
+      // Group swap records by wallet address
+      const swapRecordsByWallet: Record<string, typeof allSwapRecords> = {};
+      for (const record of allSwapRecords) {
+        if (!swapRecordsByWallet[record.walletAddress]) {
+          swapRecordsByWallet[record.walletAddress] = [];
+        }
+        swapRecordsByWallet[record.walletAddress].push(record);
+      }
+
+      this.logger.debug(`Grouped swap records: ${Object.keys(swapRecordsByWallet).length} wallets with data`);
+
+      // 3. Analyze wallets IN PARALLEL
+      const progressStep = 50 / walletAddresses.length;
+      let completedCount = 0;
+
+      const profilePromises = topHolders.map(async (holder, index) => {
+        if (!holder.ownerAccount) return null;
+
+        const walletStartTime = Date.now();
+        const swapRecords = swapRecordsByWallet[holder.ownerAccount] || [];
+
+        try {
+          const profile = await this.analyzeWalletProfile(
+            holder.ownerAccount,
+            holder.rank,
+            holder.uiAmount ?? 0,
+            swapRecords,
+          );
+
+          completedCount++;
+          await job.updateProgress(40 + Math.floor(completedCount * progressStep));
+
+          return profile;
+        } catch (error) {
+          this.logger.warn(`Failed to analyze wallet ${holder.ownerAccount}:`, error);
+          return null;
+        }
+      });
+
+      const profiles = (await Promise.all(profilePromises)).filter(p => p !== null);
+      await job.updateProgress(95);
+
+      this.logger.log(`Completed analyzing ${profiles.length}/${walletAddresses.length} holders for ${tokenMint}`);
+
+      const result: HolderProfilesResult = {
+        success: true,
+        tokenMint,
+        profiles: profiles as any[],
+        metadata: {
+          totalHoldersRequested: topN,
+          totalHoldersAnalyzed: profiles.length,
+          totalProcessingTimeMs: Date.now() - startTime,
+          avgProcessingTimePerWalletMs: profiles.length > 0
+            ? Math.round((Date.now() - startTime) / profiles.length)
+            : 0,
+        },
+        timestamp: Date.now(),
+        processingTimeMs: Date.now() - startTime,
+      };
+
+      await job.updateProgress(100);
+      this.logger.log(`Holder profiles analysis for ${tokenMint} completed in ${result.processingTimeMs}ms`);
+
+      return result;
+    } catch (error) {
+      this.logger.error(`Holder profiles analysis failed for ${tokenMint}:`, error);
+      throw error;
+    }
+  }
+
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {
     const { mint, cutoffTs } = job.data;
     const startTime = Date.now();
@@ -703,6 +835,146 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
     }
+  }
+
+  /**
+   * Analyze individual wallet's holding profile
+   */
+  private async analyzeWalletProfile(
+    walletAddress: string,
+    rank: number,
+    supplyPercent: number,
+    swapRecords: any[],
+  ): Promise<any> {
+    const walletStartTime = Date.now();
+
+    // If no swap records, return insufficient data
+    if (swapRecords.length === 0) {
+      return {
+        walletAddress,
+        rank,
+        supplyPercent,
+        medianHoldTimeHours: null,
+        avgHoldTimeHours: null,
+        dailyFlipRatio: null,
+        behaviorType: null,
+        exitPattern: null,
+        dataQualityTier: 'INSUFFICIENT' as const,
+        completedCycleCount: 0,
+        confidence: 0,
+        insufficientDataReason: 'No transaction history found',
+        processingTimeMs: Date.now() - walletStartTime,
+      };
+    }
+
+    // Use BehaviorService to get historical pattern
+    try {
+      const behaviorResult = await this.behaviorService.getWalletBehavior(
+        walletAddress,
+        this.behaviorService.getDefaultBehaviorAnalysisConfig(),
+        undefined,
+      );
+
+      const historicalPattern = behaviorResult?.historicalPattern;
+
+      if (!historicalPattern || historicalPattern.completedCycleCount < 3) {
+        return {
+          walletAddress,
+          rank,
+          supplyPercent,
+          medianHoldTimeHours: null,
+          avgHoldTimeHours: null,
+          dailyFlipRatio: null,
+          behaviorType: historicalPattern?.behaviorType ?? null,
+          exitPattern: historicalPattern?.exitPattern ?? null,
+          dataQualityTier: 'INSUFFICIENT' as const,
+          completedCycleCount: historicalPattern?.completedCycleCount ?? 0,
+          confidence: historicalPattern?.dataQuality ?? 0,
+          insufficientDataReason: `Only ${historicalPattern?.completedCycleCount ?? 0} completed cycles (minimum 3 required)`,
+          processingTimeMs: Date.now() - walletStartTime,
+        };
+      }
+
+      // Calculate daily flip ratio
+      const flipRatioResult = this.calculateDailyFlipRatio(behaviorResult);
+
+      // Determine data quality tier
+      const dataQualityTier = this.determineDataQualityTier(
+        historicalPattern.completedCycleCount,
+        historicalPattern.dataQuality,
+      );
+
+      return {
+        walletAddress,
+        rank,
+        supplyPercent,
+        medianHoldTimeHours: historicalPattern.medianCompletedHoldTimeHours,
+        avgHoldTimeHours: historicalPattern.historicalAverageHoldTimeHours,
+        dailyFlipRatio: flipRatioResult.ratio,
+        behaviorType: historicalPattern.behaviorType,
+        exitPattern: historicalPattern.exitPattern,
+        dataQualityTier,
+        completedCycleCount: historicalPattern.completedCycleCount,
+        confidence: historicalPattern.dataQuality,
+        processingTimeMs: Date.now() - walletStartTime,
+      };
+    } catch (error) {
+      this.logger.warn(`Error analyzing wallet ${walletAddress}:`, error);
+      return {
+        walletAddress,
+        rank,
+        supplyPercent,
+        medianHoldTimeHours: null,
+        avgHoldTimeHours: null,
+        dailyFlipRatio: null,
+        behaviorType: null,
+        exitPattern: null,
+        dataQualityTier: 'INSUFFICIENT' as const,
+        completedCycleCount: 0,
+        confidence: 0,
+        insufficientDataReason: `Analysis error: ${error instanceof Error ? error.message : 'unknown'}`,
+        processingTimeMs: Date.now() - walletStartTime,
+      };
+    }
+  }
+
+  /**
+   * Calculate daily flip ratio: % of tokens held <5min vs ≥1h
+   */
+  private calculateDailyFlipRatio(behaviorResult: any): { ratio: number } {
+    const lifecycles = behaviorResult?.tokenLifecycles || [];
+    const completed = lifecycles.filter((lc: any) => lc.positionStatus === 'EXITED');
+
+    if (completed.length === 0) {
+      return { ratio: 0 };
+    }
+
+    let shortHolds = 0;  // <5 minutes
+    let longHolds = 0;   // ≥1 hour
+
+    for (const lc of completed) {
+      const minutes = lc.weightedHoldingTimeHours * 60;
+      if (minutes < 5) {
+        shortHolds++;
+      } else if (lc.weightedHoldingTimeHours >= 1) {
+        longHolds++;
+      }
+    }
+
+    const total = shortHolds + longHolds;
+    if (total === 0) return { ratio: 0 };
+
+    return { ratio: (shortHolds / total) * 100 };
+  }
+
+  /**
+   * Determine data quality tier based on cycle count and confidence
+   */
+  private determineDataQualityTier(cycles: number, confidence: number): 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' {
+    if (cycles >= 10 && confidence >= 0.8) return 'HIGH';
+    if (cycles >= 5 && confidence >= 0.6) return 'MEDIUM';
+    if (cycles >= 3) return 'LOW';
+    return 'INSUFFICIENT';
   }
 
   /**

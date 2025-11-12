@@ -803,79 +803,735 @@ interface StoredPrediction {
 
 ---
 
-## 🎯 UPDATED PLAN (2025-11-10)
+## 🎯 IMPLEMENTATION STATUS (Updated 2025-11-12)
 
-### Phase 1 Status: ✅ **100% COMPLETE**
+### Phase 1: Core Calculation - ✅ **100% COMPLETE** (Completed 2025-11-08)
 
-**Key Discovery**: Entry timestamps already exist in `TokenPositionLifecycle.entryTimestamp` (line 542 in analyzer.ts)
+**Implementation Files**:
+- `src/core/analysis/behavior/analyzer.ts:150-298` - `calculateHistoricalPattern()`
+- `src/core/analysis/behavior/analyzer.ts:405-448` - `calculatePeakPosition()`
+- `src/core/analysis/behavior/analyzer.ts:455-491` - `detectPositionExit()`
+- `src/core/analysis/behavior/analyzer.ts:573-710` - `buildTokenLifecycles()` with re-entry fix
+- `src/types/behavior.ts:23-62` - Type definitions for all lifecycle and pattern types
+- `src/core/analysis/behavior/test-holder-risk-analysis.ts` - Comprehensive unit tests (7 scenarios)
 
-**What We Have**:
-- ✅ Historical patterns (medianCompletedHoldTimeHours) - tested on 37 wallets, 6,292 cycles
-- ✅ Token lifecycles with entry/exit timestamps for every token
-- ✅ Position status (ACTIVE/EXITED), current balance, percent sold
-- ✅ Behavioral classification (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
-- ✅ Exit pattern detection (GRADUAL/ALL_AT_ONCE)
-- ✅ All timestamps stored in SwapAnalysisInput + HeliusTransactionCache
+**What's Working**:
+- ✅ Historical patterns (medianCompletedHoldTimeHours) - validated on 19+ wallets, 4,007+ exited positions
+- ✅ Token lifecycles with entry/exit timestamps for every token (handles re-entries correctly)
+- ✅ Position status classification (ACTIVE/EXITED)
+- ✅ Behavioral classification (ULTRA_FLIPPER <1min / FLIPPER 1-24h / SWING 1-7d / HOLDER >7d)
+- ✅ Exit pattern detection (GRADUAL >2 sells/token / ALL_AT_ONCE ≤2 sells/token)
+- ✅ Weighted average holding time calculation (matches FIFO sell logic)
+- ✅ Data quality scoring based on sample size
+- ✅ Deprecated old metrics (`weightedAverageHoldingDurationHours`, `averageFlipDurationHours`)
 
-### Ultimate Goal: Token Death Meter 💀
+**Critical Bug Fixed (2025-11-10)**:
+- ✅ Re-entry lifecycle bug fixed - now creates separate lifecycles when balance hits 0 and trader re-enters
+- Previously: 1 lifecycle per token (undercounted hold times on re-entries)
+- Now: Multiple lifecycles per token when position fully exits then re-enters
 
-**User Need**: "When will this token die?" (based on top holder behavior)
+### Phase 2: Prediction Layer - 🟡 **PARTIALLY COMPLETE** (70% done)
 
-**Approach**:
-1. Per-wallet prediction: "Wallet exits after 20m median, held THIS token 18m → exits in 2m"
-2. Aggregate to token: "Top 10 holders average 2.3h hold → token dies in 1.8h"
+**What's Implemented**:
+- ✅ `predictTokenExit()` method (src/core/analysis/behavior/analyzer.ts:312-397)
+- ✅ Current position age calculation (weighted entry time)
+- ✅ `estimatedExitHours` calculation (`max(0, historicalMedian - currentAge)`)
+- ✅ Risk level classification (CRITICAL <5min, HIGH <30min, MEDIUM <2h, LOW ≥2h)
+- ✅ `WalletTokenPrediction` TypeScript interface (src/types/behavior.ts:67-92)
+- ✅ Prediction confidence scoring (based on data quality)
+- ✅ CLI scripts for generating predictions:
+  - `src/scripts/generate-prediction-report.ts` - Multi-wallet prediction report
+  - `src/scripts/generate-holder-analysis.ts` - Consolidated holder + prediction analysis
 
-### Phase 2 Revised: Build & Validate Foundation FIRST
+**What's MISSING** (30% remaining):
+- ❌ **Prisma schema** for `WalletTokenPrediction` table (persistence layer)
+- ❌ **Database storage** for predictions (currently only in-memory via scripts)
+- ❌ **Validation service** to track prediction accuracy over time
+- ❌ **Background job** to check predictions vs actual exits
+- ❌ **Historical backtest** system (predict 7 days ago, validate today)
+- ❌ **Accuracy metrics dashboard** ("Based on 142 predictions, avg error: ±18h")
 
-**Phase 2A: Per-Wallet Prediction + Validation** (2 weeks) ← START HERE
-1. Build `predictTokenExit()` method (1 day)
-   - Input: wallet + tokenMint + swapRecords
-   - Output: estimated exit time, risk level, confidence
-   - Math: `timeRemaining = max(0, historicalMedian - currentAge)`
+**Risk Thresholds** (optimized for memecoin flippers):
+- CRITICAL: <5 minutes (dump imminent)
+- HIGH: 5-30 minutes (dump very soon)
+- MEDIUM: 30min-2h (short-term risk)
+- LOW: 2+ hours (you have time)
 
-2. Add prediction storage (1 day)
-   - New table: `WalletTokenPrediction` with actual exit tracking
-   - Store predictions to validate later
+### Phase 3: Holder Aggregation - ❌ **NOT STARTED** (Token Death Meter 💀)
 
-3. Build validation system (2 days)
-   - Daily job: check predictions vs actual exits
-   - Measure accuracy: % within ±20% of predicted time
-   - Break down by behavior type
+**Ultimate Goal**: "When will this token die?" (based on top holder behavior)
 
-4. Historical backtest (2 days)
-   - Test on past data: predict 7 days ago, validate against today
-   - Measure accuracy on 37 test wallets
+**Missing Components**:
+- ❌ `HolderRiskService` service layer (src/api/services/holder-risk.service.ts)
+- ❌ Token-level holder risk aggregation logic
+- ❌ API endpoints:
+  - `GET /api/v1/tokens/:mint/holder-risk` - Aggregate risk for top N holders
+  - `GET /api/v1/tokens/:mint/holders/:wallet/risk` - Single holder risk
+- ❌ Supply-weighted risk distribution calculation
+- ❌ Parallel holder analysis orchestration (Promise.all for 10-50 wallets)
+- ❌ Dashboard components (risk cards, holder tables, charts)
+- ❌ Integration with existing `GET /tokens/:mint/top-holders` endpoint
 
-5. Accuracy measurement (1 week)
-   - Run predictions, wait, validate
-   - **Target**: 70%+ accuracy for ULTRA_FLIPPER/FLIPPER
-   - If <70%, iterate on prediction logic
+### Phase 4: Time Filters & Polish - ❌ **NOT STARTED**
 
-**Success Criteria**:
-- ✅ 70%+ overall accuracy
-- ✅ 80%+ for ULTRA_FLIPPER (most predictable)
-- ✅ Can measure accuracy by behavior type
-- ✅ Validation system running
+**Planned Features**:
+- ❌ Time window filters (7d, 30d, all-time) for pattern calculation
+- ❌ Behavioral drift detection (compare 7d vs 30d patterns)
+- ❌ Prediction accuracy dashboard
+- ❌ Performance optimization (Redis caching for historical patterns)
+- ❌ Complete removal of deprecated metrics
 
-**Phase 2B: Token Aggregation** (1 week) ← ONLY AFTER 2A
-1. Supply integration (DexScreener API for top holders)
-2. Token death meter service (aggregate wallet predictions)
-3. API endpoints + simple UI
+---
 
-### Why This Order?
+## 📋 NEXT IMMEDIATE STEPS
 
-**Critical Insight**: Need to validate atomic predictions before composing them.
-- If wallet predictions are 40% accurate → token aggregation is garbage
-- If wallet predictions are 85% accurate → token aggregation is reliable
-- Must measure and trust foundation before building on it
+### To Complete Phase 2 (Prediction Storage & Validation):
 
-### Next Immediate Steps
+1. **Add Prisma Schema** (1 hour)
+   ```prisma
+   model WalletTokenPrediction {
+     id                    String   @id @default(cuid())
+     walletAddress         String
+     tokenMint             String
+     predictedAt           Int      // Unix timestamp
+     estimatedExitHours    Float
+     estimatedExitTimestamp Int
+     riskLevel             String   // CRITICAL | HIGH | MEDIUM | LOW
 
-1. Implement `BehaviorAnalyzer.predictTokenExit()` (uses existing data)
-2. Add `WalletTokenPrediction` Prisma schema
-3. Build validation service
-4. Test and measure accuracy
-5. **Decision Point**: If accuracy ≥70%, proceed to Phase 2B (token aggregation)
+     // For validation
+     actualExitTimestamp   Int?     // Populated when position exits
+     predictionAccuracyHours Float? // |predicted - actual|
+     validated             Boolean  @default(false)
+
+     // Context
+     historicalMedianHoldHours Float
+     historicalSampleSize      Int
+     behaviorType              String
+     currentPositionAgeHours   Float
+     percentAlreadySold        Float
+     predictionConfidence      Float
+
+     createdAt             DateTime @default(now())
+
+     @@unique([walletAddress, tokenMint, predictedAt])
+     @@index([tokenMint, validated])
+     @@index([walletAddress])
+   }
+   ```
+
+2. **Create PredictionService** (2-3 days)
+   - Store predictions when generated
+   - Query predictions for validation
+   - Calculate accuracy metrics
+
+3. **Build Validation Job** (2-3 days)
+   - Background worker (runs daily or hourly)
+   - Check predictions where `predictedAt + estimatedExitHours < now`
+   - Query wallet positions to see if actually exited
+   - Update `actualExitTimestamp` and `predictionAccuracyHours`
+
+4. **Historical Backtest Script** (1-2 days)
+   - Use existing transaction data
+   - Generate predictions "as of" 7 days ago
+   - Compare to actual behavior
+   - Report accuracy by behavior type
+
+### To Start Phase 3 (Token Death Meter):
+
+**Prerequisites**: Phase 2 validation shows ≥70% accuracy
+
+1. Create `HolderRiskService`
+2. Build token-level aggregation endpoint
+3. Integrate with top holders API
+4. Build dashboard UI components
+
+---
+
+## 📊 VALIDATION RESULTS (Phase 1)
+
+**Test Date**: 2025-11-08
+**Test Dataset**: 19 real wallets, 4,007+ exited positions
+**Performance**: 12.8s avg sync time, <0.05s analysis time per wallet
+
+**Behavior Distribution**:
+- 6 ULTRA_FLIPPER wallets (avg 35min hold)
+- 13 FLIPPER wallets (avg 5.5h hold)
+- 100% success rate (all wallets classified correctly)
+
+**Smart Sampling**: 2000 signatures yields 50-357 exited positions per wallet (sufficient for reliable patterns)
+
+**Critical Findings**:
+- Bug discovered in exit detection (now fixed)
+- DUST threshold needs redefinition (should be value-based, not supply-based)
+- Re-entry lifecycle bug fixed (no longer undercounts hold times)
+
+---
+
+## 🎯 NEXT: Phase 3 - Token Holder Profiles Dashboard (3-4 days)
+
+### Goal
+Show holding behavior profile for each top holder. **Incremental, optimized, transparent about data quality.**
+
+---
+
+## ⚠️ **ARCHITECTURE PATTERN - READ THIS FIRST**
+
+**DO NOT create a synchronous "god service" that does everything. Follow the existing job-based pattern:**
+
+### Current System Architecture:
+```
+1. Controller (HTTP) → Enqueues job, returns job ID
+2. BullMQ Queue → Stores job
+3. Processor (Worker) → Executes job asynchronously
+4. Core Services → Business logic (BehaviorAnalyzer, etc.)
+5. Database → Data access
+```
+
+### For Holder Profiles:
+```
+POST /analyses/holder-profiles
+  ↓ (enqueues job)
+AnalysisOperationsProcessor.processAnalyzeHolderProfiles()
+  ↓ (calls existing core services)
+BehaviorAnalyzer.calculateHistoricalPattern()  ← ALREADY EXISTS
+  ↓
+Return job ID to frontend → Frontend polls job status
+```
+
+**Key Points:**
+- ✅ **Use existing `BehaviorAnalyzer`** - Don't duplicate logic
+- ✅ **Async job-based** - Not synchronous HTTP
+- ✅ **Extend existing processor** - Don't create new service
+- ✅ **Controller enqueues job** - Returns job ID for monitoring
+- ❌ **No `HolderProfileService`** - That would be a god service
+
+---
+
+## What We Already Have (Reuse)
+
+✅ **Top Holders Fetching** - `TokenHoldersService.getTopHolders(mint)`
+- Returns: wallet addresses, supply %, rank
+- Already filters AMM pools, system wallets
+- **Use with topN=10** for performance
+
+✅ **Token Metadata** - Token enrichment job + token badge component
+- Token symbol, name, supply already available
+- Dashboard already consumes via token badge
+- **No additional work needed**
+
+✅ **Wallet Historical Analysis** - `BehaviorAnalyzer`
+- `calculateHistoricalPattern()` - median, avg hold time, behavior type
+- Already handles lifecycle tracking, re-entries
+- **Just wire it up**
+
+---
+
+## What We Need to Build
+
+### 1. Job Types (Data Structures)
+
+**File**: `src/queues/jobs/types.ts`
+
+```typescript
+export interface AnalyzeHolderProfilesJobData {
+  tokenMint: string;
+  topN: number;
+  requestId: string;
+}
+
+export interface HolderProfilesResult {
+  apiVersion: string;
+  tokenMint: string;
+  analyzedAt: number;
+  totalHolders: number;
+  holdersWithData: number;
+  holders: HolderProfile[];
+  performance: {
+    totalProcessingTimeMs: number;
+    avgTimePerHolderMs: number;
+  };
+}
+
+export interface HolderProfile {
+  walletAddress: string;
+  rank: number;
+  supplyPercent: number;
+
+  // Metrics (null if insufficient data)
+  medianHoldTimeHours: number | null;
+  avgHoldTimeHours: number | null;
+  dailyFlipRatio: number | null;
+  behaviorType: string | null;
+  exitPattern: string | null;
+
+  // Data quality (always present)
+  dataQualityTier: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+  completedCycleCount: number;
+  confidence: number;
+  insufficientDataReason?: string;
+  processingTimeMs: number;
+}
+```
+
+### 2. Processor - Extend Existing
+
+**File**: `src/queues/processors/analysis-operations.processor.ts`
+
+**Add to processJob() switch:**
+```typescript
+private async processJob(job: Job): Promise<any> {
+  const jobName = job.name;
+
+  switch (jobName) {
+    case 'analyze-pnl':
+      return this.processAnalyzePnl(job);
+    case 'analyze-behavior':
+      return this.processAnalyzeBehavior(job);
+    case 'analyze-holder-profiles':  // NEW
+      return this.processAnalyzeHolderProfiles(job);
+    // ...
+  }
+}
+```
+
+**Add job handler:**
+```typescript
+private async processAnalyzeHolderProfiles(
+  job: Job<AnalyzeHolderProfilesJobData>
+): Promise<HolderProfilesResult> {
+  const { tokenMint, topN, requestId } = job.data;
+  const startTime = Date.now();
+
+  // 1. Fetch top holders (reuse existing TokenHoldersService)
+  const topHoldersResponse = await this.tokenHoldersService.getTopHolders(tokenMint);
+
+  const wallets = topHoldersResponse.holders
+    .filter(h => h.ownerAccount)
+    .slice(0, topN)
+    .map((h, idx) => ({
+      address: h.ownerAccount,
+      rank: idx + 1,
+      supplyPercent: (h.uiAmount / totalSupply) * 100  // Calculate from response
+    }));
+
+  if (wallets.length === 0) {
+    throw new Error(`No analyzable holders found for token ${tokenMint}`);
+  }
+
+  // 2. BATCH fetch swap records for ALL wallets (avoid N+1)
+  const walletAddresses = wallets.map(w => w.address);
+  const allSwapRecords = await this.databaseService.prisma.swapAnalysisInput.findMany({
+    where: { walletAddress: { in: walletAddresses } }
+  });
+
+  // Group by wallet
+  const swapRecordsByWallet = walletAddresses.reduce((acc, address) => {
+    acc[address] = allSwapRecords.filter(r => r.walletAddress === address);
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  // 3. Analyze wallets IN PARALLEL
+  const profiles = await Promise.all(
+    wallets.map(wallet =>
+      this.analyzeWalletProfile(wallet, swapRecordsByWallet[wallet.address])
+    )
+  );
+
+  // 4. Calculate aggregate stats
+  const holdersWithData = profiles.filter(p => p.dataQualityTier !== 'INSUFFICIENT').length;
+  const totalProcessingTime = Date.now() - startTime;
+
+  return {
+    apiVersion: '1.0',
+    tokenMint,
+    analyzedAt: Math.floor(Date.now() / 1000),
+    totalHolders: profiles.length,
+    holdersWithData,
+    holders: profiles,
+    performance: {
+      totalProcessingTimeMs: totalProcessingTime,
+      avgTimePerHolderMs: Math.round(totalProcessingTime / profiles.length)
+    }
+  };
+}
+
+private async analyzeWalletProfile(
+  wallet: { address: string; rank: number; supplyPercent: number },
+  swapRecords: any[]
+): Promise<HolderProfile> {
+  const startTime = Date.now();
+
+  // Use EXISTING BehaviorAnalyzer (core service)
+  const config: BehaviorAnalysisConfig = {
+    holdingThresholds: {
+      exitThreshold: 0.20,
+      dustThreshold: 0.05,
+      minimumSolValue: 0.001,
+      minimumPercentageRemaining: 0.05,
+      minimumHoldingTimeSeconds: 60,
+    },
+    historicalPatternConfig: {
+      minimumCompletedCycles: 3,
+      maximumDataAgeDays: 90,
+    },
+  };
+
+  const analyzer = new BehaviorAnalyzer(config);
+
+  // Calculate historical pattern using EXISTING method
+  const pattern = analyzer.calculateHistoricalPattern(swapRecords, wallet.address);
+
+  if (!pattern) {
+    return {
+      walletAddress: wallet.address,
+      rank: wallet.rank,
+      supplyPercent: wallet.supplyPercent,
+      medianHoldTimeHours: null,
+      avgHoldTimeHours: null,
+      dailyFlipRatio: null,
+      behaviorType: null,
+      exitPattern: null,
+      dataQualityTier: 'INSUFFICIENT',
+      completedCycleCount: 0,
+      confidence: 0,
+      insufficientDataReason: 'Less than 3 completed token cycles',
+      processingTimeMs: Date.now() - startTime
+    };
+  }
+
+  // Calculate daily flip ratio (new helper)
+  const flipRatio = this.calculateDailyFlipRatio(analyzer, swapRecords);
+
+  // Determine data quality tier
+  const qualityTier = this.determineDataQualityTier(
+    pattern.completedCycleCount,
+    pattern.dataQuality
+  );
+
+  return {
+    walletAddress: wallet.address,
+    rank: wallet.rank,
+    supplyPercent: wallet.supplyPercent,
+    medianHoldTimeHours: pattern.medianCompletedHoldTimeHours,
+    avgHoldTimeHours: pattern.historicalAverageHoldTimeHours,
+    behaviorType: pattern.behaviorType,
+    exitPattern: pattern.exitPattern,
+    dailyFlipRatio: flipRatio.ratio,
+    completedCycleCount: pattern.completedCycleCount,
+    dataQualityTier: qualityTier,
+    confidence: pattern.dataQuality,
+    processingTimeMs: Date.now() - startTime
+  };
+}
+```
+
+**Add helper methods:**
+```typescript
+private calculateDailyFlipRatio(
+  analyzer: BehaviorAnalyzer,
+  swapRecords: any[]
+): { ratio: number; shortHolds: number; longHolds: number } {
+  // Build lifecycles using existing analyzer method
+  const sequences = analyzer['buildTokenSequences'](swapRecords);
+  const currentTimestamp = Math.floor(Date.now() / 1000);
+  const lifecycles = analyzer['buildTokenLifecycles'](sequences, currentTimestamp);
+
+  const completed = lifecycles.filter(lc => lc.positionStatus === 'EXITED');
+
+  let shortHolds = 0;  // <5 minutes
+  let longHolds = 0;   // ≥1 hour
+
+  for (const lc of completed) {
+    const minutes = lc.weightedHoldingTimeHours * 60;
+    if (minutes < 5) {
+      shortHolds++;
+    } else if (lc.weightedHoldingTimeHours >= 1) {
+      longHolds++;
+    }
+  }
+
+  const total = shortHolds + longHolds;
+  return {
+    ratio: total > 0 ? (shortHolds / total) * 100 : 0,
+    shortHolds,
+    longHolds
+  };
+}
+
+private determineDataQualityTier(
+  cycles: number,
+  confidence: number
+): 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' {
+  if (cycles >= 10 && confidence >= 0.8) return 'HIGH';
+  if (cycles >= 5 && confidence >= 0.6) return 'MEDIUM';
+  if (cycles >= 3) return 'LOW';
+  return 'INSUFFICIENT';
+}
+```
+
+### 3. Controller - Enqueue Job
+
+**File**: `src/api/controllers/analyses.controller.ts` (add to existing controller)
+
+```typescript
+@Post('/holder-profiles')
+@Throttle({ default: { limit: 10, ttl: 60000 } })
+@ApiOperation({
+  summary: 'Analyze holder profiles for a token',
+  description: 'Queues analysis of top holders. Returns job ID for monitoring.'
+})
+@HttpCode(202)
+async analyzeHolderProfiles(
+  @Body() body: { tokenMint: string; topN?: number }
+): Promise<{
+  jobId: string;
+  requestId: string;
+  status: string;
+  monitoringUrl: string;
+}> {
+  if (!body.tokenMint || !isValidSolanaAddress(body.tokenMint)) {
+    throw new BadRequestException('Valid tokenMint is required');
+  }
+
+  const requestId = `holder-profiles-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const topN = body.topN && body.topN >= 5 && body.topN <= 20 ? body.topN : 10;
+
+  // Enqueue job
+  const job = await this.analysisOperationsQueue.add(
+    'analyze-holder-profiles',
+    {
+      tokenMint: body.tokenMint,
+      topN,
+      requestId
+    },
+    {
+      priority: JobPriority.NORMAL,
+      jobId: `holder-profiles-${body.tokenMint}-${requestId}`
+    }
+  );
+
+  return {
+    jobId: job.id,
+    requestId,
+    status: 'queued',
+    monitoringUrl: `/api/v1/jobs/${job.id}`
+  };
+}
+```
+
+**Response Format:**
+```typescript
+{
+  apiVersion: "1.0",
+  tokenMint: "So11111...",
+  analyzedAt: 1699999999,
+
+  // Summary
+  totalHolders: 10,
+  holdersWithData: 7,
+  holdersWithInsufficientData: 3,
+
+  // Holders (sorted by rank)
+  holders: [
+    {
+      walletAddress: "abc...",
+      rank: 1,
+      supplyPercent: 12.3,
+
+      // Holding metrics (null if insufficient data)
+      medianHoldTimeHours: 2.5,
+      avgHoldTimeHours: 3.1,
+      dailyFlipRatio: 85,
+      behaviorType: "ULTRA_FLIPPER",
+      exitPattern: "ALL_AT_ONCE",
+
+      // Data quality (always present)
+      dataQualityTier: "HIGH",
+      completedCycleCount: 47,
+      confidence: 0.85,
+
+      // Transparency
+      insufficientDataReason: null,
+      processingTimeMs: 234
+    },
+    {
+      walletAddress: "def...",
+      rank: 2,
+      supplyPercent: 8.1,
+
+      // No metrics available
+      medianHoldTimeHours: null,
+      dataQualityTier: "INSUFFICIENT",
+      completedCycleCount: 1,
+      insufficientDataReason: "Less than 3 completed token cycles",
+      processingTimeMs: 89
+    }
+  ],
+
+  // Performance tracking
+  performance: {
+    totalProcessingTimeMs: 4231,
+    avgTimePerHolderMs: 423,
+    slowestHolderMs: 1234,
+    fastestHolderMs: 89
+  }
+}
+```
+
+---
+
+### 3. Dashboard - Progressive Loading
+
+**File**: `dashboard/src/app/tools/holder-profiles/page.tsx`
+
+**Approach: Show data as soon as available**
+
+```tsx
+const [holders, setHolders] = useState([]);
+const [isLoading, setIsLoading] = useState(false);
+
+const analyzeToken = async (mint) => {
+  setIsLoading(true);
+  setHolders([]); // Clear previous
+
+  try {
+    const response = await fetch(`/api/v1/tokens/${mint}/holder-profiles`);
+    const data = await response.json();
+
+    // Show all holders at once (backend already optimized)
+    setHolders(data.holders);
+  } finally {
+    setIsLoading(false);
+  }
+};
+```
+
+**Table Component:**
+```tsx
+<HolderProfilesTable holders={holders}>
+  {holders.map(holder => (
+    <TableRow key={holder.walletAddress}>
+      <TableCell>{holder.rank}</TableCell>
+      <TableCell>
+        <WalletAddress address={holder.walletAddress} />
+      </TableCell>
+      <TableCell>{holder.supplyPercent.toFixed(2)}%</TableCell>
+
+      {/* Metrics - show if available */}
+      <TableCell>
+        {holder.dataQualityTier !== 'INSUFFICIENT' ? (
+          formatHoldTime(holder.medianHoldTimeHours)
+        ) : (
+          <Tooltip content={holder.insufficientDataReason}>
+            <Badge variant="outline">No Data</Badge>
+          </Tooltip>
+        )}
+      </TableCell>
+
+      {/* Data quality badge */}
+      <TableCell>
+        <DataQualityBadge
+          tier={holder.dataQualityTier}
+          cycles={holder.completedCycleCount}
+        />
+      </TableCell>
+    </TableRow>
+  ))}
+</HolderProfilesTable>
+```
+
+**Data Quality Badge:**
+```tsx
+function DataQualityBadge({ tier, cycles }) {
+  const config = {
+    HIGH: { color: 'green', label: 'High', icon: '✓' },
+    MEDIUM: { color: 'yellow', label: 'Medium', icon: '~' },
+    LOW: { color: 'orange', label: 'Low', icon: '!' },
+    INSUFFICIENT: { color: 'red', label: 'Insufficient', icon: '✗' }
+  };
+
+  const { color, label, icon } = config[tier];
+
+  return (
+    <Tooltip content={`${cycles} completed cycles`}>
+      <Badge variant={color}>
+        {icon} {label}
+      </Badge>
+    </Tooltip>
+  );
+}
+```
+
+---
+
+## Implementation Checklist
+
+### Day 1: Backend Service (6-8h)
+
+- [ ] Create `HolderProfileService`
+- [ ] Implement `batchFetchSwapRecords()` - single query for all wallets
+- [ ] Implement `getTokenHolderProfiles()` - orchestrator
+- [ ] Implement `analyzeWalletProfile()` - per-wallet analysis
+- [ ] Implement `calculateDailyFlipRatio()` - NEW metric
+- [ ] Implement `determineDataQualityTier()` - HIGH/MEDIUM/LOW/INSUFFICIENT
+- [ ] Add performance tracking (processing time per wallet)
+- [ ] Use `Promise.all()` for parallel wallet analysis
+- [ ] Unit test for quality tiers and flip ratio
+
+### Day 2: API Endpoint (4h)
+
+- [ ] Create `HolderProfileController`
+- [ ] Endpoint: `GET /api/v1/tokens/:mint/holder-profiles`
+- [ ] Add to `ApiModule` (providers + controllers)
+- [ ] Create response DTOs
+- [ ] Test with curl on 3 tokens (fast, slow, no data)
+- [ ] Verify batch query optimization (check SQL logs)
+- [ ] Verify parallel processing (should be ~10x faster than sequential)
+
+### Day 3: Dashboard UI (6h)
+
+- [ ] Create page: `dashboard/src/app/tools/holder-profiles/page.tsx`
+- [ ] Create `HolderProfilesTable` component
+  - [ ] Show wallet, rank, supply %
+  - [ ] Show median, avg, flip ratio (or "No Data")
+  - [ ] Show data quality badge with tooltip
+  - [ ] Show processing time per wallet
+- [ ] Create `DataQualityBadge` component
+- [ ] Create `useHolderProfiles` hook
+- [ ] Add TypeScript types
+- [ ] Handle loading states
+- [ ] Handle errors gracefully
+
+### Day 4: Testing & Optimization (2-4h)
+
+- [ ] Test with 5 real tokens
+- [ ] Test edge cases:
+  - [ ] All holders have insufficient data
+  - [ ] Mix of HIGH/MEDIUM/LOW/INSUFFICIENT
+  - [ ] Very slow wallets (500k+ transactions)
+- [ ] Verify performance:
+  - [ ] Total time <15s for 10 holders
+  - [ ] No N+1 queries (check DB logs)
+  - [ ] Parallel processing working
+- [ ] Add performance monitoring to logs
+- [ ] Document API in Swagger
+
+---
+
+## Key Optimizations
+
+1. ✅ **Batch DB fetch** - Single query for all wallets (not N queries)
+2. ✅ **Parallel processing** - `Promise.all()` for wallet analysis
+3. ✅ **Top 10 only** - Not 20-50 (faster, more relevant)
+4. ✅ **Performance tracking** - Know which wallets are slow
+5. ✅ **Transparent data quality** - Users know when data is insufficient
+6. ✅ **Reuse existing services** - TokenHoldersService, BehaviorAnalyzer
+
+---
+
+## After Phase 3
+- **Phase 2B**: Add validation infrastructure (store predictions, track accuracy)
+- **Phase 4**: Add Token Death Meter (aggregate predictions)
 
 ---
 

@@ -9,7 +9,7 @@ import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
 import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operations.queue';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
-import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
+import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData, AnalyzeHolderProfilesJobData } from '../../queues/jobs/types';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
 import { JobPriority } from '../../queues/config/queue.config';
@@ -458,6 +458,98 @@ export class AnalysesController {
         throw error;
       }
       throw new InternalServerErrorException('Failed to queue dashboard analysis job');
+    }
+  }
+
+  @Post('/holder-profiles')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Queue holder profiles analysis job',
+    description: 'Analyzes holding behavior for top holders of a token. Returns job ID for monitoring via websockets.'
+  })
+  @ApiResponse({
+    status: 202,
+    description: 'Holder profiles analysis job queued successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        jobId: { type: 'string', description: 'Unique job identifier for tracking' },
+        requestId: { type: 'string', description: 'Request identifier for this analysis' },
+        status: { type: 'string', enum: ['queued'], description: 'Initial job status' },
+        queueName: { type: 'string', example: 'analysis-operations' },
+        tokenMint: { type: 'string', description: 'Token mint address' },
+        topN: { type: 'number', description: 'Number of top holders to analyze' },
+        estimatedProcessingTime: { type: 'string', description: 'Estimated time to complete' },
+        monitoringUrl: { type: 'string', description: 'URL to monitor job status' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid token mint address or parameters' })
+  @HttpCode(202)
+  async queueHolderProfilesAnalysis(
+    @Body() body: { tokenMint: string; topN?: number },
+  ): Promise<{
+    jobId: string;
+    requestId: string;
+    status: string;
+    queueName: string;
+    tokenMint: string;
+    topN: number;
+    estimatedProcessingTime: string;
+    monitoringUrl: string;
+  }> {
+    const topN = body.topN || 10;
+    this.logger.log(`Received holder profiles analysis request for token ${body.tokenMint} [topN=${topN}]`);
+
+    if (!body.tokenMint || !isValidSolanaAddress(body.tokenMint)) {
+      throw new BadRequestException(`Invalid token mint address: ${body.tokenMint}`);
+    }
+
+    if (topN < 1 || topN > 50) {
+      throw new BadRequestException('topN must be between 1 and 50');
+    }
+
+    try {
+      // Generate request ID
+      const requestId = `holder-profiles-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Prepare job data
+      const jobData: AnalyzeHolderProfilesJobData = {
+        tokenMint: body.tokenMint,
+        topN,
+        requestId,
+      };
+
+      // Add job to analysis operations queue
+      const job = await this.analysisOperationsQueue.addHolderProfilesJob(jobData, {
+        priority: 5,
+        delay: 0,
+      });
+
+      // Calculate estimated processing time (roughly 1-2 seconds per wallet)
+      const estimatedSeconds = topN * 1.5;
+      const estimatedTime = estimatedSeconds > 60
+        ? `${Math.round(estimatedSeconds / 60)} minute(s)`
+        : `${Math.round(estimatedSeconds)} seconds`;
+
+      this.logger.log(`Queued holder profiles analysis job ${job.id} for token ${body.tokenMint} with ${topN} holders`);
+
+      return {
+        jobId: job.id!,
+        requestId,
+        status: 'queued',
+        queueName: 'analysis-operations',
+        tokenMint: body.tokenMint,
+        topN,
+        estimatedProcessingTime: estimatedTime,
+        monitoringUrl: `/jobs/${job.id}`,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to queue holder profiles analysis:`, error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to queue holder profiles analysis job');
     }
   }
 } 
