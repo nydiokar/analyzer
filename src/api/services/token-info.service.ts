@@ -6,15 +6,17 @@ import { DexscreenerService } from '../services/dexscreener.service';
 import { IPriceProvider } from '../../types/price-provider.interface';
 import { ITokenInfoService } from '../../types/token-info-service.interface';
 import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../core/services/onchain-metadata.service';
+import { HeliusApiClient } from '../../core/services/helius-api-client';
 
 /**
  * TokenInfoService - Unified Token Information & Price Management
- * 
+ *
  * This service is the single source of truth for:
  * - Live token & SOL prices (cached in Redis, 30s TTL)
+ * - Token supply (cached permanently - immutable data)
  * - Token metadata persistence (database)
  * - Token enrichment operations
- * 
+ *
  * Price fetching is abstracted through IPriceProvider, making it easy
  * to swap data sources (Dexscreener, Bird.io, CoinGecko, etc.)
  */
@@ -28,6 +30,7 @@ export class TokenInfoService implements ITokenInfoService {
     private readonly dexscreenerService: DexscreenerService, // Legacy, for backwards compatibility
     @Inject('IPriceProvider') private readonly priceProvider: IPriceProvider,
     private readonly onchainMetadataService: OnchainMetadataService, // NEW: Onchain metadata enrichment
+    private readonly heliusApiClient: HeliusApiClient, // For fetching token supply
   ) {
     this.redis = new Redis({
       host: process.env.REDIS_HOST || 'localhost',
@@ -66,8 +69,47 @@ export class TokenInfoService implements ITokenInfoService {
   }
 
   /**
+   * Get token supply (cached permanently - supply doesn't change for immutable tokens)
+   * Token supply is immutable blockchain data, so we cache it indefinitely
+   *
+   * @param tokenMint The token mint address
+   * @returns Promise resolving to token supply (uiAmount), or undefined if not available
+   */
+  async getTokenSupply(tokenMint: string): Promise<number | undefined> {
+    const cacheKey = `token_supply:${tokenMint}`;
+
+    // Try cache first (no TTL - supply is immutable)
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      const supply = parseFloat(cached);
+      this.logger.debug(`[Token Supply] Cache hit for ${tokenMint}: ${supply}`);
+      return supply;
+    }
+
+    // Cache miss - fetch from Helius RPC
+    this.logger.debug(`[Token Supply] Cache miss for ${tokenMint}, fetching from RPC`);
+    try {
+      const supplyResult = await this.heliusApiClient.getTokenSupply(tokenMint);
+      const supply = supplyResult.value.uiAmount;
+
+      if (supply !== null && supply !== undefined) {
+        // Cache WITHOUT TTL (supply is immutable for most tokens)
+        await this.redis.set(cacheKey, supply.toString());
+        this.logger.log(`[Token Supply] Fetched and cached ${tokenMint}: ${supply} (permanent cache)`);
+        return supply;
+      }
+
+      this.logger.warn(`[Token Supply] No supply data for ${tokenMint}`);
+      return undefined;
+    } catch (error) {
+      this.logger.error(`[Token Supply] Failed to fetch for ${tokenMint}:`, error);
+      return undefined;
+    }
+  }
+
+  /**
    * Get token price in USD (cached in Redis with 30s TTL)
-   * 
+   *
    * @param tokenMint The token mint address
    * @returns Promise resolving to token price in USD, or undefined if not available
    */

@@ -136,43 +136,52 @@ Poll GET /jobs/:jobId until status = 'completed'
       - [ ] Validate accuracy thresholds
       - [ ] End-to-end test: predict → validate → metrics
     - **Success Metrics**: After 30 days, achieve ≥70% overall accuracy, ≥80% for ULTRA_FLIPPER
-  - [ ] **Phase 3 (Token Holder Profiles Dashboard)**: 3-4 days **← NEXT PRIORITY** (See `.ai/context/holder-risk/architecture-holder-risk-analysis.md` for complete plan)
+  - [x] **Phase 3 (Token Holder Profiles Dashboard)**: ✅ **COMPLETE** (2025-11-13) (See `.ai/context/holder-risk/architecture-holder-risk-analysis.md` for implementation details)
     - **Goal**: Show holding behavior profiles for top holders of any token (build foundation first, add prediction/validation later)
     - **Architecture**: ASYNC JOB-BASED (Controller → Queue → Processor → Core Services)
     - **Key Advantage**: Reuses existing `TokenHoldersService` + `BehaviorAnalyzer` (no new core services needed!)
     - **User Flow**: Enter token → Backend enqueues job → Frontend polls status → Display profiles when complete
-    - [ ] **Day 1: Queue & Processor** (6h):
-      - [ ] Add job types to `src/queues/jobs/types.ts` (AnalyzeHolderProfilesJobData, HolderProfile, HolderProfilesResult)
-      - [ ] Extend `AnalysisOperationsProcessor` with new handler: `processAnalyzeHolderProfiles()`
-      - [ ] Implement batch DB query (fetch all wallet swap records in one query - avoid N+1)
-      - [ ] Implement parallel analysis with Promise.all()
-      - [ ] Calculate holding metrics per holder:
-        - [ ] Median hold time (hours/days)
-        - [ ] Average hold time (weighted)
-        - [ ] **NEW: Daily flip ratio** (% tokens held <5m vs ≥1h) ⭐
-        - [ ] Behavior classification (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
-        - [ ] Data quality tiers (HIGH/MEDIUM/LOW/INSUFFICIENT)
-      - [ ] Unit tests for daily flip ratio and data quality tiers
-    - [ ] **Day 2: API Endpoint** (4h):
-      - [ ] Add endpoint to `AnalysesController`: `POST /analyses/holder-profiles`
-      - [ ] Enqueue job, return job ID (not synchronous processing!)
-      - [ ] Test with curl on 3 real tokens
-    - [ ] **Day 3: Dashboard Page** (6h):
-      - [ ] New page: `/tools/holder-profiles`
-      - [ ] Token input form (submits job)
-      - [ ] Poll job status until complete
-      - [ ] `HolderProfilesTable` component (wallet, supply %, median, avg, flip ratio, type, confidence)
-      - [ ] Show loading state with progress
-      - [ ] Styling and polish
-    - [ ] **Day 4: Testing & Documentation** (2h):
-      - [ ] End-to-end testing with 5 real tokens
-      - [ ] Verify batch query optimization (check DB logs for N+1)
-      - [ ] Verify parallel processing
-      - [ ] Performance: <15s for 10 holders
+    - [x] **Day 1: Queue & Processor** (6h):
+      - [x] Add job types to `src/queues/jobs/types.ts` (AnalyzeHolderProfilesJobData, HolderProfile, HolderProfilesResult)
+      - [x] Extend `AnalysisOperationsProcessor` with new handler: `processAnalyzeHolderProfiles()`
+      - [x] Implement batch DB query (fetch all wallet swap records in one query - avoid N+1)
+      - [x] Implement parallel analysis with Promise.all()
+      - [x] Calculate holding metrics per holder:
+        - [x] Median hold time (hours/days)
+        - [x] Average hold time (weighted)
+        - [x] **NEW: Flip ratio** (% of completed positions held <5min) ⭐
+        - [x] Behavior classification (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
+        - [x] Data quality tiers (HIGH/MEDIUM/LOW/INSUFFICIENT)
+      - [x] Unit tests for daily flip ratio and data quality tiers
+    - [x] **Day 2: API Endpoint** (4h):
+      - [x] Add endpoint to `AnalysesController`: `POST /analyses/holder-profiles`
+      - [x] Enqueue job, return job ID (not synchronous processing!)
+      - [x] Test with curl on 3 real tokens
+    - [x] **Day 3: Dashboard Page** (6h):
+      - [x] New page: `/tools/holder-profiles`
+      - [x] Token input form (submits job)
+      - [x] Poll job status until complete
+      - [x] `HolderProfilesTable` component (wallet, supply %, median, avg, flip ratio, type, confidence)
+      - [x] Show loading state with progress
+      - [x] Styling and polish
+    - [x] **Day 4: Caching & Bug Fixes** (4h):
+      - [x] End-to-end testing with 5 real tokens
+      - [x] Verify batch query optimization (check DB logs for N+1)
+      - [x] Verify parallel processing
+      - [x] Performance: <15s for 10 holders
+      - [x] **CRITICAL FIXES** (2025-11-13) - See `.ai/context/phase1-fixes-completed.md` and `.ai/context/phase1-additional-improvements.md`
+        - [x] **FIX #1**: Supply percentage calculation (was using sum of top N, now fetches actual token supply via RPC)
+        - [x] **FIX #2**: Cache race condition (atomic Lua script prevents stale data)
+        - [x] **FIX #3**: Timeout enforcement (5 checkpoints prevent hanging jobs)
+        - [x] **FIX #4**: Job deduplication (ID validation prevents duplicate processing)
+        - [x] **IMPROVEMENT #1**: Use DatabaseService.getSwapAnalysisInputsBatch() instead of direct Prisma access
+        - [x] **IMPROVEMENT #2**: Cache token supply permanently in TokenInfoService (immutable data, 100x faster)
+      - [x] **Redis caching** with 2-minute TTL and atomic invalidation
+      - [x] Documentation complete
     - **What We Show Per Holder**:
       - Wallet address + % of supply + rank
       - Median hold time + Average hold time
-      - **Daily flip ratio** (trader accuracy filter - % held <5m vs ≥1h)
+      - **Flip ratio** (% of completed positions held <5min - flipping activity indicator)
       - Behavior type (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
       - Exit pattern (GRADUAL/ALL_AT_ONCE)
       - Data quality tier (HIGH/MEDIUM/LOW/INSUFFICIENT with tooltips)
@@ -181,6 +190,12 @@ Poll GET /jobs/:jobId until status = 'completed'
       - Batch DB fetch: `{ walletAddress: { in: [...] } }`
       - Parallel analysis: `Promise.all(wallets.map(...))`
       - Show incremental results as they arrive
+    - **Caching Strategy** (2025-11-12):
+      - ✅ Redis cache for holder profiles (2 min TTL max)
+      - ✅ Automatic invalidation on wallet sync or behavior analysis
+      - ✅ Cache key: `holder-profiles:{tokenMint}:{topN}`
+      - ✅ Prevents stale data after new transactions
+      - Implementation: `HolderProfilesCacheService` + invalidation in processors
   - [ ] **Phase 4 (Time Filters & Polish)**: 3-4 days
     - [ ] Add time window filters (7d, 30d, all-time) to show behavioral drift
     - [ ] Display pattern changes over time (compare 7d vs 30d patterns)

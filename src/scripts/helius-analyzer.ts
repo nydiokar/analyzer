@@ -174,7 +174,7 @@ async function analyzeWalletWithHelius() {
     throw new Error('HeliusApiClient is required for TokenInfoService (needed for OnchainMetadataService)');
   }
   const onchainMetadataService = new OnchainMetadataService(heliusApiClient);
-  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService, dexscreenerProvider, onchainMetadataService);
+  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService, dexscreenerProvider, onchainMetadataService, heliusApiClient);
   const pnlAnalysisService = new PnlAnalysisService(dbService, heliusApiClient, tokenInfoService);
   
   // Use undefined instead of null for optional service dependencies

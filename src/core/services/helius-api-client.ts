@@ -1330,6 +1330,44 @@ export class HeliusApiClient {
   }
 
   /**
+   * Get the total supply of a token (SPL token)
+   *
+   * @param mintPubkey The base-58 encoded token mint address
+   * @param commitment Optional commitment level (e.g., "finalized", "confirmed")
+   * @returns Promise resolving to token supply information
+   */
+  public async getTokenSupply(
+    mintPubkey: string,
+    commitment?: string
+  ): Promise<{ context: { slot: number }; value: { amount: string; decimals: number; uiAmount: number | null; uiAmountString: string } }> {
+    if (!mintPubkey) {
+      throw new Error('mintPubkey is required for getTokenSupply.');
+    }
+
+    const params: any[] = [mintPubkey];
+    const options: { commitment?: string } = {};
+    if (commitment) options.commitment = commitment;
+    if (Object.keys(options).length > 0) params.push(options);
+
+    logger.debug(`Fetching token supply for mint ${mintPubkey}`, options);
+
+    try {
+      const result = await this.makeRpcRequest<{ context: { slot: number }; value: { amount: string; decimals: number; uiAmount: number | null; uiAmountString: string } }>(
+        'getTokenSupply',
+        params
+      );
+      logger.debug(`Successfully fetched token supply for mint ${mintPubkey}: ${result.value.uiAmount}`);
+      return result;
+    } catch (error) {
+      logger.error(
+        `Failed to fetch token supply for mint ${mintPubkey}`,
+        { error: this.sanitizeError(error), mintPubkey, options }
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Fetch multiple assets using Helius DAS API (Digital Asset Standard)
    * Supports up to 1000 assets per call
    *

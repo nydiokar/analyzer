@@ -36,6 +36,7 @@ import { TokenInfoModule } from '../api/integrations/token-info.module';
 import { DexscreenerModule } from '../api/integrations/dexscreener.module';
 import { WebSocketModule } from '../api/modules/websocket.module';
 import { BalanceCacheModule } from '../api/modules/balance-cache.module';
+import { HolderProfilesCacheModule } from '../api/modules/holder-profiles-cache.module';
 import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
 
@@ -72,6 +73,7 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     DexscreenerModule, // Provides DexscreenerService
     WebSocketModule,   // Provides JobProgressGateway
     BalanceCacheModule, // Provides BalanceCacheService
+    HolderProfilesCacheModule, // Provides HolderProfilesCacheService
   ],
   
   providers: [

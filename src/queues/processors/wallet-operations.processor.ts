@@ -10,6 +10,7 @@ import { DatabaseService } from '../../api/services/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { JobEventsBridgeService } from '../services/job-events-bridge.service';
 import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
+import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
 
 @Injectable()
 export class WalletOperationsProcessor implements OnModuleDestroy {
@@ -20,7 +21,8 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
     private readonly redisLockService: RedisLockService,
     private readonly heliusSyncService: HeliusSyncService,
     private readonly databaseService: DatabaseService,
-    private readonly heliusApiClient: HeliusApiClient
+    private readonly heliusApiClient: HeliusApiClient,
+    private readonly holderProfilesCacheService: HolderProfilesCacheService,
   ) {
     const config = QueueConfigs[QueueNames.WALLET_OPERATIONS];
     
@@ -141,6 +143,9 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime
       };
+
+      // 🔄 Invalidate holder profiles cache for this wallet (prevents stale data)
+      await this.holderProfilesCacheService.invalidateForWallet(walletAddress);
 
       this.logger.log(`Wallet sync completed for ${walletAddress}.`);
       return result;

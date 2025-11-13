@@ -17,6 +17,7 @@ import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenHoldersService } from '../../api/services/token-holders.service';
+import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
@@ -42,6 +43,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly jobProgressGateway: JobProgressGateway,
     private readonly tokenInfoService: TokenInfoService,
     private readonly tokenHoldersService: TokenHoldersService,
+    private readonly holderProfilesCacheService: HolderProfilesCacheService,
     private readonly telegramAlerts: TelegramAlertsService,
     private readonly dexscreenerService: DexscreenerService,
     private readonly balanceCacheService: BalanceCacheService,
@@ -231,6 +233,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime
       };
+
+      // 🔄 Invalidate holder profiles cache for this wallet (behavioral metrics updated)
+      await this.holderProfilesCacheService.invalidateForWallet(walletAddress);
 
       this.logger.log(`Behavior analysis completed for ${walletAddress}`);
       return result;
@@ -629,14 +634,55 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const startTime = Date.now();
     const timeoutMs = 5 * 60 * 1000; // 5 minutes timeout
 
+    // ✅ FIX #4: Add job deduplication check (like other processors)
+    const expectedJobId = `holder-profiles-${tokenMint}-${topN}-${requestId}`;
+    if (job.id !== expectedJobId) {
+      this.logger.warn(`Job ID mismatch: expected ${expectedJobId}, got ${job.id}`);
+      throw new Error('Job ID mismatch - possible duplicate');
+    }
+
     this.logger.log(`Starting holder profiles analysis for token ${tokenMint} [topN=${topN}]`);
 
     try {
+      // 🔍 Check cache first (2 min TTL)
+      const cachedResult = await this.holderProfilesCacheService.getCachedResult(tokenMint, topN);
+      if (cachedResult) {
+        this.logger.log(`✅ Returning cached holder profiles for ${tokenMint} (topN=${topN})`);
+        await job.updateProgress(100);
+        return cachedResult;
+      }
+
+      // ✅ FIX #3: Add timeout enforcement
+      this.checkTimeout(startTime, timeoutMs, 'Starting holder profiles analysis');
       await job.updateProgress(5);
 
       // 1. Fetch top holders using existing service
       this.logger.debug(`Fetching top ${topN} holders for ${tokenMint}...`);
       const topHoldersResponse = await this.tokenHoldersService.getTopHolders(tokenMint);
+
+      this.checkTimeout(startTime, timeoutMs, 'Fetching top holders');
+      await job.updateProgress(10);
+
+      // ✅ FIX #1: Fetch actual token supply (CACHED - immutable data)
+      this.logger.debug(`Fetching actual token supply for ${tokenMint}...`);
+      let actualTotalSupply: number;
+      try {
+        const cachedSupply = await this.tokenInfoService.getTokenSupply(tokenMint);
+        if (cachedSupply !== undefined) {
+          actualTotalSupply = cachedSupply;
+          this.logger.debug(`Token ${tokenMint} total supply (cached): ${actualTotalSupply}`);
+        } else {
+          this.logger.warn(`Failed to fetch token supply for ${tokenMint}, falling back to sum of holders`);
+          // Fallback: sum of all holders (not just topN) as best effort
+          actualTotalSupply = topHoldersResponse.holders.reduce((sum, h) => sum + (h.uiAmount || 0), 0);
+        }
+      } catch (supplyError) {
+        this.logger.warn(`Error fetching token supply for ${tokenMint}, falling back to sum of holders:`, supplyError);
+        // Fallback: sum of all holders (not just topN) as best effort
+        actualTotalSupply = topHoldersResponse.holders.reduce((sum, h) => sum + (h.uiAmount || 0), 0);
+      }
+
+      this.checkTimeout(startTime, timeoutMs, 'Fetching token supply');
       await job.updateProgress(15);
 
       // Limit to topN and extract wallet addresses
@@ -666,16 +712,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(20);
 
       // 2. BATCH fetch swap records for ALL wallets (avoid N+1 queries)
+      // ✅ Use DatabaseService method instead of direct Prisma access
       this.logger.debug(`Batch fetching swap records for ${walletAddresses.length} wallets...`);
-      const allSwapRecords = await this.databaseService.prisma.swapAnalysisInput.findMany({
-        where: {
-          walletAddress: { in: walletAddresses },
-        },
-        orderBy: [
-          { walletAddress: 'asc' },
-          { timestamp: 'asc' },
-        ],
-      });
+      const allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletAddresses);
+
+      this.checkTimeout(startTime, timeoutMs, 'Fetching swap records');
       await job.updateProgress(40);
 
       // Group swap records by wallet address
@@ -699,11 +740,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         const walletStartTime = Date.now();
         const swapRecords = swapRecordsByWallet[holder.ownerAccount] || [];
 
+        // Calculate percentage of supply using ACTUAL total supply
+        const supplyPercent = actualTotalSupply > 0 ? ((holder.uiAmount || 0) / actualTotalSupply) * 100 : 0;
+
         try {
           const profile = await this.analyzeWalletProfile(
             holder.ownerAccount,
             holder.rank,
-            holder.uiAmount ?? 0,
+            supplyPercent,
             swapRecords,
           );
 
@@ -718,6 +762,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       });
 
       const profiles = (await Promise.all(profilePromises)).filter(p => p !== null);
+
+      this.checkTimeout(startTime, timeoutMs, 'Completing analysis');
       await job.updateProgress(95);
 
       this.logger.log(`Completed analyzing ${profiles.length}/${walletAddresses.length} holders for ${tokenMint}`);
@@ -740,6 +786,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       await job.updateProgress(100);
       this.logger.log(`Holder profiles analysis for ${tokenMint} completed in ${result.processingTimeMs}ms`);
+
+      // 💾 Cache the result (2 min TTL)
+      await this.holderProfilesCacheService.cacheResult(tokenMint, topN, result);
 
       return result;
     } catch (error) {
@@ -939,7 +988,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * Calculate daily flip ratio: % of tokens held <5min vs ≥1h
+   * Calculate daily flip ratio: % of tokens held <5min (vs all tokens)
+   * This measures flipping activity - what percentage of positions are ultra-short term
    */
   private calculateDailyFlipRatio(behaviorResult: any): { ratio: number } {
     const lifecycles = behaviorResult?.tokenLifecycles || [];
@@ -950,21 +1000,17 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     }
 
     let shortHolds = 0;  // <5 minutes
-    let longHolds = 0;   // ≥1 hour
 
     for (const lc of completed) {
       const minutes = lc.weightedHoldingTimeHours * 60;
       if (minutes < 5) {
         shortHolds++;
-      } else if (lc.weightedHoldingTimeHours >= 1) {
-        longHolds++;
       }
     }
 
-    const total = shortHolds + longHolds;
-    if (total === 0) return { ratio: 0 };
-
-    return { ratio: (shortHolds / total) * 100 };
+    // Ratio is: (short holds / total completed) * 100
+    // This shows what % of their positions are ultra-short flips
+    return { ratio: (shortHolds / completed.length) * 100 };
   }
 
   /**

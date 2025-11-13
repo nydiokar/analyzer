@@ -105,7 +105,7 @@ export class WalletAnalysisCommands {
       throw new Error('HeliusApiClient is required for TokenInfoService (needed for OnchainMetadataService)');
     }
     const onchainMetadataService = new OnchainMetadataService(this.heliusApiClient);
-    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService, dexscreenerProvider, onchainMetadataService);
+    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService, dexscreenerProvider, onchainMetadataService, this.heliusApiClient);
 
     this.pnlAnalysisService = new PnlAnalysisService(this.databaseService, this.heliusApiClient, tokenInfoService); 
     

@@ -1480,6 +1480,42 @@ export class DatabaseService {
     }
 
     /**
+     * Batch fetch swap analysis inputs for multiple wallets
+     * Used by holder profiles analysis to avoid N+1 queries
+     * @param walletAddresses Array of wallet addresses to fetch swaps for
+     * @returns Array of swap analysis inputs sorted by wallet and timestamp
+     */
+    async getSwapAnalysisInputsBatch(
+        walletAddresses: string[]
+    ): Promise<SwapAnalysisInput[]> {
+        this.logger.debug(`Batch fetching SwapAnalysisInputs for ${walletAddresses.length} wallets`);
+
+        if (walletAddresses.length === 0) {
+            return [];
+        }
+
+        try {
+            return await this.executeWithRetry('swapAnalysisInput.findMany (batch)', async () => {
+                const inputs = await this.prismaClient.swapAnalysisInput.findMany({
+                    where: {
+                        walletAddress: { in: walletAddresses },
+                    },
+                    orderBy: [
+                        { walletAddress: 'asc' },
+                        { timestamp: 'asc' },
+                    ],
+                });
+
+                this.logger.debug(`Batch fetched ${inputs.length} SwapAnalysisInput records for ${walletAddresses.length} wallets`);
+                return inputs;
+            });
+        } catch (error) {
+            this.logger.error(`Error batch fetching SwapAnalysisInputs for ${walletAddresses.length} wallets`, { error });
+            throw error;
+        }
+    }
+
+    /**
      * Retrieves transactions (SwapAnalysisInput) suitable for correlation/similarity analysis.
      * Handles fetching for multiple wallets and applying AnalysisConfig filters.
      * @param walletAddresses Array of wallet addresses.
