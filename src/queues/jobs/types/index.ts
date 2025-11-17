@@ -152,7 +152,8 @@ export interface HolderProfile {
   supplyPercent: number;
   medianHoldTimeHours: number | null;
   avgHoldTimeHours: number | null;
-  dailyFlipRatio: number | null;        // Percentage of tokens held <5min vs ≥1h
+  dailyFlipRatio: number | null;        // Percentage of completed positions held <5min
+  dailyFlipRatioConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';  // Based on sample size
   behaviorType: string | null;          // ULTRA_FLIPPER, FLIPPER, SWING_TRADER, HOLDER
   exitPattern: string | null;           // GRADUAL, ALL_AT_ONCE
   dataQualityTier: DataQualityTier;

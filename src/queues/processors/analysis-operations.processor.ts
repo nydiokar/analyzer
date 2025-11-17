@@ -960,6 +960,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         medianHoldTimeHours: historicalPattern.medianCompletedHoldTimeHours,
         avgHoldTimeHours: historicalPattern.historicalAverageHoldTimeHours,
         dailyFlipRatio: flipRatioResult.ratio,
+        dailyFlipRatioConfidence: flipRatioResult.confidence,
         behaviorType: historicalPattern.behaviorType,
         exitPattern: historicalPattern.exitPattern,
         dataQualityTier,
@@ -976,6 +977,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         medianHoldTimeHours: null,
         avgHoldTimeHours: null,
         dailyFlipRatio: null,
+        dailyFlipRatioConfidence: 'NONE',
         behaviorType: null,
         exitPattern: null,
         dataQualityTier: 'INSUFFICIENT' as const,
@@ -988,15 +990,17 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * Calculate daily flip ratio: % of tokens held <5min (vs all tokens)
+   * Calculate daily flip ratio: % of completed positions held <5min
    * This measures flipping activity - what percentage of positions are ultra-short term
+   * Returns ratio (0-100) and confidence level based on sample size
    */
-  private calculateDailyFlipRatio(behaviorResult: any): { ratio: number } {
+  private calculateDailyFlipRatio(behaviorResult: any): { ratio: number; confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' } {
     const lifecycles = behaviorResult?.tokenLifecycles || [];
     const completed = lifecycles.filter((lc: any) => lc.positionStatus === 'EXITED');
 
+    // No completed positions - cannot calculate ratio
     if (completed.length === 0) {
-      return { ratio: 0 };
+      return { ratio: 0, confidence: 'NONE' };
     }
 
     let shortHolds = 0;  // <5 minutes
@@ -1008,9 +1012,27 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
     }
 
-    // Ratio is: (short holds / total completed) * 100
+    // Calculate ratio: (short holds / total completed) * 100
     // This shows what % of their positions are ultra-short flips
-    return { ratio: (shortHolds / completed.length) * 100 };
+    const ratio = (shortHolds / completed.length) * 100;
+
+    // Determine confidence based on sample size
+    // HIGH: ≥10 completed cycles (reliable pattern)
+    // MEDIUM: 5-9 completed cycles (decent sample)
+    // LOW: 3-4 completed cycles (minimum viable)
+    // NONE: <3 completed cycles (insufficient data)
+    let confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+    if (completed.length >= 10) {
+      confidence = 'HIGH';
+    } else if (completed.length >= 5) {
+      confidence = 'MEDIUM';
+    } else if (completed.length >= 3) {
+      confidence = 'LOW';
+    } else {
+      confidence = 'NONE';
+    }
+
+    return { ratio, confidence };
   }
 
   /**

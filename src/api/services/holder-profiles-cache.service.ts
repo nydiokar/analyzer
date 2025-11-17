@@ -12,27 +12,67 @@ export class HolderProfilesCacheService {
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379'),
       maxRetriesPerRequest: 3,
+      lazyConnect: true,
+      retryStrategy: (times) => {
+        if (times > 3) {
+          this.logger.error('❌ Redis connection failed after 3 attempts - gracefully degrading to no cache');
+          return null; // Stop retrying
+        }
+        const delay = Math.min(times * 100, 3000);
+        this.logger.warn(`⚠️ Redis connection attempt ${times}/3, retrying in ${delay}ms...`);
+        return delay;
+      },
+    });
+
+    // Connection event handlers for observability
+    this.redis.on('error', (err) => {
+      this.logger.error('❌ Redis connection error (gracefully degrading to no cache):', err.message);
+    });
+
+    this.redis.on('connect', () => {
+      this.logger.log('✅ Redis connected successfully for holder profiles cache');
+    });
+
+    this.redis.on('ready', () => {
+      this.logger.log('✅ Redis ready for holder profiles cache operations');
+    });
+
+    this.redis.on('close', () => {
+      this.logger.warn('⚠️ Redis connection closed - cache operations will gracefully degrade');
+    });
+
+    this.redis.on('reconnecting', () => {
+      this.logger.log('🔄 Redis reconnecting...');
     });
   }
 
   /**
    * Get cached holder profiles result
    * TTL: 2 minutes maximum (as requested)
+   * Gracefully degrades to null on Redis errors (no cache mode)
    */
   async getCachedResult(tokenMint: string, topN: number): Promise<HolderProfilesResult | null> {
     const cacheKey = `holder-profiles:${tokenMint}:${topN}`;
+    const startTime = Date.now();
 
     try {
       const cached = await this.redis.get(cacheKey);
+      const duration = Date.now() - startTime;
+
       if (cached) {
-        this.logger.debug(`✅ Cache hit for holder profiles: ${tokenMint} (topN=${topN})`);
+        this.logger.debug(`✅ Cache HIT: ${cacheKey} (${duration}ms)`);
+        // TODO: Emit metric for monitoring (cache hit rate)
         return JSON.parse(cached);
       }
 
-      this.logger.debug(`❌ Cache miss for holder profiles: ${tokenMint} (topN=${topN})`);
+      this.logger.debug(`❌ Cache MISS: ${cacheKey} (${duration}ms)`);
+      // TODO: Emit metric for monitoring (cache miss rate)
       return null;
     } catch (error) {
-      this.logger.error(`Error reading cache for ${tokenMint}:`, error);
+      const duration = Date.now() - startTime;
+      this.logger.warn(`⚠️ Cache read failed for ${cacheKey} (${duration}ms), proceeding without cache:`,
+        error instanceof Error ? error.message : 'unknown error');
+      // Graceful degradation - return null to trigger fresh analysis
       return null;
     }
   }
@@ -40,16 +80,23 @@ export class HolderProfilesCacheService {
   /**
    * Cache holder profiles result
    * TTL: 2 minutes (120 seconds) - ensures freshness
+   * Fails silently on Redis errors (graceful degradation)
    */
   async cacheResult(tokenMint: string, topN: number, result: HolderProfilesResult): Promise<void> {
     const cacheKey = `holder-profiles:${tokenMint}:${topN}`;
     const ttlSeconds = 120; // 2 minutes max as requested
+    const startTime = Date.now();
 
     try {
       await this.redis.set(cacheKey, JSON.stringify(result), 'EX', ttlSeconds);
-      this.logger.debug(`💾 Cached holder profiles for ${tokenMint} (topN=${topN}, TTL=${ttlSeconds}s)`);
+      const duration = Date.now() - startTime;
+      this.logger.debug(`💾 Cached holder profiles: ${cacheKey} (TTL=${ttlSeconds}s, ${duration}ms)`);
+      // TODO: Emit metric for monitoring (cache write success)
     } catch (error) {
-      this.logger.error(`Error caching result for ${tokenMint}:`, error);
+      const duration = Date.now() - startTime;
+      this.logger.warn(`⚠️ Cache write failed for ${cacheKey} (${duration}ms), continuing without cache:`,
+        error instanceof Error ? error.message : 'unknown error');
+      // Graceful degradation - continue without caching
     }
   }
 
@@ -57,14 +104,18 @@ export class HolderProfilesCacheService {
    * Invalidate cache when wallet data changes
    * ✅ FIX #2: Uses atomic Lua script to prevent race conditions
    * This ensures we NEVER serve stale data after new transactions
+   * Gracefully degrades on Redis errors (logs warning but continues)
    */
   async invalidateForWallet(walletAddress: string): Promise<void> {
+    const startTime = Date.now();
+
     try {
       // Find all holder-profiles cache keys
       const pattern = 'holder-profiles:*';
       const keys = await this.redis.keys(pattern);
 
       if (keys.length === 0) {
+        this.logger.debug(`No holder-profiles caches found to invalidate for wallet ${walletAddress}`);
         return;
       }
 
@@ -106,11 +157,20 @@ export class HolderProfilesCacheService {
         walletAddress
       ) as number;
 
+      const duration = Date.now() - startTime;
+
       if (deleted > 0) {
-        this.logger.log(`🔄 Invalidated ${deleted} holder-profiles cache(s) for wallet ${walletAddress}`);
+        this.logger.log(`🔄 Invalidated ${deleted} holder-profiles cache(s) for wallet ${walletAddress} (${duration}ms)`);
+        // TODO: Emit metric for monitoring (cache invalidation count)
+      } else {
+        this.logger.debug(`Wallet ${walletAddress} not found in any cached holder profiles (${duration}ms)`);
       }
     } catch (error) {
-      this.logger.error(`Error invalidating cache for wallet ${walletAddress}:`, error);
+      const duration = Date.now() - startTime;
+      this.logger.warn(`⚠️ Cache invalidation failed for wallet ${walletAddress} (${duration}ms), continuing anyway:`,
+        error instanceof Error ? error.message : 'unknown error');
+      // Graceful degradation - continue processing even if cache invalidation fails
+      // Worst case: stale cache served until TTL expires (2 minutes max)
     }
   }
 
