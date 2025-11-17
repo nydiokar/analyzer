@@ -413,13 +413,13 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
                   <MetricDisplay
                     label="Typical Hold Time (Median)"
-                    value={formatNumber(behaviorData.historicalPattern?.medianCompletedHoldTimeHours ?? behaviorData.medianHoldTime)}
+                    value={formatNumber(behaviorData.historicalPattern?.medianCompletedHoldTimeHours)}
                     unit="hours"
                     tooltipText="Median holding time from completed positions only (outlier-robust). This represents their TYPICAL behavior - not affected by one long hold."
                   />
                   <MetricDisplay
                     label="Economic Hold Time (Weighted)"
-                    value={formatNumber(behaviorData.historicalPattern?.historicalAverageHoldTimeHours ?? behaviorData.averageFlipDurationHours)}
+                    value={formatNumber(behaviorData.historicalPattern?.historicalAverageHoldTimeHours)}
                     unit="hours"
                     tooltipText="Weighted average holding time from completed positions (accounts for position size). This shows where the MONEY typically goes."
                   />

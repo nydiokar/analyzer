@@ -43,9 +43,8 @@ export class BehaviorService {
       }
 
       // Use the injected BehaviorAnalyzer for calculations
-      // Assuming BehaviorAnalyzer has a public method `analyze` that takes raw swap records
-      // and orchestrates the internal steps (build sequences, calc metrics, classify).
-      const metrics = this.behaviorAnalyzer.analyze(swapRecords); 
+      // Pass both swap records AND wallet address (needed for historicalPattern calculation)
+      const metrics = this.behaviorAnalyzer.analyze(swapRecords, walletAddress); 
 
       if (metrics) {
         // Destructure metrics to prepare for DB save

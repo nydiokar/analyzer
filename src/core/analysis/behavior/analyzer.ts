@@ -50,8 +50,8 @@ export class BehaviorAnalyzer {
    * @param swapRecords - Array of SwapAnalysisInput records for the wallet.
    * @returns BehavioralMetrics object.
    */
-  public analyze(rawSwapRecords: SwapAnalysisInput[]): BehavioralMetrics {
-    this.logger.debug(`Starting behavior analysis for ${rawSwapRecords.length} raw swap records.`);
+  public analyze(rawSwapRecords: SwapAnalysisInput[], walletAddress: string): BehavioralMetrics {
+    this.logger.debug(`Starting behavior analysis for wallet ${walletAddress} with ${rawSwapRecords.length} raw swap records.`);
 
     // Filter out records involving excluded tokens FIRST
     const swapRecords = rawSwapRecords.filter(
@@ -128,7 +128,22 @@ export class BehaviorAnalyzer {
     metrics.averageSessionStartHour = sessionMetrics.averageSessionStartHour;
     metrics.averageSessionDurationMinutes = sessionMetrics.averageSessionDurationMinutes;
 
-    // 3. Classify trading style based on revised criteria
+    // 3. Calculate historical pattern from completed positions ONLY
+    // This must happen BEFORE classifyTradingStyle() which depends on it
+    metrics.historicalPattern = this.calculateHistoricalPattern(rawSwapRecords, walletAddress);
+
+    if (metrics.historicalPattern) {
+      this.logger.debug(
+        `Historical pattern calculated: ${metrics.historicalPattern.completedCycleCount} completed cycles, ` +
+        `median: ${metrics.historicalPattern.medianCompletedHoldTimeHours.toFixed(2)}h, ` +
+        `weighted avg: ${metrics.historicalPattern.historicalAverageHoldTimeHours.toFixed(2)}h, ` +
+        `type: ${metrics.historicalPattern.behaviorType}`
+      );
+    } else {
+      this.logger.debug('Historical pattern could not be calculated (insufficient completed cycles)');
+    }
+
+    // 4. Classify trading style based on revised criteria (uses historicalPattern if available)
     this.classifyTradingStyle(metrics);
 
     // Add timestamps to the final metrics object
@@ -1342,8 +1357,16 @@ export class BehaviorAnalyzer {
     }
 
     // ✅ NEW: Use MEDIAN hold time from historical pattern (outlier-robust)
-    // Fallback to legacy medianHoldTime if historical pattern not yet computed
+    // If historicalPattern is null (insufficient completed cycles), use legacy metric
+    // but this should be rare after wiring up the calculation
     const medianHoldHours = metrics.historicalPattern?.medianCompletedHoldTimeHours ?? medianHoldTime;
+
+    if (!metrics.historicalPattern) {
+      this.logger.warn(
+        `No historical pattern available for classification (insufficient completed cycles). ` +
+        `Falling back to legacy medianHoldTime: ${medianHoldTime.toFixed(2)}h`
+      );
+    }
 
     // ✅ NEW: Classify trading SPEED based on median (typical behavior)
     let speedCategory: string;
@@ -1406,11 +1429,20 @@ export class BehaviorAnalyzer {
     metrics.confidenceScore = Math.max(0, Math.min(1, confidence));
 
     // ✅ NEW: Generate rich trading interpretation (speed vs economic analysis)
+    // Use weighted average from historicalPattern, or fallback to median if pattern unavailable
+    const economicHoldTimeHours = metrics.historicalPattern?.historicalAverageHoldTimeHours || medianHoldHours;
+
+    if (!metrics.historicalPattern) {
+      this.logger.warn(
+        `No historical pattern for trading interpretation. Economic hold time will equal typical hold time.`
+      );
+    }
+
     metrics.tradingInterpretation = this.generateTradingInterpretation(
       speedCategory,
       behavioralPattern,
       medianHoldHours,
-      metrics.historicalPattern?.historicalAverageHoldTimeHours || medianHoldHours
+      economicHoldTimeHours
     );
 
     this.logger.debug(

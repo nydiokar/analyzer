@@ -131,10 +131,10 @@ async function runCurrentHoldingsTests() {
   const analyzer1 = new BehaviorAnalyzer(config);
   const analyzer2 = new BehaviorAnalyzer(config);
   
-  const result1 = analyzer1.analyze(testInput);
+  const result1 = analyzer1.analyze(testInput, 'test-wallet-address');
   // Wait a bit to ensure Date.now() would be different if used
   await new Promise(resolve => setTimeout(resolve, 10));
-  const result2 = analyzer2.analyze(testInput);
+  const result2 = analyzer2.analyze(testInput, 'test-wallet-address');
   
   const isDeterministic = 
     result1.averageCurrentHoldingDurationHours === result2.averageCurrentHoldingDurationHours &&
@@ -161,7 +161,7 @@ async function runCurrentHoldingsTests() {
       // The analyzer correctly uses latestTimestamp + 3600 for current holdings analysis
       // This provides deterministic results for historical data analysis
       
-      const result = analyzer.analyze(scenario.swapRecords);
+      const result = analyzer.analyze(scenario.swapRecords, 'test-wallet-address');
       
       console.log(`  Expected current holding duration: ${scenario.expectedCurrentHoldingDuration?.toFixed(3)} hours`);
       console.log(`  Actual current holding duration:   ${result.averageCurrentHoldingDurationHours.toFixed(3)} hours`);
@@ -212,7 +212,7 @@ async function runCurrentHoldingsTests() {
   ];
   
   const analyzer = new BehaviorAnalyzer(config);
-  const result = analyzer.analyze(noHoldingsInput);
+  const result = analyzer.analyze(noHoldingsInput, 'test-wallet-address');
   
   if (result.averageCurrentHoldingDurationHours === 0 && result.percentOfValueInCurrentHoldings === 0) {
     console.log('  ✅ PASSED - No current holdings correctly handled\n');

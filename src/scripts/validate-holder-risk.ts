@@ -57,7 +57,7 @@ async function validateWallet(walletAddress: string) {
       console.log('Reason: Less than 3 completed token cycles found.');
       console.log('\nTo see what we DO have, let\'s run basic behavior analysis:');
 
-      const metrics = analyzer.analyze(swapRecords);
+      const metrics = analyzer.analyze(swapRecords, walletAddress);
       console.log(`\n  Total Tokens Traded: ${metrics.uniqueTokensTraded}`);
       console.log(`  Tokens with Buy & Sell: ${metrics.tokensWithBothBuyAndSell}`);
       console.log(`  Tokens Only Bought: ${metrics.tokensWithOnlyBuys}`);

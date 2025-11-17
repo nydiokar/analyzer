@@ -3,7 +3,7 @@
 **Project**: Sova Intel - Wallet Analysis System (Scaling Plan Phase 6)
 **Goal**: Expose reliable Solana wallet analytics (sync, similarity, reporting) across API, queues, CLI, and dashboard.
 **Status**: In Progress
-**Last Updated**: 2025-11-12 00:00 UTC
+**Last Updated**: 2025-11-17 14:50 UTC
 **Updated By**: Claude Code
 
 ---
@@ -233,6 +233,22 @@ Poll GET /jobs/:jobId until status = 'completed'
       - All new displays use `??` fallback to old metrics (zero breaking changes)
     - [x] **Verified Consistency**: Holder risk tab (`HolderProfilesTable.tsx`) already using correct new metrics
     - **Result**: Both tabs now show consistent, accurate metrics with rich interpretation
+  - [x] **CRITICAL BUG FIX (2025-11-17)**: ⚠️ **historicalPattern calculation was NEVER WIRED UP**
+    - **Discovery**: The entire new metrics system was built but `calculateHistoricalPattern()` was never called in the analysis flow
+    - **Impact**: All API responses had `historicalPattern: undefined`, `tradingInterpretation` used fallback to deprecated metrics
+    - **Files Fixed** (10 total):
+      - [x] `analyzer.ts:53` - Added `walletAddress` parameter to `analyze()` signature
+      - [x] `analyzer.ts:133-144` - Wired up `calculateHistoricalPattern()` call with logging
+      - [x] `behavior-service.ts:47` - Pass walletAddress to analyzer
+      - [x] `bot-detector.ts:108-123` - Removed blind fallback, explicit handling
+      - [x] `BehavioralPatternsTab.tsx:416,422` - Removed fallbacks (exposes real state)
+      - [x] 5 test/script files updated with wallet address parameter
+    - [x] **Created `validate-behavior-metrics.ts`**: Comprehensive validation script (13 automated tests)
+    - [x] **Validated**: Test wallet shows Median: 0.251h vs Weighted: 2.405h (858% different - NO FALLBACK!)
+    - [x] **Builds**: Both backend and frontend compile successfully
+    - [x] **PM2**: Restarted with v0.17.0
+    - **Status**: ✅ ALL 5 CRITICAL TESTS PASS - Ready for user testing
+    - **Docs**: See `.ai/context/holder-risk/FINAL-STATUS.md` for complete details
 
 - **IPFS Metadata Fetching Security Hardening** ✅ **COMPLETE** (2025-11-06) *(See `.ai/context/security-ipfs-metadata-vulnerability.md` for full details)*
   - [x] Security vulnerability identified and documented
