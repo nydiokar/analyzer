@@ -344,7 +344,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             <MetricDisplay
               label="Trading Style"
               value={behaviorData.tradingStyle}
-              tooltipText="Overall trading approach identified (e.g., Flipper, HODLer). Based on typical holding durations and activity frequency."
+              tooltipText="Overall trading approach identified. Format: SPEED (PATTERN) - e.g., 'FLIPPER (ACCUMULATOR)' means fast trading with more buys than sells."
             />
             <MetricDisplay
               label="Confidence"
@@ -352,6 +352,25 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
               unit="%"
               tooltipText="Likelihood (0-100%) that the assigned Trading Style accurately reflects the wallet's dominant behavior."
             />
+            {behaviorData.tradingInterpretation && (
+              <>
+                <MetricDisplay
+                  label="Speed Category"
+                  value={behaviorData.tradingInterpretation.speedCategory.replace('_', ' ')}
+                  tooltipText={`How fast they typically trade (based on median hold time). Typical hold: ${behaviorData.tradingInterpretation.typicalHoldTimeHours < 1 ? `${(behaviorData.tradingInterpretation.typicalHoldTimeHours * 60).toFixed(0)} minutes` : `${behaviorData.tradingInterpretation.typicalHoldTimeHours.toFixed(1)} hours`}`}
+                />
+                <MetricDisplay
+                  label="Economic Risk"
+                  value={behaviorData.tradingInterpretation.economicRisk}
+                  tooltipText={`Risk level based on where capital is deployed (weighted by position size). Economic hold time: ${behaviorData.tradingInterpretation.economicHoldTimeHours < 1 ? `${(behaviorData.tradingInterpretation.economicHoldTimeHours * 60).toFixed(0)} minutes` : behaviorData.tradingInterpretation.economicHoldTimeHours < 24 ? `${behaviorData.tradingInterpretation.economicHoldTimeHours.toFixed(1)} hours` : `${(behaviorData.tradingInterpretation.economicHoldTimeHours / 24).toFixed(1)} days`}`}
+                />
+                <MetricDisplay
+                  label="Behavioral Pattern"
+                  value={behaviorData.tradingInterpretation.behavioralPattern}
+                  tooltipText="Buy/sell activity pattern (ACCUMULATOR = more buys, DISTRIBUTOR = more sells, BALANCED = even split)"
+                />
+              </>
+            )}
           </div>
 
           <hr className="my-6 border-muted" />
@@ -392,37 +411,69 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
               <AccordionContent className="pt-2 pb-3 space-y-3 pl-1">
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Holding Durations</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
-                  <MetricDisplay label="Average Trade Duration" value={formatNumber(behaviorData.averageFlipDurationHours)} unit="hours" tooltipText="Average time a token position is held from buy to sell. Calculated only for tokens both bought and sold ('flipped') during the analyzed period." />
-                  <MetricDisplay label="Median Hold Time" value={formatNumber(behaviorData.medianHoldTime)} unit="hours" tooltipText="Median time a token position is held across all sold assets. Less affected by outliers than average duration." />
+                  <MetricDisplay
+                    label="Typical Hold Time (Median)"
+                    value={formatNumber(behaviorData.historicalPattern?.medianCompletedHoldTimeHours ?? behaviorData.medianHoldTime)}
+                    unit="hours"
+                    tooltipText="Median holding time from completed positions only (outlier-robust). This represents their TYPICAL behavior - not affected by one long hold."
+                  />
+                  <MetricDisplay
+                    label="Economic Hold Time (Weighted)"
+                    value={formatNumber(behaviorData.historicalPattern?.historicalAverageHoldTimeHours ?? behaviorData.averageFlipDurationHours)}
+                    unit="hours"
+                    tooltipText="Weighted average holding time from completed positions (accounts for position size). This shows where the MONEY typically goes."
+                  />
                   <MetricDisplay label="% Trades < 1 Hour" value={formatRatioAsPercentage(behaviorData.percentTradesUnder1Hour)} tooltipText="Percentage of completed trades held for less than 1 hour, indicating very short-term activity." />
                   <MetricDisplay label="% Trades < 4 Hours" value={formatRatioAsPercentage(behaviorData.percentTradesUnder4Hours)} tooltipText="Percentage of completed trades held for less than 4 hours." />
                 </div>
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Current Holdings Analysis</Text>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
-                  <MetricDisplay 
-                    label="Avg Current Hold Duration" 
-                    value={formatNumber(behaviorData.averageCurrentHoldingDurationHours)} 
-                    unit="hours" 
-                    tooltipText="Average duration of currently held positions (tokens bought but not sold). Shows how long current investments have been held." 
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+                  <MetricDisplay
+                    label="Avg Current Hold Duration"
+                    value={formatNumber(behaviorData.averageCurrentHoldingDurationHours)}
+                    unit="hours"
+                    tooltipText="Average duration of currently held positions (tokens bought but not sold). Shows how long current investments have been held."
                   />
-                  <MetricDisplay 
-                    label="Median Current Hold Time" 
-                    value={formatNumber(behaviorData.medianCurrentHoldingDurationHours)} 
-                    unit="hours" 
-                    tooltipText="Median duration of currently held positions. Less affected by outliers than average." 
+                  <MetricDisplay
+                    label="Median Current Hold Time"
+                    value={formatNumber(behaviorData.medianCurrentHoldingDurationHours)}
+                    unit="hours"
+                    tooltipText="Median duration of currently held positions. Less affected by outliers than average."
                   />
-                  <MetricDisplay 
-                    label="Weighted Avg Hold Time" 
-                    value={formatNumber(behaviorData.weightedAverageHoldingDurationHours)} 
-                    unit="hours" 
-                    tooltipText="Combined average hold time weighted by value between completed trades and current holdings." 
-                  />
-                  <MetricDisplay 
-                    label="% Value Still Held" 
-                    value={formatValueAsPercentage(behaviorData.percentOfValueInCurrentHoldings)} 
-                    tooltipText="Percentage of total traded value that remains in current positions (not yet sold)." 
+                  <MetricDisplay
+                    label="% Value Still Held"
+                    value={formatValueAsPercentage(behaviorData.percentOfValueInCurrentHoldings)}
+                    tooltipText="Percentage of total traded value that remains in current positions (not yet sold)."
                   />
                 </div>
+                {behaviorData.historicalPattern && (
+                  <>
+                    <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Historical Pattern (Completed Positions)</Text>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                      <MetricDisplay
+                        label="Completed Cycles"
+                        value={behaviorData.historicalPattern.completedCycleCount}
+                        tooltipText="Number of fully completed token cycles (bought and exited). More cycles = higher confidence in pattern."
+                      />
+                      <MetricDisplay
+                        label="Behavior Type"
+                        value={behaviorData.historicalPattern.behaviorType.replace('_', ' ')}
+                        tooltipText="Classification based on median hold time from completed positions only."
+                      />
+                      <MetricDisplay
+                        label="Exit Pattern"
+                        value={behaviorData.historicalPattern.exitPattern.replace('_', ' ')}
+                        tooltipText="How they typically exit positions: GRADUAL (multiple sells) or ALL_AT_ONCE (single sell)."
+                      />
+                      <MetricDisplay
+                        label="Data Quality"
+                        value={typeof behaviorData.historicalPattern.dataQuality === 'number' ? `${(behaviorData.historicalPattern.dataQuality * 100).toFixed(0)}` : undefined}
+                        unit="%"
+                        tooltipText="Confidence in the historical pattern based on sample size and data completeness."
+                      />
+                    </div>
+                  </>
+                )}
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Session Characteristics</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
                   <MetricDisplay label="Session Count" value={behaviorData.sessionCount} tooltipText="Total number of distinct active trading sessions identified." />

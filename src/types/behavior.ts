@@ -91,6 +91,26 @@ export interface WalletTokenPrediction {
   predictionConfidence: number;             // 0-1 based on data quality
 }
 
+/**
+ * Trading speed and behavioral pattern interpretation
+ * Separates SPEED (how fast) from PATTERN (what they do)
+ */
+export interface TradingInterpretation {
+  // Speed classification (based on median hold time - outlier robust)
+  speedCategory: 'ULTRA_FLIPPER' | 'FLIPPER' | 'FAST_TRADER' | 'DAY_TRADER' | 'SWING_TRADER' | 'POSITION_TRADER';
+  typicalHoldTimeHours: number;       // Median (what they usually do)
+
+  // Economic analysis (based on weighted average - position size matters)
+  economicHoldTimeHours: number;      // Weighted average (where the money goes)
+  economicRisk: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+  // Behavioral pattern (buy/sell characteristics)
+  behavioralPattern: 'BALANCED' | 'ACCUMULATOR' | 'DISTRIBUTOR' | 'HOLDER' | 'DUMPER' | 'MIXED';
+
+  // Combined interpretation
+  interpretation: string;              // Human-readable: "FLIPPER (ACCUMULATOR): Fast trading with accumulation bias"
+}
+
 export interface BehavioralMetrics {
   buySellRatio: number;
   buySellSymmetry: number;
@@ -99,6 +119,10 @@ export interface BehavioralMetrics {
    * This metric uses unweighted average which is less accurate than the weighted version.
    */
   averageFlipDurationHours: number;
+  /**
+   * @deprecated Use historicalPattern.medianCompletedHoldTimeHours instead.
+   * Should only use completed positions for accurate classification.
+   */
   medianHoldTime: number;
   averageCurrentHoldingDurationHours: number;
   medianCurrentHoldingDurationHours: number;
@@ -162,4 +186,7 @@ export interface BehavioralMetrics {
 
   // New: Historical pattern (optional, non-breaking addition)
   historicalPattern?: WalletHistoricalPattern;
+
+  // New: Trading interpretation (optional, provides clear speed vs economic analysis)
+  tradingInterpretation?: TradingInterpretation;
 } 

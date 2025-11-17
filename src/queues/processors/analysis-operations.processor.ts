@@ -1017,14 +1017,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const ratio = (shortHolds / completed.length) * 100;
 
     // Determine confidence based on sample size
-    // HIGH: ≥10 completed cycles (reliable pattern)
-    // MEDIUM: 5-9 completed cycles (decent sample)
-    // LOW: 3-4 completed cycles (minimum viable)
+    // HIGH: ≥30 completed cycles (reliable pattern)
+    // MEDIUM: 10-29 completed cycles (decent sample)
+    // LOW: 3-9 completed cycles (minimum viable)
     // NONE: <3 completed cycles (insufficient data)
     let confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
-    if (completed.length >= 10) {
+    if (completed.length >= 30) {
       confidence = 'HIGH';
-    } else if (completed.length >= 5) {
+    } else if (completed.length >= 10) {
       confidence = 'MEDIUM';
     } else if (completed.length >= 3) {
       confidence = 'LOW';
@@ -1039,8 +1039,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
    * Determine data quality tier based on cycle count and confidence
    */
   private determineDataQualityTier(cycles: number, confidence: number): 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' {
-    if (cycles >= 10 && confidence >= 0.8) return 'HIGH';
-    if (cycles >= 5 && confidence >= 0.6) return 'MEDIUM';
+    if (cycles >= 30 && confidence >= 0.8) return 'HIGH';
+    if (cycles >= 10 && confidence >= 0.6) return 'MEDIUM';
     if (cycles >= 3) return 'LOW';
     return 'INSUFFICIENT';
   }

@@ -103,10 +103,16 @@ export class BotDetector {
     }
 
     // Pattern 6: Very short holding periods (Bot indicator)
-    if (behavioralMetrics?.averageFlipDurationHours && behavioralMetrics.averageFlipDurationHours < 0.1) {
+    // ✅ REFACTORED: Use MEDIAN hold time (outlier-robust) with new 3-minute threshold
+    // Median is better for bot detection - not skewed by occasional longer holds
+    const medianHoldTime = behavioralMetrics?.historicalPattern?.medianCompletedHoldTimeHours
+                        || behavioralMetrics?.medianHoldTime;
+
+    // Bot threshold: <3 minutes (0.05 hours) = ultra-fast flipping behavior
+    if (medianHoldTime && medianHoldTime < 0.05) {
       botScore += 0.2;
       patterns.push('ultra_short_holds');
-      reasons.push(`Extremely short average holding time: ${behavioralMetrics.averageFlipDurationHours.toFixed(2)} hours`);
+      reasons.push(`Extremely short typical holding time: ${(medianHoldTime * 60).toFixed(1)} minutes (median)`);
     }
 
     // Determine bot type if classified as bot

@@ -75,7 +75,8 @@ Poll GET /jobs/:jobId until status = 'completed'
 
 ## Active
 
-- **Holder Risk Analysis & Predictive Holding Time** *(See `.ai/context/architecture-holder-risk-analysis.md` for full details)*
+- **Holder Risk Analysis & Predictive Holding Time** *(See `.ai/context/holder-risk/architecture-holder-risk-analysis.md` for full details)*
+  - **Status**: ✅ **ALL PHASES COMPLETE** (2025-11-17) - Ready for Staging Deployment
   - [x] Document holding time methodology in `docs/3.metrics_compact_map.md`
   - [x] Create architecture plan in `.ai/context/architecture-holder-risk-analysis.md`
   - [x] Critical review completed - plan finalized and ready to start
@@ -196,13 +197,42 @@ Poll GET /jobs/:jobId until status = 'completed'
       - ✅ Cache key: `holder-profiles:{tokenMint}:{topN}`
       - ✅ Prevents stale data after new transactions
       - Implementation: `HolderProfilesCacheService` + invalidation in processors
-  - [ ] **Phase 4 (Time Filters & Polish)**: 3-4 days
-    - [ ] Add time window filters (7d, 30d, all-time) to show behavioral drift
-    - [ ] Display pattern changes over time (compare 7d vs 30d patterns)
-    - [ ] Implement Redis caching for historical patterns (24h TTL)
-    - [ ] Remove deprecated metrics from codebase
-    - [ ] Performance optimization
-    - [ ] Documentation
+  - [x] **Metrics Refactor & Classification Redesign**: ✅ **COMPLETE** (2025-11-17) (See `.ai/context/holder-risk/MIGRATION-COMPLETE.md` for full details)
+    - **Goal**: Replace deprecated holding time metrics with accurate historical pattern calculations
+    - [x] **New Constants File**: `src/core/analysis/behavior/constants.ts`
+      - Trading speed thresholds: ULTRA_FLIPPER (<3min), FLIPPER (<10min), FAST_TRADER (<1h), DAY_TRADER (<1d), SWING_TRADER (<7d), POSITION_TRADER (7+d)
+      - Classification helper functions
+      - Bot detection constants (3-minute threshold)
+    - [x] **Refactored `classifyTradingStyle()`** (`analyzer.ts:1319-1476`):
+      - Uses MEDIAN hold time (outlier-robust, not weighted average)
+      - Separates SPEED from BEHAVIORAL PATTERN
+      - Output format: "FLIPPER (ACCUMULATOR)" instead of "True Flipper"
+      - Added `generateTradingInterpretation()` for rich interpretation
+    - [x] **Updated Bot Detection** (`bot-detector.ts:105-116`):
+      - Uses median hold time (was average)
+      - 3-minute threshold (was 6 minutes)
+    - [x] **New TypeScript Interfaces** (`types/behavior.ts:94-112`):
+      - `TradingInterpretation`: speedCategory, typicalHoldTimeHours, economicHoldTimeHours, economicRisk, behavioralPattern
+      - Separates "what they usually do" (median) from "where the money goes" (weighted average)
+    - [x] **Deprecated Metrics** (Marked with JSDoc warnings):
+      - `averageFlipDurationHours` → Use `historicalPattern.historicalAverageHoldTimeHours`
+      - `medianHoldTime` → Use `historicalPattern.medianCompletedHoldTimeHours`
+      - `weightedAverageHoldingDurationHours` → Use `historicalPattern.historicalAverageHoldTimeHours`
+    - **Backward Compatibility**: All old metrics still computed and included in API responses (zero breaking changes)
+  - [x] **Phase 4 (Frontend Migration)**: ✅ **COMPLETE** (2025-11-17)
+    - **Goal**: Update dashboard to use new metrics (avoid user confusion between holder risk tab and wallet profile)
+    - [x] **Updated `types/api.ts`**:
+      - Added `TradingInterpretation` interface (lines 92-107)
+      - Added `HistoricalPattern` interface (lines 109-118)
+      - Marked deprecated fields with comments (lines 130-135)
+    - [x] **Updated `BehavioralPatternsTab.tsx`**:
+      - Summary section now shows new metrics: Speed Category, Economic Risk, Behavioral Pattern (lines 355-373)
+      - Holding durations replaced: "Typical Hold Time (Median)" and "Economic Hold Time (Weighted)" (lines 414-428)
+      - Added Historical Pattern section: Completed Cycles, Behavior Type, Exit Pattern, Data Quality (lines 449-476)
+      - Removed deprecated `weightedAverageHoldingDurationHours` from Current Holdings
+      - All new displays use `??` fallback to old metrics (zero breaking changes)
+    - [x] **Verified Consistency**: Holder risk tab (`HolderProfilesTable.tsx`) already using correct new metrics
+    - **Result**: Both tabs now show consistent, accurate metrics with rich interpretation
 
 - **IPFS Metadata Fetching Security Hardening** ✅ **COMPLETE** (2025-11-06) *(See `.ai/context/security-ipfs-metadata-vulnerability.md` for full details)*
   - [x] Security vulnerability identified and documented

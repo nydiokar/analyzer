@@ -89,6 +89,34 @@ export interface RiskMetrics {
   largestTransactionValueSol?: number | null;
 }
 
+// NEW: Trading interpretation system (2025-11-17)
+export interface TradingInterpretation {
+  // Speed classification (based on median - outlier robust)
+  speedCategory: 'ULTRA_FLIPPER' | 'FLIPPER' | 'FAST_TRADER' | 'DAY_TRADER' | 'SWING_TRADER' | 'POSITION_TRADER';
+  typicalHoldTimeHours: number;       // What they USUALLY do (median)
+
+  // Economic analysis (based on weighted average - position size matters)
+  economicHoldTimeHours: number;      // Where the MONEY goes
+  economicRisk: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+  // Behavioral pattern
+  behavioralPattern: 'BALANCED' | 'ACCUMULATOR' | 'DISTRIBUTOR' | 'HOLDER' | 'DUMPER' | 'MIXED';
+
+  // Human-readable interpretation
+  interpretation: string;
+}
+
+// Historical pattern from completed positions only
+export interface HistoricalPattern {
+  medianCompletedHoldTimeHours: number;        // Median (outlier-robust)
+  historicalAverageHoldTimeHours: number;      // Weighted average (economic impact)
+  completedCycleCount: number;                 // Sample size
+  behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
+  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
+  dataQuality: number;                         // 0-1 confidence score
+  observationPeriodDays: number;
+}
+
 // More complete BehaviorAnalysisResponseDto
 export interface BehaviorAnalysisResponseDto {
   walletAddress: string;
@@ -98,8 +126,18 @@ export interface BehaviorAnalysisResponseDto {
   secondaryBehavior?: string | null;
   buySellRatio?: number | null;
   buySellSymmetry?: number | null;
+
+  // ⚠️ DEPRECATED: Use historicalPattern.historicalAverageHoldTimeHours instead
   averageFlipDurationHours?: number | null;
+  // ⚠️ DEPRECATED: Use historicalPattern.medianCompletedHoldTimeHours instead
   medianHoldTime?: number | null;
+  // ⚠️ DEPRECATED: Use historicalPattern.historicalAverageHoldTimeHours instead
+  weightedAverageHoldingDurationHours?: number | null;
+
+  // ✅ NEW: Rich interpretation (use these instead of deprecated metrics)
+  tradingInterpretation?: TradingInterpretation | null;
+  historicalPattern?: HistoricalPattern | null;
+
   sequenceConsistency?: number | null;
   flipperScore?: number | null;
   uniqueTokensTraded?: number | null;
@@ -128,7 +166,6 @@ export interface BehaviorAnalysisResponseDto {
   lastTransactionTimestamp?: number | null;
   averageCurrentHoldingDurationHours?: number | null;
   medianCurrentHoldingDurationHours?: number | null;
-  weightedAverageHoldingDurationHours?: number | null;
   percentOfValueInCurrentHoldings?: number | null;
   additionalMetrics?: Record<string, unknown>;
   rawMetrics?: Record<string, unknown>;

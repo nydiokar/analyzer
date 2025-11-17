@@ -1318,63 +1318,161 @@ export class BehaviorAnalyzer {
 
   /**
    * Classifies the trading style based on calculated metrics.
+   * ✅ REFACTORED: Uses median hold time (outlier-robust) + new speed thresholds
+   * Combines speed category with behavioral pattern for comprehensive classification
    */
   private classifyTradingStyle(metrics: BehavioralMetrics): void {
-    let style = 'Inconclusive';
-    let confidence = 0;
-
-    const { 
-      flipperScore, 
-      buySellSymmetry, 
-      sequenceConsistency, 
-      averageFlipDurationHours, 
-      medianHoldTime, 
-      percentTradesUnder1Hour,
-      percentTradesUnder4Hours,
+    const {
+      buySellSymmetry,
+      sequenceConsistency,
+      medianHoldTime,
       buySellRatio,
-      tradingTimeDistribution,
       totalTradeCount,
       tokensWithBothBuyAndSell,
-      totalBuyCount,     // Ensure this is destructured
-      totalSellCount     // Ensure this is destructured
+      totalBuyCount,
+      totalSellCount
     } = metrics;
 
-    const isBalanced = buySellSymmetry > 0.7 && sequenceConsistency > 0.7;
-    const isFast = percentTradesUnder4Hours > 0.6 || averageFlipDurationHours < 6;
-    const isUltraFast = percentTradesUnder1Hour > 0.5 || averageFlipDurationHours < 1;
-
+    // Check minimum data requirements
     if (totalTradeCount < 5 || tokensWithBothBuyAndSell < 2) {
-       style = 'Low Activity';
-       confidence = 1.0;
-    } else if (isUltraFast && isBalanced && flipperScore > 0.75) {
-      style = 'True Flipper';
-      confidence = Math.min(1, flipperScore + (buySellSymmetry - 0.7) + (percentTradesUnder1Hour - 0.5));
-    } else if (isFast && isBalanced && flipperScore > 0.5) {
-      style = 'Fast Trader';
-      confidence = Math.min(1, flipperScore * 0.8 + (buySellSymmetry - 0.5) + (percentTradesUnder4Hours - 0.6));
-    } else if (tradingTimeDistribution.swing + tradingTimeDistribution.position > 0.5 && isBalanced) {
-      style = 'Swing Trader';
-      confidence = Math.min(1, (tradingTimeDistribution.swing + tradingTimeDistribution.position) + (buySellSymmetry - 0.5));
-    } else if (tradingTimeDistribution.position > 0.6) {
-      style = 'Position Trader';
-       confidence = Math.min(1, tradingTimeDistribution.position * 1.2);
-    } else if (buySellRatio > 2.5 && totalBuyCount > totalSellCount * 2 && totalSellCount > 0) { // Avoid Infinity > ratio check if sell count is 0
-      style = 'Accumulator';
-      confidence = Math.min(1, (buySellRatio - 2) * 0.3 + (1 - buySellSymmetry) * 0.5); // Confidence higher if less symmetric
-    } else if (buySellRatio !== Infinity && buySellRatio < (1/2.5) && totalSellCount > totalBuyCount * 2 && totalBuyCount > 0) { // Avoid check if buy count is 0
-      style = 'Distributor';
-      confidence = Math.min(1, ((1/buySellRatio) - 2) * 0.3 + (1 - buySellSymmetry) * 0.5);
-    } else if (flipperScore > 0.4) {
-       style = 'Partial Flipper'; // Default for moderately flippy
-       confidence = flipperScore * 0.8;
-    } else {
-       style = 'Mixed / Unclear';
-       confidence = 0.3;
+      metrics.tradingStyle = 'Low Activity';
+      metrics.confidenceScore = 1.0;
+      this.logger.debug(`Classified as Low Activity (${totalTradeCount} trades, ${tokensWithBothBuyAndSell} tokens)`);
+      return;
     }
 
-    metrics.tradingStyle = style;
-    metrics.confidenceScore = Math.max(0, Math.min(1, confidence)); // Clamp confidence
-    this.logger.debug(`Classified style as ${style} with confidence ${metrics.confidenceScore.toFixed(2)}`);
+    // ✅ NEW: Use MEDIAN hold time from historical pattern (outlier-robust)
+    // Fallback to legacy medianHoldTime if historical pattern not yet computed
+    const medianHoldHours = metrics.historicalPattern?.medianCompletedHoldTimeHours ?? medianHoldTime;
+
+    // ✅ NEW: Classify trading SPEED based on median (typical behavior)
+    let speedCategory: string;
+    if (medianHoldHours < 0.05) {  // <3 minutes
+      speedCategory = 'ULTRA_FLIPPER';
+    } else if (medianHoldHours < 0.167) {  // <10 minutes
+      speedCategory = 'FLIPPER';
+    } else if (medianHoldHours < 1) {  // <1 hour
+      speedCategory = 'FAST_TRADER';
+    } else if (medianHoldHours < 24) {  // <1 day
+      speedCategory = 'DAY_TRADER';
+    } else if (medianHoldHours < 168) {  // <7 days
+      speedCategory = 'SWING_TRADER';
+    } else {  // 7+ days
+      speedCategory = 'POSITION_TRADER';
+    }
+
+    // ✅ NEW: Classify BEHAVIORAL PATTERN (buy/sell characteristics)
+    let behavioralPattern: string;
+    const isBalanced = buySellSymmetry > 0.7 && sequenceConsistency > 0.7;
+
+    if (totalSellCount === 0) {
+      behavioralPattern = 'HOLDER';
+    } else if (totalBuyCount === 0) {
+      behavioralPattern = 'DUMPER';
+    } else if (buySellRatio > 2.5 && totalBuyCount > totalSellCount * 2) {
+      behavioralPattern = 'ACCUMULATOR';
+    } else if (buySellRatio < 0.4 && totalSellCount > totalBuyCount * 2) {
+      behavioralPattern = 'DISTRIBUTOR';
+    } else if (isBalanced) {
+      behavioralPattern = 'BALANCED';
+    } else if (buySellRatio > 1.5) {
+      behavioralPattern = 'HOLDER';
+    } else {
+      behavioralPattern = 'MIXED';
+    }
+
+    // ✅ NEW: Combine speed + pattern for comprehensive style
+    const combinedStyle = `${speedCategory} (${behavioralPattern})`;
+
+    // ✅ NEW: Calculate confidence based on data quality
+    const completedCycles = metrics.historicalPattern?.completedCycleCount || 0;
+    const dataQuality = metrics.historicalPattern?.dataQuality || 0.5;
+
+    let confidence = dataQuality * 0.4;
+
+    // Bonus for sufficient sample size
+    if (completedCycles >= 10) {
+      confidence += 0.3;
+    } else if (completedCycles >= 5) {
+      confidence += 0.2;
+    } else if (completedCycles >= 3) {
+      confidence += 0.1;
+    }
+
+    // Bonus for pattern consistency
+    confidence += (buySellSymmetry * sequenceConsistency) * 0.3;
+
+    metrics.tradingStyle = combinedStyle;
+    metrics.confidenceScore = Math.max(0, Math.min(1, confidence));
+
+    // ✅ NEW: Generate rich trading interpretation (speed vs economic analysis)
+    metrics.tradingInterpretation = this.generateTradingInterpretation(
+      speedCategory,
+      behavioralPattern,
+      medianHoldHours,
+      metrics.historicalPattern?.historicalAverageHoldTimeHours || medianHoldHours
+    );
+
+    this.logger.debug(
+      `Classified as ${combinedStyle} (median hold: ${medianHoldHours.toFixed(2)}h, ` +
+      `confidence: ${metrics.confidenceScore.toFixed(2)}, cycles: ${completedCycles})`
+    );
+  }
+
+  /**
+   * Generate comprehensive trading interpretation
+   * Separates SPEED (typical behavior) from ECONOMIC RISK (where money goes)
+   */
+  private generateTradingInterpretation(
+    speedCategory: string,
+    behavioralPattern: string,
+    medianHoldHours: number,
+    weightedAvgHoldHours: number
+  ): any {
+    // Determine economic risk based on weighted average
+    let economicRisk: string;
+    if (weightedAvgHoldHours < 1) {
+      economicRisk = 'CRITICAL';  // <1 hour average = very risky
+    } else if (weightedAvgHoldHours < 24) {
+      economicRisk = 'HIGH';  // <1 day average = high risk
+    } else if (weightedAvgHoldHours < 168) {
+      economicRisk = 'MEDIUM';  // <1 week average = medium risk
+    } else {
+      economicRisk = 'LOW';  // 1+ week average = lower risk
+    }
+
+    // Generate human-readable interpretation
+    const speedText = speedCategory.toLowerCase().replace(/_/g, ' ');
+    const patternText = behavioralPattern.toLowerCase();
+
+    let interpretation = `${speedCategory} (${behavioralPattern}): `;
+
+    if (speedCategory === 'ULTRA_FLIPPER' || speedCategory === 'FLIPPER') {
+      interpretation += 'Extremely fast trading, ';
+    } else if (speedCategory === 'FAST_TRADER' || speedCategory === 'DAY_TRADER') {
+      interpretation += 'Active day trading, ';
+    } else {
+      interpretation += 'Longer-term holds, ';
+    }
+
+    if (behavioralPattern === 'ACCUMULATOR') {
+      interpretation += 'tends to buy more than sell';
+    } else if (behavioralPattern === 'DISTRIBUTOR') {
+      interpretation += 'tends to sell more than buy';
+    } else if (behavioralPattern === 'BALANCED') {
+      interpretation += 'balanced buy/sell activity';
+    } else {
+      interpretation += `${patternText} behavior`;
+    }
+
+    return {
+      speedCategory,
+      typicalHoldTimeHours: medianHoldHours,
+      economicHoldTimeHours: weightedAvgHoldHours,
+      economicRisk,
+      behavioralPattern,
+      interpretation
+    };
   }
 
   private _identifyActiveTradingWindows(

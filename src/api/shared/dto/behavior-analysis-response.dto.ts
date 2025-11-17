@@ -92,15 +92,63 @@ export class RiskMetricsDto {
   largestTransactionValueSol: number;
 }
 
+// ✅ NEW: Trading interpretation (2025-11-17)
+export class TradingInterpretationDto {
+  @ApiProperty({ description: 'Speed classification based on median hold time' })
+  speedCategory: 'ULTRA_FLIPPER' | 'FLIPPER' | 'FAST_TRADER' | 'DAY_TRADER' | 'SWING_TRADER' | 'POSITION_TRADER';
+
+  @ApiProperty({ description: 'Typical holding time in hours (median - outlier robust)' })
+  typicalHoldTimeHours: number;
+
+  @ApiProperty({ description: 'Economic holding time in hours (weighted average - position size matters)' })
+  economicHoldTimeHours: number;
+
+  @ApiProperty({ description: 'Economic risk level based on weighted average hold time' })
+  economicRisk: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+  @ApiProperty({ description: 'Behavioral pattern (buy/sell activity)' })
+  behavioralPattern: 'BALANCED' | 'ACCUMULATOR' | 'DISTRIBUTOR' | 'HOLDER' | 'DUMPER' | 'MIXED';
+
+  @ApiProperty({ description: 'Human-readable interpretation' })
+  interpretation: string;
+}
+
+// ✅ NEW: Historical pattern from completed positions (2025-11-17)
+export class HistoricalPatternDto {
+  @ApiProperty({ description: 'Wallet address (redundant in context, included for interface compliance)' })
+  walletAddress: string;
+
+  @ApiProperty({ description: 'Weighted average holding time from completed positions (hours)' })
+  historicalAverageHoldTimeHours: number;
+
+  @ApiProperty({ description: 'Number of completed token cycles (sample size)' })
+  completedCycleCount: number;
+
+  @ApiProperty({ description: 'Median holding time from completed positions only (hours)' })
+  medianCompletedHoldTimeHours: number;
+
+  @ApiProperty({ description: 'Behavior classification' })
+  behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
+
+  @ApiProperty({ description: 'Exit pattern' })
+  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
+
+  @ApiProperty({ description: 'Data quality score (0-1)' })
+  dataQuality: number;
+
+  @ApiProperty({ description: 'Observation period in days' })
+  observationPeriodDays: number;
+}
+
 // Main DTO
 export class BehaviorAnalysisResponseDto implements BehavioralMetrics {
   @ApiProperty()
   buySellRatio: number;
   @ApiProperty()
   buySellSymmetry: number;
-  @ApiProperty()
+  @ApiProperty({ description: '⚠️ DEPRECATED: Use historicalPattern.historicalAverageHoldTimeHours instead' })
   averageFlipDurationHours: number;
-  @ApiProperty()
+  @ApiProperty({ description: '⚠️ DEPRECATED: Use historicalPattern.medianCompletedHoldTimeHours instead' })
   medianHoldTime: number;
   @ApiProperty()
   sequenceConsistency: number;
@@ -162,8 +210,15 @@ export class BehaviorAnalysisResponseDto implements BehavioralMetrics {
   averageCurrentHoldingDurationHours: number;
   @ApiProperty()
   medianCurrentHoldingDurationHours: number;
-  @ApiProperty()
+  @ApiProperty({ description: '⚠️ DEPRECATED: Use historicalPattern.historicalAverageHoldTimeHours instead' })
   weightedAverageHoldingDurationHours: number;
   @ApiProperty()
   percentOfValueInCurrentHoldings: number;
+
+  // ✅ NEW: Rich interpretation fields (2025-11-17)
+  @ApiProperty({ type: TradingInterpretationDto, required: false, description: 'Rich trading interpretation with dual analysis (speed vs economic)' })
+  tradingInterpretation?: TradingInterpretationDto;
+
+  @ApiProperty({ type: HistoricalPatternDto, required: false, description: 'Historical pattern from completed positions only' })
+  historicalPattern?: HistoricalPatternDto;
 } 
