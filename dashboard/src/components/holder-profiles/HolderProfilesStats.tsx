@@ -18,7 +18,9 @@ interface HolderProfile {
 }
 
 interface HolderProfilesResult {
-  tokenMint: string;
+  mode: 'token' | 'wallet';
+  tokenMint?: string;
+  targetWallet?: string;
   profiles: HolderProfile[];
   metadata: {
     totalHoldersRequested: number;
@@ -36,6 +38,11 @@ const formatHoldTime = (hours: number): string => {
   if (hours < 1) return `${Math.round(hours * 60)}m`;
   if (hours < 24) return `${hours.toFixed(1)}h`;
   return `${(hours / 24).toFixed(1)}d`;
+};
+
+const formatAddress = (address?: string): string => {
+  if (!address) return '—';
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
 };
 
 export function HolderProfilesStats({ result }: HolderProfilesStatsProps) {
@@ -66,8 +73,15 @@ export function HolderProfilesStats({ result }: HolderProfilesStatsProps) {
 
   const highQualityCount = result.profiles.filter((p) => p.dataQualityTier === 'HIGH').length;
 
+  const contextLabel =
+    result.mode === 'token'
+      ? `Token: ${formatAddress(result.tokenMint)}`
+      : `Wallet: ${formatAddress(result.targetWallet)}`;
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-muted-foreground">{contextLabel}</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       <Card className="p-4">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
@@ -123,6 +137,7 @@ export function HolderProfilesStats({ result }: HolderProfilesStatsProps) {
           {((highQualityCount / result.profiles.length) * 100).toFixed(0)}% confidence
         </p>
       </Card>
+      </div>
     </div>
   );
 }

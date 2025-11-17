@@ -35,7 +35,9 @@ interface HolderProfile {
 
 interface HolderProfilesTableProps {
   profiles: HolderProfile[];
-  tokenMint: string;
+  mode: 'token' | 'wallet';
+  tokenMint?: string;
+  targetWallet?: string;
 }
 
 const formatHoldTime = (hours: number | null): string => {
@@ -86,13 +88,24 @@ const formatBehaviorType = (behaviorType: string | null): string => {
   return behaviorType.replace('_', ' ');
 };
 
-export function HolderProfilesTable({ profiles, tokenMint }: HolderProfilesTableProps) {
+const formatContext = (mode: 'token' | 'wallet', tokenMint?: string, targetWallet?: string) => {
+  if (mode === 'token') {
+    return tokenMint ? `Token ${formatAddress(tokenMint)}` : 'Token holders';
+  }
+  return targetWallet ? `Wallet ${formatAddress(targetWallet)}` : 'Wallet profile';
+};
+
+export function HolderProfilesTable({ profiles, mode, tokenMint, targetWallet }: HolderProfilesTableProps) {
   return (
     <Card className="p-6">
       <div className="mb-4">
-        <h2 className="text-xl font-semibold">Holder Profiles</h2>
+        <h2 className="text-xl font-semibold">
+          {mode === 'token' ? 'Holder Profiles' : 'Wallet Holder Profile'}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          {profiles.length} holders analyzed
+          {mode === 'token'
+            ? `${profiles.length} holder${profiles.length === 1 ? '' : 's'} analyzed — ${formatContext(mode, tokenMint, targetWallet)}`
+            : formatContext(mode, tokenMint, targetWallet)}
         </p>
       </div>
 
@@ -147,7 +160,9 @@ export function HolderProfilesTable({ profiles, tokenMint }: HolderProfilesTable
           <TableBody>
             {profiles.map((profile) => (
               <TableRow key={profile.walletAddress}>
-                <TableCell className="font-medium">#{profile.rank}</TableCell>
+                <TableCell className="font-medium">
+                  {mode === 'token' ? `#${profile.rank}` : '—'}
+                </TableCell>
                 <TableCell>
                   <Link
                     href={`/wallets/${profile.walletAddress}`}
@@ -158,7 +173,7 @@ export function HolderProfilesTable({ profiles, tokenMint }: HolderProfilesTable
                   </Link>
                 </TableCell>
                 <TableCell className="text-right">
-                  {profile.supplyPercent.toFixed(2)}%
+                  {mode === 'token' ? `${profile.supplyPercent.toFixed(2)}%` : '—'}
                 </TableCell>
                 <TableCell className="text-right">
                   {formatHoldTime(profile.medianHoldTimeHours)}

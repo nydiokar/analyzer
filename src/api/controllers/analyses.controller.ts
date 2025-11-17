@@ -515,6 +515,7 @@ export class AnalysesController {
 
       // Prepare job data
       const jobData: AnalyzeHolderProfilesJobData = {
+        mode: 'token',
         tokenMint: body.tokenMint,
         topN,
         requestId,
@@ -552,4 +553,57 @@ export class AnalysesController {
       throw new InternalServerErrorException('Failed to queue holder profiles analysis job');
     }
   }
-} 
+
+  @Post('/holder-profiles/wallet')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Analyze holder profile for a single wallet',
+    description: 'Queues a job that computes the holding-risk profile for a specific wallet address.',
+  })
+  @ApiResponse({ status: 202, description: 'Wallet holder profile job queued successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid wallet address' })
+  @HttpCode(202)
+  async queueWalletHolderProfile(
+    @Body() body: { walletAddress: string },
+  ): Promise<{
+    jobId: string;
+    requestId: string;
+    status: string;
+    queueName: string;
+    walletAddress: string;
+    monitoringUrl: string;
+  }> {
+    if (!body.walletAddress || !isValidSolanaAddress(body.walletAddress)) {
+      throw new BadRequestException(`Invalid wallet address: ${body.walletAddress}`);
+    }
+
+    try {
+      const requestId = `holder-profile-wallet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const jobData: AnalyzeHolderProfilesJobData = {
+        mode: 'wallet',
+        walletAddress: body.walletAddress,
+        requestId,
+      };
+
+      const job = await this.analysisOperationsQueue.addHolderProfilesJob(jobData, {
+        priority: 5,
+        delay: 0,
+      });
+
+      return {
+        jobId: job.id!,
+        requestId,
+        status: 'queued',
+        queueName: 'analysis-operations',
+        walletAddress: body.walletAddress,
+        monitoringUrl: `/jobs/${job.id}`,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to queue wallet holder profile analysis:`, error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to queue wallet holder profile job');
+    }
+  }
+}

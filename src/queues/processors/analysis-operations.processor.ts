@@ -1,8 +1,9 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts, JobPriority } from '../config/queue.config';
-import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult, AnalyzeHolderProfilesJobData, HolderProfilesResult } from '../jobs/types';
+import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult, AnalyzeHolderProfilesJobData, HolderProfilesResult, HolderProfile } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
+import { buildHolderProfilesJobId } from '../utils/holder-profiles-job-id';
 import { RedisLockService } from '../services/redis-lock.service';
 import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
 import { BehaviorService } from '../../api/services/behavior.service';
@@ -627,43 +628,49 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
   /**
    * Process holder profiles analysis job
-   * Analyzes holding behavior for top holders of a token
+   * Supports analyzing top holders for a token or an individual wallet
    */
   async processAnalyzeHolderProfiles(job: Job<AnalyzeHolderProfilesJobData>): Promise<HolderProfilesResult> {
-    const { tokenMint, topN, requestId } = job.data;
+    const { mode = 'token', tokenMint, topN = 10, walletAddress } = job.data;
     const startTime = Date.now();
-    const timeoutMs = 5 * 60 * 1000; // 5 minutes timeout
+    const timeoutMs = 5 * 60 * 1000;
 
-    // ✅ FIX #4: Add job deduplication check (like other processors)
-    const expectedJobId = `holder-profiles-${tokenMint}-${topN}-${requestId}`;
+    const expectedJobId = buildHolderProfilesJobId(job.data);
     if (job.id !== expectedJobId) {
       this.logger.warn(`Job ID mismatch: expected ${expectedJobId}, got ${job.id}`);
       throw new Error('Job ID mismatch - possible duplicate');
     }
 
+    if (mode === 'wallet') {
+      if (!walletAddress) {
+        throw new Error('Wallet address required for wallet-mode holder profile analysis');
+      }
+      return this.processSingleHolderProfile(job, walletAddress, startTime, timeoutMs);
+    }
+
+    if (!tokenMint) {
+      throw new Error('Token mint is required for token-mode holder profile analysis');
+    }
+
     this.logger.log(`Starting holder profiles analysis for token ${tokenMint} [topN=${topN}]`);
 
     try {
-      // 🔍 Check cache first (2 min TTL)
-      const cachedResult = await this.holderProfilesCacheService.getCachedResult(tokenMint, topN);
+      const cachedResult = await this.holderProfilesCacheService.getTokenResult(tokenMint, topN);
       if (cachedResult) {
-        this.logger.log(`✅ Returning cached holder profiles for ${tokenMint} (topN=${topN})`);
+        this.logger.log(`Returning cached holder profiles for ${tokenMint} (topN=${topN})`);
         await job.updateProgress(100);
         return cachedResult;
       }
 
-      // ✅ FIX #3: Add timeout enforcement
       this.checkTimeout(startTime, timeoutMs, 'Starting holder profiles analysis');
       await job.updateProgress(5);
 
-      // 1. Fetch top holders using existing service
       this.logger.debug(`Fetching top ${topN} holders for ${tokenMint}...`);
       const topHoldersResponse = await this.tokenHoldersService.getTopHolders(tokenMint);
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching top holders');
       await job.updateProgress(10);
 
-      // ✅ FIX #1: Fetch actual token supply (CACHED - immutable data)
       this.logger.debug(`Fetching actual token supply for ${tokenMint}...`);
       let actualTotalSupply: number;
       try {
@@ -673,19 +680,16 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           this.logger.debug(`Token ${tokenMint} total supply (cached): ${actualTotalSupply}`);
         } else {
           this.logger.warn(`Failed to fetch token supply for ${tokenMint}, falling back to sum of holders`);
-          // Fallback: sum of all holders (not just topN) as best effort
           actualTotalSupply = topHoldersResponse.holders.reduce((sum, h) => sum + (h.uiAmount || 0), 0);
         }
       } catch (supplyError) {
         this.logger.warn(`Error fetching token supply for ${tokenMint}, falling back to sum of holders:`, supplyError);
-        // Fallback: sum of all holders (not just topN) as best effort
         actualTotalSupply = topHoldersResponse.holders.reduce((sum, h) => sum + (h.uiAmount || 0), 0);
       }
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching token supply');
       await job.updateProgress(15);
 
-      // Limit to topN and extract wallet addresses
       const topHolders = topHoldersResponse.holders.slice(0, topN);
       const walletAddresses = topHolders
         .map(h => h.ownerAccount)
@@ -695,6 +699,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         this.logger.warn(`No holder wallet addresses found for ${tokenMint}`);
         return {
           success: true,
+          mode: 'token',
           tokenMint,
           profiles: [],
           metadata: {
@@ -711,15 +716,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       this.logger.log(`Analyzing ${walletAddresses.length} holder wallets for ${tokenMint}...`);
       await job.updateProgress(20);
 
-      // 2. BATCH fetch swap records for ALL wallets (avoid N+1 queries)
-      // ✅ Use DatabaseService method instead of direct Prisma access
       this.logger.debug(`Batch fetching swap records for ${walletAddresses.length} wallets...`);
       const allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletAddresses);
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching swap records');
       await job.updateProgress(40);
 
-      // Group swap records by wallet address
       const swapRecordsByWallet: Record<string, typeof allSwapRecords> = {};
       for (const record of allSwapRecords) {
         if (!swapRecordsByWallet[record.walletAddress]) {
@@ -730,17 +732,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       this.logger.debug(`Grouped swap records: ${Object.keys(swapRecordsByWallet).length} wallets with data`);
 
-      // 3. Analyze wallets IN PARALLEL
       const progressStep = 50 / walletAddresses.length;
       let completedCount = 0;
 
-      const profilePromises = topHolders.map(async (holder, index) => {
+      const profilePromises = topHolders.map(async holder => {
         if (!holder.ownerAccount) return null;
 
-        const walletStartTime = Date.now();
-        const swapRecords = swapRecordsByWallet[holder.ownerAccount] || [];
-
-        // Calculate percentage of supply using ACTUAL total supply
+        const walletSwapRecords = swapRecordsByWallet[holder.ownerAccount] || [];
         const supplyPercent = actualTotalSupply > 0 ? ((holder.uiAmount || 0) / actualTotalSupply) * 100 : 0;
 
         try {
@@ -748,7 +746,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             holder.ownerAccount,
             holder.rank,
             supplyPercent,
-            swapRecords,
+            walletSwapRecords,
           );
 
           completedCount++;
@@ -761,7 +759,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
       });
 
-      const profiles = (await Promise.all(profilePromises)).filter(p => p !== null);
+      const profiles = (await Promise.all(profilePromises)).filter(p => p !== null) as HolderProfile[];
 
       this.checkTimeout(startTime, timeoutMs, 'Completing analysis');
       await job.updateProgress(95);
@@ -770,8 +768,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       const result: HolderProfilesResult = {
         success: true,
+        mode: 'token',
         tokenMint,
-        profiles: profiles as any[],
+        profiles,
         metadata: {
           totalHoldersRequested: topN,
           totalHoldersAnalyzed: profiles.length,
@@ -787,8 +786,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(100);
       this.logger.log(`Holder profiles analysis for ${tokenMint} completed in ${result.processingTimeMs}ms`);
 
-      // 💾 Cache the result (2 min TTL)
-      await this.holderProfilesCacheService.cacheResult(tokenMint, topN, result);
+      await this.holderProfilesCacheService.cacheTokenResult(tokenMint, topN, result);
 
       return result;
     } catch (error) {
@@ -797,6 +795,53 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Analyze holder profile for a single wallet (wallet mode)
+   */
+  private async processSingleHolderProfile(
+    job: Job<AnalyzeHolderProfilesJobData>,
+    walletAddress: string,
+    startTime: number,
+    timeoutMs: number,
+  ): Promise<HolderProfilesResult> {
+    this.logger.log(`Starting holder profile analysis for wallet ${walletAddress}`);
+
+    const cached = await this.holderProfilesCacheService.getWalletResult(walletAddress);
+    if (cached) {
+      this.logger.log(`Returning cached holder profile for wallet ${walletAddress}`);
+      await job.updateProgress(100);
+      return cached;
+    }
+
+    this.checkTimeout(startTime, timeoutMs, 'Starting wallet holder profile analysis');
+    await job.updateProgress(10);
+
+    const swapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+    this.checkTimeout(startTime, timeoutMs, 'Fetching wallet swap records');
+    await job.updateProgress(40);
+
+    const profile = await this.analyzeWalletProfile(walletAddress, 1, 0, swapRecords);
+
+    const result: HolderProfilesResult = {
+      success: true,
+      mode: 'wallet',
+      targetWallet: walletAddress,
+      profiles: profile ? [profile] : [],
+      metadata: {
+        totalHoldersRequested: 1,
+        totalHoldersAnalyzed: profile ? 1 : 0,
+        totalProcessingTimeMs: Date.now() - startTime,
+        avgProcessingTimePerWalletMs: profile ? Date.now() - startTime : 0,
+      },
+      timestamp: Date.now(),
+      processingTimeMs: Date.now() - startTime,
+    };
+
+    await job.updateProgress(100);
+    await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
+
+    return result;
+  }
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {
     const { mint, cutoffTs } = job.data;
     const startTime = Date.now();

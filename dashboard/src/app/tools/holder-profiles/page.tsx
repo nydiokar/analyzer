@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useJobProgress } from '@/hooks/useJobProgress';
@@ -31,7 +32,9 @@ interface HolderProfile {
 }
 
 interface HolderProfilesResult {
-  tokenMint: string;
+  mode: 'token' | 'wallet';
+  tokenMint?: string;
+  targetWallet?: string;
   profiles: HolderProfile[];
   metadata: {
     totalHoldersRequested: number;
@@ -42,9 +45,12 @@ interface HolderProfilesResult {
 }
 
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
+type AnalysisMode = 'token' | 'wallet';
 
 export default function HolderProfilesPage() {
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('token');
   const [tokenMint, setTokenMint] = useState('');
+  const [walletAddress, setWalletAddress] = useState('');
   const [topN, setTopN] = useState(10);
   const [jobStatus, setJobStatus] = useState<JobStatus>('idle');
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
@@ -125,18 +131,27 @@ export default function HolderProfilesPage() {
   });
 
   const handleAnalyze = async () => {
-    if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
-      toast.error('Invalid token address', {
-        description: 'Please enter a valid Solana token mint address',
-      });
-      return;
-    }
+    if (analysisMode === 'token') {
+      if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
+        toast.error('Invalid token address', {
+          description: 'Please enter a valid Solana token mint address',
+        });
+        return;
+      }
 
-    if (topN < 1 || topN > 50) {
-      toast.error('Invalid holder count', {
-        description: 'Please enter a value between 1 and 50',
-      });
-      return;
+      if (topN < 1 || topN > 50) {
+        toast.error('Invalid holder count', {
+          description: 'Please enter a value between 1 and 50',
+        });
+        return;
+      }
+    } else {
+      if (!walletAddress || !isValidSolanaAddress(walletAddress)) {
+        toast.error('Invalid wallet address', {
+          description: 'Please enter a valid Solana wallet address',
+        });
+        return;
+      }
     }
 
     try {
@@ -145,13 +160,22 @@ export default function HolderProfilesPage() {
       setProgressMessage('Starting analysis...');
       setResult(null);
 
-      const response = await fetcher('/analyses/holder-profiles', {
+      const endpoint =
+        analysisMode === 'token'
+          ? '/analyses/holder-profiles'
+          : '/analyses/holder-profiles/wallet';
+      const payload =
+        analysisMode === 'token'
+          ? { tokenMint, topN }
+          : { walletAddress };
+
+      const response = await fetcher(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokenMint, topN }),
+        body: JSON.stringify(payload),
       });
 
-      console.log('✅ Job queued:', response.jobId);
+      console.log('Holder profiles job queued:', response.jobId);
       setCurrentJobId(response.jobId);
 
       if (wsConnected) {
@@ -162,7 +186,7 @@ export default function HolderProfilesPage() {
         });
       }
     } catch (error: any) {
-      console.error('❌ Failed to queue job:', error);
+      console.error('Failed to queue holder profiles job:', error);
       setJobStatus('failed');
       toast.error('Failed to start analysis', {
         description: error.message || 'Unknown error',
@@ -187,31 +211,55 @@ export default function HolderProfilesPage() {
 
       <Card className="p-6">
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2 space-y-2">
-              <Label htmlFor="tokenMint">Token Mint Address</Label>
-              <Input
-                id="tokenMint"
-                placeholder="e.g., JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
-                value={tokenMint}
-                onChange={(e) => setTokenMint(e.target.value)}
-                disabled={isRunning}
-              />
-            </div>
+          <Tabs
+            value={analysisMode}
+            onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}
+            className="w-full"
+          >
+            <TabsList className="grid grid-cols-2 w-full md:w-auto">
+              <TabsTrigger value="token">Top Token Holders</TabsTrigger>
+              <TabsTrigger value="wallet">Single Wallet</TabsTrigger>
+            </TabsList>
+          </Tabs>
 
+          {analysisMode === 'token' ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2 space-y-2">
+                <Label htmlFor="tokenMint">Token Mint Address</Label>
+                <Input
+                  id="tokenMint"
+                  placeholder="e.g., JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
+                  value={tokenMint}
+                  onChange={(e) => setTokenMint(e.target.value)}
+                  disabled={isRunning}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="topN">Top N Holders</Label>
+                <Input
+                  id="topN"
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={topN}
+                  onChange={(e) => setTopN(parseInt(e.target.value) || 10)}
+                  disabled={isRunning}
+                />
+              </div>
+            </div>
+          ) : (
             <div className="space-y-2">
-              <Label htmlFor="topN">Top N Holders</Label>
+              <Label htmlFor="walletAddress">Wallet Address</Label>
               <Input
-                id="topN"
-                type="number"
-                min="1"
-                max="50"
-                value={topN}
-                onChange={(e) => setTopN(parseInt(e.target.value) || 10)}
+                id="walletAddress"
+                placeholder="Enter a wallet address to analyze"
+                value={walletAddress}
+                onChange={(e) => setWalletAddress(e.target.value)}
                 disabled={isRunning}
               />
             </div>
-          </div>
+          )}
 
           <Button onClick={handleAnalyze} disabled={isRunning} className="w-full md:w-auto">
             {isRunning ? (
@@ -222,7 +270,7 @@ export default function HolderProfilesPage() {
             ) : (
               <>
                 <Search className="mr-2 h-4 w-4" />
-                Analyze Holders
+                {analysisMode === 'token' ? 'Analyze Holders' : 'Analyze Wallet'}
               </>
             )}
           </Button>
@@ -236,7 +284,12 @@ export default function HolderProfilesPage() {
       {result && (
         <>
           <HolderProfilesStats result={result} />
-          <HolderProfilesTable profiles={result.profiles} tokenMint={result.tokenMint} />
+          <HolderProfilesTable
+            profiles={result.profiles}
+            mode={result.mode}
+            tokenMint={result.tokenMint}
+            targetWallet={result.targetWallet}
+          />
         </>
       )}
     </div>

@@ -3,7 +3,7 @@ import { DatabaseService, WalletBehaviorProfileUpsertData } from 'core/services/
 import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { BehavioralMetrics, ActiveTradingPeriods } from '@/types/behavior';
 import { createLogger } from 'core/utils/logger';
-import { Prisma } from '@prisma/client'; // Import Prisma
+import { Prisma, SwapAnalysisInput } from '@prisma/client'; // Import Prisma
 
 const logger = createLogger('BehaviorService');
 
@@ -42,9 +42,21 @@ export class BehaviorService {
         return null; 
       }
 
-      // Use the injected BehaviorAnalyzer for calculations
-      // Pass both swap records AND wallet address (needed for historicalPattern calculation)
-      const metrics = this.behaviorAnalyzer.analyze(swapRecords, walletAddress); 
+      // Determine which dataset should power the historical pattern calculation.
+      let historicalSwapRecords: SwapAnalysisInput[] | undefined = undefined;
+      if (timeRange) {
+        logger.debug(`Fetching full history for ${walletAddress} to calculate historical pattern independently of the requested range.`);
+        historicalSwapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+      } else {
+        historicalSwapRecords = swapRecords;
+      }
+
+      // Use the injected BehaviorAnalyzer for calculations, ensuring historical metrics use the full data set
+      const metrics = this.behaviorAnalyzer.analyze(
+        swapRecords,
+        walletAddress,
+        historicalSwapRecords,
+      ); 
 
       if (metrics) {
         // Destructure metrics to prepare for DB save

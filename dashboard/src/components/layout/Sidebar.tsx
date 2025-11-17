@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, SearchIcon, FlaskConical } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, SearchIcon, FlaskConical, ShieldAlert } from 'lucide-react';
 import {
     Tooltip,
     TooltipContent,
@@ -93,6 +93,17 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
                   </Link>
                 </TooltipTrigger>
                 {isCollapsed && <TooltipContent side="right" align="center"><p>Similarity LAB</p></TooltipContent>}
+              </Tooltip>
+            </li>
+            <li>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/tools/holder-profiles" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
+                    <ShieldAlert size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
+                    {!isCollapsed && <span className="flex-1 font-semibold">Holder Profiles</span>}
+                  </Link>
+                </TooltipTrigger>
+                {isCollapsed && <TooltipContent side="right" align="center"><p>Holder Profiles</p></TooltipContent>}
               </Tooltip>
             </li>
           </ul>

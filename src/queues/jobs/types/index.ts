@@ -40,8 +40,10 @@ export interface AnalyzeBehaviorJobData {
 }
 
 export interface AnalyzeHolderProfilesJobData {
-  tokenMint: string;
-  topN: number;              // Number of top holders to analyze (default: 10)
+  mode: 'token' | 'wallet';
+  tokenMint?: string;
+  topN?: number;              // Number of top holders to analyze (default: 10) when token mode
+  walletAddress?: string;     // Specific wallet to analyze when wallet mode
   requestId: string;
 }
 
@@ -164,7 +166,9 @@ export interface HolderProfile {
 }
 
 export interface HolderProfilesResult extends JobResult {
-  tokenMint: string;
+  mode: 'token' | 'wallet';
+  tokenMint?: string;
+  targetWallet?: string;
   profiles: HolderProfile[];
   metadata: {
     totalHoldersRequested: number;

@@ -50,7 +50,11 @@ export class BehaviorAnalyzer {
    * @param swapRecords - Array of SwapAnalysisInput records for the wallet.
    * @returns BehavioralMetrics object.
    */
-  public analyze(rawSwapRecords: SwapAnalysisInput[], walletAddress: string): BehavioralMetrics {
+  public analyze(
+    rawSwapRecords: SwapAnalysisInput[],
+    walletAddress: string,
+    historicalPatternRecords?: SwapAnalysisInput[],
+  ): BehavioralMetrics {
     this.logger.debug(`Starting behavior analysis for wallet ${walletAddress} with ${rawSwapRecords.length} raw swap records.`);
 
     // Filter out records involving excluded tokens FIRST
@@ -130,7 +134,10 @@ export class BehaviorAnalyzer {
 
     // 3. Calculate historical pattern from completed positions ONLY
     // This must happen BEFORE classifyTradingStyle() which depends on it
-    metrics.historicalPattern = this.calculateHistoricalPattern(rawSwapRecords, walletAddress);
+    const patternRecords = historicalPatternRecords && historicalPatternRecords.length > 0
+      ? historicalPatternRecords
+      : rawSwapRecords;
+    metrics.historicalPattern = this.calculateHistoricalPattern(patternRecords, walletAddress);
 
     if (metrics.historicalPattern) {
       this.logger.debug(

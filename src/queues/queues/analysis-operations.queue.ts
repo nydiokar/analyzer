@@ -3,6 +3,7 @@ import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalyzeHolderProfilesJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
+import { buildHolderProfilesJobId } from '../utils/holder-profiles-job-id';
 
 @Injectable()
 export class AnalysisOperationsQueue {
@@ -56,7 +57,7 @@ export class AnalysisOperationsQueue {
    * Add a holder profiles analysis job to the queue
    */
   async addHolderProfilesJob(data: AnalyzeHolderProfilesJobData, options?: { priority?: number; delay?: number }) {
-    const jobId = `holder-profiles-${data.tokenMint}-${data.requestId}`;
+    const jobId = buildHolderProfilesJobId(data);
 
     return this.queue.add('analyze-holder-profiles', data, {
       jobId,
