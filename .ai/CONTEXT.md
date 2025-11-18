@@ -352,3 +352,10 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 - Add minimal telemetry to guide threshold tuning and monitor credit usage; adjust via config only.
 - Dashboard lint/build in this workspace: install `dashboard` deps first (`npm install --prefix dashboard`) before running lint/CI tasks.
 - Tests: `npm run verify` ✅; `npm run lint` (dashboard) ❌ `next: not found` because dashboard dependencies are missing.
+
+
+PAY ATTENTION! 
+
+Need to find out a way to fulfill all token history for a wallet, when we have identified such in the X amount of txs we have fetch. Gake is having no holder data for the past 1000 tx, due to old tokens. 
+
+Find a way to detect when tokens have changed the owner and sold off from a different wallet. 
