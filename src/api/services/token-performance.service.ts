@@ -221,7 +221,15 @@ export class TokenPerformanceService {
       const fallbackMetadata = getWellKnownTokenMetadata(ar.tokenAddress);
       
       // Calculate unrealized P&L for current holdings
-      const currentUiBalance = ar.currentUiBalance || 0;
+      const netAmountChange = ar.netAmountChange || 0;
+      const dbCurrentUiBalance = ar.currentUiBalance;
+      const derivedBalanceFromNetAmount = (dbCurrentUiBalance === null || dbCurrentUiBalance === undefined) && netAmountChange > 0
+        ? netAmountChange
+        : null;
+      
+      const currentUiBalance = derivedBalanceFromNetAmount ?? (dbCurrentUiBalance || 0);
+      const hasCurrentHoldings = currentUiBalance > 0;
+      const effectiveCurrentUiBalanceString = ar.currentUiBalanceString ?? (derivedBalanceFromNetAmount !== null ? derivedBalanceFromNetAmount.toString() : null);
       const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
       const totalSolSpent = ar.totalSolSpent || 0;
       const totalAmountIn = ar.totalAmountIn || 0;
@@ -243,7 +251,7 @@ export class TokenPerformanceService {
       // estimatedSolPriceUsd is already fetched from outer scope
       const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
       
-      if (currentUiBalance > 0 && priceUsd && priceUsd > 0) {
+      if (hasCurrentHoldings && priceUsd && priceUsd > 0) {
         // We have current holdings AND price data - can calculate full P&L
         currentHoldingsValueUsd = currentUiBalance * priceUsd;
         currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
@@ -286,7 +294,7 @@ export class TokenPerformanceService {
           totalPnlSol = realizedPnlSol; // Only realized PnL for filtered tokens
         }
         
-             } else if (currentUiBalance > 0) {
+             } else if (hasCurrentHoldings) {
          // We have holdings but no price data - can't calculate unrealized P&L
          // Show realized P&L only and mark total as incomplete
          const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
@@ -329,8 +337,8 @@ export class TokenPerformanceService {
         firstTransferTimestamp: ar.firstTransferTimestamp,
         lastTransferTimestamp: ar.lastTransferTimestamp,
         currentRawBalance: ar.currentRawBalance,
-        currentUiBalance: ar.currentUiBalance,
-        currentUiBalanceString: ar.currentUiBalanceString,
+        currentUiBalance: hasCurrentHoldings ? currentUiBalance : ar.currentUiBalance,
+        currentUiBalanceString: effectiveCurrentUiBalanceString,
         balanceDecimals: ar.balanceDecimals,
         balanceFetchedAt: ar.balanceFetchedAt ? ar.balanceFetchedAt.toISOString() : null,
         // Send ALL fields raw - TokenBadge will decide priority (centralized logic)
