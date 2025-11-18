@@ -52,13 +52,25 @@ export interface WalletHistoricalPattern {
   completedCycleCount: number;             // Number of fully exited tokens
   medianCompletedHoldTimeHours: number;    // Median of completed cycles
 
-  // Behavioral classification
-  behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
+  // Behavioral classification (granular memecoin trading patterns)
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
   exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';  // Based on sell distribution
 
   // Confidence metrics
   dataQuality: number;                     // 0-1, based on sample size
   observationPeriodDays: number;           // Time span of historical data
+
+  // Hold time distribution breakdown
+  holdTimeDistribution?: {
+    instant: number;      // <0.36s (same tx)
+    ultraFast: number;    // <1min
+    fast: number;         // 1-5min
+    momentum: number;     // 5-30min
+    intraday: number;     // 30min-4h
+    day: number;          // 4-24h
+    swing: number;        // 1-7d
+    position: number;     // 7+d
+  };
 }
 
 /**
@@ -73,7 +85,7 @@ export interface WalletTokenPrediction {
   // Historical context (from OTHER completed tokens)
   historicalMedianHoldHours: number;        // Wallet's typical median hold time
   historicalSampleSize: number;             // Number of completed cycles
-  behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
   exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
 
   // Current position (for THIS specific token)

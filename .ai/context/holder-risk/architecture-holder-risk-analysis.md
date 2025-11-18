@@ -87,21 +87,75 @@ Build a predictive holder risk analysis system that enables traders to evaluate 
 
 ### ✅ Metrics Refactor (COMPLETE - 2025-11-17)
 
-**New Constants**: `src/core/analysis/behavior/constants.ts`
+**Constants Consolidation**: `src/core/analysis/behavior/constants.ts` ✅ (2025-11-18)
 
-✅ **Trading Speed Redefinition**
-- ULTRA_FLIPPER: <3 minutes (was <1 hour) ⚡ TIGHTENED
-- FLIPPER: <10 minutes (was <6 hours) ⚡ TIGHTENED
-- FAST_TRADER: <1 hour
-- DAY_TRADER: <1 day
-- SWING_TRADER: <7 days
-- POSITION_TRADER: 7+ days
+All behavior classification thresholds now centralized in a single source of truth.
 
-✅ **Classification Refactor** (`analyzer.ts:1319-1476`)
-- Uses MEDIAN hold time (outlier-robust, not weighted average)
-- Separates SPEED from BEHAVIORAL PATTERN
-- Output: "FLIPPER (ACCUMULATOR)" instead of "True Flipper"
-- Dual interpretation: typical behavior vs economic risk
+✅ **System 1: Trading Speed Categories** (6 types)
+- **Used By**: `TradingInterpretation.speedCategory`
+- **Data Source**: **COMPLETED/EXITED positions only** (same as System 2)
+- **Purpose**: General wallet speed classification ("How fast do they exit?")
+- **Helper Function**: `classifyTradingSpeed(medianHoldTimeHours)` where `medianHoldTimeHours` comes from `historicalPattern.medianCompletedHoldTimeHours`
+- **Categories**:
+  - ULTRA_FLIPPER: <3 minutes (bot-like, MEV, arbitrage)
+  - FLIPPER: 3-10 minutes (snipe-and-dump)
+  - FAST_TRADER: 10-60 minutes (intra-hour momentum)
+  - DAY_TRADER: 1-24 hours (standard day trading)
+  - SWING_TRADER: 1-7 days (multi-day holds)
+  - POSITION_TRADER: 7+ days (long-term holds)
+- **UI Display**: BehavioralPatternsTab summary section
+
+✅ **System 2: Holder Behavior Types** (8 types - MORE GRANULAR)
+- **Used By**: `WalletHistoricalPattern.behaviorType`
+- **Data Source**: COMPLETED positions only (exited trades)
+- **Purpose**: Holder risk analysis and exit prediction ("How fast do they exit?")
+- **Helper Function**: `classifyHolderBehavior(medianCompletedHoldTimeHours)`
+- **Categories**:
+  - SNIPER: <1 minute (Bot/MEV behavior)
+  - SCALPER: 1-5 minutes (Ultra-fast scalping)
+  - MOMENTUM: 5-30 minutes (Momentum trading)
+  - INTRADAY: 30 minutes - 4 hours (Short-term intraday)
+  - DAY_TRADER: 4-24 hours (Day trading)
+  - SWING: 1-7 days (Swing trading)
+  - POSITION: 7-30 days (Position trading)
+  - HOLDER: 30+ days (Long-term holding)
+- **UI Display**: BehavioralPatternsTab historical pattern section, HolderProfilesTable
+
+✅ **Why Two Systems?**
+- **Same Data Source**: Both use COMPLETED/EXITED positions only (via `historicalPattern`)
+- **Different Granularity**: System 1 has 6 categories, System 2 has 8 categories (more granular for memecoin behavior)
+- **Different Purposes**: System 1 = general speed classification, System 2 = granular holder risk prediction
+- **Real Example**: Wallet with median exit time of 2.5 min → FLIPPER (system 1, 6-category) but SCALPER (system 2, 8-category more granular)
+
+✅ **Migration Impact** (`analyzer.ts`)
+- Line 265: Replaced 23 hardcoded lines with `classifyHolderBehavior()`
+- Line 1360: Replaced 15 hardcoded lines with `classifyTradingSpeed()`
+- Zero breaking changes (thresholds identical, just moved to constants)
+- Single source of truth: Changing thresholds requires updating only `constants.ts`
+
+✅ **Critical Bug Fixes** (2025-11-18)
+- **Invalid Hold Time Filtering** (`analyzer.ts:226-243`):
+  - **Before**: `weightedHoldingTimeHours > 0` (too strict, filtered out sub-second holds)
+  - **After**: `weightedHoldingTimeHours >= 0.0001h` (~0.36 seconds minimum)
+  - **Impact**: Now properly captures ultra-fast bot exits (MEV, same-block trades)
+  - **Example**: Wallet rotation (same-tx transfers) now correctly identified as instant holds
+
+- **Hold Time Distribution** (`analyzer.ts:268-287`, `types/behavior.ts:63-73`):
+  - **Added**: `holdTimeDistribution` field to `WalletHistoricalPattern`
+  - **Contains**: 8 time ranges (instant, ultraFast, fast, momentum, intraday, day, swing, position)
+  - **Purpose**: Show breakdown of hold times across all completed positions
+  - **Usage**: Available in API for UI display, used for flip ratio calculation
+
+- **Flip Ratio Calculation** (`analysis-operations.processor.ts:1079-1115`):
+  - **Before**: Looked for `tokenLifecycles` (not exposed) → always returned 0.0%
+  - **After**: Uses `holdTimeDistribution` from `historicalPattern`
+  - **Formula**: `(instant + ultraFast + fast) / total * 100`
+  - **Impact**: Now correctly shows % of positions held <5min (e.g., 91% for bot wallets)
+
+- **Log Spam Reduction** (`analyzer.ts:238-243`):
+  - **Before**: 100+ individual lines "Filtering out token X with invalid hold time: 0.000000h"
+  - **After**: Single aggregated line "Filtered out 90 tokens with invalid hold times"
+  - **Impact**: Cleaner logs, easier debugging
 
 ✅ **Bot Detection Update** (`bot-detector.ts:105-116`)
 - Uses median hold time (was average)

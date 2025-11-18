@@ -22,6 +22,17 @@ import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
 
+// Helper function to format hold time nicely
+const formatHoldTime = (hours: number): string => {
+  if (hours < 1) {
+    return `${(hours * 60).toFixed(0)}m`;
+  } else if (hours < 24) {
+    return `${hours.toFixed(1)}h`;
+  } else {
+    return `${(hours / 24).toFixed(1)}d`;
+  }
+};
+
 export interface BehavioralPatternsTabProps {
   walletAddress: string;
   isAnalyzingGlobal?: boolean;
@@ -355,14 +366,14 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             {behaviorData.tradingInterpretation && (
               <>
                 <MetricDisplay
-                  label="Speed Category"
-                  value={behaviorData.tradingInterpretation.speedCategory.replace('_', ' ')}
-                  tooltipText={`How fast they typically trade (based on median hold time). Typical hold: ${behaviorData.tradingInterpretation.typicalHoldTimeHours < 1 ? `${(behaviorData.tradingInterpretation.typicalHoldTimeHours * 60).toFixed(0)} minutes` : `${behaviorData.tradingInterpretation.typicalHoldTimeHours.toFixed(1)} hours`}`}
+                  label="Typical Hold Time"
+                  value={formatHoldTime(behaviorData.tradingInterpretation.typicalHoldTimeHours)}
+                  tooltipText={`Median hold time from completed/exited positions (outlier-robust). Category: ${behaviorData.tradingInterpretation.speedCategory}. Ranges: ULTRA_FLIPPER (<3min), FLIPPER (3-10min), FAST_TRADER (10-60min), DAY_TRADER (1-24h), SWING_TRADER (1-7d), POSITION_TRADER (7+d)`}
                 />
                 <MetricDisplay
-                  label="Economic Risk"
-                  value={behaviorData.tradingInterpretation.economicRisk}
-                  tooltipText={`Risk level based on where capital is deployed (weighted by position size). Economic hold time: ${behaviorData.tradingInterpretation.economicHoldTimeHours < 1 ? `${(behaviorData.tradingInterpretation.economicHoldTimeHours * 60).toFixed(0)} minutes` : behaviorData.tradingInterpretation.economicHoldTimeHours < 24 ? `${behaviorData.tradingInterpretation.economicHoldTimeHours.toFixed(1)} hours` : `${(behaviorData.tradingInterpretation.economicHoldTimeHours / 24).toFixed(1)} days`}`}
+                  label="Economic Hold Time"
+                  value={formatHoldTime(behaviorData.tradingInterpretation.economicHoldTimeHours)}
+                  tooltipText={`Weighted average from completed/exited positions (position size matters). Risk: ${behaviorData.tradingInterpretation.economicRisk}. Shows where the MONEY goes vs what they USUALLY do (typical hold time).`}
                 />
                 <MetricDisplay
                   label="Behavioral Pattern"
@@ -456,9 +467,9 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                         tooltipText="Number of fully completed token cycles (bought and exited). More cycles = higher confidence in pattern."
                       />
                       <MetricDisplay
-                        label="Behavior Type"
-                        value={behaviorData.historicalPattern.behaviorType.replace('_', ' ')}
-                        tooltipText="Classification based on median hold time from completed positions only."
+                        label="Median Exit Time"
+                        value={formatHoldTime(behaviorData.historicalPattern.medianCompletedHoldTimeHours)}
+                        tooltipText={`Median hold time from completed positions only. Category: ${behaviorData.historicalPattern.behaviorType}. Ranges: SNIPER (<1min), SCALPER (1-5min), MOMENTUM (5-30min), INTRADAY (30min-4h), DAY_TRADER (4-24h), SWING (1-7d), POSITION (7-30d), HOLDER (30+d). Used for exit prediction.`}
                       />
                       <MetricDisplay
                         label="Exit Pattern"

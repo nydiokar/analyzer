@@ -111,7 +111,7 @@ export interface HistoricalPattern {
   medianCompletedHoldTimeHours: number;        // Median (outlier-robust)
   historicalAverageHoldTimeHours: number;      // Weighted average (economic impact)
   completedCycleCount: number;                 // Sample size
-  behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
   exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
   dataQuality: number;                         // 0-1 confidence score
   observationPeriodDays: number;

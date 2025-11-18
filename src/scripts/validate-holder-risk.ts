@@ -168,18 +168,30 @@ async function validateWallet(walletAddress: string) {
     console.log('\n💡 INTERPRETATION:');
     console.log('─'.repeat(80));
 
-    if (pattern.behaviorType === 'ULTRA_FLIPPER') {
-      console.log('  This wallet flips tokens VERY quickly (<1 hour average)');
-      console.log('  High risk of rapid exit on new positions');
-    } else if (pattern.behaviorType === 'FLIPPER') {
-      console.log('  This wallet typically flips within 1-24 hours');
-      console.log('  Moderate risk of relatively quick exit');
+    if (pattern.behaviorType === 'SNIPER') {
+      console.log('  This wallet exits within <1 minute (Bot/MEV behavior)');
+      console.log('  CRITICAL risk of instant exit on new positions');
+    } else if (pattern.behaviorType === 'SCALPER') {
+      console.log('  This wallet scalps within 1-5 minutes');
+      console.log('  CRITICAL risk of ultra-fast exit');
+    } else if (pattern.behaviorType === 'MOMENTUM') {
+      console.log('  This wallet trades momentum plays (5-30 minutes)');
+      console.log('  HIGH risk of rapid exit');
+    } else if (pattern.behaviorType === 'INTRADAY') {
+      console.log('  This wallet trades intraday (30min-4h)');
+      console.log('  HIGH risk of same-day exit');
+    } else if (pattern.behaviorType === 'DAY_TRADER') {
+      console.log('  This wallet day trades (4-24 hours)');
+      console.log('  MEDIUM risk of exit within a day');
     } else if (pattern.behaviorType === 'SWING') {
-      console.log('  This wallet holds positions for 1-7 days');
-      console.log('  Moderate holding period, lower immediate dump risk');
+      console.log('  This wallet swing trades (1-7 days)');
+      console.log('  MEDIUM risk, typical swing trading pattern');
+    } else if (pattern.behaviorType === 'POSITION') {
+      console.log('  This wallet holds positions (7-30 days)');
+      console.log('  LOW risk of immediate exit');
     } else if (pattern.behaviorType === 'HOLDER') {
-      console.log('  This wallet holds positions for 7+ days');
-      console.log('  Low risk of immediate exit');
+      console.log('  This wallet holds long-term (30+ days)');
+      console.log('  VERY LOW risk of immediate exit');
     }
 
     if (pattern.exitPattern === 'ALL_AT_ONCE') {

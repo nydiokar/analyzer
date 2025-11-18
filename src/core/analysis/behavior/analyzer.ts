@@ -2,6 +2,7 @@ import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { BehavioralMetrics, ActiveTradingPeriods, IdentifiedTradingWindow, WalletHistoricalPattern, TokenPositionLifecycle, WalletTokenPrediction } from '@/types/behavior';
 import { SwapAnalysisInput } from '@prisma/client';
 import { createLogger } from 'core/utils/logger';
+import { classifyHolderBehavior, classifyTradingSpeed } from './constants';
 
 // List of common utility token mints to exclude from behavioral analysis
 const EXCLUDED_TOKEN_MINTS: string[] = [
@@ -220,16 +221,26 @@ export class BehaviorAnalyzer {
     }
 
     // Additional quality check: Ensure we have meaningful hold times
-    // Filter out any positions with hold times that seem corrupted (e.g., 0 hours or negative)
+    // Filter out any positions with hold times that seem corrupted (negative or impossibly long)
+    // Allow times as low as 1 second (0.000278 hours) - important for bot detection!
+    const MIN_VALID_HOLD_HOURS = 0.0001; // ~0.36 seconds minimum (prevents true zero/corruption)
+    const MAX_VALID_HOLD_HOURS = 18760; // 1 year maximum
+
+    let filteredOutCount = 0;
     const validLifecycles = filteredLifecycles.filter(lc => {
-      const isValid = lc.weightedHoldingTimeHours > 0 && lc.weightedHoldingTimeHours < 8760; // Between 0 and 1 year
+      const isValid = lc.weightedHoldingTimeHours >= MIN_VALID_HOLD_HOURS && lc.weightedHoldingTimeHours < MAX_VALID_HOLD_HOURS;
       if (!isValid) {
-        this.logger.warn(
-          `Filtering out token ${lc.mint.substring(0, 8)} with invalid hold time: ${lc.weightedHoldingTimeHours}h`
-        );
+        filteredOutCount++;
       }
       return isValid;
     });
+
+    // Log aggregated filter results (instead of spamming per-token)
+    if (filteredOutCount > 0) {
+      this.logger.debug(
+        `Filtered out ${filteredOutCount} tokens with invalid hold times (< ${MIN_VALID_HOLD_HOURS}h or > ${MAX_VALID_HOLD_HOURS}h)`
+      );
+    }
 
     // Re-check minimum after filtering invalid data
     if (validLifecycles.length < minCompletedCycles) {
@@ -260,29 +271,30 @@ export class BehaviorAnalyzer {
       .sort((a, b) => a - b);
     const medianCompletedHoldTimeHours = this.calculateMedian(sortedDurations);
 
-    // Classify behavior type based on average holding time (granular buckets)
-    let behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
-    const minutes = historicalAverageHoldTimeHours * 60;
+    // Calculate hold time distribution for insights
+    const distribution = {
+      instant: sortedDurations.filter(d => d < 0.0001).length,      // <0.36 seconds (same tx)
+      ultraFast: sortedDurations.filter(d => d >= 0.0001 && d < 1/60).length,  // <1min
+      fast: sortedDurations.filter(d => d >= 1/60 && d < 5/60).length,         // 1-5min
+      momentum: sortedDurations.filter(d => d >= 5/60 && d < 0.5).length,      // 5-30min
+      intraday: sortedDurations.filter(d => d >= 0.5 && d < 4).length,         // 30min-4h
+      day: sortedDurations.filter(d => d >= 4 && d < 24).length,               // 4-24h
+      swing: sortedDurations.filter(d => d >= 24 && d < 168).length,           // 1-7d
+      position: sortedDurations.filter(d => d >= 168).length,                  // 7+d
+    };
 
-    if (minutes < 1) {
-      behaviorType = 'ULTRA_FLIPPER'; // < 1 min: ULTRA_FAST
-    } else if (minutes < 3) {
-      behaviorType = 'ULTRA_FLIPPER'; // 1-3 min: ULTRA_FAST
-    } else if (minutes < 5) {
-      behaviorType = 'ULTRA_FLIPPER'; // 3-5 min: ULTRA_FAST
-    } else if (minutes < 10) {
-      behaviorType = 'ULTRA_FLIPPER'; // 5-10 min: VERY_FAST
-    } else if (minutes < 30) {
-      behaviorType = 'ULTRA_FLIPPER'; // 10-30 min: FAST
-    } else if (historicalAverageHoldTimeHours < 1) {
-      behaviorType = 'ULTRA_FLIPPER'; // 30-60 min: SUB_HOUR
-    } else if (historicalAverageHoldTimeHours < 24) {
-      behaviorType = 'FLIPPER'; // 1-24 hours: INTRADAY
-    } else if (historicalAverageHoldTimeHours < 168) {
-      behaviorType = 'SWING'; // 1-7 days: SWING
-    } else {
-      behaviorType = 'HOLDER'; // 7+ days: POSITION
-    }
+    this.logger.debug(
+      `Hold time distribution (${sortedDurations.length} cycles): ` +
+      `instant: ${distribution.instant}, <1m: ${distribution.ultraFast}, ` +
+      `1-5m: ${distribution.fast}, 5-30m: ${distribution.momentum}, ` +
+      `30m-4h: ${distribution.intraday}, 4-24h: ${distribution.day}, ` +
+      `1-7d: ${distribution.swing}, 7+d: ${distribution.position} | ` +
+      `median: ${medianCompletedHoldTimeHours < 1 ? (medianCompletedHoldTimeHours * 60).toFixed(2) + 'min' : medianCompletedHoldTimeHours.toFixed(2) + 'h'}`
+    );
+
+    // Classify behavior type based on median completed holding time
+    // Uses constants for single source of truth
+    const behaviorType = classifyHolderBehavior(medianCompletedHoldTimeHours);
 
     // Determine exit pattern by analyzing sell distribution
     const sellPatterns = filteredLifecycles.map(lc => {
@@ -316,6 +328,7 @@ export class BehaviorAnalyzer {
       exitPattern,
       dataQuality: sampleSizeScore,
       observationPeriodDays,
+      holdTimeDistribution: distribution, // Include distribution for UI display
     };
   }
 
@@ -1376,20 +1389,8 @@ export class BehaviorAnalyzer {
     }
 
     // ✅ NEW: Classify trading SPEED based on median (typical behavior)
-    let speedCategory: string;
-    if (medianHoldHours < 0.05) {  // <3 minutes
-      speedCategory = 'ULTRA_FLIPPER';
-    } else if (medianHoldHours < 0.167) {  // <10 minutes
-      speedCategory = 'FLIPPER';
-    } else if (medianHoldHours < 1) {  // <1 hour
-      speedCategory = 'FAST_TRADER';
-    } else if (medianHoldHours < 24) {  // <1 day
-      speedCategory = 'DAY_TRADER';
-    } else if (medianHoldHours < 168) {  // <7 days
-      speedCategory = 'SWING_TRADER';
-    } else {  // 7+ days
-      speedCategory = 'POSITION_TRADER';
-    }
+    // Uses constants for single source of truth
+    const speedCategory = classifyTradingSpeed(medianHoldHours);
 
     // ✅ NEW: Classify BEHAVIORAL PATTERN (buy/sell characteristics)
     let behavioralPattern: string;

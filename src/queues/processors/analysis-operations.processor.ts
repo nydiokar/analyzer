@@ -814,9 +814,39 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     }
 
     this.checkTimeout(startTime, timeoutMs, 'Starting wallet holder profile analysis');
+    await job.updateProgress(5);
+
+    // Check if wallet needs sync
+    this.logger.debug(`Checking wallet status for ${walletAddress}`);
+    const walletStatuses = await this.databaseService.getWalletsStatus([walletAddress]);
+    const needsSync =
+      walletStatuses.statuses[0].status === 'STALE' ||
+      walletStatuses.statuses[0].status === 'MISSING';
+
     await job.updateProgress(10);
 
+    // Sync wallet if needed
+    if (needsSync) {
+      this.logger.log(`Syncing wallet ${walletAddress} for holder profile analysis`);
+      const syncOptions: SyncOptions = {
+        limit: 100,
+        fetchAll: true,
+        skipApi: false,
+        fetchOlder: true,
+        maxSignatures: 2000, // Reasonable default for holder analysis
+        smartFetch: true,
+      };
+      await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+      this.logger.log(`Wallet sync completed for ${walletAddress}`);
+    } else {
+      this.logger.debug(`Wallet ${walletAddress} is up-to-date, skipping sync`);
+    }
+
+    await job.updateProgress(30);
+    this.checkTimeout(startTime, timeoutMs, 'Wallet sync completed');
+
     const swapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+    this.logger.debug(`Fetched ${swapRecords.length} swap records for ${walletAddress}`);
     this.checkTimeout(startTime, timeoutMs, 'Fetching wallet swap records');
     await job.updateProgress(40);
 
@@ -971,6 +1001,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       const historicalPattern = behaviorResult?.historicalPattern;
 
+      this.logger.debug(
+        `Historical pattern for ${walletAddress}: ` +
+        `completedCycles=${historicalPattern?.completedCycleCount ?? 0}, ` +
+        `median=${historicalPattern?.medianCompletedHoldTimeHours?.toFixed(4) ?? 'null'}h, ` +
+        `behaviorType=${historicalPattern?.behaviorType ?? 'null'}`
+      );
+
       if (!historicalPattern || historicalPattern.completedCycleCount < 3) {
         return {
           walletAddress,
@@ -989,8 +1026,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         };
       }
 
-      // Calculate daily flip ratio
-      const flipRatioResult = this.calculateDailyFlipRatio(behaviorResult);
+      // Calculate daily flip ratio from historical pattern distribution
+      const flipRatioResult = this.calculateDailyFlipRatioFromPattern(historicalPattern);
 
       // Determine data quality tier
       const dataQualityTier = this.determineDataQualityTier(
@@ -1035,31 +1072,28 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * Calculate daily flip ratio: % of completed positions held <5min
-   * This measures flipping activity - what percentage of positions are ultra-short term
+   * Calculate daily flip ratio from historical pattern distribution
+   * % of completed positions held <5min (instant + ultraFast + fast categories)
    * Returns ratio (0-100) and confidence level based on sample size
    */
-  private calculateDailyFlipRatio(behaviorResult: any): { ratio: number; confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' } {
-    const lifecycles = behaviorResult?.tokenLifecycles || [];
-    const completed = lifecycles.filter((lc: any) => lc.positionStatus === 'EXITED');
-
-    // No completed positions - cannot calculate ratio
-    if (completed.length === 0) {
+  private calculateDailyFlipRatioFromPattern(historicalPattern: any): { ratio: number; confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' } {
+    if (!historicalPattern?.holdTimeDistribution) {
       return { ratio: 0, confidence: 'NONE' };
     }
 
-    let shortHolds = 0;  // <5 minutes
+    const dist = historicalPattern.holdTimeDistribution;
+    const total = historicalPattern.completedCycleCount;
 
-    for (const lc of completed) {
-      const minutes = lc.weightedHoldingTimeHours * 60;
-      if (minutes < 5) {
-        shortHolds++;
-      }
+    if (total === 0) {
+      return { ratio: 0, confidence: 'NONE' };
     }
+
+    // <5min includes: instant (<0.36s), ultraFast (<1min), fast (1-5min)
+    const shortHolds = (dist.instant || 0) + (dist.ultraFast || 0) + (dist.fast || 0);
 
     // Calculate ratio: (short holds / total completed) * 100
     // This shows what % of their positions are ultra-short flips
-    const ratio = (shortHolds / completed.length) * 100;
+    const ratio = (shortHolds / total) * 100;
 
     // Determine confidence based on sample size
     // HIGH: ≥30 completed cycles (reliable pattern)
@@ -1067,11 +1101,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // LOW: 3-9 completed cycles (minimum viable)
     // NONE: <3 completed cycles (insufficient data)
     let confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
-    if (completed.length >= 30) {
+    if (total >= 30) {
       confidence = 'HIGH';
-    } else if (completed.length >= 10) {
+    } else if (total >= 10) {
       confidence = 'MEDIUM';
-    } else if (completed.length >= 3) {
+    } else if (total >= 3) {
       confidence = 'LOW';
     } else {
       confidence = 'NONE';

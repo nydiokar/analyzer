@@ -128,7 +128,7 @@ export class HistoricalPatternDto {
   medianCompletedHoldTimeHours: number;
 
   @ApiProperty({ description: 'Behavior classification' })
-  behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
 
   @ApiProperty({ description: 'Exit pattern' })
   exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';

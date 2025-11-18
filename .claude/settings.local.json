@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pm2 logs:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

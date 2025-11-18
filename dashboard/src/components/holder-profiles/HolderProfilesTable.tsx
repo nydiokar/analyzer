@@ -42,9 +42,38 @@ interface HolderProfilesTableProps {
 
 const formatHoldTime = (hours: number | null): string => {
   if (hours === null) return '—';
-  if (hours < 1) return `${Math.round(hours * 60)}m`;
-  if (hours < 24) return `${hours.toFixed(1)}h`;
-  return `${(hours / 24).toFixed(1)}d`;
+
+  // Ultra-precise for very short holds (< 1 hour)
+  if (hours < 1) {
+    const minutes = hours * 60;
+    if (minutes < 1) {
+      const seconds = Math.round(minutes * 60);
+      return `${seconds}s`;
+    }
+    return `${Math.round(minutes)}m`;
+  }
+
+  // Precise for intraday holds (1-24 hours)
+  if (hours < 24) {
+    // Show both hours and minutes for better granularity
+    const wholeHours = Math.floor(hours);
+    const remainingMinutes = Math.round((hours - wholeHours) * 60);
+
+    if (remainingMinutes === 0) {
+      return `${wholeHours}h`;
+    }
+    return `${wholeHours}h ${remainingMinutes}m`;
+  }
+
+  // Days for longer holds
+  const days = hours / 24;
+  if (days < 7) {
+    return `${days.toFixed(1)}d`;
+  }
+
+  // Weeks for very long holds
+  const weeks = days / 7;
+  return `${weeks.toFixed(1)}w`;
 };
 
 const formatAddress = (address: string): string => {
@@ -70,17 +99,42 @@ const getBehaviorColor = (behaviorType: string | null): string => {
   if (!behaviorType) return 'bg-gray-500/10 text-gray-700 dark:text-gray-400';
 
   switch (behaviorType) {
-    case 'ULTRA_FLIPPER':
+    case 'SNIPER':
       return 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20';
-    case 'FLIPPER':
+    case 'SCALPER':
       return 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20';
-    case 'SWING':
+    case 'MOMENTUM':
+      return 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20';
+    case 'INTRADAY':
+      return 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20';
+    case 'DAY_TRADER':
       return 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20';
-    case 'HOLDER':
+    case 'SWING':
+      return 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/20';
+    case 'POSITION':
       return 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20';
+    case 'HOLDER':
+      return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20';
     default:
       return 'bg-gray-500/10 text-gray-700 dark:text-gray-400';
   }
+};
+
+const getBehaviorDescription = (behaviorType: string | null): string => {
+  if (!behaviorType) return 'No classification available';
+
+  const descriptions: Record<string, string> = {
+    'SNIPER': '< 1 minute — Bot/MEV behavior',
+    'SCALPER': '1-5 minutes — Ultra-fast scalping',
+    'MOMENTUM': '5-30 minutes — Momentum trading',
+    'INTRADAY': '30 minutes - 4 hours — Short-term intraday',
+    'DAY_TRADER': '4-24 hours — Day trading',
+    'SWING': '1-7 days — Swing trading',
+    'POSITION': '7-30 days — Position trading',
+    'HOLDER': '30+ days — Long-term holding'
+  };
+
+  return descriptions[behaviorType] || behaviorType;
 };
 
 const formatBehaviorType = (behaviorType: string | null): string => {
@@ -187,9 +241,18 @@ export function HolderProfilesTable({ profiles, mode, tokenMint, targetWallet }:
                     : '—'}
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline" className={getBehaviorColor(profile.behaviorType)}>
-                    {formatBehaviorType(profile.behaviorType)}
-                  </Badge>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Badge variant="outline" className={getBehaviorColor(profile.behaviorType)}>
+                          {formatBehaviorType(profile.behaviorType)}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{getBehaviorDescription(profile.behaviorType)}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline" className="text-xs">

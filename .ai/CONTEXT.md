@@ -199,20 +199,43 @@ Poll GET /jobs/:jobId until status = 'completed'
       - Implementation: `HolderProfilesCacheService` + invalidation in processors
   - [x] **Metrics Refactor & Classification Redesign**: ✅ **COMPLETE** (2025-11-17) (See `.ai/context/holder-risk/MIGRATION-COMPLETE.md` for full details)
     - **Goal**: Replace deprecated holding time metrics with accurate historical pattern calculations
+    - [x] **Constants Consolidation**: ✅ **COMPLETE** (2025-11-18)
+      - **Single Source of Truth**: All behavior classification thresholds consolidated into `src/core/analysis/behavior/constants.ts`
+      - **Two Classification Systems** (both actively used):
+        1. **Trading Speed Categories** (6 types) - Used by `TradingInterpretation.speedCategory`
+           - Data Source: **COMPLETED/EXITED positions only** (uses 20% remaining threshold)
+           - Purpose: General wallet behavior analysis ("How fast do they trade when they exit?")
+           - Categories: ULTRA_FLIPPER (<3min), FLIPPER (3-10min), FAST_TRADER (10-60min), DAY_TRADER (1-24h), SWING_TRADER (1-7d), POSITION_TRADER (7+d)
+           - Helper: `classifyTradingSpeed(medianHoldTimeHours)` where `medianHoldTimeHours` = `historicalPattern.medianCompletedHoldTimeHours`
+           - Shown In: BehavioralPatternsTab summary section
+        2. **Holder Behavior Types** (8 types) - Used by `WalletHistoricalPattern.behaviorType`
+           - Data Source: COMPLETED positions only (exited trades)
+           - Purpose: Holder risk analysis and exit prediction
+           - Categories: SNIPER (<1min), SCALPER (1-5min), MOMENTUM (5-30min), INTRADAY (30min-4h), DAY_TRADER (4-24h), SWING (1-7d), POSITION (7-30d), HOLDER (30+d)
+           - Helper: `classifyHolderBehavior(medianCompletedHoldTimeHours)`
+           - Shown In: BehavioralPatternsTab historical pattern section, HolderProfilesTable
+      - **Why Two Systems?**: Different granularity (6 vs 8 categories) + same data source (both use completed positions) + slightly different purposes (general speed vs holder risk prediction)
+      - **Migration Impact**: Zero breaking changes (thresholds identical, just moved to constants)
+      - **Critical Bug Fixes** (2025-11-18):
+        - ✅ Fixed invalid hold time filtering (`> 0` → `>= 0.0001h`) - was filtering out sub-second holds incorrectly
+        - ✅ Added `holdTimeDistribution` to `WalletHistoricalPattern` (8 time ranges: instant, ultraFast, fast, momentum, intraday, day, swing, position)
+        - ✅ Fixed flip ratio calculation (was always 0.0% due to missing `tokenLifecycles`) - now uses `holdTimeDistribution`
+        - ✅ Aggregated filtering logs (reduced spam from 100s of lines to single summary)
     - [x] **New Constants File**: `src/core/analysis/behavior/constants.ts`
-      - Trading speed thresholds: ULTRA_FLIPPER (<3min), FLIPPER (<10min), FAST_TRADER (<1h), DAY_TRADER (<1d), SWING_TRADER (<7d), POSITION_TRADER (7+d)
-      - Classification helper functions
+      - Trading speed thresholds + helper function
+      - Holder behavior thresholds + helper function
       - Bot detection constants (3-minute threshold)
-    - [x] **Refactored `classifyTradingStyle()`** (`analyzer.ts:1319-1476`):
-      - Uses MEDIAN hold time (outlier-robust, not weighted average)
-      - Separates SPEED from BEHAVIORAL PATTERN
-      - Output format: "FLIPPER (ACCUMULATOR)" instead of "True Flipper"
-      - Added `generateTradingInterpretation()` for rich interpretation
+      - All classification logic centralized
+    - [x] **Refactored `analyzer.ts`**:
+      - Line 265: Replaced 23 hardcoded lines with `classifyHolderBehavior()`
+      - Line 1360: Replaced 15 hardcoded lines with `classifyTradingSpeed()`
+      - Single source of truth: Changing thresholds requires updating only `constants.ts`
     - [x] **Updated Bot Detection** (`bot-detector.ts:105-116`):
       - Uses median hold time (was average)
       - 3-minute threshold (was 6 minutes)
     - [x] **New TypeScript Interfaces** (`types/behavior.ts:94-112`):
       - `TradingInterpretation`: speedCategory, typicalHoldTimeHours, economicHoldTimeHours, economicRisk, behavioralPattern
+      - `HistoricalPattern`: behaviorType, exitPattern, medianCompletedHoldTimeHours, etc.
       - Separates "what they usually do" (median) from "where the money goes" (weighted average)
     - [x] **Deprecated Metrics** (Marked with JSDoc warnings):
       - `averageFlipDurationHours` → Use `historicalPattern.historicalAverageHoldTimeHours`
