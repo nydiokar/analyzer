@@ -50,4 +50,32 @@ export class BehaviorService {
       // timeRange: { startTs: undefined, endTs: undefined }
     };
   }
+
+  /**
+   * Get list of token mints for a specific exit timing bucket
+   * @param walletAddress - Wallet address to analyze
+   * @param timeBucket - Time bucket category
+   * @returns Array of token mint addresses in that bucket
+   */
+  async getExitTimingTokens(
+    walletAddress: string,
+    timeBucket: 'instant' | 'ultraFast' | 'fast' | 'momentum' | 'intraday' | 'day' | 'swing' | 'position'
+  ): Promise<string[]> {
+    this.logger.debug(`Getting exit timing tokens for ${walletAddress} bucket=${timeBucket}`);
+
+    const behaviorResult = await this.getWalletBehavior(
+      walletAddress,
+      this.getDefaultBehaviorAnalysisConfig(),
+      undefined
+    );
+
+    const tokenMap = behaviorResult?.historicalPattern?.holdTimeTokenMap;
+
+    if (!tokenMap) {
+      this.logger.warn(`No token map found for wallet ${walletAddress}`);
+      return [];
+    }
+
+    return tokenMap[timeBucket] || [];
+  }
 } 

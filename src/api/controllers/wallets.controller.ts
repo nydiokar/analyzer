@@ -907,10 +907,61 @@ export class WalletsController {
   private async enrichTokensInBackground(walletAddress: string, userId: string): Promise<void> {
     try {
       const tokenAddresses = await this.tokenPerformanceService.getAllTokenAddressesForWallet(walletAddress);
-            
+
       this.tokenInfoService.triggerTokenInfoEnrichment(tokenAddresses, userId);
     } catch (error) {
       this.logger.error(`Background enrichment process for wallet ${walletAddress} failed:`, error);
+    }
+  }
+
+  @Get(':walletAddress/exit-timing-tokens/:timeBucket')
+  @ApiOperation({
+    summary: 'Get tokens in a specific exit timing bucket',
+    description: 'Returns the list of token mint addresses that were exited within a specific time bucket category for this wallet.'
+  })
+  @ApiParam({
+    name: 'walletAddress',
+    description: 'The Solana wallet address',
+    type: String
+  })
+  @ApiParam({
+    name: 'timeBucket',
+    description: 'Time bucket category',
+    enum: ['instant', 'ultraFast', 'fast', 'momentum', 'intraday', 'day', 'swing', 'position']
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Token list retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        walletAddress: { type: 'string' },
+        timeBucket: { type: 'string' },
+        tokens: { type: 'array', items: { type: 'string' } },
+        count: { type: 'number' }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: 'Wallet not found or no behavior data available' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  async getExitTimingTokens(
+    @Param('walletAddress') walletAddress: string,
+    @Param('timeBucket') timeBucket: 'instant' | 'ultraFast' | 'fast' | 'momentum' | 'intraday' | 'day' | 'swing' | 'position',
+  ): Promise<{ walletAddress: string; timeBucket: string; tokens: string[]; count: number }> {
+    this.logger.log(`Getting exit timing tokens for wallet ${walletAddress} [bucket=${timeBucket}]`);
+
+    try {
+      const tokens = await this.behaviorService.getExitTimingTokens(walletAddress, timeBucket);
+
+      return {
+        walletAddress,
+        timeBucket,
+        tokens,
+        count: tokens.length
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch exit timing tokens for wallet ${walletAddress}:`, error);
+      throw new InternalServerErrorException('Failed to fetch exit timing tokens');
     }
   }
 } 

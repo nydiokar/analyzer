@@ -336,6 +336,80 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 
 ## Next
 
+- **Exit Timing Enhancements (Wallet Baseball Card)** - Win Rate & ROI per Cohort + Simple Token List
+  - **Status**: 🔄 **PLANNING** (Simplified scope)
+  - **Goal**: Show WR/ROI per time bucket + clickable drilldown to see which tokens are in each cohort
+  - **Priority**: HIGH - Adds critical trading performance insights
+  - **Estimated Duration**: 5-6 days (simplified from 8-11 days)
+
+  - [ ] **Phase 1 (Backend - Enriched Hold Time Distribution)**: 2-3 days
+    - **Goal**: Calculate aggregate win rate, PnL, and ROI for each exit timing bucket
+    - [ ] **Data Architecture** (0.5 day):
+      - [ ] Create `EnrichedHoldTimeBucket` interface: `{ count, winRate, totalPnlSol, avgPnlSol, roiPercent, totalCapitalSol }`
+      - [ ] Extend `WalletHistoricalPattern.holdTimeDistribution` to use enriched buckets
+      - [ ] Update `HolderProfile` type to include enriched distribution
+    - [ ] **Calculation Logic** (1.5 days):
+      - [ ] Modify `calculateHistoricalPattern()` in `BehaviorAnalyzer` to track aggregate PnL per bucket
+      - [ ] For each completed lifecycle: calculate PnL, classify into time bucket, accumulate metrics
+      - [ ] Calculate per-bucket: win rate (% profitable), total PnL, average PnL, ROI
+      - [ ] Handle edge cases: zero trades, all losses, missing data
+    - [ ] **Integration & Testing** (1 day):
+      - [ ] Update `processAnalyzeHolderProfiles` to include enriched distribution
+      - [ ] Update cache layer to handle slightly larger payload (~2KB increase)
+      - [ ] Add unit tests for aggregate PnL calculation and win rate logic
+
+  - [ ] **Phase 2 (Backend - Simple Token List Endpoint)**: 1 day ✨ SIMPLIFIED - Should be done - check CURRENT_STATE.md and confirm.
+    - **Goal**: Return just the list of token mints for a specific time bucket
+    - [ ] **New Endpoint** (0.5 day):
+      - [ ] `POST /api/v1/analyses/wallet-exit-timing-tokens`
+      - [ ] Input: `{ walletAddress, timeBucket }`
+      - [ ] Returns: `{ walletAddress, timeBucket, tokens: string[], count: number }`
+    - [ ] **Implementation** (0.5 day):
+      - [ ] Fetch swap records, rebuild lifecycles, filter by bucket
+      - [ ] Extract unique mints from filtered lifecycles
+      - [ ] No PnL calculation, no metadata enrichment (TokenBadge handles that!)
+      - [ ] Cache with 5min TTL
+
+  - [ ] **Phase 3 (Frontend - Display WR & ROI per Cohort)**: 1 day
+    - [ ] Update `ExitTimingBreakdown` component to show cohort-level metrics
+    - [ ] Format display: `<1m 366 (5% WR, -40% ROI)` with color coding
+    - [ ] Green for positive ROI, red for negative, gray for neutral
+    - [ ] Add tooltips explaining WR and ROI (per cohort, not per token)
+
+  - [ ] **Phase 4 (Frontend - Simple Token List Modal)**: 1-2 days ✨ SIMPLIFIED
+    - [ ] **Modal Component** (0.5 day):
+      - [ ] Create `ExitTimingDrilldownModal` - simple grid of token badges
+      - [ ] Display: Just TokenBadge components in a grid layout
+      - [ ] Loading skeleton, error states, empty states
+    - [ ] **Data Fetching** (0.5 day):
+      - [ ] Add click handler to `ExitTimingBreakdown` bars
+      - [ ] Fetch token mint list from simplified endpoint
+      - [ ] Render TokenBadge for each mint (handles its own metadata fetching)
+    - [ ] **Polish** (0.5 day):
+      - [ ] Mobile responsive grid layout
+      - [ ] Show count: "23 tokens in this cohort"
+      - [ ] Close button, backdrop click to close
+
+  **Key Architecture Decisions** (SIMPLIFIED):
+  - ✅ **WR/ROI at cohort level**: Aggregated metrics per time bucket (not per token)
+  - ✅ **Drilldown shows token list only**: Just array of mints, no individual metrics
+  - ✅ **TokenBadge handles metadata**: Reuse existing component that fetches symbol/name/image
+  - ✅ **PnL source**: Calculate aggregate from `SwapAnalysisInput.associatedSolValue` (buy vs sell)
+  - ✅ **Caching**: Enriched distribution in holder profiles cache, token list cached separately (5min TTL)
+
+  **What We're NOT Building** (Simplified Away):
+  - ❌ Per-token PnL in drilldown (only cohort-level PnL)
+  - ❌ Market cap in drilldown (not needed to see cohort composition)
+  - ❌ Buy/sell counts per token in drilldown (not needed)
+  - ❌ Individual hold times in drilldown (cohort already categorized by time)
+  - ❌ Sorting/pagination in modal (simple grid display)
+
+  **Success Metrics**:
+  - [ ] WR & ROI displayed accurately for all 8 time buckets (cohort level)
+  - [ ] Drilldown loads <1s (just fetching mint list, no metadata enrichment)
+  - [ ] No performance degradation on holder profiles page
+  - [ ] Clean, simple modal showing token composition of each cohort
+
 
 
 

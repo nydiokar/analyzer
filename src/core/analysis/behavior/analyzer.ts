@@ -301,6 +301,42 @@ export class BehaviorAnalyzer {
       position: sortedDurations.filter(d => d >= 168).length,                  // 7+d
     };
 
+    // Build token mapping for drilldown (which tokens are in each bucket)
+    const tokenMap = {
+      instant: [] as string[],
+      ultraFast: [] as string[],
+      fast: [] as string[],
+      momentum: [] as string[],
+      intraday: [] as string[],
+      day: [] as string[],
+      swing: [] as string[],
+      position: [] as string[],
+    };
+
+    for (const [mint, tokenLifecycles] of lifecyclesByToken.entries()) {
+      const tokenDurations = tokenLifecycles.map(lc => lc.weightedHoldingTimeHours);
+      const tokenMedian = this.calculateMedian(tokenDurations);
+
+      // Classify into bucket
+      if (tokenMedian < 0.0001) {
+        tokenMap.instant.push(mint);
+      } else if (tokenMedian < 1/60) {
+        tokenMap.ultraFast.push(mint);
+      } else if (tokenMedian < 5/60) {
+        tokenMap.fast.push(mint);
+      } else if (tokenMedian < 0.5) {
+        tokenMap.momentum.push(mint);
+      } else if (tokenMedian < 4) {
+        tokenMap.intraday.push(mint);
+      } else if (tokenMedian < 24) {
+        tokenMap.day.push(mint);
+      } else if (tokenMedian < 168) {
+        tokenMap.swing.push(mint);
+      } else {
+        tokenMap.position.push(mint);
+      }
+    }
+
     this.logger.debug(
       `Hold time distribution (${sortedDurations.length} tokens with ${filteredLifecycles.length} total cycles): ` +
       `instant: ${distribution.instant}, <1m: ${distribution.ultraFast}, ` +
@@ -350,6 +386,7 @@ export class BehaviorAnalyzer {
       dataQuality: sampleSizeScore,
       observationPeriodDays,
       holdTimeDistribution: distribution, // Include distribution for UI display
+      holdTimeTokenMap: tokenMap, // Include token mint mapping for drilldown
     };
   }
 

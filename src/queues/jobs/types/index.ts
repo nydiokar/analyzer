@@ -201,4 +201,4 @@ export interface HolderProfilesResult extends JobResult {
     totalProcessingTimeMs: number;
     avgProcessingTimePerWalletMs: number;
   };
-} 
+}

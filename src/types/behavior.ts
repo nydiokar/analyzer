@@ -71,6 +71,18 @@ export interface WalletHistoricalPattern {
     swing: number;        // 1-7d
     position: number;     // 7+d
   };
+
+  // Token mint addresses by time bucket (for drilldown)
+  holdTimeTokenMap?: {
+    instant: string[];
+    ultraFast: string[];
+    fast: string[];
+    momentum: string[];
+    intraday: string[];
+    day: string[];
+    swing: string[];
+    position: string[];
+  };
 }
 
 /**

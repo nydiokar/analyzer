@@ -115,6 +115,16 @@ export interface HistoricalPattern {
   exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
   dataQuality: number;                         // 0-1 confidence score
   observationPeriodDays: number;
+  holdTimeTokenMap?: {
+    instant: string[];
+    ultraFast: string[];
+    fast: string[];
+    momentum: string[];
+    intraday: string[];
+    day: string[];
+    swing: string[];
+    position: string[];
+  };
 }
 
 // More complete BehaviorAnalysisResponseDto
@@ -383,4 +393,14 @@ export interface TopHoldersResponse {
   mint: string;
   context: { slot: number; apiVersion?: string };
   holders: TopHolderItem[];
+}
+
+// --- Exit Timing Tokens Response ---
+export type TimeBucket = 'instant' | 'ultraFast' | 'fast' | 'momentum' | 'intraday' | 'day' | 'swing' | 'position';
+
+export interface ExitTimingTokensResponse {
+  walletAddress: string;
+  timeBucket: TimeBucket;
+  tokens: string[];
+  count: number;
 }
