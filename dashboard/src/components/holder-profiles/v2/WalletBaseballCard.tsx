@@ -1,8 +1,7 @@
 import type { HolderProfile } from '../types';
-import { formatAddress } from './utils/formatters';
+import { formatAddress, formatHoldTime, formatHoldSource, formatPercentage, getTypicalHoldTimeHours } from './utils/formatters';
 import { getBehaviorColor } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { AlertCircle } from 'lucide-react';
 
 interface Props {
   profile: HolderProfile;
@@ -23,42 +22,46 @@ interface ExitTimingBreakdownProps {
 }
 
 function ExitTimingBreakdown({ distribution }: ExitTimingBreakdownProps) {
-  const items = [
-    { label: '<1s', count: distribution.instant },
-    { label: '<1m', count: distribution.ultraFast },
-    { label: '1-5m', count: distribution.fast },
-    { label: '5-30m', count: distribution.momentum },
-    { label: '30m-4h', count: distribution.intraday },
-    { label: '4-24h', count: distribution.day },
-    { label: '1-7d', count: distribution.swing },
-    { label: '7+d', count: distribution.position },
+  const buckets = [
+    { label: '<1s', count: distribution.instant ?? 0 },
+    { label: '<1m', count: distribution.ultraFast ?? 0 },
+    { label: '1-5m', count: distribution.fast ?? 0 },
+    { label: '5-30m', count: distribution.momentum ?? 0 },
+    { label: '30m-4h', count: distribution.intraday ?? 0 },
+    { label: '4-24h', count: distribution.day ?? 0 },
+    { label: '1-7d', count: distribution.swing ?? 0 },
+    { label: '7+d', count: distribution.position ?? 0 },
   ];
 
-  // Find top 2 counts
-  const sortedCounts = [...items].sort((a, b) => b.count - a.count);
-  const topCount = sortedCounts[0]?.count || 0;
-  const secondCount = sortedCounts[1]?.count || 0;
+  const values = buckets.map((bucket) => bucket.count ?? 0);
+  const isNormalized = values.every((value) => value >= 0 && value <= 1);
+  const maxCount = Math.max(...values, 0);
 
   return (
-    <div className="space-y-1">
-      {items.map((item, idx) => {
-        const isTop = item.count === topCount && item.count > 0;
-        const isSecond = item.count === secondCount && item.count > 0 && item.count !== topCount;
+    <div className="space-y-1.5">
+      {buckets.map((bucket) => {
+        const rawValue = bucket.count ?? 0;
+        const relativeValue = isNormalized
+          ? rawValue
+          : maxCount > 0
+            ? rawValue / maxCount
+            : 0;
+        const easedValue = relativeValue > 0 ? Math.pow(relativeValue, 0.35) : 0;
+        const widthPercent = rawValue > 0 ? Math.min(100, 18 + easedValue * 82) : 0;
+        const label = isNormalized
+          ? `${Math.round(rawValue * 100)}%`
+          : rawValue.toLocaleString();
 
         return (
-          <div key={idx} className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">{item.label}</span>
-            <span
-              className={`font-semibold tabular-nums ${
-                isTop
-                  ? 'text-emerald-500 font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]'
-                  : isSecond
-                  ? 'text-blue-400 font-bold drop-shadow-[0_0_6px_rgba(96,165,250,0.4)]'
-                  : ''
-              }`}
-            >
-              {item.count}
-            </span>
+          <div key={bucket.label} className="flex items-center gap-2 text-[11px]">
+            <span className="w-10 text-muted-foreground">{bucket.label}</span>
+            <div className="flex-1 h-3 bg-muted/20 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 via-teal-400/70 to-sky-500/80"
+                style={{ width: `${widthPercent}%`, opacity: 0.35 + relativeValue * 0.65 }}
+              />
+            </div>
+            <span className="w-9 text-right font-mono text-muted-foreground">{label}</span>
           </div>
         );
       })}
@@ -66,131 +69,156 @@ function ExitTimingBreakdown({ distribution }: ExitTimingBreakdownProps) {
   );
 }
 
-function formatHoldTime(hours: number | null): string {
-  if (hours === null) return 'N/A';
-  if (hours < 1/60) return `${Math.round(hours * 3600)}s`;
-  if (hours < 1) return `${Math.round(hours * 60)}m`;
-  if (hours < 24) return `${hours.toFixed(1)}h`;
-  if (hours < 168) return `${(hours/24).toFixed(1)}d`;
-  return `${(hours/168).toFixed(1)}w`;
+function HoldMetricCard(props: {
+  label: string;
+  exitedLabel?: string;
+  exitedValue: string;
+  mixedLabel?: string;
+  mixedValue: string;
+  highlightMixed?: boolean;
+  footer?: string;
+}) {
+  const { label, exitedLabel = 'Exited', exitedValue, mixedLabel = 'Active + exited', mixedValue, highlightMixed, footer } =
+    props;
+
+  return (
+    <div className="bg-muted/30 rounded-md p-3 border space-y-3">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <p className="text-[11px] text-muted-foreground">{exitedLabel}</p>
+          <p className="text-xl font-semibold tabular-nums">{exitedValue}</p>
+        </div>
+        <div className={highlightMixed ? 'rounded-md bg-primary/5 p-2 -m-1 space-y-1' : ''}>
+          <p className="text-[11px] text-muted-foreground">{mixedLabel}</p>
+          <p className="text-xl font-semibold tabular-nums">{mixedValue}</p>
+        </div>
+      </div>
+      {footer && <p className="text-[11px] text-muted-foreground">{footer}</p>}
+    </div>
+  );
 }
 
-function getHoldInsight(hours: number | null): string {
-  if (hours === null) return 'No data';
-  if (hours < 1/60) return 'Ultra-fast bot';
-  if (hours < 1/12) return 'Instant exits';
-  if (hours < 1) return 'Sub-hour flips';
-  if (hours < 4) return 'Quick trades';
-  if (hours < 24) return 'Intraday holds';
-  if (hours < 168) return 'Multi-day holds';
-  return 'Long-term holder';
-}
-
-function getQualityIndicator(tier: string): { color: string; label: string; bgColor: string } {
+function getQualityIndicator(tier?: string) {
   switch (tier) {
     case 'HIGH':
-      return { color: 'bg-emerald-500', label: 'High quality', bgColor: 'bg-emerald-500/10' };
+      return { dot: 'bg-emerald-500', panel: 'bg-emerald-500/10', label: 'High quality' };
     case 'MEDIUM':
-      return { color: 'bg-blue-500', label: 'Medium quality', bgColor: 'bg-blue-500/10' };
+      return { dot: 'bg-blue-500', panel: 'bg-blue-500/10', label: 'Medium quality' };
     case 'LOW':
-      return { color: 'bg-yellow-500', label: 'Low quality', bgColor: 'bg-yellow-500/10' };
+      return { dot: 'bg-yellow-500', panel: 'bg-yellow-500/10', label: 'Low quality' };
     case 'INSUFFICIENT':
-      return { color: 'bg-red-500', label: 'Insufficient data', bgColor: 'bg-red-500/10' };
+      return { dot: 'bg-red-500', panel: 'bg-red-500/10', label: 'Insufficient data' };
     default:
-      return { color: 'bg-gray-500', label: 'Unknown', bgColor: 'bg-gray-500/10' };
+      return { dot: 'bg-gray-400', panel: 'bg-muted', label: 'Unknown' };
   }
 }
 
 export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const qualityIndicator = getQualityIndicator(profile.dataQualityTier);
-  const hasFallbackData = profile.completedCycleCount === 0 && profile.medianHoldTimeHours !== null;
-  const isInsufficientData = profile.dataQualityTier === 'INSUFFICIENT';
+  const typicalHold = getTypicalHoldTimeHours(profile);
+  const realizedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours ?? null;
+  const realizedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours ?? null;
+  const inclusiveMedian = typicalHold ?? profile.currentHoldMedianHours ?? realizedMedian;
+  const inclusiveAverage = profile.avgHoldTimeHours ?? profile.currentHoldAverageHours ?? realizedAverage;
+  const includesCurrentData =
+    profile.typicalHoldTimeSource === 'CURRENT' || profile.typicalHoldTimeSource === 'MIXED';
+  const totalTokens = profile.totalTokensTraded ?? profile.completedCycleCount ?? 0;
+  const heldTokens = profile.currentHoldingsCount ?? 0;
+  const exitedTokens = profile.completedCycleCount ?? 0;
+  const percentHeldValue = profile.percentValueInCurrentHoldings ?? 0;
+  const estimatedHeld =
+    heldTokens > 0
+      ? heldTokens
+      : percentHeldValue > 0
+        ? Math.max(1, Math.round((percentHeldValue / 100) * Math.max(totalTokens, 1)))
+        : 0;
+  const heldDisplay =
+    heldTokens > 0
+      ? heldTokens.toLocaleString()
+      : percentHeldValue > 0
+        ? `~${estimatedHeld.toLocaleString()}`
+        : '0';
+  const tokensSummary = `${totalTokens.toLocaleString()} tokens`;
+  const exitHoldSummary = `${exitedTokens.toLocaleString()} exited / ${heldDisplay} held`;
 
   return (
     <div className="rounded-lg border bg-card hover:shadow-md transition-shadow overflow-hidden">
-      {/* Header Section - Distinct Background */}
-      <div className={`p-3 border-b ${qualityIndicator.bgColor}`}>
+      <div className={`p-3 border-b ${qualityIndicator.panel}`}>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-mono font-semibold">
-            {formatAddress(walletAddress)}
-          </p>
+          <p className="text-sm font-mono font-semibold">{formatAddress(walletAddress)}</p>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className={`w-2.5 h-2.5 rounded-full ${qualityIndicator.color} ring-2 ring-background`} />
+                <div className={`w-2.5 h-2.5 rounded-full ${qualityIndicator.dot} ring-2 ring-background`} />
               </TooltipTrigger>
               <TooltipContent>
                 <p className="text-xs font-semibold">{qualityIndicator.label}</p>
-                <p className="text-xs text-muted-foreground">{profile.completedCycleCount} completed tokens</p>
+                <p className="text-xs text-muted-foreground">
+                  {profile.completedCycleCount} completed tokens
+                </p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
 
-        {/* Behavior Badge Row */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${getBehaviorColor(profile.behaviorType)}`}>
-            {profile.behaviorType ?? 'UNCLASSIFIED'}
-          </span>
-          <span className="text-xs text-muted-foreground font-medium">
-            {Math.round(profile.confidence * 100)}%
-          </span>
-          <span className="text-[10px] text-muted-foreground">
-            {profile.completedCycleCount} tokens
-          </span>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-help ${getBehaviorColor(profile.behaviorType)}`}>
+                    {profile.behaviorType ?? 'UNCLASSIFIED'}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  Classification derived from typical exited hold time. Still-held positions do not affect this tag.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <span className="text-xs text-muted-foreground">
+              {Math.round(profile.confidence * 100)}% confidence
+            </span>
+          </div>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="text-[10px] font-semibold text-muted-foreground cursor-help">
+                  {tokensSummary} / {exitHoldSummary}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                Total tokens analysed / fully exited tokens / estimated currently held tokens (estimated via % of value still held when counts are missing).
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
 
-      {/* Fallback Warning Banner */}
-      {hasFallbackData && (
-        <div className="px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-start gap-2">
-          <AlertCircle className="h-3.5 w-3.5 text-amber-600 mt-0.5 flex-shrink-0" />
-          <p className="text-xs text-amber-700 dark:text-amber-400">
-            Including tokens currently held (no exits yet)
-          </p>
-        </div>
-      )}
-
-      {/* Metrics Grid - Two Column Layout */}
-      <div className="p-3 grid grid-cols-[1fr_auto] gap-3">
-        {/* Left Column: Hold Metrics */}
-        <div className="space-y-2">
-          {/* Median Hold - Compact */}
-          <div className="bg-muted/30 rounded-md p-2 border">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">
-              Median Hold
-            </p>
-            <p className="text-2xl font-bold tabular-nums leading-none">
-              {formatHoldTime(profile.medianHoldTimeHours)}
-            </p>
-            <p className="text-[10px] text-muted-foreground italic mt-0.5">
-              {getHoldInsight(profile.medianHoldTimeHours)}
-            </p>
-          </div>
-
-          {/* Average Hold */}
-          <div className="bg-muted/20 rounded-md p-2 border">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">
-              Avg Hold
-            </p>
-            <p className="text-lg font-bold tabular-nums">
-              {formatHoldTime(profile.avgHoldTimeHours)}
-            </p>
-          </div>
-
-          {/* Flip Ratio */}
-          <div className="bg-muted/20 rounded-md p-2 border">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">
-              Flip Ratio
-            </p>
-            <p className="text-lg font-bold tabular-nums">
-              {profile.dailyFlipRatio !== null ? `${profile.dailyFlipRatio.toFixed(0)}%` : 'N/A'}
-            </p>
-          </div>
+      <div className="p-3 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3">
+        <div className="space-y-3">
+          <HoldMetricCard
+            label="Median Hold"
+            exitedValue={formatHoldTime(realizedMedian)}
+            mixedValue={formatHoldTime(inclusiveMedian)}
+            highlightMixed={includesCurrentData}
+            mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
+          />
+          <HoldMetricCard
+            label="Average Hold"
+            exitedValue={formatHoldTime(realizedAverage)}
+            mixedValue={formatHoldTime(inclusiveAverage)}
+            highlightMixed={includesCurrentData}
+            mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
+            footer={
+              typeof profile.percentValueInCurrentHoldings === 'number'
+                ? `Value still held: ${formatPercentage(profile.percentValueInCurrentHoldings)}`
+                : undefined
+            }
+          />
         </div>
 
-        {/* Right Column: Exit Timing Breakdown */}
-        <div className="bg-muted/10 rounded-md p-2.5 border w-[140px]">
+        <div className="bg-muted/10 rounded-md p-3 border w-full lg:w-[160px]">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
             Exit Timing
           </p>

@@ -63,3 +63,8 @@ PERFECT! I see exactly what you're saying:
 ● Search(pattern: "averageCurrentHoldingDurationHours|medianCurrentHoldingDurationHours", path:
         "src\core\analysis\behavior\analyzer.ts", output_mode: "content", head_limit: 50)
   ⎿  Found 35 lines (ctrl+o to expand)
+
+
+
+  QUESTION: > and this legacy system it says that it;s unweighted ... isn't this gonna contradxcict, should we align it with the
+  other system or keep it this way - because in the other as I remember it's considering the weight in each cycle. 

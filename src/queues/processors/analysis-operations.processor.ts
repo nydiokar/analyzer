@@ -969,7 +969,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     rank: number,
     supplyPercent: number,
     swapRecords: any[],
-  ): Promise<any> {
+  ): Promise<HolderProfile> {
     const walletStartTime = Date.now();
 
     // If no swap records, return insufficient data
@@ -988,6 +988,19 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         confidence: 0,
         insufficientDataReason: 'No transaction history found',
         processingTimeMs: Date.now() - walletStartTime,
+        holdTimeDistribution: undefined,
+        includesCurrentHoldings: false,
+        exitRate: null,
+        totalTokensTraded: 0,
+        typicalHoldTimeHours: null,
+        typicalHoldTimeSource: 'CURRENT',
+        realizedMedianHoldTimeHours: null,
+        realizedAverageHoldTimeHours: null,
+        currentHoldMedianHours: null,
+        currentHoldAverageHours: null,
+        percentValueInCurrentHoldings: null,
+        dailyFlipRatioConfidence: 'NONE',
+        currentHoldingsCount: null,
       };
     }
 
@@ -1008,7 +1021,31 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         `behaviorType=${historicalPattern?.behaviorType ?? 'null'}`
       );
 
-      if (!historicalPattern || historicalPattern.completedCycleCount < 3) {
+      // HYBRID APPROACH: Use historical pattern if available, otherwise fall back to current holdings
+      const hasEnoughExitedData = historicalPattern && historicalPattern.completedCycleCount >= 3;
+      const hasCurrentHoldingsData = behaviorResult?.medianCurrentHoldingDurationHours !== null &&
+                                      behaviorResult?.medianCurrentHoldingDurationHours !== undefined &&
+                                      behaviorResult?.medianCurrentHoldingDurationHours > 0;
+      const percentValueInCurrentHoldings = typeof behaviorResult?.percentOfValueInCurrentHoldings === 'number'
+        ? behaviorResult.percentOfValueInCurrentHoldings
+        : null;
+      const currentHoldingsCount = typeof behaviorResult?.tokensWithOnlyBuys === 'number'
+        ? behaviorResult.tokensWithOnlyBuys
+        : null;
+      const currentHoldMedianHours = hasCurrentHoldingsData
+        ? (behaviorResult?.medianCurrentHoldingDurationHours ?? null)
+        : null;
+      const currentHoldAverageHours = hasCurrentHoldingsData
+        ? (behaviorResult?.averageCurrentHoldingDurationHours ?? null)
+        : null;
+      const realizedMedianHoldTimeHours = hasEnoughExitedData
+        ? (historicalPattern?.medianCompletedHoldTimeHours ?? null)
+        : null;
+      const realizedAverageHoldTimeHours = hasEnoughExitedData
+        ? (historicalPattern?.historicalAverageHoldTimeHours ?? null)
+        : null;
+
+      if (!hasEnoughExitedData && !hasCurrentHoldingsData) {
         return {
           walletAddress,
           rank,
@@ -1021,35 +1058,92 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           dataQualityTier: 'INSUFFICIENT' as const,
           completedCycleCount: historicalPattern?.completedCycleCount ?? 0,
           confidence: historicalPattern?.dataQuality ?? 0,
-          insufficientDataReason: `Only ${historicalPattern?.completedCycleCount ?? 0} completed cycles (minimum 3 required)`,
+          insufficientDataReason: `Only ${historicalPattern?.completedCycleCount ?? 0} completed exits, no current holdings data`,
           processingTimeMs: Date.now() - walletStartTime,
+          holdTimeDistribution: historicalPattern?.holdTimeDistribution,
+          includesCurrentHoldings: false,
+          exitRate: null,
+          totalTokensTraded: behaviorResult?.uniqueTokensTraded ?? 0,
+          typicalHoldTimeHours: null,
+          typicalHoldTimeSource: 'CURRENT',
+          realizedMedianHoldTimeHours,
+          realizedAverageHoldTimeHours,
+          currentHoldMedianHours,
+          currentHoldAverageHours,
+          percentValueInCurrentHoldings,
+          dailyFlipRatioConfidence: 'NONE',
+          currentHoldingsCount,
         };
       }
 
-      // Calculate daily flip ratio from historical pattern distribution
-      const flipRatioResult = this.calculateDailyFlipRatioFromPattern(historicalPattern);
+      // Calculate daily flip ratio from historical pattern distribution (if available)
+      const flipRatioResult = hasEnoughExitedData
+        ? this.calculateDailyFlipRatioFromPattern(historicalPattern)
+        : { ratio: 0, confidence: 'NONE' as const };
+
+      const typicalHoldTime = this.computeTypicalHoldTimeMetrics({
+        realizedMedian: realizedMedianHoldTimeHours,
+        realizedAverage: realizedAverageHoldTimeHours,
+        currentMedian: currentHoldMedianHours,
+        currentAverage: currentHoldAverageHours,
+        percentCurrentValue: percentValueInCurrentHoldings,
+      });
+
+      const medianHoldTimeHours =
+        typicalHoldTime.median ??
+        realizedMedianHoldTimeHours ??
+        currentHoldMedianHours ??
+        null;
+      const avgHoldTimeHours =
+        typicalHoldTime.average ??
+        realizedAverageHoldTimeHours ??
+        currentHoldAverageHours ??
+        null;
+      const includesCurrentHoldings =
+        (currentHoldMedianHours !== null || currentHoldAverageHours !== null) &&
+        typicalHoldTime.source !== 'EXITED';
+      const typicalHoldTimeHours = typicalHoldTime.median;
+      const typicalHoldTimeSource = typicalHoldTime.source;
+
+      // Calculate exit rate (% of tokens that have been fully exited)
+      const totalTokensTraded = behaviorResult?.uniqueTokensTraded ?? 0;
+      const exitedTokensCount = historicalPattern?.completedCycleCount ?? 0;
+      const exitRate = totalTokensTraded > 0 ? (exitedTokensCount / totalTokensTraded) * 100 : 0;
 
       // Determine data quality tier
-      const dataQualityTier = this.determineDataQualityTier(
-        historicalPattern.completedCycleCount,
-        historicalPattern.dataQuality,
-      );
+      const dataQualityTier = hasEnoughExitedData
+        ? this.determineDataQualityTier(
+            historicalPattern.completedCycleCount,
+            historicalPattern.dataQuality,
+          )
+        : 'LOW' as const; // Current holdings data = lower quality
 
       return {
         walletAddress,
         rank,
         supplyPercent,
-        medianHoldTimeHours: historicalPattern.medianCompletedHoldTimeHours,
-        avgHoldTimeHours: historicalPattern.historicalAverageHoldTimeHours,
+        medianHoldTimeHours,
+        avgHoldTimeHours,
         dailyFlipRatio: flipRatioResult.ratio,
         dailyFlipRatioConfidence: flipRatioResult.confidence,
-        behaviorType: historicalPattern.behaviorType,
-        exitPattern: historicalPattern.exitPattern,
+        behaviorType: historicalPattern?.behaviorType ?? null,
+        exitPattern: historicalPattern?.exitPattern ?? null,
         dataQualityTier,
-        completedCycleCount: historicalPattern.completedCycleCount,
-        confidence: historicalPattern.dataQuality,
-        holdTimeDistribution: historicalPattern.holdTimeDistribution,
+        completedCycleCount: exitedTokensCount,
+        confidence: historicalPattern?.dataQuality ?? 0,
+        holdTimeDistribution: historicalPattern?.holdTimeDistribution,
+        includesCurrentHoldings, // NEW: Flag to show user that still-held positions are included
+        exitRate, // NEW: Replaces flip ratio - more meaningful metric
+        totalTokensTraded, // NEW: Total tokens this wallet has touched
         processingTimeMs: Date.now() - walletStartTime,
+        typicalHoldTimeHours,
+        typicalHoldTimeSource,
+        realizedMedianHoldTimeHours,
+        realizedAverageHoldTimeHours,
+        currentHoldMedianHours,
+        currentHoldAverageHours,
+        percentValueInCurrentHoldings,
+        currentHoldingsCount,
       };
     } catch (error) {
       this.logger.warn(`Error analyzing wallet ${walletAddress}:`, error);
@@ -1068,6 +1162,18 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         confidence: 0,
         insufficientDataReason: `Analysis error: ${error instanceof Error ? error.message : 'unknown'}`,
         processingTimeMs: Date.now() - walletStartTime,
+        holdTimeDistribution: undefined,
+        includesCurrentHoldings: false,
+        exitRate: null,
+        totalTokensTraded: 0,
+        typicalHoldTimeHours: null,
+        typicalHoldTimeSource: 'CURRENT',
+        realizedMedianHoldTimeHours: null,
+        realizedAverageHoldTimeHours: null,
+        currentHoldMedianHours: null,
+        currentHoldAverageHours: null,
+        percentValueInCurrentHoldings: null,
+        currentHoldingsCount: null,
       };
     }
   }
@@ -1113,6 +1219,92 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     }
 
     return { ratio, confidence };
+  }
+
+  private computeTypicalHoldTimeMetrics(params: {
+    realizedMedian: number | null;
+    realizedAverage: number | null;
+    currentMedian: number | null;
+    currentAverage: number | null;
+    percentCurrentValue: number | null;
+  }): { median: number | null; average: number | null; source: HolderProfile['typicalHoldTimeSource'] } {
+    const clampPercent = (value: number | null) => {
+      if (value === null || value === undefined || Number.isNaN(value)) return null;
+      return Math.min(Math.max(value, 0), 100);
+    };
+    const percentCurrent = clampPercent(params.percentCurrentValue);
+    const contributions: Array<{
+      source: HolderProfile['typicalHoldTimeSource'];
+      weight: number;
+      median: number;
+      average: number | null;
+    }> = [];
+
+    const resolvedWeights = (target: 'CURRENT' | 'EXITED') => {
+      if (percentCurrent === null) {
+        if (params.currentMedian !== null && params.realizedMedian !== null) {
+          return 0.5;
+        }
+        return 1;
+      }
+      if (target === 'CURRENT') {
+        return percentCurrent / 100;
+      }
+      return 1 - percentCurrent / 100;
+    };
+
+    if (params.realizedMedian !== null) {
+      const weight = resolvedWeights('EXITED');
+      contributions.push({
+        source: 'EXITED',
+        weight,
+        median: params.realizedMedian,
+        average: params.realizedAverage,
+      });
+    }
+    if (params.currentMedian !== null) {
+      const weight = resolvedWeights('CURRENT');
+      contributions.push({
+        source: 'CURRENT',
+        weight,
+        median: params.currentMedian,
+        average: params.currentAverage,
+      });
+    }
+
+    const totalWeight = contributions.reduce((sum, contrib) => sum + contrib.weight, 0);
+    let median: number | null = null;
+    let average: number | null = null;
+
+    if (totalWeight > 0) {
+      median = contributions.reduce((sum, contrib) => sum + contrib.median * (contrib.weight / totalWeight), 0);
+      const averageContribs = contributions.filter(contrib => contrib.average !== null);
+      if (averageContribs.length > 0) {
+        average = averageContribs.reduce(
+          (sum, contrib) => sum + (contrib.average ?? 0) * (contrib.weight / totalWeight),
+          0,
+        );
+      } else {
+        average = median;
+      }
+    } else if (params.realizedMedian !== null) {
+      median = params.realizedMedian;
+      average = params.realizedAverage ?? params.realizedMedian;
+    } else if (params.currentMedian !== null) {
+      median = params.currentMedian;
+      average = params.currentAverage ?? params.currentMedian;
+    }
+
+    let source: HolderProfile['typicalHoldTimeSource'] = 'CURRENT';
+    if (contributions.length > 1 && (contributions[0].weight > 0 || contributions[1].weight > 0)) {
+      source = 'MIXED';
+    } else if (contributions.length === 1) {
+      source = contributions[0].source;
+    } else if (params.realizedMedian !== null && params.currentMedian === null) {
+      source = 'EXITED';
+    }
+
+    return { median, average, source };
   }
 
   /**

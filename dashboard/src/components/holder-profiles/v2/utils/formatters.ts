@@ -1,4 +1,4 @@
-import type { HolderProfile } from '../../../holder-profiles/types';
+import type { HolderProfile, HoldTimeSource } from '../../../holder-profiles/types';
 
 export function formatAddress(address?: string | null) {
   if (!address) return '—';
@@ -41,4 +41,27 @@ export function getDominantBehavior(profiles: HolderProfile[]) {
   });
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   return sorted[0];
+}
+
+export function getTypicalHoldTimeHours(profile: HolderProfile): number | null {
+  return (
+    profile.typicalHoldTimeHours ??
+    profile.medianHoldTimeHours ??
+    profile.currentHoldMedianHours ??
+    profile.realizedMedianHoldTimeHours ??
+    null
+  );
+}
+
+export function formatHoldSource(source?: HoldTimeSource) {
+  switch (source) {
+    case 'EXITED':
+      return 'Completed exits';
+    case 'CURRENT':
+      return 'Active positions';
+    case 'MIXED':
+      return 'Active + exited';
+    default:
+      return 'Unknown source';
+  }
 }

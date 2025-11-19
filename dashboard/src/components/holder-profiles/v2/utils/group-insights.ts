@@ -1,6 +1,5 @@
 import type { HolderProfile, WalletGroupInsight } from '../../../holder-profiles/types';
-import { formatAddress, formatHoldTime } from './formatters';
-import { BEHAVIOR_COLORS } from './behavior';
+import { formatAddress, formatHoldTime, getTypicalHoldTimeHours } from './formatters';
 
 export function buildWalletGroupInsights(profiles: HolderProfile[]): WalletGroupInsight[] {
   if (profiles.length < 2) return [];
@@ -15,8 +14,11 @@ export function buildWalletGroupInsights(profiles: HolderProfile[]): WalletGroup
   const dominantBehavior = sortedBehaviors[0]?.[0];
 
   const bySpeed = [...profiles]
-    .filter((p) => typeof p.medianHoldTimeHours === 'number')
-    .sort((a, b) => (a.medianHoldTimeHours ?? Infinity) - (b.medianHoldTimeHours ?? Infinity));
+    .filter((profile) => typeof getTypicalHoldTimeHours(profile) === 'number')
+    .sort(
+      (a, b) =>
+        (getTypicalHoldTimeHours(a) ?? Infinity) - (getTypicalHoldTimeHours(b) ?? Infinity),
+    );
   const byConviction = [...profiles]
     .filter((p) => typeof p.dailyFlipRatio === 'number')
     .sort((a, b) => (a.dailyFlipRatio ?? 0) - (b.dailyFlipRatio ?? 0));
@@ -27,15 +29,17 @@ export function buildWalletGroupInsights(profiles: HolderProfile[]): WalletGroup
       label: 'Dominant behavior',
       value: dominantBehavior ?? 'Mixed',
       description: dominantBehavior ? `${behaviorCounts[dominantBehavior]} of ${profiles.length}` : 'No clear leader',
-      color: dominantBehavior ? BEHAVIOR_COLORS[dominantBehavior]?.badge || 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground',
+      accentClass: 'bg-amber-500/80',
+      textClass: 'text-amber-200',
     },
     {
       label: 'Fastest exit',
       value: bySpeed[0]?.walletAddress ? formatAddress(bySpeed[0].walletAddress) : 'N/A',
-      description: bySpeed[0]?.medianHoldTimeHours
-        ? `${formatHoldTime(bySpeed[0].medianHoldTimeHours)} median hold`
+      description: bySpeed[0] && getTypicalHoldTimeHours(bySpeed[0]) !== null
+        ? `${formatHoldTime(getTypicalHoldTimeHours(bySpeed[0]))} typical hold`
         : 'Insufficient data',
-      color: 'bg-red-500/15 text-red-500',
+      accentClass: 'bg-rose-500/80',
+      textClass: 'text-rose-200',
     },
     {
       label: 'Highest conviction',
@@ -43,13 +47,15 @@ export function buildWalletGroupInsights(profiles: HolderProfile[]): WalletGroup
       description: byConviction[0]?.dailyFlipRatio !== undefined
         ? `${byConviction[0].dailyFlipRatio?.toFixed(0)}% flip ratio`
         : 'Insufficient data',
-      color: 'bg-emerald-500/15 text-emerald-500',
+      accentClass: 'bg-emerald-500/80',
+      textClass: 'text-emerald-200',
     },
     {
       label: 'Data warning',
       value: weakestQuality ? formatAddress(weakestQuality.walletAddress) : 'All solid',
       description: weakestQuality ? `${weakestQuality.dataQualityTier} quality` : 'No issues',
-      color: weakestQuality ? 'bg-yellow-500/15 text-yellow-500' : 'bg-emerald-500/15 text-emerald-500',
+      accentClass: weakestQuality ? 'bg-amber-500/80' : 'bg-emerald-500/80',
+      textClass: weakestQuality ? 'text-amber-200' : 'text-emerald-200',
     },
   ];
 }

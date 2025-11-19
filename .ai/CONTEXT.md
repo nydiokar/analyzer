@@ -325,6 +325,25 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 
 !!! See CURRENT_STATE.md !!! 
 
+Migrate eslint 
+
+PS C:\Users\solastic\prj\analyzer> npx eslint dashboard/src/components/holder-profiles/v2/*.tsx
+
+Oops! Something went wrong! :(
+
+ESLint: 9.35.0
+
+ESLint couldn't find an eslint.config.(js|mjs|cjs) file.
+
+From ESLint v9.0.0, the default configuration file is now eslint.config.js.
+If you are using a .eslintrc.* file, please follow the migration guide
+to update your configuration file to the new format:
+
+https://eslint.org/docs/latest/use/configure/migration-guide
+
+If you still have problems after following the migration guide, please stop by
+https://eslint.org/chat/help to chat with the team.
+
 - Extend wallet classifier beyond six wallets (bulk compare / CSV upload) once backend batching design is finalized
 
 - Flip default to Helius Phase 1 once parity and credit usage are validated; keep legacy path as fallback

@@ -1,4 +1,16 @@
 export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+export type HoldTimeSource = 'CURRENT' | 'EXITED' | 'MIXED';
+
+export interface HoldTimeDistribution {
+  instant: number;
+  ultraFast: number;
+  fast: number;
+  momentum: number;
+  intraday: number;
+  day: number;
+  swing: number;
+  position: number;
+}
 
 export interface HolderProfile {
   walletAddress: string;
@@ -7,6 +19,7 @@ export interface HolderProfile {
   medianHoldTimeHours: number | null;
   avgHoldTimeHours: number | null;
   dailyFlipRatio: number | null;
+  dailyFlipRatioConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
   behaviorType: string | null;
   exitPattern: string | null;
   dataQualityTier: DataQualityTier;
@@ -14,16 +27,18 @@ export interface HolderProfile {
   confidence: number;
   insufficientDataReason?: string;
   processingTimeMs: number;
-  holdTimeDistribution?: {
-    instant: number;
-    ultraFast: number;
-    fast: number;
-    momentum: number;
-    intraday: number;
-    day: number;
-    swing: number;
-    position: number;
-  };
+  holdTimeDistribution?: HoldTimeDistribution;
+  includesCurrentHoldings?: boolean;
+  exitRate?: number | null;
+  totalTokensTraded?: number;
+  typicalHoldTimeHours?: number | null;
+  typicalHoldTimeSource?: HoldTimeSource;
+  realizedMedianHoldTimeHours?: number | null;
+  realizedAverageHoldTimeHours?: number | null;
+  currentHoldMedianHours?: number | null;
+  currentHoldAverageHours?: number | null;
+  percentValueInCurrentHoldings?: number | null;
+  currentHoldingsCount?: number | null;
 }
 
 export interface HolderProfilesResult {
@@ -43,5 +58,6 @@ export interface WalletGroupInsight {
   label: string;
   value: string;
   description: string;
-  color: string;
+  accentClass?: string;
+  textClass?: string;
 }

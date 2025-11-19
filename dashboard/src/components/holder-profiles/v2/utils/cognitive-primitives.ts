@@ -1,5 +1,5 @@
 import type { HolderProfile } from '../../../holder-profiles/types';
-import { formatHoldTime } from './formatters';
+import { formatHoldTime, getTypicalHoldTimeHours } from './formatters';
 
 export interface CognitivePrimitive {
   id: 'speed' | 'conviction' | 'consistency';
@@ -27,7 +27,10 @@ function calculateMedian(values: number[]) {
 
 export function getSpeedPrimitive(profiles: HolderProfile[]): CognitivePrimitive {
   const holds = profiles
-    .map((p) => (typeof p.medianHoldTimeHours === 'number' ? p.medianHoldTimeHours : null))
+    .map((profile) => {
+      const value = getTypicalHoldTimeHours(profile);
+      return typeof value === 'number' ? value : null;
+    })
     .filter((v): v is number => v !== null);
   const median = holds.length ? calculateMedian(holds) : 0;
   const bucket = SPEED_BUCKETS.find((b) => median <= b.threshold);

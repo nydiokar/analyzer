@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "0.17.1",
+  "version": "0.17.2",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "engines": {
@@ -37,7 +37,9 @@
     "emergency-stop": "pm2 stop all && npm run clear-queues && npm run clear-locks",
     "reset-system": "npm run emergency-stop && pm2 start ecosystem.config.js",
     "reset": "npm run build && pm2 restart all",
-    "top-holders": "ts-node -r tsconfig-paths/register src/scripts/topTokenHolders.ts"
+    "top-holders": "ts-node -r tsconfig-paths/register src/scripts/topTokenHolders.ts",
+    "lint": "eslint .",
+    "lint:dashboard": "npm run lint --prefix dashboard"
   },
   "keywords": [
     "crypto",
@@ -100,6 +102,8 @@
     "yargs": "^17.7.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@next/eslint-plugin-next": "^16.0.3",
     "@types/bcrypt": "^6.0.0",
     "@types/chai": "^5.2.2",
     "@types/crypto-js": "^4.2.2",
@@ -112,6 +116,9 @@
     "@types/uuid": "^11.0.0",
     "chai": "^5.2.1",
     "cross-env": "^10.0.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^16.5.0",
     "mocha": "^11.7.2",
     "nodemon": "^3.1.0",
     "pm2": "^6.0.13",
@@ -119,7 +126,8 @@
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8.47.0"
   },
   "overrides": {
     "glob": "^11.0.0",
@@ -133,6 +141,9 @@
     "has-ansi": "5.0.1",
     "@nestjs/platform-express": {
       "multer": "^2.0.2"
+    },
+    "eslint": {
+      "chalk": "^4.1.2"
     }
   }
 }

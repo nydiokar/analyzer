@@ -147,6 +147,18 @@ export interface EnrichTokenBalancesResult extends JobResult {
 
 // Holder Profiles Types
 export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+export type HoldTimeSource = 'CURRENT' | 'EXITED' | 'MIXED';
+
+export interface HoldTimeDistribution {
+  instant: number;
+  ultraFast: number;
+  fast: number;
+  momentum: number;
+  intraday: number;
+  day: number;
+  swing: number;
+  position: number;
+}
 
 export interface HolderProfile {
   walletAddress: string;
@@ -163,6 +175,18 @@ export interface HolderProfile {
   confidence: number;
   insufficientDataReason?: string;
   processingTimeMs: number;
+  holdTimeDistribution?: HoldTimeDistribution;
+  includesCurrentHoldings?: boolean;
+  exitRate?: number | null;
+  totalTokensTraded?: number;
+  typicalHoldTimeHours?: number | null;
+  typicalHoldTimeSource?: HoldTimeSource;
+  realizedMedianHoldTimeHours?: number | null;
+  realizedAverageHoldTimeHours?: number | null;
+  currentHoldMedianHours?: number | null;
+  currentHoldAverageHours?: number | null;
+  percentValueInCurrentHoldings?: number | null;
+  currentHoldingsCount?: number | null;
 }
 
 export interface HolderProfilesResult extends JobResult {
