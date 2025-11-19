@@ -16,6 +16,7 @@ export interface HolderProfile {
   walletAddress: string;
   rank: number;
   supplyPercent: number;
+  // Smart fallback metrics (typical → realized → current)
   medianHoldTimeHours: number | null;
   avgHoldTimeHours: number | null;
   dailyFlipRatio: number | null;

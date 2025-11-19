@@ -40,10 +40,24 @@ Build a predictive holder risk analysis system that enables traders to evaluate 
 - Exit detection (20% threshold)
 - Weighted entry time calculation
 
-✅ **Deprecated Metrics** (Marked but still computed for backward compat)
-- `averageFlipDurationHours` → Use `historicalPattern.historicalAverageHoldTimeHours`
-- `medianHoldTime` → Use `historicalPattern.medianCompletedHoldTimeHours`
-- `weightedAverageHoldingDurationHours` → Conceptually flawed (mixes completed + active)
+✅ **Dual Holding Time Methodology** - Two complementary systems serve different purposes:
+
+1. **Exited Positions (Historical Pattern)** - For prediction & risk analysis:
+   - `historicalPattern.medianCompletedHoldTimeHours` - Median from exited-only
+   - `historicalPattern.historicalAverageHoldTimeHours` - Weighted avg from exited-only
+
+2. **Current Holdings** - For portfolio state analysis:
+   - `medianCurrentHoldingDurationHours` - Median of active positions
+   - `averageCurrentHoldingDurationHours` - Average of active positions
+
+3. **Smart Fallback (Holder Profiles API)**:
+   - `medianHoldTimeHours` - Smart fallback (typical → realized → current)
+   - `avgHoldTimeHours` - Smart fallback (typical → realized → current)
+
+✅ **Truly Deprecated Metrics** (NOT used in holder-profiles, safe to remove in future):
+- `averageFlipDurationHours` (BehaviorAnalysisResponseDto) - Legacy mixed metric
+- `medianHoldTime` (BehaviorAnalysisResponseDto) - Legacy mixed metric
+- `weightedAverageHoldingDurationHours` (BehaviorAnalysisResponseDto) - Conceptually flawed (mixes completed + active)
 
 ### ✅ Phase 2: Prediction Layer (FUNCTIONALLY COMPLETE - 2025-11-12)
 

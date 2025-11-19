@@ -238,10 +238,23 @@ Poll GET /jobs/:jobId until status = 'completed'
       - `TradingInterpretation`: speedCategory, typicalHoldTimeHours, economicHoldTimeHours, economicRisk, behavioralPattern
       - `HistoricalPattern`: behaviorType, exitPattern, medianCompletedHoldTimeHours, etc.
       - Separates "what they usually do" (median) from "where the money goes" (weighted average)
-    - [x] **Deprecated Metrics** (Marked with JSDoc warnings):
-      - `averageFlipDurationHours` → Use `historicalPattern.historicalAverageHoldTimeHours`
-      - `medianHoldTime` → Use `historicalPattern.medianCompletedHoldTimeHours`
-      - `weightedAverageHoldingDurationHours` → Use `historicalPattern.historicalAverageHoldTimeHours`
+    - [x] **Dual Holding Time Methodology** - Two complementary systems:
+      1. **Exited Positions Metrics** (Historical Pattern - for prediction):
+         - `historicalPattern.medianCompletedHoldTimeHours` - Median from exited positions only
+         - `historicalPattern.historicalAverageHoldTimeHours` - Weighted average from exited positions only
+         - Used for: Exit prediction, behavior classification, holder risk analysis
+      2. **Current Holdings Metrics** (Active positions - for portfolio analysis):
+         - `medianCurrentHoldingDurationHours` - Median of currently held positions
+         - `averageCurrentHoldingDurationHours` - Average of currently held positions
+         - Used for: Current portfolio state, unrealized hold times
+      3. **Smart Fallback Metrics** (Holder Profiles API):
+         - `medianHoldTimeHours` - Smart fallback (typical → realized → current)
+         - `avgHoldTimeHours` - Smart fallback (typical → realized → current)
+         - `typicalHoldTimeHours` + `typicalHoldTimeSource` - Intelligent combination with source tracking
+    - [x] **Truly Deprecated Metrics** (NOT used in holder-profiles):
+      - `averageFlipDurationHours` - Legacy mixed metric (unreliable for prediction)
+      - `weightedAverageHoldingDurationHours` - Legacy mixed metric (conceptually flawed)
+      - `medianHoldTime` (in BehaviorAnalysisResponseDto only, NOT in HolderProfile)
     - **Backward Compatibility**: All old metrics still computed and included in API responses (zero breaking changes)
   - [x] **Phase 4 (Frontend Migration)**: ✅ **COMPLETE** (2025-11-17)
     - **Goal**: Update dashboard to use new metrics (avoid user confusion between holder risk tab and wallet profile)
@@ -323,38 +336,8 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 
 ## Next
 
-!!! See CURRENT_STATE.md !!! 
 
-Migrate eslint 
 
-PS C:\Users\solastic\prj\analyzer> npx eslint dashboard/src/components/holder-profiles/v2/*.tsx
-
-Oops! Something went wrong! :(
-
-ESLint: 9.35.0
-
-ESLint couldn't find an eslint.config.(js|mjs|cjs) file.
-
-From ESLint v9.0.0, the default configuration file is now eslint.config.js.
-If you are using a .eslintrc.* file, please follow the migration guide
-to update your configuration file to the new format:
-
-https://eslint.org/docs/latest/use/configure/migration-guide
-
-If you still have problems after following the migration guide, please stop by
-https://eslint.org/chat/help to chat with the team.
-
-- Extend wallet classifier beyond six wallets (bulk compare / CSV upload) once backend batching design is finalized
-
-- Flip default to Helius Phase 1 once parity and credit usage are validated; keep legacy path as fallback
-- Try revised staged thresholds via config after Phase 1 (e.g., `initialWindowDays` 3–10, `initialMaxSignatures` around 1000–2000) based on telemetry
-- Instrument API controllers and wrapper services with activity logging that includes user context (`src/api/controllers/*.ts`, `src/api/services/*`, `src/core/services/database-service.ts`)
-- Pilot wallet comparison and discovery UX ("Find Similar Wallets") reusing the similarity engine (`src/api/services/similarity.service.ts`, `dashboard/src/app/(wallets)`)
-- Audit analysis math (P/L, KPI rollups, dashboard metrics) for correctness and alignment with product needs (`src/core/analysis/**`, `docs/usage/wallet-behavior-kpis.md`, `analysis_reports/`)
-- Tighten enrichment and demo gating (Redis configuration, `src/queues/processors/enrichment-operations.processor.ts`, dashboard API-key flow)
-- Add cost budget and alerts for Helius credits; emit per‑wallet credit usage to logs/metrics
-- Add automated parity checks comparing legacy Phase 1 vs new Phase 1 on sampled wallets
- - Add automated Lighthouse smoke-test gate for dashboard (see `dashboard/docs/front-end-performance.md`)
 
 ---
 

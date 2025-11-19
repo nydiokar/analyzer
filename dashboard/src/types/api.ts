@@ -164,9 +164,13 @@ export interface BehaviorAnalysisResponseDto {
   averageSessionDurationMinutes?: number | null;
   firstTransactionTimestamp?: number | null;
   lastTransactionTimestamp?: number | null;
+
+  // ✅ CURRENT HOLDINGS METRICS: Separate system for analyzing currently held positions
+  // These complement historicalPattern (exited positions) by showing what's still held
   averageCurrentHoldingDurationHours?: number | null;
   medianCurrentHoldingDurationHours?: number | null;
   percentOfValueInCurrentHoldings?: number | null;
+
   additionalMetrics?: Record<string, unknown>;
   rawMetrics?: Record<string, unknown>;
 }

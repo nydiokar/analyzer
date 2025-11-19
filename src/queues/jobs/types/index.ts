@@ -164,6 +164,7 @@ export interface HolderProfile {
   walletAddress: string;
   rank: number;
   supplyPercent: number;
+  // Smart fallback metrics (typical → realized → current) - NOT deprecated
   medianHoldTimeHours: number | null;
   avgHoldTimeHours: number | null;
   dailyFlipRatio: number | null;        // Percentage of completed positions held <5min
