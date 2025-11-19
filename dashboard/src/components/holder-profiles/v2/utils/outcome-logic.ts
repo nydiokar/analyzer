@@ -1,4 +1,4 @@
-import type { HolderProfile } from '../types';
+import type { HolderProfile } from '../../../holder-profiles/types';
 import { getCognitivePrimitives, getSpeedPrimitive, getConvictionPrimitive, getConsistencyPrimitive } from './cognitive-primitives';
 import { getDominantBehavior } from './formatters';
 

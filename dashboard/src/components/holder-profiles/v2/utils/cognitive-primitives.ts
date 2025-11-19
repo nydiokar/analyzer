@@ -1,4 +1,4 @@
-import type { HolderProfile } from '../types';
+import type { HolderProfile } from '../../../holder-profiles/types';
 import { formatHoldTime } from './formatters';
 
 export interface CognitivePrimitive {
@@ -37,7 +37,7 @@ export function getSpeedPrimitive(profiles: HolderProfile[]): CognitivePrimitive
   return {
     id: 'speed',
     label: 'Speed',
-    value: holds.length ? formatHoldTime(median) : '—',
+    value: holds.length ? formatHoldTime(median) : 'â€”',
     category,
     description: holds.length
       ? `${category} exits (median ${formatHoldTime(median)})`
@@ -69,7 +69,7 @@ export function getConvictionPrimitive(profiles: HolderProfile[]): CognitivePrim
   return {
     id: 'conviction',
     label: 'Conviction',
-    value: avg !== null ? `${avg.toFixed(0)}% flips` : '—',
+    value: avg !== null ? `${avg.toFixed(0)}% flips` : 'â€”',
     category,
     description: avg !== null ? category : 'Not enough data',
     color,
@@ -81,7 +81,7 @@ export function getConsistencyPrimitive(profiles: HolderProfile[]): CognitivePri
     return {
       id: 'consistency',
       label: 'Consistency',
-      value: '—',
+      value: 'â€”',
       category: 'Unknown',
       description: 'No data',
       color: 'text-muted-foreground',

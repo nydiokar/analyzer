@@ -46,7 +46,7 @@ export function BehaviorCompositionBar({ profiles }: Props) {
           {segments.map((segment) => (
             <div key={segment.type} className="flex items-center gap-2">
               <span className={`h-2 w-2 rounded-full ${getBehaviorBarColor(segment.type)}`}></span>
-              {segment.type} · {segment.count}
+              {segment.type} â€” {segment.count}
             </div>
           ))}
         </div>

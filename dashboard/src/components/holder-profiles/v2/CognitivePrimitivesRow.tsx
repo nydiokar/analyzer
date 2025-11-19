@@ -1,4 +1,4 @@
-import type { HolderProfile } from '../types';
+import type { HolderProfile } from '../../holder-profiles/types';
 import { CognitiveMetricCard } from './CognitiveMetricCard';
 import { getCognitivePrimitives } from './utils/cognitive-primitives';
 

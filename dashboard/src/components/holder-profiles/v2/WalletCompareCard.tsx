@@ -18,7 +18,7 @@ export function WalletCompareCard({ result, highlight }: Props) {
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-semibold">{formatAddress(result.targetWallet || profile.walletAddress)}</div>
         <span className={`px-2 py-0.5 rounded-full text-[11px] ${getBehaviorColor(profile.behaviorType)}`}>
-          {profile.behaviorType ?? '—'}
+          {profile.behaviorType ?? 'â€”'}
         </span>
       </div>
       <p className="text-xs text-muted-foreground mt-1">{outcome.verdict}</p>

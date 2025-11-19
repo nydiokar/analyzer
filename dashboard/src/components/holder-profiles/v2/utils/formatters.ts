@@ -1,12 +1,12 @@
-import type { HolderProfile } from '../types';
+import type { HolderProfile } from '../../../holder-profiles/types';
 
 export function formatAddress(address?: string | null) {
-  if (!address) return '—';
+  if (!address) return 'â€”';
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
 export function formatHoldTime(hours: number | null | undefined) {
-  if (hours === null || hours === undefined) return '—';
+  if (hours === null || hours === undefined) return 'â€”';
   if (hours < 1) {
     const minutes = hours * 60;
     if (minutes < 1) {
@@ -28,7 +28,7 @@ export function formatHoldTime(hours: number | null | undefined) {
 }
 
 export function formatPercentage(value: number | null | undefined, digits = 1) {
-  if (value === null || value === undefined) return '—';
+  if (value === null || value === undefined) return 'â€”';
   return `${value.toFixed(digits)}%`;
 }
 

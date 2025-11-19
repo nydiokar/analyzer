@@ -28,7 +28,7 @@ export function MinimalHoldersTable({ profiles, mode }: Props) {
               <td className="px-4 py-2 font-mono text-xs">{formatAddress(profile.walletAddress)}</td>
               <td className="px-4 py-2">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getBehaviorColor(profile.behaviorType)}`}>
-                  {profile.behaviorType ?? '—'}
+                  {profile.behaviorType ?? 'â€”'}
                 </span>
               </td>
               <td className="px-4 py-2">{formatHoldTime(profile.medianHoldTimeHours)}</td>

@@ -1,4 +1,4 @@
-import type { HolderProfile, WalletGroupInsight } from '../types';
+import type { HolderProfile, WalletGroupInsight } from '../../../holder-profiles/types';
 import { formatAddress, formatHoldTime } from './formatters';
 import { BEHAVIOR_COLORS } from './behavior';
 
@@ -27,7 +27,7 @@ export function buildWalletGroupInsights(profiles: HolderProfile[]): WalletGroup
       label: 'Dominant behavior',
       value: dominantBehavior ?? 'Mixed',
       description: dominantBehavior ? `${behaviorCounts[dominantBehavior]} of ${profiles.length}` : 'No clear leader',
-      color: dominantBehavior ? BEHAVIOR_COLORS[dominantBehavior] || 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground',
+      color: dominantBehavior ? BEHAVIOR_COLORS[dominantBehavior]?.badge || 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground',
     },
     {
       label: 'Fastest exit',

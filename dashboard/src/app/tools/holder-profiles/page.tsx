@@ -95,7 +95,7 @@ export default function HolderProfilesPage() {
     onJobCompleted: useCallback(
       (data: JobCompletionData) => {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
-          const resultData = data.result as HolderProfilesResult;
+          const resultData = data.result.data as HolderProfilesResult;
           if (resultData?.profiles) {
             setTokenResult(resultData);
             setTokenStatus('completed');
@@ -113,7 +113,7 @@ export default function HolderProfilesPage() {
           status: 'completed',
           progress: 100,
           message: 'Complete',
-          result: data.result as HolderProfilesResult,
+          result: data.result.data as HolderProfilesResult,
         }));
       },
       [updateWalletEntryByJob]
