@@ -95,7 +95,7 @@ export default function HolderProfilesPage() {
     onJobCompleted: useCallback(
       (data: JobCompletionData) => {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
-          const resultData = data.result.data as HolderProfilesResult;
+          const resultData = data.result as unknown as HolderProfilesResult;
           if (resultData?.profiles) {
             setTokenResult(resultData);
             setTokenStatus('completed');
@@ -113,7 +113,7 @@ export default function HolderProfilesPage() {
           status: 'completed',
           progress: 100,
           message: 'Complete',
-          result: data.result.data as HolderProfilesResult,
+          result: data.result as unknown as HolderProfilesResult,
         }));
       },
       [updateWalletEntryByJob]
@@ -235,68 +235,63 @@ export default function HolderProfilesPage() {
         <p className="text-sm text-muted-foreground">Outcome-first analysis for token cohorts and wallet scouts.</p>
       </header>
 
-      <Card className="p-6 space-y-4">
+      <div className="flex flex-col md:flex-row items-start md:items-center gap-3 p-3 rounded-lg border bg-card">
         <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
-          <TabsList className="grid grid-cols-2 w-full md:w-auto">
-            <TabsTrigger value="token">Token Pulse</TabsTrigger>
-            <TabsTrigger value="wallet">Wallet Classifier</TabsTrigger>
+          <TabsList className="h-9">
+            <TabsTrigger value="token" className="text-xs">Token</TabsTrigger>
+            <TabsTrigger value="wallet" className="text-xs">Wallet</TabsTrigger>
           </TabsList>
         </Tabs>
 
         {analysisMode === 'token' ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2 space-y-2">
-              <Label htmlFor="tokenMint">Token Mint</Label>
-              <Input
-                id="tokenMint"
-                placeholder="Enter token mint"
-                value={tokenMint}
-                onChange={(e) => setTokenMint(e.target.value)}
-                disabled={tokenStatus === 'running'}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="topN">Top N holders</Label>
-              <Input
-                id="topN"
-                type="number"
-                min={1}
-                max={50}
-                value={topN}
-                onChange={(e) => setTopN(parseInt(e.target.value, 10) || 10)}
-                disabled={tokenStatus === 'running'}
-              />
-            </div>
-          </div>
+          <>
+            <Input
+              id="tokenMint"
+              placeholder="Token mint address"
+              value={tokenMint}
+              onChange={(e) => setTokenMint(e.target.value)}
+              disabled={tokenStatus === 'running'}
+              className="h-9 flex-1"
+            />
+            <Input
+              id="topN"
+              type="number"
+              min={1}
+              max={50}
+              value={topN}
+              onChange={(e) => setTopN(parseInt(e.target.value, 10) || 10)}
+              disabled={tokenStatus === 'running'}
+              className="h-9 w-20"
+              placeholder="Top N"
+            />
+          </>
         ) : (
-          <div className="space-y-2">
-            <Label htmlFor="walletAddresses">Wallet addresses (comma or newline separated)</Label>
-            <Textarea
+          <div className="flex-1 flex items-center gap-2">
+            <Input
               id="walletAddresses"
-              rows={4}
-              placeholder="Paste up to 6 wallet addresses"
+              placeholder="Paste wallet addresses (comma separated)"
               value={walletInput}
               onChange={(e) => setWalletInput(e.target.value)}
+              className="h-9 flex-1"
             />
             {parsedWallets.list.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {parsedWallets.list.map((address) => (
-                  <Badge key={address} variant="secondary" className="flex items-center gap-1">
+              <div className="flex flex-wrap gap-1">
+                {parsedWallets.list.slice(0, 3).map((address) => (
+                  <Badge key={address} variant="secondary" className="h-6 text-xs px-2">
                     {address.slice(0, 4)}...{address.slice(-4)}
-                    <button type="button" onClick={() => handleRemoveWallet(address)} aria-label={`Remove ${address}`}>
-                      <X className="h-3 w-3" />
-                    </button>
                   </Badge>
                 ))}
+                {parsedWallets.list.length > 3 && (
+                  <Badge variant="secondary" className="h-6 text-xs px-2">
+                    +{parsedWallets.list.length - 3}
+                  </Badge>
+                )}
               </div>
-            )}
-            {parsedWallets.truncated > 0 && (
-              <p className="text-xs text-amber-600">Showing the first {MAX_WALLETS} wallets. {parsedWallets.truncated} more will be ignored.</p>
             )}
           </div>
         )}
 
-        <Button onClick={handleAnalyze} disabled={disableAnalyze} className="w-full md:w-auto">
+        <Button onClick={handleAnalyze} disabled={disableAnalyze} size="sm" className="h-9">
           {analysisMode === 'token' && isTokenRunning ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing... {tokenProgress}%
@@ -311,10 +306,11 @@ export default function HolderProfilesPage() {
             </>
           )}
         </Button>
-        {analysisMode === 'token' && isTokenRunning && tokenMessage && (
-          <p className="text-sm text-muted-foreground">{tokenMessage}</p>
-        )}
-      </Card>
+      </div>
+
+      {analysisMode === 'token' && isTokenRunning && tokenMessage && (
+        <p className="text-xs text-muted-foreground px-3">{tokenMessage}</p>
+      )}
 
       {analysisMode === 'token' && tokenResult && <TokenPulse result={tokenResult} />}
 

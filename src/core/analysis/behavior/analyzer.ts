@@ -265,11 +265,29 @@ export class BehaviorAnalyzer {
       ? totalWeightedDuration / totalWeight
       : 0;
 
-    // Calculate median
-    const sortedDurations = filteredLifecycles
-      .map(lc => lc.weightedHoldingTimeHours)
-      .sort((a, b) => a - b);
-    const medianCompletedHoldTimeHours = this.calculateMedian(sortedDurations);
+    // ✅ FIX: Aggregate lifecycles by TOKEN first, then calculate wallet-level median
+    // Group lifecycles by token mint
+    const lifecyclesByToken = new Map<string, typeof filteredLifecycles>();
+    for (const lc of filteredLifecycles) {
+      if (!lifecyclesByToken.has(lc.mint)) {
+        lifecyclesByToken.set(lc.mint, []);
+      }
+      lifecyclesByToken.get(lc.mint)!.push(lc);
+    }
+
+    // Calculate per-token median hold time (ONE value per token)
+    const perTokenHoldTimes: number[] = [];
+    for (const [mint, tokenLifecycles] of lifecyclesByToken.entries()) {
+      const tokenDurations = tokenLifecycles.map(lc => lc.weightedHoldingTimeHours);
+      const tokenMedian = this.calculateMedian(tokenDurations);
+      perTokenHoldTimes.push(tokenMedian);
+    }
+
+    // Calculate wallet-level median across tokens (NOT across all lifecycles)
+    const medianCompletedHoldTimeHours = this.calculateMedian(perTokenHoldTimes);
+
+    // Also calculate distribution based on per-token medians (not all lifecycles)
+    const sortedDurations = perTokenHoldTimes.sort((a, b) => a - b);
 
     // Calculate hold time distribution for insights
     const distribution = {
@@ -284,7 +302,7 @@ export class BehaviorAnalyzer {
     };
 
     this.logger.debug(
-      `Hold time distribution (${sortedDurations.length} cycles): ` +
+      `Hold time distribution (${sortedDurations.length} tokens with ${filteredLifecycles.length} total cycles): ` +
       `instant: ${distribution.instant}, <1m: ${distribution.ultraFast}, ` +
       `1-5m: ${distribution.fast}, 5-30m: ${distribution.momentum}, ` +
       `30m-4h: ${distribution.intraday}, 4-24h: ${distribution.day}, ` +
@@ -303,9 +321,12 @@ export class BehaviorAnalyzer {
     const avgSellsPerToken = sellPatterns.reduce((sum, count) => sum + count, 0) / sellPatterns.length;
     const exitPattern: 'GRADUAL' | 'ALL_AT_ONCE' = avgSellsPerToken > 2 ? 'GRADUAL' : 'ALL_AT_ONCE';
 
+    // ✅ FIX: Use token count (not lifecycle count) for metrics
+    const uniqueTokenCount = perTokenHoldTimes.length;
+
     // Calculate data quality score (0-1)
-    // Based on sample size relative to minimum required
-    const sampleSizeScore = Math.min(1, filteredLifecycles.length / (minCompletedCycles * 3)); // Perfect score at 3x minimum
+    // Based on token count (sample size) relative to minimum required
+    const sampleSizeScore = Math.min(1, uniqueTokenCount / (minCompletedCycles * 3)); // Perfect score at 3x minimum
 
     // Calculate observation period
     const oldestEntry = Math.min(...filteredLifecycles.map(lc => lc.entryTimestamp));
@@ -316,13 +337,13 @@ export class BehaviorAnalyzer {
 
     this.logger.debug(
       `Historical pattern calculated: ${historicalAverageHoldTimeHours.toFixed(2)}h avg, ` +
-      `${filteredLifecycles.length} completed cycles, ${behaviorType} type`
+      `${uniqueTokenCount} completed tokens (${filteredLifecycles.length} total lifecycles), ${behaviorType} type`
     );
 
     return {
       walletAddress,
       historicalAverageHoldTimeHours,
-      completedCycleCount: filteredLifecycles.length,
+      completedCycleCount: uniqueTokenCount,  // ✅ FIX: Return token count, not lifecycle count
       medianCompletedHoldTimeHours,
       behaviorType,
       exitPattern,

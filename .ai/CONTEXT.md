@@ -323,6 +323,8 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 
 ## Next
 
+!!! See CURRENT_STATE.md !!! 
+
 - Extend wallet classifier beyond six wallets (bulk compare / CSV upload) once backend batching design is finalized
 
 - Flip default to Helius Phase 1 once parity and credit usage are validated; keep legacy path as fallback

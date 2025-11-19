@@ -1048,6 +1048,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         dataQualityTier,
         completedCycleCount: historicalPattern.completedCycleCount,
         confidence: historicalPattern.dataQuality,
+        holdTimeDistribution: historicalPattern.holdTimeDistribution,
         processingTimeMs: Date.now() - walletStartTime,
       };
     } catch (error) {

@@ -14,6 +14,16 @@ export interface HolderProfile {
   confidence: number;
   insufficientDataReason?: string;
   processingTimeMs: number;
+  holdTimeDistribution?: {
+    instant: number;
+    ultraFast: number;
+    fast: number;
+    momentum: number;
+    intraday: number;
+    day: number;
+    swing: number;
+    position: number;
+  };
 }
 
 export interface HolderProfilesResult {

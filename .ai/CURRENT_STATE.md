@@ -1,233 +1,65 @@
 # Current State: Onchain Metadata Enrichment
 
-**Branch:** `main`
-**Date:** November 4, 2025
-**Status:** ✅ Complete with centralized metadata priority logic
+**Branch:** `feature`
+**Date:** November 19, 2025
+**Status:** Holder Risk profiles
 
 ---
 
 ## What Just Happened
+PERFECT! I see exactly what you're saying:
 
-We implemented **onchain metadata enrichment** to solve the "Unknown Token" problem:
-- **Before:** Tokens showed as "Unknown Token" when DexScreener didn't have data
-- **After:** Fast 3-stage enrichment with blockchain data as PRIMARY source
+  The Current Problem:
 
----
+  Holder Profiles (Our New System):
 
-## Implementation Summary
+  - Shows: N/A for wallets with <3 completed exits
+  - Uses: Only EXITED tokens (completed buy-sell cycles)
+  - Ignores: Tokens still held
 
-### 🎯 Core Pattern
+  Behavioral Patterns (Existing System):
 
-```
-User Request
-    ↓
-STAGE 1: Helius DAS API (500ms) ← WAIT & RETURN
-    ↓
-STAGE 2: DexScreener (background)
-STAGE 3: Social Links from URIs (background)
-```
+  - Shows: AVG CURRENT HOLD DURATION: 1013.56 hours
+  - Shows: MEDIAN CURRENT HOLD TIME: 1355.49 hours
+  - Includes: Currently held tokens with their current hold duration
+  - Shows: 66.5% VALUE STILL HELD
 
-### 📁 Files Changed
+  ---
+  The Real Issue:
 
-**Backend Core:**
-1. `src/core/services/onchain-metadata.service.ts` ⭐ NEW
-2. `src/core/services/helius-api-client.ts` - Added `getAssetBatch()`
-3. `src/api/services/token-info.service.ts` - 3-stage orchestration
-4. `src/core/services/dexscreener-service.ts` - Hybrid metadata marking
-5. `src/api/services/token-performance.service.ts` - Display logic (onchain first)
-6. `src/api/integrations/helius.module.ts` - Service registration
+  Wallet with 0 completed exits but 13 tokens still held:
+  - Holder Profiles: Shows N/A (useless!)
+  - Behavioral Patterns: Shows 1355 hours median current hold (useful!)
 
-**Database:**
-7. `prisma/schema.prisma` - Added onchain* fields + metadataSource
+  We have TWO SYSTEMS doing similar things, but one includes still-held and one doesn't!
 
-**Frontend:**
-8. `dashboard/src/components/shared/TokenBadge.tsx` - Centralized metadata priority (SINGLE SOURCE OF TRUTH)
-9. `dashboard/src/components/dashboard/TokenPerformanceTab.tsx` - Pass all fields raw to TokenBadge
-10. `dashboard/src/components/similarity-lab/TopHoldersPanel.tsx` - Pass all fields raw to TokenBadge
-11. `dashboard/src/lib/tokenMetadataAggregator.ts` - ⚠️ DEPRECATED (use TokenBadge instead)
+  ---
+  The Solution:
 
-**Setup & Config:**
-12. `.env.example` - Added HELIUS_METADATA_API_KEY, REDIS config
-13. `docker-compose.yml` ⭐ NEW - Redis setup
-14. `setup.sh` ⭐ NEW - Automated setup
-15. `test-enrichment.sh` ⭐ NEW - Test script
-16. `QUICKSTART.md` ⭐ NEW - User guide
+  We should merge both approaches in Holder Profiles:
 
-**Documentation:**
-17. `.ai/context/architecture-onchain-metadata-enrichment.md` ⭐ NEW
-18. `documentation/onchain-metadata-enrichment.md` - Updated with status
-19. `documentation/onchain-metadata-implementation-summary.md` ⭐ NEW
+  1. Primary Metric: "Typical Hold Time" (includes currently held)
+    - Combines completed exits + still-held tokens
+    - For completed: use actual exit duration
+    - For still-held: use current hold duration
+  2. Secondary Metric: "Realized Hold Time" (only completed)
+    - Only tokens that were exited
+    - Shows actual trading behavior (not buy-and-forget)
+  3. Remove "Flip Ratio" entirely or replace with:
+    - "Exit Rate": % of tokens that have been fully exited
+    - "Turnover": How often they trade (trades per day/week)
 
----
+  ---
+  Let me check the legacy system to see how it calculates current holdings:
 
-## Architecture: Centralized Metadata Priority (November 2025)
+● Search(pattern: "averageFlipDurationHours", output_mode: "content")
+  ⎿  Found 868 lines (ctrl+o to expand)
 
-### 🎯 Single Source of Truth: TokenBadge Component
+● Perfect! I found it. The legacy averageFlipDurationHours and current holdings metrics are in the old
+  BehaviorAnalyzer (lines 1169+ in the code).
 
-**Problem Solved:** Priority logic was scattered across backend, frontend, and utilities (changed 3-6 files per update)
+  Let me find where current holdings are calculated:
 
-**Solution:** All metadata priority decisions now live in **one place** - `TokenBadge.tsx`
-
-```
-Backend → Sends BOTH fields raw
-    ↓
-Frontend → Passes BOTH fields raw
-    ↓
-TokenBadge → Decides priority (SINGLE SOURCE OF TRUTH)
-```
-
-### Priority Rules (Implemented in TokenBadge)
-
-**Display Fields (Name, Symbol):**
-```typescript
-// Onchain FIRST (immutable, authoritative)
-name: metadata?.onchainName || metadata?.name || 'Unknown Token'
-symbol: metadata?.onchainSymbol || metadata?.symbol || truncateMint(mint)
-```
-
-**Image URL:**
-```typescript
-// DexScreener FIRST (fresher, working links), fallback to onchain
-imageUrl: metadata?.imageUrl || metadata?.onchainImageUrl
-```
-
-**Social Links:**
-```typescript
-// DexScreener FIRST (more up-to-date), fallback to onchain
-website: metadata?.websiteUrl || metadata?.onchainWebsiteUrl
-twitter: metadata?.twitterUrl || metadata?.onchainTwitterUrl
-telegram: metadata?.telegramUrl || metadata?.onchainTelegramUrl
-```
-
-**Trading Data:**
-```typescript
-// DexScreener ONLY (onchain doesn't have this)
-priceUsd: metadata?.priceUsd
-volume24h: metadata?.volume24h
-marketCapUsd: metadata?.marketCapUsd
-```
-
-### Benefits
-
-✅ **Change priority = update 1 file** (was 3-6 files before)
-✅ **Consistent display** across all components using TokenBadge
-✅ **Flexible API** - consumers get both fields, can choose their own priority
-✅ **No performance impact** - simple property access (microseconds)
-✅ **Backward compatible** - old code still works
-
----
-
-## Key Design Decisions
-
-### ✅ Pragmatic, Not Over-Engineered
-- **No `IMetadataProvider` interface** - Onchain data is NOT swappable (blockchain = single source)
-- **Specialized service** - `OnchainMetadataService` like `DexscreenerService`
-- **Follows existing patterns** - Same as price provider architecture (but simpler)
-
-### ✅ Performance Optimizations
-- **Batched DB operations** - Avoids N+1 queries (100x faster)
-- **HTTP connection pooling** - Reuses connections (2-5x faster)
-- **Input deduplication** - Prevents duplicate processing
-- **Smart filtering** - Only enriches tokens that need it
-
-### ✅ Separate API Key Support
-- **Optional `HELIUS_METADATA_API_KEY`** - Isolates rate limits
-- **Falls back to main key** - Works without separate account
-- **Free tier sufficient** - 1M credits/month = 100k enrichments
-
----
-
-## What's Next
-
-### Before Testing (User Actions)
-1. ✅ Copy `.env` file with credentials (user doing this now)
-2. ⏳ Run `./setup.sh` (auto-upgrades Node to 22, starts Docker/Redis, runs migrations)
-
-### During Testing
-3. ⏳ Start backend: `npm run dev`
-4. ⏳ Test enrichment: `./test-enrichment.sh`
-5. ⏳ Verify logs show 3-stage completion
-6. ⏳ Check database: `npx prisma studio`
-
-### After Testing
-7. ⏳ Commit changes
-8. ⏳ Create PR
-9. ⏳ Deploy to staging
-10. ⏳ Monitor Helius credit usage
-
----
-
-## Reference Docs
-
-**Quick References:**
-- `QUICKSTART.md` - Step-by-step setup guide
-- `.ai/context/architecture-onchain-metadata-enrichment.md` - Full architecture
-- `documentation/onchain-metadata-implementation-summary.md` - Deployment guide
-
-**Original Specs:**
-- `documentation/onchain-metadata-enrichment.md` - Original implementation plan
-
-**Related:**
-- `.ai/context/architecture-unified-price-system.md` - Price provider pattern
-
----
-
-## Environment Setup
-
-### Required
-```bash
-HELIUS_API_KEY=your_main_key
-```
-
-### Optional (Recommended)
-```bash
-HELIUS_METADATA_API_KEY=your_separate_free_tier_key
-```
-
-### Auto-Configured by setup.sh
-```bash
-REDIS_HOST=localhost
-REDIS_PORT=6379
-DATABASE_URL=file:./dev.db
-```
-
----
-
-## Testing Checklist
-
-- [ ] Node.js 22+ installed
-- [ ] Docker running
-- [ ] `.env` file configured with HELIUS_API_KEY
-- [ ] Redis running in Docker (`docker-compose up -d`)
-- [ ] Database migrated (`npx prisma migrate dev`)
-- [ ] Prisma client generated (`npx prisma generate`)
-- [ ] Backend starts without errors (`npm run dev`)
-- [ ] Test enrichment succeeds (`./test-enrichment.sh`)
-- [ ] Database shows onchain metadata (`npx prisma studio`)
-- [ ] Frontend displays tokens correctly
-
----
-
-## Recent Updates (November 4, 2025)
-
-### Centralized Metadata Priority Architecture
-
-**Problem:** Priority logic was scattered across backend, frontend, and utilities
-**Solution:** Moved all priority decisions to TokenBadge component (single source of truth)
-
-**Changes:**
-- TokenBadge now handles all metadata priority internally
-- Backend sends both `imageUrl` and `onchainImageUrl` raw (no merging)
-- Frontend passes all fields raw to TokenBadge
-- Image priority changed to DexScreener first (fixes broken IPFS images)
-- Deprecated `tokenMetadataAggregator.ts` utility
-
-**Benefits:**
-- Change priority = update 1 file (was 3-6 files)
-- More flexible for API consumers
-- Better maintainability
-
----
-
-**Last Updated:** November 4, 2025
-**Status:** ✅ Production ready with centralized metadata priority
+● Search(pattern: "averageCurrentHoldingDurationHours|medianCurrentHoldingDurationHours", path:
+        "src\core\analysis\behavior\analyzer.ts", output_mode: "content", head_limit: 50)
+  ⎿  Found 35 lines (ctrl+o to expand)

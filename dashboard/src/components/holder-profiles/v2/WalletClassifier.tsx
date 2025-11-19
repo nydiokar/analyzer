@@ -28,13 +28,6 @@ export function WalletClassifier({ entries }: Props) {
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Wallet classifier</p>
-          <p className="text-sm text-muted-foreground">{entries.length} wallet(s) queued</p>
-        </div>
-      </div>
-
       {pending.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {pending.map((entry) => (
