@@ -3,8 +3,8 @@
 **Project**: Sova Intel - Wallet Analysis System (Scaling Plan Phase 6)
 **Goal**: Expose reliable Solana wallet analytics (sync, similarity, reporting) across API, queues, CLI, and dashboard.
 **Status**: In Progress
-**Last Updated**: 2025-11-17 14:50 UTC
-**Updated By**: Claude Code
+**Last Updated:** 2025-11-18 22:30 UTC
+**Updated By:** Codex
 
 ---
 
@@ -61,6 +61,7 @@ Poll GET /jobs/:jobId until status = 'completed'
 
 ## Completed
 
+- [x] Holder Profiles dashboard rebuilt using the unified Token Pulse / Wallet Classifier spec (Token outcome strips, cognitive primitives, multi-wallet compare up to six addresses with group insights) (dashboard/src/app/tools/holder-profiles/page.tsx, dashboard/src/components/holder-profiles/v2/**/*)
 
 - [x] BullMQ orchestration stack spanning wallet, analysis, similarity, and enrichment operations with locking, DLQ, and job event streaming (`src/queues/queue.module.ts`, `src/queues/queues/*.ts`, `src/queues/services/*`, `src/api/controllers/jobs.controller.ts`)
 - [x] Wallet ingestion and swap analysis persisted via Prisma (Helius client, transaction mapper, P/L summaries) (`src/core/services/helius-api-client.ts`, `src/core/services/helius-transaction-mapper.ts`, `prisma/schema.prisma`)
@@ -322,6 +323,8 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 
 ## Next
 
+- Extend wallet classifier beyond six wallets (bulk compare / CSV upload) once backend batching design is finalized
+
 - Flip default to Helius Phase 1 once parity and credit usage are validated; keep legacy path as fallback
 - Try revised staged thresholds via config after Phase 1 (e.g., `initialWindowDays` 3–10, `initialMaxSignatures` around 1000–2000) based on telemetry
 - Instrument API controllers and wrapper services with activity logging that includes user context (`src/api/controllers/*.ts`, `src/api/services/*`, `src/core/services/database-service.ts`)
@@ -359,3 +362,4 @@ PAY ATTENTION!
 Need to find out a way to fulfill all token history for a wallet, when we have identified such in the X amount of txs we have fetch. Gake is having no holder data for the past 1000 tx, due to old tokens. 
 
 Find a way to detect when tokens have changed the owner and sold off from a different wallet. 
+

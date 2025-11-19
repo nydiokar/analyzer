@@ -1,297 +1,327 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useJobProgress } from '@/hooks/useJobProgress';
-import { JobProgressData, JobFailedData } from '@/types/websockets';
+import type { JobProgressData, JobFailedData, JobCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
-import { Loader2, Search } from 'lucide-react';
-import { HolderProfilesTable } from '@/components/holder-profiles/HolderProfilesTable';
-import { HolderProfilesStats } from '@/components/holder-profiles/HolderProfilesStats';
+import { Loader2, Search, X } from 'lucide-react';
+import type { HolderProfilesResult } from '@/components/holder-profiles/types';
+import { TokenPulse } from '@/components/holder-profiles/v2/TokenPulse';
+import {
+  WalletClassifier,
+  WalletClassifierEntry,
+} from '@/components/holder-profiles/v2/WalletClassifier';
 
-interface HolderProfile {
-  walletAddress: string;
-  rank: number;
-  supplyPercent: number;
-  medianHoldTimeHours: number | null;
-  avgHoldTimeHours: number | null;
-  dailyFlipRatio: number | null;
-  behaviorType: string | null;
-  exitPattern: string | null;
-  dataQualityTier: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
-  completedCycleCount: number;
-  confidence: number;
-  insufficientDataReason?: string;
-  processingTimeMs: number;
-}
-
-interface HolderProfilesResult {
-  mode: 'token' | 'wallet';
-  tokenMint?: string;
-  targetWallet?: string;
-  profiles: HolderProfile[];
-  metadata: {
-    totalHoldersRequested: number;
-    totalHoldersAnalyzed: number;
-    totalProcessingTimeMs: number;
-    avgProcessingTimePerWalletMs: number;
-  };
-}
+const MAX_WALLETS = 6;
 
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 type AnalysisMode = 'token' | 'wallet';
 
+type WalletParseResult = {
+  list: string[];
+  truncated: number;
+};
+
+function parseWalletList(raw: string): WalletParseResult {
+  const tokens = raw
+    .split(/\s|,/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  tokens.forEach((token) => {
+    if (!seen.has(token)) {
+      seen.add(token);
+      ordered.push(token);
+    }
+  });
+  const list = ordered.slice(0, MAX_WALLETS);
+  return { list, truncated: Math.max(0, ordered.length - list.length) };
+}
+
 export default function HolderProfilesPage() {
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('token');
   const [tokenMint, setTokenMint] = useState('');
-  const [walletAddress, setWalletAddress] = useState('');
   const [topN, setTopN] = useState(10);
-  const [jobStatus, setJobStatus] = useState<JobStatus>('idle');
-  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
-  const [jobProgress, setJobProgress] = useState<number>(0);
-  const [progressMessage, setProgressMessage] = useState('');
-  const [result, setResult] = useState<HolderProfilesResult | null>(null);
+  const [walletInput, setWalletInput] = useState('');
+  const [walletEntries, setWalletEntries] = useState<WalletClassifierEntry[]>([]);
+  const [tokenResult, setTokenResult] = useState<HolderProfilesResult | null>(null);
+  const tokenJobIdRef = useRef<string | null>(null);
+  const [tokenStatus, setTokenStatus] = useState<JobStatus>('idle');
+  const [tokenProgress, setTokenProgress] = useState(0);
+  const [tokenMessage, setTokenMessage] = useState('');
 
-  const { isConnected: wsConnected, subscribeToJob } = useJobProgress({
+  const parsedWallets = useMemo(() => parseWalletList(walletInput), [walletInput]);
+
+  const updateWalletEntryByJob = useCallback((jobId: string, updater: (entry: WalletClassifierEntry) => WalletClassifierEntry) => {
+    setWalletEntries((prev) => prev.map((entry) => (entry.jobId === jobId ? updater(entry) : entry)));
+  }, []);
+
+  const updateWalletEntryByAddress = useCallback(
+    (walletAddress: string, updater: (entry: WalletClassifierEntry) => WalletClassifierEntry) => {
+      setWalletEntries((prev) => prev.map((entry) => (entry.walletAddress === walletAddress ? updater(entry) : entry)));
+    },
+    []
+  );
+
+  const { subscribeToJob } = useJobProgress({
     onJobProgress: useCallback(
       (data: JobProgressData) => {
-        if (data.jobId === currentJobId && jobStatus === 'running') {
-          console.log('📊 Holder profiles progress:', data.jobId, data.progress);
-          setJobProgress(data.progress);
-          setProgressMessage(data.status || 'Analyzing holders...');
+        if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
+          setTokenStatus('running');
+          setTokenProgress(data.progress);
+          setTokenMessage(data.status || 'Analyzing holders...');
+          return;
         }
+        updateWalletEntryByJob(data.jobId, (entry) => ({
+          ...entry,
+          status: 'running',
+          progress: data.progress,
+          message: data.status,
+        }));
       },
-      [currentJobId, jobStatus]
+      [updateWalletEntryByJob]
     ),
 
     onJobCompleted: useCallback(
-      async (data: any) => {
-        console.log('✅ Holder profiles job completed:', data.jobId);
-
-        if (data.jobId === currentJobId) {
-          setJobProgress(100);
-          setProgressMessage('Analysis complete!');
-
-          try {
-            if (!data.result || !data.result.profiles) {
-              throw new Error('Result data missing profiles');
-            }
-
-            const resultData = data.result as HolderProfilesResult;
-            setResult(resultData);
-            setJobStatus('completed');
-
-            toast.success('Holder Profiles Complete', {
-              description: `Analyzed ${resultData.metadata.totalHoldersAnalyzed} holders in ${Math.round(resultData.metadata.totalProcessingTimeMs / 1000)}s`,
-            });
-
-            setCurrentJobId(null);
-            setJobProgress(0);
-            setProgressMessage('');
-          } catch (error: any) {
-            console.error('❌ Error processing result:', error);
-            setJobStatus('failed');
-            setCurrentJobId(null);
-            toast.error('Failed to process results', {
-              description: error.message || 'Unknown error',
+      (data: JobCompletionData) => {
+        if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
+          const resultData = data.result as HolderProfilesResult;
+          if (resultData?.profiles) {
+            setTokenResult(resultData);
+            setTokenStatus('completed');
+            setTokenProgress(100);
+            setTokenMessage('Analysis complete');
+            tokenJobIdRef.current = null;
+            toast.success('Holder profiles ready', {
+              description: `Analyzed ${resultData.metadata.totalHoldersAnalyzed} holders`,
             });
           }
+          return;
         }
+        updateWalletEntryByJob(data.jobId, (entry) => ({
+          ...entry,
+          status: 'completed',
+          progress: 100,
+          message: 'Complete',
+          result: data.result as HolderProfilesResult,
+        }));
       },
-      [currentJobId]
+      [updateWalletEntryByJob]
     ),
 
     onJobFailed: useCallback(
       (data: JobFailedData) => {
-        console.error('❌ Holder profiles job failed:', data.jobId, data.error);
-        if (data.jobId === currentJobId) {
-          setJobStatus('failed');
-          setJobProgress(0);
-          setProgressMessage('');
-          setCurrentJobId(null);
-
-          toast.error('Analysis Failed', {
-            description: data.error || 'Unknown error',
-          });
+        if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
+          setTokenStatus('failed');
+          setTokenProgress(0);
+          setTokenMessage('Analysis failed');
+          tokenJobIdRef.current = null;
+          toast.error('Token analysis failed', { description: data.error });
+          return;
         }
+        updateWalletEntryByJob(data.jobId, (entry) => ({
+          ...entry,
+          status: 'failed',
+          progress: 0,
+          error: data.error,
+        }));
       },
-      [currentJobId]
+      [updateWalletEntryByJob]
     ),
 
     onEnrichmentComplete: () => {},
-    onConnectionChange: (connected: boolean) => {
-      console.log(connected ? '✅ WebSocket connected' : '🔌 WebSocket disconnected');
-    },
+    onConnectionChange: () => {},
   });
 
-  const handleAnalyze = async () => {
-    if (analysisMode === 'token') {
-      if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
-        toast.error('Invalid token address', {
-          description: 'Please enter a valid Solana token mint address',
-        });
-        return;
-      }
+  const handleTokenAnalyze = async () => {
+    if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
+      toast.error('Enter a valid token mint address');
+      return;
+    }
 
-      if (topN < 1 || topN > 50) {
-        toast.error('Invalid holder count', {
-          description: 'Please enter a value between 1 and 50',
-        });
-        return;
-      }
-    } else {
-      if (!walletAddress || !isValidSolanaAddress(walletAddress)) {
-        toast.error('Invalid wallet address', {
-          description: 'Please enter a valid Solana wallet address',
-        });
-        return;
-      }
+    if (topN < 1 || topN > 50) {
+      toast.error('Top N must be between 1 and 50');
+      return;
     }
 
     try {
-      setJobStatus('running');
-      setJobProgress(0);
-      setProgressMessage('Starting analysis...');
-      setResult(null);
-
-      const endpoint =
-        analysisMode === 'token'
-          ? '/analyses/holder-profiles'
-          : '/analyses/holder-profiles/wallet';
-      const payload =
-        analysisMode === 'token'
-          ? { tokenMint, topN }
-          : { walletAddress };
-
-      const response = await fetcher(endpoint, {
+      setTokenStatus('running');
+      setTokenProgress(0);
+      setTokenMessage('Queued');
+      setTokenResult(null);
+      const response = await fetcher('/analyses/holder-profiles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ tokenMint, topN }),
       });
-
-      console.log('Holder profiles job queued:', response.jobId);
-      setCurrentJobId(response.jobId);
-
-      if (wsConnected) {
-        subscribeToJob(response.jobId);
-      } else {
-        toast.warning('WebSocket not connected', {
-          description: 'Job queued but real-time updates may not work',
-        });
-      }
+      tokenJobIdRef.current = response.jobId;
+      toast.success('Token analysis queued', { description: `Job ${response.jobId}` });
+      subscribeToJob(response.jobId);
     } catch (error: any) {
-      console.error('Failed to queue holder profiles job:', error);
-      setJobStatus('failed');
-      toast.error('Failed to start analysis', {
-        description: error.message || 'Unknown error',
-      });
+      setTokenStatus('failed');
+      toast.error('Failed to start analysis', { description: error.message || 'Unknown error' });
     }
   };
 
-  const isRunning = jobStatus === 'running';
+  const handleWalletAnalyze = async () => {
+    if (!parsedWallets.list.length) {
+      toast.error('Add at least one wallet address');
+      return;
+    }
+
+    const invalid = parsedWallets.list.filter((address) => !isValidSolanaAddress(address));
+    if (invalid.length) {
+      toast.error('Invalid wallet addresses', { description: invalid.join(', ') });
+      return;
+    }
+
+    setWalletEntries(parsedWallets.list.map((walletAddress) => ({
+      walletAddress,
+      status: 'running',
+      progress: 0,
+    })));
+
+    for (const walletAddress of parsedWallets.list) {
+      try {
+        const response = await fetcher('/analyses/holder-profiles/wallet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletAddress }),
+        });
+        updateWalletEntryByAddress(walletAddress, (entry) => ({
+          ...entry,
+          jobId: response.jobId,
+          message: 'Queued',
+        }));
+        subscribeToJob(response.jobId);
+      } catch (error: any) {
+        updateWalletEntryByAddress(walletAddress, (entry) => ({
+          ...entry,
+          status: 'failed',
+          error: error.message || 'Failed to queue analysis',
+        }));
+      }
+    }
+  };
+
+  const handleAnalyze = () => {
+    if (analysisMode === 'token') handleTokenAnalyze();
+    else handleWalletAnalyze();
+  };
+
+  const handleRemoveWallet = (address: string) => {
+    const updated = parsedWallets.list.filter((value) => value !== address);
+    setWalletInput(updated.join('\n'));
+  };
+
+  const isTokenRunning = tokenStatus === 'running';
+  const isWalletRunning = walletEntries.some((entry) => entry.status === 'running');
+  const disableAnalyze = analysisMode === 'token' ? isTokenRunning : isWalletRunning || parsedWallets.list.length === 0;
 
   return (
     <div className="container mx-auto p-4 md:p-6 space-y-6">
       <header className="space-y-2">
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
-          Token Holder Profiles{' '}
-          <span className="text-muted-foreground">— analyze holding behavior</span>
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Analyze holding patterns for top token holders: median/avg hold time, flip ratio (&lt;5min
-          positions), behavior classification
-        </p>
+        <h1 className="text-3xl font-bold tracking-tight">Holder Profiles</h1>
+        <p className="text-sm text-muted-foreground">Outcome-first analysis for token cohorts and wallet scouts.</p>
       </header>
 
-      <Card className="p-6">
-        <div className="space-y-4">
-          <Tabs
-            value={analysisMode}
-            onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}
-            className="w-full"
-          >
-            <TabsList className="grid grid-cols-2 w-full md:w-auto">
-              <TabsTrigger value="token">Top Token Holders</TabsTrigger>
-              <TabsTrigger value="wallet">Single Wallet</TabsTrigger>
-            </TabsList>
-          </Tabs>
+      <Card className="p-6 space-y-4">
+        <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
+          <TabsList className="grid grid-cols-2 w-full md:w-auto">
+            <TabsTrigger value="token">Token Pulse</TabsTrigger>
+            <TabsTrigger value="wallet">Wallet Classifier</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
-          {analysisMode === 'token' ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2 space-y-2">
-                <Label htmlFor="tokenMint">Token Mint Address</Label>
-                <Input
-                  id="tokenMint"
-                  placeholder="e.g., JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
-                  value={tokenMint}
-                  onChange={(e) => setTokenMint(e.target.value)}
-                  disabled={isRunning}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="topN">Top N Holders</Label>
-                <Input
-                  id="topN"
-                  type="number"
-                  min="1"
-                  max="50"
-                  value={topN}
-                  onChange={(e) => setTopN(parseInt(e.target.value) || 10)}
-                  disabled={isRunning}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Label htmlFor="walletAddress">Wallet Address</Label>
+        {analysisMode === 'token' ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2 space-y-2">
+              <Label htmlFor="tokenMint">Token Mint</Label>
               <Input
-                id="walletAddress"
-                placeholder="Enter a wallet address to analyze"
-                value={walletAddress}
-                onChange={(e) => setWalletAddress(e.target.value)}
-                disabled={isRunning}
+                id="tokenMint"
+                placeholder="Enter token mint"
+                value={tokenMint}
+                onChange={(e) => setTokenMint(e.target.value)}
+                disabled={tokenStatus === 'running'}
               />
             </div>
-          )}
-
-          <Button onClick={handleAnalyze} disabled={isRunning} className="w-full md:w-auto">
-            {isRunning ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Analyzing... {jobProgress}%
-              </>
-            ) : (
-              <>
-                <Search className="mr-2 h-4 w-4" />
-                {analysisMode === 'token' ? 'Analyze Holders' : 'Analyze Wallet'}
-              </>
+            <div className="space-y-2">
+              <Label htmlFor="topN">Top N holders</Label>
+              <Input
+                id="topN"
+                type="number"
+                min={1}
+                max={50}
+                value={topN}
+                onChange={(e) => setTopN(parseInt(e.target.value, 10) || 10)}
+                disabled={tokenStatus === 'running'}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="walletAddresses">Wallet addresses (comma or newline separated)</Label>
+            <Textarea
+              id="walletAddresses"
+              rows={4}
+              placeholder="Paste up to 6 wallet addresses"
+              value={walletInput}
+              onChange={(e) => setWalletInput(e.target.value)}
+            />
+            {parsedWallets.list.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {parsedWallets.list.map((address) => (
+                  <Badge key={address} variant="secondary" className="flex items-center gap-1">
+                    {address.slice(0, 4)}...{address.slice(-4)}
+                    <button type="button" onClick={() => handleRemoveWallet(address)} aria-label={`Remove ${address}`}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
             )}
-          </Button>
+            {parsedWallets.truncated > 0 && (
+              <p className="text-xs text-amber-600">Showing the first {MAX_WALLETS} wallets. {parsedWallets.truncated} more will be ignored.</p>
+            )}
+          </div>
+        )}
 
-          {isRunning && progressMessage && (
-            <div className="mt-2 text-sm text-muted-foreground">{progressMessage}</div>
+        <Button onClick={handleAnalyze} disabled={disableAnalyze} className="w-full md:w-auto">
+          {analysisMode === 'token' && isTokenRunning ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing... {tokenProgress}%
+            </>
+          ) : analysisMode === 'wallet' && isWalletRunning ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing wallets
+            </>
+          ) : (
+            <>
+              <Search className="mr-2 h-4 w-4" /> {analysisMode === 'token' ? 'Analyze token' : 'Analyze wallets'}
+            </>
           )}
-        </div>
+        </Button>
+        {analysisMode === 'token' && isTokenRunning && tokenMessage && (
+          <p className="text-sm text-muted-foreground">{tokenMessage}</p>
+        )}
       </Card>
 
-      {result && (
-        <>
-          <HolderProfilesStats result={result} />
-          <HolderProfilesTable
-            profiles={result.profiles}
-            mode={result.mode}
-            tokenMint={result.tokenMint}
-            targetWallet={result.targetWallet}
-          />
-        </>
-      )}
+      {analysisMode === 'token' && tokenResult && <TokenPulse result={tokenResult} />}
+
+      {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}
     </div>
   );
 }
+
+
+
