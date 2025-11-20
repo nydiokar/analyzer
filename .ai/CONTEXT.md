@@ -358,17 +358,18 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
       - [ ] Update cache layer to handle slightly larger payload (~2KB increase)
       - [ ] Add unit tests for aggregate PnL calculation and win rate logic
 
-  - [ ] **Phase 2 (Backend - Simple Token List Endpoint)**: 1 day ✨ SIMPLIFIED - Should be done - check CURRENT_STATE.md and confirm.
+  - [x] **Phase 2 (Backend - Simple Token List Endpoint)**: ✅ **COMPLETE** (2025-11-20)
     - **Goal**: Return just the list of token mints for a specific time bucket
-    - [ ] **New Endpoint** (0.5 day):
-      - [ ] `POST /api/v1/analyses/wallet-exit-timing-tokens`
-      - [ ] Input: `{ walletAddress, timeBucket }`
-      - [ ] Returns: `{ walletAddress, timeBucket, tokens: string[], count: number }`
-    - [ ] **Implementation** (0.5 day):
-      - [ ] Fetch swap records, rebuild lifecycles, filter by bucket
-      - [ ] Extract unique mints from filtered lifecycles
-      - [ ] No PnL calculation, no metadata enrichment (TokenBadge handles that!)
-      - [ ] Cache with 5min TTL
+    - [x] **New Endpoint**:
+      - [x] `GET /api/v1/wallets/:walletAddress/exit-timing-tokens/:timeBucket`
+      - [x] Input: walletAddress (param), timeBucket (param)
+      - [x] Returns: `{ walletAddress, timeBucket, tokens: string[], count: number }`
+    - [x] **Implementation**:
+      - [x] Added `getExitTimingTokens()` to BehaviorService (src/api/services/behavior.service.ts:60-80)
+      - [x] Added controller endpoint to WalletsController (src/api/controllers/wallets.controller.ts:917-966)
+      - [x] Reuses existing `holdTimeTokenMap` from BehaviorAnalyzer (populated at lines 304-338)
+      - [x] No PnL calculation, no metadata enrichment (TokenBadge handles that!)
+      - [x] TESTED: ultraFast (1 token), fast (1 token), day (40 tokens) ✅
 
   - [ ] **Phase 3 (Frontend - Display WR & ROI per Cohort)**: 1 day
     - [ ] Update `ExitTimingBreakdown` component to show cohort-level metrics
@@ -376,19 +377,23 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
     - [ ] Green for positive ROI, red for negative, gray for neutral
     - [ ] Add tooltips explaining WR and ROI (per cohort, not per token)
 
-  - [ ] **Phase 4 (Frontend - Simple Token List Modal)**: 1-2 days ✨ SIMPLIFIED
-    - [ ] **Modal Component** (0.5 day):
-      - [ ] Create `ExitTimingDrilldownModal` - simple grid of token badges
-      - [ ] Display: Just TokenBadge components in a grid layout
-      - [ ] Loading skeleton, error states, empty states
-    - [ ] **Data Fetching** (0.5 day):
-      - [ ] Add click handler to `ExitTimingBreakdown` bars
-      - [ ] Fetch token mint list from simplified endpoint
-      - [ ] Render TokenBadge for each mint (handles its own metadata fetching)
-    - [ ] **Polish** (0.5 day):
-      - [ ] Mobile responsive grid layout
-      - [ ] Show count: "23 tokens in this cohort"
-      - [ ] Close button, backdrop click to close
+  - [x] **Phase 4 (Frontend - Simple Token List Panel)**: ✅ **COMPLETE** (2025-11-20)
+    - [x] **Panel Component**:
+      - [x] Created `ExitTimingDrilldownPanel` - floating panel (not blocking dialog!)
+      - [x] Simple grid of TokenBadge components
+      - [x] Loading states, error states, empty states
+      - [x] Uses `fetcher` utility (fixes API key issue)
+    - [x] **Data Fetching & Interaction**:
+      - [x] Click handlers on `ExitTimingBreakdown` bars
+      - [x] Toggle behavior: click to open, click same bucket to close
+      - [x] Fetches token mint list from endpoint
+      - [x] TokenBadge handles its own metadata fetching
+    - [x] **UX Improvements**:
+      - [x] Non-blocking: backdrop doesn't close panel, page stays interactive
+      - [x] Allows multiple wallets side-by-side with visible token cohorts
+      - [x] X button to close panel
+      - [x] Mobile responsive grid layout (md:grid-cols-2)
+      - [x] Shows count: "N tokens in this cohort"
 
   **Key Architecture Decisions** (SIMPLIFIED):
   - ✅ **WR/ROI at cohort level**: Aggregated metrics per time bucket (not per token)

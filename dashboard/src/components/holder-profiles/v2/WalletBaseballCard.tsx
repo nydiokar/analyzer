@@ -1,12 +1,16 @@
+import { useState } from 'react';
 import type { HolderProfile } from '../types';
 import { formatAddress, formatHoldTime, formatHoldSource, formatPercentage, getTypicalHoldTimeHours } from './utils/formatters';
 import { getBehaviorColor } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ExitTimingDrilldownPanel } from './ExitTimingDrilldownPanel';
 
 interface Props {
   profile: HolderProfile;
   walletAddress: string;
 }
+
+type TimeBucket = 'instant' | 'ultraFast' | 'fast' | 'momentum' | 'intraday' | 'day' | 'swing' | 'position';
 
 interface ExitTimingBreakdownProps {
   distribution: {
@@ -19,18 +23,20 @@ interface ExitTimingBreakdownProps {
     swing: number;
     position: number;
   };
+  walletAddress: string;
+  onBucketClick: (bucket: TimeBucket, label: string) => void;
 }
 
-function ExitTimingBreakdown({ distribution }: ExitTimingBreakdownProps) {
-  const buckets = [
-    { label: '<1s', count: distribution.instant ?? 0 },
-    { label: '<1m', count: distribution.ultraFast ?? 0 },
-    { label: '1-5m', count: distribution.fast ?? 0 },
-    { label: '5-30m', count: distribution.momentum ?? 0 },
-    { label: '30m-4h', count: distribution.intraday ?? 0 },
-    { label: '4-24h', count: distribution.day ?? 0 },
-    { label: '1-7d', count: distribution.swing ?? 0 },
-    { label: '7+d', count: distribution.position ?? 0 },
+function ExitTimingBreakdown({ distribution, walletAddress, onBucketClick }: ExitTimingBreakdownProps) {
+  const buckets: Array<{ label: string; count: number; bucket: TimeBucket }> = [
+    { label: '<1s', count: distribution.instant ?? 0, bucket: 'instant' },
+    { label: '<1m', count: distribution.ultraFast ?? 0, bucket: 'ultraFast' },
+    { label: '1-5m', count: distribution.fast ?? 0, bucket: 'fast' },
+    { label: '5-30m', count: distribution.momentum ?? 0, bucket: 'momentum' },
+    { label: '30m-4h', count: distribution.intraday ?? 0, bucket: 'intraday' },
+    { label: '4-24h', count: distribution.day ?? 0, bucket: 'day' },
+    { label: '1-7d', count: distribution.swing ?? 0, bucket: 'swing' },
+    { label: '7+d', count: distribution.position ?? 0, bucket: 'position' },
   ];
 
   const values = buckets.map((bucket) => bucket.count ?? 0);
@@ -55,7 +61,11 @@ function ExitTimingBreakdown({ distribution }: ExitTimingBreakdownProps) {
         return (
           <div key={bucket.label} className="flex items-center gap-2 text-[11px]">
             <span className="w-10 text-muted-foreground">{bucket.label}</span>
-            <div className="flex-1 h-3 bg-muted/20 rounded-full overflow-hidden">
+            <div
+              className="flex-1 h-3 bg-muted/20 rounded-full overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+              onClick={() => rawValue > 0 && onBucketClick(bucket.bucket, bucket.label)}
+              title={rawValue > 0 ? `Click to see ${label} tokens in ${bucket.label} range` : undefined}
+            >
               <div
                 className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 via-teal-400/70 to-sky-500/80"
                 style={{ width: `${widthPercent}%`, opacity: 0.35 + relativeValue * 0.65 }}
@@ -115,6 +125,20 @@ function getQualityIndicator(tier?: string) {
 }
 
 export function WalletBaseballCard({ profile, walletAddress }: Props) {
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [selectedBucket, setSelectedBucket] = useState<{ bucket: TimeBucket; label: string } | null>(null);
+
+  const handleBucketClick = (bucket: TimeBucket, label: string) => {
+    // Toggle: if clicking the same bucket, close the panel
+    if (selectedBucket?.bucket === bucket && panelOpen) {
+      setPanelOpen(false);
+      setSelectedBucket(null);
+    } else {
+      setSelectedBucket({ bucket, label });
+      setPanelOpen(true);
+    }
+  };
+
   const qualityIndicator = getQualityIndicator(profile.dataQualityTier);
   const typicalHold = getTypicalHoldTimeHours(profile);
   const realizedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours ?? null;
@@ -223,12 +247,30 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             Exit Timing
           </p>
           {profile.holdTimeDistribution ? (
-            <ExitTimingBreakdown distribution={profile.holdTimeDistribution} />
+            <ExitTimingBreakdown
+              distribution={profile.holdTimeDistribution}
+              walletAddress={walletAddress}
+              onBucketClick={handleBucketClick}
+            />
           ) : (
             <p className="text-xs text-muted-foreground">No data</p>
           )}
         </div>
       </div>
+
+      {/* Exit Timing Drilldown Panel */}
+      {selectedBucket && (
+        <ExitTimingDrilldownPanel
+          walletAddress={walletAddress}
+          timeBucket={selectedBucket.bucket}
+          bucketLabel={selectedBucket.label}
+          isOpen={panelOpen}
+          onClose={() => {
+            setPanelOpen(false);
+            setSelectedBucket(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -118,6 +118,7 @@ export class BehaviorService {
             completePairsCount,
             averageTradesPerToken,
             tradingTimeDistribution: tradingTimeDistribution as unknown as Prisma.InputJsonValue,
+            holdTimeTokenMap: (metrics.historicalPattern?.holdTimeTokenMap || null) as unknown as Prisma.InputJsonValue,
             percentTradesUnder1Hour,
             percentTradesUnder4Hours,
             tradingStyle,

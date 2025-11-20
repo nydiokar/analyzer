@@ -155,6 +155,7 @@ model WalletBehaviorProfile {
   completePairsCount            Int
   averageTradesPerToken         Float
   tradingTimeDistribution       Json
+  holdTimeTokenMap              Json? // Maps time buckets to token mint arrays
   percentTradesUnder1Hour       Float
   percentTradesUnder4Hours      Float
   tradingStyle                  String

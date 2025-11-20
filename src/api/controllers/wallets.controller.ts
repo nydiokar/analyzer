@@ -916,8 +916,8 @@ export class WalletsController {
 
   @Get(':walletAddress/exit-timing-tokens/:timeBucket')
   @ApiOperation({
-    summary: 'Get tokens in a specific exit timing bucket',
-    description: 'Returns the list of token mint addresses that were exited within a specific time bucket category for this wallet.'
+    summary: 'Get token mints in a specific exit timing bucket',
+    description: 'Returns the list of token mint addresses that were exited within a specific time bucket category for this wallet. Data is read from cached behavior profile (fast). Frontend TokenBadge components handle metadata enrichment automatically.'
   })
   @ApiParam({
     name: 'walletAddress',
@@ -931,13 +931,17 @@ export class WalletsController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Token list retrieved successfully',
+    description: 'Token mint addresses retrieved successfully from cached profile',
     schema: {
       type: 'object',
       properties: {
         walletAddress: { type: 'string' },
         timeBucket: { type: 'string' },
-        tokens: { type: 'array', items: { type: 'string' } },
+        tokens: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of token mint addresses'
+        },
         count: { type: 'number' }
       }
     }
@@ -947,17 +951,25 @@ export class WalletsController {
   async getExitTimingTokens(
     @Param('walletAddress') walletAddress: string,
     @Param('timeBucket') timeBucket: 'instant' | 'ultraFast' | 'fast' | 'momentum' | 'intraday' | 'day' | 'swing' | 'position',
-  ): Promise<{ walletAddress: string; timeBucket: string; tokens: string[]; count: number }> {
+    @Req() req: Request & { user?: any }
+  ): Promise<{ walletAddress: string; timeBucket: string; tokens: any[]; count: number }> {
     this.logger.log(`Getting exit timing tokens for wallet ${walletAddress} [bucket=${timeBucket}]`);
 
-    try {
-      const tokens = await this.behaviorService.getExitTimingTokens(walletAddress, timeBucket);
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User could not be identified.');
+    }
 
+    try {
+      // Get token mints from cached behavior profile (fast database read)
+      const mints = await this.behaviorService.getExitTimingTokenMints(walletAddress, timeBucket);
+
+      // Return just the mint addresses - frontend TokenBadge handles enrichment
       return {
         walletAddress,
         timeBucket,
-        tokens,
-        count: tokens.length
+        tokens: mints,
+        count: mints.length
       };
     } catch (error) {
       this.logger.error(`Failed to fetch exit timing tokens for wallet ${walletAddress}:`, error);

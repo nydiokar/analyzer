@@ -10,7 +10,7 @@ export class BehaviorService {
 
   constructor(
     // Inject the NestJS wrapped DatabaseService for any direct DB calls THIS service might make (if any in future)
-    private nestDatabaseService: NestDatabaseService 
+    private nestDatabaseService: NestDatabaseService
   ) {}
 
   /**
@@ -52,30 +52,26 @@ export class BehaviorService {
   }
 
   /**
-   * Get list of token mints for a specific exit timing bucket
+   * Get token mints for a specific exit timing bucket from CACHED database profile
    * @param walletAddress - Wallet address to analyze
    * @param timeBucket - Time bucket category
-   * @returns Array of token mint addresses in that bucket
+   * @returns Array of token mint addresses
    */
-  async getExitTimingTokens(
+  async getExitTimingTokenMints(
     walletAddress: string,
     timeBucket: 'instant' | 'ultraFast' | 'fast' | 'momentum' | 'intraday' | 'day' | 'swing' | 'position'
   ): Promise<string[]> {
-    this.logger.debug(`Getting exit timing tokens for ${walletAddress} bucket=${timeBucket}`);
+    this.logger.debug(`Getting exit timing tokens from cached profile for ${walletAddress} bucket=${timeBucket}`);
 
-    const behaviorResult = await this.getWalletBehavior(
-      walletAddress,
-      this.getDefaultBehaviorAnalysisConfig(),
-      undefined
-    );
+    // Read from database instead of recalculating!
+    const profile = await this.nestDatabaseService.getWalletBehaviorProfile(walletAddress);
 
-    const tokenMap = behaviorResult?.historicalPattern?.holdTimeTokenMap;
-
-    if (!tokenMap) {
-      this.logger.warn(`No token map found for wallet ${walletAddress}`);
+    if (!profile || !profile.holdTimeTokenMap) {
+      this.logger.warn(`No cached token map found for wallet ${walletAddress}`);
       return [];
     }
 
+    const tokenMap = profile.holdTimeTokenMap as any;
     return tokenMap[timeBucket] || [];
   }
 } 
