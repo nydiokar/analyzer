@@ -88,7 +88,7 @@ AnalysisResult: {
 
 ### Requirements:
 - For each time bucket, show:
-  - **Win Rate**: `(profitable trades / total trades) * 100`
+  - **Win Rate**: `(profitable tokens / total tokens) * 100`
   - **ROI**: `(total profit / total capital invested) * 100`
   - OR **Avg PnL**: Total PnL / count
 - Display format: `<1m 366 (5% WR, -40% ROI)`

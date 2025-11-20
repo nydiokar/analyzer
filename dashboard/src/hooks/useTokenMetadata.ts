@@ -23,9 +23,17 @@ class TokenMetadataBatcher {
   private cache: Map<string, TokenMetadata | null> = new Map();
   private timeoutId: NodeJS.Timeout | null = null;
   private isFetching = false;
+  // Track active subscriptions for auto-refresh
+  private subscribers: Map<string, Set<(metadata: TokenMetadata | null) => void>> = new Map();
 
   // Add a token to the batch queue
   request(mint: string, callback: (metadata: TokenMetadata | null) => void) {
+    // Subscribe for updates (for auto-refresh after enrichment)
+    if (!this.subscribers.has(mint)) {
+      this.subscribers.set(mint, new Set());
+    }
+    this.subscribers.get(mint)!.add(callback);
+
     // Check cache first
     if (this.cache.has(mint)) {
       callback(this.cache.get(mint)!);
@@ -43,6 +51,17 @@ class TokenMetadataBatcher {
 
     // Schedule batch fetch (debounced)
     this.scheduleBatch();
+  }
+
+  // Unsubscribe from updates
+  unsubscribe(mint: string, callback: (metadata: TokenMetadata | null) => void) {
+    const subs = this.subscribers.get(mint);
+    if (subs) {
+      subs.delete(callback);
+      if (subs.size === 0) {
+        this.subscribers.delete(mint);
+      }
+    }
   }
 
   private scheduleBatch() {
@@ -66,12 +85,13 @@ class TokenMetadataBatcher {
     try {
       console.log(`[TokenMetadataBatcher] Fetching metadata for ${mints.length} tokens in ONE batch`);
 
+      // PHASE 1: Fetch immediate cached data from database
       const response = await fetcher('/token-info', {
         method: 'POST',
         body: JSON.stringify({ tokenAddresses: mints }),
       });
 
-      // Cache results
+      // Cache and notify with immediate data (might have "Unknown Token" or partial data)
       const resultMap = new Map<string, TokenMetadata>();
       if (response && Array.isArray(response)) {
         response.forEach((tokenData: any) => {
@@ -94,7 +114,7 @@ class TokenMetadataBatcher {
         });
       }
 
-      // Notify all callbacks
+      // Notify all callbacks with immediate data
       mints.forEach(mint => {
         const callbacks = this.callbacks.get(mint) || [];
         const metadata = resultMap.get(mint) || null;
@@ -107,6 +127,13 @@ class TokenMetadataBatcher {
         callbacks.forEach(cb => cb(metadata));
         this.callbacks.delete(mint);
       });
+
+      // PHASE 2: Auto-refresh after 2 seconds to get enriched data
+      // Backend triggers enrichment (fire-and-forget), enrichment typically completes in ~200-500ms
+      // DexScreener stage takes longer, so we wait 2s then re-fetch
+      setTimeout(() => {
+        this.refreshEnrichedData(mints);
+      }, 2000);
 
     } catch (error) {
       console.error('[TokenMetadataBatcher] Failed to fetch batch:', error);
@@ -122,6 +149,50 @@ class TokenMetadataBatcher {
     }
   }
 
+  // Refresh data after enrichment completes
+  private async refreshEnrichedData(mints: string[]) {
+    try {
+      console.log(`[TokenMetadataBatcher] Refreshing enriched metadata for ${mints.length} tokens`);
+
+      const response = await fetcher('/token-info', {
+        method: 'POST',
+        body: JSON.stringify({ tokenAddresses: mints }),
+      });
+
+      // Update cache with enriched data AND notify all subscribers
+      if (response && Array.isArray(response)) {
+        response.forEach((tokenData: any) => {
+          const metadata: TokenMetadata = {
+            name: tokenData.name,
+            symbol: tokenData.symbol,
+            imageUrl: tokenData.imageUrl,
+            onchainName: tokenData.onchainName,
+            onchainSymbol: tokenData.onchainSymbol,
+            onchainImageUrl: tokenData.onchainImageUrl,
+            websiteUrl: tokenData.websiteUrl,
+            twitterUrl: tokenData.twitterUrl,
+            telegramUrl: tokenData.telegramUrl,
+            onchainWebsiteUrl: tokenData.onchainWebsiteUrl,
+            onchainTwitterUrl: tokenData.onchainTwitterUrl,
+            onchainTelegramUrl: tokenData.onchainTelegramUrl,
+          };
+          const mintKey = tokenData.tokenAddress || tokenData.mint;
+
+          // Update cache
+          this.cache.set(mintKey, metadata);
+
+          // Notify ALL active subscribers (triggers React re-render)
+          const subscribers = this.subscribers.get(mintKey);
+          if (subscribers) {
+            subscribers.forEach(callback => callback(metadata));
+          }
+        });
+      }
+    } catch (error) {
+      console.error('[TokenMetadataBatcher] Failed to refresh enriched data:', error);
+    }
+  }
+
   // Clear cache (for testing or forced refresh)
   clearCache() {
     this.cache.clear();
@@ -132,8 +203,9 @@ class TokenMetadataBatcher {
 const globalBatcher = new TokenMetadataBatcher();
 
 /**
- * Hook to fetch token metadata with automatic batching
+ * Hook to fetch token metadata with automatic batching and auto-refresh
  * Multiple components requesting metadata simultaneously will be batched into ONE API call
+ * Auto-refreshes after 2 seconds to show enriched data
  */
 export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata) {
   const [metadata, setMetadata] = useState<TokenMetadata | null>(providedMetadata || null);
@@ -147,12 +219,20 @@ export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata)
       return;
     }
 
-    // Request metadata (will be batched automatically)
-    setIsLoading(true);
-    globalBatcher.request(mint, (fetchedMetadata) => {
+    // Callback for updates
+    const updateCallback = (fetchedMetadata: TokenMetadata | null) => {
       setMetadata(fetchedMetadata);
       setIsLoading(false);
-    });
+    };
+
+    // Request metadata (will be batched automatically)
+    setIsLoading(true);
+    globalBatcher.request(mint, updateCallback);
+
+    // Cleanup: unsubscribe on unmount
+    return () => {
+      globalBatcher.unsubscribe(mint, updateCallback);
+    };
   }, [mint, providedMetadata]);
 
   return { metadata, isLoading };

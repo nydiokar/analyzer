@@ -76,6 +76,17 @@ Poll GET /jobs/:jobId until status = 'completed'
 
 ## Active
 
+None - Ready for next feature.
+
+## Recently Completed (Last 3-4 Days)
+
+- **Exit Timing Token Drilldown** ✅ (2025-11-20) - See "Completed" section below for full details
+- **Dashboard Components Documentation** ✅ (2025-11-20) - Comprehensive `dashboard/docs/components-overview.md` update
+
+---
+
+## Completed (Archived)
+
 - **Holder Risk Analysis & Predictive Holding Time** *(See `.ai/context/holder-risk/architecture-holder-risk-analysis.md` for full details)*
   - **Status**: ✅ **ALL PHASES COMPLETE** (2025-11-17) - Ready for Staging Deployment
   - [x] Document holding time methodology in `docs/3.metrics_compact_map.md`
@@ -270,6 +281,29 @@ Poll GET /jobs/:jobId until status = 'completed'
       - All new displays use `??` fallback to old metrics (zero breaking changes)
     - [x] **Verified Consistency**: Holder risk tab (`HolderProfilesTable.tsx`) already using correct new metrics
     - **Result**: Both tabs now show consistent, accurate metrics with rich interpretation
+
+- **Exit Timing Token Drilldown** ✅ **COMPLETE** (2025-11-20)
+  - [x] **Backend - Simple Token List Endpoint**:
+    - [x] `GET /api/v1/wallets/:walletAddress/exit-timing-tokens/:timeBucket`
+    - [x] Returns: `{ walletAddress, timeBucket, tokens: string[], count: number }`
+    - [x] Added `getExitTimingTokenMints()` to BehaviorService (reads from cached `holdTimeTokenMap` in database)
+    - [x] Controller endpoint in WalletsController (src/api/controllers/wallets.controller.ts:917-988)
+    - [x] TESTED: ultraFast (1 token), fast (1 token), day (40 tokens) ✅
+  - [x] **Frontend - Token List Panel**:
+    - [x] Created `ExitTimingDrilldownPanel` - floating non-blocking panel
+    - [x] Simple grid of TokenBadge components (automatic batching + enrichment)
+    - [x] Click handlers on `ExitTimingBreakdown` cohort bars
+    - [x] Toggle behavior: click to open, click same bucket to close
+    - [x] Non-blocking UX: backdrop doesn't interfere, page stays interactive
+    - [x] Loading/error/empty states with EmptyState component
+    - [x] Mobile responsive grid layout (md:grid-cols-2)
+    - [x] Pagination: Load more button (50 tokens at a time)
+  - [x] **Architecture Improvements**:
+    - [x] Database caching: `holdTimeTokenMap` stored in `WalletBehaviorProfile` (instant ~5ms reads, no re-analysis)
+    - [x] Smart TokenBadge: Auto-batching (100 tokens = 2 API calls, not 200), two-phase data flow
+    - [x] Centralized enrichment: TokenBadge handles all metadata fetching (no scattered logic)
+    - [x] Updated `dashboard/docs/components-overview.md` with comprehensive component documentation
+  - **Status**: Backend complete, frontend functional. Polish phase deferred to next iteration.
   - [x] **CRITICAL BUG FIX (2025-11-17)**: ⚠️ **historicalPattern calculation was NEVER WIRED UP**
     - **Discovery**: The entire new metrics system was built but `calculateHistoricalPattern()` was never called in the analysis flow
     - **Impact**: All API responses had `historicalPattern: undefined`, `tradingInterpretation` used fallback to deprecated metrics
@@ -336,11 +370,11 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
 
 ## Next
 
-- **Exit Timing Enhancements (Wallet Baseball Card)** - Win Rate & ROI per Cohort + Simple Token List
-  - **Status**: 🔄 **PLANNING** (Simplified scope)
-  - **Goal**: Show WR/ROI per time bucket + clickable drilldown to see which tokens are in each cohort
+- **Exit Timing Enhancements (Wallet Baseball Card)** - Win Rate & ROI per Cohort
+  - **Status**: 🔄 **IN PROGRESS** - Phase 1 (WR/ROI calculations)
+  - **Goal**: Show aggregate win rate, PnL, and ROI for each exit timing bucket
   - **Priority**: HIGH - Adds critical trading performance insights
-  - **Estimated Duration**: 5-6 days (simplified from 8-11 days)
+  - **Estimated Duration**: 2-3 days remaining
 
   - [ ] **Phase 1 (Backend - Enriched Hold Time Distribution)**: 2-3 days
     - **Goal**: Calculate aggregate win rate, PnL, and ROI for each exit timing bucket
@@ -358,62 +392,17 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
       - [ ] Update cache layer to handle slightly larger payload (~2KB increase)
       - [ ] Add unit tests for aggregate PnL calculation and win rate logic
 
-  - [x] **Phase 2 (Backend - Simple Token List Endpoint)**: ✅ **COMPLETE** (2025-11-20)
-    - **Goal**: Return just the list of token mints for a specific time bucket
-    - [x] **New Endpoint**:
-      - [x] `GET /api/v1/wallets/:walletAddress/exit-timing-tokens/:timeBucket`
-      - [x] Input: walletAddress (param), timeBucket (param)
-      - [x] Returns: `{ walletAddress, timeBucket, tokens: string[], count: number }`
-    - [x] **Implementation**:
-      - [x] Added `getExitTimingTokens()` to BehaviorService (src/api/services/behavior.service.ts:60-80)
-      - [x] Added controller endpoint to WalletsController (src/api/controllers/wallets.controller.ts:917-966)
-      - [x] Reuses existing `holdTimeTokenMap` from BehaviorAnalyzer (populated at lines 304-338)
-      - [x] No PnL calculation, no metadata enrichment (TokenBadge handles that!)
-      - [x] TESTED: ultraFast (1 token), fast (1 token), day (40 tokens) ✅
-
-  - [ ] **Phase 3 (Frontend - Display WR & ROI per Cohort)**: 1 day
+  - [ ] **Phase 2 (Frontend - Display WR & ROI per Cohort)**: 1 day
     - [ ] Update `ExitTimingBreakdown` component to show cohort-level metrics
     - [ ] Format display: `<1m 366 (5% WR, -40% ROI)` with color coding
     - [ ] Green for positive ROI, red for negative, gray for neutral
     - [ ] Add tooltips explaining WR and ROI (per cohort, not per token)
 
-  - [x] **Phase 4 (Frontend - Simple Token List Panel)**: ✅ **COMPLETE** (2025-11-20)
-    - [x] **Panel Component**:
-      - [x] Created `ExitTimingDrilldownPanel` - floating panel (not blocking dialog!)
-      - [x] Simple grid of TokenBadge components
-      - [x] Loading states, error states, empty states
-      - [x] Uses `fetcher` utility (fixes API key issue)
-    - [x] **Data Fetching & Interaction**:
-      - [x] Click handlers on `ExitTimingBreakdown` bars
-      - [x] Toggle behavior: click to open, click same bucket to close
-      - [x] Fetches token mint list from endpoint
-      - [x] TokenBadge handles its own metadata fetching
-    - [x] **UX Improvements**:
-      - [x] Non-blocking: backdrop doesn't close panel, page stays interactive
-      - [x] Allows multiple wallets side-by-side with visible token cohorts
-      - [x] X button to close panel
-      - [x] Mobile responsive grid layout (md:grid-cols-2)
-      - [x] Shows count: "N tokens in this cohort"
-
-  **Key Architecture Decisions** (SIMPLIFIED):
-  - ✅ **WR/ROI at cohort level**: Aggregated metrics per time bucket (not per token)
-  - ✅ **Drilldown shows token list only**: Just array of mints, no individual metrics
-  - ✅ **TokenBadge handles metadata**: Reuse existing component that fetches symbol/name/image
-  - ✅ **PnL source**: Calculate aggregate from `SwapAnalysisInput.associatedSolValue` (buy vs sell)
-  - ✅ **Caching**: Enriched distribution in holder profiles cache, token list cached separately (5min TTL)
-
-  **What We're NOT Building** (Simplified Away):
-  - ❌ Per-token PnL in drilldown (only cohort-level PnL)
-  - ❌ Market cap in drilldown (not needed to see cohort composition)
-  - ❌ Buy/sell counts per token in drilldown (not needed)
-  - ❌ Individual hold times in drilldown (cohort already categorized by time)
-  - ❌ Sorting/pagination in modal (simple grid display)
-
-  **Success Metrics**:
-  - [ ] WR & ROI displayed accurately for all 8 time buckets (cohort level)
-  - [ ] Drilldown loads <1s (just fetching mint list, no metadata enrichment)
-  - [ ] No performance degradation on holder profiles page
-  - [ ] Clean, simple modal showing token composition of each cohort
+  - [ ] **Phase 3 (Polish - Token List Panel UX)**: 0.5 day
+    - [ ] Review and polish ExitTimingDrilldownPanel appearance
+    - [ ] Improve token grid layout and spacing
+    - [ ] Optimize loading skeleton states
+    - [ ] Fine-tune mobile responsiveness
 
 
 
