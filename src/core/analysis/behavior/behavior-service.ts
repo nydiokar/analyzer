@@ -21,14 +21,16 @@ export class BehaviorService {
   /**
    * Analyzes the trading behavior for a given wallet address.
    * Fetches data, performs calculations using BehaviorAnalyzer, and returns metrics.
-   * 
+   *
    * @param walletAddress - The Solana wallet address to analyze.
    * @param timeRange - Optional time range to limit the analysis (unix timestamps).
+   * @param pnlMap - Optional map of token PnL from AnalysisResult (source of truth).
    * @returns Promise resolving to BehavioralMetrics or null if no data.
    */
   async analyzeWalletBehavior(
     walletAddress: string,
-    timeRange?: { startTs?: number; endTs?: number }
+    timeRange?: { startTs?: number; endTs?: number },
+    pnlMap?: Map<string, { pnl: number; capital: number }>
   ): Promise<BehavioralMetrics | null> {
     logger.debug(`Analyzing trading behavior for wallet ${walletAddress}`);
 
@@ -39,7 +41,7 @@ export class BehaviorService {
       if (!swapRecords || swapRecords.length === 0) {
         logger.warn(`No swap records found for wallet ${walletAddress} within the specified time range.`);
         // Optionally, delete existing profile if no data? Or leave stale? For now, leave.
-        return null; 
+        return null;
       }
 
       // Determine which dataset should power the historical pattern calculation.
@@ -56,6 +58,7 @@ export class BehaviorService {
         swapRecords,
         walletAddress,
         historicalSwapRecords,
+        pnlMap,
       ); 
 
       if (metrics) {

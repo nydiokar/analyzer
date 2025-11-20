@@ -156,6 +156,7 @@ model WalletBehaviorProfile {
   averageTradesPerToken         Float
   tradingTimeDistribution       Json
   holdTimeTokenMap              Json? // Maps time buckets to token mint arrays
+  enrichedHoldTimeDistribution  Json? // WR/ROI metrics per time bucket
   percentTradesUnder1Hour       Float
   percentTradesUnder4Hours      Float
   tradingStyle                  String

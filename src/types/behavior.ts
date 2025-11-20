@@ -83,6 +83,35 @@ export interface WalletHistoricalPattern {
     swing: string[];
     position: string[];
   };
+
+  // Enriched distribution with PnL metrics (Win Rate & ROI per bucket)
+  enrichedHoldTimeDistribution?: EnrichedHoldTimeDistribution;
+}
+
+/**
+ * Enriched hold time bucket with PnL metrics (Win Rate & ROI)
+ */
+export interface EnrichedHoldTimeBucket {
+  count: number;                // Number of tokens in this bucket
+  winRate: number;              // 0-100, percentage of profitable tokens
+  totalPnlSol: number;          // Sum of all PnL in SOL
+  avgPnlSol: number;            // Average PnL per token (totalPnlSol / count)
+  roiPercent: number;           // Return on Investment: (totalPnlSol / totalCapitalSol) * 100
+  totalCapitalSol: number;      // Sum of capital invested in SOL
+}
+
+/**
+ * Enriched hold time distribution with PnL metrics for all buckets
+ */
+export interface EnrichedHoldTimeDistribution {
+  instant: EnrichedHoldTimeBucket;      // <0.36s (same tx)
+  ultraFast: EnrichedHoldTimeBucket;    // <1min
+  fast: EnrichedHoldTimeBucket;         // 1-5min
+  momentum: EnrichedHoldTimeBucket;     // 5-30min
+  intraday: EnrichedHoldTimeBucket;     // 30min-4h
+  day: EnrichedHoldTimeBucket;          // 4-24h
+  swing: EnrichedHoldTimeBucket;        // 1-7d
+  position: EnrichedHoldTimeBucket;     // 7+d
 }
 
 /**

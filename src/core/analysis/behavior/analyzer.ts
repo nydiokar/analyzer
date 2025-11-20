@@ -1,5 +1,5 @@
 import { BehaviorAnalysisConfig } from '@/types/analysis';
-import { BehavioralMetrics, ActiveTradingPeriods, IdentifiedTradingWindow, WalletHistoricalPattern, TokenPositionLifecycle, WalletTokenPrediction } from '@/types/behavior';
+import { BehavioralMetrics, ActiveTradingPeriods, IdentifiedTradingWindow, WalletHistoricalPattern, TokenPositionLifecycle, WalletTokenPrediction, EnrichedHoldTimeDistribution, EnrichedHoldTimeBucket } from '@/types/behavior';
 import { SwapAnalysisInput } from '@prisma/client';
 import { createLogger } from 'core/utils/logger';
 import { classifyHolderBehavior, classifyTradingSpeed } from './constants';
@@ -47,14 +47,18 @@ export class BehaviorAnalyzer {
   /**
    * Public method to analyze trading behavior from raw swap records.
    * Orchestrates the internal steps of sequence building, metric calculation, and classification.
-   * 
-   * @param swapRecords - Array of SwapAnalysisInput records for the wallet.
+   *
+   * @param rawSwapRecords - Array of SwapAnalysisInput records for the wallet.
+   * @param walletAddress - Wallet address being analyzed.
+   * @param historicalPatternRecords - Optional historical swap records for pattern analysis.
+   * @param pnlMap - Optional map of token PnL from AnalysisResult (source of truth).
    * @returns BehavioralMetrics object.
    */
   public analyze(
     rawSwapRecords: SwapAnalysisInput[],
     walletAddress: string,
     historicalPatternRecords?: SwapAnalysisInput[],
+    pnlMap?: Map<string, { pnl: number; capital: number }>,
   ): BehavioralMetrics {
     this.logger.debug(`Starting behavior analysis for wallet ${walletAddress} with ${rawSwapRecords.length} raw swap records.`);
 
@@ -138,7 +142,7 @@ export class BehaviorAnalyzer {
     const patternRecords = historicalPatternRecords && historicalPatternRecords.length > 0
       ? historicalPatternRecords
       : rawSwapRecords;
-    metrics.historicalPattern = this.calculateHistoricalPattern(patternRecords, walletAddress);
+    metrics.historicalPattern = this.calculateHistoricalPattern(patternRecords, walletAddress, pnlMap);
 
     if (metrics.historicalPattern) {
       this.logger.debug(
@@ -172,7 +176,8 @@ export class BehaviorAnalyzer {
    */
   public calculateHistoricalPattern(
     rawSwapRecords: SwapAnalysisInput[],
-    walletAddress: string
+    walletAddress: string,
+    pnlMap?: Map<string, { pnl: number; capital: number }>
   ): WalletHistoricalPattern | null {
     this.logger.debug(`Calculating historical pattern for wallet ${walletAddress}`);
 
@@ -337,6 +342,102 @@ export class BehaviorAnalyzer {
       }
     }
 
+    // Calculate enriched distribution with PnL metrics (Win Rate & ROI)
+    let enrichedDistribution: EnrichedHoldTimeDistribution | undefined;
+    if (pnlMap) {
+      this.logger.debug(`Calculating enriched distribution with PnL data for ${pnlMap.size} tokens`);
+
+      // Initialize enriched buckets
+      const createEmptyBucket = (): EnrichedHoldTimeBucket => ({
+        count: 0,
+        winRate: 0,
+        totalPnlSol: 0,
+        avgPnlSol: 0,
+        roiPercent: 0,
+        totalCapitalSol: 0,
+      });
+
+      const enriched = {
+        instant: createEmptyBucket(),
+        ultraFast: createEmptyBucket(),
+        fast: createEmptyBucket(),
+        momentum: createEmptyBucket(),
+        intraday: createEmptyBucket(),
+        day: createEmptyBucket(),
+        swing: createEmptyBucket(),
+        position: createEmptyBucket(),
+      };
+
+      // Track win counts per bucket
+      const winCounts = {
+        instant: 0,
+        ultraFast: 0,
+        fast: 0,
+        momentum: 0,
+        intraday: 0,
+        day: 0,
+        swing: 0,
+        position: 0,
+      };
+
+      // Accumulate PnL metrics per bucket
+      for (const [mint, tokenLifecycles] of lifecyclesByToken.entries()) {
+        const tokenDurations = tokenLifecycles.map(lc => lc.weightedHoldingTimeHours);
+        const tokenMedian = this.calculateMedian(tokenDurations);
+
+        // Get PnL for this token (defensive fallback to zero)
+        const tokenPnl = pnlMap.get(mint) || { pnl: 0, capital: 0 };
+
+        // Determine bucket (same logic as tokenMap)
+        let bucket: keyof typeof enriched;
+        if (tokenMedian < 0.0001) {
+          bucket = 'instant';
+        } else if (tokenMedian < 1/60) {
+          bucket = 'ultraFast';
+        } else if (tokenMedian < 5/60) {
+          bucket = 'fast';
+        } else if (tokenMedian < 0.5) {
+          bucket = 'momentum';
+        } else if (tokenMedian < 4) {
+          bucket = 'intraday';
+        } else if (tokenMedian < 24) {
+          bucket = 'day';
+        } else if (tokenMedian < 168) {
+          bucket = 'swing';
+        } else {
+          bucket = 'position';
+        }
+
+        // Accumulate metrics
+        enriched[bucket].count++;
+        enriched[bucket].totalPnlSol += tokenPnl.pnl;
+        enriched[bucket].totalCapitalSol += tokenPnl.capital;
+        if (tokenPnl.pnl > 0) {
+          winCounts[bucket]++;
+        }
+      }
+
+      // Calculate derived metrics for each bucket
+      for (const bucket of Object.keys(enriched) as Array<keyof typeof enriched>) {
+        const b = enriched[bucket];
+        if (b.count > 0) {
+          b.winRate = (winCounts[bucket] / b.count) * 100;
+          b.avgPnlSol = b.totalPnlSol / b.count;
+          b.roiPercent = b.totalCapitalSol > 0
+            ? (b.totalPnlSol / b.totalCapitalSol) * 100
+            : 0;
+        }
+      }
+
+      enrichedDistribution = enriched;
+
+      this.logger.debug(
+        `Enriched distribution calculated - ` +
+        `instant: ${enriched.instant.count} tokens (${enriched.instant.winRate.toFixed(0)}% WR, ${enriched.instant.roiPercent > 0 ? '+' : ''}${enriched.instant.roiPercent.toFixed(0)}% ROI), ` +
+        `ultraFast: ${enriched.ultraFast.count} tokens (${enriched.ultraFast.winRate.toFixed(0)}% WR, ${enriched.ultraFast.roiPercent > 0 ? '+' : ''}${enriched.ultraFast.roiPercent.toFixed(0)}% ROI)`
+      );
+    }
+
     this.logger.debug(
       `Hold time distribution (${sortedDurations.length} tokens with ${filteredLifecycles.length} total cycles): ` +
       `instant: ${distribution.instant}, <1m: ${distribution.ultraFast}, ` +
@@ -387,6 +488,7 @@ export class BehaviorAnalyzer {
       observationPeriodDays,
       holdTimeDistribution: distribution, // Include distribution for UI display
       holdTimeTokenMap: tokenMap, // Include token mint mapping for drilldown
+      enrichedHoldTimeDistribution: enrichedDistribution, // Include PnL metrics (WR & ROI)
     };
   }
 

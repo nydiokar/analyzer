@@ -20,10 +20,11 @@ export class BehaviorService {
   async getWalletBehavior(
     walletAddress: string,
     config: BehaviorAnalysisConfig, // Config will be required per call for now
-    timeRange?: { startTs?: number; endTs?: number }
+    timeRange?: { startTs?: number; endTs?: number },
+    pnlMap?: Map<string, { pnl: number; capital: number }>
   ): Promise<BehavioralMetrics | null> {
     this.logger.debug(`Getting wallet behavior for ${walletAddress}`);
-    
+
     // The original BehaviorService expects the original DatabaseService (not the NestJS one).
     // The nestDatabaseService is an instance of the NestJS DatabaseService, which extends the core DatabaseService.
     // So, we can pass nestDatabaseService directly.
@@ -31,10 +32,10 @@ export class BehaviorService {
 
     // Pass the injected nestDatabaseService (which is a PrismaDatabaseService instance)
     const originalService = new OriginalBehaviorService(this.nestDatabaseService, config);
-    
+
     try {
       // Pass the timeRange from the parameters if provided, otherwise it relies on config or undefined
-      return await originalService.analyzeWalletBehavior(walletAddress, timeRange || config.timeRange);
+      return await originalService.analyzeWalletBehavior(walletAddress, timeRange || config.timeRange, pnlMap);
     } catch (error) {
       this.logger.error(`Error in getWalletBehavior for ${walletAddress}:`, error);
       throw error; // Re-throw for the controller to handle as an HTTP exception

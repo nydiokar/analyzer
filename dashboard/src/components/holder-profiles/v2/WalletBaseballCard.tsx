@@ -23,20 +23,78 @@ interface ExitTimingBreakdownProps {
     swing: number;
     position: number;
   };
+  enrichedDistribution?: {
+    instant: { count: number; winRate: number; roiPercent: number };
+    ultraFast: { count: number; winRate: number; roiPercent: number };
+    fast: { count: number; winRate: number; roiPercent: number };
+    momentum: { count: number; winRate: number; roiPercent: number };
+    intraday: { count: number; winRate: number; roiPercent: number };
+    day: { count: number; winRate: number; roiPercent: number };
+    swing: { count: number; winRate: number; roiPercent: number };
+    position: { count: number; winRate: number; roiPercent: number };
+  };
   walletAddress: string;
   onBucketClick: (bucket: TimeBucket, label: string) => void;
 }
 
-function ExitTimingBreakdown({ distribution, walletAddress, onBucketClick }: ExitTimingBreakdownProps) {
-  const buckets: Array<{ label: string; count: number; bucket: TimeBucket }> = [
-    { label: '<1s', count: distribution.instant ?? 0, bucket: 'instant' },
-    { label: '<1m', count: distribution.ultraFast ?? 0, bucket: 'ultraFast' },
-    { label: '1-5m', count: distribution.fast ?? 0, bucket: 'fast' },
-    { label: '5-30m', count: distribution.momentum ?? 0, bucket: 'momentum' },
-    { label: '30m-4h', count: distribution.intraday ?? 0, bucket: 'intraday' },
-    { label: '4-24h', count: distribution.day ?? 0, bucket: 'day' },
-    { label: '1-7d', count: distribution.swing ?? 0, bucket: 'swing' },
-    { label: '7+d', count: distribution.position ?? 0, bucket: 'position' },
+function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress, onBucketClick }: ExitTimingBreakdownProps) {
+  const buckets: Array<{ label: string; count: number; bucket: TimeBucket; winRate?: number; roiPercent?: number }> = [
+    {
+      label: '<1s',
+      count: distribution.instant ?? 0,
+      bucket: 'instant',
+      winRate: enrichedDistribution?.instant.winRate,
+      roiPercent: enrichedDistribution?.instant.roiPercent
+    },
+    {
+      label: '<1m',
+      count: distribution.ultraFast ?? 0,
+      bucket: 'ultraFast',
+      winRate: enrichedDistribution?.ultraFast.winRate,
+      roiPercent: enrichedDistribution?.ultraFast.roiPercent
+    },
+    {
+      label: '1-5m',
+      count: distribution.fast ?? 0,
+      bucket: 'fast',
+      winRate: enrichedDistribution?.fast.winRate,
+      roiPercent: enrichedDistribution?.fast.roiPercent
+    },
+    {
+      label: '5-30m',
+      count: distribution.momentum ?? 0,
+      bucket: 'momentum',
+      winRate: enrichedDistribution?.momentum.winRate,
+      roiPercent: enrichedDistribution?.momentum.roiPercent
+    },
+    {
+      label: '30m-4h',
+      count: distribution.intraday ?? 0,
+      bucket: 'intraday',
+      winRate: enrichedDistribution?.intraday.winRate,
+      roiPercent: enrichedDistribution?.intraday.roiPercent
+    },
+    {
+      label: '4-24h',
+      count: distribution.day ?? 0,
+      bucket: 'day',
+      winRate: enrichedDistribution?.day.winRate,
+      roiPercent: enrichedDistribution?.day.roiPercent
+    },
+    {
+      label: '1-7d',
+      count: distribution.swing ?? 0,
+      bucket: 'swing',
+      winRate: enrichedDistribution?.swing.winRate,
+      roiPercent: enrichedDistribution?.swing.roiPercent
+    },
+    {
+      label: '7+d',
+      count: distribution.position ?? 0,
+      bucket: 'position',
+      winRate: enrichedDistribution?.position.winRate,
+      roiPercent: enrichedDistribution?.position.roiPercent
+    },
   ];
 
   const values = buckets.map((bucket) => bucket.count ?? 0);
@@ -58,6 +116,16 @@ function ExitTimingBreakdown({ distribution, walletAddress, onBucketClick }: Exi
           ? `${Math.round(rawValue * 100)}%`
           : rawValue.toLocaleString();
 
+        // ROI color logic
+        const hasMetrics = bucket.winRate !== undefined && bucket.roiPercent !== undefined && rawValue > 0;
+        const roiColor = hasMetrics
+          ? bucket.roiPercent! > 0
+            ? 'text-emerald-500'
+            : bucket.roiPercent! < 0
+              ? 'text-red-400'
+              : 'text-muted-foreground'
+          : '';
+
         return (
           <div key={bucket.label} className="flex items-center gap-2 text-[11px]">
             <span className="w-10 text-muted-foreground">{bucket.label}</span>
@@ -72,6 +140,11 @@ function ExitTimingBreakdown({ distribution, walletAddress, onBucketClick }: Exi
               />
             </div>
             <span className="w-9 text-right font-mono text-muted-foreground">{label}</span>
+            {hasMetrics && (
+              <span className={`w-32 text-right text-xs font-mono ${roiColor}`}>
+                {bucket.winRate!.toFixed(0)}% WR, {bucket.roiPercent! > 0 ? '+' : ''}{bucket.roiPercent!.toFixed(0)}% ROI
+              </span>
+            )}
           </div>
         );
       })}
@@ -249,6 +322,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
           {profile.holdTimeDistribution ? (
             <ExitTimingBreakdown
               distribution={profile.holdTimeDistribution}
+              enrichedDistribution={profile.enrichedHoldTimeDistribution}
               walletAddress={walletAddress}
               onBucketClick={handleBucketClick}
             />

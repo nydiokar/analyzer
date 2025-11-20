@@ -850,6 +850,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     this.checkTimeout(startTime, timeoutMs, 'Fetching wallet swap records');
     await job.updateProgress(40);
 
+    // Aggregate SwapAnalysisInput → AnalysisResult (PnL calculation)
+    this.logger.debug(`Running PnL aggregation for ${walletAddress} [holder-profile mode]`);
+    await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined);
+    await job.updateProgress(50);
+
     const profile = await this.analyzeWalletProfile(walletAddress, 1, 0, swapRecords);
 
     const result: HolderProfilesResult = {
@@ -1004,12 +1009,43 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       };
     }
 
-    // Use BehaviorService to get historical pattern
+    // Query pre-computed PnL from AnalysisResult table (source of truth)
+    let pnlMap: Map<string, { pnl: number; capital: number }> | undefined;
+    try {
+      const pnlResults = await this.databaseService.getAnalysisResults({
+        where: { walletAddress },
+      });
+
+      if (pnlResults.length > 0) {
+        pnlMap = new Map(
+          pnlResults.map(r => [
+            r.tokenAddress,
+            {
+              pnl: r.netSolProfitLoss,
+              capital: r.totalSolSpent,
+            },
+          ])
+        );
+        this.logger.debug(
+          `Loaded PnL for ${pnlResults.length} tokens for wallet ${walletAddress}`
+        );
+      } else {
+        this.logger.debug(`No PnL data found in AnalysisResult for wallet ${walletAddress}`);
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to query PnL for wallet ${walletAddress}: ${error?.message || 'Unknown error'}. Will proceed without PnL metrics.`
+      );
+      pnlMap = undefined;
+    }
+
+    // Use BehaviorService to get historical pattern (with PnL map)
     try {
       const behaviorResult = await this.behaviorService.getWalletBehavior(
         walletAddress,
         this.behaviorService.getDefaultBehaviorAnalysisConfig(),
         undefined,
+        pnlMap,
       );
 
       const historicalPattern = behaviorResult?.historicalPattern;
