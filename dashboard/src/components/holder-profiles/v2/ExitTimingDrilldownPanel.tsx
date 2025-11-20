@@ -45,6 +45,9 @@ export function ExitTimingDrilldownPanel({
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [panelSize, setPanelSize] = useState<{ width: number; height: number }>({ width: 640, height: 420 });
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const [filter, setFilter] = useState('');
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
   const fetchTokens = useCallback(async () => {
     setLoading(true);
@@ -74,10 +77,11 @@ export function ExitTimingDrilldownPanel({
         const padding = 12;
         const targetX = anchor?.x ?? window.innerWidth / 2;
         const targetY = anchor?.y ?? window.innerHeight / 2;
-        const width = Math.min(panelSize.width, window.innerWidth - padding * 2);
-        const height = Math.min(panelSize.height, window.innerHeight - padding * 2);
-        const clampedX = Math.min(Math.max(targetX - width / 2, padding), window.innerWidth - padding - width);
-        const clampedY = Math.min(Math.max(targetY - 80, padding), window.innerHeight - padding - height);
+        const defaultWidth = Math.min(tokens.length > 50 ? 640 : 720, window.innerWidth - padding * 2);
+        const defaultHeight = Math.min(540, window.innerHeight - padding * 2);
+        setPanelSize({ width: defaultWidth, height: defaultHeight });
+        const clampedX = Math.min(Math.max(targetX - defaultWidth / 2, padding), window.innerWidth - padding - defaultWidth);
+        const clampedY = Math.min(Math.max(targetY - 80, padding), window.innerHeight - padding - defaultHeight);
         setPosition({ x: clampedX, y: clampedY });
       }
     } else {
@@ -87,6 +91,9 @@ export function ExitTimingDrilldownPanel({
       setError(null);
       setIsDragging(false);
       setDragStart(null);
+      setFilter('');
+      setIsResizing(false);
+      setResizeStart(null);
     }
   }, [isOpen, walletAddress, timeBucket, anchor, fetchTokens]);
 
@@ -128,6 +135,19 @@ export function ExitTimingDrilldownPanel({
   };
 
   const handlePointerMove = (e: ReactPointerEvent) => {
+    if (isResizing && resizeStart) {
+      const padding = 12;
+      const minWidth = 360;
+      const minHeight = 320;
+      const maxWidth = typeof window !== 'undefined' ? window.innerWidth - padding * 2 : resizeStart.width;
+      const maxHeight = typeof window !== 'undefined' ? window.innerHeight - padding * 2 : resizeStart.height;
+      const nextWidth = Math.min(Math.max(resizeStart.width + (e.clientX - resizeStart.x), minWidth), maxWidth);
+      const nextHeight = Math.min(Math.max(resizeStart.height + (e.clientY - resizeStart.y), minHeight), maxHeight);
+      setPanelSize({ width: nextWidth, height: nextHeight });
+      const clamped = clampPosition(position.x, position.y);
+      setPosition(clamped);
+      return;
+    }
     if (!isDragging || !dragStart) return;
     const nextX = e.clientX - dragStart.x;
     const nextY = e.clientY - dragStart.y;
@@ -137,6 +157,7 @@ export function ExitTimingDrilldownPanel({
 
   const handlePointerUp = (e: ReactPointerEvent) => {
     setIsDragging(false);
+    setIsResizing(false);
     setDragStart(null);
     const target = e.target as HTMLElement;
     if (target?.releasePointerCapture) {
@@ -144,38 +165,56 @@ export function ExitTimingDrilldownPanel({
     }
   };
 
+  const handleResizePointerDown = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    setResizeStart({ x: e.clientX, y: e.clientY, width: panelSize.width, height: panelSize.height });
+    const target = e.target as HTMLElement;
+    if (target?.setPointerCapture) {
+      target.setPointerCapture(e.pointerId);
+    }
+  };
+
   if (!isOpen) return null;
 
   const visibleTokens = tokens.slice(0, displayLimit);
-  const hasMore = displayLimit < tokens.length;
+  const filteredTokens = filter
+    ? tokens.filter((mint) => mint.toLowerCase().includes(filter.toLowerCase()))
+    : tokens;
+  const visibleFilteredTokens = filteredTokens.slice(0, displayLimit);
+  const hasMore = displayLimit < filteredTokens.length;
 
   const panel = (
     // Transparent overlay that doesn't block interactions
     <div className="fixed inset-0 z-50 pointer-events-none">
       <div
-    className={cn(
-      "absolute",
-      "w-full",
-      "bg-card border rounded-lg shadow-2xl",
-      "overflow-hidden",
-      "pointer-events-auto", // Re-enable pointer events for the panel itself
-      "animate-in fade-in-0 zoom-in-95 duration-200"
-    )}
+        className={cn(
+          "absolute",
+          "w-full",
+          "rounded-lg shadow-2xl border border-primary/30 bg-slate-950/90 backdrop-blur-xl",
+          "before:content-[''] before:absolute before:inset-0 before:-z-10 before:rounded-lg before:bg-primary/15 before:blur-3xl before:opacity-60 before:pointer-events-none",
+          "after:content-[''] after:absolute after:inset-px after:rounded-lg after:border after:border-white/5 after:pointer-events-none",
+          "overflow-hidden",
+          "pointer-events-auto", // Re-enable pointer events for the panel itself
+          "animate-in fade-in-0 zoom-in-95 duration-200"
+        )}
         ref={panelRef}
         style={{
           top: position.y,
           left: position.x,
           transform: 'none',
-          width: tokens.length > 50 ? 'min(600px, calc(100vw - 24px))' : 'min(720px, calc(100vw - 24px))',
-          maxHeight: tokens.length > 50 ? '70vh' : '80vh',
+          width: `${panelSize.width}px`,
+          height: `${panelSize.height}px`,
+          maxHeight: '90vh',
         }}
         onClick={(e) => e.stopPropagation()}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
-  >
-    {/* Header */}
-    <div
+      >
+        {/* Header */}
+        <div
           className="sticky top-0 bg-card border-b px-6 py-4 flex items-start justify-between z-10 cursor-move select-none"
           onPointerDown={handlePointerDown}
         >
@@ -183,6 +222,9 @@ export function ExitTimingDrilldownPanel({
             <h3 className="text-lg font-semibold">Exit Timing: {bucketLabel}</h3>
             <p className="text-sm text-muted-foreground mt-1">
               Tokens exited by {formatAddress(walletAddress)} in {bucketLabel} time range
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {filteredTokens.length} tokens in this cohort{filteredTokens.length !== tokens.length ? ` (filtered from ${tokens.length})` : ''}{hasMore ? ` – showing ${visibleFilteredTokens.length}` : ''}
             </p>
           </div>
           <button
@@ -195,7 +237,19 @@ export function ExitTimingDrilldownPanel({
         </div>
 
         {/* Content - scrollable */}
-        <div className="overflow-y-auto max-h-[calc(80vh-100px)] p-6">
+        <div className="overflow-y-auto max-h-[calc(80vh-100px)] p-4 md:p-6 space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <input
+              value={filter}
+              onChange={(e) => {
+                setFilter(e.target.value);
+                setDisplayLimit(INITIAL_DISPLAY_LIMIT);
+              }}
+              placeholder="Filter by mint"
+              className="h-9 w-full md:w-72 rounded-md border bg-input px-3 text-sm"
+            />
+          </div>
+
           {loading && (
             <div className="flex items-center justify-center py-12">
               <div className="text-sm text-muted-foreground">Loading tokens...</div>
@@ -208,23 +262,21 @@ export function ExitTimingDrilldownPanel({
             </div>
           )}
 
-          {!loading && !error && tokens.length === 0 && (
+          {!loading && !error && filteredTokens.length === 0 && (
             <div className="flex items-center justify-center py-12">
-              <p className="text-sm text-muted-foreground">No tokens found in this time range</p>
+              <p className="text-sm text-muted-foreground">
+                {filter ? 'No tokens match this filter' : 'No tokens found in this time range'}
+              </p>
             </div>
           )}
 
-          {!loading && !error && tokens.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                {tokens.length} token{tokens.length === 1 ? '' : 's'} in this cohort
-                {hasMore && ` (showing ${displayLimit})`}
-              </p>
+          {!loading && !error && filteredTokens.length > 0 && (
+            <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {visibleTokens.map((mint) => (
+                {visibleFilteredTokens.map((mint) => (
                   <div
                     key={mint}
-                    className="p-2 rounded-md border bg-card hover:bg-muted/50 transition-colors"
+                    className="p-2 rounded-md border border-white/5 bg-slate-900/85 hover:bg-muted/60 transition-colors flex items-center gap-2"
                   >
                     <TokenBadge mint={mint} size="sm" />
                   </div>
@@ -233,18 +285,24 @@ export function ExitTimingDrilldownPanel({
 
               {/* Load More Button */}
               {hasMore && (
-                <div className="flex justify-center pt-4">
+                <div className="sticky bottom-0 flex justify-center pt-2 pb-1 bg-card/80 backdrop-blur-sm">
                   <button
-                    onClick={() => setDisplayLimit(prev => Math.min(prev + LOAD_MORE_INCREMENT, tokens.length))}
+                    onClick={() => setDisplayLimit(prev => Math.min(prev + LOAD_MORE_INCREMENT, filteredTokens.length))}
                     className="px-4 py-2 text-sm font-medium rounded-md border bg-card hover:bg-muted transition-colors"
                   >
-                    Load {Math.min(LOAD_MORE_INCREMENT, tokens.length - displayLimit)} More
+                    Load {Math.min(LOAD_MORE_INCREMENT, filteredTokens.length - displayLimit)} More
                   </button>
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
+
+        <div
+          className="absolute bottom-2 right-2 h-4 w-4 rounded-sm border border-primary/60 bg-primary/30 cursor-nwse-resize"
+          onPointerDown={handleResizePointerDown}
+          title="Drag to resize"
+        />
       </div>
     </div>
   );
