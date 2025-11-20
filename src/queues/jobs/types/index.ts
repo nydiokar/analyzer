@@ -160,6 +160,26 @@ export interface HoldTimeDistribution {
   position: number;
 }
 
+export interface EnrichedHoldTimeBucket {
+  count: number;
+  winRate: number;         // Percentage of profitable tokens (0-100)
+  totalPnlSol: number;     // Aggregate PnL in SOL for the bucket
+  avgPnlSol: number;       // Average PnL per token in the bucket
+  roiPercent: number;      // ROI percentage for the bucket
+  totalCapitalSol: number; // Total capital deployed in SOL for the bucket
+}
+
+export interface EnrichedHoldTimeDistribution {
+  instant: EnrichedHoldTimeBucket;
+  ultraFast: EnrichedHoldTimeBucket;
+  fast: EnrichedHoldTimeBucket;
+  momentum: EnrichedHoldTimeBucket;
+  intraday: EnrichedHoldTimeBucket;
+  day: EnrichedHoldTimeBucket;
+  swing: EnrichedHoldTimeBucket;
+  position: EnrichedHoldTimeBucket;
+}
+
 export interface HolderProfile {
   walletAddress: string;
   rank: number;
@@ -177,6 +197,7 @@ export interface HolderProfile {
   insufficientDataReason?: string;
   processingTimeMs: number;
   holdTimeDistribution?: HoldTimeDistribution;
+  enrichedHoldTimeDistribution?: EnrichedHoldTimeDistribution;
   includesCurrentHoldings?: boolean;
   exitRate?: number | null;
   totalTokensTraded?: number;

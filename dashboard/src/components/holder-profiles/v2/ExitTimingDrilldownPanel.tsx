@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { X } from 'lucide-react';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { formatAddress } from './utils/formatters';
@@ -12,6 +13,7 @@ interface Props {
   walletAddress: string;
   timeBucket: TimeBucket;
   bucketLabel: string;
+  anchor?: { x: number; y: number };
   isOpen: boolean;
   onClose: () => void;
 }
@@ -30,6 +32,7 @@ export function ExitTimingDrilldownPanel({
   walletAddress,
   timeBucket,
   bucketLabel,
+  anchor,
   isOpen,
   onClose,
 }: Props) {
@@ -37,6 +40,11 @@ export function ExitTimingDrilldownPanel({
   const [displayLimit, setDisplayLimit] = useState(INITIAL_DISPLAY_LIMIT);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [position, setPosition] = useState<{ x: number; y: number }>({ x: 40, y: 40 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [panelSize, setPanelSize] = useState<{ width: number; height: number }>({ width: 640, height: 420 });
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   const fetchTokens = useCallback(async () => {
     setLoading(true);
@@ -61,13 +69,80 @@ export function ExitTimingDrilldownPanel({
   useEffect(() => {
     if (isOpen && walletAddress && timeBucket) {
       fetchTokens();
+      // Initialize panel position near the click anchor, clamped to viewport
+      if (typeof window !== 'undefined') {
+        const padding = 12;
+        const targetX = anchor?.x ?? window.innerWidth / 2;
+        const targetY = anchor?.y ?? window.innerHeight / 2;
+        const width = Math.min(panelSize.width, window.innerWidth - padding * 2);
+        const height = Math.min(panelSize.height, window.innerHeight - padding * 2);
+        const clampedX = Math.min(Math.max(targetX - width / 2, padding), window.innerWidth - padding - width);
+        const clampedY = Math.min(Math.max(targetY - 80, padding), window.innerHeight - padding - height);
+        setPosition({ x: clampedX, y: clampedY });
+      }
     } else {
       // Reset state when panel closes
       setTokens([]);
       setDisplayLimit(INITIAL_DISPLAY_LIMIT);
       setError(null);
+      setIsDragging(false);
+      setDragStart(null);
     }
-  }, [isOpen, walletAddress, timeBucket, fetchTokens]);
+  }, [isOpen, walletAddress, timeBucket, anchor, fetchTokens]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const measure = () => {
+      const rect = panelRef.current?.getBoundingClientRect();
+      if (rect) {
+        setPanelSize({ width: rect.width, height: rect.height });
+      }
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [isOpen]);
+
+  const clampPosition = useCallback(
+    (x: number, y: number) => {
+      if (typeof window === 'undefined') return { x, y };
+      const padding = 12;
+      const width = Math.min(panelSize.width, window.innerWidth - padding * 2);
+      const height = Math.min(panelSize.height, window.innerHeight - padding * 2);
+      return {
+        x: Math.min(Math.max(x, padding), window.innerWidth - padding - width),
+        y: Math.min(Math.max(y, padding), window.innerHeight - padding - height),
+      };
+    },
+    [panelSize.height, panelSize.width]
+  );
+
+  const handlePointerDown = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+    const target = e.target as HTMLElement;
+    if (target?.setPointerCapture) {
+      target.setPointerCapture(e.pointerId);
+    }
+  };
+
+  const handlePointerMove = (e: ReactPointerEvent) => {
+    if (!isDragging || !dragStart) return;
+    const nextX = e.clientX - dragStart.x;
+    const nextY = e.clientY - dragStart.y;
+    const clamped = clampPosition(nextX, nextY);
+    setPosition(clamped);
+  };
+
+  const handlePointerUp = (e: ReactPointerEvent) => {
+    setIsDragging(false);
+    setDragStart(null);
+    const target = e.target as HTMLElement;
+    if (target?.releasePointerCapture) {
+      target.releasePointerCapture(e.pointerId);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -78,18 +153,32 @@ export function ExitTimingDrilldownPanel({
     // Transparent overlay that doesn't block interactions
     <div className="fixed inset-0 z-50 pointer-events-none">
       <div
-        className={cn(
-          "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2",
-          "w-full max-w-2xl max-h-[80vh]",
-          "bg-card border rounded-lg shadow-2xl",
-          "overflow-hidden",
-          "pointer-events-auto", // Re-enable pointer events for the panel itself
-          "animate-in fade-in-0 zoom-in-95 duration-200"
-        )}
+    className={cn(
+      "absolute",
+      "w-full",
+      "bg-card border rounded-lg shadow-2xl",
+      "overflow-hidden",
+      "pointer-events-auto", // Re-enable pointer events for the panel itself
+      "animate-in fade-in-0 zoom-in-95 duration-200"
+    )}
+        ref={panelRef}
+        style={{
+          top: position.y,
+          left: position.x,
+          transform: 'none',
+          width: tokens.length > 50 ? 'min(600px, calc(100vw - 24px))' : 'min(720px, calc(100vw - 24px))',
+          maxHeight: tokens.length > 50 ? '70vh' : '80vh',
+        }}
         onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="sticky top-0 bg-card border-b px-6 py-4 flex items-start justify-between z-10">
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+  >
+    {/* Header */}
+    <div
+          className="sticky top-0 bg-card border-b px-6 py-4 flex items-start justify-between z-10 cursor-move select-none"
+          onPointerDown={handlePointerDown}
+        >
           <div>
             <h3 className="text-lg font-semibold">Exit Timing: {bucketLabel}</h3>
             <p className="text-sm text-muted-foreground mt-1">

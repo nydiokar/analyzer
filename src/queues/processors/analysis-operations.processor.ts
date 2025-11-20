@@ -994,6 +994,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         insufficientDataReason: 'No transaction history found',
         processingTimeMs: Date.now() - walletStartTime,
         holdTimeDistribution: undefined,
+        enrichedHoldTimeDistribution: undefined,
         includesCurrentHoldings: false,
         exitRate: null,
         totalTokensTraded: 0,
@@ -1097,6 +1098,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           insufficientDataReason: `Only ${historicalPattern?.completedCycleCount ?? 0} completed exits, no current holdings data`,
           processingTimeMs: Date.now() - walletStartTime,
           holdTimeDistribution: historicalPattern?.holdTimeDistribution,
+          enrichedHoldTimeDistribution: historicalPattern?.enrichedHoldTimeDistribution,
           includesCurrentHoldings: false,
           exitRate: null,
           totalTokensTraded: behaviorResult?.uniqueTokensTraded ?? 0,
@@ -1168,6 +1170,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         completedCycleCount: exitedTokensCount,
         confidence: historicalPattern?.dataQuality ?? 0,
         holdTimeDistribution: historicalPattern?.holdTimeDistribution,
+        enrichedHoldTimeDistribution: historicalPattern?.enrichedHoldTimeDistribution,
         includesCurrentHoldings, // NEW: Flag to show user that still-held positions are included
         exitRate, // NEW: Replaces flip ratio - more meaningful metric
         totalTokensTraded, // NEW: Total tokens this wallet has touched
@@ -1199,6 +1202,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         insufficientDataReason: `Analysis error: ${error instanceof Error ? error.message : 'unknown'}`,
         processingTimeMs: Date.now() - walletStartTime,
         holdTimeDistribution: undefined,
+        enrichedHoldTimeDistribution: undefined,
         includesCurrentHoldings: false,
         exitRate: null,
         totalTokensTraded: 0,

@@ -34,7 +34,7 @@ interface ExitTimingBreakdownProps {
     position: { count: number; winRate: number; roiPercent: number };
   };
   walletAddress: string;
-  onBucketClick: (bucket: TimeBucket, label: string) => void;
+  onBucketClick: (bucket: TimeBucket, label: string, anchor: { x: number; y: number }) => void;
 }
 
 function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress, onBucketClick }: ExitTimingBreakdownProps) {
@@ -131,7 +131,7 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
             <span className="w-10 text-muted-foreground">{bucket.label}</span>
             <div
               className="flex-1 h-3 bg-muted/20 rounded-full overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
-              onClick={() => rawValue > 0 && onBucketClick(bucket.bucket, bucket.label)}
+              onClick={(e) => rawValue > 0 && onBucketClick(bucket.bucket, bucket.label, { x: e.clientX, y: e.clientY })}
               title={rawValue > 0 ? `Click to see ${label} tokens in ${bucket.label} range` : undefined}
             >
               <div
@@ -174,7 +174,7 @@ function HoldMetricCard(props: {
         </div>
         <div className={highlightMixed ? 'rounded-md bg-primary/5 p-2 -m-1 space-y-1' : ''}>
           <p className="text-[11px] text-muted-foreground">{mixedLabel}</p>
-          <p className="text-xl font-semibold tabular-nums">{mixedValue}</p>
+          <p className="text-lg font-semibold tabular-nums whitespace-nowrap leading-tight">{mixedValue}</p>
         </div>
       </div>
       {footer && <p className="text-[11px] text-muted-foreground">{footer}</p>}
@@ -199,15 +199,15 @@ function getQualityIndicator(tier?: string) {
 
 export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
-  const [selectedBucket, setSelectedBucket] = useState<{ bucket: TimeBucket; label: string } | null>(null);
+  const [selectedBucket, setSelectedBucket] = useState<{ bucket: TimeBucket; label: string; anchor: { x: number; y: number } } | null>(null);
 
-  const handleBucketClick = (bucket: TimeBucket, label: string) => {
+  const handleBucketClick = (bucket: TimeBucket, label: string, anchor: { x: number; y: number }) => {
     // Toggle: if clicking the same bucket, close the panel
     if (selectedBucket?.bucket === bucket && panelOpen) {
       setPanelOpen(false);
       setSelectedBucket(null);
     } else {
-      setSelectedBucket({ bucket, label });
+      setSelectedBucket({ bucket, label, anchor });
       setPanelOpen(true);
     }
   };
@@ -292,7 +292,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
         </div>
       </div>
 
-      <div className="p-3 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3">
+      <div className="p-3 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] gap-3">
         <div className="space-y-3">
           <HoldMetricCard
             label="Median Hold"
@@ -315,7 +315,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
           />
         </div>
 
-        <div className="bg-muted/10 rounded-md p-3 border w-full lg:w-[160px]">
+        <div className="bg-muted/10 rounded-md p-3 border w-full lg:min-w-[280px]">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
             Exit Timing
           </p>
@@ -338,6 +338,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
           walletAddress={walletAddress}
           timeBucket={selectedBucket.bucket}
           bucketLabel={selectedBucket.label}
+          anchor={selectedBucket.anchor}
           isOpen={panelOpen}
           onClose={() => {
             setPanelOpen(false);
