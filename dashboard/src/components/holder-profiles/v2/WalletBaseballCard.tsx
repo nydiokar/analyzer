@@ -1,9 +1,15 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import type { HolderProfile } from '../types';
 import { formatAddress, formatHoldTime, formatHoldSource, formatPercentage, getTypicalHoldTimeHours } from './utils/formatters';
 import { getBehaviorColor } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ExitTimingDrilldownPanel } from './ExitTimingDrilldownPanel';
+import { TokenBadge } from '@/components/shared/TokenBadge';
+
+const formatBalanceCompact = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return '–';
+  return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(value);
+};
 
 interface Props {
   profile: HolderProfile;
@@ -159,7 +165,7 @@ function HoldMetricCard(props: {
   mixedLabel?: string;
   mixedValue: string;
   highlightMixed?: boolean;
-  footer?: string;
+  footer?: React.ReactNode;
 }) {
   const { label, exitedLabel = 'Exited', exitedValue, mixedLabel = 'Active + exited', mixedValue, highlightMixed, footer } =
     props;
@@ -177,7 +183,7 @@ function HoldMetricCard(props: {
           <p className="text-lg font-semibold tabular-nums whitespace-nowrap leading-tight">{mixedValue}</p>
         </div>
       </div>
-      {footer && <p className="text-[11px] text-muted-foreground">{footer}</p>}
+      {footer && <div className="text-[11px] text-muted-foreground">{footer}</div>}
     </div>
   );
 }
@@ -200,6 +206,7 @@ function getQualityIndicator(tier?: string) {
 export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [selectedBucket, setSelectedBucket] = useState<{ bucket: TimeBucket; label: string; anchor: { x: number; y: number } } | null>(null);
+  const [showHoldings, setShowHoldings] = useState(false);
 
   const handleBucketClick = (bucket: TimeBucket, label: string, anchor: { x: number; y: number }) => {
     // Toggle: if clicking the same bucket, close the panel
@@ -224,6 +231,8 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const heldTokens = profile.currentHoldingsCount ?? 0;
   const exitedTokens = profile.completedCycleCount ?? 0;
   const percentHeldValue = profile.percentValueInCurrentHoldings ?? 0;
+  const currentHoldingsList = (profile.currentHoldings || []).filter(h => (h.uiBalance ?? 0) > 0);
+  const hasHoldingsList = currentHoldingsList.length > 0;
   const estimatedHeld =
     heldTokens > 0
       ? heldTokens
@@ -308,9 +317,16 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             highlightMixed={includesCurrentData}
             mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
             footer={
-              typeof profile.percentValueInCurrentHoldings === 'number'
-                ? `Value still held: ${formatPercentage(profile.percentValueInCurrentHoldings)}`
-                : undefined
+              typeof profile.percentValueInCurrentHoldings === 'number' ? (
+                <button
+                  onClick={() => hasHoldingsList && setShowHoldings(!showHoldings)}
+                  disabled={!hasHoldingsList}
+                  className={`underline-offset-2 ${hasHoldingsList ? 'underline hover:text-primary transition-colors' : 'text-muted-foreground cursor-not-allowed'}`}
+                >
+                  Value still held: {formatPercentage(profile.percentValueInCurrentHoldings)}{' '}
+                  {hasHoldingsList ? '(click to view tokens)' : '(no current tokens detected)'}
+                </button>
+              ) : undefined
             }
           />
         </div>
@@ -331,6 +347,34 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
           )}
         </div>
       </div>
+
+      {showHoldings && hasHoldingsList && (
+        <div className="px-3 pb-3 space-y-2 border-t bg-muted/10">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+              Current holdings ({currentHoldingsList.length})
+            </p>
+            <button
+              onClick={() => setShowHoldings(false)}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Close
+            </button>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {currentHoldingsList.map((holding) => (
+              <div key={holding.tokenAddress} className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <TokenBadge mint={holding.tokenAddress} size="sm" />
+                </div>
+                <div className="text-xs text-muted-foreground text-right">
+                  Bal: {formatBalanceCompact(holding.uiBalance)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Exit Timing Drilldown Panel */}
       {selectedBucket && (

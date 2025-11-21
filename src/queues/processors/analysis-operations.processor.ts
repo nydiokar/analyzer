@@ -1079,11 +1079,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         percentValueInCurrentHoldings: null,
         dailyFlipRatioConfidence: 'NONE',
         currentHoldingsCount: null,
+        currentHoldings: [],
       };
     }
 
     // Query pre-computed PnL from AnalysisResult table (source of truth)
     let pnlMap: Map<string, { pnl: number; capital: number }> | undefined;
+    let currentHoldings: Array<{ tokenAddress: string; uiBalance: number | null; decimals: number | null }> = [];
     try {
       const pnlResults = await this.databaseService.getAnalysisResults({
         where: { walletAddress },
@@ -1099,6 +1101,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             },
           ])
         );
+        currentHoldings = pnlResults
+          .filter(r => typeof r.currentUiBalance === 'number' && (r.currentUiBalance ?? 0) > 0)
+          .map(r => ({
+            tokenAddress: r.tokenAddress,
+            uiBalance: r.currentUiBalance,
+            decimals: typeof r.balanceDecimals === 'number' ? r.balanceDecimals : null,
+          }));
         this.logger.debug(
           `Loaded PnL for ${pnlResults.length} tokens for wallet ${walletAddress}`
         );
@@ -1183,6 +1192,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           percentValueInCurrentHoldings,
           dailyFlipRatioConfidence: 'NONE',
           currentHoldingsCount,
+          currentHoldings,
         };
       }
 
@@ -1255,6 +1265,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         currentHoldAverageHours,
         percentValueInCurrentHoldings,
         currentHoldingsCount,
+        currentHoldings,
       };
     } catch (error) {
       this.logger.warn(`Error analyzing wallet ${walletAddress}:`, error);
@@ -1286,6 +1297,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         currentHoldAverageHours: null,
         percentValueInCurrentHoldings: null,
         currentHoldingsCount: null,
+        currentHoldings: currentHoldings,
       };
     }
   }

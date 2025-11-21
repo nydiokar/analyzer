@@ -209,6 +209,11 @@ export interface HolderProfile {
   currentHoldAverageHours?: number | null;
   percentValueInCurrentHoldings?: number | null;
   currentHoldingsCount?: number | null;
+  currentHoldings?: Array<{
+    tokenAddress: string;
+    uiBalance: number | null;
+    decimals: number | null;
+  }>;
 }
 
 export interface HolderProfilesResult extends JobResult {
