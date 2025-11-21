@@ -716,8 +716,37 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       this.logger.log(`Analyzing ${walletAddresses.length} holder wallets for ${tokenMint}...`);
       await job.updateProgress(20);
 
+      // Sync stale/missing holders first (same as wallet-mode flow)
+      this.logger.debug(`Checking wallet statuses for top holders of ${tokenMint}`);
+      const holderStatuses = await this.databaseService.getWalletsStatus(walletAddresses);
+      const walletsNeedingSync = holderStatuses.statuses
+        .filter(status => status.status === 'STALE' || status.status === 'MISSING')
+        .map(status => status.walletAddress);
+
+      if (walletsNeedingSync.length > 0) {
+        this.logger.log(`Syncing ${walletsNeedingSync.length} holder wallets for ${tokenMint}`);
+        const syncOptions: SyncOptions = {
+          limit: 100,
+          fetchAll: true,
+          skipApi: false,
+          fetchOlder: true,
+          maxSignatures: 2000,
+          smartFetch: true,
+        };
+        for (const addr of walletsNeedingSync) {
+          try {
+            await this.heliusSyncService.syncWalletData(addr, syncOptions);
+          } catch (syncErr) {
+            this.logger.warn(`Sync failed for holder wallet ${addr}:`, syncErr);
+          }
+        }
+      } else {
+        this.logger.debug(`All holder wallets for ${tokenMint} appear current (status check)`);
+      }
+      await job.updateProgress(30);
+
       this.logger.debug(`Batch fetching swap records for ${walletAddresses.length} wallets...`);
-      const allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletAddresses);
+      let allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletAddresses);
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching swap records');
       await job.updateProgress(40);
@@ -730,13 +759,46 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         swapRecordsByWallet[record.walletAddress].push(record);
       }
 
+      // If any wallets have no swap records, force a fresh sync + refetch to align with wallet-mode behavior
+      const walletsMissingData = walletAddresses.filter(addr => !swapRecordsByWallet[addr] || swapRecordsByWallet[addr].length === 0);
+      if (walletsMissingData.length > 0) {
+        this.logger.log(`Detected ${walletsMissingData.length} holder wallets with no swap records; forcing sync (tokenMode)`);
+        const syncOptions: SyncOptions = {
+          limit: 100,
+          fetchAll: true,
+          skipApi: false,
+          fetchOlder: true,
+          maxSignatures: 2000,
+          smartFetch: true,
+        };
+        for (const addr of walletsMissingData) {
+          try {
+            await this.heliusSyncService.syncWalletData(addr, syncOptions);
+          } catch (syncErr) {
+            this.logger.warn(`Sync failed for holder wallet ${addr}:`, syncErr);
+          }
+        }
+
+        // Refetch swap records for the missing wallets only
+        allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletAddresses);
+        for (const record of allSwapRecords) {
+          if (!swapRecordsByWallet[record.walletAddress]) {
+            swapRecordsByWallet[record.walletAddress] = [];
+          }
+          swapRecordsByWallet[record.walletAddress].push(record);
+        }
+        this.logger.debug(`Refetched swap records for ${walletsMissingData.length} wallets after sync`);
+      }
+
       this.logger.debug(`Grouped swap records: ${Object.keys(swapRecordsByWallet).length} wallets with data`);
 
       const progressStep = 50 / walletAddresses.length;
       let completedCount = 0;
+      const partialProfiles: HolderProfile[] = [];
+      const profiles: HolderProfile[] = [];
 
-      const profilePromises = topHolders.map(async holder => {
-        if (!holder.ownerAccount) return null;
+      for (const holder of topHolders) {
+        if (!holder.ownerAccount) continue;
 
         const walletSwapRecords = swapRecordsByWallet[holder.ownerAccount] || [];
         const supplyPercent = actualTotalSupply > 0 ? ((holder.uiAmount || 0) / actualTotalSupply) * 100 : 0;
@@ -750,16 +812,26 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           );
 
           completedCount++;
-          await job.updateProgress(40 + Math.floor(completedCount * progressStep));
+          const percent = 40 + Math.floor(completedCount * progressStep);
+          await job.updateProgress(percent);
+          partialProfiles.push(profile);
+          profiles.push(profile);
 
-          return profile;
+          const progressPayload = {
+            mode: 'token',
+            tokenMint,
+            totalHoldersRequested: walletAddresses.length,
+            analyzedCount: partialProfiles.length,
+            profiles: [...partialProfiles],
+          };
+          this.logger.log(
+            `Streaming partial holder profile (${partialProfiles.length}/${walletAddresses.length}) for token ${tokenMint}: ${holder.ownerAccount}`
+          );
+          await this.jobProgressGateway.publishProgressEvent(job.id!, job.queueName, progressPayload);
         } catch (error) {
           this.logger.warn(`Failed to analyze wallet ${holder.ownerAccount}:`, error);
-          return null;
         }
-      });
-
-      const profiles = (await Promise.all(profilePromises)).filter(p => p !== null) as HolderProfile[];
+      }
 
       this.checkTimeout(startTime, timeoutMs, 'Completing analysis');
       await job.updateProgress(95);

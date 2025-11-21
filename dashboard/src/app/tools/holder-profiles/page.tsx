@@ -55,6 +55,7 @@ export default function HolderProfilesPage() {
   const [walletInput, setWalletInput] = useState('');
   const [walletEntries, setWalletEntries] = useState<WalletClassifierEntry[]>([]);
   const [tokenResult, setTokenResult] = useState<HolderProfilesResult | null>(null);
+  const [tokenPartialResult, setTokenPartialResult] = useState<HolderProfilesResult | null>(null);
   const tokenJobIdRef = useRef<string | null>(null);
   const [tokenStatus, setTokenStatus] = useState<JobStatus>('idle');
   const [tokenProgress, setTokenProgress] = useState(0);
@@ -78,8 +79,40 @@ export default function HolderProfilesPage() {
       (data: JobProgressData) => {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
           setTokenStatus('running');
-          setTokenProgress(data.progress);
           setTokenMessage(data.status || 'Analyzing holders...');
+
+          // Handle incremental holder profiles via progress payload
+          if (typeof data.progress === 'object' && data.progress !== null && (data.progress as any).mode === 'token') {
+            const payload = data.progress as any;
+            const total = payload.totalHoldersRequested ?? payload.profiles?.length ?? 0;
+            const analyzed = payload.analyzedCount ?? payload.profiles?.length ?? 0;
+            const percent = total > 0 ? Math.min(100, Math.round((analyzed / total) * 100)) : 0;
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[Token holder progress payload]', {
+                holders: analyzed,
+                total,
+                profilesLen: payload.profiles?.length ?? 0,
+                sampleProfile: payload.profiles?.[0]?.walletAddress,
+              });
+            }
+            setTokenProgress(percent);
+            setTokenPartialResult({
+              mode: 'token',
+              tokenMint: tokenMint || payload.tokenMint,
+              profiles: payload.profiles ?? [],
+              metadata: {
+                totalHoldersRequested: total,
+                totalHoldersAnalyzed: analyzed,
+                totalProcessingTimeMs: 0,
+                avgProcessingTimePerWalletMs: 0,
+              },
+            });
+          } else if (typeof data.progress === 'number') {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[Token holder numeric progress]', data.progress);
+            }
+            setTokenProgress(data.progress);
+          }
           return;
         }
         updateWalletEntryByJob(data.jobId, (entry) => ({
@@ -98,6 +131,7 @@ export default function HolderProfilesPage() {
           const resultData = data.result as unknown as HolderProfilesResult;
           if (resultData?.profiles) {
             setTokenResult(resultData);
+            setTokenPartialResult(null);
             setTokenStatus('completed');
             setTokenProgress(100);
             setTokenMessage('Analysis complete');
@@ -156,10 +190,11 @@ export default function HolderProfilesPage() {
 
     try {
       setTokenStatus('running');
-      setTokenProgress(0);
-      setTokenMessage('Queued');
-      setTokenResult(null);
-      const response = await fetcher('/analyses/holder-profiles', {
+          setTokenProgress(0);
+          setTokenMessage('Queued');
+          setTokenResult(null);
+          setTokenPartialResult(null);
+          const response = await fetcher('/analyses/holder-profiles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tokenMint, topN }),
@@ -312,7 +347,9 @@ export default function HolderProfilesPage() {
         <p className="text-xs text-muted-foreground px-3">{tokenMessage}</p>
       )}
 
-      {analysisMode === 'token' && tokenResult && <TokenPulse result={tokenResult} />}
+      {analysisMode === 'token' && (tokenResult || tokenPartialResult) && (
+        <TokenPulse result={(tokenResult ?? tokenPartialResult)!} />
+      )}
 
       {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}
     </div>

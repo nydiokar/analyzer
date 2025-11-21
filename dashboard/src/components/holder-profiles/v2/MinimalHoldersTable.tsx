@@ -5,9 +5,10 @@ import { getBehaviorColor, getQualityColor } from './utils/behavior';
 interface Props {
   profiles: HolderProfile[];
   mode: 'token' | 'wallet';
+  onSelect?: (profile: HolderProfile) => void;
 }
 
-export function MinimalHoldersTable({ profiles, mode }: Props) {
+export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
   return (
     <div className="rounded-2xl border overflow-hidden">
       <table className="w-full text-sm">
@@ -27,27 +28,31 @@ export function MinimalHoldersTable({ profiles, mode }: Props) {
             const exitedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours;
             const exitedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours;
             return (
-              <tr key={profile.walletAddress} className="border-t border-border/60">
+              <tr
+                key={profile.walletAddress}
+                className={`border-t border-border/60 ${onSelect ? 'cursor-pointer hover:bg-muted/40' : ''}`}
+                onClick={onSelect ? () => onSelect(profile) : undefined}
+              >
                 {mode === 'token' && <td className="px-4 py-2 text-muted-foreground">#{profile.rank}</td>}
                 <td className="px-4 py-2 font-mono text-xs">{formatAddress(profile.walletAddress)}</td>
                 <td className="px-4 py-2">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getBehaviorColor(profile.behaviorType)}`}>
-                    {profile.behaviorType ?? '�?"'}
+                    {profile.behaviorType ?? '🏷️'}
                   </span>
                 </td>
                 <td className="px-4 py-2 text-xs">
-                  <div className="font-semibold text-sm">{formatHoldTime(exitedMedian)}</div>
+                  <div className="font-semibold text-sm">Median: {formatHoldTime(exitedMedian)}</div>
                   <div className="text-muted-foreground text-[11px]">
-                    Avg: {formatHoldTime(exitedAverage)}
+                    Average: {formatHoldTime(exitedAverage)}
                   </div>
                 </td>
                 <td className="px-4 py-2 text-xs">
-                  <div className="font-semibold text-sm">{formatHoldTime(typicalHold)}</div>
+                  <div className="font-semibold text-sm">Median: {formatHoldTime(typicalHold)}</div>
                   <div className="text-muted-foreground text-[11px]">
-                    {formatHoldSource(profile.typicalHoldTimeSource)}
+                    Average: {formatHoldTime(profile.currentHoldAverageHours ?? typicalHold)}
                   </div>
-                  <div className="text-muted-foreground text-[11px]">
-                    Active median: {formatHoldTime(profile.currentHoldMedianHours)}
+                  <div className="text-muted-foreground text-[11px]" title="Active + exited mixes current holdings with exited positions">
+                    Source: {formatHoldSource(profile.typicalHoldTimeSource)}
                   </div>
                 </td>
                 <td className="px-4 py-2">
