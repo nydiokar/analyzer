@@ -730,7 +730,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           fetchAll: true,
           skipApi: false,
           fetchOlder: true,
-          maxSignatures: 2000,
+          maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES,
           smartFetch: true,
         };
         for (const addr of walletsNeedingSync) {
@@ -768,7 +768,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           fetchAll: true,
           skipApi: false,
           fetchOlder: true,
-          maxSignatures: 2000,
+          maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES,
           smartFetch: true,
         };
         for (const addr of walletsMissingData) {
@@ -905,7 +905,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         fetchAll: true,
         skipApi: false,
         fetchOlder: true,
-        maxSignatures: 2000, // Reasonable default for holder analysis
+        maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES, // Reasonable default for holder analysis
         smartFetch: true,
       };
       await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);

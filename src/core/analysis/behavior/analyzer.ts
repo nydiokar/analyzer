@@ -641,6 +641,11 @@ export class BehaviorAnalyzer {
     trades: TokenTrade[],
     peakPosition: number
   ): { exited: boolean; exitTimestamp: number | null } {
+    // If we never built a position (e.g., sell-only dust), we cannot mark an exit
+    if (peakPosition <= 0) {
+      return { exited: false, exitTimestamp: null };
+    }
+
     const exitThreshold = this.config.holdingThresholds?.exitThreshold ?? 0.20;
     const exitThresholdAmount = peakPosition * exitThreshold;
 
@@ -774,6 +779,8 @@ export class BehaviorAnalyzer {
 
     for (const seq of sequences) {
       const sortedTrades = [...seq.trades].sort((a, b) => a.timestamp - b.timestamp);
+      let skippedSellOnlyCycles = 0;
+      let processedCyclesForToken = 0;
 
       // Split trades into separate cycles whenever balance hits 0
       const cycles: TokenTrade[][] = [];
@@ -822,6 +829,15 @@ export class BehaviorAnalyzer {
 
       // Now build a lifecycle for each cycle
       for (const cycleTrades of cycles) {
+        const buyTradesInCycle = cycleTrades.filter(t => t.direction === 'in');
+        if (buyTradesInCycle.length === 0) {
+          // Ignore sell-only cycles (no entry means we cannot compute a hold/exit)
+          skippedSellOnlyCycles++;
+          continue;
+        }
+
+        processedCyclesForToken++;
+
         const peakPosition = this.calculatePeakPosition(cycleTrades);
         const exitInfo = this.detectPositionExit(cycleTrades, peakPosition);
 
@@ -883,7 +899,7 @@ export class BehaviorAnalyzer {
         );
 
         // Get entry timestamp (first buy in this cycle)
-        const entryTimestamp = Math.min(...cycleTrades.filter(t => t.direction === 'in').map(t => t.timestamp));
+        const entryTimestamp = Math.min(...buyTradesInCycle.map(t => t.timestamp));
 
         // Calculate total bought/sold for this cycle
         const totalBought = cycleTrades.filter(t => t.direction === 'in').reduce((sum, t) => sum + t.amount, 0);
@@ -906,6 +922,12 @@ export class BehaviorAnalyzer {
           buyCount,
           sellCount,
         });
+      }
+
+      if (skippedSellOnlyCycles > 0) {
+        this.logger.debug(
+          `Token ${seq.mint}: skipped ${skippedSellOnlyCycles} sell-only cycle(s); processed ${processedCyclesForToken} buy/sell cycle(s)`
+        );
       }
     }
 

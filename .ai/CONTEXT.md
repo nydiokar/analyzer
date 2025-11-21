@@ -379,30 +379,30 @@ Deliverable: synchronous endpoint that transforms similarity output into an LLM-
   - [ ] **Phase 1 (Backend - Enriched Hold Time Distribution)**: 2-3 days
     - **Goal**: Calculate aggregate win rate, PnL, and ROI for each exit timing bucket
     - [ ] **Data Architecture** (0.5 day):
-      - [ ] Create `EnrichedHoldTimeBucket` interface: `{ count, winRate, totalPnlSol, avgPnlSol, roiPercent, totalCapitalSol }`
-      - [ ] Extend `WalletHistoricalPattern.holdTimeDistribution` to use enriched buckets
-      - [ ] Update `HolderProfile` type to include enriched distribution
+      - [x] Create `EnrichedHoldTimeBucket` interface: `{ count, winRate, totalPnlSol, avgPnlSol, roiPercent, totalCapitalSol }`
+      - [x] Extend `WalletHistoricalPattern.holdTimeDistribution` to use enriched buckets
+      - [x] Update `HolderProfile` type to include enriched distribution
     - [ ] **Calculation Logic** (1.5 days):
-      - [ ] Modify `calculateHistoricalPattern()` in `BehaviorAnalyzer` to track aggregate PnL per bucket
-      - [ ] For each completed lifecycle: calculate PnL, classify into time bucket, accumulate metrics
-      - [ ] Calculate per-bucket: win rate (% profitable), total PnL, average PnL, ROI
-      - [ ] Handle edge cases: zero trades, all losses, missing data
+      - [x] Modify `calculateHistoricalPattern()` in `BehaviorAnalyzer` to track aggregate PnL per bucket
+      - [x] For each completed lifecycle: calculate PnL, classify into time bucket, accumulate metrics
+      - [x] Calculate per-bucket: win rate (% profitable), total PnL, average PnL, ROI
+      - [x] Handle edge cases: zero trades, all losses, missing data
     - [ ] **Integration & Testing** (1 day):
-      - [ ] Update `processAnalyzeHolderProfiles` to include enriched distribution
-      - [ ] Update cache layer to handle slightly larger payload (~2KB increase)
-      - [ ] Add unit tests for aggregate PnL calculation and win rate logic
+      - [x] Update `processAnalyzeHolderProfiles` to include enriched distribution
+      - [x] Update cache layer to handle slightly larger payload (~2KB increase)
+      - [x] Add unit tests for aggregate PnL calculation and win rate logic
 
-  - [ ] **Phase 2 (Frontend - Display WR & ROI per Cohort)**: 1 day
-    - [ ] Update `ExitTimingBreakdown` component to show cohort-level metrics
-    - [ ] Format display: `<1m 366 (5% WR, -40% ROI)` with color coding
-    - [ ] Green for positive ROI, red for negative, gray for neutral
-    - [ ] Add tooltips explaining WR and ROI (per cohort, not per token)
+  - [x] **Phase 2 (Frontend - Display WR & ROI per Cohort)**: 1 day
+    - [x] Update `ExitTimingBreakdown` component to show cohort-level metrics
+    - [x] Format display: `<1m 366 (5% WR, -40% ROI)` with color coding
+    - [x] Green for positive ROI, red for negative, gray for neutral
+    - [x] Add tooltips explaining WR and ROI (per cohort, not per token)
 
-  - [ ] **Phase 3 (Polish - Token List Panel UX)**: 0.5 day
-    - [ ] Review and polish ExitTimingDrilldownPanel appearance
-    - [ ] Improve token grid layout and spacing
-    - [ ] Optimize loading skeleton states
-    - [ ] Fine-tune mobile responsiveness
+  - [x] **Phase 3 (Polish - Token List Panel UX)**: 0.5 day
+    - [x] Review and polish ExitTimingDrilldownPanel appearance
+    - [x] Improve token grid layout and spacing
+    - [x] Optimize loading skeleton states
+    - [x] Fine-tune mobile responsiveness
 
 
 

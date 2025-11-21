@@ -18,6 +18,10 @@ const TRUSTED_GATEWAYS = [
   'cloudflare-ipfs.com',
   'arweave.net',
   'gateway.arweave.net',
+  'gateway.irys.xyz',
+  'metadata.retlie.com',
+  'moonitcdn.io',
+  'actionapp.mypinata.cloud',
 ];
 
 // Security error types (should not trigger retries)
