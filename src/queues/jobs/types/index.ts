@@ -214,6 +214,8 @@ export interface HolderProfile {
     uiBalance: number | null;
     decimals: number | null;
   }>;
+  oldestTransactionTimestamp?: number;
+  newestTransactionTimestamp?: number;
 }
 
 export interface HolderProfilesResult extends JobResult {

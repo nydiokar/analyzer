@@ -1049,6 +1049,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   ): Promise<HolderProfile> {
     const walletStartTime = Date.now();
 
+    const oldestTransactionTimestamp =
+      swapRecords.length > 0 ? swapRecords.reduce((min, r) => Math.min(min, r.timestamp), Infinity) : null;
+    const newestTransactionTimestamp =
+      swapRecords.length > 0 ? swapRecords.reduce((max, r) => Math.max(max, r.timestamp), -Infinity) : null;
+
     // If no swap records, return insufficient data
     if (swapRecords.length === 0) {
       return {
@@ -1080,6 +1085,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         dailyFlipRatioConfidence: 'NONE',
         currentHoldingsCount: null,
         currentHoldings: [],
+        oldestTransactionTimestamp,
+        newestTransactionTimestamp,
       };
     }
 
@@ -1193,6 +1200,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           dailyFlipRatioConfidence: 'NONE',
           currentHoldingsCount,
           currentHoldings,
+          oldestTransactionTimestamp,
+          newestTransactionTimestamp,
         };
       }
 
@@ -1266,6 +1275,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         percentValueInCurrentHoldings,
         currentHoldingsCount,
         currentHoldings,
+        oldestTransactionTimestamp,
+        newestTransactionTimestamp,
       };
     } catch (error) {
       this.logger.warn(`Error analyzing wallet ${walletAddress}:`, error);
@@ -1298,6 +1309,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         percentValueInCurrentHoldings: null,
         currentHoldingsCount: null,
         currentHoldings: currentHoldings,
+        oldestTransactionTimestamp,
+        newestTransactionTimestamp,
       };
     }
   }
