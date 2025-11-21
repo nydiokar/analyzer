@@ -6,12 +6,11 @@
  * Shows exactly how many tokens fall into each time bucket.
  */
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../core/services/database-service';
 import * as fs from 'fs';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
-const prisma = new PrismaClient();
 
 interface TokenHoldingTime {
   mint: string;

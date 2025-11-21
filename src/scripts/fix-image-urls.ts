@@ -9,9 +9,8 @@
  * npx ts-node -r tsconfig-paths/register src/scripts/fix-image-urls.ts
  */
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../core/services/database-service';
 
-const prisma = new PrismaClient();
 
 function extractRawUrl(url: string | null): string | null {
   if (!url) return null;

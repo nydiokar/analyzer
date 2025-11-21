@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../core/services/database-service';
 import { createLogger } from '../../core/utils/logger';
 
 // Set up logger
 const logger = createLogger('DbCleanupScript');
 
 // Initialize Prisma client
-const prisma = new PrismaClient();
 
 /**
  * Cleanup database tables safely using batched deletion

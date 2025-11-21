@@ -2,7 +2,7 @@ import { Controller, Get, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService, HttpHealthIndicator, HealthIndicatorResult } from '@nestjs/terminus';
 import { DatabaseService } from '../services/database.service';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../core/services/database-service';
 import { Public } from '../shared/decorators/public.decorator';
 import { QueueHealthService, OverallHealthStatus } from '../../queues/services/queue-health.service';
 
@@ -10,16 +10,14 @@ import { QueueHealthService, OverallHealthStatus } from '../../queues/services/q
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
-  private readonly prisma: PrismaClient;
+  private readonly prisma = prisma;
 
   constructor(
     private health: HealthCheckService,
     private http: HttpHealthIndicator,
     private readonly databaseService: DatabaseService,
     private readonly queueHealthService: QueueHealthService,
-  ) {
-    this.prisma = new PrismaClient();
-  }
+  ) {}
 
   @Get()
   @Public() // Health endpoint should be accessible without authentication

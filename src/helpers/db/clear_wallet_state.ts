@@ -34,12 +34,11 @@
  * npx ts-node bulk-data-fetcher.ts --addresses WALLET_ADDRESS --limit 100 --maxSignatures 10000
  */
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../core/services/database-service';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import readline from 'readline';
 
-const prisma = new PrismaClient();
 
 // Create readline interface for user input
 const rl = readline.createInterface({
