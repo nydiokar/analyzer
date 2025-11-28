@@ -3,6 +3,7 @@
 This document maps all log statements across the codebase, organized by layer (Core, API, Dashboard).
 
 > **Generated using AST-based extraction** - This ensures accurate parsing of TypeScript/JavaScript code.
+> **Log Level Summary**: ERROR (139), INFO (131), WARN (124), DEBUG (153), LOG (182)
 
 ## Layer: Core
 
@@ -10,83 +11,83 @@ This document maps all log statements across the codebase, organized by layer (C
 
 | Component | Log Statement | Log Level | Line | Description |
 |-----------|---------------|-----------|------|-------------|
-| analyzer.ts | `'AdvancedStatsAnalyzer instantiated.'` | DEBUG | 16 | AdvancedStatsAnalyzer instantiated. |
-| analyzer.ts | `'SwapAnalyzer instantiated.'` | DEBUG | 20 | SwapAnalyzer instantiated. |
-| analyzer.ts | ``Starting similarity analysis for ${walletAddresses.length} wallets using ${vectorType} vectors.`` | INFO | 21 | Starting similarity analysis for ${...} |
-| analyzer.ts | `'Less than 2 wallets provided, skipping similarity calculation.'` | WARN | 24 | Less than 2 wallets provided, |
-| analyzer.ts | `'[AdvancedStatsAnalyzer] Cannot calculate advanced stats: No analysis results provided.'` | WARN | 30 | [AdvancedStatsAnalyzer] Cannot calculate advanced stats: |
-| analyzer.ts | ``No relevant tokens found for vector type ${vectorType}. Skipping similarity.`` | WARN | 31 | No relevant tokens found for |
-| analyzer.ts | ``[SwapAnalyzer] Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletA` | DEBUG | 41 | [SwapAnalyzer] Analyzing ${...} pre-processed swap |
-| analyzer.ts | `'Less than 2 wallets have valid vector data after creation. Skipping similarity matrix calculation.'` | WARN | 44 | Less than 2 wallets have |
-| analyzer.ts | `"No transactions provided for global token stats calculation."` | WARN | 44 | No transactions provided for global |
-| analyzer.ts | ``Filtered out ${swapInputs.length - filteredSwapInputs.length} records with 'BURN' interaction type ` | DEBUG | 46 | Filtered out ${...} records with |
-| analyzer.ts | `'Similarity analysis completed.'` | INFO | 52 | Similarity analysis completed. |
-| analyzer.ts | ``[AdvancedStatsAnalyzer] Median PnL Calc: Found ${nz_n} tokens with non-zero PnL out of ${n} total.`` | DEBUG | 60 | [AdvancedStatsAnalyzer] Median PnL Calc: Found |
-| analyzer.ts | ``[SwapAnalyzer] Skipping input record for signature ${input.signature} belonging to unexpected walle` | WARN | 67 | [SwapAnalyzer] Skipping input record for |
-| analyzer.ts | ``Global token analysis: ${globalStats.totalUniqueTokens} unique, ${globalStats.totalPopularTokens} p` | INFO | 68 | Global token analysis: ${...} unique, |
-| analyzer.ts | `"All tokens identified as popular. Correlation based on non-obvious tokens might not yield results. ` | WARN | 70 | All tokens identified as popular. |
-| analyzer.ts | `'[AdvancedStatsAnalyzer] Median PnL is 0 because no tokens with non-zero P/L were found.'` | INFO | 72 | [AdvancedStatsAnalyzer] Median PnL is 0 |
-| analyzer.ts | `'[AdvancedStatsAnalyzer] Not enough data points to trim for mean PnL, using overall mean.'` | DEBUG | 83 | [AdvancedStatsAnalyzer] Not enough data points |
-| analyzer.ts | ``Starting correlation analysis for ${wallets.length} wallets. Sync window: ${this.config.syncTimeWin` | INFO | 86 | Starting correlation analysis for ${...} |
-| analyzer.ts | `'[createCapitalAllocationVectors] Creating vectors based on % capital allocation...'` | DEBUG | 99 | [createCapitalAllocationVectors] Creating vectors based on |
-| analyzer.ts | ``- Wallet ${walletAddress}: No 'in' transactions for capital allocation vector.`` | DEBUG | 114 | - Wallet ${...}: No in |
-| analyzer.ts | ``- Wallet ${walletAddress}: Total SOL invested is 0, capital allocation vector remains zeros.`` | DEBUG | 132 | - Wallet ${...}: Total SOL |
-| analyzer.ts | ``[SwapAnalyzer] Aggregated data for ${analysisBySplMint.size} unique SPL tokens across ${processedSi` | DEBUG | 135 | [SwapAnalyzer] Aggregated data for ${...} |
-| analyzer.ts | ``[AdvancedStatsAnalyzer] Trading Intensity: ${overallNetPnl.toFixed(2)} SOL / ${totalTokens} tokens ` | DEBUG | 135 | [AdvancedStatsAnalyzer] Trading Intensity: ${...} SOL |
-| analyzer.ts | `'[AdvancedStatsAnalyzer] Calculated advanced trading stats.'` | DEBUG | 137 | [AdvancedStatsAnalyzer] Calculated advanced trading stats. |
-| analyzer.ts | `'[createBinaryTokenVectors] Creating vectors based on token presence (1/0)...'` | DEBUG | 143 | [createBinaryTokenVectors] Creating vectors based on |
-| analyzer.ts | ``[SwapAnalyzer] Stablecoin ${splMint}: Net amount = ${netAmountChange.toFixed(2)}, Value = ${stablec` | DEBUG | 161 | [SwapAnalyzer] Stablecoin ${...}: Net amount |
-| analyzer.ts | `'Cannot calculate cosine similarity matrix with zero dimensions.'` | WARN | 164 | Cannot calculate cosine similarity matrix |
-| analyzer.ts | ``Pairwise analysis completed. Found ${correlatedPairs.length} pairs meeting score > 0 threshold.`` | INFO | 168 | Pairwise analysis completed. Found ${...} |
-| analyzer.ts | ``[SwapAnalyzer] Final analysis complete. Generated ${finalResults.length} results (after filtering W` | DEBUG | 186 | [SwapAnalyzer] Final analysis complete. Generated |
-| analyzer.ts | ``[SwapAnalyzer] Total stablecoin value: ${totalStablecoinValue.toFixed(2)} SOL`` | DEBUG | 189 | [SwapAnalyzer] Total stablecoin value: ${...} |
-| analyzer.ts | ``[SwapAnalyzer] Net SOL flow to stablecoins: ${totalStablecoinNetFlow.toFixed(2)} SOL`` | DEBUG | 190 | [SwapAnalyzer] Net SOL flow to |
-| analyzer.ts | ``Built ${clusters.length} wallet clusters (>= 3 members, min pair score: ${this.config.minClusterSco` | INFO | 262 | Built ${...} wallet clusters (>= |
-| analyzer.ts | `'[createHoldingsPresenceVectors] Creating binary vectors based on current token holdings...'` | DEBUG | 322 | [createHoldingsPresenceVectors] Creating binary vectors based |
+| analyzer.ts | `'AdvancedStatsAnalyzer instantiated.'` | DEBUG | 16 | Component initialization - AdvancedStatsAnalyzer created |
+| analyzer.ts | `'SwapAnalyzer instantiated.'` | DEBUG | 20 | Component initialization - SwapAnalyzer created |
+| analyzer.ts | ``Starting similarity analysis for ${walletAddresses.length} wallets using ${vectorType} vectors.`` | INFO | 21 | Beginning wallet similarity comparison process |
+| analyzer.ts | `'Less than 2 wallets provided, skipping similarity calculation.'` | WARN | 24 | Insufficient wallets for meaningful similarity analysis |
+| analyzer.ts | `'[AdvancedStatsAnalyzer] Cannot calculate advanced stats: No analysis results provided.'` | WARN | 30 | Advanced statistics calculation skipped due to missing data |
+| analyzer.ts | ``No relevant tokens found for vector type ${vectorType}. Skipping similarity.`` | WARN | 31 | Similarity analysis cannot proceed without qualifying tokens |
+| analyzer.ts | ``[SwapAnalyzer] Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletA` | DEBUG | 41 | Processing swap transaction data for wallet analysis |
+| analyzer.ts | `'Less than 2 wallets have valid vector data after creation. Skipping similarity matrix calculation.'` | WARN | 44 | Insufficient valid wallet data for similarity matrix |
+| analyzer.ts | `"No transactions provided for global token stats calculation."` | WARN | 44 | Global token statistics unavailable due to missing transactions |
+| analyzer.ts | ``Filtered out ${swapInputs.length - filteredSwapInputs.length} records with 'BURN' interaction type ` | DEBUG | 46 | Removed burn transactions from analysis dataset |
+| analyzer.ts | `'Similarity analysis completed.'` | INFO | 52 | Wallet similarity comparison process finished |
+| analyzer.ts | ``[AdvancedStatsAnalyzer] Median PnL Calc: Found ${nz_n} tokens with non-zero PnL out of ${n} total.`` | DEBUG | 60 | Calculating median profit/loss across profitable tokens |
+| analyzer.ts | ``[SwapAnalyzer] Skipping input record for signature ${input.signature} belonging to unexpected walle` | WARN | 67 | Excluding transaction from unexpected wallet address |
+| analyzer.ts | ``Global token analysis: ${globalStats.totalUniqueTokens} unique, ${globalStats.totalPopularTokens} p` | INFO | 68 | Summary of token ecosystem analysis results |
+| analyzer.ts | `"All tokens identified as popular. Correlation based on non-obvious tokens might not yield results. ` | WARN | 70 | Token diversity too low for meaningful correlation analysis |
+| analyzer.ts | `'[AdvancedStatsAnalyzer] Median PnL is 0 because no tokens with non-zero P/L were found.'` | INFO | 72 | No profitable trades found in the analyzed dataset |
+| analyzer.ts | `'[AdvancedStatsAnalyzer] Not enough data points to trim for mean PnL, using overall mean.'` | DEBUG | 83 | Insufficient data for statistical trimming, using basic average |
+| analyzer.ts | ``Starting correlation analysis for ${wallets.length} wallets. Sync window: ${this.config.syncTimeWin` | INFO | 86 | Beginning wallet correlation pattern detection |
+| analyzer.ts | `'[createCapitalAllocationVectors] Creating vectors based on % capital allocation...'` | DEBUG | 99 | Generating capital distribution vectors for wallets |
+| analyzer.ts | ``- Wallet ${walletAddress}: No 'in' transactions for capital allocation vector.`` | DEBUG | 114 | Wallet has no capital inflows for allocation analysis |
+| analyzer.ts | ``- Wallet ${walletAddress}: Total SOL invested is 0, capital allocation vector remains zeros.`` | DEBUG | 132 | Wallet shows no investment activity |
+| analyzer.ts | ``[SwapAnalyzer] Aggregated data for ${analysisBySplMint.size} unique SPL tokens across ${processedSi` | DEBUG | 135 | Consolidating token-specific trading data across wallets |
+| analyzer.ts | ``[AdvancedStatsAnalyzer] Trading Intensity: ${overallNetPnl.toFixed(2)} SOL / ${totalTokens} tokens ` | DEBUG | 135 | Measuring overall trading activity level |
+| analyzer.ts | `'[AdvancedStatsAnalyzer] Calculated advanced trading stats.'` | DEBUG | 137 | Completed advanced statistical calculations |
+| analyzer.ts | `'[createBinaryTokenVectors] Creating vectors based on token presence (1/0)...'` | DEBUG | 143 | Generating binary token ownership vectors |
+| analyzer.ts | ``[SwapAnalyzer] Stablecoin ${splMint}: Net amount = ${netAmountChange.toFixed(2)}, Value = ${stablec` | DEBUG | 161 | Analyzing stablecoin position changes |
+| analyzer.ts | `'Cannot calculate cosine similarity matrix with zero dimensions.'` | WARN | 164 | Similarity calculation failed due to empty dataset |
+| analyzer.ts | ``Pairwise analysis completed. Found ${correlatedPairs.length} pairs meeting score > 0 threshold.`` | INFO | 168 | Wallet correlation analysis finished with results |
+| analyzer.ts | ``[SwapAnalyzer] Final analysis complete. Generated ${finalResults.length} results (after filtering W` | DEBUG | 186 | Swap analysis processing completed successfully |
+| analyzer.ts | ``[SwapAnalyzer] Total stablecoin value: ${totalStablecoinValue.toFixed(2)} SOL`` | DEBUG | 189 | Summary of stablecoin holdings value |
+| analyzer.ts | ``[SwapAnalyzer] Net SOL flow to stablecoins: ${totalStablecoinNetFlow.toFixed(2)} SOL`` | DEBUG | 190 | Net movement of SOL into stablecoin positions |
+| analyzer.ts | ``Built ${clusters.length} wallet clusters (>= 3 members, min pair score: ${this.config.minClusterSco` | INFO | 262 | Successfully identified wallet trading clusters |
+| analyzer.ts | `'[createHoldingsPresenceVectors] Creating binary vectors based on current token holdings...'` | DEBUG | 322 | Generating current portfolio composition vectors |
 
 ### Component: behavior-service.ts
 
 | Component | Log Statement | Log Level | Line | Description |
 |-----------|---------------|-----------|------|-------------|
-| behavior-service.ts | `'BehaviorService instantiated'` | DEBUG | 18 | BehaviorService instantiated |
-| behavior-service.ts | ``Analyzing trading behavior for wallet ${walletAddress}`` | DEBUG | 35 | Analyzing trading behavior for wallet |
-| behavior-service.ts | ``No swap records found for wallet ${walletAddress} within the specified time range.`` | WARN | 42 | No swap records found for |
-| behavior-service.ts | ``Fetching full history for ${walletAddress} to calculate historical pattern independently of the req` | DEBUG | 50 | Fetching full history for ${...} |
-| behavior-service.ts | ``Failed to upsert WalletBehaviorProfile for ${walletAddress}`` | ERROR | 146 | Failed to upsert WalletBehaviorProfile for |
-| behavior-service.ts | ``Skipping WalletBehaviorProfile upsert for ${walletAddress} because a specific timeRange was provide` | INFO | 151 | Skipping WalletBehaviorProfile upsert for ${...} |
-| behavior-service.ts | ``Completed behavior analysis for ${walletAddress}`` | INFO | 155 | Completed behavior analysis for ${...} |
-| behavior-service.ts | ``Error analyzing behavior for wallet ${walletAddress}:`` | ERROR | 159 | Error analyzing behavior for wallet |
+| behavior-service.ts | `'BehaviorService instantiated'` | DEBUG | 18 | Behavior analysis service initialized |
+| behavior-service.ts | ``Analyzing trading behavior for wallet ${walletAddress}`` | DEBUG | 35 | Examining wallet trading patterns and habits |
+| behavior-service.ts | ``No swap records found for wallet ${walletAddress} within the specified time range.`` | WARN | 42 | Wallet has no trading activity in the requested period |
+| behavior-service.ts | ``Fetching full history for ${walletAddress} to calculate historical pattern independently of the req` | DEBUG | 50 | Retrieving complete transaction history for pattern analysis |
+| behavior-service.ts | ``Failed to upsert WalletBehaviorProfile for ${walletAddress}`` | ERROR | 146 | Database save failed for wallet behavior profile |
+| behavior-service.ts | ``Skipping WalletBehaviorProfile upsert for ${walletAddress} because a specific timeRange was provide` | INFO | 151 | Behavior profile update bypassed due to time range specificity |
+| behavior-service.ts | ``Completed behavior analysis for ${walletAddress}`` | INFO | 155 | Wallet behavior pattern analysis finished successfully |
+| behavior-service.ts | ``Error analyzing behavior for wallet ${walletAddress}:`` | ERROR | 159 | Behavior analysis failed due to processing error |
 
 ### Component: bot.ts
 
 | Component | Log Statement | Log Level | Line | Description |
 |-----------|---------------|-----------|------|-------------|
-| bot.ts | `'WARN: ALLOWED_TELEGRAM_USER_IDS is not configured or empty in .env. ' + 'The bot will not respond t` | WARN | 19 | WARN: ALLOWED_TELEGRAM_USER_IDS is not configured |
-| bot.ts | ``Bot access restricted to User IDs: ${ALLOWED_USER_IDS.join(', ')}`` | INFO | 25 | Bot access restricted to User |
-| bot.ts | ``Admin notifications for unauthorized attempts will be sent to User ID: ${ADMIN_TELEGRAM_ID}`` | INFO | 29 | Admin notifications for unauthorized attempts |
-| bot.ts | `'Initializing bot with token prefix:'` | INFO | 48 | Initializing bot with token prefix: |
-| bot.ts | `'HELIUS_API_KEY is not configured. RPC fallback for transactions will not work.'` | WARN | 50 | HELIUS_API_KEY is not configured. RPC |
-| bot.ts | `'Error in bot constructor:'` | ERROR | 62 | Error in bot constructor: |
-| bot.ts | ``Authorized access by user: ${ctx.from.id} (${ctx.from.username})`` | DEBUG | 76 | Authorized access by user: ${...} |
-| bot.ts | ``Unauthorized access attempt by User ID: ${userId} (${username})`` | WARN | 81 | Unauthorized access attempt by User |
-| bot.ts | `"Failed to send unauthorized access notification to admin:"` | ERROR | 97 | Failed to send unauthorized access |
-| bot.ts | ``/start command received from user ID: ${ctx.from.id}`` | INFO | 112 | /start command received from user |
-| bot.ts | ``/correlation_analysis command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 121 | /correlation_analysis command from user ID: |
-| bot.ts | ``/correlation_analysis command received without text content from user ID: ${userId} or in unsupport` | WARN | 193 | /correlation_analysis command received without text |
-| bot.ts | ``/analyze_behavior command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 201 | /analyze_behavior command from user ID: |
-| bot.ts | ``/analyze_advanced command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 241 | /analyze_advanced command from user ID: |
-| bot.ts | ``/pnl_overview command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 329 | /pnl_overview command from user ID: |
-| bot.ts | ``/pnl_overview command received without text content from user ID: ${userId} or in unsupported conte` | WARN | 340 | /pnl_overview command received without text |
-| bot.ts | ``/behavior_summary command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 348 | /behavior_summary command from user ID: |
-| bot.ts | ``/behavior_summary command received without text content from user ID: ${userId} or in unsupported c` | WARN | 359 | /behavior_summary command received without text |
-| bot.ts | ``/help command received from user ID: ${ctx.from.id}`` | INFO | 365 | /help command received from user |
-| bot.ts | ``Document received from user ID: ${userId}, Filename: ${document.file_name}, MIME: ${document.mime_t` | INFO | 375 | Document received from user ID: |
-| bot.ts | `'CSV parsing errors:'` | WARN | 402 | CSV parsing errors: |
-| bot.ts | `'Error processing uploaded CSV file:'` | ERROR | 443 | Error processing uploaded CSV file: |
-| bot.ts | `'Bot commands setup completed.'` | INFO | 448 | Bot commands setup completed. |
-| bot.ts | `'Error setting up bot commands:'` | ERROR | 450 | Error setting up bot commands: |
-| bot.ts | `'Starting Wallet Analysis Bot...'` | INFO | 461 | Starting Wallet Analysis Bot... |
-| bot.ts | `'Wallet Analysis Bot successfully launched and connected to Telegram.'` | INFO | 465 | Wallet Analysis Bot successfully launched |
+| bot.ts | `'WARN: ALLOWED_TELEGRAM_USER_IDS is not configured or empty in .env. ' + 'The bot will not respond t` | WARN | 19 | Bot security configuration incomplete - no authorized users defined |
+| bot.ts | ``Bot access restricted to User IDs: ${ALLOWED_USER_IDS.join(', ')}`` | INFO | 25 | Access control activated for approved Telegram users |
+| bot.ts | ``Admin notifications for unauthorized attempts will be sent to User ID: ${ADMIN_TELEGRAM_ID}`` | INFO | 29 | Security monitoring enabled for admin alerts |
+| bot.ts | `'Initializing bot with token prefix:'` | INFO | 48 | Telegram bot connection being established |
+| bot.ts | `'HELIUS_API_KEY is not configured. RPC fallback for transactions will not work.'` | WARN | 50 | Advanced transaction fetching unavailable due to missing API key |
+| bot.ts | `'Error in bot constructor:'` | ERROR | 62 | Bot initialization failed during startup |
+| bot.ts | ``Authorized access by user: ${ctx.from.id} (${ctx.from.username})`` | DEBUG | 76 | User authentication successful for bot access |
+| bot.ts | ``Unauthorized access attempt by User ID: ${userId} (${username})`` | WARN | 81 | Security alert: blocked access from unauthorized user |
+| bot.ts | `"Failed to send unauthorized access notification to admin:"` | ERROR | 97 | Admin security notification delivery failed |
+| bot.ts | ``/start command received from user ID: ${ctx.from.id}`` | INFO | 112 | User initiated bot interaction session |
+| bot.ts | ``/correlation_analysis command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 121 | Wallet correlation analysis request received |
+| bot.ts | ``/correlation_analysis command received without text content from user ID: ${userId} or in unsupport` | WARN | 193 | Invalid correlation analysis request - missing wallet data |
+| bot.ts | ``/analyze_behavior command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 201 | Trading behavior analysis request received |
+| bot.ts | ``/analyze_advanced command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 241 | Advanced wallet analysis request received |
+| bot.ts | ``/pnl_overview command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 329 | Profit/loss summary request received |
+| bot.ts | ``/pnl_overview command received without text content from user ID: ${userId} or in unsupported conte` | WARN | 340 | Invalid P&L overview request - missing wallet data |
+| bot.ts | ``/behavior_summary command from user ID: ${userId}, message: ${ctx.message.text}`` | INFO | 348 | Behavior summary report request received |
+| bot.ts | ``/behavior_summary command received without text content from user ID: ${userId} or in unsupported c` | WARN | 359 | Invalid behavior summary request - missing wallet data |
+| bot.ts | ``/help command received from user ID: ${ctx.from.id}`` | INFO | 365 | User requested command help information |
+| bot.ts | ``Document received from user ID: ${userId}, Filename: ${document.file_name}, MIME: ${document.mime_t` | INFO | 375 | CSV data file uploaded for batch analysis |
+| bot.ts | `'CSV parsing errors:'` | WARN | 402 | Issues detected while processing uploaded CSV data |
+| bot.ts | `'Error processing uploaded CSV file:'` | ERROR | 443 | CSV file analysis failed due to processing error |
+| bot.ts | `'Bot commands setup completed.'` | INFO | 448 | Telegram bot command handlers registered successfully |
+| bot.ts | `'Error setting up bot commands:'` | ERROR | 450 | Bot command registration failed |
+| bot.ts | `'Starting Wallet Analysis Bot...'` | INFO | 461 | Launching Telegram wallet analysis service |
+| bot.ts | `'Wallet Analysis Bot successfully launched and connected to Telegram.'` | INFO | 465 | Bot operational and connected to Telegram API |
 | bot.ts | `'Failed to launch the bot:'` | ERROR | 467 | Failed to launch the bot: |
 | bot.ts | `'Error 409 Conflict: Another instance of the bot might be running with the same token.'` | ERROR | 470 | Error 409 Conflict: Another instance |
 | bot.ts | ``Stopping bot due to ${signal} signal...`` | INFO | 486 | Stopping bot due to ${...} |
@@ -96,134 +97,134 @@ This document maps all log statements across the codebase, organized by layer (C
 
 | Component | Log Statement | Log Level | Line | Description |
 |-----------|---------------|-----------|------|-------------|
-| cliUtils.ts | ``Invalid start date format: ${startDate}. Ignoring start date.`` | WARN | 27 | Invalid start date format: ${...}. |
-| cliUtils.ts | ``Invalid end date format: ${endDate}. Ignoring end date.`` | WARN | 39 | Invalid end date format: ${...}. |
-| cliUtils.ts | ``Applying time range filter: Start=${timeRange.startTs ? new Date(timeRange.startTs*1000).toISOStrin` | INFO | 52 | Applying time range filter: Start=${...}, |
+| cliUtils.ts | ``Invalid start date format: ${startDate}. Ignoring start date.`` | WARN | 27 | Start date parameter malformed - using default range |
+| cliUtils.ts | ``Invalid end date format: ${endDate}. Ignoring end date.`` | WARN | 39 | End date parameter malformed - using default range |
+| cliUtils.ts | ``Applying time range filter: Start=${timeRange.startTs ? new Date(timeRange.startTs*1000).toISOStrin` | INFO | 52 | Time-based data filtering activated for analysis |
 
 ### Component: commands.ts
 
 | Component | Log Statement | Log Level | Line | Description |
 |-----------|---------------|-----------|------|-------------|
-| commands.ts | `'WalletAnalysisCommands initialized with HeliusSyncService.'` | INFO | 79 | WalletAnalysisCommands initialized with HeliusSyncService. |
-| commands.ts | `'Failed to initialize HeliusSyncService even with API client:'` | ERROR | 81 | Failed to initialize HeliusSyncService even |
-| commands.ts | `'WalletAnalysisCommands initialized WITHOUT a Helius API client. HeliusSyncService is not available.` | WARN | 86 | WalletAnalysisCommands initialized WITHOUT a Helius |
-| commands.ts | `'Failed to initialize bot system user for activity logging:'` | ERROR | 114 | Failed to initialize bot system |
-| commands.ts | `'Bot system user (\'' + BOT_SYSTEM_USER_DESCRIPTION + '\') not found, creating one...'` | INFO | 125 | Bot system user (\ + |
-| commands.ts | `'Bot system user created with ID: ' + botUser.id` | INFO | 129 | Bot system user created with |
-| commands.ts | `'Failed to create bot system user.'` | ERROR | 131 | Failed to create bot system |
-| commands.ts | `'Found existing bot system user with ID: ' + botUser.id` | INFO | 135 | Found existing bot system user |
-| commands.ts | `'Error initializing bot system user:'` | ERROR | 140 | Error initializing bot system user: |
-| commands.ts | `'Failed to create initial activity log for analyzeWallets:'` | ERROR | 182 | Failed to create initial activity |
-| commands.ts | ``Failed to sync wallet ${walletAddress}: ${error.message}`` | ERROR | 246 | Failed to sync wallet ${...}: |
-| commands.ts | ``Sync progress: ${currentProgress}% (${syncOperationsCompleted}/${initialWallets.length})`` | INFO | 256 | Sync progress: ${...}% (${...}/${...}) |
-| commands.ts | ``Retrieved and prepared ${finalInputsForAnalysis.length} SwapAnalysisInput records for ${walletAddre` | INFO | 282 | Retrieved and prepared ${...} SwapAnalysisInput |
-| commands.ts | ``No relevant transactions available for ${walletAddress} after full data pipeline.`` | WARN | 294 | No relevant transactions available for |
-| commands.ts | ``Failed to fetch/process DB data for ${walletAddress} after sync: ${dbError.message}`` | ERROR | 297 | Failed to fetch/process DB data |
-| commands.ts | `'A sync promise itself rejected unexpectedly:'` | ERROR | 304 | A sync promise itself rejected |
-| commands.ts | ``Prepared ${correlatorTxsForWallet.length} CorrelatorTransactionData records for ${walletAddress} (p` | DEBUG | 374 | Prepared ${...} CorrelatorTransactionData records for |
-| commands.ts | ``No relevant (post-mint-filter) transactions for ${walletAddress} although it passed bot filter and ` | WARN | 376 | No relevant (post-mint-filter) transactions for |
-| commands.ts | `'Error sending a part of Telegram report:'` | ERROR | 463 | Error sending a part of |
-| commands.ts | ``Successfully sent wallet analysis report in ${reportMessages.length} part(s).`` | INFO | 468 | Successfully sent wallet analysis report |
-| commands.ts | `'Error in analyzeWallets (top level):'` | ERROR | 472 | Error in analyzeWallets (top level): |
-| commands.ts | `'Failed to create final activity log for analyzeWallets:'` | ERROR | 497 | Failed to create final activity |
-| commands.ts | ``Filtering out wallet ${wallet.address} due to exceeding ${maxDailyPurchasedTokens} unique *purchase` | DEBUG | 547 | Filtering out wallet ${...} due |
-| commands.ts | ``[analyzeWalletBehavior] HeliusSyncService not available for ${walletAddress}, skipping sync. API cl` | WARN | 587 | [analyzeWalletBehavior] HeliusSyncService not available for |
-| commands.ts | ``Error in analyzeWalletBehavior for ${walletAddress}:`` | ERROR | 606 | Error in analyzeWalletBehavior for ${...}: |
-| commands.ts | ``CRITICAL: Top-level command handler error in analyzeWalletBehavior for ${walletAddress}:`` | ERROR | 613 | CRITICAL: Top-level command handler error |
-| commands.ts | ``Processing for analyzeWalletBehavior on ${walletAddress} completed with status: ${analysisStatus}. ` | INFO | 626 | Processing for analyzeWalletBehavior on ${...} |
-| commands.ts | ``[analyzeAdvancedStats] HeliusSyncService not available for ${walletAddress}, skipping sync. API cli` | WARN | 658 | [analyzeAdvancedStats] HeliusSyncService not available for |
-| commands.ts | ``Error in analyzeAdvancedStats for ${walletAddress}:`` | ERROR | 699 | Error in analyzeAdvancedStats for ${...}: |
-| commands.ts | ``CRITICAL: Top-level command handler error in analyzeAdvancedStats for ${walletAddress}:`` | ERROR | 705 | CRITICAL: Top-level command handler error |
-| commands.ts | ``Processing for analyzeAdvancedStats on ${walletAddress} completed with status: ${analysisStatus}. D` | INFO | 716 | Processing for analyzeAdvancedStats on ${...} |
-| commands.ts | `'Failed to create initial activity log for getPnlOverview:'` | ERROR | 755 | Failed to create initial activity |
-| commands.ts | ``Error in PNL logic for ${walletAddress}:`` | ERROR | 775 | Error in PNL logic for |
-| commands.ts | ``CRITICAL: Top-level command handler error in getPnlOverview for ${walletAddress}:`` | ERROR | 782 | CRITICAL: Top-level command handler error |
-| commands.ts | ``Processing for getPnlOverview on ${walletAddress} completed (no activityLogId or bot user not init)` | INFO | 809 | Processing for getPnlOverview on ${...} |
-| commands.ts | `'Failed to create initial activity log for getBehaviorSummary:'` | ERROR | 844 | Failed to create initial activity |
-| commands.ts | ``Error in behavior summary logic for ${walletAddress}:`` | ERROR | 862 | Error in behavior summary logic |
-| commands.ts | ``CRITICAL: Top-level command handler error in getBehaviorSummary for ${walletAddress}:`` | ERROR | 868 | CRITICAL: Top-level command handler error |
-| commands.ts | ``Processing for getBehaviorSummary on ${walletAddress} completed (no activityLogId or bot user not i` | INFO | 892 | Processing for getBehaviorSummary on ${...} |
+| commands.ts | `'WalletAnalysisCommands initialized with HeliusSyncService.'` | INFO | 79 | Command system ready with advanced transaction syncing |
+| commands.ts | `'Failed to initialize HeliusSyncService even with API client:'` | ERROR | 81 | Advanced syncing service failed to start despite API access |
+| commands.ts | `'WalletAnalysisCommands initialized WITHOUT a Helius API client. HeliusSyncService is not available.` | WARN | 86 | Limited functionality - advanced syncing unavailable |
+| commands.ts | `'Failed to initialize bot system user for activity logging:'` | ERROR | 114 | Activity tracking system user creation failed |
+| commands.ts | `'Bot system user (\'' + BOT_SYSTEM_USER_DESCRIPTION + '\') not found, creating one...'` | INFO | 125 | Setting up automated activity logging account |
+| commands.ts | `'Bot system user created with ID: ' + botUser.id` | INFO | 129 | Activity logging system user established |
+| commands.ts | `'Failed to create bot system user.'` | ERROR | 131 | Automated activity logging setup failed |
+| commands.ts | `'Found existing bot system user with ID: ' + botUser.id` | INFO | 135 | Activity logging system already configured |
+| commands.ts | `'Error initializing bot system user:'` | ERROR | 140 | Activity tracking system initialization error |
+| commands.ts | `'Failed to create initial activity log for analyzeWallets:'` | ERROR | 182 | Analysis session logging failed to start |
+| commands.ts | ``Failed to sync wallet ${walletAddress}: ${error.message}`` | ERROR | 246 | Wallet data synchronization failed |
+| commands.ts | ``Sync progress: ${currentProgress}% (${syncOperationsCompleted}/${initialWallets.length})`` | INFO | 256 | Multi-wallet synchronization status update |
+| commands.ts | ``Retrieved and prepared ${finalInputsForAnalysis.length} SwapAnalysisInput records for ${walletAddre` | INFO | 282 | Wallet transaction data ready for analysis |
+| commands.ts | ``No relevant transactions available for ${walletAddress} after full data pipeline.`` | WARN | 294 | Wallet has no analyzable trading activity |
+| commands.ts | ``Failed to fetch/process DB data for ${walletAddress} after sync: ${dbError.message}`` | ERROR | 297 | Database query failed after successful sync |
+| commands.ts | `'A sync promise itself rejected unexpectedly:'` | ERROR | 304 | Synchronization process crashed unexpectedly |
+| commands.ts | ``Prepared ${correlatorTxsForWallet.length} CorrelatorTransactionData records for ${walletAddress} (p` | DEBUG | 374 | Correlation analysis data prepared for wallet |
+| commands.ts | ``No relevant (post-mint-filter) transactions for ${walletAddress} although it passed bot filter and ` | WARN | 376 | Wallet cleared initial filters but has no tradable activity |
+| commands.ts | `'Error sending a part of Telegram report:'` | ERROR | 463 | Report delivery failed to Telegram |
+| commands.ts | ``Successfully sent wallet analysis report in ${reportMessages.length} part(s).`` | INFO | 468 | Complete analysis results delivered to user |
+| commands.ts | `'Error in analyzeWallets (top level):'` | ERROR | 472 | Multi-wallet analysis process failed |
+| commands.ts | `'Failed to create final activity log for analyzeWallets:'` | ERROR | 497 | Analysis session logging failed to complete |
+| commands.ts | ``Filtering out wallet ${wallet.address} due to exceeding ${maxDailyPurchasedTokens} unique *purchase` | DEBUG | 547 | Removing high-frequency trading account from analysis |
+| commands.ts | ``[analyzeWalletBehavior] HeliusSyncService not available for ${walletAddress}, skipping sync. API cl` | WARN | 587 | Behavior analysis using cached data only |
+| commands.ts | ``Error in analyzeWalletBehavior for ${walletAddress}:`` | ERROR | 606 | Trading pattern analysis failed for wallet |
+| commands.ts | ``CRITICAL: Top-level command handler error in analyzeWalletBehavior for ${walletAddress}:`` | ERROR | 613 | Behavior analysis command crashed |
+| commands.ts | ``Processing for analyzeWalletBehavior on ${walletAddress} completed with status: ${analysisStatus}. ` | INFO | 626 | Behavior analysis finished with status report |
+| commands.ts | ``[analyzeAdvancedStats] HeliusSyncService not available for ${walletAddress}, skipping sync. API cli` | WARN | 658 | Advanced statistics using cached data only |
+| commands.ts | ``Error in analyzeAdvancedStats for ${walletAddress}:`` | ERROR | 699 | Advanced statistical analysis failed |
+| commands.ts | ``CRITICAL: Top-level command handler error in analyzeAdvancedStats for ${walletAddress}:`` | ERROR | 705 | Advanced stats command crashed |
+| commands.ts | ``Processing for analyzeAdvancedStats on ${walletAddress} completed with status: ${analysisStatus}. D` | INFO | 716 | Advanced statistics analysis completed |
+| commands.ts | `'Failed to create initial activity log for getPnlOverview:'` | ERROR | 755 | P&L report session logging failed to start |
+| commands.ts | ``Error in PNL logic for ${walletAddress}:`` | ERROR | 775 | Profit/loss calculation failed |
+| commands.ts | ``CRITICAL: Top-level command handler error in getPnlOverview for ${walletAddress}:`` | ERROR | 782 | P&L overview command crashed |
+| commands.ts | ``Processing for getPnlOverview on ${walletAddress} completed (no activityLogId or bot user not init)` | INFO | 809 | P&L summary completed despite logging issues |
+| commands.ts | `'Failed to create initial activity log for getBehaviorSummary:'` | ERROR | 844 | Behavior summary session logging failed |
+| commands.ts | ``Error in behavior summary logic for ${walletAddress}:`` | ERROR | 862 | Behavior summary calculation failed |
+| commands.ts | ``CRITICAL: Top-level command handler error in getBehaviorSummary for ${walletAddress}:`` | ERROR | 868 | Behavior summary command crashed |
+| commands.ts | ``Processing for getBehaviorSummary on ${walletAddress} completed (no activityLogId or bot user not i` | INFO | 892 | Behavior summary completed despite logging issues |
 
 ### Component: correlation-service.ts
 
 | Component | Log Statement | Log Level | Line | Description |
 |-----------|---------------|-----------|------|-------------|
-| correlation-service.ts | `'CorrelationService instantiated with correlation-specific config.'` | INFO | 29 | CorrelationService instantiated with correlation-specific config. |
-| correlation-service.ts | ``Running correlation analysis for ${initialWalletInfos.length} wallets.`` | INFO | 41 | Running correlation analysis for ${...} |
-| correlation-service.ts | `'Need at least 2 wallets to proceed with correlation analysis.'` | WARN | 49 | Need at least 2 wallets |
-| correlation-service.ts | ``Fetched transaction data for ${Object.keys(allTransactionData).length} wallets.`` | DEBUG | 59 | Fetched transaction data for ${...} |
-| correlation-service.ts | ``Less than 2 wallets have transaction data after fetching. Cannot perform correlation. Found transac` | WARN | 65 | Less than 2 wallets have |
-| correlation-service.ts | ``Proceeding with ${walletInfosToProcess.length} wallets that have transaction data out of ${initialW` | INFO | 69 | Proceeding with ${...} wallets that |
-| correlation-service.ts | `'Error fetching data for correlation analysis:'` | ERROR | 73 | Error fetching data for correlation |
-| correlation-service.ts | `'Less than 2 wallets remain after bot filtering. Cannot perform correlation analysis.'` | WARN | 84 | Less than 2 wallets remain |
-| correlation-service.ts | `'Correlation analysis completed successfully.'` | INFO | 104 | Correlation analysis completed successfully. |
-| correlation-service.ts | `'Error during correlation analysis execution:'` | ERROR | 108 | Error during correlation analysis execution: |
-| correlation-service.ts | ``Filtering ${walletInfos.length} wallets based on daily activity (threshold: ${MAX_DAILY_TOKENS_FOR_` | DEBUG | 121 | Filtering ${...} wallets based on |
-| correlation-service.ts | ``Filtering out wallet ${wallet.label || address} due to exceeding threshold.`` | DEBUG | 147 | Filtering out wallet ${...} due |
-| correlation-service.ts | ``Filtered out ${walletInfos.length - filteredWalletInfos.length} wallets suspected of bot activity. ` | INFO | 162 | Filtered out ${...} wallets suspected |
-| correlation-service.ts | ``No wallets filtered out based on daily token activity.`` | INFO | 164 | No wallets filtered out based |
+| correlation-service.ts | `'CorrelationService instantiated with correlation-specific config.'` | INFO | 29 | Wallet correlation analysis service initialized |
+| correlation-service.ts | ``Running correlation analysis for ${initialWalletInfos.length} wallets.`` | INFO | 41 | Starting multi-wallet correlation pattern detection |
+| correlation-service.ts | `'Need at least 2 wallets to proceed with correlation analysis.'` | WARN | 49 | Insufficient wallet count for correlation analysis |
+| correlation-service.ts | ``Fetched transaction data for ${Object.keys(allTransactionData).length} wallets.`` | DEBUG | 59 | Transaction data retrieved for correlation analysis |
+| correlation-service.ts | ``Less than 2 wallets have transaction data after fetching. Cannot perform correlation. Found transac` | WARN | 65 | Too few wallets have sufficient transaction history |
+| correlation-service.ts | ``Proceeding with ${walletInfosToProcess.length} wallets that have transaction data out of ${initialW` | INFO | 69 | Valid wallet subset selected for correlation analysis |
+| correlation-service.ts | `'Error fetching data for correlation analysis:'` | ERROR | 73 | Failed to retrieve data for correlation analysis |
+| correlation-service.ts | `'Less than 2 wallets remain after bot filtering. Cannot perform correlation analysis.'` | WARN | 84 | Bot filtering eliminated too many wallets |
+| correlation-service.ts | `'Correlation analysis completed successfully.'` | INFO | 104 | Wallet correlation pattern analysis finished |
+| correlation-service.ts | `'Error during correlation analysis execution:'` | ERROR | 108 | Correlation analysis failed during processing |
+| correlation-service.ts | ``Filtering ${walletInfos.length} wallets based on daily activity (threshold: ${MAX_DAILY_TOKENS_FOR_` | DEBUG | 121 | Applying bot detection filters to wallet set |
+| correlation-service.ts | ``Filtering out wallet ${wallet.label || address} due to exceeding threshold.`` | DEBUG | 147 | Removing suspected automated trading account |
+| correlation-service.ts | ``Filtered out ${walletInfos.length - filteredWalletInfos.length} wallets suspected of bot activity. ` | INFO | 162 | Bot activity screening completed |
+| correlation-service.ts | ``No wallets filtered out based on daily token activity.`` | INFO | 164 | All wallets passed bot activity screening |
 
 ### Component: dexscreener-service.ts
 
 | Component | Log Statement | Log Level | Line | Description |
 |-----------|---------------|-----------|------|-------------|
-| dexscreener-service.ts | ``Pre-filtered ${skippedCount} tokens likely not in DexScreener (${((skippedCount/tokenAddresses.leng` | INFO | 80 | Pre-filtered ${...} tokens likely not |
-| dexscreener-service.ts | `'All tokens were pre-filtered as unlikely to be in DexScreener'` | INFO | 84 | All tokens were pre-filtered as |
-| dexscreener-service.ts | ``Processing chunk ${actualIndex + 1}/${chunks.length} with ${chunk.length} tokens...`` | DEBUG | 104 | Processing chunk ${...}/${...} with ${...} |
-| dexscreener-service.ts | ``❌ Chunk ${actualIndex + 1}/${chunks.length} failed:`` | ERROR | 112 | ❌ Chunk ${...}/${...} failed: |
-| dexscreener-service.ts | ``DexScreener progress: ${progress}% (${processedCount}/${tokenAddresses.length} tokens)`` | INFO | 125 | DexScreener progress: ${...}% (${...}/${...} tokens) |
-| dexscreener-service.ts | ``🔍 DexScreener: Final results - ${actualApiCalls} API calls made, ${processedCount} tokens processe` | INFO | 135 | 🔍 DexScreener: Final results - |
-| dexscreener-service.ts | ``Updated metadataSource to 'hybrid' for ${count} tokens with both data sources`` | DEBUG | 152 | Updated metadataSource to hybrid for |
-| dexscreener-service.ts | `'Failed to update metadataSource to hybrid:'` | ERROR | 155 | Failed to update metadataSource to |
-| dexscreener-service.ts | ``Using cached SOL price: $${this.solPriceCache.price}`` | DEBUG | 188 | Using cached SOL price: $${...} |
-| dexscreener-service.ts | ``Successfully fetched SOL price from ${source.name}: $${solPrice}`` | DEBUG | 233 | Successfully fetched SOL price from |
-| dexscreener-service.ts | ``${source.name} returned unreasonable SOL price: $${solPrice}, trying next source`` | WARN | 236 | ${...} returned unreasonable SOL price: |
-| dexscreener-service.ts | ``${source.name} returned no price data, trying next source`` | WARN | 239 | ${...} returned no price data, |
-| dexscreener-service.ts | ``Failed to fetch SOL price from ${source.name}: ${error instanceof Error ? error.message : error}, t` | WARN | 242 | Failed to fetch SOL price |
-| dexscreener-service.ts | `errorMsg` | ERROR | 248 | errorMsg |
-| dexscreener-service.ts | ``Saved/updated ${tokenInfoFromPairs.length} token records from API.`` | DEBUG | 380 | Saved/updated ${...} token records from |
-| dexscreener-service.ts | ``${notFoundAddresses.length} tokens not found via API. Creating placeholders.`` | DEBUG | 388 | ${...} tokens not found via |
-| dexscreener-service.ts | ``🔍 Pre-filter: After scam filter - ${validTokens.length} tokens remain (${uncheckedTokens.length - ` | INFO | 437 | 🔍 Pre-filter: After scam filter |
-| dexscreener-service.ts | ``Failed to fetch ${description} after ${RETRY_CONFIG.maxRetries} attempts:`` | ERROR | 471 | Failed to fetch ${...} after |
-| dexscreener-service.ts | ``Attempt ${attempt}/${RETRY_CONFIG.maxRetries} failed for ${description}, retrying in ${delay}ms:`` | WARN | 481 | Attempt ${...}/${...} failed for ${...}, |
+| dexscreener-service.ts | ``Pre-filtered ${skippedCount} tokens likely not in DexScreener (${((skippedCount/tokenAddresses.leng` | INFO | 80 | Optimization: skipped tokens unlikely to be listed |
+| dexscreener-service.ts | `'All tokens were pre-filtered as unlikely to be in DexScreener'` | INFO | 84 | No tokens qualify for DexScreener lookup |
+| dexscreener-service.ts | ``Processing chunk ${actualIndex + 1}/${chunks.length} with ${chunk.length} tokens...`` | DEBUG | 104 | Batch processing token metadata requests |
+| dexscreener-service.ts | ``❌ Chunk ${actualIndex + 1}/${chunks.length} failed:`` | ERROR | 112 | Batch token lookup failed |
+| dexscreener-service.ts | ``DexScreener progress: ${progress}% (${processedCount}/${tokenAddresses.length} tokens)`` | INFO | 125 | Token metadata enrichment progress update |
+| dexscreener-service.ts | ``🔍 DexScreener: Final results - ${actualApiCalls} API calls made, ${processedCount} tokens processe` | INFO | 135 | Token metadata enrichment completed |
+| dexscreener-service.ts | ``Updated metadataSource to 'hybrid' for ${count} tokens with both data sources`` | DEBUG | 152 | Enhanced token data with multiple sources |
+| dexscreener-service.ts | `'Failed to update metadataSource to hybrid:'` | ERROR | 155 | Token metadata source update failed |
+| dexscreener-service.ts | ``Using cached SOL price: $${this.solPriceCache.price}`` | DEBUG | 188 | Using stored SOL price to avoid API calls |
+| dexscreener-service.ts | ``Successfully fetched SOL price from ${source.name}: $${solPrice}`` | DEBUG | 233 | Current SOL price retrieved from external source |
+| dexscreener-service.ts | ``${source.name} returned unreasonable SOL price: $${solPrice}, trying next source`` | WARN | 236 | Price data validation failed, switching sources |
+| dexscreener-service.ts | ``${source.name} returned no price data, trying next source`` | WARN | 239 | Price source unavailable, trying alternatives |
+| dexscreener-service.ts | ``Failed to fetch SOL price from ${source.name}: ${error instanceof Error ? error.message : error}, t` | WARN | 242 | SOL price fetch failed, attempting fallback |
+| dexscreener-service.ts | `errorMsg` | ERROR | 248 | SOL price retrieval completely failed |
+| dexscreener-service.ts | ``Saved/updated ${tokenInfoFromPairs.length} token records from API.`` | DEBUG | 380 | Token database updated with fresh metadata |
+| dexscreener-service.ts | ``${notFoundAddresses.length} tokens not found via API. Creating placeholders.`` | DEBUG | 388 | Unlisted tokens recorded with minimal data |
+| dexscreener-service.ts | ``🔍 Pre-filter: After scam filter - ${validTokens.length} tokens remain (${uncheckedTokens.length - ` | INFO | 437 | Token validation completed, suspicious tokens removed |
+| dexscreener-service.ts | ``Failed to fetch ${description} after ${RETRY_CONFIG.maxRetries} attempts:`` | ERROR | 471 | API request exhausted all retry attempts |
+| dexscreener-service.ts | ``Attempt ${attempt}/${RETRY_CONFIG.maxRetries} failed for ${description}, retrying in ${delay}ms:`` | WARN | 481 | API request failed, automatic retry scheduled |
 
 ### Component: display-utils.ts
 
 | Component | Log Statement | Log Level | Line | Description |
 |-----------|---------------|-----------|------|-------------|
-| display-utils.ts | `'\n===== Swap Analysis Summary ====='` | LOG | 25 | \n===== Swap Analysis Summary ===== |
-| display-utils.ts | ``Wallet: ${walletAddress}`` | LOG | 26 | Wallet: ${...} |
-| display-utils.ts | `'[DisplayUtils] displaySummary received non-array for results. Cannot proceed.'` | ERROR | 29 | [DisplayUtils] displaySummary received non-array for |
-| display-utils.ts | `'Total Unique Tokens: N/A (Invalid data)'` | LOG | 30 | Total Unique Tokens: N/A (Invalid |
-| display-utils.ts | `'Overall Net PNL: N/A (Invalid data)'` | LOG | 31 | Overall Net PNL: N/A (Invalid |
-| display-utils.ts | ``Total Unique Tokens: ${results.length}`` | LOG | 35 | Total Unique Tokens: ${...} |
-| display-utils.ts | ``\nOverall SOL Spent: ${overallSolSpent.toFixed(2)} SOL`` | LOG | 46 | \nOverall SOL Spent: ${...} SOL |
-| display-utils.ts | ``Overall SOL Received: ${overallSolReceived.toFixed(2)} SOL`` | LOG | 47 | Overall SOL Received: ${...} SOL |
-| display-utils.ts | ``Raw Net SOL P/L: ${formatProfitLoss(overallNetPnl)}`` | LOG | 48 | Raw Net SOL P/L: ${...} |
-| display-utils.ts | ``\n--- Value Preservation ---`` | LOG | 52 | \n--- Value Preservation --- |
-| display-utils.ts | ``Value Preservation Tokens: ${valuePreservingTokens.length}`` | LOG | 53 | Value Preservation Tokens: ${...} |
-| display-utils.ts | ``Total Estimated Value Preserved: ${totalPreservedValue.toFixed(2)} SOL`` | LOG | 54 | Total Estimated Value Preserved: ${...} |
-| display-utils.ts | ``Adjusted Net SOL P/L (including preserved value): ${formatProfitLoss(overallAdjustedPnl)}`` | LOG | 55 | Adjusted Net SOL P/L (including |
-| display-utils.ts | ``\nTop Value Preservation Tokens:`` | LOG | 58 | \nTop Value Preservation Tokens: |
-| display-utils.ts | ``${i+1}. ${getTokenName(token.tokenAddress)}: ${token.estimatedPreservedValue?.toFixed(2) || 0} SOL ` | LOG | 63 | ${...}. ${...}: ${...} SOL value |
-| display-utils.ts | `'\nTop 5 Most Profitable Tokens:'` | LOG | 71 | \nTop 5 Most Profitable Tokens: |
-| display-utils.ts | ``${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}`` | LOG | 73 | ${...}. ${...}: ${...} |
-| display-utils.ts | `'\nTop 5 Least Profitable Tokens:'` | LOG | 80 | \nTop 5 Least Profitable Tokens: |
-| display-utils.ts | ``${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}`` | LOG | 82 | ${...}. ${...}: ${...} |
-| display-utils.ts | ``\nActivity Time Range: ${formatDate(range.first)} to ${formatDate(range.last)} (approx. ${range.dur` | LOG | 88 | \nActivity Time Range: ${...} to |
-| display-utils.ts | `'\nFor detailed results, check the generated report file or use --verbose flag.'` | LOG | 91 | \nFor detailed results, check the |
-| display-utils.ts | `chalk.bold.blue('\n--- Detailed SOL P/L by Token ---')` | LOG | 140 | chalk.bold.blue(\n--- Detailed SOL P/L by |
-| display-utils.ts | `chalk.bold.green('\nTop 10 Gainers by SOL P/L:')` | LOG | 142 | chalk.bold.green(\nTop 10 Gainers by SOL |
-| display-utils.ts | `chalk.gray(' No profitable tokens found.')` | LOG | 144 | chalk.gray( No profitable tokens found.) |
-| display-utils.ts | `` ${index + 1}. ${chalk.bold(displayName)}${addrDisplay}`` | LOG | 149 | ${...}. ${...}${...} |
-| display-utils.ts | `` Net SOL P/L: ${chalk.green(result.netSolProfitLoss.toFixed(6))} SOL`` | LOG | 150 | Net SOL P/L: ${...} |
-| display-utils.ts | `` Swaps: ${chalk.cyan(result.transferCountIn)} In / ${chalk.cyan(result.transferCountOut)} Out`` | LOG | 151 | Swaps: ${...} In / |
-| display-utils.ts | `chalk.bold.red('\nTop 10 Losers by SOL P/L:')` | LOG | 155 | chalk.bold.red(\nTop 10 Losers by SOL |
-| display-utils.ts | `chalk.gray(' No tokens with SOL loss found.')` | LOG | 158 | chalk.gray( No tokens with SOL |
-| display-utils.ts | `` ${index + 1}. ${chalk.bold(displayName)}${addrDisplay}`` | LOG | 163 | ${...}. ${...}${...} |
-| display-utils.ts | `` Net SOL P/L: ${chalk.red(result.netSolProfitLoss.toFixed(6))} SOL`` | LOG | 164 | Net SOL P/L: ${...} |
-| display-utils.ts | `` Swaps: ${chalk.cyan(result.transferCountIn)} In / ${chalk.cyan(result.transferCountOut)} Out`` | LOG | 165 | Swaps: ${...} In / |
-| display-utils.ts | `chalk.blue('-----------------------------------')` | LOG | 168 | chalk.blue(-----------------------------------) |
+| display-utils.ts | `'\n===== Swap Analysis Summary ====='` | LOG | 25 | Displaying formatted wallet analysis header |
+| display-utils.ts | ``Wallet: ${walletAddress}`` | LOG | 26 | Showing analyzed wallet address |
+| display-utils.ts | `'[DisplayUtils] displaySummary received non-array for results. Cannot proceed.'` | ERROR | 29 | Display function received invalid data format |
+| display-utils.ts | `'Total Unique Tokens: N/A (Invalid data)'` | LOG | 30 | Cannot display token count due to data issues |
+| display-utils.ts | `'Overall Net PNL: N/A (Invalid data)'` | LOG | 31 | Cannot display profit/loss due to data issues |
+| display-utils.ts | ``Total Unique Tokens: ${results.length}`` | LOG | 35 | Showing count of distinct tokens traded |
+| display-utils.ts | ``\nOverall SOL Spent: ${overallSolSpent.toFixed(2)} SOL`` | LOG | 46 | Displaying total SOL invested in purchases |
+| display-utils.ts | ``Overall SOL Received: ${overallSolReceived.toFixed(2)} SOL`` | LOG | 47 | Displaying total SOL received from sales |
+| display-utils.ts | ``Raw Net SOL P/L: ${formatProfitLoss(overallNetPnl)}`` | LOG | 48 | Showing basic profit/loss calculation |
+| display-utils.ts | ``\n--- Value Preservation ---`` | LOG | 52 | Starting value preservation analysis section |
+| display-utils.ts | ``Value Preservation Tokens: ${valuePreservingTokens.length}`` | LOG | 53 | Count of tokens that maintained or increased value |
+| display-utils.ts | ``Total Estimated Value Preserved: ${totalPreservedValue.toFixed(2)} SOL`` | LOG | 54 | Total SOL value maintained through holdings |
+| display-utils.ts | ``Adjusted Net SOL P/L (including preserved value): ${formatProfitLoss(overallAdjustedPnl)}`` | LOG | 55 | Profit/loss including unrealized gains |
+| display-utils.ts | ``\nTop Value Preservation Tokens:`` | LOG | 58 | Listing tokens with best value preservation |
+| display-utils.ts | ``${i+1}. ${getTokenName(token.tokenAddress)}: ${token.estimatedPreservedValue?.toFixed(2) || 0} SOL ` | LOG | 63 | Ranking token value preservation performance |
+| display-utils.ts | `'\nTop 5 Most Profitable Tokens:'` | LOG | 71 | Starting best performing tokens section |
+| display-utils.ts | ``${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}`` | LOG | 73 | Ranking most profitable token trades |
+| display-utils.ts | `'\nTop 5 Least Profitable Tokens:'` | LOG | 80 | Starting worst performing tokens section |
+| display-utils.ts | ``${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}`` | LOG | 82 | Ranking least profitable token trades |
+| display-utils.ts | ``\nActivity Time Range: ${formatDate(range.first)} to ${formatDate(range.last)} (approx. ${range.dur` | LOG | 88 | Showing analysis period timeframe |
+| display-utils.ts | `'\nFor detailed results, check the generated report file or use --verbose flag.'` | LOG | 91 | Directing user to additional output options |
+| display-utils.ts | `chalk.bold.blue('\n--- Detailed SOL P/L by Token ---')` | LOG | 140 | Starting detailed token performance section |
+| display-utils.ts | `chalk.bold.green('\nTop 10 Gainers by SOL P/L:')` | LOG | 142 | Listing highest profit generating tokens |
+| display-utils.ts | `chalk.gray(' No profitable tokens found.')` | LOG | 144 | No profitable trades to display |
+| display-utils.ts | `` ${index + 1}. ${chalk.bold(displayName)}${addrDisplay}`` | LOG | 149 | Formatting profitable token ranking |
+| display-utils.ts | `` Net SOL P/L: ${chalk.green(result.netSolProfitLoss.toFixed(6))} SOL`` | LOG | 150 | Showing profit amount in green formatting |
+| display-utils.ts | `` Swaps: ${chalk.cyan(result.transferCountIn)} In / ${chalk.cyan(result.transferCountOut)} Out`` | LOG | 151 | Displaying transaction counts by direction |
+| display-utils.ts | `chalk.bold.red('\nTop 10 Losers by SOL P/L:')` | LOG | 155 | Listing highest loss generating tokens |
+| display-utils.ts | `chalk.gray(' No tokens with SOL loss found.')` | LOG | 158 | No losing trades to display |
+| display-utils.ts | `` ${index + 1}. ${chalk.bold(displayName)}${addrDisplay}`` | LOG | 163 | Formatting loss token ranking |
+| display-utils.ts | `` Net SOL P/L: ${chalk.red(result.netSolProfitLoss.toFixed(6))} SOL`` | LOG | 164 | Showing loss amount in red formatting |
+| display-utils.ts | `` Swaps: ${chalk.cyan(result.transferCountIn)} In / ${chalk.cyan(result.transferCountOut)} Out`` | LOG | 165 | Displaying transaction counts by direction |
+| display-utils.ts | `chalk.blue('-----------------------------------')` | LOG | 168 | Visual separator for report sections |
 
 ### Component: formatters.ts
 
