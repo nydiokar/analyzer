@@ -63,7 +63,7 @@ export function WalletClassifier({ entries }: Props) {
       {completed.length > 1 && (
         <div className="space-y-4">
           <WalletGroupInsights profiles={completed.flatMap((entry) => entry.result?.profiles || [])} />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(420px,1fr))] gap-4">
             {completed.map((entry) => (
               <WalletCompareCard key={entry.walletAddress} result={entry.result!} />
             ))}
@@ -73,7 +73,6 @@ export function WalletClassifier({ entries }: Props) {
     </section>
   );
 }
-
 
 
 

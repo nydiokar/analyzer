@@ -14,7 +14,7 @@ import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { SyncOptions } from '../../core/services/helius-sync-service';
-import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
+import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenHoldersService } from '../../api/services/token-holders.service';
@@ -634,6 +634,24 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const { mode = 'token', tokenMint, topN = 10, walletAddress } = job.data;
     const startTime = Date.now();
     const timeoutMs = 5 * 60 * 1000;
+    const syncConcurrency = Math.max(1, PROCESSING_CONFIG.WALLET_SYNC_CONCURRENCY || 3);
+
+    // Simple bounded concurrency helper to avoid sequential bottlenecks
+    const processWithConcurrency = async <T>(
+      items: T[],
+      limit: number,
+      worker: (item: T, index: number) => Promise<void>,
+    ) => {
+      const size = Math.min(limit, items.length);
+      let cursor = 0;
+      const runners = Array.from({ length: size }).map(async () => {
+        while (cursor < items.length) {
+          const idx = cursor++;
+          await worker(items[idx], idx);
+        }
+      });
+      await Promise.all(runners);
+    };
 
     const expectedJobId = buildHolderProfilesJobId(job.data);
     if (job.id !== expectedJobId) {
@@ -733,13 +751,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES,
           smartFetch: true,
         };
-        for (const addr of walletsNeedingSync) {
+        await processWithConcurrency(walletsNeedingSync, syncConcurrency, async (addr) => {
           try {
             await this.heliusSyncService.syncWalletData(addr, syncOptions);
           } catch (syncErr) {
             this.logger.warn(`Sync failed for holder wallet ${addr}:`, syncErr);
           }
-        }
+        });
       } else {
         this.logger.debug(`All holder wallets for ${tokenMint} appear current (status check)`);
       }
@@ -771,13 +789,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES,
           smartFetch: true,
         };
-        for (const addr of walletsMissingData) {
+        await processWithConcurrency(walletsMissingData, syncConcurrency, async (addr) => {
           try {
             await this.heliusSyncService.syncWalletData(addr, syncOptions);
           } catch (syncErr) {
             this.logger.warn(`Sync failed for holder wallet ${addr}:`, syncErr);
           }
-        }
+        });
 
         // Refetch swap records for the missing wallets only
         allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletAddresses);
