@@ -120,7 +120,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     });
 
     const handleConnect = () => {
-      console.log('✅ WebSocket connected to:', baseUrl);
+      console.log('✅ WebSocket connected');
       setIsConnected(true);
       setError(null);
       callbacksRef.current.onConnectionChange?.(true);
