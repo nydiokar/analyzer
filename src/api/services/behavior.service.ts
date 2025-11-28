@@ -25,21 +25,140 @@ export class BehaviorService {
   ): Promise<BehavioralMetrics | null> {
     this.logger.debug(`Getting wallet behavior for ${walletAddress}`);
 
-    // The original BehaviorService expects the original DatabaseService (not the NestJS one).
-    // The nestDatabaseService is an instance of the NestJS DatabaseService, which extends the core DatabaseService.
-    // So, we can pass nestDatabaseService directly.
-    // const prismaDbService = new PrismaDatabaseService(); // Remove this line
+    // Feature flag: disable with DISABLE_BEHAVIOR_CACHE=true
+    const cacheEnabled = process.env.DISABLE_BEHAVIOR_CACHE !== 'true';
 
-    // Pass the injected nestDatabaseService (which is a PrismaDatabaseService instance)
+    // Only use DB cache for full history queries (not time-ranged)
+    if (cacheEnabled && !timeRange) {
+      try {
+        const cachedProfile = await this.nestDatabaseService.getWalletBehaviorProfile(walletAddress);
+
+        if (cachedProfile) {
+          // Smart staleness check: Compare profile update time vs wallet last sync
+          const wallet = await this.nestDatabaseService.getWallet(walletAddress);
+
+          if (wallet?.lastSuccessfulFetchTimestamp) {
+            const profileUpdatedAt = cachedProfile.updatedAt.getTime();
+            const walletLastSyncAt = wallet.lastSuccessfulFetchTimestamp.getTime();
+
+            // If profile was computed AFTER the last sync, it's fresh!
+            if (profileUpdatedAt >= walletLastSyncAt) {
+              const ageMinutes = Math.round((Date.now() - profileUpdatedAt) / 1000 / 60);
+              this.logger.debug(
+                `✅ Cache HIT: ${walletAddress} (${ageMinutes}min old, computed after last sync)`
+              );
+              return this.convertProfileToMetrics(cachedProfile);
+            } else {
+              const syncAgo = Math.round((Date.now() - walletLastSyncAt) / 1000 / 60);
+              this.logger.debug(
+                `Cache STALE: ${walletAddress} - wallet synced ${syncAgo}min ago, recalculating`
+              );
+            }
+          } else {
+            // No sync timestamp - use 1 hour TTL fallback
+            const cacheAgeMs = Date.now() - cachedProfile.updatedAt.getTime();
+            if (cacheAgeMs < 60 * 60 * 1000) {
+              this.logger.debug(`✅ Cache HIT: ${walletAddress} (TTL fallback, ${Math.round(cacheAgeMs/1000/60)}min old)`);
+              return this.convertProfileToMetrics(cachedProfile);
+            }
+          }
+        }
+      } catch (cacheError) {
+        this.logger.warn(`Error reading behavior cache for ${walletAddress}, falling back to full analysis:`, cacheError);
+      }
+    }
+
+    // Cache miss, stale, or disabled → full analysis
     const originalService = new OriginalBehaviorService(this.nestDatabaseService, config);
 
     try {
-      // Pass the timeRange from the parameters if provided, otherwise it relies on config or undefined
       return await originalService.analyzeWalletBehavior(walletAddress, timeRange || config.timeRange, pnlMap);
     } catch (error) {
       this.logger.error(`Error in getWalletBehavior for ${walletAddress}:`, error);
-      throw error; // Re-throw for the controller to handle as an HTTP exception
+      throw error;
     }
+  }
+
+  /**
+   * Convert WalletBehaviorProfile from DB to BehavioralMetrics format
+   * Some fields are not cached and will be null/undefined - consuming code handles this
+   */
+  private convertProfileToMetrics(profile: any): BehavioralMetrics {
+    // Reconstruct historicalPattern from cached pieces
+    const historicalPattern = {
+      walletAddress: profile.walletAddress,
+      historicalAverageHoldTimeHours: profile.averageFlipDurationHours,
+      completedCycleCount: profile.completePairsCount,
+      medianCompletedHoldTimeHours: profile.medianHoldTime,
+      behaviorType: this.extractBehaviorType(profile.tradingStyle),
+      exitPattern: 'GRADUAL' as const, // Not cached, use default
+      dataQuality: profile.confidenceScore,
+      observationPeriodDays: this.calculateObservationPeriodDays(profile),
+      holdTimeDistribution: undefined, // Not cached as structured object
+      holdTimeTokenMap: profile.holdTimeTokenMap || undefined,
+      enrichedHoldTimeDistribution: profile.enrichedHoldTimeDistribution || undefined,
+    };
+
+    return {
+      buySellRatio: profile.buySellRatio,
+      buySellSymmetry: profile.buySellSymmetry,
+      averageFlipDurationHours: profile.averageFlipDurationHours,
+      medianHoldTime: profile.medianHoldTime,
+      averageCurrentHoldingDurationHours: null as any, // Not cached
+      medianCurrentHoldingDurationHours: null as any, // Not cached
+      weightedAverageHoldingDurationHours: profile.averageFlipDurationHours, // Best approximation
+      percentOfValueInCurrentHoldings: null as any, // Not cached
+      sequenceConsistency: profile.sequenceConsistency,
+      flipperScore: profile.flipperScore,
+      uniqueTokensTraded: profile.uniqueTokensTraded,
+      tokensWithBothBuyAndSell: profile.tokensWithBothBuyAndSell,
+      tokensWithOnlyBuys: null as any, // Not cached
+      tokensWithOnlySells: null as any, // Not cached
+      totalTradeCount: profile.totalTradeCount,
+      totalBuyCount: profile.totalBuyCount,
+      totalSellCount: profile.totalSellCount,
+      completePairsCount: profile.completePairsCount,
+      averageTradesPerToken: profile.averageTradesPerToken,
+      tradingTimeDistribution: profile.tradingTimeDistribution as any,
+      percentTradesUnder1Hour: profile.percentTradesUnder1Hour,
+      percentTradesUnder4Hours: profile.percentTradesUnder4Hours,
+      tradingStyle: profile.tradingStyle,
+      confidenceScore: profile.confidenceScore,
+      tradingFrequency: profile.tradingFrequency as any,
+      tokenPreferences: profile.tokenPreferences as any,
+      riskMetrics: profile.riskMetrics as any,
+      reentryRate: profile.reentryRate,
+      percentageOfUnpairedTokens: profile.percentageOfUnpairedTokens,
+      sessionCount: profile.sessionCount,
+      avgTradesPerSession: profile.avgTradesPerSession,
+      activeTradingPeriods: profile.activeTradingPeriods as any,
+      averageSessionStartHour: profile.averageSessionStartHour,
+      averageSessionDurationMinutes: profile.averageSessionDurationMinutes,
+      firstTransactionTimestamp: profile.firstTransactionTimestamp,
+      lastTransactionTimestamp: profile.lastTransactionTimestamp,
+      historicalPattern, // Reconstructed from cached pieces
+    };
+  }
+
+  private extractBehaviorType(tradingStyle: string): any {
+    // Extract behavior type from trading style string
+    // tradingStyle format is like "FLIPPER (ACCUMULATOR): ..."
+    if (tradingStyle.includes('SNIPER')) return 'SNIPER';
+    if (tradingStyle.includes('SCALPER')) return 'SCALPER';
+    if (tradingStyle.includes('MOMENTUM')) return 'MOMENTUM';
+    if (tradingStyle.includes('INTRADAY')) return 'INTRADAY';
+    if (tradingStyle.includes('DAY_TRADER')) return 'DAY_TRADER';
+    if (tradingStyle.includes('SWING')) return 'SWING';
+    if (tradingStyle.includes('POSITION')) return 'POSITION';
+    if (tradingStyle.includes('HOLDER')) return 'HOLDER';
+    return 'DAY_TRADER'; // Default
+  }
+
+  private calculateObservationPeriodDays(profile: any): number {
+    if (profile.firstTransactionTimestamp && profile.lastTransactionTimestamp) {
+      return (profile.lastTransactionTimestamp - profile.firstTransactionTimestamp) / (24 * 60 * 60);
+    }
+    return 0;
   }
   
   // Helper to get a default config if needed, or this can be managed by a config service later
