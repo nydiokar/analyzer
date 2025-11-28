@@ -19,8 +19,6 @@ import { WalletBalance } from '../../types/wallet';
 import { Wallet } from '@prisma/client';
 import { BatchProcessor } from '../utils/batch-processor';
 import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
-import { join } from 'path';
-import { pathToFileURL } from 'url';
 import { KNOWN_SYSTEM_WALLETS, WALLET_CLASSIFICATIONS, SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 
 @Injectable()
@@ -46,19 +44,19 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     // For now, we'll keep the manual instantiation for the processor
     this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService);
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
-    
-    // RESTORED: Use proper worker architecture for production scalability
-    // The worker runs the logic from a separate file in a sandboxed process.
-    // We must convert the file path to a URL for ESM compatibility on Windows.
-    const workerPath = join(__dirname, '..', 'workers', 'similarity.worker.js');
-    const workerUrl = pathToFileURL(workerPath);
 
+    // FIXED: Run processor in main process instead of sandboxed worker
+    // This eliminates massive memory overhead from bootstrapping full NestJS app per job
+    // The sandboxed architecture was causing 500MB+ memory per job + 5 second cleanup delays
+    // Running in main process is standard BullMQ pattern and perfectly safe for I/O-bound work
     this.worker = new Worker(
       QueueNames.SIMILARITY_OPERATIONS,
-      workerUrl,
+      async (job: Job<ComprehensiveSimilarityFlowData>) => {
+        return await this.processSimilarityFlow(job);
+      },
       {
         ...config.workerOptions,
-        concurrency: 2, // Production concurrency
+        concurrency: 5, // Increased from 2 - inline processing eliminates 500MB overhead per job
       }
     );
 
@@ -76,8 +74,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * This method is now public so it can be called by the sandboxed worker process.
-   * It contains the core logic for the similarity analysis flow.
+   * Core logic for the similarity analysis flow.
+   * Runs directly in the main process for optimal memory efficiency.
    */
   public async processSimilarityFlow(job: Job<ComprehensiveSimilarityFlowData>): Promise<SimilarityFlowResult> {
     const { walletAddresses, requestId, walletsNeedingSync = [], enrichMetadata = true, failureThreshold = 0.8, timeoutMinutes = 45, similarityConfig } = job.data;

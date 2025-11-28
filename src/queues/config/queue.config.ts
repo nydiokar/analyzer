@@ -107,7 +107,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 2,              // Restored from 1 to 2 - original working setting
+      concurrency: 5,              // Increased from 2 - inline processing eliminates 500MB overhead per job
     }
   },
   [QueueNames.ENRICHMENT_OPERATIONS]: {
