@@ -307,7 +307,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
         />
       </div>
 
-      <div className="p-3 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] gap-3">
+      <div className="p-3 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] gap-4">
         <div className="space-y-3">
           <HoldMetricCard
             label="Median Hold"
