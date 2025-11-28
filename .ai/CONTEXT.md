@@ -358,8 +358,8 @@ None - Ready for next feature.
   - **Docs**: Updated in `docs/helius_v2_API/helius-getTransactionsForAddress-migration.md` with cost-benefit analysis
 
 - **Merge and rollout**
-  - [ ] Merge staged auto‑refresh branch into `main`; enable via config flags
-  - [ ] Monitor UX and performance post‑release; tune thresholds via config only (no code changes)
+  - [x] Merge staged auto‑refresh branch into `main`; enable via config flags
+  - [x] Monitor UX and performance post‑release; tune thresholds via config only (no code changes)
 
 **Task-with-low-priority** *DEFER for now*: Phase 6 - AI Expert Similarity Interpreter (see `docs/1. scaling_plan.md`).
 Deliverable: synchronous endpoint that transforms similarity output into an LLM-formatted dashboard report.
