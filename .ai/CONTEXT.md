@@ -17,6 +17,7 @@
 1. Controller (HTTP) → Enqueues job, returns job ID
 2. BullMQ Queue → Stores job
 3. Processor (Worker) → Executes job asynchronously
+4. API layer
 4. Core Services → Business logic (BehaviorAnalyzer, TokenHoldersService, etc.)
 5. Database → Data access (Prisma)
 ```

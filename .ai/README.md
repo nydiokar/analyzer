@@ -8,7 +8,7 @@ Shared working agreement tailored to the NestJS + BullMQ wallet analysis stack i
 
 ```
 .ai/
-├── CONTEXT.md   # Live status, blockers, next steps
+├── CONTEXT.md   # Live status, blockers, next steps - THIS REMINDS ME OF CONTEXT PROMPT - could be used to pass context in the team (ai-team); basically the introducing prompt when remote-controlling.  
 ├── GUIDE.md     # Roadmap distilled from docs/1. scaling_plan.md and the code
 ├── HANDOFF.md   # Start/end session checklist
 ├── RULES.md     # Execution contract (do not edit without maintainer sign-off)
