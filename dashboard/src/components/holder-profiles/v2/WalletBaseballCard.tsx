@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import type { HolderProfile } from '../types';
-import { formatAddress, formatHoldTime, formatHoldSource, formatPercentage, getTypicalHoldTimeHours } from './utils/formatters';
+import { formatHoldTime, formatHoldSource, formatPercentage, getTypicalHoldTimeHours } from './utils/formatters';
 import { getBehaviorColor } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ExitTimingDrilldownPanel } from './ExitTimingDrilldownPanel';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { TransactionDateRange } from './TransactionDateRange';
+import { WalletBadge } from '@/components/shared/WalletBadge';
 
 const formatBalanceCompact = (value: number | null | undefined) => {
   if (value === null || value === undefined) return '–';
@@ -253,7 +254,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
     <div className="rounded-lg border bg-card hover:shadow-md transition-shadow overflow-hidden">
       <div className={`p-3 border-b ${qualityIndicator.panel}`}>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-mono font-semibold">{formatAddress(walletAddress)}</p>
+          <WalletBadge address={walletAddress} className="text-sm font-semibold" />
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>

@@ -804,6 +804,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         const supplyPercent = actualTotalSupply > 0 ? ((holder.uiAmount || 0) / actualTotalSupply) * 100 : 0;
 
         try {
+          if (walletSwapRecords.length > 0) {
+            try {
+              await this.pnlAnalysisService.analyzeWalletPnl(holder.ownerAccount, undefined);
+            } catch (pnlError) {
+              this.logger.warn(`PnL analysis failed for holder wallet ${holder.ownerAccount}:`, pnlError);
+            }
+          }
+
           const profile = await this.analyzeWalletProfile(
             holder.ownerAccount,
             holder.rank,
