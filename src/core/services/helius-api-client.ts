@@ -568,6 +568,9 @@ export class HeliusApiClient {
     let hasMoreSignatures = true;
     let fetchedSignaturesCount = 0;
     const rpcLimit = this.RPC_SIGNATURE_LIMIT;
+    const signatureSafetyLimit = maxSignatures !== null
+      ? maxSignatures * HELIUS_CONFIG.SIGNATURE_FETCH_SAFETY_MULTIPLIER
+      : null;
 
     try {
       while (hasMoreSignatures) {
@@ -655,8 +658,11 @@ export class HeliusApiClient {
 
             // IMPORTANT: This condition stops PAGINATION, not processing of already fetched signatures.
             // We will apply a hard limit AFTER this loop if maxSignatures is set.
-            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures && !stopAtSignature) {
-                logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, meeting conceptual target related to maxSignatures (${maxSignatures}). Stopping pagination.`);
+            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures) {
+                logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, meeting conceptual target related to maxSignatures (${maxSignatures}) (stopAtSignature=${stopAtSignature ?? 'none'}). Stopping pagination.`);
+                hasMoreSignatures = false;
+            } else if (signatureSafetyLimit !== null && fetchedSignaturesCount >= signatureSafetyLimit) {
+                logger.warn(`RPC signature fetch for ${address} exceeded safety cap of ${signatureSafetyLimit} (maxSignatures=${maxSignatures}, stopAtSignature=${stopAtSignature ?? 'none'}). Stopping pagination to avoid runaway fetch.`);
                 hasMoreSignatures = false;
             } else if (signatureInfos.length < rpcLimit && (!HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures || this.disableV2TxForAddressForProcess)) {
                 // For legacy path only - V2 uses paginationToken to determine continuation

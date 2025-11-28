@@ -117,6 +117,7 @@ export const HELIUS_CONFIG = {
   DEFAULT_RPS: 25, // Conservative rate limit
   INTERNAL_CONCURRENCY: 10, // Sequential processing to avoid burst detection
   BATCH_SIZE: 100, // Reduced batch size
+  SIGNATURE_FETCH_SAFETY_MULTIPLIER: getEnvNumber('HELIUS_SIGNATURE_SAFETY_MULTIPLIER', 5), // Stop pagination if we massively overshoot requested maxSignatures
 } as const;
 
 // --- Helius V2 Pagination Feature Flag & Tuning ---
