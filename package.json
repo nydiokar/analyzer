@@ -39,7 +39,8 @@
     "reset": "npm run build && pm2 restart all",
     "top-holders": "ts-node -r tsconfig-paths/register src/scripts/topTokenHolders.ts",
     "lint": "eslint .",
-    "lint:dashboard": "npm run lint --prefix dashboard"
+    "lint:dashboard": "npm run lint --prefix dashboard",
+    "extract-logs": "ts-node -r tsconfig-paths/register scripts/extract-log-statements.ts"
   },
   "keywords": [
     "crypto",
