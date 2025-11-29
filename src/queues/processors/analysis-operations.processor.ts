@@ -1137,6 +1137,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       : null;
     const medianHold = typeof dbProfile?.medianHoldTime === 'number' ? dbProfile.medianHoldTime : null;
 
+    const behaviorType = this.extractBehaviorTypeFromTradingStyle(dbProfile?.tradingStyle);
+
     return {
       walletAddress: dbProfile?.walletAddress,
       rank,
@@ -1145,7 +1147,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       avgHoldTimeHours: averageFlipDuration,
       dailyFlipRatio: null,
       dailyFlipRatioConfidence: 'NONE',
-      behaviorType: dbProfile?.tradingStyle ?? null,
+      behaviorType,
       exitPattern: 'GRADUAL',
       dataQualityTier: this.determineDataQualityTier(completedCycleCount, confidenceScore),
       completedCycleCount,
@@ -1170,6 +1172,20 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       oldestTransactionTimestamp: dbProfile?.firstTransactionTimestamp ?? undefined,
       newestTransactionTimestamp: dbProfile?.lastTransactionTimestamp ?? undefined,
     };
+  }
+
+  private extractBehaviorTypeFromTradingStyle(tradingStyle?: string | null): string | null {
+    if (!tradingStyle) return null;
+    const normalized = tradingStyle.toUpperCase();
+    if (normalized.includes('SNIPER')) return 'SNIPER';
+    if (normalized.includes('SCALPER')) return 'SCALPER';
+    if (normalized.includes('MOMENTUM')) return 'MOMENTUM';
+    if (normalized.includes('INTRADAY')) return 'INTRADAY';
+    if (normalized.includes('DAY')) return 'DAY_TRADER';
+    if (normalized.includes('SWING')) return 'SWING';
+    if (normalized.includes('POSITION')) return 'POSITION';
+    if (normalized.includes('HOLDER')) return 'HOLDER';
+    return 'DAY_TRADER';
   }
 
   /**
