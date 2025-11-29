@@ -713,6 +713,16 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         .map(h => h.ownerAccount)
         .filter((addr): addr is string => addr !== undefined);
 
+      const holderMetadataByWallet = new Map<string, { rank: number; supplyPercent: number }>();
+      topHolders.forEach((holder, index) => {
+        if (!holder.ownerAccount) return;
+        const supplyPercent = actualTotalSupply > 0 ? ((holder.uiAmount || 0) / actualTotalSupply) * 100 : 0;
+        holderMetadataByWallet.set(holder.ownerAccount, {
+          rank: typeof holder.rank === 'number' ? holder.rank : index + 1,
+          supplyPercent,
+        });
+      });
+
       if (walletAddresses.length === 0) {
         this.logger.warn(`No holder wallet addresses found for ${tokenMint}`);
         return {
@@ -766,38 +776,110 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         const status = statusMap.get(addr);
         return status?.status === 'STALE' || status?.status === 'MISSING';
       });
+      const readyWalletsOrdered = topHolders
+        .map(holder => holder.ownerAccount)
+        .filter((addr): addr is string => !!addr && !walletsNeedingAnalysisSet.has(addr));
+      const walletsNeedingAnalysisOrdered = topHolders
+        .map(holder => holder.ownerAccount)
+        .filter((addr): addr is string => !!addr && walletsNeedingAnalysisSet.has(addr));
 
-      if (walletsNeedingSync.length > 0) {
-        this.logger.log(`Syncing ${walletsNeedingSync.length} holder wallets for ${tokenMint}`);
-        const syncOptions: SyncOptions = {
-          limit: 100,
-          fetchAll: true,
-          skipApi: false,
-          fetchOlder: true,
-          maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES,
-          smartFetch: true,
-        };
-        await processWithConcurrency(walletsNeedingSync, syncConcurrency, async (addr) => {
-          try {
-            await this.heliusSyncService.syncWalletData(addr, syncOptions);
-          } catch (syncErr) {
-            this.logger.warn(`Sync failed for holder wallet ${addr}:`, syncErr);
-          }
-        });
-      } else {
-        this.logger.debug(`All holder wallets for ${tokenMint} appear current (status check)`);
-      }
+      const syncPromise = (async () => {
+        if (walletsNeedingSync.length > 0) {
+          this.logger.log(`Syncing ${walletsNeedingSync.length} holder wallets for ${tokenMint}`);
+          const syncOptions: SyncOptions = {
+            limit: 100,
+            fetchAll: true,
+            skipApi: false,
+            fetchOlder: true,
+            maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES,
+            smartFetch: true,
+          };
+          await processWithConcurrency(walletsNeedingSync, syncConcurrency, async (addr) => {
+            try {
+              await this.heliusSyncService.syncWalletData(addr, syncOptions);
+            } catch (syncErr) {
+              this.logger.warn(`Sync failed for holder wallet ${addr}:`, syncErr);
+            }
+          });
+        } else {
+          this.logger.debug(`All holder wallets for ${tokenMint} appear current (status check)`);
+        }
+      })();
       await job.updateProgress(30);
+      await job.updateProgress(40);
 
-      const swapRecordsByWallet: Record<string, any[]> = {};
-      if (walletsNeedingAnalysisSet.size > 0) {
-        const walletsForSwapFetch = walletAddresses.filter(addr => walletsNeedingAnalysisSet.has(addr));
-        this.logger.debug(`Batch fetching swap records for ${walletsForSwapFetch.length} wallets needing analysis...`);
-        let allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletsForSwapFetch);
+      const progressStep = 50 / walletAddresses.length;
+      let completedCount = 0;
+      const partialProfiles: HolderProfile[] = [];
+      const profiles: HolderProfile[] = [];
+
+      const publishProfile = async (profile: HolderProfile, walletAddress: string) => {
+        completedCount++;
+        const percent = 40 + Math.floor(completedCount * progressStep);
+        await job.updateProgress(percent);
+        partialProfiles.push(profile);
+        profiles.push(profile);
+
+        const progressPayload = {
+          mode: 'token',
+          tokenMint,
+          totalHoldersRequested: walletAddresses.length,
+          analyzedCount: partialProfiles.length,
+          profiles: [...partialProfiles],
+        };
+        this.logger.log(
+          `Streaming partial holder profile (${partialProfiles.length}/${walletAddresses.length}) for token ${tokenMint}: ${walletAddress}`,
+        );
+        await this.jobProgressGateway.publishProgressEvent(job.id!, job.queueName, progressPayload);
+      };
+
+      const runFullAnalysis = async (walletAddress: string, swapRecords: any[]) => {
+        const metadata = holderMetadataByWallet.get(walletAddress);
+        if (!metadata) {
+          this.logger.warn(`Missing holder metadata for wallet ${walletAddress}, skipping`);
+          return;
+        }
+
+        if (swapRecords.length > 0) {
+          try {
+            await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined);
+          } catch (pnlError) {
+            this.logger.warn(`PnL analysis failed for holder wallet ${walletAddress}:`, pnlError);
+          }
+        }
+
+        const profile = await this.analyzeWalletProfile(
+          walletAddress,
+          metadata.rank,
+          metadata.supplyPercent,
+          swapRecords,
+        );
+        await publishProfile(profile, walletAddress);
+      };
+
+      if (readyWalletsOrdered.length > 0) {
+        this.logger.log(`Serving ${readyWalletsOrdered.length} cached holder profiles immediately (no sync needed)`);
+        for (const walletAddress of readyWalletsOrdered) {
+          try {
+            const swapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+            await runFullAnalysis(walletAddress, swapRecords);
+          } catch (error) {
+            this.logger.warn(`Failed to analyze wallet ${walletAddress} (cached path):`, error);
+          }
+        }
+      } else {
+        this.logger.debug('No cached holder profiles to serve immediately');
+      }
+
+      await syncPromise;
+
+      if (walletsNeedingAnalysisOrdered.length > 0) {
+        this.logger.debug(`Batch fetching swap records for ${walletsNeedingAnalysisOrdered.length} wallets needing analysis...`);
+        let allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletsNeedingAnalysisOrdered);
 
         this.checkTimeout(startTime, timeoutMs, 'Fetching swap records');
-        await job.updateProgress(40);
 
+        const swapRecordsByWallet: Record<string, typeof allSwapRecords> = {};
         for (const record of allSwapRecords) {
           if (!swapRecordsByWallet[record.walletAddress]) {
             swapRecordsByWallet[record.walletAddress] = [];
@@ -806,7 +888,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
 
         // If any wallets queued for re-analysis have no swap records, force a fresh sync + refetch
-        const walletsMissingData = walletsForSwapFetch.filter(
+        const walletsMissingData = walletsNeedingAnalysisOrdered.filter(
           addr => !swapRecordsByWallet[addr] || swapRecordsByWallet[addr].length === 0,
         );
         if (walletsMissingData.length > 0) {
@@ -828,7 +910,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           });
 
           // Refetch swap records for the missing wallets only
-          allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletsForSwapFetch);
+          allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletsNeedingAnalysisOrdered);
           for (const record of allSwapRecords) {
             if (!swapRecordsByWallet[record.walletAddress]) {
               swapRecordsByWallet[record.walletAddress] = [];
@@ -838,75 +920,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           this.logger.debug(`Refetched swap records for ${walletsMissingData.length} wallets after sync`);
         }
 
-        this.logger.debug(`Grouped swap records: ${Object.keys(swapRecordsByWallet).length} wallets with data`);
-      } else {
-        this.logger.debug('No wallets require re-analysis; skipping swap record fetch.');
-        await job.updateProgress(40);
-      }
-
-      const progressStep = 50 / walletAddresses.length;
-      let completedCount = 0;
-      const partialProfiles: HolderProfile[] = [];
-      const profiles: HolderProfile[] = [];
-
-      for (const holder of topHolders) {
-        if (!holder.ownerAccount) continue;
-
-        const walletSwapRecords = swapRecordsByWallet[holder.ownerAccount] || [];
-        const supplyPercent = actualTotalSupply > 0 ? ((holder.uiAmount || 0) / actualTotalSupply) * 100 : 0;
-
-        try {
-          let profile: HolderProfile;
-
-          // Check if we have a pre-loaded profile from before the sync
-          const existingProfile = existingProfilesMap.get(holder.ownerAccount);
-          const needsReanalysis = walletsNeedingAnalysisSet.has(holder.ownerAccount);
-
-          if (existingProfile && !needsReanalysis) {
-            // Wallet was already fresh and has a profile - serve from DB IMMEDIATELY without re-analyzing!
-            this.logger.log(`✅ Serving cached profile for ${holder.ownerAccount} (NO re-analysis)`);
-
-            // Convert DB profile to HolderProfile format directly
-            profile = this.convertDbProfileToHolderProfile(existingProfile, holder.rank, supplyPercent);
-          } else {
-            // Wallet was synced or has no profile - full analysis
-            this.logger.log(`🔄 Full analysis for ${holder.ownerAccount} (${needsReanalysis ? 'wallet was synced' : 'no existing profile'})`);
-
-            if (walletSwapRecords.length > 0) {
-              try {
-                await this.pnlAnalysisService.analyzeWalletPnl(holder.ownerAccount, undefined);
-              } catch (pnlError) {
-                this.logger.warn(`PnL analysis failed for holder wallet ${holder.ownerAccount}:`, pnlError);
-              }
-            }
-
-            profile = await this.analyzeWalletProfile(
-              holder.ownerAccount,
-              holder.rank,
-              supplyPercent,
-              walletSwapRecords,
-            );
+        for (const walletAddress of walletsNeedingAnalysisOrdered) {
+          const walletSwapRecords = swapRecordsByWallet[walletAddress] || [];
+          try {
+            await runFullAnalysis(walletAddress, walletSwapRecords);
+          } catch (error) {
+            this.logger.warn(`Failed to analyze wallet ${walletAddress}:`, error);
           }
-
-          completedCount++;
-          const percent = 40 + Math.floor(completedCount * progressStep);
-          await job.updateProgress(percent);
-          partialProfiles.push(profile);
-          profiles.push(profile);
-
-          const progressPayload = {
-            mode: 'token',
-            tokenMint,
-            totalHoldersRequested: walletAddresses.length,
-            analyzedCount: partialProfiles.length,
-            profiles: [...partialProfiles],
-          };
-          this.logger.log(
-            `Streaming partial holder profile (${partialProfiles.length}/${walletAddresses.length}) for token ${tokenMint}: ${holder.ownerAccount}`
-          );
-          await this.jobProgressGateway.publishProgressEvent(job.id!, job.queueName, progressPayload);
-        } catch (error) {
-          this.logger.warn(`Failed to analyze wallet ${holder.ownerAccount}:`, error);
         }
       }
 
@@ -1123,69 +1143,6 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
     }
-  }
-
-  /**
-   * Convert a cached WalletBehaviorProfile row into a HolderProfile view model.
-   * The cached snapshot might not contain every field we expose, so we default unsupported metrics.
-   */
-  private convertDbProfileToHolderProfile(dbProfile: any, rank: number, supplyPercent: number): HolderProfile {
-    const completedCycleCount = typeof dbProfile?.completePairsCount === 'number' ? dbProfile.completePairsCount : 0;
-    const confidenceScore = typeof dbProfile?.confidenceScore === 'number' ? dbProfile.confidenceScore : 0;
-    const averageFlipDuration = typeof dbProfile?.averageFlipDurationHours === 'number'
-      ? dbProfile.averageFlipDurationHours
-      : null;
-    const medianHold = typeof dbProfile?.medianHoldTime === 'number' ? dbProfile.medianHoldTime : null;
-
-    const behaviorType = this.extractBehaviorTypeFromTradingStyle(dbProfile?.tradingStyle);
-
-    return {
-      walletAddress: dbProfile?.walletAddress,
-      rank,
-      supplyPercent,
-      medianHoldTimeHours: medianHold,
-      avgHoldTimeHours: averageFlipDuration,
-      dailyFlipRatio: null,
-      dailyFlipRatioConfidence: 'NONE',
-      behaviorType,
-      exitPattern: 'GRADUAL',
-      dataQualityTier: this.determineDataQualityTier(completedCycleCount, confidenceScore),
-      completedCycleCount,
-      confidence: confidenceScore,
-      processingTimeMs: 0,
-      holdTimeDistribution: undefined,
-      enrichedHoldTimeDistribution: dbProfile?.enrichedHoldTimeDistribution ?? undefined,
-      includesCurrentHoldings: false,
-      exitRate: null,
-      totalTokensTraded: typeof dbProfile?.uniqueTokensTraded === 'number'
-        ? dbProfile.uniqueTokensTraded
-        : undefined,
-      typicalHoldTimeHours: medianHold,
-      typicalHoldTimeSource: 'EXITED',
-      realizedMedianHoldTimeHours: medianHold,
-      realizedAverageHoldTimeHours: averageFlipDuration,
-      currentHoldMedianHours: null,
-      currentHoldAverageHours: null,
-      percentValueInCurrentHoldings: null,
-      currentHoldingsCount: null,
-      currentHoldings: [],
-      oldestTransactionTimestamp: dbProfile?.firstTransactionTimestamp ?? undefined,
-      newestTransactionTimestamp: dbProfile?.lastTransactionTimestamp ?? undefined,
-    };
-  }
-
-  private extractBehaviorTypeFromTradingStyle(tradingStyle?: string | null): string | null {
-    if (!tradingStyle) return null;
-    const normalized = tradingStyle.toUpperCase();
-    if (normalized.includes('SNIPER')) return 'SNIPER';
-    if (normalized.includes('SCALPER')) return 'SCALPER';
-    if (normalized.includes('MOMENTUM')) return 'MOMENTUM';
-    if (normalized.includes('INTRADAY')) return 'INTRADAY';
-    if (normalized.includes('DAY')) return 'DAY_TRADER';
-    if (normalized.includes('SWING')) return 'SWING';
-    if (normalized.includes('POSITION')) return 'POSITION';
-    if (normalized.includes('HOLDER')) return 'HOLDER';
-    return 'DAY_TRADER';
   }
 
   /**
