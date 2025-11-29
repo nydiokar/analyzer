@@ -232,9 +232,23 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       const apiError = error as ApiError;
       if (apiError.status !== 404) {
         console.error(`Error polling job status for ${jobId}:`, error);
+
+        // Provide more detailed error message based on error type
+        let errorDescription = `Job ${jobId} could not be retrieved.`;
+
+        if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+          errorDescription = 'Network error: Unable to connect to the server. Please check your connection and try again.';
+        } else if (apiError.status === 500) {
+          errorDescription = 'Server error occurred while checking job status. The job may still be processing.';
+        } else if (apiError.status === 403) {
+          errorDescription = 'Access denied. You may not have permission to view this job.';
+        } else if (apiError.message) {
+          errorDescription = `Error: ${apiError.message}`;
+        }
+
         toast({
           title: 'Could not get job status',
-          description: `There was an error checking the status of job ${jobId}. Real-time updates may be affected.`,
+          description: errorDescription,
           variant: 'destructive',
         });
       }

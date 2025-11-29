@@ -46,15 +46,27 @@ export function WalletClassifier({ entries }: Props) {
 
       {failed.length > 0 && (
         <div className="grid grid-cols-1 gap-3">
-          {failed.map((entry) => (
-            <div key={entry.walletAddress} className="rounded-xl border border-red-500/30 p-4 flex items-center gap-3 text-red-500">
-              <AlertTriangle className="h-5 w-5" />
-              <div>
-                <p className="font-medium">Failed: {entry.walletAddress}</p>
-                <p className="text-xs">{entry.error || 'Unknown error'}</p>
+          {failed.map((entry) => {
+            // Provide better error messaging
+            let errorMessage = entry.error || 'Unknown error';
+            if (errorMessage.includes('Failed to fetch')) {
+              errorMessage = 'Network error: Unable to connect to the server. Please check your connection and try again.';
+            } else if (errorMessage.includes('timeout')) {
+              errorMessage = 'Request timed out. The server may be busy - please try again later.';
+            } else if (errorMessage.includes('500')) {
+              errorMessage = 'Server error occurred while analyzing this wallet. Please try again later.';
+            }
+
+            return (
+              <div key={entry.walletAddress} className="rounded-xl border border-red-500/30 p-4 flex items-start gap-3 text-red-500">
+                <AlertTriangle className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">Failed: {entry.walletAddress}</p>
+                  <p className="text-xs text-red-400 mt-1">{errorMessage}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

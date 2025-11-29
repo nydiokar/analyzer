@@ -21,8 +21,6 @@ import {
   WalletClassifierEntry,
 } from '@/components/holder-profiles/v2/WalletClassifier';
 
-const MAX_WALLETS = 6;
-
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 type AnalysisMode = 'token' | 'wallet';
 
@@ -44,8 +42,8 @@ function parseWalletList(raw: string): WalletParseResult {
       ordered.push(token);
     }
   });
-  const list = ordered.slice(0, MAX_WALLETS);
-  return { list, truncated: Math.max(0, ordered.length - list.length) };
+  // No limit - allow unlimited wallets
+  return { list: ordered, truncated: 0 };
 }
 
 export default function HolderProfilesPage() {
