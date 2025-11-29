@@ -224,6 +224,7 @@ export default function HolderProfilesPage() {
       progress: 0,
     })));
 
+    // Queue all jobs and subscribe via WebSocket
     for (const walletAddress of parsedWallets.list) {
       try {
         const response = await fetcher('/analyses/holder-profiles/wallet', {
@@ -236,6 +237,7 @@ export default function HolderProfilesPage() {
           jobId: response.jobId,
           message: 'Queued',
         }));
+        // WebSocket subscription happens immediately, HTTP poll is delayed in the hook
         subscribeToJob(response.jobId);
       } catch (error: any) {
         updateWalletEntryByAddress(walletAddress, (entry) => ({

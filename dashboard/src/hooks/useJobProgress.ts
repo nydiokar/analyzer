@@ -207,50 +207,38 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     // Don't clear completed jobs when subscribing to new jobs
     // This prevents duplicate processing of job completion events
     // setCompletedJobs(new Set()); // ❌ REMOVED: This was causing duplicate events
-    
-    // 1. Subscribe to WebSocket to catch live events.
+
+    // Subscribe to WebSocket to catch live events.
     if (socket?.connected) {
       console.log(`🔔 Subscribing to WebSocket for job: ${jobId}`);
       socket.emit('subscribe-to-job', { jobId });
+      // That's it! WebSocket will handle all updates (progress, completion, failure)
+      // No HTTP polling needed - avoids browser connection limits
     } else {
-      console.warn(`⚠️ Cannot subscribe to WebSocket for job ${jobId} - socket not connected.`);
-    }
-
-    // 2. Poll via HTTP to get the *current* state, solving the race condition.
-    try {
-      const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
-      if (job) {
-        // If the job is already finished, process it immediately.
-        if (job.status === 'completed') {
-          handleJobCompletedFromHttp(job);
-        } else if (job.status === 'failed') {
-          handleJobFailedFromHttp(job);
+      console.warn(`⚠️ WebSocket not connected for job ${jobId}. Falling back to HTTP polling.`);
+      // Fallback: If WebSocket is not connected, poll via HTTP
+      try {
+        const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
+        if (job) {
+          if (job.status === 'completed') {
+            handleJobCompletedFromHttp(job);
+          } else if (job.status === 'failed') {
+            handleJobFailedFromHttp(job);
+          } else {
+            // Job is still running but no WebSocket - user needs to refresh or check connection
+            console.warn(`Job ${jobId} is ${job.status} but WebSocket is disconnected. Updates won't be received.`);
+          }
         }
-        // If 'active' or 'waiting', the WebSocket listener will handle it from here.
-      }
-    } catch (error: unknown) {
-      const apiError = error as ApiError;
-      if (apiError.status !== 404) {
-        console.error(`Error polling job status for ${jobId}:`, error);
-
-        // Provide more detailed error message based on error type
-        let errorDescription = `Job ${jobId} could not be retrieved.`;
-
-        if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-          errorDescription = 'Network error: Unable to connect to the server. Please check your connection and try again.';
-        } else if (apiError.status === 500) {
-          errorDescription = 'Server error occurred while checking job status. The job may still be processing.';
-        } else if (apiError.status === 403) {
-          errorDescription = 'Access denied. You may not have permission to view this job.';
-        } else if (apiError.message) {
-          errorDescription = `Error: ${apiError.message}`;
+      } catch (error: unknown) {
+        const apiError = error as ApiError;
+        if (apiError.status !== 404) {
+          console.error(`Error polling job status for ${jobId}:`, error);
+          toast({
+            title: 'Could not get job status',
+            description: 'Network error: Unable to connect to the server. Please check your connection.',
+            variant: 'destructive',
+          });
         }
-
-        toast({
-          title: 'Could not get job status',
-          description: errorDescription,
-          variant: 'destructive',
-        });
       }
     }
   }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp]);

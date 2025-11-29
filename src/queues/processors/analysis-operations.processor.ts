@@ -864,6 +864,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       this.logger.log(`Completed analyzing ${profiles.length}/${walletAddresses.length} holders for ${tokenMint}`);
 
+      const processingTimeMs = Date.now() - startTime;
       const result: HolderProfilesResult = {
         success: true,
         mode: 'token',
@@ -872,19 +873,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         metadata: {
           totalHoldersRequested: topN,
           totalHoldersAnalyzed: profiles.length,
-          totalProcessingTimeMs: Date.now() - startTime,
+          totalProcessingTimeMs: processingTimeMs,
           avgProcessingTimePerWalletMs: profiles.length > 0
-            ? Math.round((Date.now() - startTime) / profiles.length)
+            ? Math.round(processingTimeMs / profiles.length)
             : 0,
         },
         timestamp: Date.now(),
-        processingTimeMs: Date.now() - startTime,
+        processingTimeMs,
       };
 
       await job.updateProgress(100);
-      this.logger.log(`Holder profiles analysis for ${tokenMint} completed in ${result.processingTimeMs}ms`);
+      this.logger.log(`Holder profiles analysis for ${tokenMint} completed in ${processingTimeMs}ms`);
 
       await this.holderProfilesCacheService.cacheTokenResult(tokenMint, topN, result);
+
+      // Emit WebSocket completion event so frontend receives updates
+      await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
 
       return result;
     } catch (error) {
@@ -955,6 +959,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     const profile = await this.analyzeWalletProfile(walletAddress, 1, 0, swapRecords);
 
+    const processingTimeMs = Date.now() - startTime;
     const result: HolderProfilesResult = {
       success: true,
       mode: 'wallet',
@@ -963,15 +968,20 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       metadata: {
         totalHoldersRequested: 1,
         totalHoldersAnalyzed: profile ? 1 : 0,
-        totalProcessingTimeMs: Date.now() - startTime,
-        avgProcessingTimePerWalletMs: profile ? Date.now() - startTime : 0,
+        totalProcessingTimeMs: processingTimeMs,
+        avgProcessingTimePerWalletMs: profile ? processingTimeMs : 0,
       },
       timestamp: Date.now(),
-      processingTimeMs: Date.now() - startTime,
+      processingTimeMs,
     };
 
     await job.updateProgress(100);
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
+
+    // Emit WebSocket completion event so frontend receives updates
+    await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
+
+    this.logger.log(`Holder profile analysis for wallet ${walletAddress} completed in ${processingTimeMs}ms`);
 
     return result;
   }
