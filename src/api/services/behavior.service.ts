@@ -44,21 +44,21 @@ export class BehaviorService {
             // If profile was computed AFTER the last sync, it's fresh!
             if (profileUpdatedAt >= walletLastSyncAt) {
               const ageMinutes = Math.round((Date.now() - profileUpdatedAt) / 1000 / 60);
-              this.logger.debug(
-                `✅ Cache HIT: ${walletAddress} (${ageMinutes}min old, computed after last sync)`
+              this.logger.log(
+                `✅ Behavior Cache HIT: ${walletAddress} (${ageMinutes}min old, fresh)`
               );
               return this.convertProfileToMetrics(cachedProfile);
             } else {
               const syncAgo = Math.round((Date.now() - walletLastSyncAt) / 1000 / 60);
-              this.logger.debug(
-                `Cache STALE: ${walletAddress} - wallet synced ${syncAgo}min ago, recalculating`
+              this.logger.log(
+                `🔄 Behavior Cache STALE: ${walletAddress} - wallet synced ${syncAgo}min ago, re-analyzing`
               );
             }
           } else {
             // No sync timestamp - use 1 hour TTL fallback
             const cacheAgeMs = Date.now() - cachedProfile.updatedAt.getTime();
             if (cacheAgeMs < 60 * 60 * 1000) {
-              this.logger.debug(`✅ Cache HIT: ${walletAddress} (TTL fallback, ${Math.round(cacheAgeMs/1000/60)}min old)`);
+              this.logger.log(`✅ Behavior Cache HIT: ${walletAddress} (TTL fallback, ${Math.round(cacheAgeMs/1000/60)}min old)`);
               return this.convertProfileToMetrics(cachedProfile);
             }
           }

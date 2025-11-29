@@ -5,7 +5,7 @@ import { HolderProfilesResult } from '../../queues/jobs/types';
 @Injectable()
 export class HolderProfilesCacheService {
   private readonly logger = new Logger(HolderProfilesCacheService.name);
-  private readonly TTL_SECONDS = 120;
+  private readonly TTL_SECONDS = 3600; // 1 hour - holder profiles don't change frequently
   private redis: Redis;
 
   constructor() {

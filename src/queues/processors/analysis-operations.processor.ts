@@ -734,6 +734,21 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       this.logger.log(`Analyzing ${walletAddresses.length} holder wallets for ${tokenMint}...`);
       await job.updateProgress(20);
 
+      // OPTIMIZATION: Check for existing behavior profiles BEFORE syncing
+      // This allows us to serve cached profiles immediately without waiting for sync
+      const existingProfilesMap = new Map<string, any>();
+      for (const walletAddress of walletAddresses) {
+        try {
+          const cachedProfile = await this.databaseService.getWalletBehaviorProfile(walletAddress);
+          if (cachedProfile) {
+            existingProfilesMap.set(walletAddress, cachedProfile);
+          }
+        } catch (err) {
+          // Ignore errors, will analyze from scratch
+        }
+      }
+      this.logger.log(`Found ${existingProfilesMap.size}/${walletAddresses.length} existing behavior profiles in DB`);
+
       // Sync stale/missing holders first (same as wallet-mode flow)
       this.logger.debug(`Checking wallet statuses for top holders of ${tokenMint}`);
       const holderStatuses = await this.databaseService.getWalletsStatus(walletAddresses);
@@ -822,20 +837,38 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         const supplyPercent = actualTotalSupply > 0 ? ((holder.uiAmount || 0) / actualTotalSupply) * 100 : 0;
 
         try {
-          if (walletSwapRecords.length > 0) {
-            try {
-              await this.pnlAnalysisService.analyzeWalletPnl(holder.ownerAccount, undefined);
-            } catch (pnlError) {
-              this.logger.warn(`PnL analysis failed for holder wallet ${holder.ownerAccount}:`, pnlError);
-            }
-          }
+          let profile: HolderProfile;
 
-          const profile = await this.analyzeWalletProfile(
-            holder.ownerAccount,
-            holder.rank,
-            supplyPercent,
-            walletSwapRecords,
-          );
+          // Check if we have a pre-loaded profile from before the sync
+          const existingProfile = existingProfilesMap.get(holder.ownerAccount);
+          const walletSyncStatus = holderStatuses.statuses.find(s => s.walletAddress === holder.ownerAccount);
+          const needsReanalysis = walletSyncStatus?.status === 'STALE' || walletSyncStatus?.status === 'MISSING' || !existingProfile;
+
+          if (existingProfile && !needsReanalysis) {
+            // Wallet was already fresh and has a profile - serve from DB IMMEDIATELY without re-analyzing!
+            this.logger.log(`✅ Serving cached profile for ${holder.ownerAccount} (NO re-analysis)`);
+
+            // Convert DB profile to HolderProfile format directly
+            profile = this.convertDbProfileToHolderProfile(existingProfile, holder.rank, supplyPercent);
+          } else {
+            // Wallet was synced or has no profile - full analysis
+            this.logger.log(`🔄 Full analysis for ${holder.ownerAccount} (${needsReanalysis ? 'wallet was synced' : 'no existing profile'})`);
+
+            if (walletSwapRecords.length > 0) {
+              try {
+                await this.pnlAnalysisService.analyzeWalletPnl(holder.ownerAccount, undefined);
+              } catch (pnlError) {
+                this.logger.warn(`PnL analysis failed for holder wallet ${holder.ownerAccount}:`, pnlError);
+              }
+            }
+
+            profile = await this.analyzeWalletProfile(
+              holder.ownerAccount,
+              holder.rank,
+              supplyPercent,
+              walletSwapRecords,
+            );
+          }
 
           completedCount++;
           const percent = 40 + Math.floor(completedCount * progressStep);
