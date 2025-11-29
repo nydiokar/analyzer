@@ -745,13 +745,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(20);
 
       // OPTIMIZATION: Check for existing behavior profiles BEFORE syncing
-      // This allows us to serve cached profiles immediately without waiting for sync
+      // Determine if cached profiles are still fresh according to behavior-service heuristics
       const existingProfilesMap = new Map<string, any>();
+      const behaviorFreshnessMap = new Map<string, boolean>();
       for (const walletAddress of walletAddresses) {
         try {
           const cachedProfile = await this.databaseService.getWalletBehaviorProfile(walletAddress);
           if (cachedProfile) {
             existingProfilesMap.set(walletAddress, cachedProfile);
+            try {
+              const walletRecord = await this.databaseService.getWallet(walletAddress);
+              const isFresh = this.isBehaviorProfileFresh(cachedProfile, walletRecord);
+              behaviorFreshnessMap.set(walletAddress, isFresh);
+            } catch (walletErr) {
+              this.logger.warn(`Failed to load wallet sync info for ${walletAddress}:`, walletErr);
+              behaviorFreshnessMap.set(walletAddress, false);
+            }
           }
         } catch (err) {
           // Ignore errors, will analyze from scratch
@@ -766,9 +775,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const walletsNeedingAnalysis = walletAddresses.filter(addr => {
         const status = statusMap.get(addr);
         const hasExistingProfile = existingProfilesMap.has(addr);
+        const hasFreshProfile = behaviorFreshnessMap.get(addr);
         if (!status) return true;
         if (status.status === 'STALE' || status.status === 'MISSING' || status.status === 'IN_PROGRESS') return true;
         if (!hasExistingProfile) return true;
+        if (!hasFreshProfile) return true;
         return false;
       });
       const walletsNeedingAnalysisSet = new Set(walletsNeedingAnalysis);
@@ -1559,6 +1570,23 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     if (cycles >= 10 && confidence >= 0.6) return 'MEDIUM';
     if (cycles >= 3) return 'LOW';
     return 'INSUFFICIENT';
+  }
+
+  private isBehaviorProfileFresh(cachedProfile: any, walletRecord: any): boolean {
+    if (!cachedProfile) return false;
+    const profileUpdatedAt = cachedProfile.updatedAt instanceof Date
+      ? cachedProfile.updatedAt.getTime()
+      : new Date(cachedProfile.updatedAt).getTime();
+    if (Number.isNaN(profileUpdatedAt)) {
+      return false;
+    }
+
+    if (walletRecord?.lastSuccessfulFetchTimestamp instanceof Date) {
+      return profileUpdatedAt >= walletRecord.lastSuccessfulFetchTimestamp.getTime();
+    }
+
+    const ageMs = Date.now() - profileUpdatedAt;
+    return ageMs < 60 * 60 * 1000; // 1 hour fallback if no wallet sync info is available
   }
 
   /**
