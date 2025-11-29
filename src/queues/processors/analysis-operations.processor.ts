@@ -26,6 +26,7 @@ import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../sh
 import { DexscreenerService } from '../../api/services/dexscreener.service';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
+import type { HolderProfileSnapshot, Wallet as PrismaWallet } from '@prisma/client';
 
 @Injectable()
 export class AnalysisOperationsProcessor implements OnModuleDestroy {
@@ -742,31 +743,24 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
 
       this.logger.log(`Analyzing ${walletAddresses.length} holder wallets for ${tokenMint}...`);
+      const snapshotCacheEnabled = this.isHolderSnapshotCacheEnabled();
       await job.updateProgress(20);
 
-      // OPTIMIZATION: Check for existing behavior profiles BEFORE syncing
-      // Determine if cached profiles are still fresh according to behavior-service heuristics
-      const existingProfilesMap = new Map<string, any>();
-      const behaviorFreshnessMap = new Map<string, boolean>();
-      for (const walletAddress of walletAddresses) {
-        try {
-          const cachedProfile = await this.databaseService.getWalletBehaviorProfile(walletAddress);
-          if (cachedProfile) {
-            existingProfilesMap.set(walletAddress, cachedProfile);
-            try {
-              const walletRecord = await this.databaseService.getWallet(walletAddress);
-              const isFresh = this.isBehaviorProfileFresh(cachedProfile, walletRecord);
-              behaviorFreshnessMap.set(walletAddress, isFresh);
-            } catch (walletErr) {
-              this.logger.warn(`Failed to load wallet sync info for ${walletAddress}:`, walletErr);
-              behaviorFreshnessMap.set(walletAddress, false);
-            }
-          }
-        } catch (err) {
-          // Ignore errors, will analyze from scratch
-        }
+      const latestSnapshots = snapshotCacheEnabled
+        ? await this.databaseService.getLatestHolderProfileSnapshotsForToken(tokenMint, walletAddresses)
+        : new Map<string, HolderProfileSnapshot>();
+      if (snapshotCacheEnabled) {
+        this.logger.log(`Found ${latestSnapshots.size}/${walletAddresses.length} cached holder profile snapshots`);
       }
-      this.logger.log(`Found ${existingProfilesMap.size}/${walletAddresses.length} existing behavior profiles in DB`);
+
+      const walletRecordMap: Map<string, PrismaWallet> = snapshotCacheEnabled
+        ? new Map(
+            (await this.databaseService.getWallets(walletAddresses, true) as PrismaWallet[]).map(wallet => [
+              wallet.address,
+              wallet,
+            ]),
+          )
+        : new Map<string, PrismaWallet>();
 
       // Sync stale/missing holders first (same as wallet-mode flow)
       this.logger.debug(`Checking wallet statuses for top holders of ${tokenMint}`);
@@ -774,12 +768,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const statusMap = new Map(holderStatuses.statuses.map(status => [status.walletAddress, status]));
       const walletsNeedingAnalysis = walletAddresses.filter(addr => {
         const status = statusMap.get(addr);
-        const hasExistingProfile = existingProfilesMap.has(addr);
-        const hasFreshProfile = behaviorFreshnessMap.get(addr);
+        const snapshot = latestSnapshots.get(addr);
+        const walletRecord = walletRecordMap.get(addr);
+        const snapshotFresh = snapshotCacheEnabled && snapshot ? this.isHolderSnapshotFresh(snapshot, walletRecord) : false;
         if (!status) return true;
         if (status.status === 'STALE' || status.status === 'MISSING' || status.status === 'IN_PROGRESS') return true;
-        if (!hasExistingProfile) return true;
-        if (!hasFreshProfile) return true;
+        if (!snapshotFresh) return true;
         return false;
       });
       const walletsNeedingAnalysisSet = new Set(walletsNeedingAnalysis);
@@ -787,9 +781,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         const status = statusMap.get(addr);
         return status?.status === 'STALE' || status?.status === 'MISSING';
       });
-      const readyWalletsOrdered = topHolders
-        .map(holder => holder.ownerAccount)
-        .filter((addr): addr is string => !!addr && !walletsNeedingAnalysisSet.has(addr));
+      const readyWalletsOrdered = snapshotCacheEnabled
+        ? topHolders
+            .map(holder => holder.ownerAccount)
+            .filter((addr): addr is string => !!addr && !walletsNeedingAnalysisSet.has(addr))
+        : [];
       const walletsNeedingAnalysisOrdered = topHolders
         .map(holder => holder.ownerAccount)
         .filter((addr): addr is string => !!addr && walletsNeedingAnalysisSet.has(addr));
@@ -865,17 +861,38 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           metadata.supplyPercent,
           swapRecords,
         );
+        if (snapshotCacheEnabled) {
+          await this.databaseService.saveHolderProfileSnapshot({
+            walletAddress,
+            tokenMint,
+            analysisMode: 'token',
+            holderRank: metadata.rank,
+            supplyPercent: metadata.supplyPercent,
+            topN,
+            jobId: job.id?.toString() ?? null,
+            requestId: job.data.requestId,
+            profile,
+            metadata: {
+              mode: 'token',
+            },
+          });
+        }
         await publishProfile(profile, walletAddress);
       };
 
-      if (readyWalletsOrdered.length > 0) {
+      if (snapshotCacheEnabled && readyWalletsOrdered.length > 0) {
         this.logger.log(`Serving ${readyWalletsOrdered.length} cached holder profiles immediately (no sync needed)`);
         for (const walletAddress of readyWalletsOrdered) {
           try {
-            const swapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
-            await runFullAnalysis(walletAddress, swapRecords);
+            const metadata = holderMetadataByWallet.get(walletAddress);
+            const snapshot = latestSnapshots.get(walletAddress);
+            if (!metadata || !snapshot) {
+              continue;
+            }
+            const profile = this.hydrateSnapshotProfile(snapshot, metadata);
+            await publishProfile(profile, walletAddress);
           } catch (error) {
-            this.logger.warn(`Failed to analyze wallet ${walletAddress} (cached path):`, error);
+            this.logger.warn(`Failed to stream cached holder profile for ${walletAddress}:`, error);
           }
         }
       } else {
@@ -997,6 +1014,38 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       return cached;
     }
 
+    const snapshotCacheEnabled = this.isHolderSnapshotCacheEnabled();
+    if (snapshotCacheEnabled) {
+      const walletRecord = await this.databaseService.getWallet(walletAddress);
+      const latestSnapshot = await this.databaseService.getLatestHolderProfileSnapshot({
+        walletAddress,
+        tokenMint: null,
+        analysisMode: 'wallet',
+      });
+
+      if (latestSnapshot && this.isHolderSnapshotFresh(latestSnapshot, walletRecord)) {
+        this.logger.log(`Serving cached holder snapshot for wallet ${walletAddress}`);
+        const profile = latestSnapshot.profile as HolderProfile;
+        const processingTimeMs = Date.now() - startTime;
+        const result: HolderProfilesResult = {
+          success: true,
+          mode: 'wallet',
+          targetWallet: walletAddress,
+          profiles: [profile],
+          metadata: {
+            totalHoldersRequested: 1,
+            totalHoldersAnalyzed: 1,
+            totalProcessingTimeMs: processingTimeMs,
+            avgProcessingTimePerWalletMs: processingTimeMs,
+          },
+          timestamp: Date.now(),
+          processingTimeMs,
+        };
+        await job.updateProgress(100);
+        return result;
+      }
+    }
+
     this.checkTimeout(startTime, timeoutMs, 'Starting wallet holder profile analysis');
     await job.updateProgress(5);
 
@@ -1040,6 +1089,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(50);
 
     const profile = await this.analyzeWalletProfile(walletAddress, 1, 0, swapRecords);
+    if (snapshotCacheEnabled) {
+      await this.databaseService.saveHolderProfileSnapshot({
+        walletAddress,
+        tokenMint: null,
+        analysisMode: 'wallet',
+        holderRank: profile.rank,
+        supplyPercent: profile.supplyPercent,
+        topN: 1,
+        jobId: job.id?.toString() ?? null,
+        requestId: job.data.requestId,
+        profile,
+        metadata: {
+          mode: 'wallet',
+        },
+      });
+    }
 
     const processingTimeMs = Date.now() - startTime;
     const result: HolderProfilesResult = {
@@ -1572,21 +1637,38 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     return 'INSUFFICIENT';
   }
 
-  private isBehaviorProfileFresh(cachedProfile: any, walletRecord: any): boolean {
-    if (!cachedProfile) return false;
-    const profileUpdatedAt = cachedProfile.updatedAt instanceof Date
-      ? cachedProfile.updatedAt.getTime()
-      : new Date(cachedProfile.updatedAt).getTime();
-    if (Number.isNaN(profileUpdatedAt)) {
+  private isHolderSnapshotCacheEnabled(): boolean {
+    return process.env.DISABLE_HOLDER_PROFILE_SNAPSHOT_CACHE === 'true' ? false : true;
+  }
+
+  private hydrateSnapshotProfile(
+    snapshot: HolderProfileSnapshot,
+    metadata: { rank: number; supplyPercent: number },
+  ): HolderProfile {
+    const raw = snapshot.profile as HolderProfile;
+    const cloned: HolderProfile = JSON.parse(JSON.stringify(raw));
+    cloned.rank = metadata.rank;
+    cloned.supplyPercent = metadata.supplyPercent;
+    return cloned;
+  }
+
+  private isHolderSnapshotFresh(
+    snapshot: HolderProfileSnapshot,
+    walletRecord?: PrismaWallet | null,
+  ): boolean {
+    const computedAt =
+      snapshot.computedAt instanceof Date
+        ? snapshot.computedAt.getTime()
+        : new Date(snapshot.computedAt).getTime();
+    if (Number.isNaN(computedAt)) {
       return false;
     }
 
     if (walletRecord?.lastSuccessfulFetchTimestamp instanceof Date) {
-      return profileUpdatedAt >= walletRecord.lastSuccessfulFetchTimestamp.getTime();
+      return computedAt >= walletRecord.lastSuccessfulFetchTimestamp.getTime();
     }
 
-    const ageMs = Date.now() - profileUpdatedAt;
-    return ageMs < 60 * 60 * 1000; // 1 hour fallback if no wallet sync info is available
+    return Date.now() - computedAt < 60 * 60 * 1000;
   }
 
   /**

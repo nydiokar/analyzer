@@ -73,6 +73,7 @@ Poll GET /jobs/:jobId until status = 'completed'
 - [x] Virtualized token performance table with stabilized skeleton heights and min-height container to reduce DOM cost and CLS (`dashboard/src/components/dashboard/TokenPerformanceTab.tsx`, `dashboard/package.json`)
  - [x] Staged dashboard auto-refresh for wallet profile: initial load over `min(7 days, 1000 signatures)`, then 30‑day window, then deep backfill to max‑tx cap; thresholds are config‑driven and backend orchestrates jobs with websocket progress streaming (`dashboard/src/components/layout/WalletProfileLayout.tsx`, `dashboard/src/components/dashboard/BehavioralPatternsTab.tsx`, `src/api/controllers/analyses.controller.ts`)
  - [x] Dashboard QA & polish pass: verification matrix (heavy/low‑activity/demo), restricted‑wallet guardrails tightened, CTA copy and instrumentation refreshed.
+- [x] Holder profile snapshot cache (2025-11-30) – Persist the full holder profile JSON per wallet via `HolderProfileSnapshot`, stream cached holders instantly, and only re-run analysis when snapshots are stale (`prisma/schema.prisma`, `src/core/services/database-service.ts`, `src/queues/processors/analysis-operations.processor.ts`)
 ---
 
 ## Active
@@ -435,4 +436,3 @@ PAY ATTENTION!
 Need to find out a way to fulfill all token history for a wallet, when we have identified such in the X amount of txs we have fetch. Gake is having no holder data for the past 1000 tx, due to old tokens. 
 
 Find a way to detect when tokens have changed the owner and sold off from a different wallet. 
-

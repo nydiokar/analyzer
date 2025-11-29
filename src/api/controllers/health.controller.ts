@@ -29,6 +29,7 @@ export class HealthController {
     const startTime = Date.now();
     
     try {
+      const snapshotCacheEnabled = this.isHolderSnapshotCacheEnabled();
       const result = await this.health.check([
         // Check database connection with timeout
         async () => {
@@ -49,6 +50,44 @@ export class HealthController {
               database: {
                 status: 'down',
                 error: error instanceof Error ? error.message : 'Unknown database error',
+              },
+            } as HealthIndicatorResult;
+          }
+        },
+        async () => {
+          if (!snapshotCacheEnabled) {
+            return {
+              holderProfileSnapshots: {
+                status: 'up',
+                message: 'Snapshot cache disabled',
+                enabled: false,
+              },
+            } as HealthIndicatorResult;
+          }
+
+          const snapshotStart = Date.now();
+          try {
+            const total = await this.databaseService.countHolderProfileSnapshots();
+            const responseTime = Date.now() - snapshotStart;
+            const threshold = Number(process.env.HOLDER_PROFILE_SNAPSHOT_MAX_ROWS || 500000);
+            const withinThreshold = total <= threshold;
+            return {
+              holderProfileSnapshots: {
+                status: withinThreshold ? 'up' : 'down',
+                total,
+                threshold,
+                responseTime: `${responseTime}ms`,
+                message: withinThreshold
+                  ? 'Snapshot table within threshold'
+                  : 'Snapshot table exceeds threshold',
+              },
+            } as HealthIndicatorResult;
+          } catch (error) {
+            this.logger.error('Holder profile snapshot health check failed:', error);
+            return {
+              holderProfileSnapshots: {
+                status: 'down',
+                error: error instanceof Error ? error.message : 'Unknown snapshot error',
               },
             } as HealthIndicatorResult;
           }
@@ -136,5 +175,9 @@ export class HealthController {
       
       return failedHealthStatus;
     }
+  }
+
+  private isHolderSnapshotCacheEnabled(): boolean {
+    return process.env.DISABLE_HOLDER_PROFILE_SNAPSHOT_CACHE === 'true' ? false : true;
   }
 } 

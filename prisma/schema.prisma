@@ -179,6 +179,26 @@ model WalletBehaviorProfile {
   @@index([walletAddress])
 }
 
+model HolderProfileSnapshot {
+  id             Int      @id @default(autoincrement())
+  walletAddress  String
+  tokenMint      String?
+  analysisMode   String
+  holderRank     Int?
+  supplyPercent  Float?
+  topN           Int?
+  jobId          String?
+  requestId      String?
+  computedAt     DateTime @default(now())
+  profile        Json
+  metadata       Json?
+
+  wallet Wallet @relation(fields: [walletAddress], references: [address])
+
+  @@index([tokenMint])
+  @@index([walletAddress, tokenMint, computedAt])
+}
+
 model AnalysisRun {
   id                   Int      @id @default(autoincrement())
   walletAddress        String

@@ -1,3 +1,22 @@
+# Holder Profile Snapshot Cache - Implemented
+
+**Last Updated:** 2025-11-30  
+**Status:** ✅ READY FOR BACKEND QA
+
+---
+
+## What Changed
+
+- Added a persistent `HolderProfileSnapshot` Prisma model that stores the entire holder profile JSON plus context (wallet, token mint, rank/supply at computation time, job/request ids, timestamps). Snapshots double as a durable cache and a future time-series source.
+- Extended `DatabaseService` with snapshot helpers (save, batch fetch latest per token, fetch latest per wallet).
+- Updated `AnalysisOperationsProcessor` token-mode flow to load snapshots before syncing, immediately stream cached holders whose snapshot is fresher than the wallet’s last sync, and only run sync/analysis for stale wallets. Every fresh analysis now writes a new snapshot.
+- Wallet-mode analysis follows the same pattern: serve cached snapshot when fresh, or compute + persist when stale.
+- Cached holders no longer invoke `BehaviorService`, eliminating spurious “Behavior Cache STALE” logs for READY wallets.
+- Added `DISABLE_HOLDER_PROFILE_SNAPSHOT_CACHE` flag (default off) plus a health-check guard that reports snapshot-table size vs `HOLDER_PROFILE_SNAPSHOT_MAX_ROWS`, so ops can temporarily bypass the cache or watch for runaway growth via `/health`.
+
+**Next steps:** run the Prisma migration/generate, kick off a token-holder job to backfill snapshots, and plan retention/analytics on the snapshot table.
+
+---
 # Exit Timing WR/ROI Enhancement - Implementation Complete
 
 **Last Updated:** 2025-11-20
