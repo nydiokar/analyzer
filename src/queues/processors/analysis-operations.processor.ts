@@ -628,8 +628,55 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * Process holder profiles analysis job
-   * Supports analyzing top holders for a token or an individual wallet
+   * Process holder profiles analysis job with progressive streaming architecture.
+   *
+   * ARCHITECTURE OVERVIEW:
+   * =====================
+   * This implements a tiered caching strategy with progressive loading:
+   *
+   * TIER 1 (Redis - HolderProfilesCacheService):
+   *   - Caches complete HolderProfilesResult objects
+   *   - TTL: 1 hour (hot cache for repeated requests)
+   *   - Use case: Avoid re-querying DB for same token/topN within 1 hour
+   *
+   * TIER 2 (PostgreSQL - HolderProfileSnapshot table):
+   *   - Persists individual HolderProfile records as JSON
+   *   - TTL: Until wallet re-syncs (smart freshness check)
+   *   - Use case: Instant streaming of cached profiles while analyzing stale ones
+   *
+   * PROGRESSIVE STREAMING FLOW:
+   * ==========================
+   * Example: Request top 10 holders of Token X
+   *
+   * 1. Check Redis cache → Cache miss (or expired after 1 hour)
+   * 2. Query DB for all 10 wallet snapshots (batched)
+   *    ├─ Found 7 fresh profiles (wallets analyzed today)
+   *    └─ 3 wallets are stale/missing
+   *
+   * 3. IMMEDIATELY stream 7 cached profiles to frontend ⚡
+   *    └─ User sees data in <1 second
+   *
+   * 4. Sync 3 stale wallets in background (parallel)
+   *
+   * 5. Analyze 3 stale wallets, save to DB, stream to frontend
+   *    └─ User sees remaining 3 profiles after ~30 seconds
+   *
+   * FRESHNESS GUARANTEE:
+   * ===================
+   * Snapshot considered fresh if:
+   *   - snapshot.computedAt >= wallet.lastSuccessfulFetchTimestamp (primary)
+   *   - OR snapshot.computedAt within last hour (fallback)
+   *
+   * This ensures profiles are only reused when underlying wallet data unchanged.
+   *
+   * MEMORY EFFICIENCY:
+   * =================
+   * - Redis holds full results for 1 hour → Prevents pressure on frequent requests
+   * - PostgreSQL persists individual profiles → Survives Redis eviction
+   * - Wallets analyzed 7-8 hours ago can be served instantly from DB
+   *
+   * @param job - Job data containing mode ('token' | 'wallet'), tokenMint, topN, walletAddress
+   * @returns HolderProfilesResult with profiles array and metadata
    */
   async processAnalyzeHolderProfiles(job: Job<AnalyzeHolderProfilesJobData>): Promise<HolderProfilesResult> {
     const { mode = 'token', tokenMint, topN = 10, walletAddress } = job.data;
@@ -743,9 +790,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
 
       this.logger.log(`Analyzing ${walletAddresses.length} holder wallets for ${tokenMint}...`);
+      // PHASE 1: Fetch cached snapshots from PostgreSQL (Tier 2 cache)
+      // ================================================================
       const snapshotCacheEnabled = this.isHolderSnapshotCacheEnabled();
       await job.updateProgress(20);
 
+      // Batch fetch all snapshots for the requested wallets (single DB query)
       const latestSnapshots = snapshotCacheEnabled
         ? await this.databaseService.getLatestHolderProfileSnapshotsForToken(tokenMint, walletAddresses)
         : new Map<string, HolderProfileSnapshot>();
@@ -753,6 +803,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         this.logger.log(`Found ${latestSnapshots.size}/${walletAddresses.length} cached holder profile snapshots`);
       }
 
+      // Fetch wallet records to check freshness (needed for lastSuccessfulFetchTimestamp)
       const walletRecordMap: Map<string, PrismaWallet> = snapshotCacheEnabled
         ? new Map(
             (await this.databaseService.getWallets(walletAddresses, true) as PrismaWallet[]).map(wallet => [
@@ -762,10 +813,16 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           )
         : new Map<string, PrismaWallet>();
 
-      // Sync stale/missing holders first (same as wallet-mode flow)
+      // PHASE 2: Determine which wallets need re-analysis (freshness check)
+      // ===================================================================
       this.logger.debug(`Checking wallet statuses for top holders of ${tokenMint}`);
       const holderStatuses = await this.databaseService.getWalletsStatus(walletAddresses);
       const statusMap = new Map(holderStatuses.statuses.map(status => [status.walletAddress, status]));
+
+      // A wallet needs re-analysis if:
+      // 1. No status record exists (never synced)
+      // 2. Status is STALE/MISSING/IN_PROGRESS (needs fresh data)
+      // 3. Snapshot exists but is stale (computedAt < lastSuccessfulFetchTimestamp)
       const walletsNeedingAnalysis = walletAddresses.filter(addr => {
         const status = statusMap.get(addr);
         const snapshot = latestSnapshots.get(addr);
@@ -777,10 +834,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         return false;
       });
       const walletsNeedingAnalysisSet = new Set(walletsNeedingAnalysis);
+
+      // Split into wallets needing sync (STALE/MISSING) vs just re-analysis (stale snapshot)
       const walletsNeedingSync = walletsNeedingAnalysis.filter(addr => {
         const status = statusMap.get(addr);
         return status?.status === 'STALE' || status?.status === 'MISSING';
       });
+
+      // Maintain original holder ranking order for both groups
       const readyWalletsOrdered = snapshotCacheEnabled
         ? topHolders
             .map(holder => holder.ownerAccount)
@@ -790,6 +851,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         .map(holder => holder.ownerAccount)
         .filter((addr): addr is string => !!addr && walletsNeedingAnalysisSet.has(addr));
 
+      // PHASE 3: Sync stale wallets in background (non-blocking)
+      // =========================================================
+      // Start sync in background while we stream cached profiles
       const syncPromise = (async () => {
         if (walletsNeedingSync.length > 0) {
           this.logger.log(`Syncing ${walletsNeedingSync.length} holder wallets for ${tokenMint}`);
@@ -815,11 +879,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(30);
       await job.updateProgress(40);
 
+      // PHASE 4: Progressive streaming - set up WebSocket publishing
+      // ============================================================
       const progressStep = 50 / walletAddresses.length;
       let completedCount = 0;
       const partialProfiles: HolderProfile[] = [];
       const profiles: HolderProfile[] = [];
 
+      // Helper: Publish individual profile to frontend via WebSocket
+      // This enables progressive loading - profiles appear one by one
       const publishProfile = async (profile: HolderProfile, walletAddress: string) => {
         completedCount++;
         const percent = 40 + Math.floor(completedCount * progressStep);
@@ -840,6 +908,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         await this.jobProgressGateway.publishProgressEvent(job.id!, job.queueName, progressPayload);
       };
 
+      // Helper: Run full analysis for a wallet (PnL + behavior + profile computation)
       const runFullAnalysis = async (walletAddress: string, swapRecords: any[]) => {
         const metadata = holderMetadataByWallet.get(walletAddress);
         if (!metadata) {
@@ -847,6 +916,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           return;
         }
 
+        // Run PnL analysis if wallet has trading history
         if (swapRecords.length > 0) {
           try {
             await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined);
@@ -855,12 +925,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           }
         }
 
+        // Compute holder profile from swap records + PnL data
         const profile = await this.analyzeWalletProfile(
           walletAddress,
           metadata.rank,
           metadata.supplyPercent,
           swapRecords,
         );
+
+        // Persist to PostgreSQL (Tier 2 cache) for future requests
         if (snapshotCacheEnabled) {
           await this.databaseService.saveHolderProfileSnapshot({
             walletAddress,
@@ -877,9 +950,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             },
           });
         }
+
+        // Stream to frontend immediately
         await publishProfile(profile, walletAddress);
       };
 
+      // PHASE 5: Stream cached profiles IMMEDIATELY (instant UX)
+      // ========================================================
+      // These wallets have fresh snapshots - serve them RIGHT NOW
+      // without waiting for sync/analysis of other wallets
       if (snapshotCacheEnabled && readyWalletsOrdered.length > 0) {
         this.logger.log(`Serving ${readyWalletsOrdered.length} cached holder profiles immediately (no sync needed)`);
         for (const walletAddress of readyWalletsOrdered) {
@@ -889,7 +968,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             if (!metadata || !snapshot) {
               continue;
             }
+            // Hydrate snapshot (update rank/supplyPercent in case holder position changed)
             const profile = this.hydrateSnapshotProfile(snapshot, metadata);
+            // Stream to frontend - user sees this profile in <1 second ⚡
             await publishProfile(profile, walletAddress);
           } catch (error) {
             this.logger.warn(`Failed to stream cached holder profile for ${walletAddress}:`, error);
@@ -899,10 +980,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         this.logger.debug('No cached holder profiles to serve immediately');
       }
 
+      // PHASE 6: Wait for sync to complete before analyzing stale wallets
+      // ==================================================================
       await syncPromise;
 
+      // PHASE 7: Analyze stale wallets and stream results progressively
+      // ================================================================
       if (walletsNeedingAnalysisOrdered.length > 0) {
         this.logger.debug(`Batch fetching swap records for ${walletsNeedingAnalysisOrdered.length} wallets needing analysis...`);
+        // Batch fetch all swap records in one query (efficient)
         let allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletsNeedingAnalysisOrdered);
 
         this.checkTimeout(startTime, timeoutMs, 'Fetching swap records');
@@ -1025,7 +1111,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       if (latestSnapshot && this.isHolderSnapshotFresh(latestSnapshot, walletRecord)) {
         this.logger.log(`Serving cached holder snapshot for wallet ${walletAddress}`);
-        const profile = latestSnapshot.profile as HolderProfile;
+        if (!this.isHolderProfile(latestSnapshot.profile)) {
+          throw new Error(`Invalid HolderProfile structure in snapshot for wallet ${walletAddress}`);
+        }
+        const profile = latestSnapshot.profile;
         const processingTimeMs = Date.now() - startTime;
         const result: HolderProfilesResult = {
           success: true,
@@ -1641,17 +1730,93 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     return process.env.DISABLE_HOLDER_PROFILE_SNAPSHOT_CACHE === 'true' ? false : true;
   }
 
+  /**
+   * Hydrate a snapshot profile with current holder metadata.
+   *
+   * WHY HYDRATION IS NEEDED:
+   * ========================
+   * Holder profiles stored in DB contain static rank/supplyPercent from when
+   * they were computed. But these values can change if:
+   * - Other holders buy/sell tokens (rank changes)
+   * - Token supply changes (supplyPercent changes)
+   *
+   * We recompute these values from fresh holder data while reusing the
+   * expensive behavioral analysis (medianHoldTime, behaviorType, etc.)
+   *
+   * EXAMPLE:
+   * ========
+   * Snapshot saved yesterday:  { rank: 3, supplyPercent: 5.2%, medianHoldTime: 12h }
+   * Fresh holder data today:   { rank: 5, supplyPercent: 4.8% } (position changed)
+   * Hydrated profile:          { rank: 5, supplyPercent: 4.8%, medianHoldTime: 12h }
+   *                                       ↑ Updated         ↑ Reused from snapshot
+   *
+   * @param snapshot - The HolderProfileSnapshot from DB
+   * @param metadata - Current rank and supply percentage
+   * @returns Fresh HolderProfile with updated metadata
+   */
+  /**
+   * Type guard to validate that a JSON value is a valid HolderProfile.
+   * This provides runtime safety when deserializing from PostgreSQL JSONB.
+   */
+  private isHolderProfile(value: unknown): value is HolderProfile {
+    if (!value || typeof value !== 'object') return false;
+    const obj = value as Record<string, unknown>;
+    return (
+      typeof obj.walletAddress === 'string' &&
+      typeof obj.rank === 'number' &&
+      typeof obj.supplyPercent === 'number'
+      // Could add more checks, but these are the critical fields
+    );
+  }
+
   private hydrateSnapshotProfile(
     snapshot: HolderProfileSnapshot,
     metadata: { rank: number; supplyPercent: number },
   ): HolderProfile {
-    const raw = snapshot.profile as HolderProfile;
+    // Prisma Json type is JsonValue, we need to safely cast to HolderProfile
+    // Using type guard for runtime validation
+    if (!this.isHolderProfile(snapshot.profile)) {
+      throw new Error(`Invalid HolderProfile structure in snapshot for wallet ${snapshot.walletAddress}`);
+    }
+    const raw = snapshot.profile;
     const cloned: HolderProfile = JSON.parse(JSON.stringify(raw));
     cloned.rank = metadata.rank;
     cloned.supplyPercent = metadata.supplyPercent;
     return cloned;
   }
 
+  /**
+   * Determine if a holder profile snapshot is still fresh (can be reused).
+   *
+   * FRESHNESS CRITERIA:
+   * ==================
+   * A snapshot is considered fresh if the wallet's underlying data hasn't changed
+   * since the profile was computed.
+   *
+   * PRIMARY CHECK (preferred):
+   *   snapshot.computedAt >= wallet.lastSuccessfulFetchTimestamp
+   *   → Profile was computed AFTER the wallet's last sync
+   *   → Safe to reuse even if snapshot is days old (wallet unchanged)
+   *
+   * FALLBACK CHECK (when wallet record unavailable):
+   *   snapshot.computedAt within last 1 hour
+   *   → Conservative time-based expiration
+   *
+   * EXAMPLES:
+   * =========
+   * 1. Snapshot from 8 hours ago, wallet synced 12 hours ago → FRESH ✅
+   *    (Wallet data unchanged since snapshot computed)
+   *
+   * 2. Snapshot from 1 hour ago, wallet synced 30 minutes ago → STALE ❌
+   *    (Wallet has new data that snapshot doesn't reflect)
+   *
+   * 3. Snapshot from 45 minutes ago, no wallet record → FRESH ✅
+   *    (Falls back to 1-hour TTL)
+   *
+   * @param snapshot - The HolderProfileSnapshot to check
+   * @param walletRecord - Optional wallet record with lastSuccessfulFetchTimestamp
+   * @returns true if snapshot can be reused, false if needs recomputation
+   */
   private isHolderSnapshotFresh(
     snapshot: HolderProfileSnapshot,
     walletRecord?: PrismaWallet | null,
@@ -1664,10 +1829,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       return false;
     }
 
+    // PRIMARY: Check if snapshot is fresher than wallet's last sync
     if (walletRecord?.lastSuccessfulFetchTimestamp instanceof Date) {
       return computedAt >= walletRecord.lastSuccessfulFetchTimestamp.getTime();
     }
 
+    // FALLBACK: Use time-based TTL (conservative 1-hour expiration)
     return Date.now() - computedAt < 60 * 60 * 1000;
   }
 

@@ -8,26 +8,27 @@ datasource db {
 }
 
 model Wallet {
-  address                      String                 @id @unique
+  address                      String                  @id @unique
   firstProcessedTimestamp      Int?
   newestProcessedSignature     String?
   newestProcessedTimestamp     Int?
   lastSuccessfulFetchTimestamp DateTime?
   analyzedTimestampStart       Int?
   analyzedTimestampEnd         Int?
-  classification               String?                @default("unknown")
+  classification               String?                 @default("unknown")
   classificationConfidence     Float?
   classificationUpdatedAt      DateTime?
   classificationMethod         String?
-  isVerifiedBot                Boolean                @default(false)
+  isVerifiedBot                Boolean                 @default(false)
   botType                      String?
   botPatternTags               Json?
-  activityLogs                 ActivityLog[]          @relation("WalletActivityLogs")
+  activityLogs                 ActivityLog[]           @relation("WalletActivityLogs")
   AnalysisResult               AnalysisResult[]
   favoritedBy                  UserFavoriteWallet[]
   behaviorProfile              WalletBehaviorProfile?
   walletNotes                  WalletNote[]
   pnlSummary                   WalletPnlSummary?
+  HolderProfileSnapshot        HolderProfileSnapshot[]
 
   @@index([classification])
   @@index([classificationConfidence])
@@ -180,22 +181,24 @@ model WalletBehaviorProfile {
 }
 
 model HolderProfileSnapshot {
-  id             Int      @id @default(autoincrement())
-  walletAddress  String
-  tokenMint      String?
-  analysisMode   String
-  holderRank     Int?
-  supplyPercent  Float?
-  topN           Int?
-  jobId          String?
-  requestId      String?
-  computedAt     DateTime @default(now())
-  profile        Json
-  metadata       Json?
+  id            Int      @id @default(autoincrement())
+  walletAddress String
+  tokenMint     String?
+  analysisMode  String
+  holderRank    Int?
+  supplyPercent Float?
+  topN          Int?
+  jobId         String?
+  requestId     String?
+  computedAt    DateTime @default(now())
+  profile       Json
+  metadata      Json?
 
   wallet Wallet @relation(fields: [walletAddress], references: [address])
 
-  @@index([tokenMint])
+  // Index for token-mode queries: WHERE tokenMint = ? AND walletAddress IN (...)
+  @@index([tokenMint, computedAt])
+  // Index for wallet-mode queries: WHERE walletAddress = ? AND tokenMint = ? ORDER BY computedAt DESC
   @@index([walletAddress, tokenMint, computedAt])
 }
 
@@ -319,38 +322,38 @@ model UserFavoriteWallet {
 }
 
 model TokenInfo {
-  tokenAddress         String         @id @unique
-  name                 String?
-  symbol               String?
-  imageUrl             String?
-  websiteUrl           String?
-  twitterUrl           String?
-  telegramUrl          String?
-  marketCapUsd         Float?
-  liquidityUsd         Float?
-  pairCreatedAt        BigInt?
-  fdv                  Float?
-  volume24h            Float?
-  priceUsd             String?
-  dexscreenerUpdatedAt DateTime?
-  fetchedAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  tokenAddress            String         @id @unique
+  name                    String?
+  symbol                  String?
+  imageUrl                String?
+  websiteUrl              String?
+  twitterUrl              String?
+  telegramUrl             String?
+  marketCapUsd            Float?
+  liquidityUsd            Float?
+  pairCreatedAt           BigInt?
+  fdv                     Float?
+  volume24h               Float?
+  priceUsd                String?
+  dexscreenerUpdatedAt    DateTime?
+  fetchedAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
   // Onchain metadata fields
-  onchainName          String?
-  onchainSymbol        String?
-  onchainDescription   String?
-  onchainImageUrl      String?
-  onchainCreator       String?
-  onchainMetadataUri   String?
-  onchainBasicFetchedAt DateTime?
-  onchainWebsiteUrl    String?
-  onchainTwitterUrl    String?
-  onchainTelegramUrl   String?
-  onchainDiscordUrl    String?
+  onchainName             String?
+  onchainSymbol           String?
+  onchainDescription      String?
+  onchainImageUrl         String?
+  onchainCreator          String?
+  onchainMetadataUri      String?
+  onchainBasicFetchedAt   DateTime?
+  onchainWebsiteUrl       String?
+  onchainTwitterUrl       String?
+  onchainTelegramUrl      String?
+  onchainDiscordUrl       String?
   onchainSocialsFetchedAt DateTime?
-  metadataSource       String?
-  TokenTag             TokenTag[]
-  WatchedToken         WatchedToken[]
+  metadataSource          String?
+  TokenTag                TokenTag[]
+  WatchedToken            WatchedToken[]
 
   @@index([name])
   @@index([symbol])

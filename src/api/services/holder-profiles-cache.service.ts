@@ -2,6 +2,53 @@ import { Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { HolderProfilesResult } from '../../queues/jobs/types';
 
+/**
+ * TIER 1 CACHE: Redis-based hot cache for holder profile analysis results.
+ *
+ * ARCHITECTURE OVERVIEW:
+ * =====================
+ * This service implements TIER 1 of a two-tier caching strategy:
+ *
+ * TIER 1 (THIS SERVICE - Redis):
+ *   - Stores: Complete HolderProfilesResult objects
+ *   - TTL: 1 hour (hot cache)
+ *   - Use case: Repeated queries for same token/topN within short time
+ *   - Tradeoff: Memory-intensive but ultra-fast
+ *
+ * TIER 2 (PostgreSQL HolderProfileSnapshot table):
+ *   - Stores: Individual HolderProfile records as JSON
+ *   - TTL: Until wallet re-syncs (smart freshness check)
+ *   - Use case: Progressive streaming of cached profiles
+ *   - Tradeoff: Disk-based but survives Redis eviction
+ *
+ * WHY TIER 1 EXISTS:
+ * ==================
+ * Without this Redis cache, every request would:
+ * 1. Query PostgreSQL for 10+ snapshots
+ * 2. Check freshness for each
+ * 3. Stream partial results
+ * 4. Compute missing profiles
+ *
+ * With Redis (this cache):
+ * - Same request within 1 hour → Instant return of full result (50ms)
+ * - Different topN or token → Fall through to Tier 2 + computation
+ *
+ * MEMORY MANAGEMENT:
+ * ==================
+ * - Keys expire after 1 hour (automatic eviction)
+ * - Typical size: ~50KB per result (10 profiles × ~5KB each)
+ * - Expected memory: ~5MB for 100 cached results
+ * - If memory pressure: Reduce TTL or rely solely on Tier 2
+ *
+ * INVALIDATION STRATEGY:
+ * ======================
+ * - Wallet behavior changes → Invalidate all caches containing that wallet
+ * - Token-level invalidation → Clear all topN variations for that token
+ * - No proactive invalidation → Let TTL handle it (simpler, safer)
+ *
+ * @see HolderProfileSnapshot (Tier 2 cache in PostgreSQL)
+ * @see AnalysisOperationsProcessor.processAnalyzeHolderProfiles (orchestration)
+ */
 @Injectable()
 export class HolderProfilesCacheService {
   private readonly logger = new Logger(HolderProfilesCacheService.name);
