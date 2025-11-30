@@ -2,6 +2,7 @@ import { Controller, Get, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService, HttpHealthIndicator, HealthIndicatorResult } from '@nestjs/terminus';
 import { DatabaseService } from '../services/database.service';
+import { HolderProfilesCacheService } from '../services/holder-profiles-cache.service';
 import { prisma } from '../../core/services/database-service';
 import { Public } from '../shared/decorators/public.decorator';
 import { QueueHealthService, OverallHealthStatus } from '../../queues/services/queue-health.service';
@@ -17,6 +18,7 @@ export class HealthController {
     private http: HttpHealthIndicator,
     private readonly databaseService: DatabaseService,
     private readonly queueHealthService: QueueHealthService,
+    private readonly holderProfilesCacheService: HolderProfilesCacheService,
   ) {}
 
   @Get()
@@ -174,6 +176,72 @@ export class HealthController {
       };
       
       return failedHealthStatus;
+    }
+  }
+
+  @Get('holder-profile-cache-metrics')
+  @Public() // Cache metrics should be accessible without authentication
+  @ApiOperation({
+    summary: 'Get holder profile cache hit rate metrics',
+    description: 'Returns cache performance metrics for holder profiles across Tier 1 (Redis) and Tier 2 (PostgreSQL) caches. Use this to validate cache effectiveness and identify optimization opportunities.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Cache metrics retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        tier1: {
+          type: 'object',
+          properties: {
+            hits: { type: 'number' },
+            misses: { type: 'number' },
+            hitRate: { type: 'number', description: 'Hit rate percentage (0-100)' },
+            total: { type: 'number' }
+          }
+        },
+        tier2: {
+          type: 'object',
+          properties: {
+            hits: { type: 'number' },
+            misses: { type: 'number' },
+            partial: { type: 'number', description: 'Partial hits (some wallets cached)' },
+            hitRate: { type: 'number', description: 'Hit rate percentage (0-100)' },
+            total: { type: 'number' }
+          }
+        },
+        uptime: {
+          type: 'object',
+          properties: {
+            milliseconds: { type: 'number' },
+            hours: { type: 'number' },
+            since: { type: 'string', format: 'date-time' }
+          }
+        }
+      }
+    }
+  })
+  async getCacheMetrics() {
+    const startTime = Date.now();
+    try {
+      const metrics = this.holderProfilesCacheService.getCacheMetrics();
+      const responseTime = Date.now() - startTime;
+
+      this.logger.log(
+        `Cache metrics retrieved in ${responseTime}ms: ` +
+        `Tier1 ${metrics.tier1.hitRate.toFixed(1)}% (${metrics.tier1.total} req), ` +
+        `Tier2 ${metrics.tier2.hitRate.toFixed(1)}% (${metrics.tier2.total} req)`
+      );
+
+      return {
+        ...metrics,
+        timestamp: new Date().toISOString(),
+        responseTime: `${responseTime}ms`,
+      };
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      this.logger.error(`Cache metrics retrieval failed after ${responseTime}ms:`, error);
+      throw error;
     }
   }
 
