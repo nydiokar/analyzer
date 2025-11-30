@@ -80,6 +80,8 @@ Poll GET /jobs/:jobId until status = 'completed'
 
 None - Ready for next feature.
 
+TEST THE NEW HOLDER PROFILE CACHE IMPLEMENTATION
+
 ## Recently Completed (Last 3-4 Days)
 
 - **Exit Timing Token Drilldown** ✅ (2025-11-20) - See "Completed" section below for full details
