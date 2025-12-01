@@ -1477,7 +1477,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             historicalPattern.completedCycleCount,
             historicalPattern.dataQuality,
           )
-        : 'LOW' as const; // Current holdings data = lower quality
+        : 'BRONZE' as const; // Current holdings data = lower quality
 
       return {
         walletAddress,
@@ -1679,10 +1679,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   /**
    * Determine data quality tier based on cycle count and confidence
    */
-  private determineDataQualityTier(cycles: number, confidence: number): 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' {
-    if (cycles >= 30 && confidence >= 0.8) return 'HIGH';
-    if (cycles >= 10 && confidence >= 0.6) return 'MEDIUM';
-    if (cycles >= 3) return 'LOW';
+  private determineDataQualityTier(cycles: number, confidence: number): 'GOLD' | 'SILVER' | 'BRONZE' | 'INSUFFICIENT' {
+    if (cycles >= 30 && confidence >= 0.8) return 'GOLD';
+    if (cycles >= 10 && confidence >= 0.6) return 'SILVER';
+    if (cycles >= 3) return 'BRONZE';
     return 'INSUFFICIENT';
   }
 
