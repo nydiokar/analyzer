@@ -1,6 +1,6 @@
 Auth improvements (current JWT implementation)
-- Password reset flow must stop returning real reset tokens; only email/log in dev and use dummy response for timing-equal failures.
-- Hash refresh tokens before storing in Redis (store hash → session) and enforce replay detection: on reuse, revoke the session chain/user sessions and alert.
-- Decide on cookie vs Authorization header. If cookies stay: add guard extractor for the auth cookie, ensure CSRF middleware/guard covers all state-changing routes beyond /auth, and avoid duplicating tokens in JS storage.
-- Enforce strong secrets: require non-empty 32+ char PASSWORD_PEPPER and keep JWT verify restricted to HS256. Consider an absolute refresh-session max age in addition to sliding 7d.
-- Reduce refresh-session exposure: avoid plaintext token logs, minimize Redis key scans; consider per-user session sets for O(1) revocation.
+- Password reset flow now returns a generic 200 response; tokens are only emailed/logged in dev and never returned in API responses.
+- Refresh tokens are hashed in Redis (hash → session) with replay detection; reuse revokes the user’s sessions. Per-user session sets added for O(1) revocation and an absolute max lifetime is enforced.
+- Transport for this release is `Authorization: Bearer`; cookie mode stays optional. CSRF guard is bypassed when cookie mode is off.
+- Secrets: PASSWORD_PEPPER must exist and be ≥32 chars; JWT verify pinned to HS256; absolute refresh max age added for defense-in-depth.
+- Exposure reduction: no plaintext refresh tokens in Redis; per-user session sets replace scans; added `npm run auth:reset-sessions` to clear legacy keys.
