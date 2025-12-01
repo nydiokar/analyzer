@@ -111,7 +111,26 @@ async function run() {
   if (meRes2.status !== 200) throw new Error(`Me with new access failed: ${meRes2.status}`);
   console.log('Me with new access OK');
 
-  // 10) Logout with current refresh
+  // 10) Fake refresh token should 401
+  const csrf10 = await maybeGetCsrf(baseUrl, client, cookieMode);
+  const fakeRefresh = await client.post(
+    '/auth/refresh',
+    { refresh_token: 'not-a-real-refresh-token' },
+    { headers: csrf10 ? { 'X-CSRF-Token': csrf10 } : undefined }
+  );
+  if (fakeRefresh.status !== 401) throw new Error(`Fake refresh expected 401, got ${fakeRefresh.status}`);
+  console.log('Fake refresh 401 OK');
+
+  // 11) Tampered access token should 401
+  const parts = tokens3.access_token.split('.');
+  const tampered = parts.length === 3 ? [parts[0], parts[1] + 'x', parts[2]].join('.') : tokens3.access_token + 'x';
+  const tamperedRes = await client.get('/auth/me', {
+    headers: { Authorization: `Bearer ${tampered}` },
+  });
+  if (tamperedRes.status !== 401) throw new Error(`Tampered access token expected 401, got ${tamperedRes.status}`);
+  console.log('Tampered access token 401 OK');
+
+  // 12) Logout with current refresh
   const csrf7 = await maybeGetCsrf(baseUrl, client, cookieMode);
   const logout = await client.post(
     '/auth/logout',
@@ -121,7 +140,7 @@ async function run() {
   if (logout.status !== 200) throw new Error(`Logout failed: ${logout.status}`);
   console.log('Logout OK');
 
-  // 11) Refresh after logout should fail
+  // 13) Refresh after logout should fail
   const csrf8 = await maybeGetCsrf(baseUrl, client, cookieMode);
   const refreshAfterLogout = await client.post(
     '/auth/refresh',
@@ -131,7 +150,7 @@ async function run() {
   if (refreshAfterLogout.status !== 401) throw new Error(`Refresh after logout expected 401, got ${refreshAfterLogout.status}`);
   console.log('Refresh after logout 401 OK');
 
-  // 12) Forgot password flow returns generic message
+  // 14) Forgot password flow returns generic message
   const csrf9 = await maybeGetCsrf(baseUrl, client, cookieMode);
   const forgot = await client.post<{ message: string }>(
     '/auth/forgot-password',
@@ -142,7 +161,7 @@ async function run() {
   if (!forgot.data?.message) throw new Error('Forgot password missing message');
   console.log('Forgot password generic response OK');
 
-  // 13) CSRF negative test (cookie mode only)
+  // 15) CSRF negative test (cookie mode only)
   if (cookieMode) {
     const noCsrf = await client.post('/auth/login', { email, password });
     if (noCsrf.status !== 403) throw new Error(`Missing CSRF expected 403, got ${noCsrf.status}`);
@@ -156,4 +175,3 @@ run().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

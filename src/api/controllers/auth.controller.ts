@@ -454,6 +454,7 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
   @Public()
   @UseGuards(CsrfGuard, ThrottlerGuard)
   @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 requests per 5 minutes
