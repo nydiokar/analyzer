@@ -657,7 +657,7 @@ Existing top holders display should be enhanced with risk indicators:
 
 **Success Criteria:** ✅ ALL MET
 - ✅ Users can view holder profiles for any token
-- ✅ Clear quality indicators (HIGH/MEDIUM/LOW/INSUFFICIENT badges)
+- ✅ Clear quality indicators (GOLD/SILVER/BRONZE/INSUFFICIENT badges)
 - ✅ Detailed breakdown in table (median, avg, flip ratio, behavior type)
 - ✅ Mobile responsive (Tailwind responsive classes)
 
@@ -1622,7 +1622,7 @@ function DataQualityBadge({ tier, cycles }) {
 - [x] ~~Implement `getTokenHolderProfiles()` - orchestrator~~ Implemented as `processAnalyzeHolderProfiles()` job handler
 - [x] Implement `analyzeWalletProfile()` - per-wallet analysis (analysis-operations.processor.ts:824-922)
 - [x] Implement `calculateDailyFlipRatio()` - NEW metric (analysis-operations.processor.ts:947-974)
-- [x] Implement `determineDataQualityTier()` - HIGH/MEDIUM/LOW/INSUFFICIENT (analysis-operations.processor.ts:983-990)
+- [x] Implement `determineDataQualityTier()` - GOLD/SILVER/BRONZE/INSUFFICIENT (analysis-operations.processor.ts:983-990)
 - [x] Add performance tracking (processing time per wallet) - included in response
 - [x] Use `Promise.all()` for parallel wallet analysis (analysis-operations.processor.ts:719)
 - [x] Unit test for quality tiers and flip ratio - validated with real tokens
@@ -1664,7 +1664,7 @@ function DataQualityBadge({ tier, cycles }) {
 - [x] Test with 5 real tokens
 - [x] Test edge cases:
   - [x] All holders have insufficient data
-  - [x] Mix of HIGH/MEDIUM/LOW/INSUFFICIENT
+  - [x] Mix of GOLD/SILVER/BRONZE/INSUFFICIENT
   - [x] Very slow wallets (500k+ transactions)
 - [x] Verify performance:
   - [x] Total time <15s for 10 holders

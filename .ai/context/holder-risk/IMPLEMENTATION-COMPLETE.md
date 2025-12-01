@@ -204,7 +204,7 @@ Controller → Synchronous Service → Heavy Processing → Timeout
 - Job status polling until complete
 - Loading states with progress indicators
 - Error handling with retry button
-- Data quality badges (HIGH/MEDIUM/LOW/INSUFFICIENT)
+- Data quality badges (GOLD/SILVER/BRONZE/INSUFFICIENT)
 - Tooltips explaining metrics
 - Mobile responsive design
 

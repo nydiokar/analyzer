@@ -168,7 +168,7 @@ TEST THE NEW HOLDER PROFILE CACHE IMPLEMENTATION
         - [x] Average hold time (weighted)
         - [x] **NEW: Flip ratio** (% of completed positions held <5min) ⭐
         - [x] Behavior classification (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
-        - [x] Data quality tiers (HIGH/MEDIUM/LOW/INSUFFICIENT)
+        - [x] Data quality tiers (GOLD/SILVER/BRONZE/INSUFFICIENT)
       - [x] Unit tests for daily flip ratio and data quality tiers
     - [x] **Day 2: API Endpoint** (4h):
       - [x] Add endpoint to `AnalysesController`: `POST /analyses/holder-profiles`
@@ -201,7 +201,7 @@ TEST THE NEW HOLDER PROFILE CACHE IMPLEMENTATION
       - **Flip ratio** (% of completed positions held <5min - flipping activity indicator)
       - Behavior type (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
       - Exit pattern (GRADUAL/ALL_AT_ONCE)
-      - Data quality tier (HIGH/MEDIUM/LOW/INSUFFICIENT with tooltips)
+      - Data quality tier (GOLD/SILVER/BRONZE/INSUFFICIENT with tooltips)
     - **Performance Optimizations**:
       - Top 10 holders only (not 20-50)
       - Batch DB fetch: `{ walletAddress: { in: [...] } }`
