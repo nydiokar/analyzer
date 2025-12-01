@@ -1,5 +1,5 @@
-import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
+import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete, UseGuards, ForbiddenException, Req } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { JobsService } from '../services/jobs.service';
 import { JobState } from 'bullmq';
 import { 
@@ -14,16 +14,30 @@ import {
   JobSubmissionResponseDto
 } from '../shared/dto/job-status.dto';
 import { DeadLetterQueueService } from '../../queues/services/dead-letter-queue.service';
+import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
+import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
+import { User } from '@prisma/client';
 
 @ApiTags('Jobs')
 @Controller('jobs')
+@UseGuards(CompositeAuthGuard)
+@ApiBearerAuth()
 export class JobsController {
   private readonly logger = new Logger(JobsController.name);
+  private readonly adminUserIds: Set<string>;
+  private readonly adminEmails: Set<string>;
 
   constructor(
     private readonly jobsService: JobsService,
     private readonly deadLetterQueueService: DeadLetterQueueService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    const ids = (this.configService.get<string>('ADMIN_USER_IDS') || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const emails = (this.configService.get<string>('ADMIN_EMAILS') || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    this.adminUserIds = new Set(ids);
+    this.adminEmails = new Set(emails);
+  }
 
   // === DIRECT JOB SUBMISSION ENDPOINTS ===
   // 
@@ -55,7 +69,8 @@ export class JobsController {
     type: JobSubmissionResponseDto
   })
   @ApiResponse({ status: 400, description: 'Invalid wallet address or parameters' })
-  async submitSyncWalletJob(@Body() dto: SyncWalletJobRequestDto): Promise<JobSubmissionResponseDto> {
+  async submitSyncWalletJob(@Req() req: Request & { user?: User }, @Body() dto: SyncWalletJobRequestDto): Promise<JobSubmissionResponseDto> {
+    this.assertAdmin(req.user);
     return this.jobsService.submitSyncWalletJob(dto);
   }
 
@@ -72,7 +87,8 @@ export class JobsController {
     type: JobSubmissionResponseDto
   })
   @ApiResponse({ status: 400, description: 'Invalid wallet address or analysis types' })
-  async submitAnalyzeWalletJob(@Body() dto: AnalyzeWalletJobRequestDto): Promise<JobSubmissionResponseDto> {
+  async submitAnalyzeWalletJob(@Req() req: Request & { user?: User }, @Body() dto: AnalyzeWalletJobRequestDto): Promise<JobSubmissionResponseDto> {
+    this.assertAdmin(req.user);
     return this.jobsService.submitAnalyzeWalletJob(dto);
   }
 
@@ -92,7 +108,8 @@ export class JobsController {
     type: JobSubmissionResponseDto
   })
   @ApiResponse({ status: 400, description: 'Invalid wallet addresses or parameters' })
-  async submitSimilarityAnalysisJob(@Body() dto: SimilarityAnalysisJobRequestDto): Promise<JobSubmissionResponseDto> {
+  async submitSimilarityAnalysisJob(@Req() req: Request & { user?: User }, @Body() dto: SimilarityAnalysisJobRequestDto): Promise<JobSubmissionResponseDto> {
+    this.assertAdmin(req.user);
     return this.jobsService.submitSimilarityAnalysisJob(dto);
   }
 
@@ -109,7 +126,8 @@ export class JobsController {
     type: JobSubmissionResponseDto
   })
   @ApiResponse({ status: 400, description: 'Invalid wallet address or parameters' })
-  async submitDashboardAnalysisJob(@Body() dto: DashboardAnalysisJobRequestDto): Promise<JobSubmissionResponseDto> {
+  async submitDashboardAnalysisJob(@Req() req: Request & { user?: User }, @Body() dto: DashboardAnalysisJobRequestDto): Promise<JobSubmissionResponseDto> {
+    this.assertAdmin(req.user);
     return this.jobsService.submitDashboardAnalysisJob(dto);
   }
 
@@ -127,7 +145,8 @@ export class JobsController {
     type: JobStatusResponseDto
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
-  async getJobStatus(@Param('jobId') jobId: string): Promise<JobStatusResponseDto> {
+  async getJobStatus(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<JobStatusResponseDto> {
+    this.assertAdmin(req.user);
     return this.jobsService.getJobStatus(jobId);
   }
 
@@ -150,7 +169,8 @@ export class JobsController {
     }
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
-  async getJobProgress(@Param('jobId') jobId: string): Promise<{ jobId: string; status: string; progress: number | object }> {
+  async getJobProgress(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<{ jobId: string; status: string; progress: number | object }> {
+    this.assertAdmin(req.user);
     return this.jobsService.getJobProgress(jobId);
   }
 
@@ -174,7 +194,8 @@ export class JobsController {
     }
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
-  async getJobResult(@Param('jobId') jobId: string): Promise<{ jobId: string; status: string; result?: any; error?: string }> {
+  async getJobResult(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<{ jobId: string; status: string; result?: any; error?: string }> {
+    this.assertAdmin(req.user);
     return this.jobsService.getJobResult(jobId);
   }
 
@@ -187,7 +208,8 @@ export class JobsController {
   @ApiResponse({ status: 200, description: 'Job cancelled successfully.' })
   @ApiResponse({ status: 404, description: 'Job not found.' })
   @ApiResponse({ status: 400, description: 'Job is already completed or failed and cannot be cancelled.' })
-  async cancelJob(@Param('jobId') jobId: string) {
+  async cancelJob(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string) {
+    this.assertAdmin(req.user);
     return this.jobsService.cancelJob(jobId);
   }
 
@@ -208,7 +230,8 @@ export class JobsController {
     type: QueueStatsResponseDto
   })
   @ApiResponse({ status: 400, description: 'Invalid queue name' })
-  async getQueueStats(@Param('queueName') queueName: string): Promise<QueueStatsResponseDto> {
+  async getQueueStats(@Req() req: Request & { user?: User }, @Param('queueName') queueName: string): Promise<QueueStatsResponseDto> {
+    this.assertAdmin(req.user);
     return this.jobsService.getQueueStats(queueName);
   }
 
@@ -250,11 +273,13 @@ export class JobsController {
   })
   @ApiResponse({ status: 400, description: 'Invalid queue name or parameters' })
   async getQueueJobs(
+    @Req() req: Request & { user?: User },
     @Param('queueName') queueName: string,
     @Query('status') status?: JobState,
     @Query('limit') limit?: number,
     @Query('offset') offset?: number,
   ): Promise<JobListResponseDto> {
+    this.assertAdmin(req.user);
     return this.jobsService.getQueueJobs(queueName, status, limit, offset);
   }
 
@@ -268,7 +293,8 @@ export class JobsController {
     description: 'All queue statistics retrieved successfully',
     type: AllQueueStatsResponseDto
   })
-  async getAllQueueStats(): Promise<AllQueueStatsResponseDto> {
+  async getAllQueueStats(@Req() req: Request & { user?: User }): Promise<AllQueueStatsResponseDto> {
+    this.assertAdmin(req.user);
     return this.jobsService.getAllQueueStats();
   }
 
@@ -294,7 +320,8 @@ export class JobsController {
       }
     }
   })
-  async getFailedJobStats() {
+  async getFailedJobStats(@Req() req: Request & { user?: User }) {
+    this.assertAdmin(req.user);
     const stats = await this.deadLetterQueueService.getDeadLetterStats();
     return {
       ...stats,
@@ -338,7 +365,8 @@ export class JobsController {
       }
     }
   })
-  async getRecentFailedJobs(@Query('limit') limit?: number) {
+  async getRecentFailedJobs(@Req() req: Request & { user?: User }, @Query('limit') limit?: number) {
+    this.assertAdmin(req.user);
     const limitValue = Math.min(limit || 20, 100); // Cap at 100
     const failedJobs = await this.deadLetterQueueService.getRecentFailedJobs(limitValue);
     
@@ -354,5 +382,17 @@ export class JobsController {
       total: failedJobs.length,
       note: 'Failed job records are automatically created when jobs fail and contain investigation details'
     };
+  }
+
+  private assertAdmin(user?: User): void {
+    if (!user) {
+      throw new ForbiddenException('Admin access required');
+    }
+    const isAdminId = user.id && this.adminUserIds.has(user.id);
+    const isAdminEmail = user.email && this.adminEmails.has(user.email.toLowerCase());
+    if (isAdminId || isAdminEmail) {
+      return;
+    }
+    throw new ForbiddenException('Admin access required');
   }
 } 

@@ -1,10 +1,13 @@
-import { Controller, Get, Post, Body, UseGuards, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, HttpStatus, Req, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiExcludeController } from '@nestjs/swagger';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
 import { SecurityAlertsService } from '../shared/services/security-alerts.service';
 import { AdvancedThrottlerService } from '../shared/services/advanced-throttler.service';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
+import { User } from '@prisma/client';
 
 // Simple API key validation for bot-to-bot communication
 interface BotAuthRequest {
@@ -15,12 +18,20 @@ interface BotAuthRequest {
 @ApiExcludeController() // Hide from main API docs
 @Controller('bot')
 export class BotIntegrationController {
+  private readonly adminUserIds: Set<string>;
+  private readonly adminEmails: Set<string>;
 
   constructor(
     private readonly securityLogger: SecurityLoggerService,
     private readonly securityAlerts: SecurityAlertsService,
     private readonly throttlerService: AdvancedThrottlerService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    const ids = (this.configService.get<string>('ADMIN_USER_IDS') || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const emails = (this.configService.get<string>('ADMIN_EMAILS') || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    this.adminUserIds = new Set(ids);
+    this.adminEmails = new Set(emails);
+  }
 
   /**
    * Simple health check for your other bot to poll
@@ -29,12 +40,15 @@ export class BotIntegrationController {
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 60, ttl: 60000 } }) // 60 requests per minute
   @ApiOperation({ summary: 'Bot health check endpoint' })
-  async getBotHealthCheck(): Promise<{
+  async getBotHealthCheck(
+    @Req() req: Request & { user?: User },
+  ): Promise<{
     status: 'healthy' | 'warning' | 'critical';
     timestamp: string;
     uptime: number;
     activeAlerts: number;
   }> {
+    this.assertAdmin(req.user);
     const metrics = this.securityLogger.getSecurityMetrics('hour');
     const activeAlerts = this.securityAlerts.getActiveAlerts();
     
@@ -64,7 +78,9 @@ export class BotIntegrationController {
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 30, ttl: 60000 } }) // 30 requests per minute
   @ApiOperation({ summary: 'Security summary for bot reporting' })
-  async getSecuritySummary(): Promise<{
+  async getSecuritySummary(
+    @Req() req: Request & { user?: User },
+  ): Promise<{
     summary: string;
     emoji: string;
     details: {
@@ -75,6 +91,7 @@ export class BotIntegrationController {
     };
     recommendations: string[];
   }> {
+    this.assertAdmin(req.user);
     const metrics = this.securityLogger.getSecurityMetrics('hour');
     const throttlerStats = this.throttlerService.getSecurityStats();
     const activeAlerts = this.securityAlerts.getActiveAlerts();
@@ -131,7 +148,9 @@ export class BotIntegrationController {
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 20, ttl: 60000 } }) // 20 requests per minute
   @ApiOperation({ summary: 'Get critical security alerts' })
-  async getCriticalAlerts(): Promise<{
+  async getCriticalAlerts(
+    @Req() req: Request & { user?: User },
+  ): Promise<{
     hasAlerts: boolean;
     alertCount: number;
     alerts: Array<{
@@ -142,6 +161,7 @@ export class BotIntegrationController {
       details?: any;
     }>;
   }> {
+    this.assertAdmin(req.user);
     const activeAlerts = this.securityAlerts.getActiveAlerts();
     const criticalAlerts = activeAlerts.filter(
       alert => ['CRITICAL', 'HIGH'].includes(alert.severity)
@@ -168,8 +188,10 @@ export class BotIntegrationController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Acknowledge alerts from external bot' })
   async acknowledgeAlert(
+    @Req() req: Request & { user?: User },
     @Body() body: { alertId?: string; message?: string }
   ): Promise<{ success: boolean; message: string }> {
+    this.assertAdmin(req.user);
     if (body.alertId) {
       const resolved = this.securityAlerts.resolveAlert(body.alertId);
       return {
@@ -182,5 +204,17 @@ export class BotIntegrationController {
       success: true,
       message: 'General acknowledgment received',
     };
+  }
+
+  private assertAdmin(user?: User): void {
+    if (!user) {
+      throw new ForbiddenException('Admin access required');
+    }
+    const isAdminId = user.id && this.adminUserIds.has(user.id);
+    const isAdminEmail = user.email && this.adminEmails.has(user.email.toLowerCase());
+    if (isAdminId || isAdminEmail) {
+      return;
+    }
+    throw new ForbiddenException('Admin access required');
   }
 }
