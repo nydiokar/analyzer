@@ -1,4 +1,4 @@
-import { Controller, Get, Req, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Req, HttpStatus, ForbiddenException, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { User } from '@prisma/client';
@@ -21,7 +21,10 @@ export class UsersController {
   @ApiResponse({ status: HttpStatus.OK, description: 'User profile retrieved successfully.', type: UserProfileDto })
   @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized.' })
   async getProfile(@Req() req: AuthenticatedRequest): Promise<UserProfileDto> {
-    const user = req.user!;
+    const user = req.user;
+    if (!user) {
+      throw new ForbiddenException('User not authenticated');
+    }
     return {
       id: user.id,
       isDemo: user.isDemo,

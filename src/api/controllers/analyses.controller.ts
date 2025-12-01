@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, Req, ForbiddenException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
@@ -12,6 +12,8 @@ import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations
 import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
 import { JobPriority } from '../../queues/config/queue.config';
+import { Request } from 'express';
+import { User } from '@prisma/client';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -50,6 +52,7 @@ export class AnalysesController {
   })
   @HttpCode(202)
   async enrichWalletBalances(
+    @Req() req: Request & { user?: User },
     @Body() body: { walletBalances: Record<string, any> },
   ): Promise<{
     jobId: string;
@@ -60,6 +63,9 @@ export class AnalysesController {
     tokenCount: number;
     monitoringUrl: string;
   }> {
+    if (!req.user) {
+      throw new ForbiddenException('Authentication required');
+    }
     this.logger.log(`Received request to queue balance enrichment for ${Object.keys(body.walletBalances || {}).length} wallets.`);
 
     if (!body.walletBalances || Object.keys(body.walletBalances).length === 0) {
@@ -150,6 +156,7 @@ export class AnalysesController {
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
   @HttpCode(202)
   async queueSimilarityAnalysis(
+    @Req() req: Request & { user?: User },
     @Body() dto: SimilarityAnalysisRequestDto,
   ): Promise<{
     jobId: string;
@@ -160,6 +167,9 @@ export class AnalysesController {
     estimatedProcessingTime: string;
     monitoringUrl: string;
   }> {
+    if (!req.user) {
+      throw new ForbiddenException('Authentication required');
+    }
     this.logger.log(`Received request to queue similarity analysis for ${dto.walletAddresses.length} wallets.`);
 
     // Validate input
@@ -260,8 +270,12 @@ export class AnalysesController {
   @ApiResponse({ status: 503, description: 'Analysis already in progress for this wallet' })
   @HttpCode(202)
   async queueDashboardWalletAnalysis(
+    @Req() req: Request & { user?: User },
     @Body() dto: DashboardAnalysisRequestDto,
   ): Promise<DashboardAnalysisResponseDto> {
+    if (!req.user) {
+      throw new ForbiddenException('Authentication required');
+    }
     this.logger.log(`Received request to queue dashboard analysis for wallet: ${dto.walletAddress}`);
 
     // Validate wallet address

@@ -1,4 +1,4 @@
-import { Controller, Post, Delete, Put, Get, Body, Param, Req, HttpCode, HttpStatus, Res } from '@nestjs/common';
+import { Controller, Post, Delete, Put, Get, Body, Param, Req, HttpCode, HttpStatus, Res, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { User } from '@prisma/client';
@@ -29,7 +29,10 @@ export class UserFavoritesController {
     @Req() req: AuthenticatedRequest,
     @Res() res: Response,
   ): Promise<void> {
-    const userId = req.user!.id;
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated');
+    }
     await this.userFavoritesService.addFavorite(userId, addFavoriteWalletDto);
     res.status(HttpStatus.CREATED).end();
   }
@@ -63,7 +66,10 @@ export class UserFavoritesController {
     @Req() req: AuthenticatedRequest,
     @Res() res: Response,
   ): Promise<void> {
-    const userId = req.user!.id;
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated');
+    }
     await this.userFavoritesService.updateFavorite(userId, walletAddress, updateFavoriteWalletDto);
     res.status(HttpStatus.OK).set('Content-Length', '0').end();
   }
@@ -78,7 +84,10 @@ export class UserFavoritesController {
     @Req() req: AuthenticatedRequest,
     @Res() res: Response,
   ): Promise<void> {
-    const userId = req.user!.id;
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated');
+    }
     await this.userFavoritesService.updateLastViewed(userId, walletAddress);
     res.status(HttpStatus.OK).end();
   }
@@ -91,7 +100,10 @@ export class UserFavoritesController {
   async getFavorites(
     @Req() req: AuthenticatedRequest,
   ): Promise<FavoriteWalletDetailDto[]> {
-    const userId = req.user!.id;
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated');
+    }
     return this.userFavoritesService.getFavorites(userId);
   }
 
@@ -101,7 +113,10 @@ export class UserFavoritesController {
   async getUserTags(
     @Req() req: AuthenticatedRequest,
   ): Promise<string[]> {
-    const userId = req.user!.id;
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated');
+    }
     return this.userFavoritesService.getUserTags(userId);
   }
 
@@ -111,7 +126,10 @@ export class UserFavoritesController {
   async getUserCollections(
     @Req() req: AuthenticatedRequest,
   ): Promise<string[]> {
-    const userId = req.user!.id;
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated');
+    }
     return this.userFavoritesService.getUserCollections(userId);
   }
 } 
