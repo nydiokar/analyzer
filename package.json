@@ -92,6 +92,7 @@
     "passport-jwt": "^4.0.1",
     "react-wrap-balancer": "^1.1.1",
     "reflect-metadata": "^0.2.2",
+    "resend": "^6.5.2",
     "rxjs": "^7.8.2",
     "sonner": "^2.0.6",
     "sqlite3": "^5.1.7",

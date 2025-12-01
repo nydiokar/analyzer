@@ -4,3 +4,4 @@ Auth improvements (current JWT implementation)
 - Transport for this release is `Authorization: Bearer`; cookie mode stays optional. CSRF guard is bypassed when cookie mode is off.
 - Secrets: PASSWORD_PEPPER must exist and be ≥32 chars; JWT verify pinned to HS256; absolute refresh max age added for defense-in-depth.
 - Exposure reduction: no plaintext refresh tokens in Redis; per-user session sets replace scans; added `npm run auth:reset-sessions` to clear legacy keys.
+- Email delivery abstraction added with Resend support (via `MAIL_PROVIDER=resend`), suppression checks, and Resend webhook endpoint (`/webhooks/email/resend`, optional `MAIL_WEBHOOK_SECRET`). SMTP remains supported as a fallback.

@@ -76,8 +76,12 @@ Notes
 - Password reset responses are generic 200; tokens are only emailed or logged in dev.
 - Added `npm run auth:reset-sessions` to clear legacy refresh/session keys in Redis.
 - Expanded `scripts/test-auth-flow.ts` to cover register/login/refresh/replay/logout/fake refresh/tampered JWT/forgot-password and CSRF negative (when cookie mode on).
+- Email provider abstraction added: supports Resend (`MAIL_PROVIDER=resend`, `RESEND_API_KEY`, `MAIL_FROM`) and SMTP fallback. Suppression checks added via Redis. Resend webhook endpoint at `/webhooks/email/resend` (protect with `MAIL_WEBHOOK_SECRET`).
+  - Webhook expects standard Resend event shape (`type`, `data.email.to`/`data.to`); adjust mapper if provider payload differs.
 
 ### Next actions before prod
 1) Set strong envs in prod: `PASSWORD_PEPPER` (>=32 chars), `JWT_SECRET` (long random), `CSRF_SECRET` if cookie mode ever enabled.
-2) Configure SMTP (`SMTP_HOST/PORT/USER/PASS/SMTP_FROM_EMAIL`) so verification/reset emails deliver; currently they log for dev.
-3) Optionally add a cookie-mode test run if you plan to enable cookies; keep `AUTH_COOKIE_MODE=false` otherwise.
+2) Configure email delivery: either Resend (preferred for speed) with webhook + suppression storage, or SMTP credentials. Set `MAIL_PROVIDER`, `MAIL_FROM`, and provider-specific keys.
+3) Protect the Resend webhook with `MAIL_WEBHOOK_SECRET` and enable bounce/complaint handling to suppress bad addresses.
+4) Optionally add a cookie-mode test run if you plan to enable cookies; keep `AUTH_COOKIE_MODE=false` otherwise.
+5) Set admin allowlists for security monitoring endpoints via `ADMIN_USER_IDS` and/or `ADMIN_EMAILS`.

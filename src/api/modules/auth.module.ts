@@ -18,10 +18,12 @@ import { AdvancedThrottlerService } from '../shared/services/advanced-throttler.
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
 import { SecurityAlertsService } from '../shared/services/security-alerts.service';
 import { EmailService } from '../shared/services/email.service';
+import { EmailEventService } from '../shared/services/email-event.service';
 import { JwtStrategy } from '../shared/strategies/jwt.strategy';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { CsrfGuard } from '../shared/guards/csrf.guard';
 import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guard';
+import { EmailWebhookController } from '../controllers/email-webhook.controller';
 
 @Module({
   imports: [
@@ -57,7 +59,7 @@ import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guar
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController, SecurityController, BotIntegrationController],
+  controllers: [AuthController, SecurityController, BotIntegrationController, EmailWebhookController],
   providers: [
     JwtDatabaseService,
     JwtSecretValidatorService,
@@ -70,6 +72,7 @@ import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guar
     SecurityLoggerService,
     SecurityAlertsService,
     EmailService,
+    EmailEventService,
     AuthService,
     JwtStrategy,
     CompositeAuthGuard,

@@ -1,22 +1,33 @@
-import { Controller, Get, Post, Query, Param, UseGuards, HttpStatus, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Query, UseGuards, HttpStatus, ForbiddenException, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { SecurityLoggerService, SecurityMetrics } from '../shared/services/security-logger.service';
 import { AdvancedThrottlerService } from '../shared/services/advanced-throttler.service';
 import { SecurityAlertsService } from '../shared/services/security-alerts.service';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Request } from 'express';
+import { User } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Security')
 @Controller('security')
 @UseGuards(CompositeAuthGuard)
 @ApiBearerAuth()
 export class SecurityController {
+  private readonly adminUserIds: Set<string>;
+  private readonly adminEmails: Set<string>;
 
   constructor(
     private readonly securityLogger: SecurityLoggerService,
     private readonly advancedThrottler: AdvancedThrottlerService,
     private readonly securityAlerts: SecurityAlertsService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    const ids = (this.configService.get<string>('ADMIN_USER_IDS') || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const emails = (this.configService.get<string>('ADMIN_EMAILS') || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    this.adminUserIds = new Set(ids);
+    this.adminEmails = new Set(emails);
+  }
 
   @Get('metrics')
   @UseGuards(ThrottlerGuard)
@@ -64,6 +75,7 @@ export class SecurityController {
   @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Access denied for demo users' })
   @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized' })
   async getSecurityMetrics(
+    @Req() req: Request & { user?: User },
     @Query('timeRange') timeRange: 'hour' | 'day' | 'week' = 'hour'
   ): Promise<{
     securityEvents: SecurityMetrics;
@@ -71,12 +83,7 @@ export class SecurityController {
     timestamp: Date;
     timeRange: string;
   }> {
-    // Note: In a complete implementation, we'd check if user is admin
-    // For now, we'll restrict to non-demo users
-    // const user = req.user as User;
-    // if (user?.isDemo) {
-    //   throw new ForbiddenException('Security metrics access not available for demo accounts');
-    // }
+    this.assertAdmin(req.user);
 
     const securityEvents = this.securityLogger.getSecurityMetrics(timeRange);
     const throttlerStats = this.advancedThrottler.getSecurityStats();
@@ -115,11 +122,14 @@ export class SecurityController {
       }
     }
   })
-  async getSecurityHealth(): Promise<{
+  async getSecurityHealth(
+    @Req() req: Request & { user?: User },
+  ): Promise<{
     status: 'healthy' | 'warning' | 'critical';
     checks: Record<string, string>;
     timestamp: Date;
   }> {
+    this.assertAdmin(req.user);
     // Perform basic health checks
     const checks = {
       securityLogging: 'operational',
@@ -181,10 +191,13 @@ export class SecurityController {
       }
     }
   })
-  async getActiveAlerts(): Promise<{
+  async getActiveAlerts(
+    @Req() req: Request & { user?: User },
+  ): Promise<{
     alerts: any[];
     count: number;
   }> {
+    this.assertAdmin(req.user);
     const alerts = this.securityAlerts.getActiveAlerts();
     return {
       alerts,
@@ -200,13 +213,27 @@ export class SecurityController {
     description: 'Mark a specific alert as resolved',
   })
   async resolveAlert(
+    @Req() req: Request & { user?: User },
     @Query('id') alertId: string
   ): Promise<{ success: boolean; message: string }> {
+    this.assertAdmin(req.user);
     const resolved = this.securityAlerts.resolveAlert(alertId);
     
     return {
       success: resolved,
       message: resolved ? 'Alert resolved successfully' : 'Alert not found or already resolved',
     };
+  }
+
+  private assertAdmin(user?: User): void {
+    if (!user) {
+      throw new ForbiddenException('Admin access required');
+    }
+    const isAdminId = user.id && this.adminUserIds.has(user.id);
+    const isAdminEmail = user.email && this.adminEmails.has(user.email.toLowerCase());
+    if (isAdminId || isAdminEmail) {
+      return;
+    }
+    throw new ForbiddenException('Admin access required');
   }
 }
