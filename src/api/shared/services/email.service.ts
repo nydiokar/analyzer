@@ -99,7 +99,7 @@ export class EmailService {
             </p>
           </body>
           </html>
-        `,
+        `;
     const text = `
           Welcome to ${appName}!
           
@@ -111,8 +111,7 @@ export class EmailService {
           This token will expire in 24 hours.
           
           If you didn't create an account with ${appName}, you can safely ignore this email.
-        `,
-    `;
+        `;
 
     return this.sendEmail({
       to: email,
