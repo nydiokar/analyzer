@@ -120,7 +120,13 @@ export class CompositeAuthGuard implements CanActivate {
       // Verify JWT token using key rotation service
       const decoded = this.decodeJwtHeader(token);
       const keyId = decoded?.kid;
+      if (decoded?.alg && decoded.alg !== 'HS256') {
+        throw new UnauthorizedException('Unsupported JWT algorithm');
+      }
       let secret = this.configService.get<string>('JWT_SECRET');
+      if (!secret) {
+        throw new UnauthorizedException('JWT secret not configured');
+      }
       
       if (keyId) {
         const key = this.keyRotationService.getKey(keyId);
@@ -129,7 +135,12 @@ export class CompositeAuthGuard implements CanActivate {
         }
       }
 
-      const payload = this.jwtService.verify(token, { secret, clockTolerance: 120, ignoreExpiration: false });
+      const payload = this.jwtService.verify(token, { 
+        secret, 
+        clockTolerance: 120, 
+        ignoreExpiration: false,
+        algorithms: ['HS256'],
+      });
 
       if (!payload.sub || !payload.email) {
         throw new UnauthorizedException('Invalid token payload');

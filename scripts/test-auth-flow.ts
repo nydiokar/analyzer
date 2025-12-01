@@ -85,36 +85,64 @@ async function run() {
     { headers: csrf5 ? { 'X-CSRF-Token': csrf5 } : undefined }
   );
   if (shouldFail.status !== 401) throw new Error(`Old refresh reuse expected 401, got ${shouldFail.status}`);
-  console.log('Old refresh reuse 401 OK');
+  console.log('Old refresh reuse 401 OK (replay blocked, sessions revoked)');
 
-  // 7) Authenticated request with new access
+  // 7) Replay should revoke chain: even the latest refresh should now fail
+  const csrf5b = await maybeGetCsrf(baseUrl, client, cookieMode);
+  const replayChainFail = await client.post(
+    '/auth/refresh',
+    { refresh_token: tokens2.refresh_token },
+    { headers: csrf5b ? { 'X-CSRF-Token': csrf5b } : undefined }
+  );
+  if (replayChainFail.status !== 401) throw new Error(`Replay chain expected 401, got ${replayChainFail.status}`);
+  console.log('Replay chain revoke OK');
+
+  // 8) Login again after replay cleanup
+  const csrf6 = await maybeGetCsrf(baseUrl, client, cookieMode);
+  const loginAfterReplay = await client.post<AuthResponse>('/auth/login', { email, password }, { headers: csrf6 ? { 'X-CSRF-Token': csrf6 } : undefined });
+  if (loginAfterReplay.status !== 200) throw new Error(`Login after replay cleanup failed: ${loginAfterReplay.status}`);
+  const tokens3 = loginAfterReplay.data;
+  console.log('Login after replay OK');
+
+  // 9) Authenticated request with fresh access
   const meRes2 = await client.get('/auth/me', {
-    headers: { Authorization: `Bearer ${tokens2.access_token}` },
+    headers: { Authorization: `Bearer ${tokens3.access_token}` },
   });
   if (meRes2.status !== 200) throw new Error(`Me with new access failed: ${meRes2.status}`);
   console.log('Me with new access OK');
 
-  // 8) Logout with current refresh
-  const csrf6 = await maybeGetCsrf(baseUrl, client, cookieMode);
+  // 10) Logout with current refresh
+  const csrf7 = await maybeGetCsrf(baseUrl, client, cookieMode);
   const logout = await client.post(
     '/auth/logout',
-    { refresh_token: tokens2.refresh_token },
-    { headers: csrf6 ? { 'X-CSRF-Token': csrf6 } : undefined }
+    { refresh_token: tokens3.refresh_token },
+    { headers: csrf7 ? { 'X-CSRF-Token': csrf7 } : undefined }
   );
   if (logout.status !== 200) throw new Error(`Logout failed: ${logout.status}`);
   console.log('Logout OK');
 
-  // 9) Refresh after logout should fail
-  const csrf7 = await maybeGetCsrf(baseUrl, client, cookieMode);
+  // 11) Refresh after logout should fail
+  const csrf8 = await maybeGetCsrf(baseUrl, client, cookieMode);
   const refreshAfterLogout = await client.post(
     '/auth/refresh',
-    { refresh_token: tokens2.refresh_token },
-    { headers: csrf7 ? { 'X-CSRF-Token': csrf7 } : undefined }
+    { refresh_token: tokens3.refresh_token },
+    { headers: csrf8 ? { 'X-CSRF-Token': csrf8 } : undefined }
   );
   if (refreshAfterLogout.status !== 401) throw new Error(`Refresh after logout expected 401, got ${refreshAfterLogout.status}`);
   console.log('Refresh after logout 401 OK');
 
-  // 10) CSRF negative test (cookie mode only)
+  // 12) Forgot password flow returns generic message
+  const csrf9 = await maybeGetCsrf(baseUrl, client, cookieMode);
+  const forgot = await client.post<{ message: string }>(
+    '/auth/forgot-password',
+    { email },
+    { headers: csrf9 ? { 'X-CSRF-Token': csrf9 } : undefined }
+  );
+  if (forgot.status !== 200) throw new Error(`Forgot password failed: ${forgot.status}`);
+  if (!forgot.data?.message) throw new Error('Forgot password missing message');
+  console.log('Forgot password generic response OK');
+
+  // 13) CSRF negative test (cookie mode only)
   if (cookieMode) {
     const noCsrf = await client.post('/auth/login', { email, password });
     if (noCsrf.status !== 403) throw new Error(`Missing CSRF expected 403, got ${noCsrf.status}`);
@@ -128,5 +156,4 @@ run().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
 

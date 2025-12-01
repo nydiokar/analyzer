@@ -1,4 +1,4 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import Redis from 'ioredis';
@@ -6,9 +6,12 @@ import Redis from 'ioredis';
 export interface RefreshSession {
   sessionId: string;
   userId: string;
+  tokenHash: string;
   deviceLabel?: string;
   createdAt: Date;
   expiresAt: Date;
+  absoluteExpiresAt?: Date;
+  status: 'active' | 'rotated' | 'revoked' | 'expired' | 'reused';
   prevSessionId?: string; // For rotation detection
 }
 
@@ -23,7 +26,10 @@ export class RefreshTokenService {
   private readonly logger = new Logger(RefreshTokenService.name);
   private readonly redis: Redis;
   private readonly REFRESH_PREFIX = 'refresh_session:';
+  private readonly REFRESH_TOKEN_PREFIX = 'refresh_token_hash:';
+  private readonly USER_SESSIONS_PREFIX = 'user_sessions:';
   private readonly REFRESH_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+  private readonly ABSOLUTE_REFRESH_TTL = 30 * 24 * 60 * 60; // 30 days in seconds (defense-in-depth)
   
   constructor(private readonly configService: ConfigService) {
     // Initialize Redis connection
@@ -48,22 +54,30 @@ export class RefreshTokenService {
   async createRefreshSession(userId: string, deviceLabel?: string): Promise<string> {
     const sessionId = this.generateSessionId();
     const refreshToken = this.generateRefreshToken();
+    const tokenHash = this.hashToken(refreshToken);
     
     const session: RefreshSession = {
       sessionId,
       userId,
+      tokenHash,
       deviceLabel,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + this.REFRESH_TTL * 1000),
+      absoluteExpiresAt: new Date(Date.now() + this.ABSOLUTE_REFRESH_TTL * 1000),
+      status: 'active',
     };
 
     // Store session in Redis
-    const key = this.REFRESH_PREFIX + sessionId;
+    const key = this.sessionKey(sessionId);
     await this.redis.setex(key, this.REFRESH_TTL, JSON.stringify(session));
     
-    // Also store the mapping from refresh token to session
-    const tokenKey = `refresh_token:${refreshToken}`;
+    // Also store the mapping from hashed refresh token to session
+    const tokenKey = this.tokenKey(tokenHash);
     await this.redis.setex(tokenKey, this.REFRESH_TTL, sessionId);
+
+    // Track sessions per user for O(1) revocation
+    await this.redis.sadd(this.userSessionsKey(userId), sessionId);
+    await this.redis.expire(this.userSessionsKey(userId), this.REFRESH_TTL);
 
     this.logger.log(`Created refresh session for user ${userId}: ${sessionId}`);
     return refreshToken;
@@ -74,8 +88,9 @@ export class RefreshTokenService {
    */
   async rotateRefreshToken(refreshToken: string): Promise<{ newRefreshToken: string; session: RefreshSession } | null> {
     try {
-      // Get session ID from refresh token
-      const tokenKey = `refresh_token:${refreshToken}`;
+      // Get session ID from hashed refresh token
+      const tokenHash = this.hashToken(refreshToken);
+      const tokenKey = this.tokenKey(tokenHash);
       const sessionId = await this.redis.get(tokenKey);
       
       if (!sessionId) {
@@ -84,7 +99,7 @@ export class RefreshTokenService {
       }
 
       // Get session data
-      const sessionKey = this.REFRESH_PREFIX + sessionId;
+      const sessionKey = this.sessionKey(sessionId);
       const sessionData = await this.redis.get(sessionKey);
       
       if (!sessionData) {
@@ -93,17 +108,25 @@ export class RefreshTokenService {
       }
 
       const session: RefreshSession = JSON.parse(sessionData);
+
+      // Detect reuse/replay quickly
+      if (session.status !== 'active') {
+        this.logger.error(`Refresh token reuse detected for user ${session.userId} (session ${session.sessionId})`);
+        await this.handleReplay(session);
+        return null;
+      }
       
       // Check if session is expired
-      if (new Date(session.expiresAt) < new Date()) {
+      if (new Date(session.expiresAt) < new Date() || (session.absoluteExpiresAt && new Date(session.absoluteExpiresAt) < new Date())) {
         this.logger.warn(`Expired session: ${sessionId}`);
-        await this.revokeSession(sessionId);
+        await this.markSessionStatus(sessionId, 'expired');
         return null;
       }
 
       // Generate new refresh token
       const newRefreshToken = this.generateRefreshToken();
       const newSessionId = this.generateSessionId();
+      const newTokenHash = this.hashToken(newRefreshToken);
       
       // Create new session with reference to previous one for replay detection
       const newSession: RefreshSession = {
@@ -112,20 +135,28 @@ export class RefreshTokenService {
         deviceLabel: session.deviceLabel,
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + this.REFRESH_TTL * 1000),
+        absoluteExpiresAt: session.absoluteExpiresAt || new Date(Date.now() + this.ABSOLUTE_REFRESH_TTL * 1000),
+        status: 'active',
         prevSessionId: sessionId,
+        tokenHash: newTokenHash,
       };
 
       // Store new session
-      const newSessionKey = this.REFRESH_PREFIX + newSessionId;
+      const newSessionKey = this.sessionKey(newSessionId);
       await this.redis.setex(newSessionKey, this.REFRESH_TTL, JSON.stringify(newSession));
       
       // Store new token mapping
-      const newTokenKey = `refresh_token:${newRefreshToken}`;
+      const newTokenKey = this.tokenKey(newTokenHash);
       await this.redis.setex(newTokenKey, this.REFRESH_TTL, newSessionId);
 
+      // Update user session set
+      await this.redis.srem(this.userSessionsKey(session.userId), sessionId);
+      await this.redis.sadd(this.userSessionsKey(session.userId), newSessionId);
+      await this.redis.expire(this.userSessionsKey(session.userId), this.REFRESH_TTL);
+
       // Remove old token and session
-      await this.redis.del(tokenKey);
-      await this.redis.del(sessionKey);
+      await this.redis.setex(sessionKey, this.REFRESH_TTL, JSON.stringify({ ...session, status: 'rotated' }));
+      await this.redis.setex(tokenKey, this.REFRESH_TTL, sessionId); // keep mapping to detect replay
 
       this.logger.log(`Rotated refresh token for user ${session.userId}: ${sessionId} -> ${newSessionId}`);
       
@@ -141,14 +172,15 @@ export class RefreshTokenService {
    */
   async getSessionByRefreshToken(refreshToken: string): Promise<RefreshSession | null> {
     try {
-      const tokenKey = `refresh_token:${refreshToken}`;
+      const tokenHash = this.hashToken(refreshToken);
+      const tokenKey = this.tokenKey(tokenHash);
       const sessionId = await this.redis.get(tokenKey);
       
       if (!sessionId) {
         return null;
       }
 
-      const sessionKey = this.REFRESH_PREFIX + sessionId;
+      const sessionKey = this.sessionKey(sessionId);
       const sessionData = await this.redis.get(sessionKey);
       
       if (!sessionData) {
@@ -158,8 +190,13 @@ export class RefreshTokenService {
       const session: RefreshSession = JSON.parse(sessionData);
       
       // Check expiry
-      if (new Date(session.expiresAt) < new Date()) {
-        await this.revokeSession(sessionId);
+      if (new Date(session.expiresAt) < new Date() || (session.absoluteExpiresAt && new Date(session.absoluteExpiresAt) < new Date())) {
+        await this.markSessionStatus(sessionId, 'expired');
+        return null;
+      }
+
+      if (session.status !== 'active') {
+        await this.handleReplay(session);
         return null;
       }
 
@@ -175,22 +212,18 @@ export class RefreshTokenService {
    */
   async revokeSession(sessionId: string): Promise<void> {
     try {
-      const sessionKey = this.REFRESH_PREFIX + sessionId;
+      const sessionKey = this.sessionKey(sessionId);
       const sessionData = await this.redis.get(sessionKey);
       
-      if (sessionData) {
-        // Find and remove the associated refresh token
-        const keys = await this.redis.keys('refresh_token:*');
-        for (const key of keys) {
-          const storedSessionId = await this.redis.get(key);
-          if (storedSessionId === sessionId) {
-            await this.redis.del(key);
-            break;
-          }
-        }
+      const session: RefreshSession | null = sessionData ? JSON.parse(sessionData) : null;
+      if (session?.tokenHash) {
+        await this.redis.del(this.tokenKey(session.tokenHash));
       }
 
       await this.redis.del(sessionKey);
+      if (session?.userId) {
+        await this.redis.srem(this.userSessionsKey(session.userId), sessionId);
+      }
       this.logger.log(`Revoked session: ${sessionId}`);
     } catch (error) {
       this.logger.error(`Error revoking session ${sessionId}:`, error);
@@ -202,19 +235,14 @@ export class RefreshTokenService {
    */
   async revokeAllUserSessions(userId: string): Promise<void> {
     try {
-      const sessionKeys = await this.redis.keys(this.REFRESH_PREFIX + '*');
-      
-      for (const key of sessionKeys) {
-        const sessionData = await this.redis.get(key);
-        if (sessionData) {
-          const session: RefreshSession = JSON.parse(sessionData);
-          if (session.userId === userId) {
-            const sessionId = session.sessionId;
-            await this.revokeSession(sessionId);
-          }
-        }
+      const userSessionsKey = this.userSessionsKey(userId);
+      const sessionIds = await this.redis.smembers(userSessionsKey);
+
+      for (const sessionId of sessionIds) {
+        await this.revokeSession(sessionId);
       }
 
+      await this.redis.del(userSessionsKey);
       this.logger.log(`Revoked all sessions for user: ${userId}`);
     } catch (error) {
       this.logger.error(`Error revoking all sessions for user ${userId}:`, error);
@@ -226,16 +254,26 @@ export class RefreshTokenService {
    */
   async getUserSessions(userId: string): Promise<RefreshSession[]> {
     try {
-      const sessionKeys = await this.redis.keys(this.REFRESH_PREFIX + '*');
+      const sessionIds = await this.redis.smembers(this.userSessionsKey(userId));
       const sessions: RefreshSession[] = [];
 
-      for (const key of sessionKeys) {
-        const sessionData = await this.redis.get(key);
+      for (const sessionId of sessionIds) {
+        const sessionData = await this.redis.get(this.sessionKey(sessionId));
         if (sessionData) {
           const session: RefreshSession = JSON.parse(sessionData);
-          if (session.userId === userId && new Date(session.expiresAt) > new Date()) {
+          if (
+            session.userId === userId &&
+            session.status === 'active' &&
+            new Date(session.expiresAt) > new Date() &&
+            (!session.absoluteExpiresAt || new Date(session.absoluteExpiresAt) > new Date())
+          ) {
             sessions.push(session);
+          } else if (session.status !== 'active') {
+            // Clean up stale references
+            await this.redis.srem(this.userSessionsKey(userId), sessionId);
           }
+        } else {
+          await this.redis.srem(this.userSessionsKey(userId), sessionId);
         }
       }
 
@@ -251,22 +289,21 @@ export class RefreshTokenService {
    */
   async detectReplay(refreshToken: string): Promise<boolean> {
     try {
-      const session = await this.getSessionByRefreshToken(refreshToken);
-      if (!session) {
+      const tokenHash = this.hashToken(refreshToken);
+      const sessionId = await this.redis.get(this.tokenKey(tokenHash));
+      if (!sessionId) {
         return false;
       }
 
-      // If the session has a prevSessionId, check if the previous session still exists
-      if (session.prevSessionId) {
-        const prevSessionKey = this.REFRESH_PREFIX + session.prevSessionId;
-        const prevSessionExists = await this.redis.exists(prevSessionKey);
-        
-        if (prevSessionExists) {
-          // This could be a replay attack - revoke all sessions for this user
-          this.logger.error(`Potential replay attack detected for user ${session.userId}`);
-          await this.revokeAllUserSessions(session.userId);
-          return true;
-        }
+      const sessionData = await this.redis.get(this.sessionKey(sessionId));
+      if (!sessionData) {
+        return false;
+      }
+
+      const session: RefreshSession = JSON.parse(sessionData);
+      if (session.status !== 'active') {
+        await this.handleReplay(session);
+        return true;
       }
 
       return false;
@@ -288,7 +325,7 @@ export class RefreshTokenService {
         const sessionData = await this.redis.get(key);
         if (sessionData) {
           const session: RefreshSession = JSON.parse(sessionData);
-          if (new Date(session.expiresAt) < new Date()) {
+          if (new Date(session.expiresAt) < new Date() || (session.absoluteExpiresAt && new Date(session.absoluteExpiresAt) < new Date())) {
             await this.revokeSession(session.sessionId);
             cleaned++;
           }
@@ -309,6 +346,43 @@ export class RefreshTokenService {
 
   private generateRefreshToken(): string {
     return crypto.randomBytes(64).toString('base64url');
+  }
+
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  private sessionKey(sessionId: string): string {
+    return this.REFRESH_PREFIX + sessionId;
+  }
+
+  private tokenKey(tokenHash: string): string {
+    return this.REFRESH_TOKEN_PREFIX + tokenHash;
+  }
+
+  private userSessionsKey(userId: string): string {
+    return `${this.USER_SESSIONS_PREFIX}${userId}`;
+  }
+
+  private async markSessionStatus(sessionId: string, status: RefreshSession['status']): Promise<void> {
+    const sessionKey = this.sessionKey(sessionId);
+    const sessionData = await this.redis.get(sessionKey);
+    if (!sessionData) {
+      return;
+    }
+
+    const session: RefreshSession = JSON.parse(sessionData);
+    session.status = status;
+    await this.redis.setex(sessionKey, this.REFRESH_TTL, JSON.stringify(session));
+    if (status !== 'active' && session.userId) {
+      await this.redis.srem(this.userSessionsKey(session.userId), sessionId);
+    }
+  }
+
+  private async handleReplay(session: RefreshSession): Promise<void> {
+    this.logger.error(`Replay detected, revoking all sessions for user ${session.userId}`);
+    await this.markSessionStatus(session.sessionId, 'reused');
+    await this.revokeAllUserSessions(session.userId);
   }
 
   async onModuleDestroy() {

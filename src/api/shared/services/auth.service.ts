@@ -8,6 +8,7 @@ import { JwtDatabaseService } from './jwt-database.service';
 import { SecurityLoggerService } from './security-logger.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { JwtKeyRotationService } from './jwt-key-rotation.service';
+import { EmailService } from './email.service';
 
 export interface RegisterDto {
   email: string;
@@ -55,14 +56,13 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly refreshTokenService: RefreshTokenService,
     private readonly keyRotationService: JwtKeyRotationService,
+    private readonly emailService: EmailService,
     // Security logger will be injected via method calls to avoid circular dependency
   ) {
     // Load password pepper from environment
     this.passwordPepper = this.configService.get<string>('PASSWORD_PEPPER') || '';
-    if (!this.passwordPepper) {
-      this.logger.warn('PASSWORD_PEPPER not set in environment variables. Using empty pepper (less secure)');
-    } else if (this.passwordPepper.length < 32) {
-      this.logger.warn('PASSWORD_PEPPER is shorter than recommended 32 characters');
+    if (!this.passwordPepper || this.passwordPepper.length < 32) {
+      throw new Error('PASSWORD_PEPPER must be set and at least 32 characters long for secure password hashing');
     }
   }
 
@@ -404,10 +404,14 @@ export class AuthService {
   /**
    * Request password reset
    */
-  async requestPasswordReset(email: string): Promise<{ token: string; message: string }> {
+  async requestPasswordReset(email: string): Promise<{ message: string; emailSent: boolean }> {
     // Always perform timing-consistent operations
     const user = await this.databaseService.findUserByEmail(email);
     const resetToken = this.generatePasswordResetToken();
+    const genericResponse = { 
+      message: 'If this email is associated with an account, a password reset token has been generated.',
+      emailSent: false
+    };
     
     // Add random delay to prevent timing attacks for user enumeration
     await new Promise(resolve => setTimeout(resolve, Math.random() * 100 + 50)); // 50-150ms delay
@@ -423,18 +427,20 @@ export class AuthService {
       await this.databaseService.createPasswordResetToken(user.id, hashedToken, expiresAt);
       
       this.logger.log(`Password reset requested for user: ${user.id}`);
+
+      const emailSent = await this.emailService.sendPasswordResetEmail(email, resetToken);
+      if (!emailSent) {
+        this.logger.warn(`🔑 DEVELOPMENT MODE - Password Reset Token for ${email}: ${resetToken}`);
+      }
       
       return { 
-        token: resetToken,
-        message: 'If this email is associated with an account, a password reset token has been generated.' 
+        ...genericResponse,
+        emailSent,
       };
     }
 
     // Don't reveal whether the email exists
-    return { 
-      token: resetToken, // Return a dummy token to maintain consistent timing
-      message: 'If this email is associated with an account, a password reset token has been generated.'
-    };
+    return genericResponse;
   }
 
   /**

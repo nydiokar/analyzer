@@ -472,15 +472,6 @@ export class AuthController {
   async forgotPassword(@Body() body: PasswordResetRequestDto): Promise<{ message: string }> {
     try {
       const result = await this.authService.requestPasswordReset(body.email);
-      
-      // Attempt to send password reset email
-      if (result.token) {
-        const emailSent = await this.emailService.sendPasswordResetEmail(body.email, result.token);
-        if (!emailSent) {
-          this.logger.warn(`🔑 DEVELOPMENT MODE - Password Reset Token for ${body.email}: ${result.token}`);
-        }
-      }
-      
       return { message: result.message };
     } catch (error) {
       this.logger.error(`Password reset request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
