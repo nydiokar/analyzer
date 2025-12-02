@@ -75,6 +75,25 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Token Telegram URL', type: String, nullable: true, required: false })
   telegramUrl?: string | null;
 
+  // Onchain metadata fields
+  @ApiProperty({ description: 'Token name from onchain metadata', type: String, nullable: true, required: false })
+  onchainName?: string | null;
+
+  @ApiProperty({ description: 'Token symbol from onchain metadata', type: String, nullable: true, required: false })
+  onchainSymbol?: string | null;
+
+  @ApiProperty({ description: 'Token image URL from onchain metadata', type: String, nullable: true, required: false })
+  onchainImageUrl?: string | null;
+
+  @ApiProperty({ description: 'Token website URL from onchain metadata', type: String, nullable: true, required: false })
+  onchainWebsiteUrl?: string | null;
+
+  @ApiProperty({ description: 'Token Twitter URL from onchain metadata', type: String, nullable: true, required: false })
+  onchainTwitterUrl?: string | null;
+
+  @ApiProperty({ description: 'Token Telegram URL from onchain metadata', type: String, nullable: true, required: false })
+  onchainTelegramUrl?: string | null;
+
   // DexScreener market data for enhanced spam detection
   @ApiProperty({ description: 'Market capitalization in USD', type: Number, nullable: true, required: false })
   marketCapUsd?: number | null;
@@ -123,5 +142,38 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Unrealized P&L as percentage of cost basis for current holdings', type: Number, nullable: true, required: false })
   unrealizedPnlPercentage?: number | null;
 
+  // Spam risk analysis (pre-computed server-side to avoid heavy client processing)
+  @ApiProperty({
+    description: 'Categorical spam risk level derived from token activity heuristics',
+    enum: ['safe', 'high-risk'],
+    nullable: true,
+    required: false,
+  })
+  spamRiskLevel?: 'safe' | 'high-risk' | null;
+
+  @ApiProperty({
+    description: 'Spam risk score between 0-100 (higher is riskier)',
+    type: Number,
+    nullable: true,
+    required: false,
+  })
+  spamRiskScore?: number | null;
+
+  @ApiProperty({
+    description: 'List of reasons contributing to the spam risk score',
+    type: [String],
+    nullable: true,
+    required: false,
+  })
+  spamRiskReasons?: string[] | null;
+
+  @ApiProperty({
+    description: 'Primary reason flagged for the spam risk score',
+    type: String,
+    nullable: true,
+    required: false,
+  })
+  spamPrimaryReason?: string | null;
+
   // Note: The 'id' field from AnalysisResult is typically not exposed in API responses unless specifically needed.
-} 
+}

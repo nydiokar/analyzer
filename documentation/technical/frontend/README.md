@@ -4,6 +4,18 @@
 
 The Frontend Dashboard is a **Next.js 14** application built with **TypeScript** and **Tailwind CSS** that provides an intuitive, responsive interface for the Wallet Analysis System. It features real-time data visualization, interactive charts, and a modern component-based architecture that makes complex blockchain data accessible and actionable.
 
+## 📚 Important Documentation
+
+**⚠️ CRITICAL:** Before developing, read these guides to avoid common pitfalls:
+
+- **[Cache Management Guide](./CACHE_MANAGEMENT.md)** - ⚠️ **REQUIRED READING** - Understanding SWR cache behavior, limitations, and solutions. Read this to avoid spending hours debugging cache issues.
+
+## 📖 Quick Links
+
+- [Cache Troubleshooting](./CACHE_MANAGEMENT.md#troubleshooting-guide)
+- [Cache Invalidation Patterns](./CACHE_MANAGEMENT.md#cache-invalidation-patterns)
+- [Common Pitfalls](./CACHE_MANAGEMENT.md#common-pitfalls)
+
 ## 🏗️ Architecture
 
 ```

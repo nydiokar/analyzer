@@ -15,17 +15,178 @@ export interface ActiveTradingPeriods {
   activityFocusScore: number; // Metric (e.g., 0-1) indicating how concentrated trades are
 }
 
+// --- New Types for Holder Risk Analysis ---
+
+/**
+ * Per-token position lifecycle tracking
+ */
+export interface TokenPositionLifecycle {
+  mint: string;
+  entryTimestamp: number;           // First buy timestamp
+  exitTimestamp: number | null;     // When crossed exit threshold (or null if active)
+  peakPosition: number;             // Max tokens ever held
+  currentPosition: number;          // Current balance (via FIFO)
+  percentOfPeakRemaining: number;   // current / peak
+
+  positionStatus: 'ACTIVE' | 'EXITED' | 'DUST';
+  behaviorType: 'FULL_HOLDER' | 'PROFIT_TAKER' | 'MOSTLY_EXITED' | null;
+
+  // Weighted average for THIS token only
+  weightedHoldingTimeHours: number; // For completed: actual, for active: partial
+
+  // Trade metadata
+  totalBought: number;
+  totalSold: number;
+  buyCount: number;
+  sellCount: number;
+}
+
+/**
+ * Wallet's historical pattern (aggregated across completed tokens)
+ */
+export interface WalletHistoricalPattern {
+  walletAddress: string;
+
+  // Aggregate metrics from COMPLETED positions only
+  historicalAverageHoldTimeHours: number;  // Weighted avg across completed tokens
+  completedCycleCount: number;             // Number of fully exited tokens
+  medianCompletedHoldTimeHours: number;    // Median of completed cycles
+
+  // Behavioral classification (granular memecoin trading patterns)
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';  // Based on sell distribution
+
+  // Confidence metrics
+  dataQuality: number;                     // 0-1, based on sample size
+  observationPeriodDays: number;           // Time span of historical data
+
+  // Hold time distribution breakdown
+  holdTimeDistribution?: {
+    instant: number;      // <0.36s (same tx)
+    ultraFast: number;    // <1min
+    fast: number;         // 1-5min
+    momentum: number;     // 5-30min
+    intraday: number;     // 30min-4h
+    day: number;          // 4-24h
+    swing: number;        // 1-7d
+    position: number;     // 7+d
+  };
+
+  // Token mint addresses by time bucket (for drilldown)
+  holdTimeTokenMap?: {
+    instant: string[];
+    ultraFast: string[];
+    fast: string[];
+    momentum: string[];
+    intraday: string[];
+    day: string[];
+    swing: string[];
+    position: string[];
+  };
+
+  // Enriched distribution with PnL metrics (Win Rate & ROI per bucket)
+  enrichedHoldTimeDistribution?: EnrichedHoldTimeDistribution;
+}
+
+/**
+ * Enriched hold time bucket with PnL metrics (Win Rate & ROI)
+ */
+export interface EnrichedHoldTimeBucket {
+  count: number;                // Number of tokens in this bucket
+  winRate: number;              // 0-100, percentage of profitable tokens
+  totalPnlSol: number;          // Sum of all PnL in SOL
+  avgPnlSol: number;            // Average PnL per token (totalPnlSol / count)
+  roiPercent: number;           // Return on Investment: (totalPnlSol / totalCapitalSol) * 100
+  totalCapitalSol: number;      // Sum of capital invested in SOL
+}
+
+/**
+ * Enriched hold time distribution with PnL metrics for all buckets
+ */
+export interface EnrichedHoldTimeDistribution {
+  instant: EnrichedHoldTimeBucket;      // <0.36s (same tx)
+  ultraFast: EnrichedHoldTimeBucket;    // <1min
+  fast: EnrichedHoldTimeBucket;         // 1-5min
+  momentum: EnrichedHoldTimeBucket;     // 5-30min
+  intraday: EnrichedHoldTimeBucket;     // 30min-4h
+  day: EnrichedHoldTimeBucket;          // 4-24h
+  swing: EnrichedHoldTimeBucket;        // 1-7d
+  position: EnrichedHoldTimeBucket;     // 7+d
+}
+
+/**
+ * Wallet's predicted exit time for a specific token
+ */
+export interface WalletTokenPrediction {
+  // Identity
+  walletAddress: string;
+  tokenMint: string;
+  predictedAt: number;                      // When prediction was made (unix timestamp)
+
+  // Historical context (from OTHER completed tokens)
+  historicalMedianHoldHours: number;        // Wallet's typical median hold time
+  historicalSampleSize: number;             // Number of completed cycles
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
+
+  // Current position (for THIS specific token)
+  entryTimestamp: number;                   // When they bought THIS token
+  currentPositionAgeHours: number;          // How long they've held it
+  percentAlreadySold: number;               // 0-100%
+  positionStatus: 'ACTIVE' | 'EXITED';
+
+  // THE PREDICTION
+  estimatedExitHours: number;               // Hours from now until exit
+  estimatedExitTimestamp: number;           // Absolute unix timestamp
+  riskLevel: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+  // Confidence
+  predictionConfidence: number;             // 0-1 based on data quality
+}
+
+/**
+ * Trading speed and behavioral pattern interpretation
+ * Separates SPEED (how fast) from PATTERN (what they do)
+ */
+export interface TradingInterpretation {
+  // Speed classification (based on median hold time - outlier robust)
+  speedCategory: 'ULTRA_FLIPPER' | 'FLIPPER' | 'FAST_TRADER' | 'DAY_TRADER' | 'SWING_TRADER' | 'POSITION_TRADER';
+  typicalHoldTimeHours: number;       // Median (what they usually do)
+
+  // Economic analysis (based on weighted average - position size matters)
+  economicHoldTimeHours: number;      // Weighted average (where the money goes)
+  economicRisk: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+  // Behavioral pattern (buy/sell characteristics)
+  behavioralPattern: 'BALANCED' | 'ACCUMULATOR' | 'DISTRIBUTOR' | 'HOLDER' | 'DUMPER' | 'MIXED';
+
+  // Combined interpretation
+  interpretation: string;              // Human-readable: "FLIPPER (ACCUMULATOR): Fast trading with accumulation bias"
+}
+
 export interface BehavioralMetrics {
   buySellRatio: number;
   buySellSymmetry: number;
+  /**
+   * @deprecated Use historicalPattern.historicalAverageHoldTimeHours instead.
+   * This metric uses unweighted average which is less accurate than the weighted version.
+   */
   averageFlipDurationHours: number;
+  /**
+   * @deprecated Use historicalPattern.medianCompletedHoldTimeHours instead.
+   * Should only use completed positions for accurate classification.
+   */
   medianHoldTime: number;
   averageCurrentHoldingDurationHours: number;
   medianCurrentHoldingDurationHours: number;
+  /**
+   * @deprecated Use historicalPattern.historicalAverageHoldTimeHours for predictions.
+   * This metric mixes completed + active positions which is conceptually flawed for prediction.
+   */
   weightedAverageHoldingDurationHours: number;
   percentOfValueInCurrentHoldings: number; // Based on historical cost basis
   // Unrealized P&L metrics (requires current prices from TokenInfo/DexScreener)
-  currentHoldingsValueUsd?: number; // Current USD value of all holdings  
+  currentHoldingsValueUsd?: number; // Current USD value of all holdings
   unrealizedPnlUsd?: number; // Current value - historical cost basis in USD
   unrealizedPnlSol?: number; // Current value - historical cost basis in SOL
   percentOfCurrentPortfolioValue?: number; // % of current portfolio vs historical trades
@@ -75,4 +236,10 @@ export interface BehavioralMetrics {
   averageSessionDurationMinutes: number;
   firstTransactionTimestamp?: number;
   lastTransactionTimestamp?: number;
+
+  // New: Historical pattern (optional, non-breaking addition)
+  historicalPattern?: WalletHistoricalPattern;
+
+  // New: Trading interpretation (optional, provides clear speed vs economic analysis)
+  tradingInterpretation?: TradingInterpretation;
 } 

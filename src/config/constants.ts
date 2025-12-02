@@ -14,11 +14,11 @@ export const DEFAULT_EXCLUDED_MINTS = [
 
 // Define specific program IDs
 export const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
-export const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxAPds';
+export const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
 // Consider if SOL_TOKEN_PROGRAM_ID is still needed or if its usages should be updated.
 // For now, I'll leave it commented out or you can decide to remove it if it's fully replaced.
-// export const SOL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA, TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxAPds';
+// export const SOL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA, TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
 export const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 
@@ -66,7 +66,29 @@ const getEnvNumber = (key: string, fallback: number): number => {
 
 export const ANALYSIS_EXECUTION_CONFIG = {
   SIMILARITY_LAB_MAX_SIGNATURES: getEnvNumber('SIMILARITY_LAB_MAX_SIGNATURES', 500),
-  DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 5001),
+  DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 4000),
+  HOLDER_PROFILES_MAX_SIGNATURES: getEnvNumber('HOLDER_PROFILES_MAX_SIGNATURES', 2000), // Wallet sync cap for holder profiles
+} as const;
+
+export const DASHBOARD_ANALYSIS_SCOPE_DEFAULTS = {
+  flash: {
+    historyWindowDays: getEnvNumber('DASHBOARD_FLASH_HISTORY_DAYS', 7),
+    targetSignatureCount: getEnvNumber('DASHBOARD_FLASH_TARGET_SIGNATURES', 250),
+    freshnessMinutes: getEnvNumber('DASHBOARD_FLASH_FRESHNESS_MINUTES', 30),
+    timeoutMinutes: getEnvNumber('DASHBOARD_FLASH_TIMEOUT_MINUTES', 8),
+  },
+  working: {
+    historyWindowDays: getEnvNumber('DASHBOARD_WORKING_HISTORY_DAYS', 30),
+    targetSignatureCount: getEnvNumber('DASHBOARD_WORKING_TARGET_SIGNATURES', 2000),
+    freshnessMinutes: getEnvNumber('DASHBOARD_WORKING_FRESHNESS_MINUTES', 180), // 3 hours
+    timeoutMinutes: getEnvNumber('DASHBOARD_WORKING_TIMEOUT_MINUTES', 15),
+  },
+  deep: {
+    historyWindowDays: getEnvNumber('DASHBOARD_DEEP_HISTORY_DAYS', 0), // 0 = full history
+    targetSignatureCount: getEnvNumber('DASHBOARD_DEEP_TARGET_SIGNATURES', ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES),
+    freshnessMinutes: getEnvNumber('DASHBOARD_DEEP_FRESHNESS_MINUTES', 720), // 12 hours
+    timeoutMinutes: getEnvNumber('DASHBOARD_DEEP_TIMEOUT_MINUTES', 30),
+  },
 } as const;
 
 // Database configuration
@@ -95,6 +117,34 @@ export const HELIUS_CONFIG = {
   DEFAULT_RPS: 25, // Conservative rate limit
   INTERNAL_CONCURRENCY: 10, // Sequential processing to avoid burst detection
   BATCH_SIZE: 100, // Reduced batch size
+  SIGNATURE_FETCH_SAFETY_MULTIPLIER: getEnvNumber('HELIUS_SIGNATURE_SAFETY_MULTIPLIER', 5), // Stop pagination if we massively overshoot requested maxSignatures
+} as const;
+
+// --- Helius V2 Pagination Feature Flag & Tuning ---
+const boolFromEnv = (key: string, fallback: boolean): boolean => {
+  const raw = process.env[key];
+  if (raw === undefined || raw === null) return fallback;
+  const val = String(raw).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(val)) return true;
+  if (["0", "false", "no", "off"].includes(val)) return false;
+  return fallback;
+};
+
+const numFromEnv = (key: string, fallback: number): number => {
+  const raw = process.env[key];
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+export const HELIUS_V2_CONFIG = {
+  enablePagination: boolFromEnv('ENABLE_HELIUS_V2_PAGINATION', true),
+  pageLimit: Math.max(1000, Math.min(10000, numFromEnv('HELIUS_V2_PAGE_LIMIT', 5000))),
+  enableIncremental: boolFromEnv('ENABLE_HELIUS_V2_INCREMENTAL', false),
+  // Phase 1 migration: getTransactionsForAddress (signatures mode)
+  enableTransactionsForAddressSignatures: boolFromEnv('ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES', false),
+  txForAddressSignaturesPageLimit: Math.max(100, Math.min(1000, numFromEnv('HELIUS_TX_FOR_ADDRESS_PAGE_LIMIT', 1000))),
+  txForAddressUseStatusSucceededForNewer: boolFromEnv('HELIUS_TX_FOR_ADDRESS_USE_STATUS_SUCCEEDED', true),
 } as const;
 
 // Queue and processing configuration

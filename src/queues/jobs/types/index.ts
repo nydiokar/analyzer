@@ -1,3 +1,5 @@
+import type { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../../shared/dashboard-analysis.types';
+
 // Wallet Operations Job Data
 export interface SyncWalletJobData {
   walletAddress: string;
@@ -37,12 +39,26 @@ export interface AnalyzeBehaviorJobData {
   requestId?: string;
 }
 
+export interface AnalyzeHolderProfilesJobData {
+  mode: 'token' | 'wallet';
+  tokenMint?: string;
+  topN?: number;              // Number of top holders to analyze (default: 10) when token mode
+  walletAddress?: string;     // Specific wallet to analyze when wallet mode
+  requestId: string;
+}
+
 // Dashboard Wallet Analysis Job Data
 export interface DashboardWalletAnalysisJobData {
   walletAddress: string;
   requestId: string;
+  analysisScope: DashboardAnalysisScope;
+  triggerSource: DashboardAnalysisTriggerSource;
+  historyWindowDays?: number;
+  targetSignatureCount?: number;
   forceRefresh?: boolean;
   enrichMetadata?: boolean;
+  queueWorkingAfter?: boolean;
+  queueDeepAfter?: boolean;
   failureThreshold?: number;    // Partial failure tolerance (default 0.8)
   timeoutMinutes?: number;
 }
@@ -127,4 +143,90 @@ export interface EnrichTokenBalancesResult extends JobResult {
     backgroundProcessedTokens: number;
     processingStrategy: 'sync' | 'background' | 'hybrid';
   };
-} 
+}
+
+// Holder Profiles Types
+export type DataQualityTier = 'GOLD' | 'SILVER' | 'BRONZE' | 'INSUFFICIENT';
+export type HoldTimeSource = 'CURRENT' | 'EXITED' | 'MIXED';
+
+export interface HoldTimeDistribution {
+  instant: number;
+  ultraFast: number;
+  fast: number;
+  momentum: number;
+  intraday: number;
+  day: number;
+  swing: number;
+  position: number;
+}
+
+export interface EnrichedHoldTimeBucket {
+  count: number;
+  winRate: number;         // Percentage of profitable tokens (0-100)
+  totalPnlSol: number;     // Aggregate PnL in SOL for the bucket
+  avgPnlSol: number;       // Average PnL per token in the bucket
+  roiPercent: number;      // ROI percentage for the bucket
+  totalCapitalSol: number; // Total capital deployed in SOL for the bucket
+}
+
+export interface EnrichedHoldTimeDistribution {
+  instant: EnrichedHoldTimeBucket;
+  ultraFast: EnrichedHoldTimeBucket;
+  fast: EnrichedHoldTimeBucket;
+  momentum: EnrichedHoldTimeBucket;
+  intraday: EnrichedHoldTimeBucket;
+  day: EnrichedHoldTimeBucket;
+  swing: EnrichedHoldTimeBucket;
+  position: EnrichedHoldTimeBucket;
+}
+
+export interface HolderProfile {
+  walletAddress: string;
+  rank: number;
+  supplyPercent: number;
+  // Smart fallback metrics (typical → realized → current) - NOT deprecated
+  medianHoldTimeHours: number | null;
+  avgHoldTimeHours: number | null;
+  dailyFlipRatio: number | null;        // Percentage of completed positions held <5min
+  dailyFlipRatioConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';  // Based on sample size
+  behaviorType: string | null;          // SNIPER, SCALPER, MOMENTUM, INTRADAY, DAY_TRADER, SWING, POSITION, HOLDER
+  exitPattern: string | null;           // GRADUAL, ALL_AT_ONCE
+  dataQualityTier: DataQualityTier;
+  completedCycleCount: number;
+  confidence: number;
+  insufficientDataReason?: string;
+  processingTimeMs: number;
+  holdTimeDistribution?: HoldTimeDistribution;
+  enrichedHoldTimeDistribution?: EnrichedHoldTimeDistribution;
+  includesCurrentHoldings?: boolean;
+  exitRate?: number | null;
+  totalTokensTraded?: number;
+  typicalHoldTimeHours?: number | null;
+  typicalHoldTimeSource?: HoldTimeSource;
+  realizedMedianHoldTimeHours?: number | null;
+  realizedAverageHoldTimeHours?: number | null;
+  currentHoldMedianHours?: number | null;
+  currentHoldAverageHours?: number | null;
+  percentValueInCurrentHoldings?: number | null;
+  currentHoldingsCount?: number | null;
+  currentHoldings?: Array<{
+    tokenAddress: string;
+    uiBalance: number | null;
+    decimals: number | null;
+  }>;
+  oldestTransactionTimestamp?: number;
+  newestTransactionTimestamp?: number;
+}
+
+export interface HolderProfilesResult extends JobResult {
+  mode: 'token' | 'wallet';
+  tokenMint?: string;
+  targetWallet?: string;
+  profiles: HolderProfile[];
+  metadata: {
+    totalHoldersRequested: number;
+    totalHoldersAnalyzed: number;
+    totalProcessingTimeMs: number;
+    avgProcessingTimePerWalletMs: number;
+  };
+}

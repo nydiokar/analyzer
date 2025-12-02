@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; // Import the new form
+import { TopHoldersPanel } from '@/components/similarity-lab/TopHoldersPanel';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { ArrowUp } from 'lucide-react';
 
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
@@ -501,10 +503,36 @@ export default function AnalysisLabPage() {
       </header>
       
       <div className="bg-card p-6 rounded-lg shadow-sm border">
-        <h2 className="text-xl font-semibold mb-2">Wallet Group Similarity</h2>
-        <p className="text-muted-foreground mb-4">
-          Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold mb-2">Wallet Group Similarity</h2>
+            <p className="text-muted-foreground mb-4">
+              Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
+            </p>
+          </div>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="relative border-primary/40 text-primary bg-gradient-to-r from-primary/5 via-indigo-500/5 to-fuchsia-500/5 shadow-[0_0_0_1px_rgba(59,130,246,0.35)] hover:shadow-[0_0_18px_rgba(99,102,241,0.35)] hover:border-primary/60 transition-all duration-300 hover:-translate-y-0.5"
+              >
+                Add from token holders
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-5xl">
+              <DialogHeader>
+                <DialogTitle>Add wallets from token top holders</DialogTitle>
+                <DialogDescription>
+                  Enter a token mint, inspect the top holders, then add selected owners to your similarity set.
+                </DialogDescription>
+              </DialogHeader>
+              <TopHoldersPanel
+                maxHeightClass="h-[70vh]"
+                onAddToSet={(owners) => setWalletList(prev => Array.from(new Set([...prev, ...owners])))}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
         
         <WalletInputForm
           onWalletsChange={handleWalletsChange}
@@ -512,7 +540,20 @@ export default function AnalysisLabPage() {
           isRunning={isRunning}
           jobProgress={jobProgress}
           progressMessage={syncMessage || ''}
+          externalWallets={walletList}
         />
+        {/* Removed separate similarity set counter/clear to avoid confusion since we write directly into the textarea */}
+      </div>
+
+      {/* Lightweight launcher to the standalone Top Holders page */}
+      <div className="mt-2 text-xs text-muted-foreground/90">
+        Prefer a dedicated tool?{' '}
+        <a
+          href="/tools/top-holders"
+          className="underline decoration-primary/40 underline-offset-2 hover:decoration-primary text-foreground/90 hover:text-foreground transition-colors"
+        >
+          Open the standalone Top Holders utility
+        </a>
       </div>
 
       {analysisResult && (

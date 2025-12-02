@@ -2,7 +2,7 @@ import { HeliusApiClient } from './helius-api-client';
 import { TokenBalanceDetails, WalletBalance } from '@/types/wallet';
 import { GetMultipleAccountsResult, GetTokenAccountsByOwnerResult, TokenAccount } from '@/types/helius-api';
 import { createLogger } from 'core/utils/logger';
-import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
+import { SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '../../config/constants';
 import { formatLargeNumber } from 'core/utils/number-formatting';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenInfo } from '@prisma/client'; 
@@ -135,6 +135,25 @@ export class WalletBalanceService {
         }
         
         logger.debug(`Address ${address}: Found ${currentTokenAccounts.length} SPL accounts.`);
+        // Fetch Token-2022 program accounts as well (many Pump.fun tokens use Token-2022)
+        if (TOKEN_2022_PROGRAM_ID) {
+          try {
+            const token2022AccountsResult: GetTokenAccountsByOwnerResult = await this.heliusClient.getTokenAccountsByOwner(
+              address,
+              undefined,
+              TOKEN_2022_PROGRAM_ID,
+              commitment,
+              'jsonParsed',
+            );
+
+            if (token2022AccountsResult && token2022AccountsResult.value) {
+              logger.debug(`Address ${address}: Found ${token2022AccountsResult.value.length} Token-2022 accounts.`);
+              currentTokenAccounts.push(...token2022AccountsResult.value);
+            }
+          } catch (error) {
+            logger.warn(`Address ${address}: Failed to fetch Token-2022 accounts:`, error);
+          }
+        }
 
         const tokenBalances: TokenBalanceDetails[] = [];
         if (currentTokenAccounts.length > 0) {

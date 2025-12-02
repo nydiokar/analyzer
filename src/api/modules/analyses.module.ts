@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AnalysesController } from '../controllers/analyses.controller';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
+import { MintParticipantsService } from '../services/mint-participants.service';
 
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from '../modules/database.module'; 
@@ -25,6 +26,6 @@ import { JobsModule } from '../modules/jobs.module';
                        // PnlAnalysisModule and BehaviorModule still omitted for this test run
   ],
   controllers: [AnalysesController],
-  providers: [EnrichmentStrategyService], 
+  providers: [EnrichmentStrategyService, MintParticipantsService], 
 })
 export class AnalysesModule {} 

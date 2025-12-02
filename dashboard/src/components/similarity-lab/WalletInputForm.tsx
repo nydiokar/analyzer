@@ -18,9 +18,10 @@ interface WalletInputFormProps {
   isRunning: boolean;
   jobProgress?: number;
   progressMessage?: string;
+  externalWallets?: string[];
 }
 
-export function WalletInputForm({ onWalletsChange, onAnalyze, isRunning, jobProgress = 0, progressMessage = '' }: WalletInputFormProps) {
+export function WalletInputForm({ onWalletsChange, onAnalyze, isRunning, jobProgress = 0, progressMessage = '', externalWallets = [] }: WalletInputFormProps) {
   const [walletsText, setWalletsText] = useState('');
 
   const { wallets, validWallets, invalidWallets } = useMemo(() => {
@@ -59,6 +60,20 @@ export function WalletInputForm({ onWalletsChange, onAnalyze, isRunning, jobProg
       debouncedOnWalletsChange.cancel();
     };
   }, [validWallets, debouncedOnWalletsChange]);
+
+  // Merge externally provided wallets (e.g., from Top Holders panel) into the textarea seamlessly
+  useEffect(() => {
+    if (!externalWallets || externalWallets.length === 0) return;
+    // Current addresses from textarea
+    const current = Array.from(new Set(
+      walletsText.replace(/[,|\n\r]+/g, ' ').split(' ').map(w => w.trim()).filter(Boolean)
+    ));
+    const merged = Array.from(new Set([...current, ...externalWallets])).filter(Boolean);
+    // Only update if there's something new to avoid cursor jumps
+    if (merged.length !== current.length) {
+      setWalletsText(merged.join('\n'));
+    }
+  }, [externalWallets]);
 
   const hasErrors = invalidWallets.length > 0;
   const canAnalyze = validWallets.length >= 2 && !hasErrors && wallets.length === validWallets.length;

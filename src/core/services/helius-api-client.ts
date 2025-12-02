@@ -5,11 +5,12 @@ import {
   HeliusTransaction,
   GetMultipleAccountsResult,
   GetTokenAccountsByOwnerResult,
+  GetTokenLargestAccountsResult,
   // RpcAccountInfo, // Not directly used as a parameter/return type of public methods here yet
 } from '@/types/helius-api';
 import { DatabaseService } from '../../api/services/database.service';
 import { Injectable } from '@nestjs/common';
-import { HELIUS_CONFIG } from '../../config/constants';
+import { HELIUS_CONFIG, HELIUS_V2_CONFIG } from '../../config/constants';
 
 /** Interface for the signature information returned by the Solana RPC `getSignaturesForAddress`. */
 interface SignatureInfo {
@@ -55,6 +56,10 @@ export class HeliusApiClient {
   private readonly rpcUrl: string; // Store the full RPC URL with API key
   private readonly RPC_SIGNATURE_LIMIT = 1000; // Max limit for getSignaturesForAddress
   private dbService: DatabaseService; // Add DatabaseService member
+  private disableV2ForProcess: boolean = false; // circuit breaker for V2 if hard-fails
+  private loggedV2DisableOnce: boolean = false;
+  private disableV2TxForAddressForProcess: boolean = false; // circuit breaker for getTransactionsForAddress if hard-fails
+  private loggedV2TxForAddressDisableOnce: boolean = false;
   
   // Global rate limiter - shared across all instances to prevent overwhelming API
   private static globalLastRequestTime: number = 0;
@@ -154,7 +159,7 @@ export class HeliusApiClient {
     }
     // Check for specific non-retryable RPC error messages
     const errorMessage = error?.message?.toLowerCase() || '';
-    if (errorMessage.includes('invalid param') || errorMessage.includes('wrongsize')) {
+    if (errorMessage.includes('invalid param') || errorMessage.includes('wrongsize') || errorMessage.includes('invalid limit')) {
       return false;
     }
     
@@ -181,6 +186,8 @@ export class HeliusApiClient {
     limit: number,
     before?: string | null
   ): Promise<SignatureInfo[]> {
+    // Cap limit to Helius RPC maximum
+    const cappedLimit = Math.min(limit, 1000);
     const url = `${this.rpcUrl}`;
     const payload = {
         jsonrpc: '2.0',
@@ -189,7 +196,7 @@ export class HeliusApiClient {
         params: [
             address,
             {
-                limit: limit,
+                limit: cappedLimit,
                 before: before || undefined 
             }
         ]
@@ -261,6 +268,149 @@ export class HeliusApiClient {
     } // end while
     // Should not be reachable
     throw new Error(`Failed to fetch RPC signatures for ${address} unexpectedly.`); 
+  }
+
+  /**
+   * Fetches transaction signatures using the new Helius `getTransactionsForAddress` RPC method (signatures mode).
+   * This method supports server-side filtering and pagination via `paginationToken`.
+   *
+   * @param address The wallet address to fetch signatures for.
+   * @param options Configuration options for the request.
+   * @param options.limit The maximum number of signatures to fetch in this page (up to 1000).
+   * @param options.sortOrder The order to fetch signatures: 'asc' (chronological) or 'desc' (newest-first).
+   * @param options.paginationToken Optional pagination token from a previous response to fetch the next page.
+   * @param options.filters Optional server-side filters (blockTime, signature, status).
+   * @returns A promise resolving to an object containing signatures and optional pagination token.
+   * @throws Throws an error if the RPC call fails after all retries.
+   */
+  private async getTransactionsForAddressSignatures(
+    address: string,
+    options: {
+      limit: number;
+      sortOrder: 'asc' | 'desc';
+      paginationToken?: string;
+      filters?: {
+        blockTime?: { gt?: number; gte?: number; lt?: number; lte?: number; eq?: number };
+        signature?: { lt?: string; lte?: string; gt?: string; gte?: string; eq?: string };
+        status?: 'succeeded' | 'failed';
+      };
+    }
+  ): Promise<{ signatures: SignatureInfo[]; paginationToken?: string }> {
+    const cappedLimit = Math.min(options.limit, HELIUS_V2_CONFIG.txForAddressSignaturesPageLimit);
+    const url = `${this.rpcUrl}`;
+
+    const params: any[] = [
+      address,
+      {
+        transactionDetails: 'signatures',
+        sortOrder: options.sortOrder,
+        limit: cappedLimit,
+        commitment: 'finalized',
+        maxSupportedTransactionVersion: 0,
+      }
+    ];
+
+    // Add pagination token if provided
+    if (options.paginationToken) {
+      params[1].paginationToken = options.paginationToken;
+    }
+
+    // Add filters if provided
+    if (options.filters && Object.keys(options.filters).length > 0) {
+      params[1].filters = options.filters;
+    }
+
+    const payload = {
+      jsonrpc: '2.0',
+      id: `fetch-tx-for-address-${address}-${options.paginationToken || 'first'}`,
+      method: 'getTransactionsForAddress',
+      params,
+    };
+
+    let retries = 0;
+    while (retries <= MAX_RETRIES) {
+      const attempt = retries + 1;
+      try {
+        await this.rateLimit();
+        const response = await this.api.post<{
+          result?: {
+            data?: SignatureInfo[]; // Helius uses "data" field for signatures mode
+            signatures?: SignatureInfo[]; // Alternative field name
+            paginationToken?: string;
+          };
+          error?: any;
+        }>(url, payload);
+
+        // Check for RPC-level errors
+        if (response.data.error) {
+          logger.warn(`Attempt ${attempt}: RPC call returned an error`, {
+            rpcError: response.data.error,
+            address,
+            sortOrder: options.sortOrder
+          });
+          throw new Error(`RPC Error: ${response.data.error.message || JSON.stringify(response.data.error)}`);
+        }
+
+        // Handle both "data" and "signatures" field names
+        const signaturesArray = response.data.result?.data || response.data.result?.signatures;
+
+        if (response.data.result && Array.isArray(signaturesArray)) {
+          return {
+            signatures: signaturesArray,
+            paginationToken: response.data.result.paginationToken,
+          };
+        } else {
+          logger.warn(`Attempt ${attempt}: Unexpected response structure from getTransactionsForAddress`, {
+            responseData: response.data
+          });
+          throw new Error('Unexpected RPC response structure');
+        }
+      } catch (error) {
+        // Abort immediately on non-retryable errors
+        if (!this.isRetryableError(error)) {
+          throw error;
+        }
+
+        const isAxiosError = axios.isAxiosError(error);
+        const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
+        const logLevel = retries === 0 ? 'debug' : 'warn';
+
+        logger[logLevel](`Attempt ${attempt} failed: Error fetching signatures via getTransactionsForAddress`, {
+          error: this.sanitizeError(error),
+          address,
+          sortOrder: options.sortOrder,
+          status,
+        });
+
+        if (attempt > MAX_RETRIES) {
+          logger.error('Max retries reached for getTransactionsForAddress. Aborting.', {
+            address,
+            sortOrder: options.sortOrder
+          });
+          throw new Error(`Failed to fetch signatures via getTransactionsForAddress for ${address} after ${MAX_RETRIES + 1} attempts: ${error}`);
+        }
+
+        // Retry logic
+        let shouldRetry = false;
+        if (isAxiosError && status && (status === 429 || status >= 500)) {
+          shouldRetry = true;
+        } else if (!isAxiosError) {
+          shouldRetry = true;
+        }
+
+        if (shouldRetry) {
+          const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries);
+          logger.debug(`Attempt ${attempt}: Retrying in ${backoffTime}ms...`);
+          await delay(backoffTime);
+          retries++;
+        } else {
+          logger.error(`Attempt ${attempt}: Unrecoverable error. Aborting.`, { address, status });
+          throw error;
+        }
+      }
+    }
+
+    throw new Error(`Failed to fetch signatures via getTransactionsForAddress for ${address} unexpectedly.`);
   }
 
   /**
@@ -403,20 +553,99 @@ export class HeliusApiClient {
     const signaturesToFetchDetails = new Set<string>();
 
     // === PHASE 1: Fetch Signatures via RPC ===
-    logger.debug(`Starting Phase 1: Fetching signatures via Solana RPC for ${address}`);
-    let lastRpcSignature: string | null = null;
+    logger.debug(`Starting Phase 1: Fetching signatures via ${HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures && !this.disableV2TxForAddressForProcess ? 'getTransactionsForAddress (V2)' : 'getSignaturesForAddress (legacy)'} for ${address}`);
+
+    // Telemetry data
+    const telemetry = {
+      startTime: Date.now(),
+      pageCount: 0,
+      creditUsage: 0, // 100 credits per V2 request
+      totalSignaturesFetched: 0,
+    };
+
+    let lastRpcSignature: string | null = null; // For legacy path: last signature for 'before' parameter
+    let v2PaginationToken: string | undefined = undefined; // For V2 path: pagination token
     let hasMoreSignatures = true;
     let fetchedSignaturesCount = 0;
     const rpcLimit = this.RPC_SIGNATURE_LIMIT;
+    const signatureSafetyLimit = maxSignatures !== null
+      ? maxSignatures * HELIUS_CONFIG.SIGNATURE_FETCH_SAFETY_MULTIPLIER
+      : null;
 
     try {
       while (hasMoreSignatures) {
-        const signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
-        
+        let signatureInfos: SignatureInfo[];
+
+        // Try V2 endpoint if enabled and not circuit-broken
+        if (HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures && !this.disableV2TxForAddressForProcess) {
+          try {
+            // Build server-side filters based on parameters
+            const filters: any = {};
+
+            // Time-based filtering
+            if (newestProcessedTimestamp !== undefined) {
+              filters.blockTime = { gt: newestProcessedTimestamp };
+              if (HELIUS_V2_CONFIG.txForAddressUseStatusSucceededForNewer) {
+                filters.status = 'succeeded';
+              }
+            } else if (untilTimestamp !== undefined) {
+              filters.blockTime = { lte: untilTimestamp };
+            }
+
+            // Signature boundary filtering (only on first page)
+            if (stopAtSignature && !v2PaginationToken) {
+              filters.signature = { lt: stopAtSignature };
+            }
+
+            const sortOrder = newestProcessedTimestamp !== undefined ? 'asc' : 'desc';
+
+            const v2Result = await this.getTransactionsForAddressSignatures(address, {
+              limit: rpcLimit,
+              sortOrder,
+              paginationToken: v2PaginationToken,
+              filters: Object.keys(filters).length > 0 ? filters : undefined,
+            });
+
+            signatureInfos = v2Result.signatures;
+            v2PaginationToken = v2Result.paginationToken;
+            telemetry.pageCount++;
+            telemetry.creditUsage += 100; // V2 endpoint costs 100 credits per request
+
+            if (!v2Result.paginationToken) {
+              hasMoreSignatures = false;
+            }
+          } catch (v2Error: any) {
+            // Check for hard failures (method not found, invalid params)
+            const errorMsg = String(v2Error?.message || '').toLowerCase();
+            const isHardFail = errorMsg.includes('method not found') ||
+                               errorMsg.includes('invalid param') ||
+                               errorMsg.includes('rpc error');
+
+            if (isHardFail && !this.loggedV2TxForAddressDisableOnce) {
+              this.loggedV2TxForAddressDisableOnce = true;
+              this.disableV2TxForAddressForProcess = true;
+              logger.warn(`Helius getTransactionsForAddress V2 disabled for this process due to hard failure: ${v2Error?.message}. Falling back to legacy getSignaturesForAddress.`);
+            }
+
+            // Fall back to legacy method
+            signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
+            telemetry.pageCount++;
+          }
+        } else {
+          // Use legacy method
+          signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
+          telemetry.pageCount++;
+        }
+
         if (signatureInfos.length > 0) {
             allRpcSignaturesInfo.push(...signatureInfos);
             fetchedSignaturesCount += signatureInfos.length;
-            lastRpcSignature = signatureInfos[signatureInfos.length - 1].signature;
+            telemetry.totalSignaturesFetched += signatureInfos.length;
+
+            // For legacy path, update lastRpcSignature to the last signature in the batch
+            if (!HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures || this.disableV2TxForAddressForProcess) {
+              lastRpcSignature = signatureInfos[signatureInfos.length - 1].signature;
+            }
 
             // Check if we need to stop based on stopAtSignature
             if (stopAtSignature) {
@@ -429,10 +658,14 @@ export class HeliusApiClient {
 
             // IMPORTANT: This condition stops PAGINATION, not processing of already fetched signatures.
             // We will apply a hard limit AFTER this loop if maxSignatures is set.
-            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures && !stopAtSignature) {
-                logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, meeting conceptual target related to maxSignatures (${maxSignatures}). Stopping pagination.`);
+            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures) {
+                logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, meeting conceptual target related to maxSignatures (${maxSignatures}) (stopAtSignature=${stopAtSignature ?? 'none'}). Stopping pagination.`);
                 hasMoreSignatures = false;
-            } else if (signatureInfos.length < rpcLimit) {
+            } else if (signatureSafetyLimit !== null && fetchedSignaturesCount >= signatureSafetyLimit) {
+                logger.warn(`RPC signature fetch for ${address} exceeded safety cap of ${signatureSafetyLimit} (maxSignatures=${maxSignatures}, stopAtSignature=${stopAtSignature ?? 'none'}). Stopping pagination to avoid runaway fetch.`);
+                hasMoreSignatures = false;
+            } else if (signatureInfos.length < rpcLimit && (!HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures || this.disableV2TxForAddressForProcess)) {
+                // For legacy path only - V2 uses paginationToken to determine continuation
                 logger.debug('Last page of RPC signatures reached (received less than limit).');
                 hasMoreSignatures = false;
             }
@@ -441,7 +674,10 @@ export class HeliusApiClient {
             hasMoreSignatures = false;
         }
       }
+
+      const phase1Duration = Date.now() - telemetry.startTime;
       logger.debug(`Finished Phase 1. Total signatures retrieved via RPC: ${allRpcSignaturesInfo.length}`);
+      logger.info(`Phase 1 Telemetry: Pages=${telemetry.pageCount}, Credits=${telemetry.creditUsage}, Duration=${phase1Duration}ms, Signatures=${telemetry.totalSignaturesFetched}`);
 
     } catch (rpcError) {
        if (!this.isRetryableError(rpcError)) {
@@ -538,18 +774,13 @@ export class HeliusApiClient {
                   if (result.status === 'fulfilled' && result.value) {
                     const txs = result.value.txs || [];
                     if (txs.length > 0) {
+                      // Always accumulate for final return value (filtering happens later)
+                      newlyFetchedTransactions.push(...txs);
+                      
                       if (onTransactionBatch) {
-                        // Stream process immediately - no memory accumulation!
+                        // Stream process ALL transactions - let the mapper handle filtering
                         await onTransactionBatch(txs);
-                        // Save streamed batches to cache for visibility and future runs
-                        try {
-                          await this.dbService.saveCachedTransactions(txs);
-                        } catch (e) {
-                          logger.warn('Failed to save streamed batch to cache (continuing).', { error: this.sanitizeError(e) });
-                        }
-                      } else {
-                        // Fallback: accumulate for existing callers
-                        newlyFetchedTransactions.push(...txs);
+                        // Cache is saved during streaming, no need to save again at the end
                       }
                       totalFetchedTxCount += txs.length;
                     }
@@ -581,6 +812,7 @@ export class HeliusApiClient {
         logger.debug(`Successfully fetched details for ${onTransactionBatch ? totalFetchedTxCount : newlyFetchedTransactions.length} out of ${totalSignaturesToFetch} new transactions attempted in Phase 2.`);
 
         // --- Save newly fetched transactions to DB Cache --- 
+        // Cache is lightweight (signatures/timestamps only), so save all at once even when streaming
         if (newlyFetchedTransactions.length > 0) {
             logger.debug(`Saving ${newlyFetchedTransactions.length} newly fetched transactions to database cache...`);
             // Use the dbService instance method
@@ -596,6 +828,11 @@ export class HeliusApiClient {
     // Cached signatures are used to avoid re-fetching, not to provide transaction data
     logger.debug(`Cache hit ${cacheHits} signatures (avoided re-fetching).`);
     logger.debug(`Fetched ${newlyFetchedTransactions.length} new transactions from API.`);
+    
+    // Note: When using stream processing (onTransactionBatch), transactions are processed immediately
+    // via the callback, but they're still accumulated in newlyFetchedTransactions for the return value.
+    // If all signatures were cached and nothing was fetched, newlyFetchedTransactions will be empty,
+    // which is correct - those transactions were already processed in previous runs.
 
     const allTransactions = [...newlyFetchedTransactions];
     
@@ -628,7 +865,18 @@ export class HeliusApiClient {
     logger.debug(`Total transactions before address relevance filter: ${filteredTransactions.length}`);
     // Filter *before* sorting 
     const lowerCaseAddress = address.toLowerCase();
+    
+    // Track filtering statistics for debugging
+    let filteredCount = 0;
+    let keptCount = 0;
+    
     const relevantFiltered = filteredTransactions.filter(tx => {
+        // Quick check for feePayer (most common case)
+        if (tx.feePayer?.toLowerCase() === lowerCaseAddress) {
+            keptCount++;
+            return true;
+        }
+        
         const hasTokenTransfer = tx.tokenTransfers?.some(t => 
             t.fromUserAccount?.toLowerCase() === lowerCaseAddress || 
             t.toUserAccount?.toLowerCase() === lowerCaseAddress ||
@@ -646,8 +894,10 @@ export class HeliusApiClient {
              (ad.nativeBalanceChange !== 0 || ad.tokenBalanceChanges?.length > 0)
         );
         
-        // Check if any swap event involves the wallet address
+        // Check if any swap event involves the wallet address (including native inputs/outputs)
         const hasSwapEvent = !!tx.events?.swap && (
+            tx.events.swap.nativeInput?.account?.toLowerCase() === lowerCaseAddress ||
+            tx.events.swap.nativeOutput?.account?.toLowerCase() === lowerCaseAddress ||
             tx.events.swap.tokenInputs?.some(i =>
                 [(i as any).userAccount, (i as any).fromUserAccount, (i as any).toUserAccount]
                     .some(u => u?.toLowerCase() === lowerCaseAddress)
@@ -655,17 +905,53 @@ export class HeliusApiClient {
             tx.events.swap.tokenOutputs?.some(o =>
                 [(o as any).userAccount, (o as any).fromUserAccount, (o as any).toUserAccount]
                     .some(u => u?.toLowerCase() === lowerCaseAddress)
+            ) ||
+            tx.events.swap.tokenFees?.some(f =>
+                f.userAccount?.toLowerCase() === lowerCaseAddress
+            ) ||
+            tx.events.swap.nativeFees?.some(f =>
+                f.account?.toLowerCase() === lowerCaseAddress
             )
         );
         
-        // Quick check for feePayer
-        if (tx.feePayer?.toLowerCase() === lowerCaseAddress) {
-            return true;
-        }
+        // Check if wallet appears in instruction accounts (signer or involved account)
+        // Since signatures are fetched for this address, it should appear in instructions
+        const hasInstructionInvolvement = tx.instructions?.some(inst => 
+            inst.accounts?.some(acc => acc?.toLowerCase() === lowerCaseAddress) ||
+            inst.innerInstructions?.some(inner => 
+                inner.accounts?.some(acc => acc?.toLowerCase() === lowerCaseAddress)
+            )
+        );
         
-        return hasTokenTransfer || hasNativeTransfer || hasAccountDataChange || hasSwapEvent;
+        // Check accountData more broadly - wallet might have token accounts that changed
+        const hasTokenAccountDataChange = tx.accountData?.some(ad => {
+            if (ad.account?.toLowerCase() === lowerCaseAddress) {
+                return ad.nativeBalanceChange !== 0 || ad.tokenBalanceChanges?.length > 0;
+            }
+            // Check if any token balance change references this wallet's user account
+            return ad.tokenBalanceChanges?.some(tbc => 
+                tbc.userAccount?.toLowerCase() === lowerCaseAddress
+            );
+        });
+        
+        const isRelevant = hasTokenTransfer || hasNativeTransfer || hasAccountDataChange || 
+                          hasTokenAccountDataChange || hasSwapEvent || hasInstructionInvolvement;
+        
+        if (isRelevant) {
+            keptCount++;
+            return true;
+        } else {
+            filteredCount++;
+            return false;
+        }
     });
-    logger.info(`Filtered combined transactions down to ${relevantFiltered.length} involving the target address.`);
+    
+    logger.info(`Filtered combined transactions down to ${relevantFiltered.length} involving the target address (kept: ${keptCount}, filtered: ${filteredCount}).`);
+    
+    // Log warning if filtering is very aggressive (more than 50% filtered)
+    if (filteredTransactions.length > 0 && (filteredCount / filteredTransactions.length) > 0.5) {
+        logger.warn(`⚠️ High filtering rate: ${((filteredCount / filteredTransactions.length) * 100).toFixed(1)}% of transactions filtered out for ${address}. This may indicate missing involvement patterns.`);
+    }
 
     // Sort the relevant transactions by timestamp (ascending - oldest first)
     relevantFiltered.sort((a, b) => a.timestamp - b.timestamp);
@@ -776,6 +1062,24 @@ export class HeliusApiClient {
     throw new Error(`RPC method ${method} failed unexpectedly after retries.`);
   }
 
+  // Lightweight raw RPC poster for specialized flows (e.g., V2 pagination) without wrapping errors
+  private async postRpcRaw(method: string, params: any[]): Promise<{ result?: any; error?: { code?: number; message: string } }> {
+    await this.rateLimit();
+    const payload = {
+      jsonrpc: '2.0',
+      id: `helius-rpc-${method}-${Date.now()}`,
+      method,
+      params,
+    };
+    try {
+      const response = await this.api.post(this.rpcUrl, payload);
+      return response.data;
+    } catch (e) {
+      // For network/transport errors, shape as generic error to let caller decide
+      return { error: { message: (e as Error)?.message || 'network error' } };
+    }
+  }
+
   /**
    * Fetches account information for a list of public keys using the `getMultipleAccounts` RPC method.
    *
@@ -863,6 +1167,30 @@ export class HeliusApiClient {
       throw new Error('ownerPubkey is required for get.TokenAccountsByOwner.');
     }
 
+    // Prefer V2 cursor-based pagination if enabled and not tripped
+    if (HELIUS_V2_CONFIG.enablePagination && !this.disableV2ForProcess) {
+      try {
+        const v2 = await this.fetchAllTokenAccountsByOwnerV2(ownerPubkey, {
+          mintPubkey,
+          programId,
+          commitment,
+          encoding,
+          dataSlice,
+        });
+        logger.info(`Successfully fetched token accounts (V2) for owner ${ownerPubkey}. Count: ${v2.value.length}`);
+        return v2;
+      } catch (e: any) {
+        const code = e?.code as number | undefined;
+        const hardFail = Boolean(e?.hardFail);
+        if (hardFail && !this.loggedV2DisableOnce) {
+          this.loggedV2DisableOnce = true;
+          this.disableV2ForProcess = true;
+          logger.warn(`Helius V2 disabled for this process due to hard failure (code=${code ?? 'n/a'}): ${e?.message}`);
+        }
+        // Fall back to V1
+      }
+    }
+
     const programFilter = mintPubkey ? { mint: mintPubkey } : { programId };
     const params: any[] = [ownerPubkey, programFilter];
 
@@ -878,7 +1206,7 @@ export class HeliusApiClient {
     params.push(options);
 
     logger.debug(
-      `Fetching token accounts for owner ${ownerPubkey} with program/mint filter: `,
+      `Fetching token accounts (V1) for owner ${ownerPubkey} with program/mint filter: `,
       programFilter,
       ` and options: `,
       options
@@ -889,7 +1217,7 @@ export class HeliusApiClient {
         'getTokenAccountsByOwner',
         params
       );
-      logger.info(`Successfully fetched token accounts for owner ${ownerPubkey}. Count: ${result.value.length}`);
+      logger.debug(`Successfully fetched token accounts for owner ${ownerPubkey}. Count: ${result.value.length}`);
       return result;
     } catch (error) {
       logger.error(
@@ -899,4 +1227,192 @@ export class HeliusApiClient {
       throw error; // Re-throw to allow the caller to handle it
     }
   }
-} 
+
+  // Internal V2 cursor-based fetch loop with legacy shape adaptation
+  private async fetchAllTokenAccountsByOwnerV2(
+    ownerPubkey: string,
+    args: {
+      mintPubkey?: string;
+      programId?: string;
+      commitment?: string;
+      encoding?: string;
+      dataSlice?: { offset: number; length: number };
+      changedSinceSlot?: number; // reserved for incremental mode
+    }
+  ): Promise<GetTokenAccountsByOwnerResult> {
+    const limit = HELIUS_V2_CONFIG.pageLimit;
+    let paginationKey: string | undefined;
+    const aggregated: any[] = [];
+    let contextSlot = 0;
+
+    const base: any = {
+      encoding: args.encoding ?? 'jsonParsed',
+      limit,
+    };
+    if (args.mintPubkey) base.mint = args.mintPubkey; else if (args.programId) base.programId = args.programId;
+    if (args.dataSlice) base.dataSlice = args.dataSlice;
+    if (Number.isFinite(args.changedSinceSlot)) base.changedSinceSlot = args.changedSinceSlot;
+    if (args.commitment) base.commitment = args.commitment;
+
+    do {
+      // Separate filter and options for V2 API (3 params instead of V1's 2 params)
+      const filter = args.mintPubkey ? { mint: args.mintPubkey } : { programId: args.programId || 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' };
+      const options: any = {
+        encoding: args.encoding ?? 'jsonParsed',
+        limit: HELIUS_V2_CONFIG.pageLimit  // Use V2 config limit (up to 10k!)
+      };
+      if (args.dataSlice) options.dataSlice = args.dataSlice;
+      if (Number.isFinite(args.changedSinceSlot)) options.changedSinceSlot = args.changedSinceSlot;
+      if (args.commitment) options.commitment = args.commitment;
+      if (paginationKey) options.paginationKey = paginationKey;
+      
+      const { result, error } = await this.postRpcRaw('getTokenAccountsByOwnerV2', [ownerPubkey, filter, options]);
+      if (error) {
+        // Hard-fail on method not found or invalid params
+        const code = (error as any).code;
+        const msg = String((error as any).message || '').toLowerCase();
+        const isHard = code === -32601 || code === -32602 || msg.includes('method not found') || msg.includes('invalid param');
+        const err: any = new Error(`V2 token accounts fetch failed: ${error.message || 'unknown'}`);
+        err.code = code;
+        if (isHard) err.hardFail = true;
+        throw err;
+      }
+      // V2 API returns: { context, value: { accounts: [...] }, paginationKey, totalResults }
+      const page = result as { 
+        value?: { accounts?: any[] }; 
+        paginationKey?: string; 
+        context?: { slot?: number }; 
+        totalResults?: number 
+      };
+      
+      if (page?.value?.accounts?.length) aggregated.push(...page.value.accounts);
+      paginationKey = page?.paginationKey; // This should now work correctly
+      contextSlot = page?.context?.slot ?? contextSlot;
+      // yield to event loop lightly to avoid starvation
+      await delay(0);
+    } while (paginationKey);
+
+    return { context: { slot: contextSlot }, value: aggregated };
+  }
+
+  /**
+   * Fetches up to the 20 largest token accounts for a given mint using the `getTokenLargestAccounts` RPC method.
+   * Per Helius docs, this method does not support a `limit` parameter.
+   * @param mintPubkey The base-58 encoded public key of the token mint.
+   * @param commitment Optional commitment level (e.g., "finalized", "confirmed", "processed").
+   */
+  public async getTokenLargestAccounts(
+    mintPubkey: string,
+    commitment?: string
+  ): Promise<GetTokenLargestAccountsResult> {
+    if (!mintPubkey) {
+      throw new Error('mintPubkey is required for getTokenLargestAccounts.');
+    }
+
+    const params: any[] = [mintPubkey];
+    const options: { commitment?: string } = {};
+    if (commitment) options.commitment = commitment;
+    if (Object.keys(options).length > 0) params.push(options);
+
+    logger.debug(
+      `Fetching largest token accounts for mint ${mintPubkey}`,
+      options
+    );
+
+    try {
+      const result = await this.makeRpcRequest<GetTokenLargestAccountsResult>(
+        'getTokenLargestAccounts',
+        params
+      );
+      logger.debug(`Successfully fetched ${result.value.length} largest token accounts for mint ${mintPubkey}`);
+      return result;
+    } catch (error) {
+      logger.error(
+        `Failed to fetch largest token accounts for mint ${mintPubkey}`,
+        { error: this.sanitizeError(error), mintPubkey, options }
+      );
+      throw error; // Re-throw to allow the caller to handle it
+    }
+  }
+
+  /**
+   * Get the total supply of a token (SPL token)
+   *
+   * @param mintPubkey The base-58 encoded token mint address
+   * @param commitment Optional commitment level (e.g., "finalized", "confirmed")
+   * @returns Promise resolving to token supply information
+   */
+  public async getTokenSupply(
+    mintPubkey: string,
+    commitment?: string
+  ): Promise<{ context: { slot: number }; value: { amount: string; decimals: number; uiAmount: number | null; uiAmountString: string } }> {
+    if (!mintPubkey) {
+      throw new Error('mintPubkey is required for getTokenSupply.');
+    }
+
+    const params: any[] = [mintPubkey];
+    const options: { commitment?: string } = {};
+    if (commitment) options.commitment = commitment;
+    if (Object.keys(options).length > 0) params.push(options);
+
+    logger.debug(`Fetching token supply for mint ${mintPubkey}`, options);
+
+    try {
+      const result = await this.makeRpcRequest<{ context: { slot: number }; value: { amount: string; decimals: number; uiAmount: number | null; uiAmountString: string } }>(
+        'getTokenSupply',
+        params
+      );
+      logger.debug(`Successfully fetched token supply for mint ${mintPubkey}: ${result.value.uiAmount}`);
+      return result;
+    } catch (error) {
+      logger.error(
+        `Failed to fetch token supply for mint ${mintPubkey}`,
+        { error: this.sanitizeError(error), mintPubkey, options }
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch multiple assets using Helius DAS API (Digital Asset Standard)
+   * Supports up to 1000 assets per call
+   *
+   * @param assetIds Array of token mint addresses
+   * @returns Array of asset objects with metadata
+   */
+  public async getAssetBatch(assetIds: string[]): Promise<any[]> {
+    if (!assetIds || assetIds.length === 0) {
+      return [];
+    }
+
+    // Deduplicate to avoid fetching same asset multiple times
+    const uniqueIds = [...new Set(assetIds)];
+
+    // DAS API supports up to 1000 assets per call
+    if (uniqueIds.length > 1000) {
+      logger.warn(`getAssetBatch called with ${uniqueIds.length} assets, will batch in chunks of 1000`);
+
+      const results: any[] = [];
+      for (let i = 0; i < uniqueIds.length; i += 1000) {
+        const chunk = uniqueIds.slice(i, i + 1000);
+        const chunkResults = await this.getAssetBatch(chunk);
+        results.push(...chunkResults);
+      }
+      return results;
+    }
+
+
+    try {
+      const result = await this.makeRpcRequest<any>('getAssetBatch', [
+        uniqueIds
+      ]);
+
+      return result || [];
+    } catch (error) {
+      logger.error(`Failed to fetch asset batch for ${uniqueIds.length} assets`, {
+        error: this.sanitizeError(error),
+      });
+      throw error;
+    }
+  }
+}

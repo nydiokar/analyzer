@@ -22,7 +22,18 @@ import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
 
-interface BehavioralPatternsTabProps {
+// Helper function to format hold time nicely
+const formatHoldTime = (hours: number): string => {
+  if (hours < 1) {
+    return `${(hours * 60).toFixed(0)}m`;
+  } else if (hours < 24) {
+    return `${hours.toFixed(1)}h`;
+  } else {
+    return `${(hours / 24).toFixed(1)}d`;
+  }
+};
+
+export interface BehavioralPatternsTabProps {
   walletAddress: string;
   isAnalyzingGlobal?: boolean;
   triggerAnalysisGlobal?: () => void;
@@ -149,14 +160,14 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
   if (behaviorIsLoading && !isAnalyzingGlobal) {
     return (
-      <Card className="p-4 md:p-6 space-y-6">
-        <Tabs defaultValue="summary" className="w-full">
+      <Card className="h-full p-4 md:p-6 space-y-6 flex flex-col">
+        <Tabs defaultValue="summary" className="w-full flex-1 flex flex-col">
           <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
             <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>
             <TabsTrigger value="visualizations">Visualizations</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="summary">
+          <TabsContent value="summary" className="flex-1 overflow-auto">
             <Title className="mb-4 text-lg font-semibold">Behavioral Summary & Metrics</Title>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
               {[...Array(5)].map((_, i) => ( // Increased skeleton items for more potential summary metrics
@@ -233,7 +244,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             </Accordion>
           </TabsContent>
 
-          <TabsContent value="visualizations">
+          <TabsContent value="visualizations" className="flex-1 overflow-auto">
             <div className="rounded-lg bg-muted/10 dark:bg-muted/5 px-4 py-2 mb-6">
               <Tabs defaultValue="heatmap" className="w-full mt-2">
                 <div className="sticky top-0 z-10 bg-card dark:bg-card p-2 -mx-4 md:-mx-6 border-b border-border mb-4">
@@ -246,7 +257,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
                 {['heatmap', 'duration', 'windows'].map((tabValue) => (
                   <TabsContent key={`skel-viz-${tabValue}`} value={tabValue}>
-                    <Title className="mb-2 text-base font-medium"><Skeleton className="h-5 w-1/3" /></Title>
+                    <Skeleton className="h-5 w-1/3 mb-2" />
                     <Skeleton className="h-[200px] w-full" />
                   </TabsContent>
                 ))}
@@ -331,33 +342,53 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
   const activeTradingPeriodsData = behaviorData?.activeTradingPeriods;
 
   return (
-    <Card className="p-4 md:p-6 space-y-6">
-      <Tabs defaultValue="summary" className="w-full">
+    <Card className="h-full max-h-full p-4 md:p-6 space-y-6 flex flex-col overflow-hidden">
+      <Tabs defaultValue="summary" className="w-full flex-1 flex flex-col min-h-0">
         <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
           <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>
           <TabsTrigger value="visualizations">Visualizations</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="summary">
+        <TabsContent value="summary" className="flex-1 overflow-auto min-h-0">
           <Title className="mb-4 text-lg font-semibold">Behavioral Summary & Metrics</Title>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4 mb-6 text-sm">
-            <MetricDisplay 
-              label="Trading Style" 
+            <MetricDisplay
+              label="Trading Style"
               value={behaviorData.tradingStyle}
-              tooltipText="Overall trading approach identified (e.g., Flipper, HODLer). Based on typical holding durations and activity frequency."
+              tooltipText="Overall trading approach identified. Format: SPEED (PATTERN) - e.g., 'FLIPPER (ACCUMULATOR)' means fast trading with more buys than sells."
             />
-            <MetricDisplay 
-              label="Confidence" 
+            <MetricDisplay
+              label="Confidence"
               value={typeof behaviorData.confidenceScore === 'number' ? `${(behaviorData.confidenceScore * 100).toFixed(1)}` : undefined}
               unit="%"
               tooltipText="Likelihood (0-100%) that the assigned Trading Style accurately reflects the wallet's dominant behavior."
             />
+            {behaviorData.tradingInterpretation && (
+              <>
+                <MetricDisplay
+                  label="Typical Hold Time"
+                  value={formatHoldTime(behaviorData.tradingInterpretation.typicalHoldTimeHours)}
+                  tooltipText={`Median hold time from completed/exited positions (outlier-robust). Category: ${behaviorData.tradingInterpretation.speedCategory}. Ranges: ULTRA_FLIPPER (<3min), FLIPPER (3-10min), FAST_TRADER (10-60min), DAY_TRADER (1-24h), SWING_TRADER (1-7d), POSITION_TRADER (7+d)`}
+                />
+                <MetricDisplay
+                  label="Economic Hold Time"
+                  value={formatHoldTime(behaviorData.tradingInterpretation.economicHoldTimeHours)}
+                  tooltipText={`Weighted average from completed/exited positions (position size matters). Risk: ${behaviorData.tradingInterpretation.economicRisk}. Shows where the MONEY goes vs what they USUALLY do (typical hold time).`}
+                />
+                <MetricDisplay
+                  label="Behavioral Pattern"
+                  value={behaviorData.tradingInterpretation.behavioralPattern}
+                  tooltipText="Buy/sell activity pattern (ACCUMULATOR = more buys, DISTRIBUTOR = more sells, BALANCED = even split)"
+                />
+              </>
+            )}
           </div>
-          
+
           <hr className="my-6 border-muted" />
           <Title className="text-lg font-semibold mt-6 mb-4">Detailed Behavioral Metrics</Title>
-          
-          <Accordion type="multiple" className="w-full space-y-3" defaultValue={["item-overall", "item-performance", "item-session", "item-risk"]}>
+
+          <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+            <Accordion type="multiple" className="w-full space-y-3" defaultValue={["item-overall", "item-performance", "item-session", "item-risk"]}>
             {/* Accordion Item 1: Behavioral Profile & Consistency */}
             <AccordionItem value="item-performance" className="border border-border rounded-md px-3 data-[state=open]:bg-muted/20">
               <AccordionTrigger className="py-3 hover:no-underline">
@@ -391,37 +422,69 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
               <AccordionContent className="pt-2 pb-3 space-y-3 pl-1">
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Holding Durations</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
-                  <MetricDisplay label="Average Trade Duration" value={formatNumber(behaviorData.averageFlipDurationHours)} unit="hours" tooltipText="Average time a token position is held from buy to sell. Calculated only for tokens both bought and sold ('flipped') during the analyzed period." />
-                  <MetricDisplay label="Median Hold Time" value={formatNumber(behaviorData.medianHoldTime)} unit="hours" tooltipText="Median time a token position is held across all sold assets. Less affected by outliers than average duration." />
+                  <MetricDisplay
+                    label="Typical Hold Time (Median)"
+                    value={formatNumber(behaviorData.historicalPattern?.medianCompletedHoldTimeHours)}
+                    unit="hours"
+                    tooltipText="Median holding time from completed positions only (outlier-robust). This represents their TYPICAL behavior - not affected by one long hold."
+                  />
+                  <MetricDisplay
+                    label="Economic Hold Time (Weighted)"
+                    value={formatNumber(behaviorData.historicalPattern?.historicalAverageHoldTimeHours)}
+                    unit="hours"
+                    tooltipText="Weighted average holding time from completed positions (accounts for position size). This shows where the MONEY typically goes."
+                  />
                   <MetricDisplay label="% Trades < 1 Hour" value={formatRatioAsPercentage(behaviorData.percentTradesUnder1Hour)} tooltipText="Percentage of completed trades held for less than 1 hour, indicating very short-term activity." />
                   <MetricDisplay label="% Trades < 4 Hours" value={formatRatioAsPercentage(behaviorData.percentTradesUnder4Hours)} tooltipText="Percentage of completed trades held for less than 4 hours." />
                 </div>
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Current Holdings Analysis</Text>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
-                  <MetricDisplay 
-                    label="Avg Current Hold Duration" 
-                    value={formatNumber(behaviorData.averageCurrentHoldingDurationHours)} 
-                    unit="hours" 
-                    tooltipText="Average duration of currently held positions (tokens bought but not sold). Shows how long current investments have been held." 
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+                  <MetricDisplay
+                    label="Avg Current Hold Duration"
+                    value={formatNumber(behaviorData.averageCurrentHoldingDurationHours)}
+                    unit="hours"
+                    tooltipText="Average duration of currently held positions (tokens bought but not sold). Shows how long current investments have been held."
                   />
-                  <MetricDisplay 
-                    label="Median Current Hold Time" 
-                    value={formatNumber(behaviorData.medianCurrentHoldingDurationHours)} 
-                    unit="hours" 
-                    tooltipText="Median duration of currently held positions. Less affected by outliers than average." 
+                  <MetricDisplay
+                    label="Median Current Hold Time"
+                    value={formatNumber(behaviorData.medianCurrentHoldingDurationHours)}
+                    unit="hours"
+                    tooltipText="Median duration of currently held positions. Less affected by outliers than average."
                   />
-                  <MetricDisplay 
-                    label="Weighted Avg Hold Time" 
-                    value={formatNumber(behaviorData.weightedAverageHoldingDurationHours)} 
-                    unit="hours" 
-                    tooltipText="Combined average hold time weighted by value between completed trades and current holdings." 
-                  />
-                  <MetricDisplay 
-                    label="% Value Still Held" 
-                    value={formatValueAsPercentage(behaviorData.percentOfValueInCurrentHoldings)} 
-                    tooltipText="Percentage of total traded value that remains in current positions (not yet sold)." 
+                  <MetricDisplay
+                    label="% Value Still Held"
+                    value={formatValueAsPercentage(behaviorData.percentOfValueInCurrentHoldings)}
+                    tooltipText="Percentage of total traded value that remains in current positions (not yet sold)."
                   />
                 </div>
+                {behaviorData.historicalPattern && (
+                  <>
+                    <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Historical Pattern (Completed Positions)</Text>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                      <MetricDisplay
+                        label="Completed Cycles"
+                        value={behaviorData.historicalPattern.completedCycleCount}
+                        tooltipText="Number of fully completed token cycles (bought and exited). More cycles = higher confidence in pattern."
+                      />
+                      <MetricDisplay
+                        label="Median Exit Time"
+                        value={formatHoldTime(behaviorData.historicalPattern.medianCompletedHoldTimeHours)}
+                        tooltipText={`Median hold time from completed positions only. Category: ${behaviorData.historicalPattern.behaviorType}. Ranges: SNIPER (<1min), SCALPER (1-5min), MOMENTUM (5-30min), INTRADAY (30min-4h), DAY_TRADER (4-24h), SWING (1-7d), POSITION (7-30d), HOLDER (30+d). Used for exit prediction.`}
+                      />
+                      <MetricDisplay
+                        label="Exit Pattern"
+                        value={behaviorData.historicalPattern.exitPattern.replace('_', ' ')}
+                        tooltipText="How they typically exit positions: GRADUAL (multiple sells) or ALL_AT_ONCE (single sell)."
+                      />
+                      <MetricDisplay
+                        label="Data Quality"
+                        value={typeof behaviorData.historicalPattern.dataQuality === 'number' ? `${(behaviorData.historicalPattern.dataQuality * 100).toFixed(0)}` : undefined}
+                        unit="%"
+                        tooltipText="Confidence in the historical pattern based on sample size and data completeness."
+                      />
+                    </div>
+                  </>
+                )}
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Session Characteristics</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
                   <MetricDisplay label="Session Count" value={behaviorData.sessionCount} tooltipText="Total number of distinct active trading sessions identified." />
@@ -488,9 +551,10 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
               </AccordionContent>
             </AccordionItem>
           </Accordion>
+          </div>
         </TabsContent>
 
-        <TabsContent value="visualizations">
+        <TabsContent value="visualizations" className="flex-1 overflow-auto min-h-0">
           <div className="rounded-lg bg-muted/10 dark:bg-muted/5 px-4 py-2 mb-6">
             <Tabs defaultValue="heatmap" className="w-full mt-2">
               <div className="sticky top-0 z-10 bg-card dark:bg-card p-2 -mx-4 md:-mx-6 border-b border-border mb-4">
@@ -563,7 +627,8 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
       {/* Raw Data (for debugging) Section */}
       {rawDataForDebugging && Object.keys(rawDataForDebugging).length > 0 && (
-        <Accordion type="single" collapsible className="w-full mt-8">
+        <div className="mt-8">
+          <Accordion type="single" collapsible className="w-full">
           <AccordionItem value="item-1">
             <AccordionTrigger className="text-sm font-medium hover:no-underline">
                 <Flex alignItems="center">
@@ -580,6 +645,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+        </div>
       )}
     </Card>
   );

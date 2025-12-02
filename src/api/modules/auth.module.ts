@@ -52,7 +52,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
         return {
           secret: jwtSecret,
           signOptions: {
-            expiresIn: configService.get<string>('JWT_EXPIRES_IN') || '30m', // Changed from 7d to 30m for short-lived tokens
+            expiresIn: (configService.get<string>('JWT_EXPIRES_IN') || '30m') as any, // Changed from 7d to 30m for short-lived tokens
           },
         };
       },

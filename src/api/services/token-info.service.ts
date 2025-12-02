@@ -1,17 +1,194 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import Redis from 'ioredis';
 import { DatabaseService } from '../services/database.service';
 import { Prisma } from '@prisma/client';
 import { DexscreenerService } from '../services/dexscreener.service';
+import { IPriceProvider } from '../../types/price-provider.interface';
 import { ITokenInfoService } from '../../types/token-info-service.interface';
+import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../core/services/onchain-metadata.service';
+import { HeliusApiClient } from '../../core/services/helius-api-client';
 
+/**
+ * TokenInfoService - Unified Token Information & Price Management
+ *
+ * This service is the single source of truth for:
+ * - Live token & SOL prices (cached in Redis, 30s TTL)
+ * - Token supply (cached permanently - immutable data)
+ * - Token metadata persistence (database)
+ * - Token enrichment operations
+ *
+ * Price fetching is abstracted through IPriceProvider, making it easy
+ * to swap data sources (Dexscreener, Bird.io, CoinGecko, etc.)
+ */
 @Injectable()
 export class TokenInfoService implements ITokenInfoService {
   private readonly logger = new Logger(TokenInfoService.name);
+  private redis: Redis;
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly dexscreenerService: DexscreenerService
-    ) {}
+    private readonly dexscreenerService: DexscreenerService, // Legacy, for backwards compatibility
+    @Inject('IPriceProvider') private readonly priceProvider: IPriceProvider,
+    private readonly onchainMetadataService: OnchainMetadataService, // NEW: Onchain metadata enrichment
+    private readonly heliusApiClient: HeliusApiClient, // For fetching token supply
+  ) {
+    this.redis = new Redis({
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT || '6379'),
+      maxRetriesPerRequest: 3,
+    });
+    this.logger.log('TokenInfoService initialized with price caching (30s TTL) and onchain metadata enrichment');
+  }
+
+  /**
+   * Get SOL price in USD (cached in Redis with 30s TTL)
+   * This is the preferred method for getting SOL price across the application.
+   * 
+   * @returns Promise resolving to SOL price in USD
+   */
+  async getSolPrice(): Promise<number> {
+    const cacheKey = 'sol_price_usd';
+    
+    // Try cache first
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      const price = parseFloat(cached);
+      this.logger.debug(`[SOL Price] Cache hit: $${price}`);
+      return price;
+    }
+
+    // Cache miss - fetch from provider
+    this.logger.log('[SOL Price] Cache miss, fetching from provider');
+    const price = await this.priceProvider.fetchSolPrice();
+    
+    // Cache with 30-second TTL
+    await this.redis.set(cacheKey, price.toString(), 'EX', 30);
+    this.logger.log(`[SOL Price] Fetched and cached: $${price} (TTL: 30s)`);
+    
+    return price;
+  }
+
+  /**
+   * Get token supply (cached permanently - supply doesn't change for immutable tokens)
+   * Token supply is immutable blockchain data, so we cache it indefinitely
+   *
+   * @param tokenMint The token mint address
+   * @returns Promise resolving to token supply (uiAmount), or undefined if not available
+   */
+  async getTokenSupply(tokenMint: string): Promise<number | undefined> {
+    const cacheKey = `token_supply:${tokenMint}`;
+
+    // Try cache first (no TTL - supply is immutable)
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      const supply = parseFloat(cached);
+      this.logger.debug(`[Token Supply] Cache hit for ${tokenMint}: ${supply}`);
+      return supply;
+    }
+
+    // Cache miss - fetch from Helius RPC
+    this.logger.debug(`[Token Supply] Cache miss for ${tokenMint}, fetching from RPC`);
+    try {
+      const supplyResult = await this.heliusApiClient.getTokenSupply(tokenMint);
+      const supply = supplyResult.value.uiAmount;
+
+      if (supply !== null && supply !== undefined) {
+        // Cache WITHOUT TTL (supply is immutable for most tokens)
+        await this.redis.set(cacheKey, supply.toString());
+        this.logger.log(`[Token Supply] Fetched and cached ${tokenMint}: ${supply} (permanent cache)`);
+        return supply;
+      }
+
+      this.logger.warn(`[Token Supply] No supply data for ${tokenMint}`);
+      return undefined;
+    } catch (error) {
+      this.logger.error(`[Token Supply] Failed to fetch for ${tokenMint}:`, error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Get token price in USD (cached in Redis with 30s TTL)
+   *
+   * @param tokenMint The token mint address
+   * @returns Promise resolving to token price in USD, or undefined if not available
+   */
+  async getTokenPrice(tokenMint: string): Promise<number | undefined> {
+    const cacheKey = `token_price:${tokenMint}`;
+    
+    // Try cache first
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      const price = parseFloat(cached);
+      this.logger.debug(`[Token Price] Cache hit for ${tokenMint}: $${price}`);
+      return price;
+    }
+
+    // Cache miss - fetch from provider
+    this.logger.debug(`[Token Price] Cache miss for ${tokenMint}, fetching from provider`);
+    const prices = await this.priceProvider.fetchTokenPrices([tokenMint]);
+    const price = prices.get(tokenMint);
+    
+    if (price !== undefined) {
+      // Cache with 30-second TTL
+      await this.redis.set(cacheKey, price.toString(), 'EX', 30);
+      this.logger.debug(`[Token Price] Fetched and cached ${tokenMint}: $${price} (TTL: 30s)`);
+    }
+    
+    return price;
+  }
+
+  /**
+   * Get multiple token prices in USD (cached in Redis with 30s TTL)
+   * 
+   * @param tokenMints Array of token mint addresses
+   * @returns Promise resolving to Map of mint address to price in USD
+   */
+  async getTokenPrices(tokenMints: string[]): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    const uncachedMints: string[] = [];
+
+    // Check cache for each mint
+    for (const mint of tokenMints) {
+      const cacheKey = `token_price:${mint}`;
+      const cached = await this.redis.get(cacheKey);
+      
+      if (cached) {
+        result.set(mint, parseFloat(cached));
+      } else {
+        uncachedMints.push(mint);
+      }
+    }
+
+    // Fetch uncached mints from provider
+    if (uncachedMints.length > 0) {
+      this.logger.debug(`[Token Prices] Cache miss for ${uncachedMints.length}/${tokenMints.length} tokens`);
+      const fetchedPrices = await this.priceProvider.fetchTokenPrices(uncachedMints);
+      
+      // Cache and add to result
+      for (const [mint, price] of fetchedPrices.entries()) {
+        const cacheKey = `token_price:${mint}`;
+        await this.redis.set(cacheKey, price.toString(), 'EX', 30);
+        result.set(mint, price);
+      }
+    } else {
+      this.logger.debug(`[Token Prices] All ${tokenMints.length} prices from cache`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Enrich token information in the background (no user activity logging)
+   * Used by background workers and processors
+   */
+  async enrichTokensBackground(tokenAddresses: string[]): Promise<void> {
+    if (tokenAddresses.length === 0) {
+      return;
+    }
+    this.logger.debug(`[Background] Enriching ${tokenAddresses.length} tokens`);
+    await this.priceProvider.fetchAndSaveTokenInfo(tokenAddresses);
+  }
 
   async triggerTokenInfoEnrichment(
     tokenAddresses: string[],
@@ -19,48 +196,204 @@ export class TokenInfoService implements ITokenInfoService {
   ): Promise<void> {
     const startTime = Date.now();
 
+    // Deduplicate input to avoid processing same token multiple times
+    tokenAddresses = [...new Set(tokenAddresses)];
+
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
       tokenCount: tokenAddresses.length,
     });
 
     const existingTokens = await this.findMany(tokenAddresses);
-    // FIXED: Use more reasonable cache expiry - 1 hour for metadata, 5 minutes for prices
-    const oneHourAgo = new Date(Date.now() - 1 * 60 * 1000); // 1 hour for metadata
-    const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000); // 5 minutes for prices
-
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata staleness
     const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
-    
-    const newTokensToFetch = tokenAddresses.filter(address => {
-      const existingToken = existingTokenMap.get(address);
-      
-      // Skip tokens that are clearly placeholders (Unknown Token with no real data)
-      if (existingToken?.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {
-        // Only refresh placeholders if they're older than 1 hour
-        return !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
+
+    // Determine which tokens need enrichment
+    const needsEnrichment = tokenAddresses.filter(address => {
+      const existing = existingTokenMap.get(address);
+
+      // If no data at all, needs enrichment
+      if (!existing) return true;
+
+      // If "Unknown Token" with no onchain data, needs enrichment
+      if (existing.name === 'Unknown Token' && !existing.onchainName) {
+        return true;
       }
-      
-      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (5 minutes)
-      if (existingToken) {
-        const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
-        
-        // Only fetch if metadata is stale OR if we have price data but it's stale
-        return metadataStale || (existingToken.priceUsd && priceStale);
+
+      // Onchain metadata is IMMUTABLE - once fetched, never refetch
+      // Only check if DexScreener data is stale (prices/volume change)
+      const hasOnchainData = !!existing.onchainBasicFetchedAt;
+      const dexStale = !existing.dexscreenerUpdatedAt || existing.dexscreenerUpdatedAt < oneHourAgo;
+
+      // Skip enrichment if:
+      // - We have onchain data (immutable, never changes) AND
+      // - DexScreener data is fresh (prices are recent)
+      if (hasOnchainData && !dexStale) {
+        return false;
       }
-      
-      // New token - always fetch
-      return true;
+
+      // Enrich if we're missing onchain data OR DexScreener is stale
+      return !hasOnchainData || dexStale;
     });
 
-    // This is no longer fire-and-forget. We must await completion.
-    await this.dexscreenerService.fetchAndSaveTokenInfo(newTokensToFetch);
-    
+    if (needsEnrichment.length === 0) {
+      this.logger.log('All tokens already have recent metadata');
+      return;
+    }
+
+    // Split enrichment needs: onchain metadata vs price data
+    const needsOnchainData = needsEnrichment.filter(address => {
+      const existing = existingTokenMap.get(address);
+      return !existing?.onchainBasicFetchedAt; // Missing onchain data (immutable)
+    });
+
+    const needsPriceData = needsEnrichment; // All tokens in needsEnrichment need price refresh
+
+    this.logger.log(`Enriching ${needsEnrichment.length} tokens (onchain: ${needsOnchainData.length}, prices: ${needsPriceData.length})`);
+
+    // ═══════════════════════════════════════════════════════════
+    // STAGE 1: Helius DAS API (FAST - WAIT FOR THIS)
+    // Only fetch onchain data for tokens that don't have it yet
+    // ═══════════════════════════════════════════════════════════
+    let onchainMetadata: BasicTokenMetadata[] = [];
+    if (needsOnchainData.length > 0) {
+      try {
+        onchainMetadata = await this.onchainMetadataService.fetchBasicMetadataBatch(needsOnchainData);
+
+        if (onchainMetadata.length > 0) {
+          await this.saveOnchainBasicMetadata(onchainMetadata);
+          this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
+        }
+      } catch (error) {
+        this.logger.error('Stage 1 (DAS) failed:', error);
+        // Continue anyway - DexScreener might still work
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // STAGE 2: DexScreener (FIRE-AND-FORGET - DON'T WAIT)
+    // Fetch fresh prices in background - frontend will show DAS data immediately
+    // ═══════════════════════════════════════════════════════════
+    if (needsPriceData.length > 0) {
+      // Fire-and-forget DexScreener enrichment
+      setImmediate(async () => {
+        try {
+          await this.priceProvider.fetchAndSaveTokenInfo(needsPriceData);
+          this.logger.log(`DexScreener Stage complete: ${needsPriceData.length} tokens processed - Frontend can refresh to see updated images`);
+        } catch (err) {
+          this.logger.error('Stage 2 (DexScreener) failed:', err);
+        }
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // STAGE 3: URI Social Links (BACKGROUND - DON'T WAIT)
+    // ═══════════════════════════════════════════════════════════
+    // Extract URIs from Stage 1 results (no DB query needed!)
+    const tokensWithUris = onchainMetadata
+      .filter(m => m.metadataUri)
+      .map(m => ({ mint: m.mint, uri: m.metadataUri! }));
+
+    if (tokensWithUris.length > 0) {
+      this.fetchAndSaveSocialLinks(tokensWithUris)
+        .catch(err => {
+          this.logger.error('Stage 3 (Social links) failed:', err);
+        });
+    }
+
+    const duration = Date.now() - startTime;
+    this.logger.log(`Token enrichment INITIATED in ${duration}ms - Frontend has onchain data, DexScreener updating in background`);
+
     // Log success status
-    const durationMs = Date.now() - startTime;
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
       tokenCount: tokenAddresses.length,
-      newTokensFetched: newTokensToFetch.length,
-    }, 'SUCCESS', durationMs);
+      needsEnrichment: needsEnrichment.length,
+      onchainMetadataFetched: onchainMetadata.length,
+    }, 'SUCCESS', duration);
+  }
+
+  /**
+   * Save basic onchain metadata to database
+   * Uses batched operations to avoid N+1 queries
+   */
+  private async saveOnchainBasicMetadata(metadata: BasicTokenMetadata[]): Promise<void> {
+    if (metadata.length === 0) return;
+
+    // Deduplicate by mint address
+    const uniqueMetadata = Array.from(
+      new Map(metadata.map(m => [m.mint, m])).values()
+    );
+
+    // Separate into new vs existing tokens (1 query for all)
+    const existingTokens = await this.db.findManyTokenInfo(uniqueMetadata.map(m => m.mint));
+    const existingSet = new Set(existingTokens.map(t => t.tokenAddress));
+
+    const newTokens = uniqueMetadata
+      .filter(m => !existingSet.has(m.mint))
+      .map(m => ({
+        tokenAddress: m.mint,
+        onchainName: m.name,
+        onchainSymbol: m.symbol,
+        onchainDescription: m.description,
+        onchainImageUrl: m.imageUrl,
+        onchainCreator: m.creator,
+        onchainMetadataUri: m.metadataUri,
+      }));
+
+    const existingTokenUpdates = uniqueMetadata
+      .filter(m => existingSet.has(m.mint))
+      .map(m => ({
+        tokenAddress: m.mint,
+        onchainName: m.name,
+        onchainSymbol: m.symbol,
+        onchainDescription: m.description,
+        onchainImageUrl: m.imageUrl,
+        onchainCreator: m.creator,
+        onchainMetadataUri: m.metadataUri,
+      }));
+
+    // Use DatabaseService method for batched operation
+    await this.db.saveOnchainMetadataBatch(newTokens, existingTokenUpdates);
+    this.logger.log(`Batch saved ${newTokens.length} new + ${existingTokenUpdates.length} updated tokens`);
+  }
+
+  /**
+   * Fetch and save social links from metadata URIs
+   * Uses batched operations to avoid N+1 queries
+   */
+  private async fetchAndSaveSocialLinks(
+    tokens: Array<{ mint: string; uri: string }>
+  ): Promise<number> {
+    const socialLinks = await this.onchainMetadataService.fetchSocialLinksBatch(tokens);
+
+    if (socialLinks.length === 0) return 0;
+
+    // Deduplicate
+    const uniqueLinks = Array.from(
+      new Map(socialLinks.map(s => [s.mint, s])).values()
+    );
+
+    // Batch update - use Promise.allSettled to handle individual failures gracefully
+    const updatePromises = uniqueLinks.map(s =>
+      this.db.updateTokenSocialLinks(s.mint, {
+        twitter: s.twitter,
+        website: s.website,
+        telegram: s.telegram,
+        discord: s.discord,
+        imageUrl: s.imageUrl, // Save image from metadata JSON (fallback for tokens where DAS doesn't provide it)
+      })
+    );
+
+    // Execute all updates, handle failures individually
+    const results = await Promise.allSettled(updatePromises);
+
+    const successCount = results.filter(r => r.status === 'fulfilled').length;
+    const failureCount = results.filter(r => r.status === 'rejected').length;
+
+    if (failureCount > 0) {
+      this.logger.debug(`Social links: ${successCount} succeeded, ${failureCount} failed (tokens might not exist)`);
+    }
+
+    return successCount;
   }
 
   async findMany(tokenAddresses: string[]) {

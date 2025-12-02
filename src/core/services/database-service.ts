@@ -6,6 +6,7 @@ import {
     AnalysisResult,
     AdvancedTradeStats,
     WalletBehaviorProfile,
+    HolderProfileSnapshot,
     MappingActivityLog,
     Prisma, // Import Prisma namespace for input types
     User,         // Added User
@@ -24,6 +25,7 @@ import * as bcrypt from 'bcrypt';
 import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger } from '@nestjs/common';
 import { WalletAnalysisStatus } from '@/types/wallet';
 import { DB_CONFIG } from '../../config/constants';
+import type { DashboardAnalysisScope } from '../../shared/dashboard-analysis.types';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -85,6 +87,20 @@ export type AdvancedTradeStatsInput = Omit<Prisma.AdvancedTradeStatsCreateInput,
  */
 export type WalletBehaviorProfileUpsertData = Omit<Prisma.WalletBehaviorProfileCreateInput, 'wallet'> & { walletAddress: string };
 
+interface HolderProfileSnapshotCreateParams {
+  walletAddress: string;
+  tokenMint?: string | null;
+  analysisMode: 'token' | 'wallet';
+  holderRank?: number | null;
+  supplyPercent?: number | null;
+  topN?: number | null;
+  jobId?: string | null;
+  requestId?: string | null;
+  profile: any;
+  metadata?: any;
+  computedAt?: Date;
+}
+
 interface WalletStatus {
   walletAddress: string;
   status: WalletAnalysisStatus;
@@ -104,7 +120,7 @@ interface WalletStatusResponse {
 @Injectable()
 export class DatabaseService {
     // Using the exported prisma instance
-    private prismaClient: PrismaClient = prisma; 
+    private prismaClient: PrismaClient = prisma;
     private logger = logger; // Use the module-level logger
 
     /**
@@ -112,7 +128,7 @@ export class DatabaseService {
      * Sets up the Prisma client and logger.
      */
     constructor() {
-        this.logger.info('DatabaseService instantiated.');
+        // this.logger.info('DatabaseService instantiated.');
     }
 
     private async sleep(ms: number): Promise<void> {
@@ -282,7 +298,7 @@ export class DatabaseService {
      * @returns A promise that resolves to the WalletBehaviorProfile object, or null if not found.
      */
     async getWalletBehaviorProfile(walletAddress: string): Promise<WalletBehaviorProfile | null> {
-        this.logger.debug(`Fetching WalletBehaviorProfile for wallet: ${walletAddress}`);
+        this.logger.trace(`Fetching WalletBehaviorProfile for wallet: ${walletAddress}`);
         try {
             // Use findFirst for better performance with potential indexes
             return await this.prismaClient.walletBehaviorProfile.findFirst({
@@ -487,6 +503,93 @@ export class DatabaseService {
         }
     }
 
+    // --- Holder Profile Snapshot Methods ---
+
+    async saveHolderProfileSnapshot(params: HolderProfileSnapshotCreateParams): Promise<HolderProfileSnapshot> {
+        const {
+            walletAddress,
+            tokenMint = null,
+            analysisMode,
+            holderRank = null,
+            supplyPercent = null,
+            topN = null,
+            jobId = null,
+            requestId = null,
+            profile,
+            metadata,
+            computedAt,
+        } = params;
+
+        return this.executeWithRetry('holderProfileSnapshot.create', async () => {
+            return this.prismaClient.holderProfileSnapshot.create({
+                data: {
+                    walletAddress,
+                    tokenMint,
+                    analysisMode,
+                    holderRank,
+                    supplyPercent,
+                    topN,
+                    jobId,
+                    requestId,
+                    computedAt: computedAt ?? new Date(),
+                    profile: profile as Prisma.InputJsonValue,
+                    metadata: metadata as Prisma.InputJsonValue | undefined,
+                },
+            });
+        });
+    }
+
+    async getLatestHolderProfileSnapshotsForToken(tokenMint: string, walletAddresses: string[]): Promise<Map<string, HolderProfileSnapshot>> {
+        if (!walletAddresses || walletAddresses.length === 0) {
+            return new Map();
+        }
+
+        const snapshots = await this.executeWithRetry('holderProfileSnapshot.findMany', async () => {
+            return this.prismaClient.holderProfileSnapshot.findMany({
+                where: {
+                    tokenMint,
+                    walletAddress: { in: walletAddresses },
+                },
+                orderBy: [
+                    { walletAddress: 'asc' },
+                    { computedAt: 'desc' },
+                ],
+            });
+        });
+
+        const snapshotMap = new Map<string, HolderProfileSnapshot>();
+        for (const snapshot of snapshots) {
+            if (!snapshotMap.has(snapshot.walletAddress)) {
+                snapshotMap.set(snapshot.walletAddress, snapshot);
+            }
+        }
+        return snapshotMap;
+    }
+
+    async getLatestHolderProfileSnapshot(params: {
+        walletAddress: string;
+        tokenMint?: string | null;
+        analysisMode?: 'token' | 'wallet';
+    }): Promise<HolderProfileSnapshot | null> {
+        const { walletAddress, tokenMint = null, analysisMode } = params;
+        return this.executeWithRetry('holderProfileSnapshot.findFirst', async () => {
+            return this.prismaClient.holderProfileSnapshot.findFirst({
+                where: {
+                    walletAddress,
+                    tokenMint,
+                    analysisMode: analysisMode ?? undefined,
+                },
+                orderBy: { computedAt: 'desc' },
+            });
+        });
+    }
+
+    async countHolderProfileSnapshots(): Promise<number> {
+        return this.executeWithRetry('holderProfileSnapshot.count', async () => {
+            return this.prismaClient.holderProfileSnapshot.count();
+        });
+    }
+
     // --- AnalysisResult Methods ---
 
     /**
@@ -590,7 +693,7 @@ export class DatabaseService {
      * @returns A promise that resolves to an array of User objects.
      */
     async getAllUsers(): Promise<User[]> {
-        this.logger.debug('Fetching all users.');
+        this.logger.trace('Fetching all users.');
         try {
             const users = await this.prismaClient.user.findMany();
             this.logger.info(`Retrieved ${users.length} users.`);
@@ -1107,7 +1210,7 @@ export class DatabaseService {
      * - Use true for: similarity analysis, classification checks, detailed wallet processing
      */
     async getWallets(walletAddresses: string[], includeFullData: boolean = false): Promise<Wallet[] | { address: string }[]> {
-        this.logger.debug(`Fetching wallet info for ${walletAddresses.length} addresses (full data: ${includeFullData}).`);
+        this.logger.trace(`Fetching wallet info for ${walletAddresses.length} addresses (full data: ${includeFullData}).`);
         try {
             const wallets = await this.prismaClient.wallet.findMany({
                 where: {
@@ -1134,11 +1237,11 @@ export class DatabaseService {
         const wallet = await this.prismaClient.wallet.findUnique({
           where: { address: walletAddress },
         });
-        if (wallet) {
-            this.logger.debug(`Found wallet data for: ${walletAddress}`);
-        } else {
-            this.logger.debug(`No wallet data found for: ${walletAddress}`);
-        }
+        // if (wallet) {
+        //     this.logger.debug(`Found wallet data for: ${walletAddress}`);
+        // } else {
+        //     this.logger.debug(`No wallet data found for: ${walletAddress}`);
+        // }
         return wallet;
       } catch (error) {
         this.logger.error(`Error fetching wallet ${walletAddress}`, { error });
@@ -1268,17 +1371,17 @@ export class DatabaseService {
                 },
             });
             existingSignatures = new Set(existingRecords.map(rec => rec.signature));
-             this.logger.debug(`Found ${existingSignatures.size} existing signatures in cache out of ${incomingSignatures.length} incoming.`);
+             // this.logger.debug(`Found ${existingSignatures.size} existing signatures in cache out of ${incomingSignatures.length} incoming.`);
         } catch (error) {
              this.logger.error('Error checking for existing signatures in cache', { error });
             return { count: 0 }; 
         }
         const newTransactions = transactions.filter(tx => !existingSignatures.has(tx.signature));
         if (newTransactions.length === 0) {
-             this.logger.debug('No new transactions to add to cache.');
+             // this.logger.debug('No new transactions to add to cache.');
             return { count: 0 };
         }
-         this.logger.debug(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
+         // this.logger.debug(`Identified ${newTransactions.length} new transactions to insert into HeliusTransactionCache.`);
         const dataToSave = newTransactions.map(tx => ({
             signature: tx.signature,
             timestamp: tx.timestamp,
@@ -1287,7 +1390,7 @@ export class DatabaseService {
             const result = await this.prismaClient.heliusTransactionCache.createMany({
                 data: dataToSave,
             });
-             this.logger.debug(`Cache save complete. ${result.count} new transaction signatures added to HeliusTransactionCache.`);
+             // this.logger.debug(`Cache save complete. ${result.count} new transaction signatures added to HeliusTransactionCache.`);
             return result;
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -1310,7 +1413,7 @@ export class DatabaseService {
     async saveSwapAnalysisInputs(
         inputs: Prisma.SwapAnalysisInputCreateInput[]
     ): Promise<Prisma.BatchPayload> {
-        this.logger.debug(`[DB] Attempting to save ${inputs.length} SwapAnalysisInput records efficiently...`);
+        // this.logger.debug(`[DB] Attempting to save ${inputs.length} SwapAnalysisInput records efficiently...`);
         if (inputs.length === 0) {
             return { count: 0 };
         }
@@ -1349,7 +1452,7 @@ export class DatabaseService {
                 const key = `${entry.mint.toLowerCase()}-${entry.direction.toLowerCase()}-${entry.amount.toFixed(9)}`;
                 existingRecordsDetails.get(entry.signature)!.add(key);
             }
-            this.logger.debug(`[DB] Found ${existingDbEntries.length} existing SwapAnalysisInput entries for ${distinctInputSignatures.length} distinct incoming signatures.`);
+            // this.logger.debug(`[DB] Found ${existingDbEntries.length} existing SwapAnalysisInput entries for ${distinctInputSignatures.length} distinct incoming signatures.`);
         }
 
         // 2. Filter out duplicates from the incoming 'inputs'
@@ -1382,7 +1485,7 @@ export class DatabaseService {
             batchRecordTracker.get(record.signature)!.add(recordKey);
         }
         
-        this.logger.debug(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
+        // this.logger.debug(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
 
         if (uniqueNewRecordsToInsert.length > 0) {
             // --- REMOVED Detailed Logging for Potential Float Precision Issues ---
@@ -1474,6 +1577,42 @@ export class DatabaseService {
             return inputs;
         } catch (error) {
             this.logger.error(`Error fetching SwapAnalysisInputs for ${walletAddress}`, { error });
+            throw error;
+        }
+    }
+
+    /**
+     * Batch fetch swap analysis inputs for multiple wallets
+     * Used by holder profiles analysis to avoid N+1 queries
+     * @param walletAddresses Array of wallet addresses to fetch swaps for
+     * @returns Array of swap analysis inputs sorted by wallet and timestamp
+     */
+    async getSwapAnalysisInputsBatch(
+        walletAddresses: string[]
+    ): Promise<SwapAnalysisInput[]> {
+        this.logger.debug(`Batch fetching SwapAnalysisInputs for ${walletAddresses.length} wallets`);
+
+        if (walletAddresses.length === 0) {
+            return [];
+        }
+
+        try {
+            return await this.executeWithRetry('swapAnalysisInput.findMany (batch)', async () => {
+                const inputs = await this.prismaClient.swapAnalysisInput.findMany({
+                    where: {
+                        walletAddress: { in: walletAddresses },
+                    },
+                    orderBy: [
+                        { walletAddress: 'asc' },
+                        { timestamp: 'asc' },
+                    ],
+                });
+
+                this.logger.debug(`Batch fetched ${inputs.length} SwapAnalysisInput records for ${walletAddresses.length} wallets`);
+                return inputs;
+            });
+        } catch (error) {
+            this.logger.error(`Error batch fetching SwapAnalysisInputs for ${walletAddresses.length} wallets`, { error });
             throw error;
         }
     }
@@ -1830,6 +1969,102 @@ export class DatabaseService {
         } catch (error) {
             this.logger.error(`Error fetching latest AnalysisRun for wallet ${walletAddress}`, { error });
             return null;
+        }
+    }
+
+    async getLatestDashboardAnalysisRun(
+        walletAddress: string,
+        scope: DashboardAnalysisScope
+    ): Promise<AnalysisRun | null> {
+        this.logger.debug(`Fetching latest Dashboard AnalysisRun for wallet ${walletAddress} [scope=${scope}]`);
+        try {
+            return await this.prismaClient.analysisRun.findFirst({
+                where: {
+                    walletAddress,
+                    serviceInvoked: `DashboardAnalysis.${scope}`,
+                    status: 'COMPLETED',
+                },
+                orderBy: {
+                    runTimestamp: 'desc',
+                },
+            });
+        } catch (error) {
+            this.logger.error(`Error fetching Dashboard AnalysisRun for wallet ${walletAddress} [scope=${scope}]`, { error });
+            return null;
+        }
+    }
+
+    async recordDashboardAnalysisRun(params: {
+        walletAddress: string;
+        scope: DashboardAnalysisScope;
+        status: 'COMPLETED' | 'FAILED' | 'SKIPPED';
+        triggerSource: string;
+        runTimestamp?: Date;
+        durationMs?: number;
+        signaturesConsidered?: number;
+        inputDataStartTs?: number;
+        inputDataEndTs?: number;
+        historyWindowDays?: number;
+        notes?: Record<string, unknown>;
+    }): Promise<AnalysisRun | null> {
+        const {
+            walletAddress,
+            scope,
+            status,
+            triggerSource,
+            runTimestamp,
+            durationMs,
+            signaturesConsidered,
+            inputDataStartTs,
+            inputDataEndTs,
+            historyWindowDays,
+            notes,
+        } = params;
+
+        const payloadNotes = {
+            triggerSource,
+            historyWindowDays,
+            ...(notes || {}),
+        };
+
+        return this.createAnalysisRun({
+            walletAddress,
+            serviceInvoked: `DashboardAnalysis.${scope}`,
+            status,
+            runTimestamp: runTimestamp ?? new Date(),
+            durationMs,
+            signaturesConsidered,
+            inputDataStartTs,
+            inputDataEndTs,
+            notes: JSON.stringify(payloadNotes),
+        });
+    }
+
+    async countSwapInputs(
+        walletAddress: string,
+        options: { sinceTs?: number; untilTs?: number } = {}
+    ): Promise<number> {
+        this.logger.debug(`Counting swap inputs for wallet ${walletAddress}`, options);
+        try {
+            const where: Prisma.SwapAnalysisInputWhereInput = {
+                walletAddress,
+            };
+
+            if (options.sinceTs !== undefined || options.untilTs !== undefined) {
+                const timestampFilter: Prisma.IntFilter = {};
+                if (options.sinceTs !== undefined) {
+                    timestampFilter.gte = options.sinceTs;
+                }
+                if (options.untilTs !== undefined) {
+                    timestampFilter.lte = options.untilTs;
+                }
+                where.timestamp = timestampFilter;
+            }
+
+            return await this.prismaClient.swapAnalysisInput.count({ where });
+        } catch (error) {
+            this.logger.error(`Error counting swap inputs for wallet ${walletAddress}`, { error, options });
+            return 0;
         }
     }
 
@@ -2267,7 +2502,7 @@ export class DatabaseService {
     }
 
     async getUniqueTokenAddressesFromAnalysisResults(walletAddress: string): Promise<string[]> {
-        const results = await prisma.analysisResult.findMany({
+        const results = await this.prismaClient.analysisResult.findMany({
             where: { walletAddress },
             select: { tokenAddress: true },
             distinct: ['tokenAddress'],
@@ -2293,5 +2528,115 @@ export class DatabaseService {
                 priceUsd: true,
             },
         });
+    }
+
+    /**
+     * Batch save onchain metadata for tokens
+     * Creates new tokens and updates existing ones in chunked transactions
+     * to avoid excessive memory usage with large batches
+     */
+    async saveOnchainMetadataBatch(
+        newTokens: Array<{
+            tokenAddress: string;
+            onchainName?: string;
+            onchainSymbol?: string;
+            onchainDescription?: string;
+            onchainImageUrl?: string;
+            onchainCreator?: string;
+            onchainMetadataUri?: string;
+        }>,
+        existingTokenUpdates: Array<{
+            tokenAddress: string;
+            onchainName?: string;
+            onchainSymbol?: string;
+            onchainDescription?: string;
+            onchainImageUrl?: string;
+            onchainCreator?: string;
+            onchainMetadataUri?: string;
+        }>
+    ): Promise<void> {
+        // Bulk create new tokens (createMany is already optimized)
+        if (newTokens.length > 0) {
+            try {
+                await this.prismaClient.tokenInfo.createMany({
+                    data: newTokens.map(t => ({
+                        ...t,
+                        onchainBasicFetchedAt: new Date(),
+                        metadataSource: 'onchain',
+                    })),
+                });
+            } catch (error: any) {
+                // If there are duplicate key errors, some tokens may already exist - that's OK
+                // We only log if it's not a known duplicate error
+                if (error?.code !== 'P2002') { // P2002 is unique constraint violation
+                    throw error;
+                }
+            }
+        }
+
+        // Update existing tokens in chunks to avoid excessive memory usage
+        // Process 100 updates per transaction to balance performance and memory
+        const CHUNK_SIZE = 100;
+        for (let i = 0; i < existingTokenUpdates.length; i += CHUNK_SIZE) {
+            const chunk = existingTokenUpdates.slice(i, i + CHUNK_SIZE);
+            const operations = chunk.map(t =>
+                this.prismaClient.tokenInfo.update({
+                    where: { tokenAddress: t.tokenAddress },
+                    data: {
+                        ...t,
+                        onchainBasicFetchedAt: new Date(),
+                    },
+                })
+            );
+
+            await this.prismaClient.$transaction(operations);
+        }
+    }
+
+    /**
+     * Update social links for a single token
+     */
+    async updateTokenSocialLinks(
+        tokenAddress: string,
+        socialLinks: {
+            twitter?: string;
+            website?: string;
+            telegram?: string;
+            discord?: string;
+            imageUrl?: string; // Image from metadata JSON (fallback when DAS doesn't provide it)
+        }
+    ): Promise<void> {
+        await this.prismaClient.tokenInfo.update({
+            where: { tokenAddress },
+            data: {
+                onchainTwitterUrl: socialLinks.twitter,
+                onchainWebsiteUrl: socialLinks.website,
+                onchainTelegramUrl: socialLinks.telegram,
+                onchainDiscordUrl: socialLinks.discord,
+                // Only update onchainImageUrl if we have one from metadata AND it's currently null
+                ...(socialLinks.imageUrl ? { onchainImageUrl: socialLinks.imageUrl } : {}),
+                onchainSocialsFetchedAt: new Date(),
+            },
+        });
+    }
+
+    /**
+     * Update metadataSource to 'hybrid' for tokens with both onchain and dexscreener data
+     */
+    async updateMetadataSourceToHybrid(tokenAddresses: string[]): Promise<number> {
+        if (tokenAddresses.length === 0) return 0;
+
+        const result = await this.prismaClient.tokenInfo.updateMany({
+            where: {
+                tokenAddress: { in: tokenAddresses },
+                onchainBasicFetchedAt: { not: null },
+                dexscreenerUpdatedAt: { not: null },
+            },
+            data: {
+                metadataSource: 'hybrid',
+            },
+        });
+
+        return result.count;
     }
 }

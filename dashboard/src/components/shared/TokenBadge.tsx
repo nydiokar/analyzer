@@ -1,3 +1,41 @@
+/**
+ * TokenBadge - Smart, Self-Sufficient Token Metadata Display Component
+ *
+ * ARCHITECTURE:
+ * This component automatically handles token metadata fetching and enrichment.
+ * You should NEVER manually trigger enrichment when using TokenBadge.
+ *
+ * BATCHING (CRITICAL):
+ * Multiple TokenBadges rendering simultaneously are AUTOMATICALLY BATCHED into ONE API call.
+ * Example: 10 badges render → Wait 50ms → Make 1 batched call for all 10 tokens
+ * This prevents the "10 badges = 10 API calls" problem.
+ *
+ * USAGE:
+ * 1. Simple (recommended): <TokenBadge mint="..." />
+ *    - Component fetches metadata automatically with batching
+ *    - Triggers enrichment if metadata is missing/stale
+ *    - Shows fallback display while loading
+ *    - Safe for any number of tokens (batching handles it)
+ *
+ * 2. With metadata (optional optimization):
+ *    <TokenBadge mint="..." metadata={{name, symbol, imageUrl, ...}} />
+ *    - Use when parent already has metadata (e.g., from API response)
+ *    - Skips automatic fetching entirely
+ *    - Still recommended for large tables (100+ tokens)
+ *
+ * IMPORTANT:
+ * - TokenBadge uses batched POST /token-info which triggers enrichment AND returns data
+ * - DO NOT call enrichment APIs separately when using TokenBadge
+ * - Backend token-info endpoint handles: trigger enrichment + return current data
+ * - This ensures centralized, consistent metadata handling across the app
+ *
+ * PERFORMANCE:
+ * - Metadata prop is optional (batching makes it less critical)
+ * - Without metadata: Batched fetching (1 API call per 50ms window, regardless of token count)
+ * - With metadata: Zero API calls (immediate display)
+ * - Both approaches are performant - choose based on convenience
+ */
+
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -6,14 +44,24 @@ import { cn } from "@/lib/utils";
 import { Copy, ExternalLink, TrendingUp, Globe, Twitter, Send } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { memo } from "react";
+import { useTokenMetadata } from "@/hooks/useTokenMetadata";
 
 interface TokenMetadata {
+  // DexScreener fields (fresher, updated by community)
   name?: string;
   symbol?: string;
   imageUrl?: string;
   websiteUrl?: string;
   twitterUrl?: string;
   telegramUrl?: string;
+
+  // Onchain fields (immutable, authoritative - fallback)
+  onchainName?: string;
+  onchainSymbol?: string;
+  onchainImageUrl?: string;
+  onchainWebsiteUrl?: string;
+  onchainTwitterUrl?: string;
+  onchainTelegramUrl?: string;
 }
 
 interface TokenBadgeProps {
@@ -23,9 +71,28 @@ interface TokenBadgeProps {
   size?: "sm" | "md" | "lg";
 }
 
-const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeProps) => {
-  const tokenName = metadata?.name || 'Unknown Token';
-  const tokenSymbol = metadata?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "md" }: TokenBadgeProps) => {
+  // ===== SMART METADATA FETCHING WITH BATCHING =====
+  // useTokenMetadata hook automatically batches requests from multiple TokenBadges
+  // If 10 TokenBadges render at once, they make ONE batched API call instead of 10
+  const { metadata: fetchedMetadata, isLoading } = useTokenMetadata(mint, providedMetadata);
+
+  // Use provided metadata if available, otherwise use batched fetch result
+  const metadata = providedMetadata || fetchedMetadata;
+
+  // ===== CENTRALIZED METADATA PRIORITY LOGIC =====
+  // This is the SINGLE SOURCE OF TRUTH for all metadata priority decisions
+  // Priority rules:
+  // - Name/Symbol: Onchain FIRST (immutable, authoritative)
+  // - Image: DexScreener FIRST (fresher, working links), fallback to onchain
+  // - Social links: DexScreener FIRST (more up-to-date), fallback to onchain
+
+  const tokenName = metadata?.onchainName || metadata?.name || 'Unknown Token';
+  const tokenSymbol = metadata?.onchainSymbol || metadata?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+  const tokenImage = metadata?.imageUrl || metadata?.onchainImageUrl;
+  const tokenWebsite = metadata?.websiteUrl || metadata?.onchainWebsiteUrl;
+  const tokenTwitter = metadata?.twitterUrl || metadata?.onchainTwitterUrl;
+  const tokenTelegram = metadata?.telegramUrl || metadata?.onchainTelegramUrl;
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -56,10 +123,10 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
             <PopoverTrigger asChild>
               <div className={cn("flex items-center space-x-2 cursor-pointer group", className)}>
                 <Avatar className={sizeClasses[size]}>
-                  <AvatarImage 
-                    src={metadata?.imageUrl ?? undefined} 
+                  <AvatarImage
+                    src={tokenImage ?? undefined}
                     alt={tokenName}
-                    className={sizeClasses[size]} // Ensure image respects size constraints
+                    className={sizeClasses[size]}
                   />
                   <AvatarFallback className={cn("text-xs", sizeClasses[size])}>{tokenName.charAt(0)}</AvatarFallback>
                 </Avatar>
@@ -128,14 +195,14 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
             </TooltipProvider>
           </div>
           {/* Social links row */}
-          {(metadata?.websiteUrl || metadata?.twitterUrl || metadata?.telegramUrl) && (
+          {(tokenWebsite || tokenTwitter || tokenTelegram) && (
             <div className="flex items-center gap-1 pt-1">
-              {metadata?.websiteUrl && (
+              {tokenWebsite && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <a href={metadata.websiteUrl} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
+                        <a href={tokenWebsite} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
                           <Globe className="h-4 w-4" />
                         </a>
                       </Button>
@@ -146,12 +213,12 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
                   </Tooltip>
                 </TooltipProvider>
               )}
-              {metadata?.twitterUrl && (
+              {tokenTwitter && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <a href={metadata.twitterUrl} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
+                        <a href={tokenTwitter} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
                           <Twitter className="h-4 w-4" />
                         </a>
                       </Button>
@@ -162,12 +229,12 @@ const TokenBadge = memo(({ mint, metadata, className, size = "md" }: TokenBadgeP
                   </Tooltip>
                 </TooltipProvider>
               )}
-              {metadata?.telegramUrl && (
+              {tokenTelegram && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <a href={metadata.telegramUrl} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
+                        <a href={tokenTelegram} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
                           <Send className="h-4 w-4" />
                         </a>
                       </Button>

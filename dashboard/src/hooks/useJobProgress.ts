@@ -120,7 +120,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     });
 
     const handleConnect = () => {
-      console.log('✅ WebSocket connected to:', baseUrl);
+      console.log('✅ WebSocket connected');
       setIsConnected(true);
       setError(null);
       callbacksRef.current.onConnectionChange?.(true);
@@ -148,7 +148,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       }
       setCompletedJobs(prev => new Set(prev).add(data.jobId));
       
-      console.log('📢 Job completed (WebSocket):', data.jobId, 'Processing time:', data.processingTime);
+      // console.log('📢 Job completed (WebSocket):', data.jobId, 'Processing time:', data.processingTime);
       
       if (data.queue === 'enrichment-operations') {
         const enrichmentData: EnrichmentCompletionData = {
@@ -176,7 +176,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobQueueToStart = (data: JobQueueToStartData) => {
-      console.log('🚀 Job started processing (WebSocket):', data.jobId, 'Queue time:', data.queueToStartTime + 'ms');
+      // console.log('🚀 Job started processing (WebSocket):', data.jobId, 'Queue time:', data.queueToStartTime + 'ms');
       callbacksRef.current.onJobQueueToStart?.(data);
     };
 
@@ -207,36 +207,38 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     // Don't clear completed jobs when subscribing to new jobs
     // This prevents duplicate processing of job completion events
     // setCompletedJobs(new Set()); // ❌ REMOVED: This was causing duplicate events
-    
-    // 1. Subscribe to WebSocket to catch live events.
+
+    // Subscribe to WebSocket to catch live events.
     if (socket?.connected) {
       console.log(`🔔 Subscribing to WebSocket for job: ${jobId}`);
       socket.emit('subscribe-to-job', { jobId });
+      // That's it! WebSocket will handle all updates (progress, completion, failure)
+      // No HTTP polling needed - avoids browser connection limits
     } else {
-      console.warn(`⚠️ Cannot subscribe to WebSocket for job ${jobId} - socket not connected.`);
-    }
-
-    // 2. Poll via HTTP to get the *current* state, solving the race condition.
-    try {
-      const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
-      if (job) {
-        // If the job is already finished, process it immediately.
-        if (job.status === 'completed') {
-          handleJobCompletedFromHttp(job);
-        } else if (job.status === 'failed') {
-          handleJobFailedFromHttp(job);
+      console.warn(`⚠️ WebSocket not connected for job ${jobId}. Falling back to HTTP polling.`);
+      // Fallback: If WebSocket is not connected, poll via HTTP
+      try {
+        const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
+        if (job) {
+          if (job.status === 'completed') {
+            handleJobCompletedFromHttp(job);
+          } else if (job.status === 'failed') {
+            handleJobFailedFromHttp(job);
+          } else {
+            // Job is still running but no WebSocket - user needs to refresh or check connection
+            console.warn(`Job ${jobId} is ${job.status} but WebSocket is disconnected. Updates won't be received.`);
+          }
         }
-        // If 'active' or 'waiting', the WebSocket listener will handle it from here.
-      }
-    } catch (error: unknown) {
-      const apiError = error as ApiError;
-      if (apiError.status !== 404) {
-        console.error(`Error polling job status for ${jobId}:`, error);
-        toast({
-          title: 'Could not get job status',
-          description: `There was an error checking the status of job ${jobId}. Real-time updates may be affected.`,
-          variant: 'destructive',
-        });
+      } catch (error: unknown) {
+        const apiError = error as ApiError;
+        if (apiError.status !== 404) {
+          console.error(`Error polling job status for ${jobId}:`, error);
+          toast({
+            title: 'Could not get job status',
+            description: 'Network error: Unable to connect to the server. Please check your connection.',
+            variant: 'destructive',
+          });
+        }
       }
     }
   }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp]);

@@ -209,9 +209,9 @@ export class TokenPerformanceService {
     const tokenAddresses = analysisResults.map(ar => ar.tokenAddress);
     const tokenInfoMap = await this.getTokenInfoMap(tokenAddresses);
     
-    // Fetch SOL price once to avoid multiple API calls in synchronous operations  
+    // Fetch SOL price once (cached in Redis with 30s TTL)
     // SOL is too liquid to not have price data - this should never fail
-    const estimatedSolPriceUsd = await this.dexscreenerService.getSolPrice();
+    const estimatedSolPriceUsd = await this.tokenInfoService.getSolPrice();
 
     // Create the token performance data with calculated ROI and unrealized P&L
     let tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => {
@@ -221,7 +221,15 @@ export class TokenPerformanceService {
       const fallbackMetadata = getWellKnownTokenMetadata(ar.tokenAddress);
       
       // Calculate unrealized P&L for current holdings
-      const currentUiBalance = ar.currentUiBalance || 0;
+      const netAmountChange = ar.netAmountChange || 0;
+      const dbCurrentUiBalance = ar.currentUiBalance;
+      const derivedBalanceFromNetAmount = (dbCurrentUiBalance === null || dbCurrentUiBalance === undefined) && netAmountChange > 0
+        ? netAmountChange
+        : null;
+      
+      const currentUiBalance = derivedBalanceFromNetAmount ?? (dbCurrentUiBalance || 0);
+      const hasCurrentHoldings = currentUiBalance > 0;
+      const effectiveCurrentUiBalanceString = ar.currentUiBalanceString ?? (derivedBalanceFromNetAmount !== null ? derivedBalanceFromNetAmount.toString() : null);
       const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
       const totalSolSpent = ar.totalSolSpent || 0;
       const totalAmountIn = ar.totalAmountIn || 0;
@@ -243,7 +251,7 @@ export class TokenPerformanceService {
       // estimatedSolPriceUsd is already fetched from outer scope
       const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
       
-      if (currentUiBalance > 0 && priceUsd && priceUsd > 0) {
+      if (hasCurrentHoldings && priceUsd && priceUsd > 0) {
         // We have current holdings AND price data - can calculate full P&L
         currentHoldingsValueUsd = currentUiBalance * priceUsd;
         currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
@@ -286,7 +294,7 @@ export class TokenPerformanceService {
           totalPnlSol = realizedPnlSol; // Only realized PnL for filtered tokens
         }
         
-             } else if (currentUiBalance > 0) {
+             } else if (hasCurrentHoldings) {
          // We have holdings but no price data - can't calculate unrealized P&L
          // Show realized P&L only and mark total as incomplete
          const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
@@ -314,7 +322,7 @@ export class TokenPerformanceService {
         unrealizedPnlPercentage = null;
       }
       
-      return {
+      const tokenData: TokenPerformanceDataDto = {
         walletAddress: ar.walletAddress,
         tokenAddress: ar.tokenAddress,
         totalAmountIn: ar.totalAmountIn,
@@ -329,16 +337,25 @@ export class TokenPerformanceService {
         firstTransferTimestamp: ar.firstTransferTimestamp,
         lastTransferTimestamp: ar.lastTransferTimestamp,
         currentRawBalance: ar.currentRawBalance,
-        currentUiBalance: ar.currentUiBalance,
-        currentUiBalanceString: ar.currentUiBalanceString,
+        currentUiBalance: hasCurrentHoldings ? currentUiBalance : ar.currentUiBalance,
+        currentUiBalanceString: effectiveCurrentUiBalanceString,
         balanceDecimals: ar.balanceDecimals,
         balanceFetchedAt: ar.balanceFetchedAt ? ar.balanceFetchedAt.toISOString() : null,
+        // Send ALL fields raw - TokenBadge will decide priority (centralized logic)
+        // DexScreener fields
         name: tokenInfo?.name || fallbackMetadata?.name,
         symbol: tokenInfo?.symbol || fallbackMetadata?.symbol,
         imageUrl: tokenInfo?.imageUrl,
         websiteUrl: tokenInfo?.websiteUrl,
         twitterUrl: tokenInfo?.twitterUrl,
         telegramUrl: tokenInfo?.telegramUrl,
+        // Onchain fields
+        onchainName: tokenInfo?.onchainName,
+        onchainSymbol: tokenInfo?.onchainSymbol,
+        onchainImageUrl: tokenInfo?.onchainImageUrl,
+        onchainWebsiteUrl: tokenInfo?.onchainWebsiteUrl,
+        onchainTwitterUrl: tokenInfo?.onchainTwitterUrl,
+        onchainTelegramUrl: tokenInfo?.onchainTelegramUrl,
         // DexScreener market data
         marketCapUsd: tokenInfo?.marketCapUsd,
         liquidityUsd: tokenInfo?.liquidityUsd,
@@ -358,6 +375,14 @@ export class TokenPerformanceService {
         realizedPnlPercentage,
         unrealizedPnlPercentage,
       };
+
+      const spamAnalysis = this.analyzeTokenSpamRisk(tokenData);
+      tokenData.spamRiskLevel = spamAnalysis.riskLevel;
+      tokenData.spamRiskScore = spamAnalysis.riskScore;
+      tokenData.spamRiskReasons = spamAnalysis.reasons;
+      tokenData.spamPrimaryReason = spamAnalysis.primaryReason;
+
+      return tokenData;
     });
 
       // Apply meaningful holdings filter (remove dust positions)
@@ -390,17 +415,15 @@ export class TokenPerformanceService {
       const originalCount = tokenPerformanceDataList.length;
       
       tokenPerformanceDataList = tokenPerformanceDataList.filter(token => {
-        const spamAnalysis = this.analyzeTokenSpamRisk(token);
+        const riskLevel = token.spamRiskLevel ?? this.analyzeTokenSpamRisk(token).riskLevel;
         const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
-        
 
-        
         switch (spamFilter) {
           case SpamFilterType.SAFE:
             // Include tokens that are either known safe tokens OR unknown tokens that analyze as safe
-            return spamAnalysis.riskLevel === 'safe';
+            return riskLevel === 'safe';
           case SpamFilterType.HIGH_RISK:
-            return spamAnalysis.riskLevel === 'high-risk';
+            return riskLevel === 'high-risk';
           case SpamFilterType.UNKNOWN:
             return isUnknown;
           default:
@@ -493,7 +516,7 @@ export class TokenPerformanceService {
 
     const tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => {
       const tokenInfo = tokenInfoMap.get(ar.tokenAddress);
-      return {
+      const tokenData: TokenPerformanceDataDto = {
         walletAddress: ar.walletAddress,
         tokenAddress: ar.tokenAddress,
         totalAmountIn: ar.totalAmountIn,
@@ -519,6 +542,14 @@ export class TokenPerformanceService {
         twitterUrl: tokenInfo?.twitterUrl,
         telegramUrl: tokenInfo?.telegramUrl,
       };
+
+      const spamAnalysis = this.analyzeTokenSpamRisk(tokenData);
+      tokenData.spamRiskLevel = spamAnalysis.riskLevel;
+      tokenData.spamRiskScore = spamAnalysis.riskScore;
+      tokenData.spamRiskReasons = spamAnalysis.reasons;
+      tokenData.spamPrimaryReason = spamAnalysis.primaryReason;
+
+      return tokenData;
     });
 
     return tokenPerformanceDataList;
@@ -552,13 +583,15 @@ export class TokenPerformanceService {
     riskLevel: 'safe' | 'high-risk';
     riskScore: number;
     reasons: string[];
+    primaryReason: string;
   } {
     const reasons: string[] = [];
     let riskScore = 0;
 
     // Check if this is a well-known legitimate token
     if (isWellKnownToken(token.tokenAddress)) {
-      return { riskLevel: 'safe', riskScore: 0, reasons: ['Well-known legitimate token'] };
+      const reason = 'Well-known legitimate token';
+      return { riskLevel: 'safe', riskScore: 0, reasons: [reason], primaryReason: reason };
     }
     
     // Additional whitelist for tokens that might not be in our well-known list but are legitimate
@@ -568,10 +601,12 @@ export class TokenPerformanceService {
     ];
     
     if (token.symbol && ADDITIONAL_LEGITIMATE_TOKENS.includes(token.symbol)) {
-      return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'] };
+      const reason = 'Whitelisted legitimate token';
+      return { riskLevel: 'safe', riskScore: 0, reasons: [reason], primaryReason: reason };
     }
     if (token.name && ADDITIONAL_LEGITIMATE_TOKENS.includes(token.name)) {
-      return { riskLevel: 'safe', riskScore: 0, reasons: ['Whitelisted legitimate token'] };
+      const reason = 'Whitelisted legitimate token';
+      return { riskLevel: 'safe', riskScore: 0, reasons: [reason], primaryReason: reason };
     }
 
     // Check if token has name/symbol (unknown tokens)
@@ -670,7 +705,8 @@ export class TokenPerformanceService {
       riskLevel = 'safe';
     }
 
-    return { riskLevel, riskScore, reasons };
+    const primaryReason = reasons.length > 0 ? reasons[0] : 'Low risk indicators detected';
+    return { riskLevel, riskScore, reasons, primaryReason };
   }
 
 

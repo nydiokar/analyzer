@@ -74,7 +74,7 @@ export class HeliusSyncService {
         }
         this.heliusClient = heliusApiClient; // Use the provided instance
         this.smartFetchService = smartFetchService || new SmartFetchService();
-        logger.info('HeliusSyncService instantiated with provided HeliusApiClient and SmartFetchService.');
+        // logger.info('HeliusSyncService instantiated with provided HeliusApiClient and SmartFetchService.');
     }
 
     /**
@@ -113,8 +113,8 @@ export class HeliusSyncService {
             throw error; // Re-throw to make it visible to the caller (e.g., AnalysesController)
         }
 
-        logger.debug(`[Sync] Starting data synchronization for wallet: ${walletAddress}`);
-        logger.debug('[Sync] Options:', options); // Log the sync options
+        // logger.debug(`[Sync] Starting data synchronization for wallet: ${walletAddress}`);
+        // logger.debug('[Sync] Options:', options); // Log the sync options
         
         // Implementation Notes:
         // 1. Get current wallet state (newest/oldest sig/ts) from databaseService.getWallet()
@@ -166,7 +166,7 @@ export class HeliusSyncService {
             } else {
                  await this.executeStandardFetch(walletAddress, adjustedOptions);
             }
-             logger.debug(`[Sync] Synchronization complete for wallet: ${walletAddress}`);
+             // logger.debug(`[Sync] Synchronization complete for wallet: ${walletAddress}`);
         } catch (error) {
              logger.error(`[Sync] Error during synchronization for ${walletAddress}:`, { error });
              // Decide if error should be re-thrown or just logged
@@ -228,7 +228,7 @@ export class HeliusSyncService {
                    const currentCount = this.walletTransactionCounters.get(walletAddress) || 0;
                    // ✅ INCREMENTAL PROGRESS: Show fetched vs processed
                    if (currentCount % 500 === 0 || currentCount <= 200) {
-                       logger.debug(`[Sync] Phase 1 progress: ${newerTransactionsFetchedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
+                       // logger.debug(`[Sync] Phase 1 progress: ${newerTransactionsFetchedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
                    }
                }
            );
@@ -287,7 +287,7 @@ export class HeliusSyncService {
                             const currentCount = this.walletTransactionCounters.get(walletAddress) || 0;
                             // ✅ INCREMENTAL PROGRESS: Show older transactions progress
                             if (currentCount % 500 === 0) {
-                                logger.debug(`[Sync] Phase 2 progress: ${totalOlderProcessedCount} older txs fetched → ${currentCount} total processed & saved for ${walletAddress}`);
+                                // logger.debug(`[Sync] Phase 2 progress: ${totalOlderProcessedCount} older txs fetched → ${currentCount} total processed & saved for ${walletAddress}`);
                             }
                         }
                     );
@@ -401,7 +401,7 @@ export class HeliusSyncService {
                     const currentCount = this.walletTransactionCounters.get(walletAddress) || 0;
                     // ✅ INCREMENTAL PROGRESS: Show standard fetch progress
                     if (currentCount % 500 === 0 || currentCount <= 200) {
-                        logger.debug(`[Sync] Standard progress: ${totalStandardProcessedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
+                        // logger.debug(`[Sync] Standard progress: ${totalStandardProcessedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
                     }
                 }
             );
@@ -454,8 +454,7 @@ export class HeliusSyncService {
       isNewerFetchOrInitial: boolean, 
       options: SyncOptions
     ): Promise<void> {
-      logger.debug(`[Sync] Processing ${transactions.length} transactions for wallet ${walletAddress}...`);
-      
+      // logger.debug(`[Sync] Processing ${transactions.length} transactions for wallet ${walletAddress}...`);
       const mappingResult: MappingResult = mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
       const analysisInputsToSave = mappingResult.analysisInputs;
       const mappingStats = mappingResult.stats;
@@ -549,10 +548,10 @@ export class HeliusSyncService {
 
         if (Object.keys(updateData).length > 1) { 
           await this.databaseService.updateWallet(walletAddress, updateData);
-          logger.debug(`[Sync] Wallet state updated for ${walletAddress}.`, updateData);
+          // logger.debug(`[Sync] Wallet state updated for ${walletAddress}.`, updateData);
         } else if (Object.keys(updateData).length > 0) {
              await this.databaseService.updateWallet(walletAddress, updateData);
-             logger.debug(`[Sync] Wallet lastSuccessfulFetchTimestamp updated for ${walletAddress}.`, updateData);
+             // logger.debug(`[Sync] Wallet lastSuccessfulFetchTimestamp updated for ${walletAddress}.`, updateData);
         }
       } else {
         logger.debug(`[Sync] No transactions in this batch to update wallet state for ${walletAddress}.`);

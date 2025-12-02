@@ -322,3 +322,34 @@ export interface GetTokenAccountsByOwnerResult {
   context: GetTokenAccountsByOwnerResultContext;
   value: TokenAccount[];
 }
+
+// Types for getTokenLargestAccounts
+export interface TokenLargestAccount {
+  address: string;
+  amount: string;
+  decimals: number;
+  uiAmount: number;
+  uiAmountString: string;
+}
+
+export interface GetTokenLargestAccountsResultContext {
+  slot: number;
+  apiVersion?: string;
+}
+
+export interface GetTokenLargestAccountsResult {
+  context: GetTokenLargestAccountsResultContext;
+  value: TokenLargestAccount[];
+}
+
+// Optional: V2 pagination response types (internal usage in client)
+export interface GetTokenAccountsByOwnerV2ResultContext {
+  slot: number;
+  apiVersion?: string;
+}
+
+export interface GetTokenAccountsByOwnerV2Result {
+  accounts: TokenAccount[];
+  paginationKey?: string;
+  context: GetTokenAccountsByOwnerV2ResultContext;
+}

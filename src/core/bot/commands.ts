@@ -18,6 +18,7 @@ import { generatePnlOverviewHtmlTelegram, generateBehaviorSummaryHtmlTelegram, g
 import { HeliusApiClient } from '../services/helius-api-client';
 import { DexscreenerService } from '../../api/services/dexscreener.service';
 import { TokenInfoService } from '../../api/services/token-info.service';
+import { OnchainMetadataService } from '../services/onchain-metadata.service';
 import { HttpService } from '@nestjs/axios';
 
 const logger = createLogger('WalletAnalysisCommands');
@@ -93,9 +94,18 @@ export class WalletAnalysisCommands {
     this.behaviorService = new BehaviorService(this.databaseService, behaviorConfig);
     this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
 
-    // Instantiate TokenInfo service dependencies
+    // Instantiate TokenInfo service dependencies (manual instantiation for bot, not using NestJS DI)
     const dexscreenerService = new DexscreenerService(this.databaseService, this.httpService);
-    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService);
+    const dexscreenerProvider = new (require('../../../api/services/dexscreener-price-provider').DexscreenerPriceProvider)(
+      this.databaseService,
+      this.httpService
+    );
+    // OnchainMetadataService requires HeliusApiClient, so only create if available
+    if (!this.heliusApiClient) {
+      throw new Error('HeliusApiClient is required for TokenInfoService (needed for OnchainMetadataService)');
+    }
+    const onchainMetadataService = new OnchainMetadataService(this.heliusApiClient);
+    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService, dexscreenerProvider, onchainMetadataService, this.heliusApiClient);
 
     this.pnlAnalysisService = new PnlAnalysisService(this.databaseService, this.heliusApiClient, tokenInfoService); 
     

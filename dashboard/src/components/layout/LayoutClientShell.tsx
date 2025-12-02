@@ -39,19 +39,15 @@ export default function LayoutClientShell({ children }: LayoutClientShellProps) 
         enableSystem
         disableTransitionOnChange
       >
-        <div className="flex h-screen bg-background text-foreground">
+        <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden">
           <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <main className="flex-1 overflow-auto transition-all duration-300 ease-in-out">
-              <div className="p-4">
-                <EmailVerificationBanner />
-              </div>
-              {children}
-            </main>
-          </div>
+          <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out">
+            <EmailVerificationBanner />
+            {children}
+          </main>
         </div>
         <Toaster />
       </ThemeProvider>
     </SWRConfig>
   );
-} 
+}

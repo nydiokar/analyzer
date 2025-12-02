@@ -23,6 +23,11 @@ migrate_rawdata_to_compressed.py
 run_vacuum.py
 *audit.json
 
+*.audit.json
+*audit.json
+*db.backup*
+
+
 ## DATA 
 data/
 reports/
@@ -31,6 +36,9 @@ all_alerts/
 alerts.json
 analysis_reports/
 debug_output/
+logs.json
+*audit.json 
+analyses/
 
 ## PROJECT DOCUMENTATION
 9. DNM.md
@@ -41,5 +49,9 @@ debug_output/
 99.DS05.md
 99.DS06.md
 
-*.ps1
 *.bat
+
+
+*db.backup*
+core
+

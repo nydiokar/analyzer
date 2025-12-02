@@ -6,11 +6,13 @@
 @layer base {
   html {
     font-display: swap;
+    height: 100%;
   }
   
   body {
     font-display: swap;
     text-rendering: optimizeSpeed;
+    height: 100%;
   }
   
   /* Ensure text renders immediately */

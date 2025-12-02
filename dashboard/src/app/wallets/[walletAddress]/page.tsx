@@ -16,9 +16,10 @@ export default async function WalletProfilePage({ params }: WalletProfilePagePro
   const { walletAddress } = await params;
 
   return (
-    // Pass the resolved walletAddress, not the whole params promise or awaited object if not needed by layout directly
-        <WalletProfileLayout walletAddress={walletAddress}>
-      {null}
-    </WalletProfileLayout>
+    <div className="h-full w-full flex flex-col overflow-hidden">
+      <WalletProfileLayout walletAddress={walletAddress}>
+        {null}
+      </WalletProfileLayout>
+    </div>
   );
 } 

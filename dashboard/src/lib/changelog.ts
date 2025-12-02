@@ -1,5 +1,21 @@
 export const changelog = [
   {
+    version: "v0.15",
+    date: "September 2025",
+    changes: [
+      "Add top holders extractor in similarity lab as prefiller for wallet list.",
+      "Top holders as standalone tool.",
+    ]
+  },
+  {
+    version: "v0.14",
+    date: "August 2025",
+    changes: [
+      "Optimizing speed and performance.",
+      "Enhance token performance and PNL analysis with improved filtering.",
+    ]
+  },
+  {
     version: "v0.13",
     date: "July 2025",
     changes: [

@@ -393,7 +393,10 @@ export class PnlAnalysisService {
                 tokenBalances: currentWalletBalance?.tokenBalances,
             };
 
-            if (!isHistoricalView && !isViewOnlyMode) {
+            // Always save to WalletPnlSummary unless explicitly in view-only mode
+            // Dashboard scoped analyses (flash/working/deep) should all update the canonical state
+            // because they represent progressive snapshots of current state, not historical queries
+            if (!isViewOnlyMode) {
                 const pnlSummaryDataForDb: any = {
                     walletAddress: walletAddress,
                     totalVolume: summary.totalVolume,

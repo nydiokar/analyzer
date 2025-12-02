@@ -34,15 +34,25 @@ export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
           {truncateAddress(address)}
         </span>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-2" onClick={(e) => e.stopPropagation()}>
-        <div className="flex flex-col space-y-2">
-          <div className="text-sm font-semibold">Wallet Actions</div>
-          <div className="text-xs font-mono p-2 bg-muted rounded">{address}</div>
+      <PopoverContent
+        className="w-auto space-y-3 bg-slate-900 border-slate-700 text-white p-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-col space-y-3">
+          <div className="text-xs font-mono p-2 rounded border border-slate-700 bg-slate-950 text-slate-100">
+            {address}
+          </div>
           <div className="grid grid-cols-3 gap-2">
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="outline" size="sm" onClick={handleCopy} className="flex-1 w-full" tabIndex={-1}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleCopy}
+                          className="flex-1 w-full bg-blue-600 text-white hover:bg-blue-500 border-blue-500"
+                          tabIndex={-1}
+                        >
                             <Copy className="h-3 w-3 mr-1" />
                             Copy
                         </Button>
@@ -59,7 +69,7 @@ export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
                             href={`https://solscan.io/account/${address}`} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                            className="flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md border border-transparent bg-emerald-600 text-white hover:bg-emerald-500"
                         >
                             <ExternalLink className="h-3 w-3 mr-1" />
                             Solscan
@@ -75,7 +85,7 @@ export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
                     <TooltipTrigger asChild>
                         <Link 
                             href={`/wallets/${address}`}
-                            className="flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                            className="flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md border border-transparent bg-amber-600 text-white hover:bg-amber-500"
                         >
                             <Info className="h-3 w-3 mr-1" />
                             Details

@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
-import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData } from '../jobs/types';
+import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalyzeHolderProfilesJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
+import { buildHolderProfilesJobId } from '../utils/holder-profiles-job-id';
 
 @Injectable()
 export class AnalysisOperationsQueue {
@@ -44,10 +45,23 @@ export class AnalysisOperationsQueue {
    */
   async addDashboardWalletAnalysisJob(data: DashboardWalletAnalysisJobData, options?: { priority?: number; delay?: number }) {
     const jobId = generateJobId.dashboardWalletAnalysis(data.walletAddress, data.requestId);
-    
+
     return this.queue.add('dashboard-wallet-analysis', data, {
       jobId,
       priority: options?.priority || 10, // High priority for user-initiated requests
+      delay: options?.delay || 0,
+    });
+  }
+
+  /**
+   * Add a holder profiles analysis job to the queue
+   */
+  async addHolderProfilesJob(data: AnalyzeHolderProfilesJobData, options?: { priority?: number; delay?: number }) {
+    const jobId = buildHolderProfilesJobId(data);
+
+    return this.queue.add('analyze-holder-profiles', data, {
+      jobId,
+      priority: options?.priority || 5,
       delay: options?.delay || 0,
     });
   }

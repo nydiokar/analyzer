@@ -87,7 +87,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 8,               // Increased from 5 to 8 for better dashboard analysis throughput
+      concurrency: 10,              // Bump to 10 to meet sub-30s SLA for webhook-triggered jobs
       maxStalledCount: 3,           // Prevent stuck jobs during scaling
       stalledInterval: 30000,       // 30 seconds check for stalled jobs
     }
@@ -107,7 +107,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 2,              // Restored from 1 to 2 - original working setting
+      concurrency: 5,              // Increased from 2 - inline processing eliminates 500MB overhead per job
     }
   },
   [QueueNames.ENRICHMENT_OPERATIONS]: {

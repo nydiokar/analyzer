@@ -2,6 +2,21 @@ import winston from 'winston';
 import chalk from 'chalk';
 import DailyRotateFile from 'winston-daily-rotate-file';
 
+// Extend Winston Logger interface to include trace method
+declare module 'winston' {
+  interface Logger {
+    trace: (message: string, ...meta: any[]) => winston.Logger;
+  }
+}
+
+// Note: For NestJS Logger, we use 'verbose' as the most detailed logging level
+// since NestJS Logger doesn't have a 'trace' level
+
+// Define our custom logger interface with all supported levels
+interface CustomLogger extends winston.Logger {
+  trace: (message: string, ...meta: any[]) => CustomLogger;
+}
+
 const { createLogger: winstonCreateLogger, format, transports } = winston;
 const { combine, timestamp, printf, colorize, errors } = format;
 
@@ -12,7 +27,8 @@ const levelColors: { [key: string]: (text: string) => string } = {
   http: chalk.magenta,
   verbose: chalk.blue,
   debug: chalk.gray,
-  silly: chalk.white
+  silly: chalk.white,
+  trace: chalk.white
 };
 
 const logFormat = printf(({ level, message, timestamp, module, stack, ...metadata }) => {
@@ -50,9 +66,22 @@ const logFormat = printf(({ level, message, timestamp, module, stack, ...metadat
   return msg;
 });
 
+// Custom log levels with trace as most verbose
+const customLevels = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  http: 3,
+  verbose: 4,
+  debug: 5,
+  silly: 6,
+  trace: 7
+};
+
 // --- Create a single, shared logger instance ---
 const globalLogger = winstonCreateLogger({
   level: process.env.LOG_LEVEL || 'debug',
+  levels: customLevels,
   format: combine(
     errors({ stack: true }),
     timestamp(),
@@ -89,8 +118,8 @@ const globalLogger = winstonCreateLogger({
 
 // Function to get a child logger with a specific module name
 // This reuses the transports of the globalLogger and its exception handling settings
-export const createLogger = (moduleName: string) => {
-  return globalLogger.child({ module: moduleName });
+export const createLogger = (moduleName: string): CustomLogger => {
+  return globalLogger.child({ module: moduleName }) as CustomLogger;
 };
 
 // Export a default logger instance (child of global) for convenience if some module needs a quick default.

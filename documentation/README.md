@@ -81,6 +81,19 @@ When updating documentation:
 - **Job Queues**: [technical/queues/](./technical/queues/)
 - **Troubleshooting**: [guides/troubleshooting.md](./guides/troubleshooting.md)
 
+## ⚠️ **Critical Resources**
+
+**READ THESE BEFORE DEVELOPING:**
+
+- **[Cache Management Guide](./technical/frontend/CACHE_MANAGEMENT.md)** - ⚠️ **MUST READ** - Complete guide to SWR cache behavior, limitations, and solutions
+- **[Cache Quick Reference](./CACHE_QUICK_REFERENCE.md)** - 📋 One-page reference card for cache troubleshooting
+
+**Why these are critical:** We've spent hours debugging cache issues multiple times. These documents prevent recurring problems with:
+- Data not refreshing after analysis
+- Images not appearing after enrichment
+- Stale data showing on scope changes
+- Unnecessary manual refresh requirements
+
 ---
 
-*Last updated: Job Queue System documentation completed*
+*Last updated: Cache Management documentation added (October 31, 2025)*

@@ -19,8 +19,8 @@ let debounceTimer: NodeJS.Timeout | null = null;
 const DEBOUNCE_DELAY = 300; // 300ms delay
 
 export const useTimeRangeStore = create<TimeRangeState>((set) => ({
-  preset: 'all', // Default to all time to show historical data
-  startDate: new Date(2000, 0, 1), // Very early date for 'all' 
+  preset: '7d', // Default to last 7 days for fresh token data
+  startDate: getDefaultStartDate(7),
   endDate: getDefaultEndDate(),
 
   setPreset: (preset) => {

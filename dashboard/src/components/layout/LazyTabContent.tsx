@@ -51,7 +51,7 @@ const LazyTabContent = memo(({
   
   return (
     <div 
-      className={cn(className, !isActive && "hidden")}
+      className={cn(className, !isActive && "hidden", isActive && "flex")}
       data-state={isActive ? "active" : "inactive"}
       role="tabpanel"
     >

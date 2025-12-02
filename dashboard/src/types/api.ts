@@ -89,6 +89,44 @@ export interface RiskMetrics {
   largestTransactionValueSol?: number | null;
 }
 
+// NEW: Trading interpretation system (2025-11-17)
+export interface TradingInterpretation {
+  // Speed classification (based on median - outlier robust)
+  speedCategory: 'ULTRA_FLIPPER' | 'FLIPPER' | 'FAST_TRADER' | 'DAY_TRADER' | 'SWING_TRADER' | 'POSITION_TRADER';
+  typicalHoldTimeHours: number;       // What they USUALLY do (median)
+
+  // Economic analysis (based on weighted average - position size matters)
+  economicHoldTimeHours: number;      // Where the MONEY goes
+  economicRisk: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+  // Behavioral pattern
+  behavioralPattern: 'BALANCED' | 'ACCUMULATOR' | 'DISTRIBUTOR' | 'HOLDER' | 'DUMPER' | 'MIXED';
+
+  // Human-readable interpretation
+  interpretation: string;
+}
+
+// Historical pattern from completed positions only
+export interface HistoricalPattern {
+  medianCompletedHoldTimeHours: number;        // Median (outlier-robust)
+  historicalAverageHoldTimeHours: number;      // Weighted average (economic impact)
+  completedCycleCount: number;                 // Sample size
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
+  dataQuality: number;                         // 0-1 confidence score
+  observationPeriodDays: number;
+  holdTimeTokenMap?: {
+    instant: string[];
+    ultraFast: string[];
+    fast: string[];
+    momentum: string[];
+    intraday: string[];
+    day: string[];
+    swing: string[];
+    position: string[];
+  };
+}
+
 // More complete BehaviorAnalysisResponseDto
 export interface BehaviorAnalysisResponseDto {
   walletAddress: string;
@@ -98,8 +136,18 @@ export interface BehaviorAnalysisResponseDto {
   secondaryBehavior?: string | null;
   buySellRatio?: number | null;
   buySellSymmetry?: number | null;
+
+  // ⚠️ DEPRECATED: Use historicalPattern.historicalAverageHoldTimeHours instead
   averageFlipDurationHours?: number | null;
+  // ⚠️ DEPRECATED: Use historicalPattern.medianCompletedHoldTimeHours instead
   medianHoldTime?: number | null;
+  // ⚠️ DEPRECATED: Use historicalPattern.historicalAverageHoldTimeHours instead
+  weightedAverageHoldingDurationHours?: number | null;
+
+  // ✅ NEW: Rich interpretation (use these instead of deprecated metrics)
+  tradingInterpretation?: TradingInterpretation | null;
+  historicalPattern?: HistoricalPattern | null;
+
   sequenceConsistency?: number | null;
   flipperScore?: number | null;
   uniqueTokensTraded?: number | null;
@@ -126,10 +174,13 @@ export interface BehaviorAnalysisResponseDto {
   averageSessionDurationMinutes?: number | null;
   firstTransactionTimestamp?: number | null;
   lastTransactionTimestamp?: number | null;
+
+  // ✅ CURRENT HOLDINGS METRICS: Separate system for analyzing currently held positions
+  // These complement historicalPattern (exited positions) by showing what's still held
   averageCurrentHoldingDurationHours?: number | null;
   medianCurrentHoldingDurationHours?: number | null;
-  weightedAverageHoldingDurationHours?: number | null;
   percentOfValueInCurrentHoldings?: number | null;
+
   additionalMetrics?: Record<string, unknown>;
   rawMetrics?: Record<string, unknown>;
 }
@@ -158,13 +209,25 @@ export interface TokenPerformanceDataDto {
   balanceDecimals?: number | null;
   balanceFetchedAt?: string | null; // ISO String
 
-  // Enriched data from TokenInfo
+  // Enriched data from TokenInfo (DexScreener)
   name?: string | null;
   symbol?: string | null;
   imageUrl?: string | null;
   websiteUrl?: string | null;
   twitterUrl?: string | null;
   telegramUrl?: string | null;
+
+  // Onchain metadata (IPFS/arweave - primary source for display)
+  onchainName?: string | null;
+  onchainSymbol?: string | null;
+  onchainImageUrl?: string | null;
+  onchainDescription?: string | null;
+  onchainWebsiteUrl?: string | null;
+  onchainTwitterUrl?: string | null;
+  onchainTelegramUrl?: string | null;
+  onchainDiscordUrl?: string | null;
+  onchainCreator?: string | null;
+  metadataSource?: string | null;
 
   // DexScreener market data
   marketCapUsd?: number | null;
@@ -186,6 +249,12 @@ export interface TokenPerformanceDataDto {
   realizedPnlSol?: number | null;
   realizedPnlPercentage?: number | null;
   unrealizedPnlPercentage?: number | null;
+
+  // Server-provided spam risk analysis (precomputed to avoid heavy client work)
+  spamRiskLevel?: 'safe' | 'high-risk' | null;
+  spamRiskScore?: number | null;
+  spamRiskReasons?: string[] | null;
+  spamPrimaryReason?: string | null;
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts
@@ -276,20 +345,62 @@ export interface JobStatusResponseDto {
 }
 
 // Dashboard Analysis Types
+export type DashboardAnalysisScope = 'flash' | 'working' | 'deep';
+export type DashboardAnalysisTriggerSource = 'auto' | 'manual' | 'system';
+
 export interface DashboardAnalysisRequest {
   walletAddress: string;
   forceRefresh?: boolean;
   enrichMetadata?: boolean;
+  analysisScope?: DashboardAnalysisScope;
+  historyWindowDays?: number;
+  targetSignatureCount?: number;
+  triggerSource?: DashboardAnalysisTriggerSource;
+  queueWorkingAfter?: boolean;
+  queueDeepAfter?: boolean;
+  timeoutMinutes?: number;
 }
 
 export interface DashboardAnalysisResponse {
-  jobId: string;
+  jobId: string | null;
   requestId: string;
-  status: string;
+  status: 'queued' | 'running';
   queueName: string;
+  analysisScope: DashboardAnalysisScope;
   estimatedProcessingTime: string;
   monitoringUrl: string;
+  skipped?: boolean;
+  skipReason?: string;
+  queuedFollowUpScopes?: DashboardAnalysisScope[];
+  alreadyRunning?: boolean;
 }
 
 // Note: JobProgressEvent, JobCompletedEvent, and JobFailedEvent are now imported from websockets.ts
 // to maintain consistency with the existing useJobProgress hook
+
+// --- Top Holders Types ---
+export interface TopHolderItem {
+  tokenAccount: string;
+  ownerAccount?: string;
+  amount: string;
+  decimals: number;
+  uiAmount: number | null;
+  uiAmountString: string;
+  rank: number;
+}
+
+export interface TopHoldersResponse {
+  mint: string;
+  context: { slot: number; apiVersion?: string };
+  holders: TopHolderItem[];
+}
+
+// --- Exit Timing Tokens Response ---
+export type TimeBucket = 'instant' | 'ultraFast' | 'fast' | 'momentum' | 'intraday' | 'day' | 'swing' | 'position';
+
+export interface ExitTimingTokensResponse {
+  walletAddress: string;
+  timeBucket: TimeBucket;
+  tokens: string[];
+  count: number;
+}

@@ -52,6 +52,13 @@ export interface JobResult {
   timestamp: number;
   processingTimeMs?: number;
   enrichmentJobId?: string;
+  analysisScope?: DashboardAnalysisScope;
+  triggerSource?: string;
+  historyWindowDays?: number | null;
+  targetSignatureCount?: number | null;
+  signaturesConsidered?: number | null;
+  timeRange?: { startTs?: number; endTs?: number };
+  followUpJobsQueued?: Array<{ scope: DashboardAnalysisScope; jobId: string }>;
   metadata?: {
     requestedWallets?: number;
     processedWallets?: number;
@@ -81,3 +88,4 @@ export interface EnrichmentErrorData {
   error: string;
   timestamp: number;
 } 
+import { DashboardAnalysisScope } from './api';

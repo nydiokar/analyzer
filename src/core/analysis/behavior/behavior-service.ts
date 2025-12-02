@@ -3,7 +3,7 @@ import { DatabaseService, WalletBehaviorProfileUpsertData } from 'core/services/
 import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { BehavioralMetrics, ActiveTradingPeriods } from '@/types/behavior';
 import { createLogger } from 'core/utils/logger';
-import { Prisma } from '@prisma/client'; // Import Prisma
+import { Prisma, SwapAnalysisInput } from '@prisma/client'; // Import Prisma
 
 const logger = createLogger('BehaviorService');
 
@@ -21,14 +21,16 @@ export class BehaviorService {
   /**
    * Analyzes the trading behavior for a given wallet address.
    * Fetches data, performs calculations using BehaviorAnalyzer, and returns metrics.
-   * 
+   *
    * @param walletAddress - The Solana wallet address to analyze.
    * @param timeRange - Optional time range to limit the analysis (unix timestamps).
+   * @param pnlMap - Optional map of token PnL from AnalysisResult (source of truth).
    * @returns Promise resolving to BehavioralMetrics or null if no data.
    */
   async analyzeWalletBehavior(
     walletAddress: string,
-    timeRange?: { startTs?: number; endTs?: number }
+    timeRange?: { startTs?: number; endTs?: number },
+    pnlMap?: Map<string, { pnl: number; capital: number }>
   ): Promise<BehavioralMetrics | null> {
     logger.debug(`Analyzing trading behavior for wallet ${walletAddress}`);
 
@@ -39,13 +41,25 @@ export class BehaviorService {
       if (!swapRecords || swapRecords.length === 0) {
         logger.warn(`No swap records found for wallet ${walletAddress} within the specified time range.`);
         // Optionally, delete existing profile if no data? Or leave stale? For now, leave.
-        return null; 
+        return null;
       }
 
-      // Use the injected BehaviorAnalyzer for calculations
-      // Assuming BehaviorAnalyzer has a public method `analyze` that takes raw swap records
-      // and orchestrates the internal steps (build sequences, calc metrics, classify).
-      const metrics = this.behaviorAnalyzer.analyze(swapRecords); 
+      // Determine which dataset should power the historical pattern calculation.
+      let historicalSwapRecords: SwapAnalysisInput[] | undefined = undefined;
+      if (timeRange) {
+        logger.debug(`Fetching full history for ${walletAddress} to calculate historical pattern independently of the requested range.`);
+        historicalSwapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+      } else {
+        historicalSwapRecords = swapRecords;
+      }
+
+      // Use the injected BehaviorAnalyzer for calculations, ensuring historical metrics use the full data set
+      const metrics = this.behaviorAnalyzer.analyze(
+        swapRecords,
+        walletAddress,
+        historicalSwapRecords,
+        pnlMap,
+      ); 
 
       if (metrics) {
         // Destructure metrics to prepare for DB save
@@ -107,6 +121,7 @@ export class BehaviorService {
             completePairsCount,
             averageTradesPerToken,
             tradingTimeDistribution: tradingTimeDistribution as unknown as Prisma.InputJsonValue,
+            holdTimeTokenMap: (metrics.historicalPattern?.holdTimeTokenMap || null) as unknown as Prisma.InputJsonValue,
             percentTradesUnder1Hour,
             percentTradesUnder4Hours,
             tradingStyle,

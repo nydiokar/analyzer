@@ -18,6 +18,9 @@ import {
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
 import { DatabaseService } from './database.service';
+import { DashboardAnalysisScope } from '../../shared/dashboard-analysis.types';
+import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
+import { JobPriority } from '../../queues/config/queue.config';
 
 @Injectable()
 export class JobsService {
@@ -196,35 +199,61 @@ export class JobsService {
       throw new BadRequestException(`Invalid Solana address: ${dto.walletAddress}`);
     }
 
-    // Generate request ID
     const requestId = `dashboard-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
-    // Check wallet status to estimate processing time
-    const walletStatuses = await this.databaseService.getWalletsStatus([dto.walletAddress]);
-    const needsSync = walletStatuses.statuses[0].status === 'STALE' || 
-                     walletStatuses.statuses[0].status === 'MISSING' || 
-                     dto.forceRefresh;
+    const scope: DashboardAnalysisScope = dto.analysisScope ?? 'deep';
+    const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[scope];
+    if (!scopeDefaults) {
+      throw new BadRequestException(`Unsupported analysis scope: ${scope}`);
+    }
 
-    // Prepare job data
+    const historyWindowDays =
+      scope === 'deep' ? undefined : dto.historyWindowDays ?? scopeDefaults.historyWindowDays ?? 7;
+    const targetSignatureCount =
+      scope === 'deep'
+        ? dto.targetSignatureCount ?? undefined
+        : dto.targetSignatureCount ?? scopeDefaults.targetSignatureCount ?? undefined;
+
+    const queueWorkingAfter = scope === 'flash' ? dto.queueWorkingAfter ?? true : false;
+    const queueDeepAfter =
+      scope === 'flash'
+        ? dto.queueDeepAfter ?? false
+        : scope === 'working'
+          ? dto.queueDeepAfter ?? true
+          : false;
+
+    const timeoutMinutes =
+      dto.timeoutMinutes ?? scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES;
+
     const jobData = {
       walletAddress: dto.walletAddress,
       requestId,
-      forceRefresh: dto.forceRefresh || false,
-      enrichMetadata: dto.enrichMetadata !== false, // Default to true
+      analysisScope: scope,
+      triggerSource: dto.triggerSource ?? 'manual',
+      historyWindowDays,
+      targetSignatureCount,
+      forceRefresh: dto.forceRefresh ?? false,
+      enrichMetadata: scope === 'deep' ? dto.enrichMetadata !== false : false,
+      queueWorkingAfter,
+      queueDeepAfter,
       failureThreshold: 0.8,
-      timeoutMinutes: dto.timeoutMinutes || (needsSync ? 15 : 8), // Longer timeout if sync is needed
+      timeoutMinutes,
     };
 
-    // Add job to analysis operations queue
+    const priority =
+      scope === 'flash'
+        ? JobPriority.CRITICAL
+        : scope === 'working'
+          ? JobPriority.HIGH
+          : JobPriority.NORMAL;
+
     const job = await this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
-      priority: 10, // High priority for user-initiated requests
-      delay: 0
+      priority,
+      delay: 0,
     });
 
-    // Calculate estimated processing time
-    const baseTimeMinutes = 3; // Base analysis time
-    const syncTimeMinutes = needsSync ? 10 : 0; // Additional time if sync needed
-    const estimatedMinutes = baseTimeMinutes + syncTimeMinutes;
+    const baseTimeMinutes = scope === 'flash' ? 2 : scope === 'working' ? 5 : 8;
+    const estimatedMinutes = baseTimeMinutes + (dto.forceRefresh ? 10 : 0);
     const estimatedTime = estimatedMinutes > 60 
       ? `${Math.round(estimatedMinutes / 60)} hour(s)`
       : `${estimatedMinutes} minute(s)`;
@@ -234,6 +263,7 @@ export class JobsService {
       requestId,
       status: 'queued',
       queueName: 'analysis-operations',
+      analysisScope: scope,
       estimatedProcessingTime: estimatedTime,
       monitoringUrl: `/jobs/${job.id}`,
     };

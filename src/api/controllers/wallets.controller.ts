@@ -140,7 +140,7 @@ export class WalletsController {
     const requestParameters = { walletAddress: walletAddress, query: req.query, startDate: queryDto.startDate, endDate: queryDto.endDate }; 
     const startTime = Date.now();
 
-    this.logger.debug(`getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
+    this.logger.verbose(`getWalletSummary called for ${walletAddress} with query: ${JSON.stringify(queryDto)}`);
 
     // Prepare timeRange for specific period data if dates are provided
     let serviceTimeRange: { startTs?: number; endTs?: number } | undefined = undefined;
@@ -151,7 +151,7 @@ export class WalletsController {
             serviceTimeRange = { startTs, endTs };
         }
     }
-    this.logger.debug(`ServiceTimeRange for period-specific data (if any): ${JSON.stringify(serviceTimeRange)}`);
+    this.logger.verbose(`ServiceTimeRange for period-specific data (if any): ${JSON.stringify(serviceTimeRange)}`);
 
     if (userId) {
       await this.databaseService.logActivity(userId, actionType, requestParameters, 'INITIATED', undefined, undefined, sourceIp)
@@ -177,7 +177,7 @@ export class WalletsController {
       // 3. Fetch the main persisted Behavior Profile in parallel with SOL price
       const [overallBehaviorProfile, solPriceUsd] = await Promise.all([
         this.databaseService.getWalletBehaviorProfile(walletAddress),
-        this.dexscreenerService.getSolPrice().catch(() => undefined) // Don't fail if SOL price fetch fails
+        this.tokenInfoService.getSolPrice().catch(() => undefined) // Don't fail if SOL price fetch fails (cached in Redis with 30s TTL)
       ]);
       
       // 4. Determine lastAnalyzedAt from the PNL summary's updatedAt field
@@ -479,7 +479,7 @@ export class WalletsController {
             serviceTimeRange = { startTs, endTs };
         }
     }
-    this.logger.debug(`[WalletsController] serviceTimeRange for BehaviorService: ${JSON.stringify(serviceTimeRange)} based on queryDto: ${JSON.stringify(queryDto)}`);
+    this.logger.verbose(`[WalletsController] serviceTimeRange for BehaviorService: ${JSON.stringify(serviceTimeRange)} based on queryDto: ${JSON.stringify(queryDto)}`);
 
     if (userId) {
       this.databaseService.logActivity(
@@ -555,7 +555,7 @@ export class WalletsController {
       throw new InternalServerErrorException('User identification failed.');
     }
 
-    this.logger.debug(`Attempting to create note for wallet ${walletAddress} by user ${userId}`);
+    this.logger.verbose(`Attempting to create note for wallet ${walletAddress} by user ${userId}`);
 
     await this.databaseService.logActivity(
       userId,
@@ -624,7 +624,7 @@ export class WalletsController {
       throw new InternalServerErrorException('User identification failed.');
     }
 
-    this.logger.debug(`Attempting to retrieve notes for wallet ${walletAddress} by user ${userId}`);
+    this.logger.verbose(`Attempting to retrieve notes for wallet ${walletAddress} by user ${userId}`);
 
     await this.databaseService.logActivity(
       userId,
@@ -696,7 +696,7 @@ export class WalletsController {
       throw new InternalServerErrorException('User identification failed.');
     }
 
-    this.logger.debug(`Attempting to delete note ${noteId} for wallet ${walletAddress} by user ${userId}`);
+    this.logger.verbose(`Attempting to delete note ${noteId} for wallet ${walletAddress} by user ${userId}`);
 
     await this.databaseService.logActivity(
       userId,
@@ -776,7 +776,7 @@ export class WalletsController {
         throw new InternalServerErrorException('Note content cannot be empty.');
     }
 
-    this.logger.debug(`Attempting to update note ${noteId} for wallet ${walletAddress} by user ${userId}`);
+    this.logger.verbose(`Attempting to update note ${noteId} for wallet ${walletAddress} by user ${userId}`);
 
     await this.databaseService.logActivity(
       userId,
@@ -905,10 +905,73 @@ export class WalletsController {
   private async enrichTokensInBackground(walletAddress: string, userId: string): Promise<void> {
     try {
       const tokenAddresses = await this.tokenPerformanceService.getAllTokenAddressesForWallet(walletAddress);
-            
+
       this.tokenInfoService.triggerTokenInfoEnrichment(tokenAddresses, userId);
     } catch (error) {
       this.logger.error(`Background enrichment process for wallet ${walletAddress} failed:`, error);
+    }
+  }
+
+  @Get(':walletAddress/exit-timing-tokens/:timeBucket')
+  @ApiOperation({
+    summary: 'Get token mints in a specific exit timing bucket',
+    description: 'Returns the list of token mint addresses that were exited within a specific time bucket category for this wallet. Data is read from cached behavior profile (fast). Frontend TokenBadge components handle metadata enrichment automatically.'
+  })
+  @ApiParam({
+    name: 'walletAddress',
+    description: 'The Solana wallet address',
+    type: String
+  })
+  @ApiParam({
+    name: 'timeBucket',
+    description: 'Time bucket category',
+    enum: ['instant', 'ultraFast', 'fast', 'momentum', 'intraday', 'day', 'swing', 'position']
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Token mint addresses retrieved successfully from cached profile',
+    schema: {
+      type: 'object',
+      properties: {
+        walletAddress: { type: 'string' },
+        timeBucket: { type: 'string' },
+        tokens: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of token mint addresses'
+        },
+        count: { type: 'number' }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: 'Wallet not found or no behavior data available' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  async getExitTimingTokens(
+    @Param('walletAddress') walletAddress: string,
+    @Param('timeBucket') timeBucket: 'instant' | 'ultraFast' | 'fast' | 'momentum' | 'intraday' | 'day' | 'swing' | 'position',
+    @Req() req: Request & { user?: any }
+  ): Promise<{ walletAddress: string; timeBucket: string; tokens: any[]; count: number }> {
+    this.logger.log(`Getting exit timing tokens for wallet ${walletAddress} [bucket=${timeBucket}]`);
+
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User could not be identified.');
+    }
+
+    try {
+      // Get token mints from cached behavior profile (fast database read)
+      const mints = await this.behaviorService.getExitTimingTokenMints(walletAddress, timeBucket);
+
+      // Return just the mint addresses - frontend TokenBadge handles enrichment
+      return {
+        walletAddress,
+        timeBucket,
+        tokens: mints,
+        count: mints.length
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch exit timing tokens for wallet ${walletAddress}:`, error);
+      throw new InternalServerErrorException('Failed to fetch exit timing tokens');
     }
   }
 } 
