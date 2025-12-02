@@ -146,7 +146,7 @@ export interface EnrichTokenBalancesResult extends JobResult {
 }
 
 // Holder Profiles Types
-export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+export type DataQualityTier = 'GOLD' | 'SILVER' | 'BRONZE' | 'INSUFFICIENT';
 export type HoldTimeSource = 'CURRENT' | 'EXITED' | 'MIXED';
 
 export interface HoldTimeDistribution {

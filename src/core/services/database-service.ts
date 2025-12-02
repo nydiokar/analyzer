@@ -6,6 +6,7 @@ import {
     AnalysisResult,
     AdvancedTradeStats,
     WalletBehaviorProfile,
+    HolderProfileSnapshot,
     MappingActivityLog,
     Prisma, // Import Prisma namespace for input types
     User,         // Added User
@@ -85,6 +86,20 @@ export type AdvancedTradeStatsInput = Omit<Prisma.AdvancedTradeStatsCreateInput,
  * Omits 'wallet' relation field which is handled via connect/create on 'walletAddress'.
  */
 export type WalletBehaviorProfileUpsertData = Omit<Prisma.WalletBehaviorProfileCreateInput, 'wallet'> & { walletAddress: string };
+
+interface HolderProfileSnapshotCreateParams {
+  walletAddress: string;
+  tokenMint?: string | null;
+  analysisMode: 'token' | 'wallet';
+  holderRank?: number | null;
+  supplyPercent?: number | null;
+  topN?: number | null;
+  jobId?: string | null;
+  requestId?: string | null;
+  profile: any;
+  metadata?: any;
+  computedAt?: Date;
+}
 
 interface WalletStatus {
   walletAddress: string;
@@ -486,6 +501,93 @@ export class DatabaseService {
             this.logger.error('Error checking wallet status via AnalysisRun', { error, walletAddresses });
             throw new InternalServerErrorException('Could not check wallet status in database.');
         }
+    }
+
+    // --- Holder Profile Snapshot Methods ---
+
+    async saveHolderProfileSnapshot(params: HolderProfileSnapshotCreateParams): Promise<HolderProfileSnapshot> {
+        const {
+            walletAddress,
+            tokenMint = null,
+            analysisMode,
+            holderRank = null,
+            supplyPercent = null,
+            topN = null,
+            jobId = null,
+            requestId = null,
+            profile,
+            metadata,
+            computedAt,
+        } = params;
+
+        return this.executeWithRetry('holderProfileSnapshot.create', async () => {
+            return this.prismaClient.holderProfileSnapshot.create({
+                data: {
+                    walletAddress,
+                    tokenMint,
+                    analysisMode,
+                    holderRank,
+                    supplyPercent,
+                    topN,
+                    jobId,
+                    requestId,
+                    computedAt: computedAt ?? new Date(),
+                    profile: profile as Prisma.InputJsonValue,
+                    metadata: metadata as Prisma.InputJsonValue | undefined,
+                },
+            });
+        });
+    }
+
+    async getLatestHolderProfileSnapshotsForToken(tokenMint: string, walletAddresses: string[]): Promise<Map<string, HolderProfileSnapshot>> {
+        if (!walletAddresses || walletAddresses.length === 0) {
+            return new Map();
+        }
+
+        const snapshots = await this.executeWithRetry('holderProfileSnapshot.findMany', async () => {
+            return this.prismaClient.holderProfileSnapshot.findMany({
+                where: {
+                    tokenMint,
+                    walletAddress: { in: walletAddresses },
+                },
+                orderBy: [
+                    { walletAddress: 'asc' },
+                    { computedAt: 'desc' },
+                ],
+            });
+        });
+
+        const snapshotMap = new Map<string, HolderProfileSnapshot>();
+        for (const snapshot of snapshots) {
+            if (!snapshotMap.has(snapshot.walletAddress)) {
+                snapshotMap.set(snapshot.walletAddress, snapshot);
+            }
+        }
+        return snapshotMap;
+    }
+
+    async getLatestHolderProfileSnapshot(params: {
+        walletAddress: string;
+        tokenMint?: string | null;
+        analysisMode?: 'token' | 'wallet';
+    }): Promise<HolderProfileSnapshot | null> {
+        const { walletAddress, tokenMint = null, analysisMode } = params;
+        return this.executeWithRetry('holderProfileSnapshot.findFirst', async () => {
+            return this.prismaClient.holderProfileSnapshot.findFirst({
+                where: {
+                    walletAddress,
+                    tokenMint,
+                    analysisMode: analysisMode ?? undefined,
+                },
+                orderBy: { computedAt: 'desc' },
+            });
+        });
+    }
+
+    async countHolderProfileSnapshots(): Promise<number> {
+        return this.executeWithRetry('holderProfileSnapshot.count', async () => {
+            return this.prismaClient.holderProfileSnapshot.count();
+        });
     }
 
     // --- AnalysisResult Methods ---

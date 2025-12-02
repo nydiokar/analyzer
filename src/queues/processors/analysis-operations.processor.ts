@@ -627,8 +627,55 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * Process holder profiles analysis job
-   * Supports analyzing top holders for a token or an individual wallet
+   * Process holder profiles analysis job with progressive streaming architecture.
+   *
+   * ARCHITECTURE OVERVIEW:
+   * =====================
+   * This implements a tiered caching strategy with progressive loading:
+   *
+   * TIER 1 (Redis - HolderProfilesCacheService):
+   *   - Caches complete HolderProfilesResult objects
+   *   - TTL: 1 hour (hot cache for repeated requests)
+   *   - Use case: Avoid re-querying DB for same token/topN within 1 hour
+   *
+   * TIER 2 (PostgreSQL - HolderProfileSnapshot table):
+   *   - Persists individual HolderProfile records as JSON
+   *   - TTL: Until wallet re-syncs (smart freshness check)
+   *   - Use case: Instant streaming of cached profiles while analyzing stale ones
+   *
+   * PROGRESSIVE STREAMING FLOW:
+   * ==========================
+   * Example: Request top 10 holders of Token X
+   *
+   * 1. Check Redis cache → Cache miss (or expired after 1 hour)
+   * 2. Query DB for all 10 wallet snapshots (batched)
+   *    ├─ Found 7 fresh profiles (wallets analyzed today)
+   *    └─ 3 wallets are stale/missing
+   *
+   * 3. IMMEDIATELY stream 7 cached profiles to frontend ⚡
+   *    └─ User sees data in <1 second
+   *
+   * 4. Sync 3 stale wallets in background (parallel)
+   *
+   * 5. Analyze 3 stale wallets, save to DB, stream to frontend
+   *    └─ User sees remaining 3 profiles after ~30 seconds
+   *
+   * FRESHNESS GUARANTEE:
+   * ===================
+   * Snapshot considered fresh if:
+   *   - snapshot.computedAt >= wallet.lastSuccessfulFetchTimestamp (primary)
+   *   - OR snapshot.computedAt within last hour (fallback)
+   *
+   * This ensures profiles are only reused when underlying wallet data unchanged.
+   *
+   * MEMORY EFFICIENCY:
+   * =================
+   * - Redis holds full results for 1 hour → Prevents pressure on frequent requests
+   * - PostgreSQL persists individual profiles → Survives Redis eviction
+   * - Wallets analyzed 7-8 hours ago can be served instantly from DB
+   *
+   * @param job - Job data containing mode ('token' | 'wallet'), tokenMint, topN, walletAddress
+   * @returns HolderProfilesResult with profiles array and metadata
    */
   async processAnalyzeHolderProfiles(job: Job<AnalyzeHolderProfilesJobData>): Promise<HolderProfilesResult> {
     const { mode = 'token', tokenMint, topN = 10, walletAddress } = job.data;
@@ -742,58 +789,47 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
 
       this.logger.log(`Analyzing ${walletAddresses.length} holder wallets for ${tokenMint}...`);
+      // PHASE 1: Fetch cached snapshots from PostgreSQL (Tier 2 cache)
+      // ================================================================
       await job.updateProgress(20);
 
-      // OPTIMIZATION: Check for existing behavior profiles BEFORE syncing
-      // Determine if cached profiles are still fresh according to behavior-service heuristics
-      const existingProfilesMap = new Map<string, any>();
-      const behaviorFreshnessMap = new Map<string, boolean>();
-      for (const walletAddress of walletAddresses) {
-        try {
-          const cachedProfile = await this.databaseService.getWalletBehaviorProfile(walletAddress);
-          if (cachedProfile) {
-            existingProfilesMap.set(walletAddress, cachedProfile);
-            try {
-              const walletRecord = await this.databaseService.getWallet(walletAddress);
-              const isFresh = this.isBehaviorProfileFresh(cachedProfile, walletRecord);
-              behaviorFreshnessMap.set(walletAddress, isFresh);
-            } catch (walletErr) {
-              this.logger.warn(`Failed to load wallet sync info for ${walletAddress}:`, walletErr);
-              behaviorFreshnessMap.set(walletAddress, false);
-            }
-          }
-        } catch (err) {
-          // Ignore errors, will analyze from scratch
-        }
-      }
-      this.logger.log(`Found ${existingProfilesMap.size}/${walletAddresses.length} existing behavior profiles in DB`);
+      // Delegate to cache service to fetch snapshots and determine freshness
+      const { snapshots: latestSnapshots, walletRecords: walletRecordMap, readyWallets, staleWallets } =
+        await this.holderProfilesCacheService.getTokenSnapshots(tokenMint, walletAddresses);
 
-      // Sync stale/missing holders first (same as wallet-mode flow)
+      // PHASE 2: Determine which wallets need sync (vs just re-analysis)
+      // ================================================================
       this.logger.debug(`Checking wallet statuses for top holders of ${tokenMint}`);
       const holderStatuses = await this.databaseService.getWalletsStatus(walletAddresses);
       const statusMap = new Map(holderStatuses.statuses.map(status => [status.walletAddress, status]));
-      const walletsNeedingAnalysis = walletAddresses.filter(addr => {
+
+      // Combine cache service's stale list with wallet status checks
+      const walletsNeedingAnalysis = staleWallets.filter(addr => {
         const status = statusMap.get(addr);
-        const hasExistingProfile = existingProfilesMap.has(addr);
-        const hasFreshProfile = behaviorFreshnessMap.get(addr);
+        // Additional check: even if snapshot says stale, verify wallet status
         if (!status) return true;
         if (status.status === 'STALE' || status.status === 'MISSING' || status.status === 'IN_PROGRESS') return true;
-        if (!hasExistingProfile) return true;
-        if (!hasFreshProfile) return true;
         return false;
       });
       const walletsNeedingAnalysisSet = new Set(walletsNeedingAnalysis);
+
+      // Split into wallets needing sync (STALE/MISSING) vs just re-analysis
       const walletsNeedingSync = walletsNeedingAnalysis.filter(addr => {
         const status = statusMap.get(addr);
         return status?.status === 'STALE' || status?.status === 'MISSING';
       });
+
+      // Maintain original holder ranking order for both groups
       const readyWalletsOrdered = topHolders
         .map(holder => holder.ownerAccount)
-        .filter((addr): addr is string => !!addr && !walletsNeedingAnalysisSet.has(addr));
+        .filter((addr): addr is string => !!addr && readyWallets.includes(addr));
       const walletsNeedingAnalysisOrdered = topHolders
         .map(holder => holder.ownerAccount)
         .filter((addr): addr is string => !!addr && walletsNeedingAnalysisSet.has(addr));
 
+      // PHASE 3: Sync stale wallets in background (non-blocking)
+      // =========================================================
+      // Start sync in background while we stream cached profiles
       const syncPromise = (async () => {
         if (walletsNeedingSync.length > 0) {
           this.logger.log(`Syncing ${walletsNeedingSync.length} holder wallets for ${tokenMint}`);
@@ -819,11 +855,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(30);
       await job.updateProgress(40);
 
+      // PHASE 4: Progressive streaming - set up WebSocket publishing
+      // ============================================================
       const progressStep = 50 / walletAddresses.length;
       let completedCount = 0;
       const partialProfiles: HolderProfile[] = [];
       const profiles: HolderProfile[] = [];
 
+      // Helper: Publish individual profile to frontend via WebSocket
+      // This enables progressive loading - profiles appear one by one
       const publishProfile = async (profile: HolderProfile, walletAddress: string) => {
         completedCount++;
         const percent = 40 + Math.floor(completedCount * progressStep);
@@ -844,6 +884,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         await this.jobProgressGateway.publishProgressEvent(job.id!, job.queueName, progressPayload);
       };
 
+      // Helper: Run full analysis for a wallet (PnL + behavior + profile computation)
       const runFullAnalysis = async (walletAddress: string, swapRecords: any[]) => {
         const metadata = holderMetadataByWallet.get(walletAddress);
         if (!metadata) {
@@ -851,6 +892,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           return;
         }
 
+        // Run PnL analysis if wallet has trading history
         if (swapRecords.length > 0) {
           try {
             await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined);
@@ -859,33 +901,68 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           }
         }
 
+        // Compute holder profile from swap records + PnL data
         const profile = await this.analyzeWalletProfile(
           walletAddress,
           metadata.rank,
           metadata.supplyPercent,
           swapRecords,
         );
+
+        // Persist to PostgreSQL (Tier 2 cache) for future requests
+        await this.holderProfilesCacheService.saveSnapshot({
+          walletAddress,
+          tokenMint,
+          analysisMode: 'token',
+          holderRank: metadata.rank,
+          supplyPercent: metadata.supplyPercent,
+          topN,
+          jobId: job.id?.toString() ?? null,
+          requestId: job.data.requestId,
+          profile,
+          metadata: {
+            mode: 'token',
+          },
+        });
+
+        // Stream to frontend immediately
         await publishProfile(profile, walletAddress);
       };
 
+      // PHASE 5: Stream cached profiles IMMEDIATELY (instant UX)
+      // ========================================================
+      // These wallets have fresh snapshots - serve them RIGHT NOW
+      // without waiting for sync/analysis of other wallets
       if (readyWalletsOrdered.length > 0) {
         this.logger.log(`Serving ${readyWalletsOrdered.length} cached holder profiles immediately (no sync needed)`);
         for (const walletAddress of readyWalletsOrdered) {
           try {
-            const swapRecords = await this.databaseService.getSwapAnalysisInputs(walletAddress);
-            await runFullAnalysis(walletAddress, swapRecords);
+            const metadata = holderMetadataByWallet.get(walletAddress);
+            const snapshot = latestSnapshots.get(walletAddress);
+            if (!metadata || !snapshot) {
+              continue;
+            }
+            // Hydrate snapshot (update rank/supplyPercent in case holder position changed)
+            const profile = this.holderProfilesCacheService.hydrateSnapshot(snapshot, metadata);
+            // Stream to frontend - user sees this profile in <1 second ⚡
+            await publishProfile(profile, walletAddress);
           } catch (error) {
-            this.logger.warn(`Failed to analyze wallet ${walletAddress} (cached path):`, error);
+            this.logger.warn(`Failed to stream cached holder profile for ${walletAddress}:`, error);
           }
         }
       } else {
         this.logger.debug('No cached holder profiles to serve immediately');
       }
 
+      // PHASE 6: Wait for sync to complete before analyzing stale wallets
+      // ==================================================================
       await syncPromise;
 
+      // PHASE 7: Analyze stale wallets and stream results progressively
+      // ================================================================
       if (walletsNeedingAnalysisOrdered.length > 0) {
         this.logger.debug(`Batch fetching swap records for ${walletsNeedingAnalysisOrdered.length} wallets needing analysis...`);
+        // Batch fetch all swap records in one query (efficient)
         let allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletsNeedingAnalysisOrdered);
 
         this.checkTimeout(startTime, timeoutMs, 'Fetching swap records');
@@ -990,11 +1067,34 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   ): Promise<HolderProfilesResult> {
     this.logger.log(`Starting holder profile analysis for wallet ${walletAddress}`);
 
+    // Try Tier 1 cache (Redis) first
     const cached = await this.holderProfilesCacheService.getWalletResult(walletAddress);
     if (cached) {
       this.logger.log(`Returning cached holder profile for wallet ${walletAddress}`);
       await job.updateProgress(100);
       return cached;
+    }
+
+    // Try Tier 2 cache (DB snapshots)
+    const cachedProfile = await this.holderProfilesCacheService.getWalletSnapshot(walletAddress);
+    if (cachedProfile) {
+      const processingTimeMs = Date.now() - startTime;
+      const result: HolderProfilesResult = {
+        success: true,
+        mode: 'wallet',
+        targetWallet: walletAddress,
+        profiles: [cachedProfile],
+        metadata: {
+          totalHoldersRequested: 1,
+          totalHoldersAnalyzed: 1,
+          totalProcessingTimeMs: processingTimeMs,
+          avgProcessingTimePerWalletMs: processingTimeMs,
+        },
+        timestamp: Date.now(),
+        processingTimeMs,
+      };
+      await job.updateProgress(100);
+      return result;
     }
 
     this.checkTimeout(startTime, timeoutMs, 'Starting wallet holder profile analysis');
@@ -1040,6 +1140,20 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(50);
 
     const profile = await this.analyzeWalletProfile(walletAddress, 1, 0, swapRecords);
+    await this.holderProfilesCacheService.saveSnapshot({
+      walletAddress,
+      tokenMint: null,
+      analysisMode: 'wallet',
+      holderRank: profile.rank,
+      supplyPercent: profile.supplyPercent,
+      topN: 1,
+      jobId: job.id?.toString() ?? null,
+      requestId: job.data.requestId,
+      profile,
+      metadata: {
+        mode: 'wallet',
+      },
+    });
 
     const processingTimeMs = Date.now() - startTime;
     const result: HolderProfilesResult = {
@@ -1363,7 +1477,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             historicalPattern.completedCycleCount,
             historicalPattern.dataQuality,
           )
-        : 'LOW' as const; // Current holdings data = lower quality
+        : 'BRONZE' as const; // Current holdings data = lower quality
 
       return {
         walletAddress,
@@ -1565,29 +1679,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   /**
    * Determine data quality tier based on cycle count and confidence
    */
-  private determineDataQualityTier(cycles: number, confidence: number): 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' {
-    if (cycles >= 30 && confidence >= 0.8) return 'HIGH';
-    if (cycles >= 10 && confidence >= 0.6) return 'MEDIUM';
-    if (cycles >= 3) return 'LOW';
+  private determineDataQualityTier(cycles: number, confidence: number): 'GOLD' | 'SILVER' | 'BRONZE' | 'INSUFFICIENT' {
+    if (cycles >= 30 && confidence >= 0.8) return 'GOLD';
+    if (cycles >= 10 && confidence >= 0.6) return 'SILVER';
+    if (cycles >= 3) return 'BRONZE';
     return 'INSUFFICIENT';
   }
 
-  private isBehaviorProfileFresh(cachedProfile: any, walletRecord: any): boolean {
-    if (!cachedProfile) return false;
-    const profileUpdatedAt = cachedProfile.updatedAt instanceof Date
-      ? cachedProfile.updatedAt.getTime()
-      : new Date(cachedProfile.updatedAt).getTime();
-    if (Number.isNaN(profileUpdatedAt)) {
-      return false;
-    }
-
-    if (walletRecord?.lastSuccessfulFetchTimestamp instanceof Date) {
-      return profileUpdatedAt >= walletRecord.lastSuccessfulFetchTimestamp.getTime();
-    }
-
-    const ageMs = Date.now() - profileUpdatedAt;
-    return ageMs < 60 * 60 * 1000; // 1 hour fallback if no wallet sync info is available
-  }
 
   /**
    * Check if operation has exceeded timeout

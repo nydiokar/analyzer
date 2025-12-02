@@ -192,12 +192,12 @@ function HoldMetricCard(props: {
 
 function getQualityIndicator(tier?: string) {
   switch (tier) {
-    case 'HIGH':
-      return { dot: 'bg-emerald-500', panel: 'bg-emerald-500/10', label: 'High quality' };
-    case 'MEDIUM':
-      return { dot: 'bg-blue-500', panel: 'bg-blue-500/10', label: 'Medium quality' };
-    case 'LOW':
-      return { dot: 'bg-yellow-500', panel: 'bg-yellow-500/10', label: 'Low quality' };
+    case 'GOLD':
+      return { dot: 'bg-yellow-500', panel: 'bg-yellow-500/10', label: 'Gold quality' };
+    case 'SILVER':
+      return { dot: 'bg-gray-400', panel: 'bg-gray-400/10', label: 'Silver quality' };
+    case 'BRONZE':
+      return { dot: 'bg-orange-700', panel: 'bg-orange-700/10', label: 'Bronze quality' };
     case 'INSUFFICIENT':
       return { dot: 'bg-red-500', panel: 'bg-red-500/10', label: 'Insufficient data' };
     default:

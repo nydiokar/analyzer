@@ -15,9 +15,9 @@ export const BEHAVIOR_COLORS: Record<string, BehaviorColorSet> = {
 };
 
 export const QUALITY_COLORS: Record<string, string> = {
-  HIGH: 'bg-emerald-500/15 text-emerald-500',
-  MEDIUM: 'bg-blue-500/15 text-blue-500',
-  LOW: 'bg-yellow-500/15 text-yellow-500',
+  GOLD: 'bg-yellow-500/15 text-yellow-600',
+  SILVER: 'bg-gray-400/15 text-gray-500',
+  BRONZE: 'bg-orange-700/15 text-orange-800',
   INSUFFICIENT: 'bg-red-500/15 text-red-500',
 };
 

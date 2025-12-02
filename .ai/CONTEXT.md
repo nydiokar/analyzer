@@ -73,11 +73,14 @@ Poll GET /jobs/:jobId until status = 'completed'
 - [x] Virtualized token performance table with stabilized skeleton heights and min-height container to reduce DOM cost and CLS (`dashboard/src/components/dashboard/TokenPerformanceTab.tsx`, `dashboard/package.json`)
  - [x] Staged dashboard auto-refresh for wallet profile: initial load over `min(7 days, 1000 signatures)`, then 30‑day window, then deep backfill to max‑tx cap; thresholds are config‑driven and backend orchestrates jobs with websocket progress streaming (`dashboard/src/components/layout/WalletProfileLayout.tsx`, `dashboard/src/components/dashboard/BehavioralPatternsTab.tsx`, `src/api/controllers/analyses.controller.ts`)
  - [x] Dashboard QA & polish pass: verification matrix (heavy/low‑activity/demo), restricted‑wallet guardrails tightened, CTA copy and instrumentation refreshed.
+- [x] Holder profile snapshot cache (2025-11-30) – Persist the full holder profile JSON per wallet via `HolderProfileSnapshot`, stream cached holders instantly, and only re-run analysis when snapshots are stale (`prisma/schema.prisma`, `src/core/services/database-service.ts`, `src/queues/processors/analysis-operations.processor.ts`)
 ---
 
 ## Active
 
 None - Ready for next feature.
+
+TEST THE NEW HOLDER PROFILE CACHE IMPLEMENTATION
 
 ## Recently Completed (Last 3-4 Days)
 
@@ -165,7 +168,7 @@ None - Ready for next feature.
         - [x] Average hold time (weighted)
         - [x] **NEW: Flip ratio** (% of completed positions held <5min) ⭐
         - [x] Behavior classification (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
-        - [x] Data quality tiers (HIGH/MEDIUM/LOW/INSUFFICIENT)
+        - [x] Data quality tiers (GOLD/SILVER/BRONZE/INSUFFICIENT)
       - [x] Unit tests for daily flip ratio and data quality tiers
     - [x] **Day 2: API Endpoint** (4h):
       - [x] Add endpoint to `AnalysesController`: `POST /analyses/holder-profiles`
@@ -198,7 +201,7 @@ None - Ready for next feature.
       - **Flip ratio** (% of completed positions held <5min - flipping activity indicator)
       - Behavior type (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
       - Exit pattern (GRADUAL/ALL_AT_ONCE)
-      - Data quality tier (HIGH/MEDIUM/LOW/INSUFFICIENT with tooltips)
+      - Data quality tier (GOLD/SILVER/BRONZE/INSUFFICIENT with tooltips)
     - **Performance Optimizations**:
       - Top 10 holders only (not 20-50)
       - Batch DB fetch: `{ walletAddress: { in: [...] } }`
@@ -435,4 +438,3 @@ PAY ATTENTION!
 Need to find out a way to fulfill all token history for a wallet, when we have identified such in the X amount of txs we have fetch. Gake is having no holder data for the past 1000 tx, due to old tokens. 
 
 Find a way to detect when tokens have changed the owner and sold off from a different wallet. 
-

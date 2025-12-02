@@ -3,7 +3,10 @@
     "allow": [
       "Bash(pm2 logs:*)"
     ],
-    "deny": [],
+    "deny": [
+      "Edit(.env*)",
+      "Write(.env*)"
+    ],
     "ask": []
   }
 }

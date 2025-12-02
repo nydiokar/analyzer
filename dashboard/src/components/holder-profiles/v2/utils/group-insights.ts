@@ -22,7 +22,7 @@ export function buildWalletGroupInsights(profiles: HolderProfile[]): WalletGroup
   const byConviction = [...profiles]
     .filter((p) => typeof p.dailyFlipRatio === 'number')
     .sort((a, b) => (a.dailyFlipRatio ?? 0) - (b.dailyFlipRatio ?? 0));
-  const weakestQuality = profiles.find((p) => p.dataQualityTier !== 'HIGH');
+  const weakestQuality = profiles.find((p) => p.dataQualityTier !== 'GOLD');
 
   return [
     {

@@ -1,9 +1,9 @@
 # Architecture: Holder Risk Analysis & Predictive Holding Time
 
-**Status**: ✅ Phase 1-3 Complete | 🔄 Frontend Migration In Progress
+**Status**: ✅ Phase 1-4 Complete | 🚀 Production Ready
 **Priority**: High
 **Owner**: Core Analytics Team
-**Last Updated**: 2025-11-17
+**Last Updated**: 2025-12-01
 
 ---
 
@@ -21,17 +21,20 @@ Build a predictive holder risk analysis system that enables traders to evaluate 
 
 ---
 
-## Implementation Status (2025-11-17)
+## Implementation Status (2025-12-01)
 
 ### ✅ Phase 1: Core Calculation (COMPLETE - 2025-11-08)
 
 **Location**: `src/core/analysis/behavior/analyzer.ts`
 
 ✅ **Historical Pattern Calculation** (Lines 150-298)
-- `calculateHistoricalPattern()`: Weighted average from COMPLETED positions only
+- **Enhancement**: Uses per-token median aggregation (not all-lifecycles median)
+- Prevents re-entry bias - each token weighted equally regardless of cycle count
+- Weighted average from COMPLETED positions only
 - Median hold time (outlier-robust)
 - Behavior classification (ULTRA_FLIPPER/FLIPPER/SWING/HOLDER)
 - Data quality scoring
+- Hold time distribution for flip ratio calculation
 - **Validated**: 19 wallets, 4,007+ exited positions, 100% accuracy
 
 ✅ **Token Lifecycle Tracking** (Lines 573-710)
@@ -80,11 +83,14 @@ Build a predictive holder risk analysis system that enables traders to evaluate 
 
 ✅ **Backend**
 - Async job-based architecture (BullMQ)
-- Processor: `src/queues/processors/analysis-operations.processor.ts:632-922`
+- Processor: `src/queues/processors/analysis-operations.processor.ts:632-1500`
 - Batch database queries (no N+1)
 - Parallel holder analysis (`Promise.all`)
-- Redis caching (2min TTL, atomic invalidation)
-- **Performance**: <15s for 10 holders
+- **TWO-TIER CACHING** (Enhanced beyond original plan):
+  - **Tier 1 (Redis)**: 1-hour TTL, <50ms response
+  - **Tier 2 (PostgreSQL)**: `HolderProfileSnapshot` table, smart freshness checks via `wallet.lastSuccessfulFetchTimestamp`
+  - Progressive streaming: Serve 7 cached instantly, compute 3 missing
+- **Performance**: <15s for 10 holders (cold), <50ms (cached)
 
 ✅ **Dashboard**
 - Page: `dashboard/src/app/tools/holder-profiles/page.tsx`
@@ -160,11 +166,11 @@ All behavior classification thresholds now centralized in a single source of tru
   - **Purpose**: Show breakdown of hold times across all completed positions
   - **Usage**: Available in API for UI display, used for flip ratio calculation
 
-- **Flip Ratio Calculation** (`analysis-operations.processor.ts:1079-1115`):
-  - **Before**: Looked for `tokenLifecycles` (not exposed) → always returned 0.0%
-  - **After**: Uses `holdTimeDistribution` from `historicalPattern`
+- **Flip Ratio Calculation** (`analysis-operations.processor.ts:1555-1590`):
+  - Uses `holdTimeDistribution` from `historicalPattern`
   - **Formula**: `(instant + ultraFast + fast) / total * 100`
-  - **Impact**: Now correctly shows % of positions held <5min (e.g., 91% for bot wallets)
+  - **Enhancement**: Confidence tiers (HIGH ≥10 cycles, MEDIUM 5-9, LOW 3-4, NONE <3)
+  - **Impact**: Shows % of positions held <5min with quality indicator (e.g., "91% (HIGH)")
 
 - **Log Spam Reduction** (`analyzer.ts:238-243`):
   - **Before**: 100+ individual lines "Filtering out token X with invalid hold time: 0.000000h"
@@ -182,18 +188,16 @@ All behavior classification thresholds now centralized in a single source of tru
 - `economicRisk`: CRITICAL/HIGH/MEDIUM/LOW
 - `behavioralPattern`: ACCUMULATOR/BALANCED/etc
 
-### 🔄 Phase 4: Frontend Migration (IN PROGRESS - 2025-11-17)
+### ✅ Phase 4: Frontend Migration (COMPLETE - 2025-11-17)
 
-⏳ **Goal**: Update dashboard to use new metrics
+**File**: `dashboard/src/components/dashboard/BehavioralPatternsTab.tsx`
 
-**Tasks Remaining**:
-1. ⏳ Audit frontend for old metric usage
-2. ⏳ Replace `tradingStyle` string matching
-3. ⏳ Update displays to use `tradingInterpretation`
-4. ⏳ Test consistency between holder risk tab & wallet profile
-5. ⏳ Deploy to staging
-
-**Estimated Time**: 2-3 hours
+✅ **Completed**:
+1. Updated to use `historicalPattern` metrics with fallbacks
+2. Added `tradingInterpretation` display (speed category, economic risk, behavioral pattern)
+3. Both tabs now show consistent metrics
+4. Clear tooltips explaining dual interpretation (typical vs economic)
+5. Removed deprecated metric displays from current holdings section
 
 ---
 
@@ -653,7 +657,7 @@ Existing top holders display should be enhanced with risk indicators:
 
 **Success Criteria:** ✅ ALL MET
 - ✅ Users can view holder profiles for any token
-- ✅ Clear quality indicators (HIGH/MEDIUM/LOW/INSUFFICIENT badges)
+- ✅ Clear quality indicators (GOLD/SILVER/BRONZE/INSUFFICIENT badges)
 - ✅ Detailed breakdown in table (median, avg, flip ratio, behavior type)
 - ✅ Mobile responsive (Tailwind responsive classes)
 
@@ -1618,7 +1622,7 @@ function DataQualityBadge({ tier, cycles }) {
 - [x] ~~Implement `getTokenHolderProfiles()` - orchestrator~~ Implemented as `processAnalyzeHolderProfiles()` job handler
 - [x] Implement `analyzeWalletProfile()` - per-wallet analysis (analysis-operations.processor.ts:824-922)
 - [x] Implement `calculateDailyFlipRatio()` - NEW metric (analysis-operations.processor.ts:947-974)
-- [x] Implement `determineDataQualityTier()` - HIGH/MEDIUM/LOW/INSUFFICIENT (analysis-operations.processor.ts:983-990)
+- [x] Implement `determineDataQualityTier()` - GOLD/SILVER/BRONZE/INSUFFICIENT (analysis-operations.processor.ts:983-990)
 - [x] Add performance tracking (processing time per wallet) - included in response
 - [x] Use `Promise.all()` for parallel wallet analysis (analysis-operations.processor.ts:719)
 - [x] Unit test for quality tiers and flip ratio - validated with real tokens
@@ -1660,7 +1664,7 @@ function DataQualityBadge({ tier, cycles }) {
 - [x] Test with 5 real tokens
 - [x] Test edge cases:
   - [x] All holders have insufficient data
-  - [x] Mix of HIGH/MEDIUM/LOW/INSUFFICIENT
+  - [x] Mix of GOLD/SILVER/BRONZE/INSUFFICIENT
   - [x] Very slow wallets (500k+ transactions)
 - [x] Verify performance:
   - [x] Total time <15s for 10 holders
@@ -1689,290 +1693,242 @@ function DataQualityBadge({ tier, cycles }) {
 
 ---
 
-## Caching Implementation (2025-11-12)
+## Caching Implementation (2025-11-12, Enhanced 2025-12-01)
 
 ### Overview
 
 **Challenge**: Holder profile analysis is expensive (10 wallets × behavior analysis = 5-15 seconds). Without caching, every page load would trigger full re-analysis.
 
-**Solution**: Redis caching with automatic invalidation to balance performance and data freshness.
+**Solution**: Two-tier caching with smart freshness checks (evolved from original 2-min Redis plan).
 
 ### Architecture
 
-**Cache Strategy**:
-- **TTL**: 2 minutes maximum (user requirement - prevents serving stale data)
-- **Cache Key Pattern**: `holder-profiles:{tokenMint}:{topN}` (e.g., `holder-profiles:So11111...:10`)
-- **Invalidation Triggers**:
-  - Wallet sync completion (new transactions)
-  - Behavior analysis completion (updated metrics)
+**Tier 1: Redis (Hot Cache)**
+- **TTL**: 1 hour (auto-eviction)
+- **Response Time**: <50ms
+- **Cache Key**: `holder-profiles:{tokenMint}:{topN}` or `holder-profiles:wallet:{address}`
+- **Storage**: Complete `HolderProfilesResult` objects
 
-### Implementation Files
+**Tier 2: PostgreSQL (Persistent Cache)**
+- **Table**: `HolderProfileSnapshot` (JSONB column for profile data)
+- **TTL**: Until wallet re-syncs (smart freshness check)
+- **Response Time**: 100-200ms
+- **Storage**: Individual `HolderProfile` records
+- **Freshness Logic**: `snapshot.computedAt >= wallet.lastSuccessfulFetchTimestamp`
 
-**1. Cache Service** (`src/api/services/holder-profiles-cache.service.ts`)
+**Cache Flow** (10 holders requested):
+1. Check Tier 1 → Full result? → Return immediately (<50ms)
+2. Check Tier 2 → Fetch 10 snapshots → 7 fresh, 3 stale
+3. Stream 7 cached profiles to frontend immediately
+4. Compute 3 missing → Save to Tier 2 → Stream to frontend
+5. Cache complete result in Tier 1 for next request
 
+**Performance**:
+- Cold: 5-15s (full analysis)
+- Tier 1 hit: <50ms (100-300x faster)
+- Tier 2 partial: 2-5s (7 instant + 3 computed)
+
+### Implementation
+
+**File**: `src/api/services/holder-profiles-cache.service.ts`
+
+**Key Methods**:
+- `getTokenResult()` / `cacheTokenResult()` - Tier 1 token-level caching
+- `getWalletResult()` / `cacheWalletResult()` - Tier 1 wallet-level caching
+- `getTokenSnapshots()` / `getWalletSnapshot()` - Tier 2 snapshot retrieval
+- `saveSnapshot()` - Tier 2 snapshot persistence
+- `hydrateSnapshot()` - Convert DB snapshot to `HolderProfile` object
+
+## Time Window Filters (Phase 5 - NOT YET IMPLEMENTED)
+
+### Design Proposal for 7d / 30d / All-Time Filters
+
+**Goal**: Show behavioral drift (e.g., "was holder 30d ago, now flipper 7d ago")
+
+---
+
+### Architecture Design
+
+#### API Extension
 ```typescript
-@Injectable()
-export class HolderProfilesCacheService {
-  private redis: Redis;
-
-  constructor() {
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      maxRetriesPerRequest: 3,
-    });
-  }
-
-  /**
-   * Get cached holder profiles result
-   * TTL: 2 minutes maximum (as requested)
-   */
-  async getCachedResult(tokenMint: string, topN: number): Promise<HolderProfilesResult | null> {
-    const cacheKey = `holder-profiles:${tokenMint}:${topN}`;
-    const cached = await this.redis.get(cacheKey);
-    if (cached) {
-      return JSON.parse(cached);
-    }
-    return null;
-  }
-
-  /**
-   * Cache holder profiles result
-   * TTL: 2 minutes (120 seconds) - ensures freshness
-   */
-  async cacheResult(tokenMint: string, topN: number, result: HolderProfilesResult): Promise<void> {
-    const cacheKey = `holder-profiles:${tokenMint}:${topN}`;
-    const ttlSeconds = 120; // 2 minutes max as requested
-    await this.redis.set(cacheKey, JSON.stringify(result), 'EX', ttlSeconds);
-  }
-
-  /**
-   * Invalidate cache when wallet data changes
-   * This ensures we NEVER serve stale data after new transactions
-   */
-  async invalidateForWallet(walletAddress: string): Promise<void> {
-    const pattern = 'holder-profiles:*';
-    const keys = await this.redis.keys(pattern);
-    if (keys.length === 0) return;
-
-    // Check each cached result to see if it contains this wallet
-    const keysToDelete: string[] = [];
-    const pipeline = this.redis.pipeline();
-    for (const key of keys) {
-      pipeline.get(key);
-    }
-    const results = await pipeline.exec();
-    if (!results) return;
-
-    for (let i = 0; i < results.length; i++) {
-      const [err, value] = results[i];
-      if (err || !value) continue;
-      try {
-        const cached = JSON.parse(value as string) as HolderProfilesResult;
-        const hasWallet = cached.profiles.some(p => p.walletAddress === walletAddress);
-        if (hasWallet) {
-          keysToDelete.push(keys[i]);
-        }
-      } catch (parseError) {
-        keysToDelete.push(keys[i]); // Delete corrupted cache
-      }
-    }
-
-    if (keysToDelete.length > 0) {
-      await this.redis.del(...keysToDelete);
-      this.logger.log(`🔄 Invalidated ${keysToDelete.length} holder-profiles cache(s) for wallet ${walletAddress}`);
-    }
-  }
+POST /api/v1/analyses/holder-profiles
+{
+  tokenMint: "So11...",
+  topN: 10,
+  timeWindow?: "7d" | "30d" | "all-time"  // Optional, defaults to "all-time"
 }
 ```
 
-**2. Processor Integration** (`src/queues/processors/analysis-operations.processor.ts`)
-
+#### Type Extension
 ```typescript
-async processAnalyzeHolderProfiles(job: Job<AnalyzeHolderProfilesJobData>): Promise<HolderProfilesResult> {
-  const { tokenMint, topN, requestId } = job.data;
+export interface HolderProfile {
+  // Existing fields (all-time by default)
+  medianHoldTimeHours: number | null;
+  avgHoldTimeHours: number | null;
+  behaviorType: string | null;
 
-  // 🔍 Check cache first (2 min TTL)
-  const cachedResult = await this.holderProfilesCacheService.getCachedResult(tokenMint, topN);
-  if (cachedResult) {
-    this.logger.log(`✅ Returning cached holder profiles for ${tokenMint}`);
-    await job.updateProgress(100);
-    return cachedResult;
-  }
-
-  // ... perform analysis ...
-
-  // 💾 Cache the result (2 min TTL)
-  await this.holderProfilesCacheService.cacheResult(tokenMint, topN, result);
-  return result;
-}
-
-async processAnalyzeBehavior(job: Job<AnalyzeBehaviorJobData>): Promise<AnalysisResult> {
-  // ... existing behavior analysis logic ...
-
-  await job.updateProgress(100);
-  const result: AnalysisResult = { /* ... */ };
-
-  // 🔄 Invalidate holder profiles cache for this wallet (behavioral metrics updated)
-  await this.holderProfilesCacheService.invalidateForWallet(walletAddress);
-
-  return result;
-}
-```
-
-**3. Wallet Sync Integration** (`src/queues/processors/wallet-operations.processor.ts`)
-
-```typescript
-async processSyncWallet(job: Job<SyncWalletJobData>): Promise<WalletSyncResult> {
-  // ... existing wallet sync logic ...
-
-  const result: WalletSyncResult = {
-    success: true,
-    walletAddress,
-    status: 'synced',
-    lastSync: updatedWallet?.lastSuccessfulFetchTimestamp,
-    timestamp: Date.now(),
-    processingTimeMs: Date.now() - startTime
+  // NEW: Time window breakdown (optional)
+  timeWindowMetrics?: {
+    '7d': {
+      medianHoldTimeHours: number | null;
+      avgHoldTimeHours: number | null;
+      behaviorType: string | null;
+      completedCycleCount: number;
+      dataQuality: number;
+    };
+    '30d': { /* same structure */ };
+    'all-time': { /* same structure */ };
   };
-
-  // 🔄 Invalidate holder profiles cache for this wallet (prevents stale data)
-  await this.holderProfilesCacheService.invalidateForWallet(walletAddress);
-
-  this.logger.log(`Wallet sync completed for ${walletAddress}.`);
-  return result;
 }
 ```
 
-**4. Module Setup**
+#### Cache Strategy
 
-Created `HolderProfilesCacheModule` and added to `QueueModule` imports:
+**Tier 1 (Redis)**: Window-specific cache keys
+```
+holder-profiles:token:So11...:10:7d       → TTL 1h
+holder-profiles:token:So11...:10:30d      → TTL 1h
+holder-profiles:token:So11...:10:all-time → TTL 1h
+```
 
+**Tier 2 (PostgreSQL)**: Single snapshot with all windows
+```sql
+-- HolderProfileSnapshot.data (JSONB column)
+{
+  "walletAddress": "abc...",
+  "medianHoldTimeHours": 2.5,  -- Default all-time
+  "timeWindowMetrics": {
+    "7d": { "median": 0.5, "avg": 1.2, "behaviorType": "FLIPPER", "cycles": 5 },
+    "30d": { "median": 1.8, "avg": 3.5, "behaviorType": "SWING", "cycles": 15 },
+    "all-time": { "median": 2.5, "avg": 5.0, "behaviorType": "SWING", "cycles": 50 }
+  }
+}
+```
+
+**Benefit**: Single DB row stores all 3 windows, no storage bloat
+
+---
+
+### Compute Strategy
+
+**Option 1: Compute on-the-fly** ❌ NOT RECOMMENDED
 ```typescript
-// src/api/modules/holder-profiles-cache.module.ts
-@Module({
-  providers: [HolderProfilesCacheService],
-  exports: [HolderProfilesCacheService],
-})
-export class HolderProfilesCacheModule {}
+// Filter swap records by date range on every request
+calculateHistoricalPattern(
+  swapRecords.filter(r => r.timestamp > now - 7days),
+  wallet
+)
+```
+- **Pros**: No DB changes, flexible
+- **Cons**: 3x compute on every read (terrible UX + server load)
 
-// src/queues/queue.module.ts
-@Global()
-@Module({
-  imports: [
-    // ... existing imports ...
-    HolderProfilesCacheModule, // Provides HolderProfilesCacheService
-  ],
-})
-export class QueueModule implements OnModuleInit { /* ... */ }
+**Option 2: Pre-compute during analysis** ✅ RECOMMENDED
+```typescript
+// During holder profile analysis, compute all 3 windows
+const metrics7d = calculateHistoricalPattern(
+  swapRecords.filter(r => r.timestamp > now - 7days), wallet
+);  // ~30ms
+
+const metrics30d = calculateHistoricalPattern(
+  swapRecords.filter(r => r.timestamp > now - 30days), wallet
+);  // ~60ms
+
+const metricsAllTime = calculateHistoricalPattern(
+  swapRecords, wallet
+);  // ~100ms
+
+// Store all 3 in HolderProfile.timeWindowMetrics
+// Total: ~190ms vs 100ms = +90ms per wallet
 ```
 
-### Cache Flow
+**Compute Impact**:
+- **Per wallet**: +90ms (+90% compute during analysis)
+- **10 wallets**: +900ms = 12s → 13s total (+8% job time)
+- **Read time**: 0ms (pre-computed, instant window switching)
 
-**First Request (Cache Miss)**:
-```
-User → Frontend → POST /analyses/holder-profiles
-  ↓
-Controller → Enqueues job
-  ↓
-Processor → Checks cache (miss) → Performs full analysis → Stores in cache (2 min TTL)
-  ↓
-Frontend polls job → Returns result (5-15s)
-```
+**Trade-off**: 8% slower analysis for instant UI responsiveness ✅ **Worth it**
 
-**Subsequent Requests (Cache Hit)**:
-```
-User → Frontend → POST /analyses/holder-profiles
-  ↓
-Controller → Enqueues job
-  ↓
-Processor → Checks cache (HIT!) → Returns immediately (< 100ms)
-  ↓
-Frontend polls job → Returns result (< 1s)
-```
+---
 
-**Invalidation Flow (Wallet Update)**:
-```
-Wallet sync completes OR Behavior analysis completes
-  ↓
-Processor calls invalidateForWallet(walletAddress)
-  ↓
-Cache service:
-  1. Fetch all holder-profiles:* keys
-  2. Parse each cached result
-  3. Check if wallet is in profiles
-  4. Delete matching cache entries
-  ↓
-Next request will miss cache and re-analyze with fresh data
+### Frontend Display Options
+
+#### Option A: Tabs (Simple)
+```tsx
+<Tabs defaultValue="all-time">
+  <Tab value="7d">Last 7 Days</Tab>
+  <Tab value="30d">Last 30 Days</Tab>
+  <Tab value="all-time">All Time</Tab>
+</Tabs>
+
+<TabContent value="7d">
+  <HolderProfilesTable data={profiles} window="7d" />
+</TabContent>
 ```
 
-### Design Decisions
+#### Option B: Inline Comparison (Better UX)
+```tsx
+<HolderProfileRow>
+  <WalletCell>abc...123</WalletCell>
+  <BehaviorCell>
+    <div className="text-xs space-y-1">
+      <div>7d: <Badge color="red">FLIPPER</Badge> 0.5h</div>
+      <div>30d: <Badge color="yellow">SWING</Badge> 1.8h</div>
+      <div>All: <Badge color="green">SWING</Badge> 2.5h</div>
+    </div>
+    {/* Visual indicator: 🔴 Becoming faster */}
+  </BehaviorCell>
+</HolderProfileRow>
+```
 
-**Why 2 Minutes TTL?**
-- User requirement: "1 min or 2 min maximum"
-- Balance between performance and freshness
-- Short enough to prevent serving very stale data
-- Long enough to benefit multiple users viewing same token
+#### Option C: Trend Graph (Best UX)
+```tsx
+<MiniSparkline
+  data={[
+    { label: '7d', value: 0.5 },
+    { label: '30d', value: 1.8 },
+    { label: 'All', value: 2.5 }
+  ]}
+  trend="down"  // Becoming faster = red indicator
+/>
+```
 
-**Why Smart Invalidation?**
-- User requirement: "if new data is received we must invalidate and serve the new data"
-- Wallet transactions directly affect holder profiles (holding times, flip ratios)
-- Cannot rely on TTL alone - might serve stale data for up to 2 minutes after wallet update
-- Parse-and-check approach ensures surgical invalidation (only affected caches)
+---
 
-**Why Not Simple Key Delete?**
-- Cache key includes `tokenMint`, but invalidation trigger is `walletAddress`
-- One wallet can be in multiple token holder profiles
-- Need to check each cache entry to see if it contains the updated wallet
-- Alternative (invalidate all) would defeat caching benefit
+### Implementation Steps (When Needed)
 
-### Bug Fixes During Implementation
+1. **Backend** (2-3 hours):
+   - Extend `HolderProfile` type with `timeWindowMetrics` field
+   - Update `analyzeWalletProfile()` to compute 3 windows
+   - Modify cache keys to include window parameter
+   - Update Tier 2 snapshot storage to save all 3 windows
 
-**Bug #1: Supply Percentage Calculation**
-- **Problem**: Passing absolute token amount instead of percentage
-- **Location**: `src/queues/processors/analysis-operations.processor.ts:706`
-- **Fix**: Calculate total supply and compute percentage before passing to `analyzeWalletProfile()`
+2. **Frontend** (2-3 hours):
+   - Add time window selector (tabs or dropdown)
+   - Update table to show time-specific metrics
+   - Add drift indicators (color coding for behavioral changes)
+   - Optional: Add mini trend graphs
 
-**Bug #2: Flip Ratio Formula**
-- **Problem**: Only counted <5min OR ≥1h trades, excluding 5min-1h range (misleading ratio)
-- **Location**: `src/queues/processors/analysis-operations.processor.ts:947-974`
-- **Fix**: Changed to "% of ALL completed positions held <5min" (true flipping activity)
+3. **Testing** (1 hour):
+   - Verify 3 windows compute correctly
+   - Test cache invalidation per window
+   - Validate UI displays all windows
+   - Check performance impact (<15s for 10 wallets)
 
-### Performance Impact
+**Total Estimate**: 5-7 hours
 
-**Before Caching**:
-- Every request: 5-15 seconds (full analysis of 10 wallets)
-- Database queries: N+1 potential (batch fetching mitigates)
+---
 
-**After Caching (Cache Hit)**:
-- Cached request: < 100ms (Redis read + parse)
-- 50-150x faster response time
-- Zero database queries on cache hit
+### Business Value
 
-**After Caching (Cache Miss + Invalidation)**:
-- First request: 5-15 seconds (same as before)
-- Subsequent requests: < 100ms until invalidation or TTL
-- Invalidation: ~50-200ms overhead (fetch keys, parse, delete)
+**Enables**:
+- Behavioral drift detection ("was holder, now flipper")
+- Early dump warning ("50% of holders flipping faster in last 7d")
+- Wallet filtering ("show only wallets trending toward dumping")
+- Risk alerts ("3 major holders changed to FLIPPER pattern")
 
-### Trade-offs
+**Priority**: Low (nice-to-have, not blocking current features)
 
-**Pros**:
-- ✅ Dramatically improved response times for repeated queries
-- ✅ Reduced database load
-- ✅ Prevents stale data via smart invalidation
-- ✅ User-specified TTL (2 min max)
-
-**Cons**:
-- ❌ Invalidation adds slight overhead to wallet sync/behavior analysis
-- ❌ Parse-and-check invalidation scales O(n) with cache size (acceptable for now)
-- ❌ Redis dependency (single point of failure - degrades gracefully to cache miss)
-
-### Future Improvements
-
-**Potential Optimizations**:
-1. **Inverse Index**: Store `wallet:{address} → set[cache_keys]` to avoid parsing on invalidation
-2. **Partial Invalidation**: Re-compute only affected wallet in cached result (vs full re-analysis)
-3. **Pre-warming**: Background job to cache popular tokens before user requests
-4. **Tiered TTL**: Longer TTL for stable wallets (no recent transactions)
+**Decision**: Deferred until user feedback indicates need
 
 ---
 

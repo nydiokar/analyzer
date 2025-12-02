@@ -107,31 +107,33 @@ async function analyzeWallet(
 
   const swapRecords = await dbService.getSwapAnalysisInputs(walletAddress);
   if (swapRecords.length === 0) {
-    console.log('   No swap data found');
+    console.log('   ❌ No swap data found');
     return null;
   }
 
   const pattern = analyzer.calculateHistoricalPattern(swapRecords, walletAddress);
   if (!pattern) {
-    console.log('   Insufficient historical data');
+    console.log('   ❌ Insufficient historical data');
     return null;
   }
 
-  // Get active positions
-  const sequences = (analyzer as any).buildTokenSequences(swapRecords);
-  const lifecycles = (analyzer as any).buildTokenLifecycles(sequences, Date.now() / 1000);
-  const activeTokens = lifecycles.filter((lc: any) => lc.positionStatus === 'ACTIVE');
+  // Get active positions using public API (from AnalysisResult table)
+  const activePositions = await dbService.getAnalysisResults({
+    where: { walletAddress },
+  }).then(results =>
+    results.filter(r => typeof r.currentUiBalance === 'number' && (r.currentUiBalance ?? 0) > 0)
+  );
 
-  console.log(`   Historical: ${formatTime(pattern.medianCompletedHoldTimeHours * 60)} median`);
-  console.log(`   Active positions: ${activeTokens.length}`);
+  console.log(`   ✓ Historical: ${formatTime(pattern.medianCompletedHoldTimeHours * 60)} median`);
+  console.log(`   ✓ Active positions: ${activePositions.length}`);
 
   const predictions = [];
   const medianMinutes = pattern.medianCompletedHoldTimeHours * 60;
 
-  for (const lifecycle of activeTokens) {
+  for (const position of activePositions) {
     const prediction = analyzer.predictTokenExit(
       walletAddress,
-      lifecycle.mint,
+      position.tokenAddress,
       swapRecords
     );
 
@@ -162,7 +164,7 @@ async function analyzeWallet(
       }
 
       predictions.push({
-        tokenMint: lifecycle.mint,
+        tokenMint: position.tokenAddress,
         positionAgeMinutes: ageMinutes,
         estimatedExitMinutes: exitMinutes,
         riskLevel: prediction.riskLevel,
@@ -181,7 +183,7 @@ async function analyzeWallet(
     exitPattern: pattern.exitPattern,
     sampleSize: pattern.completedCycleCount,
     totalSwaps: swapRecords.length,
-    activePositions: activeTokens.length,
+    activePositions: activePositions.length,
     predictions,
   };
 }
