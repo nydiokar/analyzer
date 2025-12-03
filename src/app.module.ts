@@ -10,6 +10,7 @@ import { AuthModule } from './api/modules/auth.module'; // Import the new AuthMo
 import { QueueModule } from './queues/queue.module'; // Add BullMQ queue integration
 import { APP_GUARD } from '@nestjs/core';
 import { CompositeAuthGuard } from './api/shared/guards/composite-auth.guard';
+import { AdminGuard } from './api/shared/guards/admin.guard';
 
 @Module({
   imports: [
@@ -36,6 +37,10 @@ import { CompositeAuthGuard } from './api/shared/guards/composite-auth.guard';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AdminGuard,
     },
   ],
 })

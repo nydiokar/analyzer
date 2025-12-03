@@ -16,10 +16,24 @@ Sova Intel is a comprehensive Solana wallet analysis platform that provides deta
 
 ### 1. Health Module (`/health`)
 
-Basic health check endpoint for monitoring system status.
+Tiered health monitoring system with security-conscious endpoint design.
 
 **Endpoints:**
-- `GET /health` - System health check
+- `GET /health` - **Public** basic operational status (safe for external monitoring)
+- `GET /health/detailed` - **Admin-only** comprehensive health metrics (database, cache, performance)
+- `GET /health/queues` - **Admin-only** BullMQ queue health and Redis status
+- `GET /health/cache-metrics` - **Admin-only** cache statistics for monitoring
+
+**Security Model:**
+- Public endpoint (`/health`) returns minimal status information (operational/down only)
+- Admin-protected endpoints require authentication AND administrator privileges
+- Prevents information disclosure of internal infrastructure details
+
+**Authentication:** 
+- `/health` - Public (no auth required)
+- All other endpoints - Admin privileges required (configured via ADMIN_USER_IDS and ADMIN_EMAILS environment variables)
+
+**Rate Limiting:** Standard throttling applied
 
 ### 2. Authentication Module (`/auth`)
 
