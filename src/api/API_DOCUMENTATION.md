@@ -6,10 +6,10 @@ Sova Intel is a comprehensive Solana wallet analysis platform that provides deta
 
 ## Base Information
 
-- **Application**: Sova Intel v0.14.6
+- **Application**: Sova Intel v0.18.0
 - **Technology Stack**: NestJS, TypeScript, BullMQ, Prisma, Redis
 - **Base URL**: `/api` (configurable)
-- **Authentication**: API Key based authentication
+- **Authentication**: Dual system - JWT (primary) + API Keys (services/legacy)
 - **Rate Limiting**: Applied per endpoint (varies by endpoint)
 
 ## API Modules
@@ -23,34 +23,55 @@ Tiered health monitoring system with security-conscious endpoint design.
 - `GET /health/detailed` - **Admin-only** comprehensive health metrics (database, cache, performance)
 - `GET /health/queues` - **Admin-only** BullMQ queue health and Redis status
 - `GET /health/cache-metrics` - **Admin-only** cache statistics for monitoring
+- `GET /health/metrics` - **Admin-only** Prometheus text format metrics
 
 **Security Model:**
 - Public endpoint (`/health`) returns minimal status information (operational/down only)
 - Admin-protected endpoints require authentication AND administrator privileges
-- Prevents information disclosure of internal infrastructure details
+- **Critical Security (2025-12-03)**: Prevents infrastructure enumeration attacks
+  - Regular authenticated users (JWT) cannot access detailed metrics
+  - Only admins (via `ADMIN_USER_IDS`/`ADMIN_EMAILS`) can see internal details
+  - Attackers cannot register → get JWT → scrape infrastructure metrics
 
-**Authentication:** 
+**Authentication:**
 - `/health` - Public (no auth required)
-- All other endpoints - Admin privileges required (configured via ADMIN_USER_IDS and ADMIN_EMAILS environment variables)
+- All other endpoints - Admin privileges required (configured via `ADMIN_USER_IDS` and `ADMIN_EMAILS` environment variables)
+
+**Prometheus Integration:**
+- Use API key with `'admin'` or `'full'` scope for Prometheus scraper
+- Configure in `prometheus.yml` with `Authorization` header or `X-API-Key`
+- See `docs/monitoring/PROMETHEUS_SETUP.md` for complete guide
 
 **Rate Limiting:** Standard throttling applied
 
 ### 2. Authentication Module (`/auth`)
 
-Complete JWT-based authentication system with email verification and security features.
+Complete JWT-based authentication system with refresh tokens, email verification, and security features.
 
 **Endpoints:**
-- `POST /auth/register` - Register new user account
-- `POST /auth/login` - Login with email and password
+- `POST /auth/register` - Register new user account (returns access + refresh tokens)
+- `POST /auth/login` - Login with email and password (returns access + refresh tokens)
+- `POST /auth/refresh` - Refresh access token using refresh token (rotating refresh)
 - `GET /auth/me` - Get current user profile
-- `POST /auth/logout` - Logout user (clear cookies if enabled)
+- `POST /auth/logout` - Logout user (revokes refresh session, clears cookies if enabled)
+- `POST /auth/logout-all` - Logout all sessions (revokes all user's refresh tokens)
 - `POST /auth/request-verification` - Request email verification
 - `POST /auth/verify-email` - Verify email with token
+- `POST /auth/forgot-password` - Request password reset token (generic 200 response, token emailed)
+- `POST /auth/reset-password` - Reset password with emailed token
 
-**Authentication:** Registration/Login are public, others require authentication  
-**Rate Limiting:** 
+**Security Features:**
+- **Short-lived access tokens**: 30-minute TTL (configurable via `JWT_EXPIRES_IN`)
+- **Rotating refresh tokens**: 7-day sliding window, hashed in Redis with replay detection
+- **Enhanced JWT signing**: Includes `kid`, `iss`, `aud`, `nbf` claims for validation
+- **Password security**: bcrypt (12 rounds) + pepper (32+ chars required)
+- **Timing attack protection**: Constant-time user lookups prevent enumeration
+- **Password reset**: Generic 200 response, tokens only emailed (never in API response)
+
+**Authentication:** Registration/Login/Forgot Password are public, others require authentication
+**Rate Limiting:**
 - Registration: 5 requests/minute
-- Login: 10 requests/minute  
+- Login: 10 requests/minute
 - Email verification request: 10 requests per 5 minutes
 - Email verification: 3 attempts per 5 minutes
 - Profile access: No rate limiting
@@ -420,26 +441,42 @@ All analysis endpoints return job IDs that can be monitored via the Jobs API. Th
 ## Authentication & Security
 
 ### Dual Authentication System
-The API supports two authentication methods with automatic fallback:
+The API supports two authentication methods via `CompositeAuthGuard` (tries JWT first, falls back to API key):
 
-#### 1. JWT Authentication (Preferred)
-- **Header:** `Authorization: Bearer {jwt_token}`
-- **Cookie:** If cookie mode is enabled, an HTTP-only cookie carries the short-lived access token
+#### 1. JWT Authentication (Primary - For Human Users)
+- **Header:** `Authorization: Bearer {access_token}`
+- **Cookie:** If cookie mode is enabled (`AUTH_COOKIE_MODE=true`), an HTTP-only cookie carries the short-lived access token
 - **Token Type:** JWT (JSON Web Token)
 - **Expiration:** 30 minutes by default (configurable via `JWT_EXPIRES_IN`)
-- **Features:** 
-  - Stateless authentication
-  - Built-in expiration handling
-  - User context caching (15 minutes)
-  - Automatic token validation
-  - Optional HTTP-only cookie support
-
-#### 2. API Key Authentication (Legacy/Backup)
-- **Header:** `X-API-Key: {api_key}`
+- **Refresh:** Rotating refresh tokens (7-day sliding window) stored hashed in Redis
 - **Features:**
-  - Backward compatibility
+  - Stateless authentication with identity only (`sub`, `email` - NO scopes)
+  - Built-in expiration handling with automatic refresh flow
+  - User context caching (15 minutes)
+  - Enhanced claims: `kid`, `iss`, `aud`, `nbf` for validation
+  - Replay detection on refresh token reuse (revokes entire session chain)
+  - Optional HTTP-only cookie support with CSRF protection
+
+**Why No Scopes in JWT?**
+- ✅ Instant admin revocation (change `ADMIN_USER_IDS` env → restart)
+- ✅ Simpler for human users (no scope management UI needed)
+- ✅ Smaller token payload (faster transmission)
+- ✅ Separation of concerns: Identity (JWT) vs Permissions (API keys)
+
+#### 2. API Key Authentication (For Services & Legacy)
+- **Header:** `X-API-Key: {api_key}`
+- **Format:** Prefixed keys (`ak_live_*` for production, `ak_test_*` for development)
+- **Scopes:** `'read' | 'report' | 'analysis' | 'admin' | 'full'`
+- **Features:**
+  - Permission-based access control (scopes embedded in key)
+  - Backward compatibility with legacy integrations
   - API key caching (5 minutes)
-  - User validation on each request
+  - Used for services: Prometheus scraping, CI/CD, external integrations
+  - Scope validation via `ApiKeyService.hasScope()`
+
+**Use Cases:**
+- **JWT**: Human users with browser/Postman, admin checks via `ADMIN_USER_IDS`
+- **API Keys**: Services with specific scopes (Prometheus = `admin`, CI/CD = `read`)
 
 ### Cookie Authentication Support
 
@@ -474,6 +511,7 @@ Content-Type: application/json
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "user": {
     "id": "user_123",
     "email": "user@example.com",
@@ -482,6 +520,8 @@ Content-Type: application/json
   }
 }
 ```
+
+**Note:** API key is created internally but NOT returned (intentional design - use API key management endpoints if needed)
 
 #### Login
 ```http
@@ -495,6 +535,32 @@ Content-Type: application/json
 ```
 
 **Response:** Same as registration
+
+#### Token Refresh
+```http
+POST /api/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "isDemo": false,
+    "emailVerified": true
+  }
+}
+```
+
+**Note:** Refresh token is rotated on each refresh (old token revoked, new token issued)
 
 #### Profile Access
 ```http
@@ -535,11 +601,23 @@ Content-Type: application/json
 
 ### User Types & Permissions
 
+#### Administrator Users
+- **Configuration:** Set via `ADMIN_USER_IDS` (comma-separated user IDs) or `ADMIN_EMAILS` (comma-separated emails)
+- **Access:** All regular user features PLUS admin-only endpoints
+- **Admin-Only Endpoints:**
+  - `/health/detailed` - Comprehensive health metrics
+  - `/health/queues` - Queue and Redis status
+  - `/health/cache-metrics` - Cache statistics
+  - `/health/metrics` - Prometheus metrics
+- **Revocation:** Change env vars + restart = instant access removal (no token refresh needed)
+- **Check:** `AdminGuard` verifies user against admin lists on each request
+
 #### Regular Users
 - Full access to all wallet analysis features
 - Can create, edit, and delete notes
 - Can manage favorites
 - Access to all wallet addresses
+- **Cannot** access admin-only health/monitoring endpoints
 
 #### Demo Users
 - **Restricted Access:** Limited to predefined demo wallets

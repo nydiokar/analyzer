@@ -1,14 +1,18 @@
-## Auth Next Tasks (Release-focused)
+## Auth System - Production Ready ✅
 
-Prioritized, minimal-change steps to reach a safe, shippable state. Keep API keys working; focus on session safety, CSRF (if cookies), and key rotation hooks. Argon2id migration is deferred until core session and CSRF are done.
+**Status**: All critical security tasks completed and merged to `main` (2025-12-03)
 
-### Must-fix before shipping this branch
+### Completed Security Tasks ✅
 - ✅ Stop returning real password reset tokens; only email/log in dev and respond with a generic message (now 200 OK, no token in response).
 - ✅ Hash refresh tokens in Redis (store hash → session) and enforce replay revocation: on reuse, revoke chain/all user sessions and alert.
-- ✅ Choose a transport strategy and align middleware:
-  - **Headers (chosen for this release)**: disable cookie mode; drop CSRF; rely on `Authorization: Bearer`. (Current default)
-  - **Cookies**: add cookie extractor in the auth guard, ensure CSRF on all POST/PUT/PATCH/DELETE routes (not just `/auth`), and avoid exposing tokens to JS storage.
-- ✅ Enforce strong secrets: require non-empty 32+ char `PASSWORD_PEPPER`; keep JWT verify restricted to `HS256`; added absolute refresh-session max age.
+- ✅ Transport strategy finalized:
+  - **Headers (production default)**: Uses `Authorization: Bearer` tokens, no cookie mode, CSRF not required
+  - **Cookies**: Available via `AUTH_COOKIE_MODE=true`, includes CSRF protection on all state-changing routes
+- ✅ Strong secrets enforced: `PASSWORD_PEPPER` required (32+ chars), JWT restricted to `HS256`, absolute refresh-session max age set
+- ✅ **Health endpoints secured** (2025-12-03): All monitoring endpoints require admin privileges (`@AdminOnly()` decorator)
+  - `/health/detailed`, `/health/queues`, `/health/cache-metrics`, `/health/metrics`
+  - Prevents infrastructure enumeration by unauthorized users
+  - AdminGuard checks `ADMIN_USER_IDS` and `ADMIN_EMAILS` environment variables
 
 ### Guarding strategy for this release (Authorization header)
 - Keep `CompositeAuthGuard` as the gate for all protected routes and require `Authorization: Bearer <access-token>`.
@@ -79,9 +83,34 @@ Notes
 - Email provider abstraction added: supports Resend (`MAIL_PROVIDER=resend`, `RESEND_API_KEY`, `MAIL_FROM`) and SMTP fallback. Suppression checks added via Redis. Resend webhook endpoint at `/webhooks/email/resend` (protect with `MAIL_WEBHOOK_SECRET`).
   - Webhook expects standard Resend event shape (`type`, `data.email.to`/`data.to`); adjust mapper if provider payload differs.
 
-### Next actions before prod
-1) Set strong envs in prod: `PASSWORD_PEPPER` (>=32 chars), `JWT_SECRET` (long random), `CSRF_SECRET` if cookie mode ever enabled.
-2) Configure email delivery: either Resend (preferred for speed) with webhook + suppression storage, or SMTP credentials. Set `MAIL_PROVIDER`, `MAIL_FROM`, and provider-specific keys.
-3) Protect the Resend webhook with `MAIL_WEBHOOK_SECRET` and enable bounce/complaint handling to suppress bad addresses.
-4) Optionally add a cookie-mode test run if you plan to enable cookies; keep `AUTH_COOKIE_MODE=false` otherwise.
-5) Set admin allowlists for security monitoring endpoints via `ADMIN_USER_IDS` and/or `ADMIN_EMAILS`.
+### Deployment Checklist (Production)
+
+**Before Deployment:**
+1) ✅ Set strong environment variables:
+   - `PASSWORD_PEPPER` (>=32 chars, use: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
+   - `JWT_SECRET` (64+ chars, use: `node -e "console.log(require('crypto').randomBytes(64).toString('base64'))"`)
+   - `CSRF_SECRET` (only if enabling `AUTH_COOKIE_MODE=true`)
+
+2) ✅ Configure admin access for monitoring:
+   - `ADMIN_USER_IDS=your-user-id-here` (comma-separated list)
+   - `ADMIN_EMAILS=admin@example.com` (comma-separated list, case-insensitive)
+
+3) ✅ Configure email delivery (for password reset, verification):
+   - **Resend (recommended)**: Set `MAIL_PROVIDER=resend`, `RESEND_API_KEY`, `MAIL_FROM`
+   - **SMTP (fallback)**: Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`
+   - Optional: Protect webhook with `MAIL_WEBHOOK_SECRET` for `/webhooks/email/resend`
+
+4) ✅ Create monitoring API key for Prometheus:
+   - Use `ApiKeyService.createApiKey()` with `scopes: ['admin']` or `['full']`
+   - Configure Prometheus to use this key in `Authorization` header or `X-API-Key`
+
+5) ✅ Verify health endpoints return 403 for non-admin users:
+   ```bash
+   # Should return 403 Forbidden
+   curl -H "Authorization: Bearer <non-admin-jwt>" https://your-api.com/health/metrics
+   ```
+
+**Optional (if enabling cookies):**
+- Set `AUTH_COOKIE_MODE=true` and `AUTH_COOKIE_SECURE=true`
+- Run cookie-mode integration tests
+- Verify CSRF protection on all state-changing endpoints

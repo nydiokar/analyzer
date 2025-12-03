@@ -53,7 +53,7 @@ export class HealthController {
   }
 
   /**
-   * Detailed health check - Requires authentication (admin-only recommended)
+   * Detailed health check - Requires admin privileges
    * Exposes internal metrics for debugging and monitoring
    */
   @Get('detailed')
@@ -65,6 +65,7 @@ export class HealthController {
     description: 'Returns comprehensive health status including database, cache, and performance metrics. Requires admin privileges.'
   })
   @ApiResponse({ status: 200, description: 'Health check passed successfully' })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
   @ApiResponse({ status: 403, description: 'Admin privileges required' })
   @ApiResponse({ status: 503, description: 'Health check failed' })
   async checkDetailed() {
@@ -145,8 +146,8 @@ export class HealthController {
   }
 
   /**
-   * Queue health check - Admin only
-   * Returns detailed queue and Redis status
+   * Queue health check - Requires admin privileges
+   * Returns detailed queue and Redis status for monitoring tools
    */
   @Get('queues')
   @AdminOnly()
@@ -170,6 +171,7 @@ export class HealthController {
       }
     }
   })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
   @ApiResponse({ status: 403, description: 'Admin privileges required' })
   @ApiResponse({ status: 503, description: 'Queue health check failed or system unhealthy' })
   async checkQueues(): Promise<OverallHealthStatus> {
@@ -196,8 +198,8 @@ export class HealthController {
   }
 
   /**
-   * Cache metrics - Admin only
-   * Returns cache statistics for monitoring
+   * Cache metrics - Requires admin privileges
+   * Returns cache statistics for monitoring tools
    */
   @Get('cache-metrics')
   @AdminOnly()
@@ -207,6 +209,7 @@ export class HealthController {
     description: 'Returns comprehensive cache statistics for holder profiles and other cached data. Requires admin privileges.'
   })
   @ApiResponse({ status: 200, description: 'Cache metrics retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
   @ApiResponse({ status: 403, description: 'Admin privileges required' })
   async getCacheMetrics() {
     try {
@@ -240,5 +243,97 @@ export class HealthController {
 
   private isHolderSnapshotCacheEnabled(): boolean {
     return process.env.DISABLE_HOLDER_PROFILE_SNAPSHOT_CACHE !== 'true';
+  }
+
+  /**
+   * Prometheus-compatible metrics endpoint - Admin only
+   * Returns metrics in Prometheus text exposition format
+   * For Prometheus scraping, use an API key with 'admin' or 'full' scope
+   */
+  @Get('metrics')
+  @AdminOnly()
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Prometheus metrics (admin only)',
+    description: 'Returns system metrics in Prometheus text format for scraping. Requires admin privileges. Use API key with admin scope for Prometheus scraper.'
+  })
+  @ApiResponse({ status: 200, description: 'Metrics in Prometheus format', schema: { type: 'string' } })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
+  @ApiResponse({ status: 403, description: 'Admin privileges required' })
+  async getPrometheusMetrics(): Promise<string> {
+    try {
+      const metrics: string[] = [];
+
+      // Database health
+      const dbStart = Date.now();
+      try {
+        await this.prisma.$queryRaw`SELECT 1`;
+        const dbResponseTime = Date.now() - dbStart;
+        metrics.push('# HELP sova_database_up Database availability (1 = up, 0 = down)');
+        metrics.push('# TYPE sova_database_up gauge');
+        metrics.push('sova_database_up 1');
+        metrics.push('# HELP sova_database_response_time_ms Database response time in milliseconds');
+        metrics.push('# TYPE sova_database_response_time_ms gauge');
+        metrics.push(`sova_database_response_time_ms ${dbResponseTime}`);
+      } catch (error) {
+        metrics.push('# HELP sova_database_up Database availability (1 = up, 0 = down)');
+        metrics.push('# TYPE sova_database_up gauge');
+        metrics.push('sova_database_up 0');
+      }
+
+      // Queue health
+      try {
+        const queueHealth = await this.queueHealthService.getOverallHealth();
+        metrics.push('# HELP sova_queues_healthy Number of healthy queues');
+        metrics.push('# TYPE sova_queues_healthy gauge');
+        metrics.push(`sova_queues_healthy ${queueHealth.summary.healthyQueues}`);
+        metrics.push('# HELP sova_queues_total Total number of monitored queues');
+        metrics.push('# TYPE sova_queues_total gauge');
+        metrics.push(`sova_queues_total ${queueHealth.summary.totalQueues}`);
+        metrics.push('# HELP sova_redis_up Redis availability (1 = up, 0 = down)');
+        metrics.push('# TYPE sova_redis_up gauge');
+        const redisUp = queueHealth.redis.status === 'healthy' ? 1 : 0;
+        metrics.push(`sova_redis_up ${redisUp}`);
+
+        // Per-queue metrics
+        queueHealth.queues.forEach(queue => {
+          const queueName = queue.queueName.replace(/-/g, '_');
+          metrics.push(`# HELP sova_queue_${queueName}_waiting Jobs waiting in ${queue.queueName} queue`);
+          metrics.push(`# TYPE sova_queue_${queueName}_waiting gauge`);
+          metrics.push(`sova_queue_${queueName}_waiting ${queue.stats.waiting}`);
+          metrics.push(`# HELP sova_queue_${queueName}_active Active jobs in ${queue.queueName} queue`);
+          metrics.push(`# TYPE sova_queue_${queueName}_active gauge`);
+          metrics.push(`sova_queue_${queueName}_active ${queue.stats.active}`);
+          metrics.push(`# HELP sova_queue_${queueName}_failed Failed jobs in ${queue.queueName} queue`);
+          metrics.push(`# TYPE sova_queue_${queueName}_failed gauge`);
+          metrics.push(`sova_queue_${queueName}_failed ${queue.stats.failed}`);
+        });
+      } catch (error) {
+        this.logger.error('Failed to get queue metrics:', error);
+      }
+
+      // Cache metrics
+      const snapshotCacheEnabled = this.isHolderSnapshotCacheEnabled();
+      if (snapshotCacheEnabled) {
+        try {
+          const cacheStats = await this.holderProfilesCacheService.getCacheStats();
+          metrics.push('# HELP sova_cache_holder_profiles_total Total cached holder profiles');
+          metrics.push('# TYPE sova_cache_holder_profiles_total gauge');
+          metrics.push(`sova_cache_holder_profiles_total ${cacheStats.totalKeys}`);
+        } catch (error) {
+          this.logger.error('Failed to get cache metrics:', error);
+        }
+      }
+
+      // System uptime (approximate - when health endpoint started responding)
+      metrics.push('# HELP sova_health_check_timestamp_seconds Timestamp of last health check');
+      metrics.push('# TYPE sova_health_check_timestamp_seconds gauge');
+      metrics.push(`sova_health_check_timestamp_seconds ${Math.floor(Date.now() / 1000)}`);
+
+      return metrics.join('\n') + '\n';
+    } catch (error) {
+      this.logger.error('Failed to generate Prometheus metrics:', error);
+      throw error;
+    }
   }
 }

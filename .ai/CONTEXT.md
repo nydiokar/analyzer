@@ -80,9 +80,27 @@ Poll GET /jobs/:jobId until status = 'completed'
 
 None - Ready for next feature.
 
-TEST THE NEW HOLDER PROFILE CACHE IMPLEMENTATION
-
 ## Recently Completed (Last 3-4 Days)
+
+- **JWT Authentication System Merge & Security Hardening** ✅ (2025-12-03)
+  - [x] Merged `feature/user-jwt-auth` branch into `main` (11 conflicting files resolved)
+  - [x] Dual authentication: JWT (new users) + API Keys (legacy/services)
+  - [x] Security architecture finalized: AdminGuard for sensitive endpoints
+  - [x] Health monitoring secured: all `/health/*` endpoints require admin privileges
+  - [x] Prometheus metrics endpoint: `/health/metrics` with proper admin-only protection
+  - [x] Documentation: `docs/monitoring/PROMETHEUS_SETUP.md` created
+  - **Key Architectural Decisions**:
+    - JWT for human users (identity-based, checks `ADMIN_USER_IDS`/`ADMIN_EMAILS`)
+    - API keys for services (permission-based with scopes: `read`, `report`, `analysis`, `admin`, `full`)
+    - No scopes in JWT (intentional) - admin checks via environment variables for instant revocation
+    - CompositeAuthGuard: tries JWT first, falls back to API key authentication
+    - Health endpoints protected from infrastructure enumeration attacks
+  - **Files Modified**:
+    - `package.json`, `prisma/schema.prisma` (merged auth + main features)
+    - All controllers: auth imports added, decorators preserved
+    - `health.controller.ts`: `@AdminOnly()` on `/detailed`, `/queues`, `/cache-metrics`, `/metrics`
+    - Frontend layouts: merged auth UI with main's optimizations
+  - **Status**: ✅ Builds successfully, ready for deployment
 
 - **Exit Timing Token Drilldown** ✅ (2025-11-20) - See "Completed" section below for full details
 - **Dashboard Components Documentation** ✅ (2025-11-20) - Comprehensive `dashboard/docs/components-overview.md` update
