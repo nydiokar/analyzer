@@ -194,11 +194,11 @@ export class ApiKeyService {
   }
 
   /**
-   * Revoke an API key
+   * Revoke an API key (user-specific - validates ownership)
    */
   async revokeApiKey(userId: string, keyId: string): Promise<void> {
     const keyRecord = await this.databaseService.findApiKeyById(keyId);
-    
+
     if (!keyRecord) {
       throw new NotFoundException('API key not found');
     }
@@ -212,11 +212,30 @@ export class ApiKeyService {
   }
 
   /**
-   * Update API key metadata
+   * Admin: Revoke any API key by ID (no user validation)
+   */
+  async revokeApiKeyAsAdmin(keyId: string): Promise<{ success: boolean; message: string }> {
+    const keyRecord = await this.databaseService.findApiKeyById(keyId);
+
+    if (!keyRecord) {
+      return { success: false, message: 'API key not found' };
+    }
+
+    await this.databaseService.updateApiKeyStatus(keyId, false);
+    this.logger.log(`Admin: Revoked API key: ${keyRecord.prefix}***`);
+
+    return {
+      success: true,
+      message: `API key ${keyRecord.prefix}*** revoked successfully`
+    };
+  }
+
+  /**
+   * Update API key metadata (user-specific - validates ownership)
    */
   async updateApiKey(userId: string, keyId: string, updates: { description?: string; scopes?: ApiKeyScope[] }): Promise<void> {
     const keyRecord = await this.databaseService.findApiKeyById(keyId);
-    
+
     if (!keyRecord) {
       throw new NotFoundException('API key not found');
     }
@@ -227,6 +246,81 @@ export class ApiKeyService {
 
     await this.databaseService.updateApiKeyMetadata(keyId, updates);
     this.logger.log(`Updated API key: ${keyRecord.prefix}*** for user ${userId}`);
+  }
+
+  /**
+   * Admin: Update any API key metadata by ID (no user validation)
+   */
+  async updateApiKeyAsAdmin(keyId: string, updates: { description?: string; scopes?: ApiKeyScope[] }): Promise<{ success: boolean; message: string }> {
+    const keyRecord = await this.databaseService.findApiKeyById(keyId);
+
+    if (!keyRecord) {
+      return { success: false, message: 'API key not found' };
+    }
+
+    await this.databaseService.updateApiKeyMetadata(keyId, updates);
+    this.logger.log(`Admin: Updated API key: ${keyRecord.prefix}***`);
+
+    return {
+      success: true,
+      message: 'API key updated successfully'
+    };
+  }
+
+  /**
+   * Admin: List all API keys with user information
+   */
+  async listAllApiKeys(): Promise<Array<{
+    id: string;
+    prefix: string;
+    userId: string;
+    userEmail: string | null;
+    userDescription: string | null;
+    description: string;
+    scopes: ApiKeyScope[];
+    isActive: boolean;
+    lastUsedAt: Date | null;
+    expiresAt: Date | null;
+    createdAt: Date;
+  }>> {
+    const keys = await this.databaseService.findAllApiKeysWithUsers();
+
+    return keys.map((key: any) => ({
+      id: key.id,
+      prefix: key.prefix,
+      userId: key.userId,
+      userEmail: key.user?.email || null,
+      userDescription: key.user?.description || null,
+      description: key.description,
+      scopes: key.scopes,
+      isActive: key.isActive,
+      lastUsedAt: key.lastUsedAt,
+      expiresAt: key.expiresAt,
+      createdAt: key.createdAt,
+    }));
+  }
+
+  /**
+   * Admin: Delete API key permanently by ID
+   */
+  async deleteApiKey(keyId: string): Promise<{ success: boolean; message: string }> {
+    const key = await this.databaseService.findApiKeyById(keyId);
+
+    if (!key) {
+      return { success: false, message: 'API key not found' };
+    }
+
+    const deletedKey = await this.databaseService.deleteApiKeyById(keyId);
+
+    if (!deletedKey) {
+      return { success: false, message: 'Failed to delete API key' };
+    }
+
+    this.logger.log(`Admin: Permanently deleted API key: ${key.prefix}***`);
+    return {
+      success: true,
+      message: `API key ${key.prefix}*** deleted permanently`
+    };
   }
 
   /**

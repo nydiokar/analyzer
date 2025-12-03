@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { DatabaseModule } from './api/modules/database.module';
 import { TestController } from './api/controllers/test.controller';
 // Import the main WalletsModule which groups wallet-related features and controllers
-import { WalletsModule } from './api/modules/wallets.module'; 
+import { WalletsModule } from './api/modules/wallets.module';
 import { AnalysesModule } from './api/modules/analyses.module'; // Import AnalysesModule
 import { UsersModule } from './api/modules/users.module'; // Import the new UsersModule
+import { AdminModule } from './api/modules/admin.module'; // Import AdminModule for admin panel
 import { DexscreenerModule } from './api/integrations/dexscreener.module';
 import { TokenInfoModule } from './api/integrations/token-info.module';
 import { HealthModule } from './api/modules/health.module';
@@ -19,6 +20,7 @@ import { HeliusWebhookModule } from './api/integrations/helius-webhook.module';
     WalletsModule,  // Imports all wallet-related features and controllers
     AnalysesModule, // Imports analysis triggering endpoints
     UsersModule,    // Add UsersModule here
+    AdminModule,    // Admin panel for API key management
     DexscreenerModule,
     TokenInfoModule,
     HealthModule,

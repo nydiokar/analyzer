@@ -342,4 +342,42 @@ export class JwtDatabaseService {
     });
     return deletedResult.count;
   }
+
+  /**
+   * Admin: Find all API keys with user information
+   */
+  async findAllApiKeysWithUsers(): Promise<any[]> {
+    try {
+      const keys = await (this.databaseService as any).prismaClient.apiKey.findMany({
+        include: {
+          user: {
+            select: { email: true, description: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return keys.map(key => ({
+        ...key,
+        scopes: key.scopes ? JSON.parse(key.scopes) : [],
+      }));
+    } catch (error) {
+      this.logger.error('Failed to find all API keys with users', error);
+      return [];
+    }
+  }
+
+  /**
+   * Admin: Delete API key by ID
+   */
+  async deleteApiKeyById(keyId: string): Promise<any> {
+    try {
+      return await (this.databaseService as any).prismaClient.apiKey.delete({
+        where: { id: keyId },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to delete API key: ${keyId}`, error);
+      return null;
+    }
+  }
 }

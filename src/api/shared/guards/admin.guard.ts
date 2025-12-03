@@ -57,4 +57,16 @@ export class AdminGuard implements CanActivate {
     this.logger.warn(`Admin access denied for user ${user.id} (${user.email})`);
     throw new ForbiddenException('This endpoint requires administrator privileges');
   }
+
+  /**
+   * Check if a user is an admin (public helper method)
+   */
+  isUserAdmin(user: User | undefined): boolean {
+    if (!user) return false;
+
+    const isAdminId = user.id && this.adminUserIds.has(user.id);
+    const isAdminEmail = user.email && this.adminEmails.has(user.email.toLowerCase());
+
+    return !!(isAdminId || isAdminEmail);
+  }
 }

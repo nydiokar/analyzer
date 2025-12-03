@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { User } from '@prisma/client';
 import { AuthService, RegisterDto, LoginDto, AuthResponse } from '../shared/services/auth.service';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
+import { AdminGuard } from '../shared/guards/admin.guard';
 import { CsrfGuard } from '../shared/guards/csrf.guard';
 import { CsrfService } from '../shared/services/csrf.service';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
@@ -72,6 +73,7 @@ export class AuthController {
 
   constructor(
     private readonly authService: AuthService,
+    private readonly adminGuard: AdminGuard,
     private readonly configService: ConfigService,
     private readonly csrfService: CsrfService,
     private readonly securityLogger: SecurityLoggerService,
@@ -237,8 +239,8 @@ export class AuthController {
   @UseGuards(CompositeAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current user profile' })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'User profile retrieved successfully',
     schema: {
       type: 'object',
@@ -247,6 +249,7 @@ export class AuthController {
         email: { type: 'string' },
         isDemo: { type: 'boolean' },
         emailVerified: { type: 'boolean' },
+        isAdmin: { type: 'boolean', description: 'Whether user has admin privileges' },
         createdAt: { type: 'string', format: 'date-time' },
         lastLoginAt: { type: 'string', format: 'date-time', nullable: true },
       }
@@ -258,6 +261,7 @@ export class AuthController {
     email: string | null;
     isDemo: boolean;
     emailVerified: boolean;
+    isAdmin: boolean;
     createdAt: Date;
     lastLoginAt: Date | null;
   }> {
@@ -267,6 +271,7 @@ export class AuthController {
       email: user.email,
       isDemo: user.isDemo,
       emailVerified: user.emailVerified,
+      isAdmin: this.adminGuard.isUserAdmin(user),
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
     };
