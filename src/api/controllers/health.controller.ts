@@ -1,4 +1,4 @@
-import { Controller, Get, Logger } from '@nestjs/common';
+import { Controller, Get, Logger, Header } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService, HttpHealthIndicator, HealthIndicatorResult } from '@nestjs/terminus';
 import { DatabaseService } from '../services/database.service';
@@ -253,6 +253,7 @@ export class HealthController {
   @Get('metrics')
   @AdminOnly()
   @ApiBearerAuth()
+  @Header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
   @ApiOperation({
     summary: 'Prometheus metrics (admin only)',
     description: 'Returns system metrics in Prometheus text format for scraping. Requires admin privileges. Use API key with admin scope for Prometheus scraper.'

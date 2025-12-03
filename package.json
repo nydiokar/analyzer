@@ -28,6 +28,8 @@
     "pm2:start:backend": "npm run build && pm2 start ecosystem.backend.config.js --env production",
     "debug:mapper": "ts-node -r tsconfig-paths/register scripts/debug_mapper.ts",
     "test:queues": "npx ts-node -r tsconfig-paths/register src/queues/test-similarity-flow.ts",
+    "user:manage": "ts-node -r tsconfig-paths/register scripts/manage-users.ts",
+    "apikey:manage": "ts-node -r tsconfig-paths/register scripts/manage-api-keys.ts",
     "test:integration": "npx ts-node -r tsconfig-paths/register src/queues/test-backend-integration.ts",
     "validate:deps": "npx ts-node -r tsconfig-paths/register scripts/validate-dependencies.ts",
     "clear-wallet": "npx ts-node -r tsconfig-paths/register scripts/clear-wallet-data.ts",
