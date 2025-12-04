@@ -17,6 +17,9 @@
 4. **Home redesign plan** – Outline/plan a modern single-page scrolling “tool showcase” for Home that highlights each module before we rebuild it.
 5. **Layout separation** – Design a layout split so Home uses a dedicated shell (no sidebar), while the sidebar remains in the tool hub only; document the approach before coding.
 6. **Reset-password UX** – Hook up the dashboard reset-password flow (request + token-based reset) to the existing backend endpoints so users can trigger the journey end-to-end.
+7. **Global theme toggle** – Extend the existing dark/light theme controls from the dashboard shell to the entire app (landing + home + tool hub), so users set their preference once and it applies everywhere.
+8. **User analysis timeline** – Add a simple timeline/history page that surfaces a user’s recent jobs (submitted, running, completed) with status and timestamps, so they can track work without digging through logs.
+9. **First-run onboarding flow** – Replace the post-registration drop-off with a guided checklist (verify email → sync wallet → explore tool hub). Ties into the new layout split so unauthenticated vs. tool hub experiences feel purpose-built.
 
 ---
 
