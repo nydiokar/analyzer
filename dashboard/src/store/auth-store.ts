@@ -287,7 +287,12 @@ export const useAuthStore = create<AuthStore>()(
             } else {
               // No valid token, clear authentication
               console.log('No valid token found, clearing authentication');
-              state.clearAuth();
+              tokenManager.clearTokens();
+              state.token = null;
+              state.user = null;
+              state.isAuthenticated = false;
+              state.apiKey = null;
+              state.isUsingApiKey = false;
             }
           } else if (state.apiKey && state.isUsingApiKey) {
             // API key authentication - validate it

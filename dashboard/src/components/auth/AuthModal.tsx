@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
-import { Eye, EyeOff, Mail, Lock, UserPlus, LogIn, Sparkles } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, UserPlus, LogIn, Sparkles, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AuthModalProps {
@@ -21,7 +21,7 @@ interface AuthModalProps {
 export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess }: AuthModalProps) {
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [showPassword, setShowPassword] = useState(false);
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '' });
   const { login, register, loading } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent, isLogin: boolean) => {
@@ -31,13 +31,28 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
       return;
     }
 
+    if (!isLogin) {
+      if (!formData.confirmPassword) {
+        return;
+      }
+      if (formData.password !== formData.confirmPassword) {
+        toast.error('Passwords do not match');
+        return;
+      }
+    }
+
+    const credentials = {
+      email: formData.email,
+      password: formData.password,
+    };
+
     const success = isLogin 
-      ? await login(formData)
-      : await register(formData);
+      ? await login(credentials)
+      : await register(credentials);
 
     if (success) {
       onOpenChange(false);
-      setFormData({ email: '', password: '' });
+      setFormData({ email: '', password: '', confirmPassword: '' });
       
       // Show email verification notice for new registrations
       if (!isLogin) {
@@ -52,7 +67,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
     }
   };
 
-  const handleInputChange = (field: 'email' | 'password', value: string) => {
+  const handleInputChange = (field: 'email' | 'password' | 'confirmPassword', value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -64,7 +79,13 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
     return password.length >= 8 && /(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password);
   };
 
-  const canSubmit = formData.email && formData.password && isValidEmail(formData.email);
+  const canSubmitLogin = Boolean(formData.email && formData.password && isValidEmail(formData.email));
+  const canSubmitRegister = Boolean(
+    canSubmitLogin &&
+    formData.confirmPassword &&
+    formData.password === formData.confirmPassword &&
+    isValidPassword(formData.password)
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -144,7 +165,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                 <Button
                   type="submit"
                   className="w-full h-11 bg-blue-600 hover:bg-blue-700"
-                  disabled={loading || !canSubmit}
+                  disabled={loading || !canSubmitLogin}
                 >
                   {loading ? 'Signing in...' : 'Sign In'}
                 </Button>
@@ -229,10 +250,31 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                   )}
                 </div>
 
+                <div className="space-y-2">
+                  <Label htmlFor="register-confirm-password" className="text-sm font-medium">
+                    Confirm Password
+                  </Label>
+                  <div className="relative">
+                    <Check className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Input
+                      id="register-confirm-password"
+                      type="password"
+                      placeholder="Re-enter your password"
+                      value={formData.confirmPassword}
+                      onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                      className="pl-10 h-11"
+                      required
+                    />
+                  </div>
+                  {formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                    <p className="text-xs text-red-400">Passwords do not match</p>
+                  )}
+                </div>
+
                 <Button
                   type="submit"
                   className="w-full h-11 bg-blue-600 hover:bg-blue-700"
-                  disabled={loading || !canSubmit || !isValidPassword(formData.password)}
+                  disabled={loading || !canSubmitRegister}
                 >
                   {loading ? 'Creating account...' : 'Create Account'}
                 </Button>

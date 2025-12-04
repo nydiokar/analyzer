@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { UserCircle2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -34,10 +35,13 @@ export default function HomePage() {
       {/* Header */}
       <header className="relative z-10 w-full px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
-            <span className="text-white font-bold text-xl">S</span>
-          </div>
-          <h1 className="text-xl font-bold text-white">Sova Intel</h1>
+          <Image
+            src="/sova_badge_primary.svg"
+            alt="Sova Intel Logo"
+            width={40}
+            height={40}
+            className="rounded-lg"
+          />
         </div>
 
         {/* Auth UI */}

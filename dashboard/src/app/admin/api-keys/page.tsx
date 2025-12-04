@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -57,14 +57,7 @@ export default function AdminApiKeysPage() {
     return null;
   }
 
-  // Fetch API keys
-  useEffect(() => {
-    if (isAuthenticated && user?.isAdmin) {
-      fetchApiKeys();
-    }
-  }, [isAuthenticated, user]);
-
-  const fetchApiKeys = async () => {
+  const fetchApiKeys = useCallback(async () => {
     setLoading(true);
     try {
       const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
@@ -89,7 +82,14 @@ export default function AdminApiKeysPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getAuthHeader]);
+
+  // Fetch API keys whenever auth context changes
+  useEffect(() => {
+    if (isAuthenticated && user?.isAdmin) {
+      fetchApiKeys();
+    }
+  }, [fetchApiKeys, isAuthenticated, user]);
 
   const handleCreateApiKey = async () => {
     if (!userId || !description || selectedScopes.length === 0) {

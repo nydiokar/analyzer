@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { Eye, EyeOff, Mail, Lock, UserPlus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 
 interface SignUpModalProps {
   open: boolean;
@@ -79,6 +80,10 @@ export function SignUpModal({ open, onOpenChange, onSwitchToSignIn }: SignUpModa
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[480px] p-0 gap-0 border-slate-800 bg-slate-900/95 backdrop-blur-xl max-h-[90vh] overflow-y-auto">
+        <VisuallyHidden>
+          <DialogTitle>Create your Sova Intel account</DialogTitle>
+          <DialogDescription>Register to unlock detailed Solana wallet analytics.</DialogDescription>
+        </VisuallyHidden>
         {/* Header with gradient */}
         <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-purple-950/30 to-slate-900 px-8 pt-10 pb-8 sticky top-0 z-10">
           <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl"></div>
