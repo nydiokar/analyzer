@@ -7,6 +7,7 @@ export interface User {
   email: string | null;
   isDemo: boolean;
   emailVerified: boolean;
+  isAdmin: boolean;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -18,6 +19,7 @@ export interface AuthResponse {
     email: string;
     isDemo: boolean;
     emailVerified: boolean;
+    isAdmin: boolean;
   };
 }
 

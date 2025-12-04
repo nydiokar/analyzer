@@ -82,6 +82,43 @@ None - Ready for next feature.
 
 ## Recently Completed (Last 3-4 Days)
 
+- **Admin Panel for API Key Management** ✅ (2025-12-04)
+  - [x] **Backend**: Admin REST API endpoints for API key CRUD operations
+    - `GET /admin/api-keys` - List all API keys with user info
+    - `POST /admin/api-keys` - Create new API key (returns plain key once)
+    - `PATCH /admin/api-keys/:keyId/revoke` - Revoke API key
+    - `PATCH /admin/api-keys/:keyId` - Update API key metadata
+    - `DELETE /admin/api-keys/:keyId` - Delete API key permanently
+    - Created `AdminController` (`src/api/controllers/admin.controller.ts`)
+    - Created `AdminModule` (`src/api/modules/admin.module.ts`)
+    - All endpoints protected with `@AdminOnly()` decorator
+  - [x] **Frontend**: Invisible admin panel (100% hidden from non-admins)
+    - Created `/admin/api-keys` page (`dashboard/src/app/admin/api-keys/page.tsx`)
+    - Silent redirect to home if user is not admin (no error, no toast, no 403 page)
+    - Admin link in sidebar only visible when `user?.isAdmin === true`
+    - Full CRUD UI: create with scopes selection, list with status badges, revoke/delete actions
+    - One-time API key display after creation with copy-to-clipboard
+  - [x] **Auth Flow Updates**:
+    - Added `isAdmin: boolean` to `User` interface in auth store
+    - Updated `/auth/me` endpoint to return `isAdmin` flag (checks `AdminGuard.isUserAdmin()`)
+    - Updated login/register flows to include `isAdmin` in user data
+  - **Key Implementation Details**:
+    - Admin check: `AdminGuard.isUserAdmin()` checks `ADMIN_USER_IDS` and `ADMIN_EMAILS` env vars
+    - Completely invisible UX: Non-admins never see link, never see 403, silently redirected
+    - No flash of content: Returns `null` immediately if not admin
+  - **Files Created**:
+    - `src/api/controllers/admin.controller.ts` (AdminController with DTOs)
+    - `src/api/modules/admin.module.ts` (AdminModule)
+    - `dashboard/src/app/admin/api-keys/page.tsx` (Admin panel UI)
+  - **Files Modified**:
+    - `src/api/controllers/auth.controller.ts` (added `isAdmin` to `/auth/me`)
+    - `src/api/shared/guards/admin.guard.ts` (added `isUserAdmin()` helper)
+    - `src/api.module.ts` (registered AdminModule)
+    - `dashboard/src/store/auth-store.ts` (added `isAdmin` to User interface)
+    - `dashboard/src/hooks/useAuth.ts` (updated login/register to include isAdmin)
+    - `dashboard/src/components/layout/Sidebar.tsx` (conditional admin link with Shield icon)
+  - **Status**: ✅ Backend builds, frontend builds with warnings only, ready for testing
+
 - **JWT Authentication System Merge & Security Hardening** ✅ (2025-12-03)
   - [x] Merged `feature/user-jwt-auth` branch into `main` (11 conflicting files resolved)
   - [x] Dual authentication: JWT (new users) + API Keys (legacy/services)

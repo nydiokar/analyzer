@@ -60,6 +60,7 @@ export const useAuth = () => {
         email: data.user.email,
         isDemo: data.user.isDemo,
         emailVerified: data.user.emailVerified,
+        isAdmin: data.user.isAdmin || false,
         createdAt: new Date().toISOString(),
         lastLoginAt: new Date().toISOString(),
       });
@@ -106,12 +107,13 @@ export const useAuth = () => {
       }
 
       const data = await response.json();
-      
+
       authStore.login(data.access_token, {
         id: data.user.id,
         email: data.user.email,
         isDemo: data.user.isDemo,
         emailVerified: data.user.emailVerified,
+        isAdmin: data.user.isAdmin || false,
         createdAt: new Date().toISOString(),
         lastLoginAt: new Date().toISOString(),
       });
