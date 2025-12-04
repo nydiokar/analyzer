@@ -200,7 +200,7 @@ export class AuthController {
       this.logger.log(`User logged in successfully: ${result.user.id}`);
       return result;
     } catch (error) {
-      this.logger.error(`Login failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Error already logged by AuthService, just re-throw
       throw error;
     }
   }

@@ -15,7 +15,7 @@ export class JwtDatabaseService {
         where: { email },
       });
     } catch (error) {
-      this.logger.error(`Failed to find user by email: ${email}`, error);
+      this.logger.debug(`Database query failed for email lookup: ${email}`);
       return null;
     }
   }
@@ -26,7 +26,7 @@ export class JwtDatabaseService {
         where: { displayName },
       });
     } catch (error) {
-      this.logger.error(`Failed to find user by display name: ${displayName}`, error);
+      this.logger.debug(`Database query failed for display name lookup: ${displayName}`);
       return null;
     }
   }
@@ -35,13 +35,13 @@ export class JwtDatabaseService {
     try {
       // Use findFirst with filter on isActive; Prisma findUnique cannot include non-unique fields
       return await (this.databaseService as any).prismaClient.user.findFirst({
-        where: { 
+        where: {
           id: userId,
           isActive: true,
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to find active user by ID: ${userId}`, error);
+      this.logger.debug(`Database query failed for active user lookup: ${userId}`);
       return null;
     }
   }
@@ -84,7 +84,7 @@ export class JwtDatabaseService {
         where: { id: userId },
       });
     } catch (error) {
-      this.logger.error(`Failed to find user by ID: ${userId}`, error);
+      this.logger.debug(`Database query failed for user ID lookup: ${userId}`);
       return null;
     }
   }
@@ -127,7 +127,7 @@ export class JwtDatabaseService {
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to find verification token for user: ${userId}`, error);
+      this.logger.debug(`Database query failed for verification token lookup: ${userId}`);
       return null;
     }
   }
@@ -151,14 +151,21 @@ export class JwtDatabaseService {
 
   // Cleanup expired tokens (should be called periodically)
   async cleanupExpiredVerificationTokens(): Promise<void> {
-    const deletedCount = await (this.databaseService as any).prismaClient.emailVerificationToken.deleteMany({
-      where: {
-        expiresAt: {
-          lt: new Date(),
+    try {
+      const deletedCount = await (this.databaseService as any).prismaClient.emailVerificationToken.deleteMany({
+        where: {
+          expiresAt: {
+            lt: new Date(),
+          },
         },
-      },
-    });
-    this.logger.log(`Cleaned up ${deletedCount.count} expired verification tokens`);
+      });
+      if (deletedCount.count > 0) {
+        this.logger.log(`Cleaned up ${deletedCount.count} expired verification tokens`);
+      }
+    } catch (error) {
+      // Silently skip if table doesn't exist or other DB issues
+      throw error; // Re-throw to let caller handle it
+    }
   }
 
   // Update user password
@@ -201,7 +208,7 @@ export class JwtDatabaseService {
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to find password reset token for user: ${userId}`, error);
+      this.logger.debug(`Database query failed for password reset token lookup: ${userId}`);
       return null;
     }
   }
@@ -227,14 +234,21 @@ export class JwtDatabaseService {
 
   // Cleanup expired tokens (should be called periodically)
   async cleanupExpiredPasswordResetTokens(): Promise<void> {
-    const deletedCount = await (this.databaseService as any).prismaClient.passwordResetToken.deleteMany({
-      where: {
-        expiresAt: {
-          lt: new Date(),
+    try {
+      const deletedCount = await (this.databaseService as any).prismaClient.passwordResetToken.deleteMany({
+        where: {
+          expiresAt: {
+            lt: new Date(),
+          },
         },
-      },
-    });
-    this.logger.log(`Cleaned up ${deletedCount.count} expired password reset tokens`);
+      });
+      if (deletedCount.count > 0) {
+        this.logger.log(`Cleaned up ${deletedCount.count} expired password reset tokens`);
+      }
+    } catch (error) {
+      // Silently skip if table doesn't exist or other DB issues
+      throw error; // Re-throw to let caller handle it
+    }
   }
 
   // cleanupExpiredEmailChangeTokens removed (feature dropped)

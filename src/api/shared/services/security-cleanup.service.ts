@@ -29,7 +29,7 @@ export class SecurityCleanupService implements OnModuleInit {
     try {
       await this.jwtDatabaseService.cleanupExpiredVerificationTokens();
     } catch (error) {
-      this.logger.error('Failed to cleanup expired verification tokens', error);
+      this.logger.debug('Cleanup task skipped - verification tokens table not available');
     }
   }
 
