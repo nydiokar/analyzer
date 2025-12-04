@@ -259,7 +259,7 @@ export const useAuth = () => {
     isUsingApiKey: authStore.isUsingApiKey,
     isInitialized: authStore.isInitialized,
     isDemoMode: authStore.isDemoMode(),
-    
+
     // Auth actions
     register,
     login,
@@ -270,7 +270,8 @@ export const useAuth = () => {
     refreshUserProfile,
     requestEmailVerification,
     verifyEmail,
-    
+    getAuthHeader: authStore.getAuthHeader,
+
     // Loading state
     loading,
   };

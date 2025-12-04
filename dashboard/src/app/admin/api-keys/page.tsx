@@ -27,7 +27,7 @@ interface ApiKeyInfo {
 
 export default function AdminApiKeysPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isInitialized } = useAuth();
+  const { user, isAuthenticated, isInitialized, getAuthHeader } = useAuth();
   const [loading, setLoading] = useState(true);
   const [apiKeys, setApiKeys] = useState<ApiKeyInfo[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -68,10 +68,13 @@ export default function AdminApiKeysPage() {
     setLoading(true);
     try {
       const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+      const headers: Record<string, string> = {};
+      const authHeader = getAuthHeader();
+      if (authHeader) {
+        headers['Authorization'] = authHeader;
+      }
       const response = await fetch(`${API_BASE_URL}/admin/api-keys`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth-token')}`,
-        },
+        headers,
       });
 
       if (!response.ok) {
@@ -97,12 +100,16 @@ export default function AdminApiKeysPage() {
     setCreating(true);
     try {
       const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      const authHeader = getAuthHeader();
+      if (authHeader) {
+        headers['Authorization'] = authHeader;
+      }
       const response = await fetch(`${API_BASE_URL}/admin/api-keys`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth-token')}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           userId,
           description,
@@ -145,11 +152,14 @@ export default function AdminApiKeysPage() {
 
     try {
       const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+      const headers: Record<string, string> = {};
+      const authHeader = getAuthHeader();
+      if (authHeader) {
+        headers['Authorization'] = authHeader;
+      }
       const response = await fetch(`${API_BASE_URL}/admin/api-keys/${keyId}/revoke`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth-token')}`,
-        },
+        headers,
       });
 
       if (!response.ok) {
