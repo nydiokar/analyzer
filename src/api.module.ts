@@ -6,6 +6,7 @@ import { WalletsModule } from './api/modules/wallets.module';
 import { AnalysesModule } from './api/modules/analyses.module'; // Import AnalysesModule
 import { UsersModule } from './api/modules/users.module'; // Import the new UsersModule
 import { AdminModule } from './api/modules/admin.module'; // Import AdminModule for admin panel
+import { AuthModule } from './api/modules/auth.module'; // Import AuthModule for authentication services
 import { DexscreenerModule } from './api/integrations/dexscreener.module';
 import { TokenInfoModule } from './api/integrations/token-info.module';
 import { HealthModule } from './api/modules/health.module';
@@ -17,6 +18,7 @@ import { HeliusWebhookModule } from './api/integrations/helius-webhook.module';
 @Module({
   imports: [
     DatabaseModule, // Shared database access for any direct needs in ApiModule (e.g. Auth)
+    AuthModule,     // Authentication services required by global CompositeAuthGuard
     WalletsModule,  // Imports all wallet-related features and controllers
     AnalysesModule, // Imports analysis triggering endpoints
     UsersModule,    // Add UsersModule here

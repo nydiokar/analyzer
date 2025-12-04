@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DatabaseService } from '../../../core/services/database-service';
+import { DatabaseService } from '../../services/database.service';
 
 /**
  * Pure data access layer for API keys

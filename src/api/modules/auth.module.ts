@@ -1,8 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, Global } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { DatabaseModule } from './database.module';
 import { AuthController } from '../controllers/auth.controller';
 import { SecurityController } from '../controllers/security.controller'
 import { BotIntegrationController } from '../controllers/bot-integration.controller';
@@ -24,10 +25,13 @@ import { JwtStrategy } from '../shared/strategies/jwt.strategy';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { CsrfGuard } from '../shared/guards/csrf.guard';
 import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guard';
+import { AdminGuard } from '../shared/guards/admin.guard';
 import { EmailWebhookController } from '../controllers/email-webhook.controller';
 
+@Global()
 @Module({
   imports: [
+    DatabaseModule, // Required for JwtDatabaseService and ApiKeyDatabaseService
     PassportModule.register({ defaultStrategy: 'jwt' }),
     ThrottlerModule,
     JwtModule.registerAsync({
@@ -80,6 +84,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     CompositeAuthGuard,
     CsrfGuard,
     AdvancedThrottlerGuard,
+    AdminGuard,
   ],
   exports: [
     JwtDatabaseService,
@@ -95,6 +100,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     SecurityLoggerService,
     SecurityAlertsService,
     AdvancedThrottlerGuard,
+    AdminGuard,
     JwtModule,
     PassportModule,
   ],
