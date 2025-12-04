@@ -8,6 +8,7 @@ import { SecurityController } from '../controllers/security.controller'
 import { BotIntegrationController } from '../controllers/bot-integration.controller';
 import { AuthService } from '../shared/services/auth.service';
 import { JwtDatabaseService } from '../shared/services/jwt-database.service';
+import { ApiKeyDatabaseService } from '../shared/services/api-key-database.service';
 import { JwtSecretValidatorService } from '../shared/services/jwt-secret-validator.service';
 import { RefreshTokenService } from '../shared/services/refresh-token.service';
 import { CsrfService } from '../shared/services/csrf.service';
@@ -62,11 +63,12 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
   controllers: [AuthController, SecurityController, BotIntegrationController, EmailWebhookController],
   providers: [
     JwtDatabaseService,
+    ApiKeyDatabaseService,    // Pure API key data access (required by ApiKeyService)
     JwtSecretValidatorService,
     RefreshTokenService,
     CsrfService,
     JwtKeyRotationService,
-    ApiKeyService,
+    ApiKeyService,             // Depends on ApiKeyDatabaseService + JwtDatabaseService
     SecurityCleanupService,
     AdvancedThrottlerService,
     SecurityLoggerService,

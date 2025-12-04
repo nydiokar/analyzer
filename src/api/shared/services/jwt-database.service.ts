@@ -227,157 +227,17 @@ export class JwtDatabaseService {
 
   // cleanupExpiredEmailChangeTokens removed (feature dropped)
 
-  // Enhanced API Key methods
-  async createApiKey(data: {
-    prefix: string;
-    keyHash: string;
-    userId: string;
-    description: string;
-    scopes: string[];
-    isActive: boolean;
-    expiresAt?: Date;
-  }): Promise<any> {
-    return await (this.databaseService as any).prismaClient.apiKey.create({
-      data: {
-        ...data,
-        scopes: JSON.stringify(data.scopes), // Store as JSON string
-      },
-    });
-  }
-
-  async findApiKeyByPrefix(prefix: string): Promise<any> {
-    try {
-      const key = await (this.databaseService as any).prismaClient.apiKey.findFirst({
-        where: { prefix },
-      });
-      
-      if (key && key.scopes) {
-        // Parse JSON scopes back to array
-        key.scopes = JSON.parse(key.scopes);
-      }
-      
-      return key;
-    } catch (error) {
-      this.logger.error(`Failed to find API key by prefix: ${prefix}`, error);
-      return null;
-    }
-  }
-
-  async findApiKeyById(keyId: string): Promise<any> {
-    try {
-      const key = await (this.databaseService as any).prismaClient.apiKey.findUnique({
-        where: { id: keyId },
-      });
-      
-      if (key && key.scopes) {
-        key.scopes = JSON.parse(key.scopes);
-      }
-      
-      return key;
-    } catch (error) {
-      this.logger.error(`Failed to find API key by ID: ${keyId}`, error);
-      return null;
-    }
-  }
-
-  async findApiKeysByUserId(userId: string): Promise<any[]> {
-    try {
-      const keys = await (this.databaseService as any).prismaClient.apiKey.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-      });
-      
-      return keys.map(key => ({
-        ...key,
-        scopes: key.scopes ? JSON.parse(key.scopes) : [],
-      }));
-    } catch (error) {
-      this.logger.error(`Failed to find API keys for user: ${userId}`, error);
-      return [];
-    }
-  }
-
-  async updateApiKeyLastUsed(keyId: string): Promise<void> {
-    try {
-      await (this.databaseService as any).prismaClient.apiKey.update({
-        where: { id: keyId },
-        data: { lastUsedAt: new Date() },
-      });
-    } catch (error) {
-      this.logger.error(`Failed to update last used for API key: ${keyId}`, error);
-    }
-  }
-
-  async updateApiKeyStatus(keyId: string, isActive: boolean): Promise<void> {
-    await (this.databaseService as any).prismaClient.apiKey.update({
-      where: { id: keyId },
-      data: { isActive },
-    });
-  }
-
-  async updateApiKeyMetadata(keyId: string, updates: { description?: string; scopes?: string[] }): Promise<void> {
-    const updateData: any = {};
-    
-    if (updates.description !== undefined) {
-      updateData.description = updates.description;
-    }
-    
-    if (updates.scopes !== undefined) {
-      updateData.scopes = JSON.stringify(updates.scopes);
-    }
-    
-    await (this.databaseService as any).prismaClient.apiKey.update({
-      where: { id: keyId },
-      data: updateData,
-    });
-  }
-
-  async deleteExpiredApiKeys(): Promise<number> {
-    const deletedResult = await (this.databaseService as any).prismaClient.apiKey.deleteMany({
-      where: {
-        expiresAt: {
-          lt: new Date(),
-        },
-      },
-    });
-    return deletedResult.count;
-  }
-
-  /**
-   * Admin: Find all API keys with user information
-   */
-  async findAllApiKeysWithUsers(): Promise<any[]> {
-    try {
-      const keys = await (this.databaseService as any).prismaClient.apiKey.findMany({
-        include: {
-          user: {
-            select: { email: true, description: true }
-          }
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      return keys.map(key => ({
-        ...key,
-        scopes: key.scopes ? JSON.parse(key.scopes) : [],
-      }));
-    } catch (error) {
-      this.logger.error('Failed to find all API keys with users', error);
-      return [];
-    }
-  }
-
-  /**
-   * Admin: Delete API key by ID
-   */
-  async deleteApiKeyById(keyId: string): Promise<any> {
-    try {
-      return await (this.databaseService as any).prismaClient.apiKey.delete({
-        where: { id: keyId },
-      });
-    } catch (error) {
-      this.logger.error(`Failed to delete API key: ${keyId}`, error);
-      return null;
-    }
-  }
+  // ========================================================================
+  // API KEY METHODS REMOVED (2025-12-04)
+  // ========================================================================
+  // All API key methods have been moved to ApiKeyDatabaseService
+  // for proper separation of concerns and domain-driven design.
+  //
+  // This service now only handles:
+  // - User authentication and management
+  // - Email verification
+  // - Password reset
+  //
+  // For API key operations, use ApiKeyDatabaseService instead.
+  // ========================================================================
 }

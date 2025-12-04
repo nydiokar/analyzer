@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@n
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
+import { ApiKeyDatabaseService } from './api-key-database.service';
 import { JwtDatabaseService } from './jwt-database.service';
 
 export type ApiKeyScope = 'read' | 'report' | 'analysis' | 'admin' | 'full';
@@ -39,7 +40,8 @@ export class ApiKeyService {
   private readonly API_KEY_SALT_ROUNDS = 10;
 
   constructor(
-    private readonly databaseService: JwtDatabaseService,
+    private readonly apiKeyDatabaseService: ApiKeyDatabaseService,
+    private readonly jwtDatabaseService: JwtDatabaseService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -60,7 +62,7 @@ export class ApiKeyService {
       : undefined;
 
     // Create database record
-    const keyRecord = await this.databaseService.createApiKey({
+    const keyRecord = await this.apiKeyDatabaseService.createApiKey({
       prefix,
       keyHash,
       userId: request.userId,
@@ -104,7 +106,7 @@ export class ApiKeyService {
       }
 
       // Find key by prefix first (more efficient than checking all keys)
-      const keyRecord = await this.databaseService.findApiKeyByPrefix(prefix);
+      const keyRecord = await this.apiKeyDatabaseService.findApiKeyByPrefix(prefix);
       if (!keyRecord) {
         this.logger.warn(`API key not found for prefix: ${prefix}`);
         return { isValid: false };
@@ -129,14 +131,14 @@ export class ApiKeyService {
       }
 
       // Get user information
-      const user = await this.databaseService.findActiveUserById(keyRecord.userId);
+      const user = await this.jwtDatabaseService.findActiveUserById(keyRecord.userId);
       if (!user) {
         this.logger.warn(`API key user not found or inactive: ${keyRecord.userId}`);
         return { isValid: false };
       }
 
       // Update last used timestamp
-      await this.databaseService.updateApiKeyLastUsed(keyRecord.id);
+      await this.apiKeyDatabaseService.updateApiKeyLastUsed(keyRecord.id);
 
       return {
         isValid: true,
@@ -177,7 +179,7 @@ export class ApiKeyService {
    * List API keys for a user
    */
   async listUserApiKeys(userId: string): Promise<Omit<ApiKey, 'keyHash'>[]> {
-    const keys = await this.databaseService.findApiKeysByUserId(userId);
+    const keys = await this.apiKeyDatabaseService.findApiKeysByUserId(userId);
     
     return keys.map(key => ({
       id: key.id,
@@ -197,7 +199,7 @@ export class ApiKeyService {
    * Revoke an API key (user-specific - validates ownership)
    */
   async revokeApiKey(userId: string, keyId: string): Promise<void> {
-    const keyRecord = await this.databaseService.findApiKeyById(keyId);
+    const keyRecord = await this.apiKeyDatabaseService.findApiKeyById(keyId);
 
     if (!keyRecord) {
       throw new NotFoundException('API key not found');
@@ -207,7 +209,7 @@ export class ApiKeyService {
       throw new UnauthorizedException('Cannot revoke API key belonging to another user');
     }
 
-    await this.databaseService.updateApiKeyStatus(keyId, false);
+    await this.apiKeyDatabaseService.updateApiKeyStatus(keyId, false);
     this.logger.log(`Revoked API key: ${keyRecord.prefix}*** for user ${userId}`);
   }
 
@@ -215,13 +217,13 @@ export class ApiKeyService {
    * Admin: Revoke any API key by ID (no user validation)
    */
   async revokeApiKeyAsAdmin(keyId: string): Promise<{ success: boolean; message: string }> {
-    const keyRecord = await this.databaseService.findApiKeyById(keyId);
+    const keyRecord = await this.apiKeyDatabaseService.findApiKeyById(keyId);
 
     if (!keyRecord) {
       return { success: false, message: 'API key not found' };
     }
 
-    await this.databaseService.updateApiKeyStatus(keyId, false);
+    await this.apiKeyDatabaseService.updateApiKeyStatus(keyId, false);
     this.logger.log(`Admin: Revoked API key: ${keyRecord.prefix}***`);
 
     return {
@@ -234,7 +236,7 @@ export class ApiKeyService {
    * Update API key metadata (user-specific - validates ownership)
    */
   async updateApiKey(userId: string, keyId: string, updates: { description?: string; scopes?: ApiKeyScope[] }): Promise<void> {
-    const keyRecord = await this.databaseService.findApiKeyById(keyId);
+    const keyRecord = await this.apiKeyDatabaseService.findApiKeyById(keyId);
 
     if (!keyRecord) {
       throw new NotFoundException('API key not found');
@@ -244,7 +246,7 @@ export class ApiKeyService {
       throw new UnauthorizedException('Cannot update API key belonging to another user');
     }
 
-    await this.databaseService.updateApiKeyMetadata(keyId, updates);
+    await this.apiKeyDatabaseService.updateApiKeyMetadata(keyId, updates);
     this.logger.log(`Updated API key: ${keyRecord.prefix}*** for user ${userId}`);
   }
 
@@ -252,13 +254,13 @@ export class ApiKeyService {
    * Admin: Update any API key metadata by ID (no user validation)
    */
   async updateApiKeyAsAdmin(keyId: string, updates: { description?: string; scopes?: ApiKeyScope[] }): Promise<{ success: boolean; message: string }> {
-    const keyRecord = await this.databaseService.findApiKeyById(keyId);
+    const keyRecord = await this.apiKeyDatabaseService.findApiKeyById(keyId);
 
     if (!keyRecord) {
       return { success: false, message: 'API key not found' };
     }
 
-    await this.databaseService.updateApiKeyMetadata(keyId, updates);
+    await this.apiKeyDatabaseService.updateApiKeyMetadata(keyId, updates);
     this.logger.log(`Admin: Updated API key: ${keyRecord.prefix}***`);
 
     return {
@@ -283,7 +285,7 @@ export class ApiKeyService {
     expiresAt: Date | null;
     createdAt: Date;
   }>> {
-    const keys = await this.databaseService.findAllApiKeysWithUsers();
+    const keys = await this.apiKeyDatabaseService.findAllApiKeysWithUsers();
 
     return keys.map((key: any) => ({
       id: key.id,
@@ -304,13 +306,13 @@ export class ApiKeyService {
    * Admin: Delete API key permanently by ID
    */
   async deleteApiKey(keyId: string): Promise<{ success: boolean; message: string }> {
-    const key = await this.databaseService.findApiKeyById(keyId);
+    const key = await this.apiKeyDatabaseService.findApiKeyById(keyId);
 
     if (!key) {
       return { success: false, message: 'API key not found' };
     }
 
-    const deletedKey = await this.databaseService.deleteApiKeyById(keyId);
+    const deletedKey = await this.apiKeyDatabaseService.deleteApiKeyById(keyId);
 
     if (!deletedKey) {
       return { success: false, message: 'Failed to delete API key' };
@@ -327,7 +329,7 @@ export class ApiKeyService {
    * Cleanup expired API keys
    */
   async cleanupExpiredKeys(): Promise<number> {
-    const deletedCount = await this.databaseService.deleteExpiredApiKeys();
+    const deletedCount = await this.apiKeyDatabaseService.deleteExpiredApiKeys();
     if (deletedCount > 0) {
       this.logger.log(`Cleaned up ${deletedCount} expired API keys`);
     }

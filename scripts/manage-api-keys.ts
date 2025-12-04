@@ -3,6 +3,7 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { DatabaseService, prisma } from '../src/core/services/database-service';
 import { ApiKeyService, ApiKeyScope } from '../src/api/shared/services/api-key.service';
+import { ApiKeyDatabaseService } from '../src/api/shared/services/api-key-database.service';
 import { JwtDatabaseService } from '../src/api/shared/services/jwt-database.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -12,8 +13,9 @@ async function main() {
   // Initialize services
   const configService = new ConfigService();
   const databaseService = new DatabaseService();
+  const apiKeyDatabaseService = new ApiKeyDatabaseService(databaseService);
   const jwtDatabaseService = new JwtDatabaseService(databaseService);
-  const apiKeyService = new ApiKeyService(jwtDatabaseService, configService);
+  const apiKeyService = new ApiKeyService(apiKeyDatabaseService, jwtDatabaseService, configService);
 
   await yargs(hideBin(process.argv))
     .command(
