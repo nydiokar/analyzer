@@ -6,6 +6,18 @@
 **Last Updated:** 2025-11-18 22:30 UTC
 **Updated By:** Codex
 
+### Latest Summary (2025‑04‑12)
+- Tightened email verification enforcement: backend guard now blocks unverified JWT/API‑key requests unless routes opt in; frontend shows subtle verification prompts with resend/manual token entry; Home and Settings disable analysis when unverified.
+- Admin flag now lives entirely on the controller layer so auth responses expose `isAdmin`, restoring the Admin Panel entry in the UI; fetcher now surfaces structured error codes for better UX.
+
+### Next Tasks
+1. **Resend integration** – Wire Resend in a dev-friendly way so local environments can skip actual email delivery (graceful fallbacks) but production uses verified domains automatically.
+2. **Landing page removal** – Remove the standalone landing page at `/` (and any references) so we don’t maintain unused marketing content.
+3. **Route reshuffle** – Make `/home` the default route and update the sidebar logo to link there.
+4. **Home redesign plan** – Outline/plan a modern single-page scrolling “tool showcase” for Home that highlights each module before we rebuild it.
+5. **Layout separation** – Design a layout split so Home uses a dedicated shell (no sidebar), while the sidebar remains in the tool hub only; document the approach before coding.
+6. **Reset-password UX** – Hook up the dashboard reset-password flow (request + token-based reset) to the existing backend endpoints so users can trigger the journey end-to-end.
+
 ---
 
 ## Architecture Principles

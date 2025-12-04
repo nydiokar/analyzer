@@ -11,6 +11,7 @@ import { UserMenu } from '@/components/auth/UserMenu';
 import Image from 'next/image';
 import { Badge } from "@/components/ui/badge";
 import { useState } from 'react';
+import { toast } from 'sonner';
 // It's better to import WalletSearch if it can be made context-agnostic
 // For now, we'll create a simple search input placeholder
 // import { WalletSearch } from \'@/components/sidebar/WalletSearch\';
@@ -52,7 +53,7 @@ const FEATURED_WALLETS = [
 
 export default function Home() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user, requestEmailVerification } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   const handleSearch = (event: React.FormEvent<HTMLFormElement>) => {
@@ -66,7 +67,17 @@ export default function Home() {
     }
   };
 
-  const showSearch = isAuthenticated;
+  const isVerified = Boolean(user?.emailVerified);
+  const showSearch = isAuthenticated && isVerified;
+
+  const handleResendVerification = async () => {
+    const success = await requestEmailVerification();
+    if (success) {
+      toast.success('Verification email sent');
+    } else {
+      toast.error('Unable to send verification email right now. Please try again.');
+    }
+  };
 
   return (
     <div className="w-full min-h-full text-white animated-gradient">
@@ -97,6 +108,23 @@ export default function Home() {
               <Button asChild variant="outline" size="lg" className="w-full sm:w-auto border-slate-600 hover:border-slate-400">
                 <Link href="/help">View documentation</Link>
               </Button>
+            </div>
+          )}
+
+          {isAuthenticated && !isVerified && (
+            <div className="max-w-2xl mx-auto mt-8 mb-10 rounded-xl border border-slate-800 bg-slate-900/70 p-5 text-left shadow-sm">
+              <h2 className="text-lg font-semibold text-slate-100 mb-1">Verify your email to run analyses</h2>
+              <p className="text-sm text-slate-400 mb-4">
+                A verification link was sent to <span className="font-medium text-slate-200">{user?.email}</span>. We'll unlock analysis tools once your email is confirmed.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={handleResendVerification} size="sm">
+                  Resend verification email
+                </Button>
+                <Button asChild variant="outline" size="sm" className="border-slate-700 text-slate-200 hover:bg-slate-800">
+                  <Link href="/help">Need help?</Link>
+                </Button>
+              </div>
             </div>
           )}
 

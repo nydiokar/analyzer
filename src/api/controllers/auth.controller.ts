@@ -10,6 +10,7 @@ import { CsrfService } from '../shared/services/csrf.service';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
 import { EmailService } from '../shared/services/email.service';
 import { Public } from '../shared/decorators/public.decorator';
+import { AllowUnverifiedEmail } from '../shared/decorators/allow-unverified.decorator';
 import { ConfigService } from '@nestjs/config';
 import { IsEmail, IsString, MinLength, IsNotEmpty } from 'class-validator';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
@@ -117,7 +118,7 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response
   ): Promise<AuthResponse> {
     try {
-      const result = await this.authService.register(registerDto);
+      const result = this.attachAdminFlag(await this.authService.register(registerDto));
 
       // Set httpOnly cookie if cookie mode is enabled
       if (this.cookieMode) {
@@ -133,10 +134,8 @@ export class AuthController {
       try {
         const emailResult = await this.authService.requestEmailVerification(result.user.id);
         const emailSent = await this.emailService.sendVerificationEmail(result.user.email, emailResult.token);
-        
-        if (emailSent) {
-          this.logger.log(`Email verification automatically sent to new user: ${result.user.id}`);
-        } else {
+
+        if (!emailSent) {
           this.logger.warn(`Email service not configured - verification token for user ${result.user.id}: ${emailResult.token}`);
         }
       } catch (emailError) {
@@ -144,10 +143,8 @@ export class AuthController {
         // Don't fail registration if email sending fails
       }
 
-      this.logger.log(`User registered successfully: ${result.user.id}`);
       return result;
     } catch (error) {
-      this.logger.error(`Registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }
@@ -185,7 +182,7 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response
   ): Promise<AuthResponse> {
     try {
-      const result = await this.authService.login(loginDto);
+      const result = this.attachAdminFlag(await this.authService.login(loginDto));
 
       // Set httpOnly cookie if cookie mode is enabled
       if (this.cookieMode) {
@@ -197,7 +194,6 @@ export class AuthController {
         });
       }
 
-      this.logger.log(`User logged in successfully: ${result.user.id}`);
       return result;
     } catch (error) {
       // Error already logged by AuthService, just re-throw
@@ -310,7 +306,7 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response
   ): Promise<AuthResponse> {
     try {
-      const result = await this.authService.refreshAccessToken(refreshDto.refresh_token);
+      const result = this.attachAdminFlag(await this.authService.refreshAccessToken(refreshDto.refresh_token));
 
       // Update cookie if cookie mode is enabled
       if (this.cookieMode) {
@@ -322,10 +318,8 @@ export class AuthController {
         });
       }
 
-      this.logger.log(`Token refreshed for user: ${result.user.id}`);
       return result;
     } catch (error) {
-      this.logger.error(`Token refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }
@@ -361,16 +355,15 @@ export class AuthController {
         });
       }
 
-      this.logger.log('User logged out');
       return { message: 'Logout successful' };
     } catch (error) {
-      this.logger.warn(`Logout warning: ${error instanceof Error ? error.message : 'Unknown error'}`);
       // Don't fail logout even if refresh token revocation fails
       return { message: 'Logout successful' };
     }
   }
 
   @Post('request-verification')
+  @AllowUnverifiedEmail()
   @UseGuards(CompositeAuthGuard, CsrfGuard)
   @Throttle({ default: { limit: 10, ttl: 300000 } }) // 10 requests per 5 minutes
   @ApiBearerAuth()
@@ -390,30 +383,28 @@ export class AuthController {
     try {
       const user = req.user!;
       const result = await this.authService.requestEmailVerification(user.id);
-      
+
       // Try to send email
       const emailSent = await this.emailService.sendVerificationEmail(user.email!, result.token);
-      
-      this.logger.log(`Email verification requested for user: ${user.id}`);
-      
+
       if (emailSent) {
-        return { 
+        return {
           message: 'Verification email sent! Please check your email and enter the verification token.'
         };
       } else {
         // Email not configured - log token for development
         this.logger.warn(`🔑 DEVELOPMENT MODE - Email Verification Token for user ${user.id}: ${result.token}`);
-        return { 
+        return {
           message: 'Email service not configured. For development, the verification token has been logged to the server console.'
         };
       }
     } catch (error) {
-      this.logger.error(`Email verification request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }
 
   @Post('verify-email')
+  @AllowUnverifiedEmail()
   @UseGuards(CompositeAuthGuard, CsrfGuard, ThrottlerGuard)
   @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
   @ApiBearerAuth()
@@ -446,14 +437,12 @@ export class AuthController {
     try {
       const user = req.user!;
       const result = await this.authService.verifyEmail(user.id, body.token);
-      
+
       this.securityLogger.logEmailVerificationAttempt(req, user.id, true);
-      this.logger.log(`Email verified for user: ${user.id}`);
       return result;
     } catch (error) {
       const user = req.user!;
       this.securityLogger.logEmailVerificationAttempt(req, user.id, false, error instanceof Error ? error.message : 'Unknown error');
-      this.logger.error(`Email verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }
@@ -480,7 +469,6 @@ export class AuthController {
       const result = await this.authService.requestPasswordReset(body.email);
       return { message: result.message };
     } catch (error) {
-      this.logger.error(`Password reset request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }
@@ -506,13 +494,18 @@ export class AuthController {
   async resetPassword(@Body() body: PasswordResetDto): Promise<{ success: boolean; message: string }> {
     try {
       const result = await this.authService.resetPassword(body.email, body.token, body.newPassword);
-      this.logger.log(`Password reset successful for: ${body.email}`);
       return result;
     } catch (error) {
-      this.logger.error(`Password reset failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }
 
- 
+  private attachAdminFlag(response: AuthResponse): AuthResponse {
+    const pseudoUser = {
+      id: response.user.id,
+      email: response.user.email,
+    } as User;
+    response.user.isAdmin = this.adminGuard.isUserAdmin(pseudoUser);
+    return response;
+  }
 }

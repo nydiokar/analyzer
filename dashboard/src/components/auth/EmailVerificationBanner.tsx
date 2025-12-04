@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { AlertTriangle, Mail, Shield, X } from 'lucide-react';
+import { Shield, Mail, X, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function EmailVerificationBanner() {
@@ -43,66 +43,72 @@ export function EmailVerificationBanner() {
   };
 
   return (
-    <Card className="border-orange-500/30 bg-orange-500/10 mb-4">
+    <Card className="mb-4 border border-slate-800 bg-slate-900/80 shadow-sm">
       <div className="p-4">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-orange-400 mt-0.5 flex-shrink-0" />
-          
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-orange-400">Email Verification Required</h3>
+          <Shield className="w-5 h-5 text-sky-300 mt-0.5 flex-shrink-0" />
+
+          <div className="flex-1 min-w-0 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-100">Email verification required</p>
+                <p className="text-sm text-slate-400 mt-1">
+                  We sent a verification link to <span className="font-medium text-slate-200">{user.email}</span>.
+                  Verify your address to unlock full access.
+                </p>
+              </div>
+
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsDismissed(true)}
-                className="h-6 w-6 p-0 text-orange-400 hover:text-orange-300"
+                className="h-6 w-6 p-0 text-slate-400 hover:text-slate-200"
               >
                 <X className="w-4 h-4" />
               </Button>
             </div>
-            
-            <p className="text-sm text-orange-200 mb-3">
-              Please verify your email address ({user.email}) to access full functionality. Until verified, you're in demo mode with limited features.
-            </p>
-            
-            {!showTokenInput ? (
+
+            <div className="flex flex-wrap gap-3">
               <Button
                 onClick={handleRequestVerification}
                 disabled={loading}
                 size="sm"
-                className="bg-orange-600 hover:bg-orange-700 text-white"
+                className="bg-sky-600 hover:bg-sky-500 text-white"
               >
                 <Mail className="w-4 h-4 mr-2" />
-                {loading ? 'Sending...' : 'Send Verification Email'}
+                {loading ? 'Sending…' : 'Send verification email'}
               </Button>
-            ) : (
-              <div className="space-y-3">
-                <div className="p-3 bg-blue-500/20 border border-blue-500/30 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Mail className="w-4 h-4 text-blue-400" />
-                    <span className="text-sm font-medium text-blue-400">Development Mode</span>
-                  </div>
-                  <p className="text-xs text-blue-200">
-                    If email service is configured, check your email. Otherwise, check server console/logs for the verification token.
-                  </p>
-                </div>
-                
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-slate-300 hover:text-slate-100"
+                onClick={() => setShowTokenInput(!showTokenInput)}
+              >
+                <KeyRound className="w-4 h-4 mr-2" />
+                {showTokenInput ? 'Hide manual token entry' : 'Enter token manually'}
+              </Button>
+            </div>
+
+            {showTokenInput && (
+              <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <p className="text-xs text-slate-400">
+                  If email delivery isn’t configured yet, copy the verification token from the server logs and paste it below.
+                </p>
                 <div className="flex gap-2">
                   <Input
                     type="text"
-                    placeholder="Enter verification token (from server logs)"
+                    placeholder="Enter verification token"
                     value={verificationToken}
                     onChange={(e) => setVerificationToken(e.target.value)}
-                    className="flex-1 h-9 text-sm bg-background/50"
+                    className="flex-1 h-9 text-sm"
                     disabled={isVerifying}
                   />
                   <Button
                     onClick={handleVerifyEmail}
                     disabled={isVerifying || !verificationToken.trim()}
                     size="sm"
-                    className="bg-green-600 hover:bg-green-700 text-white"
                   >
-                    {isVerifying ? 'Verifying...' : 'Verify'}
+                    {isVerifying ? 'Verifying…' : 'Verify'}
                   </Button>
                 </div>
               </div>

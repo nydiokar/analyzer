@@ -1,11 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { UserIcon, Shield, LogOut } from 'lucide-react';
+import { toast } from 'sonner';
 
 const formatDate = (value?: string | null) => {
   if (!value) return '--';
@@ -21,12 +23,28 @@ const formatDate = (value?: string | null) => {
 };
 
 export default function SettingsPage() {
-  const { user, isAuthenticated, isInitialized, logout } = useAuth();
+  const { user, isAuthenticated, isInitialized, logout, requestEmailVerification } = useAuth();
   const router = useRouter();
+  const [resendingVerification, setResendingVerification] = useState(false);
 
   const handleLogout = async () => {
     await logout();
     router.push('/');
+  };
+
+  const handleResendVerification = async () => {
+    if (resendingVerification) return;
+    setResendingVerification(true);
+    try {
+      const success = await requestEmailVerification();
+      if (success) {
+        toast.success('Verification email sent');
+      } else {
+        toast.error('Unable to send verification email. Please try again.');
+      }
+    } finally {
+      setResendingVerification(false);
+    }
   };
 
   if (!isAuthenticated && !isInitialized) {
@@ -103,6 +121,21 @@ export default function SettingsPage() {
               <p className="text-base">
                 {user?.emailVerified ? 'Email verified' : 'Pending verification'}
               </p>
+              {!user?.emailVerified && (
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <p className="text-sm text-slate-400">
+                    Check your inbox or resend a link to verify your account.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResendVerification}
+                    disabled={resendingVerification}
+                  >
+                    {resendingVerification ? 'Sending…' : 'Resend verification email'}
+                  </Button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

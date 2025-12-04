@@ -69,29 +69,20 @@ export class SecurityLoggerService {
     
     switch (fullEvent.severity) {
       case 'CRITICAL':
-        this.logger.error(`🚨 CRITICAL SECURITY EVENT: ${logMessage}`, {
-          event: fullEvent,
-          alert: true,
-        });
+        this.logger.error(`🚨 ${logMessage}`);
         // In production, this could trigger alerts/notifications
         break;
         
       case 'HIGH':
-        this.logger.warn(`⚠️  HIGH SECURITY EVENT: ${logMessage}`, {
-          event: fullEvent,
-        });
+        this.logger.warn(`⚠️  ${logMessage}`);
         break;
         
       case 'MEDIUM':
-        this.logger.warn(`🔍 MEDIUM SECURITY EVENT: ${logMessage}`, {
-          event: fullEvent,
-        });
+        this.logger.warn(`🔍 ${logMessage}`);
         break;
         
       case 'LOW':
-        this.logger.log(`📝 LOW SECURITY EVENT: ${logMessage}`, {
-          event: fullEvent,
-        });
+        // Skip logging LOW severity events to reduce noise
         break;
     }
 

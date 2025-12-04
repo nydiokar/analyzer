@@ -60,6 +60,12 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         // Using built-in Error properties
         Object.defineProperty(error, 'status', { value: res.status });
         Object.defineProperty(error, 'payload', { value: errorPayload });
+        if (errorPayload.code) {
+            Object.defineProperty(error, 'code', { value: errorPayload.code });
+            if (errorPayload.code === 'EMAIL_VERIFICATION_REQUIRED') {
+                Object.defineProperty(error, 'requiresEmailVerification', { value: true });
+            }
+        }
         throw error;
     }
 

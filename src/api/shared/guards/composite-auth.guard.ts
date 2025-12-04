@@ -7,6 +7,7 @@ import { JwtKeyRotationService } from '../services/jwt-key-rotation.service';
 import { SecurityLoggerService } from '../services/security-logger.service';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { ALLOW_UNVERIFIED_EMAIL_KEY } from '../decorators/allow-unverified.decorator';
 import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
@@ -51,6 +52,11 @@ export class CompositeAuthGuard implements CanActivate {
       return true;
     }
 
+    const allowUnverified = this.reflector.getAllAndOverride<boolean>(ALLOW_UNVERIFIED_EMAIL_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     
     // Try JWT authentication first (preferred)
@@ -60,6 +66,7 @@ export class CompositeAuthGuard implements CanActivate {
       try {
         const user = await this.validateJwtToken(token);
         if (user) {
+          this.ensureEmailVerified(allowUnverified, request, user);
           request.user = user;
           this.checkDemoPermissions(request, user);
           // Security logging handled at controller level
@@ -79,6 +86,7 @@ export class CompositeAuthGuard implements CanActivate {
       try {
         const result = await this.validateApiKey(apiKey);
         if (result && result.user) {
+          this.ensureEmailVerified(allowUnverified, request, result.user);
           request.user = result.user;
           request.apiKeyScopes = result.scopes;
           this.checkDemoPermissions(request, result.user);
@@ -203,6 +211,22 @@ export class CompositeAuthGuard implements CanActivate {
     } catch (error) {
       this.logger.warn(`Enhanced API key validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw new UnauthorizedException('API key validation failed');
+    }
+  }
+
+  private ensureEmailVerified(
+    allowUnverified: boolean | undefined,
+    request: Request,
+    user: User,
+  ) {
+    if (!allowUnverified && !user.emailVerified) {
+      this.logger.warn(
+        `User ${user.id} attempted to access ${request.path} without verified email`,
+      );
+      throw new ForbiddenException({
+        message: 'Please verify your email address to continue.',
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+      });
     }
   }
 

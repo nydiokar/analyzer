@@ -39,6 +39,7 @@ export interface AuthResponse {
     email: string;
     isDemo: boolean;
     emailVerified: boolean;
+    isAdmin: boolean;
     displayName?: string;
   };
 }
@@ -116,7 +117,7 @@ export class AuthService {
         displayName,
       });
 
-      this.logger.log(`New user registered: ${user.id} (${email}) as ${displayName}`);
+      this.logger.log(`User registered: ${user.id} (${email})`);
 
       // Security logging handled at controller level to avoid circular dependencies
 
@@ -138,6 +139,7 @@ export class AuthService {
           email: user.email!,
           isDemo: user.isDemo,
           emailVerified: user.emailVerified,
+          isAdmin: false,
           displayName: user.displayName || undefined,
         },
       };
@@ -193,6 +195,8 @@ export class AuthService {
           email: user.email!,
           isDemo: user.isDemo,
           emailVerified: user.emailVerified,
+          isAdmin: false,
+          displayName: user.displayName || undefined,
         },
       };
     } catch (error) {
@@ -267,7 +271,7 @@ export class AuthService {
     // Store the token in database
     await this.databaseService.createVerificationToken(userId, verificationToken, expiresAt);
     
-    this.logger.log(`Email verification requested for user: ${userId}`);
+    this.logger.log(`Email verification requested: ${userId}`);
     
     // For now, we'll store the token in the database and return it for manual verification
     return { token: verificationToken };
@@ -279,13 +283,11 @@ export class AuthService {
   async verifyEmail(userId: string, token: string): Promise<{ success: boolean; message: string }> {
     // Validate token format
     if (!token || typeof token !== 'string' || token.length < 32) {
-      this.logger.warn(`Invalid token format provided by user: ${userId}`);
       throw new UnauthorizedException('Invalid verification token format');
     }
 
     const user = await this.databaseService.findUserById(userId);
     if (!user) {
-      this.logger.warn(`Verification attempt for non-existent user: ${userId}`);
       throw new NotFoundException('User not found');
     }
 
@@ -295,28 +297,25 @@ export class AuthService {
 
     // Find and validate the token in database
     const verificationToken = await this.databaseService.findValidVerificationToken(userId, token);
-    
+
     if (!verificationToken) {
-      this.logger.warn(`Invalid or expired verification token attempt by user: ${userId}`);
       throw new UnauthorizedException('Invalid or expired verification token');
     }
 
     if (verificationToken.used) {
-      this.logger.warn(`Already used verification token attempt by user: ${userId}`);
       throw new UnauthorizedException('This verification token has already been used');
     }
 
     if (verificationToken.expiresAt < new Date()) {
-      this.logger.warn(`Expired verification token attempt by user: ${userId}`);
       throw new UnauthorizedException('Verification token has expired');
     }
 
     // Mark token as used and verify user email
     await this.databaseService.markVerificationTokenAsUsed(verificationToken.id);
     await this.databaseService.updateUserEmailVerification(userId, true);
-    
-    this.logger.log(`Email successfully verified for user: ${userId}`);
-    
+
+    this.logger.log(`Email verified: ${userId}`);
+
     return { success: true, message: 'Email verified successfully' };
   }
 
@@ -436,7 +435,7 @@ export class AuthService {
       const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
       await this.databaseService.createPasswordResetToken(user.id, hashedToken, expiresAt);
       
-      this.logger.log(`Password reset requested for user: ${user.id}`);
+      this.logger.log(`Password reset requested: ${user.id}`);
 
       const emailSent = await this.emailService.sendPasswordResetEmail(email, resetToken);
       if (!emailSent) {
@@ -459,7 +458,6 @@ export class AuthService {
   async resetPassword(email: string, token: string, newPassword: string): Promise<{ success: boolean; message: string }> {
     // Validate token format
     if (!token || typeof token !== 'string' || token.length < 32) {
-      this.logger.warn(`Invalid reset token format for email: ${email}`);
       throw new UnauthorizedException('Invalid password reset token format');
     }
 
@@ -470,37 +468,33 @@ export class AuthService {
 
     const user = await this.databaseService.findUserByEmail(email);
     if (!user || !user.isActive) {
-      this.logger.warn(`Password reset attempt for non-existent or inactive user: ${email}`);
       throw new UnauthorizedException('User not found or inactive');
     }
 
     // Hash the token to find in database
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-    
+
     // Find and validate the token in database
     const resetToken = await this.databaseService.findValidPasswordResetToken(user.id, hashedToken);
-    
+
     if (!resetToken) {
-      this.logger.warn(`Invalid or expired password reset token for user: ${user.id}`);
       throw new UnauthorizedException('Invalid or expired password reset token');
     }
 
     if (resetToken.used) {
-      this.logger.warn(`Already used password reset token for user: ${user.id}`);
       throw new UnauthorizedException('This password reset token has already been used');
     }
 
     if (resetToken.expiresAt < new Date()) {
-      this.logger.warn(`Expired password reset token for user: ${user.id}`);
       throw new UnauthorizedException('Password reset token has expired');
     }
 
     // Update password and mark token as used
     await this.updateUserPassword(user.id, newPassword);
     await this.databaseService.markPasswordResetTokenAsUsed(resetToken.id);
-    
-    this.logger.log(`Password successfully reset for user: ${user.id}`);
-    
+
+    this.logger.log(`Password reset: ${user.id}`);
+
     return { success: true, message: 'Password reset successfully' };
   }
 
@@ -562,6 +556,8 @@ export class AuthService {
           email: user.email!,
           isDemo: user.isDemo,
           emailVerified: user.emailVerified,
+          isAdmin: false,
+          displayName: user.displayName || undefined,
         },
       };
     } catch (error) {
