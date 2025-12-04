@@ -9,6 +9,7 @@ import { SecurityLoggerService } from './security-logger.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { JwtKeyRotationService } from './jwt-key-rotation.service';
 import { EmailService } from './email.service';
+import { generateUniqueDisplayName } from '../utils/display-name-generator';
 
 export interface RegisterDto {
   email: string;
@@ -38,6 +39,7 @@ export interface AuthResponse {
     email: string;
     isDemo: boolean;
     emailVerified: boolean;
+    displayName?: string;
   };
 }
 
@@ -96,6 +98,12 @@ export class AuthService {
       const apiKey = this.generateSecureApiKey();
       const hashedApiKey = await this.hashApiKey(apiKey);
 
+      // Generate unique display name
+      const displayName = await generateUniqueDisplayName(async (name) => {
+        const existingUser = await this.databaseService.findUserByDisplayName(name);
+        return !existingUser; // true if unique (not found)
+      });
+
       // Create user
       const user = await this.databaseService.createUserWithJWT({
         email,
@@ -105,10 +113,11 @@ export class AuthService {
         isDemo: false,
         emailVerified: false,
         isActive: true,
+        displayName,
       });
 
-      this.logger.log(`New user registered: ${user.id} (${email})`);
-      
+      this.logger.log(`New user registered: ${user.id} (${email}) as ${displayName}`);
+
       // Security logging handled at controller level to avoid circular dependencies
 
       // Generate JWT token
@@ -129,6 +138,7 @@ export class AuthService {
           email: user.email!,
           isDemo: user.isDemo,
           emailVerified: user.emailVerified,
+          displayName: user.displayName || undefined,
         },
       };
     } catch (error) {

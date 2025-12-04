@@ -15,8 +15,6 @@ model Wallet {
   lastSuccessfulFetchTimestamp DateTime?
   analyzedTimestampStart       Int?
   analyzedTimestampEnd         Int?
-
-  // Wallet classification for bot detection
   classification               String?                 @default("unknown")
   classificationConfidence     Float?
   classificationUpdatedAt      DateTime?
@@ -24,15 +22,13 @@ model Wallet {
   isVerifiedBot                Boolean                 @default(false)
   botType                      String?
   botPatternTags               Json?
-
-  // Relations
   activityLogs                 ActivityLog[]           @relation("WalletActivityLogs")
   AnalysisResult               AnalysisResult[]
+  HolderProfileSnapshot        HolderProfileSnapshot[]
   favoritedBy                  UserFavoriteWallet[]
   behaviorProfile              WalletBehaviorProfile?
   walletNotes                  WalletNote[]
   pnlSummary                   WalletPnlSummary?
-  HolderProfileSnapshot        HolderProfileSnapshot[]
 
   @@index([classification])
   @@index([classificationConfidence])
@@ -160,8 +156,6 @@ model WalletBehaviorProfile {
   completePairsCount            Int
   averageTradesPerToken         Float
   tradingTimeDistribution       Json
-  holdTimeTokenMap              Json?
-  enrichedHoldTimeDistribution  Json?
   percentTradesUnder1Hour       Float
   percentTradesUnder4Hours      Float
   tradingStyle                  String
@@ -179,6 +173,8 @@ model WalletBehaviorProfile {
   firstTransactionTimestamp     Int?
   lastTransactionTimestamp      Int?
   updatedAt                     DateTime @updatedAt
+  holdTimeTokenMap              Json?
+  enrichedHoldTimeDistribution  Json?
   wallet                        Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])
@@ -197,8 +193,7 @@ model HolderProfileSnapshot {
   computedAt    DateTime @default(now())
   profile       Json
   metadata      Json?
-
-  wallet Wallet @relation(fields: [walletAddress], references: [address])
+  wallet        Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([tokenMint, computedAt])
   @@index([walletAddress, tokenMint, computedAt])
@@ -223,28 +218,25 @@ model AnalysisRun {
 }
 
 model User {
-  id          String    @id @default(cuid())
-  apiKey      String    @unique
-  description String?
-  isDemo      Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  lastSeenAt  DateTime?
-  isActive    Boolean   @default(true)
-
-  // JWT authentication fields
-  email         String?   @unique
-  passwordHash  String?
-  emailVerified Boolean   @default(false)
-  lastLoginAt   DateTime?
-
-  // Relations
+  id                  String                   @id @default(cuid())
+  apiKey              String                   @unique
+  description         String?
+  isDemo              Boolean                  @default(false)
+  createdAt           DateTime                 @default(now())
+  lastSeenAt          DateTime?
+  isActive            Boolean                  @default(true)
+  displayName         String?                  @unique
+  email               String?                  @unique
+  emailVerified       Boolean                  @default(false)
+  lastLoginAt         DateTime?
+  passwordHash        String?
   activityLogs        ActivityLog[]
+  apiKeys             ApiKey[]
+  verificationTokens  EmailVerificationToken[]
   Message             Message[]
+  passwordResetTokens PasswordResetToken[]
   favoriteWallets     UserFavoriteWallet[]
   walletNotes         WalletNote[]
-  verificationTokens  EmailVerificationToken[]
-  apiKeys             ApiKey[]
-  passwordResetTokens PasswordResetToken[]
 }
 
 model EmailVerificationToken {
@@ -254,8 +246,7 @@ model EmailVerificationToken {
   expiresAt DateTime
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([token])
   @@index([userId])
@@ -273,8 +264,7 @@ model ApiKey {
   lastUsedAt  DateTime?
   expiresAt   DateTime?
   createdAt   DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([prefix])
@@ -288,8 +278,7 @@ model PasswordResetToken {
   used      Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
@@ -306,8 +295,8 @@ model ActivityLog {
   errorMessage      String?
   sourceIp          String?
   walletAddress     String?
-  wallet            Wallet?  @relation("WalletActivityLogs", fields: [walletAddress], references: [address])
   user              User?    @relation(fields: [userId], references: [id])
+  wallet            Wallet?  @relation("WalletActivityLogs", fields: [walletAddress], references: [address])
 
   @@index([userId])
   @@index([actionType])
@@ -373,8 +362,8 @@ model UserFavoriteWallet {
   metadata      Json?
   nickname      String?
   tags          String?
-  wallet        Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet        Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@id([userId, walletAddress])
   @@index([userId])
@@ -399,7 +388,6 @@ model TokenInfo {
   dexscreenerUpdatedAt    DateTime?
   fetchedAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
-  // Onchain metadata fields from main
   onchainName             String?
   onchainSymbol           String?
   onchainDescription      String?
@@ -489,8 +477,8 @@ model TokenTag {
   source       String
   confidence   Float     @default(1.0)
   createdAt    DateTime  @default(now())
-  TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
   Tag          Tag       @relation(fields: [tagId], references: [id])
+  TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
 
   @@id([tokenAddress, tagId])
   @@index([tagId])

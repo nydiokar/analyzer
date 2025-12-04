@@ -20,6 +20,17 @@ export class JwtDatabaseService {
     }
   }
 
+  async findUserByDisplayName(displayName: string): Promise<User | null> {
+    try {
+      return await (this.databaseService as any).prismaClient.user.findUnique({
+        where: { displayName },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to find user by display name: ${displayName}`, error);
+      return null;
+    }
+  }
+
   async findActiveUserById(userId: string): Promise<User | null> {
     try {
       // Use findFirst with filter on isActive; Prisma findUnique cannot include non-unique fields
@@ -43,6 +54,7 @@ export class JwtDatabaseService {
     isDemo: boolean;
     emailVerified: boolean;
     isActive: boolean;
+    displayName?: string;
   }): Promise<User> {
     return await (this.databaseService as any).prismaClient.user.create({
       data: userData,

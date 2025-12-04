@@ -10,6 +10,7 @@ export interface User {
   isAdmin: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+  displayName?: string;
 }
 
 export interface AuthResponse {
