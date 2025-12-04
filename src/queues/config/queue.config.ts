@@ -69,7 +69,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 3,              // Restored from 1 to 3 - original working setting
+      concurrency: 5,              // ⚡ OPTIMIZED: Increased from 3 to 5 to utilize 50 RPS better
     }
   },
   [QueueNames.ANALYSIS_OPERATIONS]: {
@@ -87,7 +87,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 10,              // Bump to 10 to meet sub-30s SLA for webhook-triggered jobs
+      concurrency: 14,              // ⚡ OPTIMIZED: Increased from 10 to 14 (handles holder profiles - key for your use case!)
       maxStalledCount: 3,           // Prevent stuck jobs during scaling
       stalledInterval: 30000,       // 30 seconds check for stalled jobs
     }
@@ -107,7 +107,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 5,              // Increased from 2 - inline processing eliminates 500MB overhead per job
+      concurrency: 7,              // ⚡ OPTIMIZED: Increased from 5 to 7 for better 50-wallet similarity performance
     }
   },
   [QueueNames.ENRICHMENT_OPERATIONS]: {
@@ -125,7 +125,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 3,              // Restored from 1 to 3 - original working setting
+      concurrency: 5,              // ⚡ OPTIMIZED: Increased from 3 to 5 for faster metadata enrichment
     }
   }
 };

@@ -114,7 +114,7 @@ export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 // Performance configuration for Helius API
 export const HELIUS_CONFIG = {
-  DEFAULT_RPS: 25, // Conservative rate limit
+  DEFAULT_RPS: 50, // ⚡ OPTIMIZED: Using full Developer tier capacity (was 25, wasting 50% of available RPS!)
   INTERNAL_CONCURRENCY: 10, // Sequential processing to avoid burst detection
   BATCH_SIZE: 100, // Reduced batch size
   SIGNATURE_FETCH_SAFETY_MULTIPLIER: getEnvNumber('HELIUS_SIGNATURE_SAFETY_MULTIPLIER', 5), // Stop pagination if we massively overshoot requested maxSignatures
@@ -149,7 +149,7 @@ export const HELIUS_V2_CONFIG = {
 
 // Queue and processing configuration
 export const PROCESSING_CONFIG = {
-  WALLET_SYNC_CONCURRENCY: getEnvNumber('WALLET_SYNC_CONCURRENCY', 3),
+  WALLET_SYNC_CONCURRENCY: getEnvNumber('WALLET_SYNC_CONCURRENCY', 6), // ⚡ OPTIMIZED: Increased from 3 to better utilize 50 RPS (2x more parallel wallet syncs)
   BATCH_PROCESSING_TIMEOUT_MS: getEnvNumber('BATCH_PROCESSING_TIMEOUT_MS', 30 * 60 * 1000),
   FAILURE_THRESHOLD: Number.isFinite(Number(process.env.FAILURE_THRESHOLD)) ? Math.min(Math.max(Number(process.env.FAILURE_THRESHOLD), 0), 1) : 0.8,
   RETRY_ATTEMPTS: getEnvNumber('RETRY_ATTEMPTS', 1),
