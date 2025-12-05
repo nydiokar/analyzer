@@ -8,10 +8,19 @@
  * - GET /api/jobs/:jobId (poll for completion)
  */
 
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import axios from 'axios';
 
-const API_BASE = process.env.API_BASE || 'http://localhost:3000';
-const TOKEN_MINT = process.env.TEST_TOKEN_MINT || 'YOUR_TOKEN_MINT_HERE';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/v1';
+const API_KEY = process.env.TEST_API_KEY || '';
+
+if (!API_KEY) {
+  console.error('❌ ERROR: No API key found. Set TEST_API_KEY or API_KEY environment variable in .env file');
+  process.exit(1);
+}
+const TOKEN_MINT = process.env.TEST_TOKEN_MINT || '66yi19iX3fR1Fi7yDdNpY1AF79vsAyatWwCCfsoppump';
 
 interface TestResult {
   walletCount: number;
@@ -27,14 +36,18 @@ async function pollJobStatus(jobId: string, maxWaitMs: number = 600000): Promise
 
   while (Date.now() - startTime < maxWaitMs) {
     try {
-      const statusResponse = await axios.get(`${API_BASE}/api/jobs/${jobId}`);
+      const statusResponse = await axios.get(`${API_BASE}/jobs/${jobId}`, {
+        headers: {
+          'x-api-key': API_KEY,
+        },
+      });
       const jobData = statusResponse.data;
 
-      if (jobData.state === 'completed') {
-        return jobData.returnvalue;
+      if (jobData.status === 'completed') {
+        return jobData.result;
       }
 
-      if (jobData.state === 'failed') {
+      if (jobData.status === 'failed') {
         throw new Error(`Job failed: ${jobData.failedReason || 'Unknown error'}`);
       }
 
@@ -58,9 +71,13 @@ async function testHolderProfiles(topN: number): Promise<TestResult> {
 
   try {
     // Queue the job
-    const queueResponse = await axios.post(`${API_BASE}/api/analyses/holder-profiles`, {
+    const queueResponse = await axios.post(`${API_BASE}/analyses/holder-profiles`, {
       tokenMint: TOKEN_MINT,
       topN: topN,
+    }, {
+      headers: {
+        'x-api-key': API_KEY,
+      },
     });
 
     const jobId = queueResponse.data.jobId;

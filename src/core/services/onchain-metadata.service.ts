@@ -14,6 +14,7 @@ const MAX_STRING_LENGTH = 10000; // Maximum string length
 const ALLOWED_URI_SCHEMES = ['https:', 'http:'];
 const TRUSTED_GATEWAYS = [
   'ipfs.io',
+  'ipfs.filebase.io',
   'gateway.ipfs.io',
   'cloudflare-ipfs.com',
   'arweave.net',
@@ -22,6 +23,11 @@ const TRUSTED_GATEWAYS = [
   'metadata.retlie.com',
   'moonitcdn.io',
   'actionapp.mypinata.cloud',
+  'metadata.rapidlaunch.io',
+  'metadata.j7tracker.com',
+  'metadata.uxento.io',
+  'cdn-aibackrooms.s3.amazonaws.com',
+  
 ];
 
 // Security error types (should not trigger retries)

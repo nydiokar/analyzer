@@ -6,11 +6,27 @@
  * ALIGNED TO ACTUAL API:
  * - POST /api/analyses/holder-profiles (returns jobId immediately)
  * - GET /api/jobs/:jobId (poll for completion)
+ *
+ * USAGE:
+ * - Set TEST_TOKEN_MINTS in .env with comma-separated token addresses for diverse testing
+ * - Example: TEST_TOKEN_MINTS=token1,token2,token3
+ * - If fewer tokens than concurrent jobs, tokens will cycle to ensure each job gets a different token
  */
+
+import * as dotenv from 'dotenv';
+dotenv.config();
 
 import axios from 'axios';
 
-const API_BASE = process.env.API_BASE || 'http://localhost:3000';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/v1';
+const API_KEY = process.env.TEST_API_KEY || process.env.API_KEY || '';
+
+if (!API_KEY) {
+  console.error('❌ ERROR: No API key found. Set TEST_API_KEY or API_KEY environment variable in .env file');
+  process.exit(1);
+}
+
+// Parse multiple token mints for concurrent testing (comma-separated)
 const TOKEN_MINTS = (process.env.TEST_TOKEN_MINTS || '').split(',').filter(Boolean);
 
 interface JobResult {
@@ -30,14 +46,18 @@ async function pollJobStatus(jobId: string, maxWaitMs: number = 600000): Promise
 
   while (Date.now() - startTime < maxWaitMs) {
     try {
-      const statusResponse = await axios.get(`${API_BASE}/api/jobs/${jobId}`);
+      const statusResponse = await axios.get(`${API_BASE}/jobs/${jobId}`, {
+        headers: {
+          'x-api-key': API_KEY,
+        },
+      });
       const jobData = statusResponse.data;
 
-      if (jobData.state === 'completed') {
-        return jobData.returnvalue;
+      if (jobData.status === 'completed') {
+        return jobData.result;
       }
 
-      if (jobData.state === 'failed') {
+      if (jobData.status === 'failed') {
         throw new Error(`Job failed: ${jobData.failedReason || 'Unknown error'}`);
       }
 
@@ -65,9 +85,13 @@ async function startHolderProfilesJob(
 
   try {
     // Queue the job
-    const queueResponse = await axios.post(`${API_BASE}/api/analyses/holder-profiles`, {
+    const queueResponse = await axios.post(`${API_BASE}/analyses/holder-profiles`, {
       tokenMint,
       topN,
+    }, {
+      headers: {
+        'x-api-key': API_KEY,
+      },
     });
 
     const queuedJobId = queueResponse.data.jobId;
@@ -110,10 +134,18 @@ async function runConcurrentJobsTest(concurrentJobs: number, walletsPerJob: numb
   console.log(`Total wallets to process: ${concurrentJobs * walletsPerJob}`);
   console.log('');
 
-  // If we don't have enough token mints, reuse the same one
-  const tokens = TOKEN_MINTS.length >= concurrentJobs
-    ? TOKEN_MINTS.slice(0, concurrentJobs)
-    : Array(concurrentJobs).fill(TOKEN_MINTS[0] || 'YOUR_TOKEN_MINT_HERE');
+  // Require unique token mints for each concurrent job to avoid cache interference
+  if (TOKEN_MINTS.length < concurrentJobs) {
+    console.error(`❌ ERROR: Need at least ${concurrentJobs} unique token mints for concurrent testing.`);
+    console.error(`   Currently have: ${TOKEN_MINTS.length}`);
+    console.error(`   Set TEST_TOKEN_MINTS in .env file with comma-separated token addresses:`);
+    console.error(`   Example: TEST_TOKEN_MINTS=token1,token2,token3`);
+    process.exit(1);
+  }
+
+  const tokens = TOKEN_MINTS.slice(0, concurrentJobs);
+  console.log(`📝 Testing with ${tokens.length} unique token mints:`);
+  tokens.forEach((token, i) => console.log(`   Job ${i + 1}: ${token}`));
 
   const testStartTime = Date.now();
 
