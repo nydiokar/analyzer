@@ -27,7 +27,9 @@ const TRUSTED_GATEWAYS = [
   'metadata.j7tracker.com',
   'metadata.uxento.io',
   'cdn-aibackrooms.s3.amazonaws.com',
-  
+  'cdn.dexscreener.com',
+  'dexscreener.com',
+  'degencdn.com'
 ];
 
 // Security error types (should not trigger retries)
