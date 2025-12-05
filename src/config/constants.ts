@@ -1,7 +1,7 @@
 // Default number of recent transactions to analyze per wallet
 export const DEFAULT_RECENT_TRANSACTION_COUNT = 500;
 
-// Mints to exclude from analysis (common tokens, system tokens, etc.)
+// Mints to exclude from analysis (common tokens, system tokens, wrapped tokens, etc.)
 export const DEFAULT_EXCLUDED_MINTS = [
   'So11111111111111111111111111111111111111112', // Wrapped SOL
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
@@ -10,6 +10,27 @@ export const DEFAULT_EXCLUDED_MINTS = [
   '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj', // stSOL
   'rndrizKT3MK1iimdxRdWabcF7Zb7nx9Vi3CY6A5J9NK', // rndr
   '8888xhvqnTWZ6tNbfAyP8mLLfaKsqfiW33tgA8RZ8888', // memeSOL - fake/scam token
+
+  // Wrapped tokens (Wormhole, Sollet, Allbridge, etc.)
+  'KgV1GvrHQmRBY8sHQQeUKwTm2r2h8t4C8qt12Cw1HVE', // Wrapped AVAX (Wormhole)
+  'eqKJTf1Do4MDPyKisMYqVaUFpkEFAs3riGF3ceDH2Ca', // Wrapped USDC (Allbridge from Polygon)
+  'WFRGB49tP8CdKubqCdt5Spo2BdGS4BpgoinNER5TYUm', // Wrapped Fragmetric Staked BTC
+  'CWE8JPTUYhdCTZYWPTe1o5DFqfdjzWKc9WKz6rSjQUdG', // Wrapped Chainlink (Sollet)
+  '6VYF5jXq6rfq4QRgGMG6c07b1Ev1Lj7KSbHBxfQ9e1L3', // Wrapped Dingocoin
+  'AGFEad2et2ZJif9jaGpdMixQqvW5i81aBdvKe7PHNfz3', // Wrapped FTT (Sollet)
+  'GXMvfY2jpQctDqZ9RoU3oWPhufKiCcFEfchvYumtX7jd', // Wrapped TOMO (Sollet)
+  'CsZ5LZkDS7h9TDKjrbL7VAWQZ9nsRu8vJLhRYfmGaN8K', // Wrapped ALEPH (Sollet)
+  '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh', // Wrapped BTC (Wormhole)
+  'cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij', // Coinbase Wrapped BTC
+  '5XZw2LKTyrfvfiskJ78AMpackRjPcyCif1WhUsPDuVqQ', // Wrapped BTC
+  '7vfCXTUXX5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // Wrapped Ether (Wormhole)
+  'CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn', // OKX Wrapped BTC
+  'BQcdHdAQW1hczDbBi9hiegXAR7A98Q9jx3X3iBBBDiq4', // Wrapped USDT (Sollet)
+  '2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk', // Wrapped Ethereum (Sollet)
+  '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E', // Wrapped Bitcoin (Sollet)
+  '9gP2kCy3wA1ctvYWQk75guqXuHfrEomqydHLtcTCqiLa', // Wrapped BNB (Wormhole)
+  'AR1Mtgh7zAtxuxGd2XPovXPVjcSdY3i4rQYisNadjfKy', // Wrapped SUSHI (Sollet)
+  'JEFFSQ3s8T3wKsvp4tnRASUBW7Cqgnf8ukBZC4C8XBm1', // Saber Wrapped USD Coin (9 decimals)
 ];
 
 // Define specific program IDs
