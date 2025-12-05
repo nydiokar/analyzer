@@ -402,26 +402,30 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
               Close
             </button>
           </div>
-          <div className="grid gap-2 md:grid-cols-2">
-            {displayedHoldings.map((holding) => (
-              <div key={holding.tokenAddress} className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <TokenBadge mint={holding.tokenAddress} size="sm" />
+          <div className="max-h-[360px] overflow-y-auto pr-1">
+            <div className="grid gap-2 md:grid-cols-2">
+              {displayedHoldings.map((holding) => (
+                <div key={holding.tokenAddress} className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TokenBadge mint={holding.tokenAddress} size="sm" />
+                  </div>
+                  <div className="text-xs text-muted-foreground text-right">
+                    Bal: {formatBalanceCompact(holding.uiBalance)}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground text-right">
-                  Bal: {formatBalanceCompact(holding.uiBalance)}
-                </div>
+              ))}
+            </div>
+            {canLoadMoreHoldings && (
+              <div className="sticky bottom-0 pt-2 pb-1 bg-muted/10">
+                <button
+                  onClick={loadMoreHoldings}
+                  className="w-full text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                >
+                  Load more tokens
+                </button>
               </div>
-            ))}
+            )}
           </div>
-          {canLoadMoreHoldings && (
-            <button
-              onClick={loadMoreHoldings}
-              className="w-full text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-            >
-              Load more tokens
-            </button>
-          )}
         </div>
       )}
 

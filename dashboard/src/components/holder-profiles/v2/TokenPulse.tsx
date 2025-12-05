@@ -59,19 +59,21 @@ export function TokenPulse({ result }: Props) {
       </div>
 
       {selectedProfile && typeof window !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/20 backdrop-blur-sm">
-          <div className="relative w-full max-w-4xl">
-            <button
-              className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-card border shadow hover:bg-muted transition-colors"
-              onClick={() => setSelectedProfile(null)}
-              aria-label="Close"
-            >
-              ×
-            </button>
-            <WalletBaseballCard
-              profile={selectedProfile}
-              walletAddress={selectedProfile.walletAddress}
-            />
+        <div className="fixed inset-0 z-50 bg-background/20 backdrop-blur-sm overflow-y-auto">
+          <div className="flex min-h-full items-start justify-center py-10 px-4">
+            <div className="relative w-full max-w-4xl">
+              <button
+                className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-card border shadow hover:bg-muted transition-colors"
+                onClick={() => setSelectedProfile(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+              <WalletBaseballCard
+                profile={selectedProfile}
+                walletAddress={selectedProfile.walletAddress}
+              />
+            </div>
           </div>
         </div>,
         document.body
