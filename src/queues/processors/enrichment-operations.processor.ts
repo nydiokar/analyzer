@@ -1,4 +1,4 @@
-import { Logger, Injectable } from '@nestjs/common';
+import { Logger, Injectable, Inject } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult } from '../jobs/types';
@@ -8,6 +8,8 @@ import { TokenInfoService } from '../../api/services/token-info.service';
 import { DexscreenerService } from '../../api/services/dexscreener.service';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
+import { REDIS_CLIENT } from '../config/redis.provider';
+import { Redis } from 'ioredis';
 
 @Injectable()
 export class EnrichmentOperationsProcessor {
@@ -20,6 +22,7 @@ export class EnrichmentOperationsProcessor {
     private readonly dexscreenerService: DexscreenerService,
     private readonly balanceCacheService: BalanceCacheService,
         private readonly websocketGateway: JobProgressGateway,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {
     const config = QueueConfigs[QueueNames.ENRICHMENT_OPERATIONS];
     
@@ -88,15 +91,9 @@ export class EnrichmentOperationsProcessor {
         return { enrichedBalances };
       }
       
-      // Store enriched result in Redis cache
+      // Store enriched result in Redis cache (reuse injected connection)
       const cacheKey = `enrich:${requestId}`;
-      const redis = new (require('ioredis'))({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379')
-      });
-      
-      await redis.set(cacheKey, JSON.stringify(enrichedBalances), 'EX', 300);
-      await redis.quit();
+      await this.redisClient.set(cacheKey, JSON.stringify(enrichedBalances), 'EX', 300);
       
 
       

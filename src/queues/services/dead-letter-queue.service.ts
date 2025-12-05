@@ -43,14 +43,17 @@ export class DeadLetterQueueService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    await this.setupQueueEventListeners();
-    
+    // DISABLED automatic queue event monitoring to prevent memory leaks
+    // JobEventsBridgeService already handles event listening for all queues
+    // Dead letter queue still available for manual inspection via getRecentFailedJobs()
+    // await this.setupQueueEventListeners();
+
     // Start periodic cleanup to prevent memory leaks
     this.cleanupInterval = setInterval(() => {
       this.cleanupFailureRates();
     }, 10 * 60 * 1000); // Cleanup every 10 minutes
-    
-    this.logger.log('Dead letter queue monitoring started');
+
+    this.logger.log('Dead letter queue initialized (manual mode). Use getRecentFailedJobs() to inspect failures.');
   }
 
   /**
