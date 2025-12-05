@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { HolderProfile } from '../types';
 import { formatHoldTime, formatHoldSource, formatPercentage, getTypicalHoldTimeHours } from './utils/formatters';
 import { getBehaviorColor } from './utils/behavior';
@@ -209,6 +209,8 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [selectedBucket, setSelectedBucket] = useState<{ bucket: TimeBucket; label: string; anchor: { x: number; y: number } } | null>(null);
   const [showHoldings, setShowHoldings] = useState(false);
+  const HOLDINGS_BATCH_SIZE = 30;
+  const [holdingsDisplayLimit, setHoldingsDisplayLimit] = useState(HOLDINGS_BATCH_SIZE);
 
   const handleBucketClick = (bucket: TimeBucket, label: string, anchor: { x: number; y: number }) => {
     // Toggle: if clicking the same bucket, close the panel
@@ -233,8 +235,15 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const heldTokens = profile.currentHoldingsCount ?? 0;
   const exitedTokens = profile.completedCycleCount ?? 0;
   const percentHeldValue = profile.percentValueInCurrentHoldings ?? 0;
-  const currentHoldingsList = (profile.currentHoldings || []).filter(h => (h.uiBalance ?? 0) > 0);
+  const currentHoldingsList = useMemo(
+    () => (profile.currentHoldings || [])
+      .filter((holding) => (holding.uiBalance ?? 0) > 0)
+      .sort((a, b) => (b.uiBalance ?? 0) - (a.uiBalance ?? 0)),
+    [profile.currentHoldings]
+  );
   const hasHoldingsList = currentHoldingsList.length > 0;
+  const displayedHoldings = currentHoldingsList.slice(0, holdingsDisplayLimit);
+  const canLoadMoreHoldings = holdingsDisplayLimit < currentHoldingsList.length;
   const estimatedHeld =
     heldTokens > 0
       ? heldTokens
@@ -249,6 +258,31 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
         : '0';
   const tokensSummary = `${totalTokens.toLocaleString()} tokens`;
   const exitHoldSummary = `${exitedTokens.toLocaleString()} exited / ${heldDisplay} held`;
+
+  const toggleHoldingsVisibility = () => {
+    if (!hasHoldingsList) return;
+    setShowHoldings((prev) => {
+      const next = !prev;
+      if (next) {
+        setHoldingsDisplayLimit(HOLDINGS_BATCH_SIZE);
+      }
+      return next;
+    });
+  };
+
+  const closeHoldingsList = () => {
+    setShowHoldings(false);
+    setHoldingsDisplayLimit(HOLDINGS_BATCH_SIZE);
+  };
+
+  const loadMoreHoldings = () => {
+    setHoldingsDisplayLimit((prev) => Math.min(prev + HOLDINGS_BATCH_SIZE, currentHoldingsList.length));
+  };
+
+  useEffect(() => {
+    setShowHoldings(false);
+    setHoldingsDisplayLimit(HOLDINGS_BATCH_SIZE);
+  }, [profile.walletAddress]);
 
   return (
     <div className="rounded-lg border bg-card hover:shadow-md transition-shadow overflow-hidden">
@@ -325,7 +359,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             footer={
               typeof profile.percentValueInCurrentHoldings === 'number' ? (
                 <button
-                  onClick={() => hasHoldingsList && setShowHoldings(!showHoldings)}
+                  onClick={toggleHoldingsVisibility}
                   disabled={!hasHoldingsList}
                   className={`underline-offset-2 ${hasHoldingsList ? 'underline hover:text-primary transition-colors' : 'text-muted-foreground cursor-not-allowed'}`}
                 >
@@ -358,17 +392,18 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
         <div className="px-3 pb-3 space-y-2 border-t bg-muted/10">
           <div className="flex items-center justify-between">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
-              Current holdings ({currentHoldingsList.length})
+              Current holdings ({Math.min(displayedHoldings.length, currentHoldingsList.length)}
+              {canLoadMoreHoldings ? ` of ${currentHoldingsList.length}` : ''})
             </p>
             <button
-              onClick={() => setShowHoldings(false)}
+              onClick={closeHoldingsList}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               Close
             </button>
           </div>
           <div className="grid gap-2 md:grid-cols-2">
-            {currentHoldingsList.map((holding) => (
+            {displayedHoldings.map((holding) => (
               <div key={holding.tokenAddress} className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <TokenBadge mint={holding.tokenAddress} size="sm" />
@@ -379,6 +414,14 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
               </div>
             ))}
           </div>
+          {canLoadMoreHoldings && (
+            <button
+              onClick={loadMoreHoldings}
+              className="w-full text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+            >
+              Load more tokens
+            </button>
+          )}
         </div>
       )}
 

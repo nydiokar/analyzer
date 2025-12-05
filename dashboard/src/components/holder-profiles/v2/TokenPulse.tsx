@@ -5,7 +5,7 @@ import { BehaviorCompositionBar } from './BehaviorCompositionBar';
 import { MinimalHoldersTable } from './MinimalHoldersTable';
 import { getTokenOutcome } from './utils/outcome-logic';
 import { formatAddress } from './utils/formatters';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { WalletBaseballCard } from './WalletBaseballCard';
 import { createPortal } from 'react-dom';
 
@@ -16,6 +16,19 @@ interface Props {
 export function TokenPulse({ result }: Props) {
   const outcome = getTokenOutcome(result.profiles);
   const [selectedProfile, setSelectedProfile] = useState<HolderProfilesResult['profiles'][number] | null>(null);
+
+  useEffect(() => {
+    if (!selectedProfile) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelectedProfile(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedProfile]);
 
   if (!result?.profiles?.length) return null;
 
