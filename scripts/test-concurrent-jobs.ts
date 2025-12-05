@@ -27,7 +27,10 @@ if (!API_KEY) {
 }
 
 // Parse multiple token mints for concurrent testing (comma-separated)
-const TOKEN_MINTS = (process.env.TEST_TOKEN_MINTS || '').split(',').filter(Boolean);
+const TOKEN_MINTS = (process.env.TEST_TOKEN_MINTS || '')
+  .split(',')
+  .map(mint => mint.trim())
+  .filter(Boolean);
 
 interface JobResult {
   jobId: number;
@@ -115,14 +118,18 @@ async function startHolderProfilesJob(
       status: 'completed',
     };
   } catch (error: any) {
-    console.error(`❌ Job ${jobId}: Failed - ${error.message}`);
+    const errorDetails = error.response?.data?.message || error.response?.data?.error || error.message;
+    console.error(`❌ Job ${jobId}: Failed - ${errorDetails}`);
+    if (error.response?.status === 400) {
+      console.error(`   Hint: Check token mint format: "${tokenMint}" (length: ${tokenMint.length}, has spaces: ${tokenMint !== tokenMint.trim()})`);
+    }
     return {
       jobId,
       tokenMint,
       walletCount: topN,
       startTime,
       status: 'failed',
-      error: error.message,
+      error: errorDetails,
     };
   }
 }
@@ -213,22 +220,27 @@ async function runConcurrentJobsTest(concurrentJobs: number, walletsPerJob: numb
     console.log(`Fastest job: ${(minDuration / 1000).toFixed(2)}s`);
     console.log(`Slowest job: ${(maxDuration / 1000).toFixed(2)}s`);
 
-    // Calculate theoretical vs actual
-    const theoreticalDuration = avgDuration; // If perfect parallelism
-    const parallelEfficiency = (theoreticalDuration / totalDuration) * 100;
+    // Only show concurrency analysis if ALL jobs succeeded
+    if (failedJobs.length === 0) {
+      // Calculate theoretical vs actual
+      const theoreticalDuration = avgDuration; // If perfect parallelism
+      const parallelEfficiency = (theoreticalDuration / totalDuration) * 100;
 
-    console.log('\n=== CONCURRENCY ANALYSIS ===');
-    console.log(`Theoretical (if sequential): ${(avgDuration * concurrentJobs / 1000).toFixed(1)}s`);
-    console.log(`Actual (parallel): ${(totalDuration / 1000).toFixed(1)}s`);
-    console.log(`Speedup: ${(avgDuration * concurrentJobs / totalDuration).toFixed(2)}x`);
-    console.log(`Parallel efficiency: ${parallelEfficiency.toFixed(1)}%`);
+      console.log('\n=== CONCURRENCY ANALYSIS ===');
+      console.log(`Theoretical (if sequential): ${(avgDuration * concurrentJobs / 1000).toFixed(1)}s`);
+      console.log(`Actual (parallel): ${(totalDuration / 1000).toFixed(1)}s`);
+      console.log(`Speedup: ${(avgDuration * concurrentJobs / totalDuration).toFixed(2)}x`);
+      console.log(`Parallel efficiency: ${parallelEfficiency.toFixed(1)}%`);
 
-    if (parallelEfficiency > 80) {
-      console.log('🎉 Excellent parallelism! Queue is handling load well.');
-    } else if (parallelEfficiency > 60) {
-      console.log('✅ Good parallelism. Some overhead but acceptable.');
+      if (parallelEfficiency > 80) {
+        console.log('🎉 Excellent parallelism! Queue is handling load well.');
+      } else if (parallelEfficiency > 60) {
+        console.log('✅ Good parallelism. Some overhead but acceptable.');
+      } else {
+        console.log('⚠️ Poor parallelism. Queue may be bottlenecked - consider increasing concurrency.');
+      }
     } else {
-      console.log('⚠️ Poor parallelism. Queue may be bottlenecked - consider increasing concurrency.');
+      console.log('\n⚠️ CONCURRENCY ANALYSIS SKIPPED: Some jobs failed. Fix errors before analyzing performance.');
     }
   }
 
@@ -239,6 +251,11 @@ async function runConcurrentJobsTest(concurrentJobs: number, walletsPerJob: numb
       console.log(`Job ${job.jobId}: ${job.error}`);
     });
   }
+
+  // Suggest running the RPS analyzer
+  console.log('\n💡 TIP: Run the RPS analyzer to check for 429 errors from this test:');
+  console.log('   npx ts-node -r tsconfig-paths/register scripts/quick-rps-analyzer.ts 5');
+  console.log('   (This will analyze logs from the last 5 minutes only)');
 }
 
 // Parse command line args
