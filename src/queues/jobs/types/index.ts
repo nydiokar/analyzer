@@ -45,6 +45,10 @@ export interface AnalyzeHolderProfilesJobData {
   topN?: number;              // Number of top holders to analyze (default: 10) when token mode
   walletAddress?: string;     // Specific wallet to analyze when wallet mode
   requestId: string;
+  _holderContext?: {
+    rank: number;
+    supplyPercent: number;
+  };
 }
 
 // Dashboard Wallet Analysis Job Data
@@ -228,5 +232,6 @@ export interface HolderProfilesResult extends JobResult {
     totalHoldersAnalyzed: number;
     totalProcessingTimeMs: number;
     avgProcessingTimePerWalletMs: number;
+    failedHolders?: number;
   };
 }
