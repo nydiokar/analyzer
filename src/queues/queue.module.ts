@@ -1,4 +1,4 @@
-import { Module, OnModuleInit, Global } from '@nestjs/common';
+import { Module, OnModuleInit, OnModuleDestroy, Global, Logger } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
@@ -122,13 +122,19 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     EnrichmentOperationsProcessor,
   ],
 })
-export class QueueModule implements OnModuleInit {
+export class QueueModule implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(QueueModule.name);
+
   constructor(
     private readonly queueHealthService: QueueHealthService,
     private readonly walletOperationsQueue: WalletOperationsQueue,
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
+    private readonly walletOperationsProcessor: WalletOperationsProcessor,
+    private readonly analysisOperationsProcessor: AnalysisOperationsProcessor,
+    private readonly similarityOperationsProcessor: SimilarityOperationsProcessor,
+    private readonly enrichmentOperationsProcessor: EnrichmentOperationsProcessor,
   ) {}
 
   async onModuleInit() {
@@ -137,5 +143,41 @@ export class QueueModule implements OnModuleInit {
     this.queueHealthService.registerQueue(QueueNames.ANALYSIS_OPERATIONS, this.analysisOperationsQueue.getQueue());
     this.queueHealthService.registerQueue(QueueNames.SIMILARITY_OPERATIONS, this.similarityOperationsQueue.getQueue());
     this.queueHealthService.registerQueue(QueueNames.ENRICHMENT_OPERATIONS, this.enrichmentOperationsQueue.getQueue());
+
+    this.logger.log('Queue module initialized - all queues registered for health monitoring');
+  }
+
+  async onModuleDestroy() {
+    this.logger.log('Initiating graceful shutdown of queue module...');
+
+    // Graceful shutdown: Stop accepting new jobs, finish current jobs, then close
+    const shutdownPromises = [
+      this.walletOperationsProcessor.shutdown(),
+      this.analysisOperationsProcessor.shutdown(),
+      this.similarityOperationsProcessor.shutdown(),
+      this.enrichmentOperationsProcessor.shutdown(),
+    ];
+
+    try {
+      // Wait for all workers to finish current jobs and close (max 30 seconds)
+      await Promise.race([
+        Promise.all(shutdownPromises),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Shutdown timeout')), 30000)
+        ),
+      ]);
+
+      this.logger.log('✅ Queue module shutdown completed successfully');
+    } catch (error) {
+      this.logger.error('⚠️ Queue module shutdown encountered errors:', error);
+      // Force close queues to prevent hanging
+      await Promise.allSettled([
+        this.walletOperationsQueue.getQueue().close(),
+        this.analysisOperationsQueue.getQueue().close(),
+        this.similarityOperationsQueue.getQueue().close(),
+        this.enrichmentOperationsQueue.getQueue().close(),
+      ]);
+      this.logger.warn('Force closed all queues after shutdown timeout');
+    }
   }
 } 

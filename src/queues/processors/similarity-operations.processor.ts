@@ -604,21 +604,22 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * Cleanup worker when module is destroyed
+   * Shutdown the worker gracefully
    */
-  async onModuleDestroy() {
-    this.logger.log('Shutting down SimilarityOperationsProcessor...');
-    if (this.worker) {
-      await this.worker.close();
-    }
+  async shutdown(): Promise<void> {
+    this.logger.log('Shutting down SimilarityOperationsProcessor worker...');
+    await this.worker.close();
   }
 
   /**
-   * Shutdown the worker gracefully
+   * Cleanup worker when module is destroyed
    */
-  async onApplicationShutdown(): Promise<void> {
-    this.logger.log('Shutting down SimilarityOperationsProcessor...');
-    await this.worker.close();
+  async onModuleDestroy() {
+    try {
+      await this.shutdown();
+    } catch (err) {
+      this.logger.warn('Error shutting down SimilarityOperationsProcessor worker', err as Error);
+    }
   }
 
 

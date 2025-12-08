@@ -58,8 +58,8 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     queueOptions: {
       connection: redisConnection,
       defaultJobOptions: {
-        removeOnComplete: 50,      // Keep recent successes
-        removeOnFail: 100,         // Keep failures for debugging
+        removeOnComplete: 20,      // Reduced from 50 to prevent Redis memory bloat
+        removeOnFail: 50,          // Reduced from 100 - keeps recent failures for debugging
         attempts: 3,               // Retry failed API calls
         backoff: {
           type: JobTimeouts['sync-wallet'].retryBackoff,
@@ -76,8 +76,8 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     queueOptions: {
       connection: redisConnection,
       defaultJobOptions: {
-        removeOnComplete: 100,        // Increased for better scaling (more completed jobs kept for debugging)
-        removeOnFail: 200,            // Increased for better error analysis during high load
+        removeOnComplete: 25,         // Reduced from 100 to prevent Redis memory bloat
+        removeOnFail: 50,             // Reduced from 200 - keeps recent failures for debugging
         attempts: 3,
         backoff: {
           type: 'exponential' as const, // Better for dashboard jobs than fixed delay
@@ -90,17 +90,22 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
       concurrency: 12,              // ⚡ Total concurrent jobs across all types
       maxStalledCount: 3,           // Prevent stuck jobs during scaling
       stalledInterval: 30000,       // 30 seconds check for stalled jobs
-      // 🎯 REMOVED limiter: Was causing artificial delays (jobs waiting to start)
-      // Relying on exponential backoff in HeliusApiClient to handle 429s instead
-      // 2-3% 429 rate is acceptable with retry logic
+      // 🛡️ SAFETY NET: High limiter to prevent extreme bursts only
+      // Normal operation: 12 workers × ~3 jobs/sec = ~36 jobs/sec (well below limit)
+      // This only activates during pathological scenarios (mass queue dumps, etc.)
+      // Primary rate limiting still handled by HeliusApiClient exponential backoff
+      limiter: {
+        max: 50,                    // 50 jobs/sec - well above normal load, prevents catastrophic bursts
+        duration: 1000,             // per second
+      },
     }
   },
   [QueueNames.SIMILARITY_OPERATIONS]: {
     queueOptions: {
       connection: redisConnection,
       defaultJobOptions: {
-        removeOnComplete: 50,
-        removeOnFail: 100,
+        removeOnComplete: 20,        // Reduced from 50 to prevent Redis memory bloat
+        removeOnFail: 50,            // Reduced from 100 - keeps recent failures for debugging
         attempts: 3,
         backoff: {
           type: JobTimeouts['calculate-similarity'].retryBackoff,
@@ -117,8 +122,8 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     queueOptions: {
       connection: redisConnection,
       defaultJobOptions: {
-        removeOnComplete: 50,
-        removeOnFail: 100,
+        removeOnComplete: 20,        // Reduced from 50 to prevent Redis memory bloat
+        removeOnFail: 50,            // Reduced from 100 - keeps recent failures for debugging
         attempts: 3,
         backoff: {
           type: JobTimeouts['enrich-token-balances'].retryBackoff,
