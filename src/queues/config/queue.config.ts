@@ -87,9 +87,12 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 12,              // ⚡ OPTIMIZED: Increased from 10 to 14 (handles holder profiles - key for your use case!)
+      concurrency: 12,              // ⚡ Total concurrent jobs across all types
       maxStalledCount: 3,           // Prevent stuck jobs during scaling
       stalledInterval: 30000,       // 30 seconds check for stalled jobs
+      // 🎯 REMOVED limiter: Was causing artificial delays (jobs waiting to start)
+      // Relying on exponential backoff in HeliusApiClient to handle 429s instead
+      // 2-3% 429 rate is acceptable with retry logic
     }
   },
   [QueueNames.SIMILARITY_OPERATIONS]: {

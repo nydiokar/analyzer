@@ -69,7 +69,7 @@ if (wsolAmount > 100000) {
     if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
         // CONFIRMED: Raw lamports detected, auto-correct
         wsolAmount = scaledAmount;
-        logger.warn(`Helius API bug detected - auto-corrected`);
+        // logger.warn(`Helius API bug detected - auto-corrected`);
     } else {
         // Genuine whale transfer (>100k SOL), keep as-is
     }

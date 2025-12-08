@@ -13,7 +13,7 @@ import { ApiKeyAuthGuard } from './api/shared/guards/api-key-auth.guard';
   imports: [
     ThrottlerModule.forRoot([{
       ttl: 60000, // 1 minute in milliseconds
-      limit: 100, // 100 requests per minute
+      limit: 200, // 500 requests per minute (increased for concurrent job testing)
     }]),
     ConfigModule.forRoot({ // Initialize ConfigModule to load .env variables
       isGlobal: true, // Make ConfigModule global

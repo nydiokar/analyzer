@@ -120,21 +120,22 @@ async function analyzeLogs(sinceTimestamp?: number): Promise<LogAnalysis> {
         continue;
       }
 
-      // Count 429 errors
+      // Count 429 errors - FIXED: proper detection
       if (
-        line.includes('429') ||
-        line.toLowerCase().includes('too many requests') ||
-        line.toLowerCase().includes('rate limit exceeded')
+        line.includes('status code 429') ||
+        line.includes('"status":429') ||
+        line.toLowerCase().includes('too many requests')
       ) {
         count429++;
       }
 
-      // Count successful API calls
+      // Count successful API calls (broader detection)
       if (
-        line.includes('[HeliusApiClient]') &&
-        (line.includes('Successfully fetched') ||
-          line.includes('INFO') ||
-          line.includes('Fetched'))
+        (line.includes('[HeliusApiClient]') || line.includes('[HeliusSyncService]')) &&
+        (line.includes('Successfully') ||
+          line.includes('Fetched') ||
+          line.includes('INFO')) &&
+        !line.includes('bug detected') // Exclude WSOL bug warnings
       ) {
         successfulCalls++;
       }
