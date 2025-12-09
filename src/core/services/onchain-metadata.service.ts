@@ -29,7 +29,10 @@ const TRUSTED_GATEWAYS = [
   'cdn-aibackrooms.s3.amazonaws.com',
   'cdn.dexscreener.com',
   'dexscreener.com',
-  'degencdn.com'
+  'degencdn.com',
+  'gateway.pinata.cloud',
+  'raw.githubusercontent.com',
+  'api.zeralabs.org'
 ];
 
 // Security error types (should not trigger retries)

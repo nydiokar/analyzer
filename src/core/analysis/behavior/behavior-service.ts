@@ -105,41 +105,49 @@ export class BehaviorService {
         // Only save the profile if NO specific timeRange was provided for this analysis run.
         // This means we are doing a full analysis, not a view of a specific period.
         if (!timeRange) {
+          // Sanitize numeric data to prevent Prisma validation errors
+          const sanitizeNumber = (value: number): number => {
+            if (isNaN(value) || !isFinite(value)) {
+              return 0; // Default to 0 for invalid numbers
+            }
+            return value;
+          };
+
           const profileDataToSave: WalletBehaviorProfileUpsertData = {
             walletAddress,
-            buySellRatio,
-            buySellSymmetry,
-            averageFlipDurationHours,
-            medianHoldTime,
-            sequenceConsistency,
-            flipperScore,
+            buySellRatio: sanitizeNumber(buySellRatio),
+            buySellSymmetry: sanitizeNumber(buySellSymmetry),
+            averageFlipDurationHours: sanitizeNumber(averageFlipDurationHours),
+            medianHoldTime: sanitizeNumber(medianHoldTime),
+            sequenceConsistency: sanitizeNumber(sequenceConsistency),
+            flipperScore: sanitizeNumber(flipperScore),
             uniqueTokensTraded,
             tokensWithBothBuyAndSell,
             totalTradeCount,
             totalBuyCount,
             totalSellCount,
             completePairsCount,
-            averageTradesPerToken,
+            averageTradesPerToken: sanitizeNumber(averageTradesPerToken),
             tradingTimeDistribution: tradingTimeDistribution as unknown as Prisma.InputJsonValue,
             holdTimeTokenMap: (metrics.historicalPattern?.holdTimeTokenMap || null) as unknown as Prisma.InputJsonValue,
-            percentTradesUnder1Hour,
-            percentTradesUnder4Hours,
+            percentTradesUnder1Hour: sanitizeNumber(percentTradesUnder1Hour),
+            percentTradesUnder4Hours: sanitizeNumber(percentTradesUnder4Hours),
             tradingStyle,
-            confidenceScore,
+            confidenceScore: sanitizeNumber(confidenceScore),
             tradingFrequency: tradingFrequency as unknown as Prisma.InputJsonValue,
             tokenPreferences: tokenPreferences as unknown as Prisma.InputJsonValue,
             riskMetrics: riskMetrics as unknown as Prisma.InputJsonValue,
-            reentryRate,
-            percentageOfUnpairedTokens,
+            reentryRate: sanitizeNumber(reentryRate),
+            percentageOfUnpairedTokens: sanitizeNumber(percentageOfUnpairedTokens),
             sessionCount,
-            avgTradesPerSession,
+            avgTradesPerSession: sanitizeNumber(avgTradesPerSession),
             activeTradingPeriods: activeTradingPeriods as unknown as Prisma.InputJsonValue,
-            averageSessionStartHour,
-            averageSessionDurationMinutes,
+            averageSessionStartHour: sanitizeNumber(averageSessionStartHour),
+            averageSessionDurationMinutes: sanitizeNumber(averageSessionDurationMinutes),
             firstTransactionTimestamp,
             lastTransactionTimestamp,
           };
-          
+
           // Use the new DatabaseService method
           const savedProfile = await this.databaseService.upsertWalletBehaviorProfile(profileDataToSave);
           if (!savedProfile) {

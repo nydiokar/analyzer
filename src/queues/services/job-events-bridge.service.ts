@@ -27,14 +27,26 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Job Events Bridge active for ${Object.keys(QueueNames).length} queues`);
     
     // 🧹 TARGETED FIX: Cleanup orphaned locks from previous restart
-    try {
-      const orphanedLocks = await this.redisLockService.cleanupOrphanedLocksOnStartup();
-      if (orphanedLocks > 0) {
-        this.logger.log(`🧹 Startup cleanup: Removed ${orphanedLocks} orphaned locks from previous restart`);
+    // Attempt cleanup after a longer delay to let Redis fully initialize
+    setTimeout(async () => {
+      try {
+        const orphanedLocks = await this.redisLockService.cleanupOrphanedLocksOnStartup();
+        if (orphanedLocks > 0) {
+          this.logger.log(`🧹 Startup cleanup: Removed ${orphanedLocks} orphaned locks from previous restart`);
+        } else {
+          this.logger.log('🧹 Startup cleanup: No orphaned locks found');
+        }
+      } catch (error) {
+        const errorMessage = (error as Error).message || 'Unknown error';
+        if (errorMessage.includes('Redis not connected') ||
+            errorMessage.includes('enableOfflineQueue') ||
+            errorMessage.includes('writeable')) {
+          this.logger.warn('⚠️  Redis not ready for cleanup - skipping. Make sure Redis is running for lock management.');
+        } else {
+          this.logger.error('Error during startup lock cleanup:', error);
+        }
       }
-    } catch (error) {
-      this.logger.error('Error during startup lock cleanup:', error);
-    }
+    }, 10000); // Wait 10 seconds for Redis to be fully ready
   }
 
   async onModuleDestroy() {
