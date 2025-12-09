@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useCallback, useEffect, memo, startTransition, useDeferredValue, useRef } from 'react';
 import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store'; 
-import { Card, Text, Flex } from '@tremor/react';
+import { Card } from "@/components/ui/card";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
 import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationLink, PaginationNext } from "../../components/ui/pagination"; 
 import { Input } from "@/components/ui/input";
@@ -247,13 +247,35 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   {
     accessorKey: 'totalSolSpent',
     header: 'SOL Spent',
-    cell: ({ row }) => <Text className={cn("text-sm font-mono font-medium", (row.original.totalSolSpent ?? 0) > 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-400 dark:text-slate-500')}>{formatSolAmount(row.original.totalSolSpent)}</Text>,
+    cell: ({ row }) => (
+      <span
+        className={cn(
+          "text-sm font-mono font-medium",
+          (row.original.totalSolSpent ?? 0) > 0
+            ? "text-red-500 dark:text-red-400"
+            : "text-slate-400 dark:text-slate-500"
+        )}
+      >
+        {formatSolAmount(row.original.totalSolSpent)}
+      </span>
+    ),
     meta: { className: 'text-right px-2 min-w-[100px]' },
   },
   {
     accessorKey: 'totalSolReceived',
     header: 'SOL Received',
-    cell: ({ row }) => <Text className={cn("text-sm font-mono font-medium", (row.original.totalSolReceived ?? 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500')}>{formatSolAmount(row.original.totalSolReceived)}</Text>,
+    cell: ({ row }) => (
+      <span
+        className={cn(
+          "text-sm font-mono font-medium",
+          (row.original.totalSolReceived ?? 0) > 0
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-slate-400 dark:text-slate-500"
+        )}
+      >
+        {formatSolAmount(row.original.totalSolReceived)}
+      </span>
+    ),
     meta: { className: 'text-right px-2 min-w-[110px]' },
   },
   {
@@ -262,26 +284,30 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
     cell: ({ row }) => {
       const item = row.original;
       if (item.currentUiBalance === 0) {
-        return <Text className="text-sm text-slate-400 dark:text-slate-500 font-medium">-</Text>;
+        return <span className="text-sm text-slate-400 dark:text-slate-500 font-medium">-</span>;
       }
       return (
         <div className="text-right">
           <div className="flex flex-col items-end space-y-0.5">
             {item.currentHoldingsValueSol ? (
-              <Text className={cn(
-                "text-sm font-mono font-semibold",
-                item.currentHoldingsValueSol >= 1 ? "text-orange-600 dark:text-orange-400" : // Significant position
-                item.currentHoldingsValueSol >= 0.1 ? "text-slate-700 dark:text-slate-300" : // Medium position  
-                "text-slate-500 dark:text-slate-400" // Small position
-              )}>
+              <span
+                className={cn(
+                  "text-sm font-mono font-semibold",
+                  item.currentHoldingsValueSol >= 1
+                    ? "text-orange-600 dark:text-orange-400" // Significant position
+                    : item.currentHoldingsValueSol >= 0.1
+                      ? "text-slate-700 dark:text-slate-300" // Medium position
+                      : "text-slate-500 dark:text-slate-400" // Small position
+                )}
+              >
                 {formatSolAmount(item.currentHoldingsValueSol)} SOL
-              </Text>
+              </span>
             ) : (
-              <Text className="text-sm text-slate-400 dark:text-slate-500 font-medium">? SOL</Text>
+              <span className="text-sm text-slate-400 dark:text-slate-500 font-medium">? SOL</span>
             )}
-            <Text className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
               {item.currentUiBalance ? formatTokenDisplayValue(item.currentUiBalance, null) : 'N/A tokens'}
-            </Text>
+            </span>
           </div>
         </div>
       );
@@ -375,25 +401,25 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   {
     accessorKey: 'transferCountIn',
     header: 'In',
-    cell: ({ row }) => <Text className="text-sm text-center">{row.original.transferCountIn || 0}</Text>,
+    cell: ({ row }) => <span className="text-sm text-center block">{row.original.transferCountIn || 0}</span>,
     meta: { className: 'text-center px-2 min-w-[50px]' },
   },
   {
     accessorKey: 'transferCountOut',
     header: 'Out',
-    cell: ({ row }) => <Text className="text-sm text-center">{row.original.transferCountOut || 0}</Text>,
+    cell: ({ row }) => <span className="text-sm text-center block">{row.original.transferCountOut || 0}</span>,
     meta: { className: 'text-center px-2 min-w-[50px]' },
   },
   {
     accessorKey: 'firstTransferTimestamp',
     header: 'First Trade',
-    cell: ({ row }) => <Text className="text-sm text-center">{formatDate(row.original.firstTransferTimestamp)}</Text>,
+    cell: ({ row }) => <span className="text-sm text-center block">{formatDate(row.original.firstTransferTimestamp)}</span>,
     meta: { className: 'text-center px-2 min-w-[100px]' },
   },
   {
     accessorKey: 'lastTransferTimestamp',
     header: 'Last Trade',
-    cell: ({ row }) => <Text className="text-sm text-center">{formatDate(row.original.lastTransferTimestamp)}</Text>,
+    cell: ({ row }) => <span className="text-sm text-center block">{formatDate(row.original.lastTransferTimestamp)}</span>,
     meta: { className: 'text-center px-2 min-w-[100px]' },
   },
 ];
@@ -848,15 +874,24 @@ const handleSort = useCallback((columnId: string) => {
   };
 
   if (!walletAddress) {
-    return <Card className="p-4 md:p-6 mt-4"><EmptyState variant="info" icon={InfoIcon} title="No Wallet Selected" description="Please select a wallet to view token performance." /></Card>;
+    return (
+      <Card className="mt-4 p-6 rounded-xl shadow-base">
+        <EmptyState
+          variant="info"
+          icon={InfoIcon}
+          title="No Wallet Selected"
+          description="Please select a wallet to view token performance."
+        />
+      </Card>
+    );
   }
 
   return (
     <div className="flex flex-col h-full w-full">
-      <Card className="p-0 md:p-0 mt-0 flex flex-col border border-slate-200 dark:border-slate-700 shadow-sm flex-1 min-h-0">
-      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-shrink-0">
-        <Flex flexDirection="row" alignItems="center" justifyContent="between" className="gap-3 flex-wrap">
-          <Flex flexDirection="row" alignItems="center" className="gap-3 flex-wrap">
+      <Card className="mt-0 flex flex-col flex-1 min-h-0 rounded-xl border border-slate-200 dark:border-slate-700 shadow-base hover:shadow-hover transition-shadow">
+      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-shrink-0 rounded-t-xl">
+        <div className="flex flex-row items-center justify-between gap-3 flex-wrap">
+          <div className="flex flex-row items-center gap-3 flex-wrap">
             <div className="space-y-4">
               <Input id="token-search" name="token-search" placeholder="Search address..." value={searchTerm} onChange={handleSearchTermChange} className="max-w-xs h-9" />
               {error && <p className="text-red-500">{error.message}</p>}
@@ -904,8 +939,8 @@ const handleSort = useCallback((columnId: string) => {
             <UiButton variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
               <RefreshCwIcon className={cn("mr-2 h-4 w-4", isRefreshing && "animate-spin")} />Refresh
             </UiButton>
-          </Flex>
-        </Flex>
+          </div>
+        </div>
       </div>
       
       {/* Table */}
@@ -943,7 +978,16 @@ const handleSort = useCallback((columnId: string) => {
                       }
                     }}
                   >
-                    <Flex alignItems="center" justifyContent={(header.column.columnDef.meta as any)?.className?.includes('text-right') ? 'end' : (header.column.columnDef.meta as any)?.className?.includes('text-center') ? 'center' : 'start'} className="gap-1.5 h-full">
+                    <div
+                      className={cn(
+                        "flex items-center gap-1.5 h-full",
+                        (header.column.columnDef.meta as any)?.className?.includes("text-right")
+                          ? "justify-end text-right"
+                          : (header.column.columnDef.meta as any)?.className?.includes("text-center")
+                            ? "justify-center text-center"
+                            : "justify-start"
+                      )}
+                    >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {(() => {
                         const columnId = header.column.id;
@@ -954,14 +998,14 @@ const handleSort = useCallback((columnId: string) => {
                         const backendField = fieldMapping[columnId] || columnId;
                         if (!BACKEND_SORTABLE_IDS.includes(backendField)) return null;
                         
-                        return (
-                          <span>
-                            {sortBy === backendField && sortOrder === 'ASC' ? <ArrowUpRight className="h-4 w-4" /> : 
-                             sortBy === backendField && sortOrder === 'DESC' ? <ArrowDownRight className="h-4 w-4" /> : null}
-                          </span>
-                        );
-                      })()}
-                    </Flex>
+                          return (
+                            <span>
+                              {sortBy === backendField && sortOrder === 'ASC' ? <ArrowUpRight className="h-4 w-4" /> : 
+                               sortBy === backendField && sortOrder === 'DESC' ? <ArrowDownRight className="h-4 w-4" /> : null}
+                            </span>
+                          );
+                        })()}
+                    </div>
                   </TableHead>
                 ))}
               </TableRow>
@@ -1029,15 +1073,15 @@ const formatTokenDisplayValue = (value: number | null | undefined, uiString?: st
 };
 
 const formatPnl = (pnl: number | null | undefined) => {
-  if (pnl === null || pnl === undefined) return <Text className="text-sm text-slate-400 dark:text-slate-500">N/A</Text>;
+  if (pnl === null || pnl === undefined) return <span className="text-sm text-slate-400 dark:text-slate-500">N/A</span>;
   const value = pnl;
   const textColor = value > 0 ? 'text-emerald-600 dark:text-emerald-400' : value < 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-500 dark:text-slate-400';
   const sign = value > 0 ? '+' : value < 0 ? '-' : '';
   return (
-    <Text className={`font-mono ${textColor} text-sm font-semibold`}>
+    <span className={`font-mono ${textColor} text-sm font-semibold`}>
       <span className="text-sm mr-1 align-middle">{sign}</span>
       {Math.abs(value).toFixed(2)} SOL
-    </Text>
+    </span>
   );
 };
   

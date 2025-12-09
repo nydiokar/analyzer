@@ -30,26 +30,26 @@
 ### **Week 1: Foundation + Dashboard Components** (~40 hours)
 
 #### **Phase 1.1: Design Tokens** (Day 1, 8h)
-- [ ] Update `dashboard/tailwind.config.ts` with shadow tokens
+- [x] Update `dashboard/tailwind.config.ts` with shadow tokens
   - Add `shadow-base`, `shadow-hover`, `shadow-active`
   - Add border-radius overrides (`xl: 1rem`, `2xl: 1.5rem`)
-- [ ] Create `dashboard/src/components/ui/metric.tsx`
+- [x] Create `dashboard/src/components/ui/metric.tsx`
   - Custom Metric component (replaces Tremor Metric)
   - Variants: default, success, error, warning, info
   - Sizes: sm, md, lg, xl
   - Props: prefix, suffix
-- [ ] Create `dashboard/src/components/ui/stat-card.tsx`
+- [x] Create `dashboard/src/components/ui/stat-card.tsx`
   - Standardized secondary metrics card
   - Variants: default, success, error, warning
   - Props: label, value, subValue, icon
-- [ ] Build test page `dashboard/src/app/test-components/page.tsx`
+- [x] Build test page `dashboard/src/app/test-components/page.tsx`
   - Show all Metric variants and sizes
   - Show all StatCard variants
   - Test dark mode
   - Mobile responsive check
 
 #### **Phase 1.2: Dashboard Component Migration** (Days 2-4, 24h)
-- [ ] Migrate `AccountSummaryCard.tsx` (4h)
+- [x] Migrate `AccountSummaryCard.tsx` (4h)
   - Replace Tremor Card/Metric with shadcn + custom components
   - Change padding: `p-3` → `p-6`
   - Add shadow: `shadow-base hover:shadow-hover`
@@ -57,7 +57,7 @@
   - Secondary metrics: StatCard grid (2 columns)
   - Test all states: loading, error, success, empty
   - Verify dark mode, mobile responsive
-- [ ] Migrate `TokenPerformanceTab.tsx` (2h)
+- [x] Migrate `TokenPerformanceTab.tsx` (2h)
   - Replace Tremor Card wrapper with shadcn Card
   - Add `rounded-xl shadow-base`
   - Keep table logic unchanged
