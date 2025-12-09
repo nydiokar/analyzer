@@ -126,7 +126,7 @@ function validateUri(uri: string): void {
 
   // Log warning for non-trusted gateways
   if (!TRUSTED_GATEWAYS.some(gateway => hostname.includes(gateway))) {
-    logger.warn(`Non-trusted gateway: ${sanitizeUriForLogging(uri)}`);
+    // logger.warn(`Non-trusted gateway: ${sanitizeUriForLogging(uri)}`);
   }
 }
 
