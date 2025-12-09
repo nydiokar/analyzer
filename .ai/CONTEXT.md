@@ -1,160 +1,264 @@
 # Current State
 
-**Project**: Sova Intel - Wallet Analysis System (Scaling Plan Phase 6)
-**Goal**: Expose reliable Solana wallet analytics (sync, similarity, reporting) across API, queues, CLI, and dashboard.
-**Status**: In Progress
-**Last Updated:** 2025-11-18 22:30 UTC
-**Updated By:** 
+**Project**: Sova Intel - Wallet Analysis System
+**Branch**: `pretty` (design system implementation)
+**Goal**: Apply modern, professional design system to the dashboard while preserving functionality
+**Status**: Ready to Start
+**Last Updated:** 2025-12-09
 
 ---
 
-## Architecture Principles
+## Architecture Context
 
-**⚠️ CRITICAL: Follow the existing async job-based pattern. DO NOT create "god services".**
+**Authentication System (Incoming from `feature/user-jwt-auth` branch):**
+- JWT-based user authentication (email/password)
+- Email verification required for analysis
+- Admin panel for API key management
+- Dual auth: JWT (users) + API keys (services)
+- 7 auth components built (AuthModal, SignInModal, SignUpModal, UserMenu, etc.)
 
-### System Architecture Pattern:
-```
-1. Controller (HTTP) → Enqueues job, returns job ID
-2. BullMQ Queue → Stores job
-3. Processor (Worker) → Executes job asynchronously
-4. API layer
-4. Core Services → Business logic (BehaviorAnalyzer, TokenHoldersService, etc.)
-5. Database → Data access (Prisma)
-```
-
-### DO:
-- ✅ Controllers enqueue jobs (`await this.queue.add('job-type', data)`)
-- ✅ Return job ID to frontend immediately
-- ✅ Extend existing processors (`AnalysisOperationsProcessor`, `EnrichmentOperationsProcessor`)
-- ✅ Reuse existing core services (`BehaviorAnalyzer`, `TokenHoldersService`, etc.)
-- ✅ Frontend polls job status until complete
-
-### DO NOT:
-- ❌ Create synchronous API endpoints that do heavy processing
-- ❌ Create centralized "god services" that orchestrate everything
-- ❌ Process jobs directly in controllers
-- ❌ Create new services when existing core services can be reused
-
-### Example:
-```typescript
-// ❌ WRONG: God service doing everything
-class HolderProfileService {
-  async getTokenHolderProfiles() { /* synchronous heavy processing */ }
-}
-
-// ✅ CORRECT: Job-based async pattern
-// Controller
-POST /analyses/holder-profiles → enqueue job → return { jobId }
-
-// Processor
-AnalysisOperationsProcessor.processAnalyzeHolderProfiles()
-  → TokenHoldersService.getTopHolders()
-  → BehaviorAnalyzer.calculateHistoricalPattern()
-  → Store results in DB
-
-// Frontend
-Poll GET /jobs/:jobId until status = 'completed'
-```
-
-**References**: See `docs/archived_plans/architecture-holder-risk-analysis.md` for detailed implementation examples.
+**Current Frontend Stack:**
+- Next.js 14 (App Router)
+- Tremor.dev (charts/metrics) - Will keep charts, migrate layout components
+- shadcn/ui (base components)
+- Tailwind CSS
 
 ---
 
-## Completed
+## Next Tasks (Roadmap)
 
-- [x] Holder Profiles dashboard rebuilt using the unified Token Pulse / Wallet Classifier spec (Token outcome strips, cognitive primitives, multi-wallet compare up to six addresses with group insights) (dashboard/src/app/tools/holder-profiles/page.tsx, dashboard/src/components/holder-profiles/v2/**/*)
+### **Week 1: Foundation + Dashboard Components** (~40 hours)
 
-- [x] BullMQ orchestration stack spanning wallet, analysis, similarity, and enrichment operations with locking, DLQ, and job event streaming (`src/queues/queue.module.ts`, `src/queues/queues/*.ts`, `src/queues/services/*`, `src/api/controllers/jobs.controller.ts`)
-- [x] Wallet ingestion and swap analysis persisted via Prisma (Helius client, transaction mapper, P/L summaries) (`src/core/services/helius-api-client.ts`, `src/core/services/helius-transaction-mapper.ts`, `prisma/schema.prisma`)
-- [x] REST plus CLI entry points that trigger analyses and expose queue status (`src/api/controllers/analyses.controller.ts`, `src/scripts/helius-analyzer.ts`, `src/scripts/walletSimilarity.ts`)
-- [x] Dashboard tabs now load via dynamic imports with the token performance tab set as default, cutting initial bundle size while keeping default UX on token metrics (`dashboard/src/components/layout/WalletProfileLayout.tsx`)
-- [x] Dashboard-analysis API now returns existing job metadata instead of failing on locks, exposing `status: 'queued' | 'running'` and `alreadyRunning` for clients (`src/api/controllers/analyses.controller.ts`, `src/api/shared/dto/dashboard-analysis.dto.ts`, `dashboard/src/types/api.ts`, `src/queues/services/redis-lock.service.ts`)
-- [x] Token performance responses now include server-computed spam risk metadata consumed by the dashboard (risk filtering happens without client-side heuristics) (`src/api/services/token-performance.service.ts`, `src/api/shared/dto/token-performance-data.dto.ts`, `dashboard/src/types/api.ts`, `dashboard/src/components/dashboard/TokenPerformanceTab.tsx`)
-- [x] Virtualized token performance table with stabilized skeleton heights and min-height container to reduce DOM cost and CLS (`dashboard/src/components/dashboard/TokenPerformanceTab.tsx`, `dashboard/package.json`)
- - [x] Staged dashboard auto-refresh for wallet profile: initial load over `min(7 days, 1000 signatures)`, then 30‑day window, then deep backfill to max‑tx cap; thresholds are config‑driven and backend orchestrates jobs with websocket progress streaming (`dashboard/src/components/layout/WalletProfileLayout.tsx`, `dashboard/src/components/dashboard/BehavioralPatternsTab.tsx`, `src/api/controllers/analyses.controller.ts`)
- - [x] Dashboard QA & polish pass: verification matrix (heavy/low‑activity/demo), restricted‑wallet guardrails tightened, CTA copy and instrumentation refreshed.
-- [x] Holder profile snapshot cache (2025-11-30) – Persist the full holder profile JSON per wallet via `HolderProfileSnapshot`, stream cached holders instantly, and only re-run analysis when snapshots are stale (`prisma/schema.prisma`, `src/core/services/database-service.ts`, `src/queues/processors/analysis-operations.processor.ts`)
+#### **Phase 1.1: Design Tokens** (Day 1, 8h)
+- [ ] Update `dashboard/tailwind.config.ts` with shadow tokens
+  - Add `shadow-base`, `shadow-hover`, `shadow-active`
+  - Add border-radius overrides (`xl: 1rem`, `2xl: 1.5rem`)
+- [ ] Create `dashboard/src/components/ui/metric.tsx`
+  - Custom Metric component (replaces Tremor Metric)
+  - Variants: default, success, error, warning, info
+  - Sizes: sm, md, lg, xl
+  - Props: prefix, suffix
+- [ ] Create `dashboard/src/components/ui/stat-card.tsx`
+  - Standardized secondary metrics card
+  - Variants: default, success, error, warning
+  - Props: label, value, subValue, icon
+- [ ] Build test page `dashboard/src/app/test-components/page.tsx`
+  - Show all Metric variants and sizes
+  - Show all StatCard variants
+  - Test dark mode
+  - Mobile responsive check
+
+#### **Phase 1.2: Dashboard Component Migration** (Days 2-4, 24h)
+- [ ] Migrate `AccountSummaryCard.tsx` (4h)
+  - Replace Tremor Card/Metric with shadcn + custom components
+  - Change padding: `p-3` → `p-6`
+  - Add shadow: `shadow-base hover:shadow-hover`
+  - Primary metric: large, bold, clear hierarchy
+  - Secondary metrics: StatCard grid (2 columns)
+  - Test all states: loading, error, success, empty
+  - Verify dark mode, mobile responsive
+- [ ] Migrate `TokenPerformanceTab.tsx` (2h)
+  - Replace Tremor Card wrapper with shadcn Card
+  - Add `rounded-xl shadow-base`
+  - Keep table logic unchanged
+  - Test filters, pagination, sorting
+- [ ] Migrate `BehavioralPatternsTab.tsx` (3h)
+  - Replace Tremor Card wrappers
+  - Migrate metric displays to custom Metric component
+  - **Keep Tremor charts unchanged** (AreaChart, BarChart, etc.)
+  - Test chart rendering, metric displays
+- [ ] Migrate `AccountStatsPnlTab.tsx` (4h)
+  - Replace Tremor Card/Metric/Text
+  - Use StatCard for metrics grid
+  - Keep accordion logic, tooltip structure
+  - Test all three modes (Period, All-Time, Both)
+- [ ] Polish shared components (2h)
+  - `TokenBadge.tsx`: Add `rounded-lg`, `hover:shadow-hover`
+  - `WalletBadge.tsx`: Add `rounded-lg`, `hover:shadow-hover`
+  - `Sidebar.tsx`: Update nav items to `rounded-lg`, faster transitions (200ms)
+
+#### **Phase 1.3: Testing & Validation** (Day 5, 8h)
+- [ ] Regression testing
+  - Test `/wallets/[address]` with all tabs
+  - Test all wallet states (analyzed, unanalyzed, error)
+  - Test loading skeletons
+  - Verify dark mode consistency
+  - Mobile responsive check (375px, 768px, 1024px)
+- [ ] Performance audit
+  - Run Lighthouse on wallet page
+  - Check bundle size increase (<100KB target)
+  - Verify no layout shifts
+- [ ] Fix any issues found
+
 ---
 
-## Active
+### **Week 2: Layout Architecture + Home Redesign** (~40 hours)
 
-Next is working on creating a separate layout for the new home/landing page and create a proper flow - user onboarding. Landing page without the sidebar - simple, stylish and modern! it should only contain socials, some basic info and letting you login/sign up + button to go to tool hub - maybe the sidebar needs icon for the dashboard itself. Need to completely remove the current "/" and but use it's login/sign up in the home due to it looks better.    
+#### **Phase 2.1: Dual Shell System** (Days 1-2, 16h)
+- [ ] Create `dashboard/src/components/layout/MarketingShell.tsx` (2h)
+  - No sidebar, just ThemeProvider + ThemeToggle
+  - Clean wrapper for landing page
+  - Test in isolation
+- [ ] Create `dashboard/src/components/layout/ToolHubShell.tsx` (2h)
+  - With sidebar, EmailVerificationBanner
+  - SWR config, cache provider
+  - Copy logic from existing LayoutClientShell
+  - Test sidebar collapse/expand
+- [ ] Update `dashboard/src/app/layout.tsx` (1h)
+  - Remove LayoutClientShell wrapper
+  - Pages now choose their own shell
+- [ ] Update existing pages to use shells (3h)
+  - Landing (`/page.tsx`): Wrap in MarketingShell
+  - `/wallets/[address]/page.tsx`: Wrap in ToolHubShell
+  - `/similarity-lab/page.tsx`: Wrap in ToolHubShell
+  - `/tools/*/page.tsx`: Wrap in ToolHubShell
+  - `/settings/page.tsx`: Wrap in ToolHubShell
+- [ ] Test shell system (2h)
+  - Verify sidebar shows on tool pages
+  - Verify sidebar hidden on landing
+  - Test navigation between pages
+  - Check theme persistence
+- [ ] Update Sidebar logo link (0.5h)
+  - Change from `/` to `/home`
+- [ ] Documentation (0.5h)
+  - Update component-overview.md with shell info
 
-## Recently Completed (Last 3-4 Days)
+#### **Phase 2.2: Landing Page Polish** (Day 2, 4h)
+- [ ] Update `dashboard/src/app/page.tsx`
+  - Remove animated gradient orbs (performance)
+  - Keep static gradient background
+  - Keep auth CTAs (Sign In, Sign Up)
+  - Keep featured wallets section
+  - Clean, minimal design
 
-- **Exit Timing Token Drilldown** ✅ (2025-11-20) - See "Completed" section below for full details
-- **Dashboard Components Documentation** ✅ (2025-11-20) - Comprehensive `dashboard/docs/components-overview.md` update
+#### **Phase 2.3: Home Page Redesign** (Days 3-4, 16h)
+- [ ] Create ToolCard component (2h)
+  - Props: title, description, icon, href, features[]
+  - Card with hover effect (shadow-hover)
+  - Feature list with checkmarks
+  - Group hover for title color
+- [ ] Create QuickActionCard component (1h)
+  - Smaller variant for quick actions
+  - Icon + title only
+- [ ] Redesign `dashboard/src/app/home/page.tsx` (10h)
+  - Hero section: Welcome message, personalized greeting
+  - Tool cards grid (4 cards):
+    - Wallet Analysis
+    - Similarity Lab
+    - Holder Profiles
+    - Top Holders Explorer
+  - Quick Actions section (3 cards)
+  - Remove animated orbs, clean background
+  - Mobile responsive grid
+- [ ] Test home page (2h)
+  - Test authenticated vs unauthenticated state
+  - Verify all links work
+  - Mobile responsive check
+- [ ] Polish (1h)
+  - Adjust spacing, colors
+  - Dark mode verification
+
+#### **Phase 2.4: Reserved for Future** (Day 5, 4h)
+- [ ] **SKIP ON PRETTY BRANCH** - Auth components don't exist yet
+  - Auth components will come from auth branch merge
+  - Will align them AFTER auth branch merges
+  - See notes below for alignment plan
+
+**Note:** Auth component alignment (AuthModal, SignInModal, etc.) will happen AFTER auth branch merges. For now, use this time for:
+- [ ] Extra polish on landing/home pages
+- [ ] Additional testing
+- [ ] Documentation updates
 
 ---
 
-## Completed (Archived)
+### **Week 3: New Features + Polish** (~20 hours)
 
-- **Holder Risk Analysis & Predictive Holding Time** *(See `.ai/context/holder-risk/architecture-holder-risk-analysis.md` for full details)*
-  - **Status**: ✅ **ALL PHASES COMPLETE** (2025-11-17) - Ready for Staging Deployment
-  - [x] Document holding time methodology in `docs/3.metrics_compact_map.md`
-  - [x] Create architecture plan in `.ai/context/architecture-holder-risk-analysis.md`
-  - [x] Critical review completed - plan finalized and ready to start
-  - [x] **Phase 1 (Core Calculation)**: ✅ **COMPLETE** (2025-11-08)
-    - [x] Add `calculatePeakPosition()` and `detectPositionExit()` (exit threshold: 20% remaining)
-    - [x] Add `buildTokenLifecycles()` to track position states (ACTIVE/EXITED)
-    - [x] Add `calculateHistoricalPattern()` with weighted average from completed positions only
-    - [x] Implement weighted average entry time calculation (matches weighted sell logic)
-    - [x] Add `historicalPattern` field to `BehavioralMetrics` (optional, non-breaking)
-    - [x] Mark `weightedAverageHoldingDurationHours` and `averageFlipDurationHours` as `@deprecated`
-    - [x] Write comprehensive unit tests (`test-holder-risk-analysis.ts` with 7 test scenarios)
-    - [x] **Validate accuracy on 19 real wallets with 4,007+ exited positions** ✅
-    - [x] **Critical bug fix**: Exit detection logic corrected (was misclassifying exits as dust)
-    - [x] **Smart sampling strategy**: Handle high-volume wallets (500k+ txs) via 2000-signature sampling
-    - [ ] Implement Redis caching for historical patterns (24h TTL) - DEFERRED to Phase 2
-    - **Key Findings from Validation (2025-11-08)**:
-      - **Bug discovered**: DUST threshold (≤5%) was checked before EXIT threshold (≤20%), causing all exits to be misclassified as dust
-      - **Root cause**: Position at 0% would hit dust check first, never reaching exit logic despite `exitInfo.exited` being true
-      - **Fix**: Removed DUST concept entirely, simplified to binary ACTIVE/EXITED classification based on 20% threshold
-      - **DUST redefinition needed**: Should be value-based (e.g., <$0.001 SOL) not supply-based, deferred to future work
-      - **Validation results**: 6 ULTRA_FLIPPER wallets (avg 35min hold), 13 FLIPPER wallets (avg 5.5h hold), 100% success rate
-      - **Smart sampling validated**: 2000 signatures yields 50-357 exited positions per wallet, sufficient for reliable patterns
-      - **Performance**: 12.8s avg sync time, <0.05s analysis time per wallet
-      - **Files**: `src/core/analysis/behavior/analyzer.ts` (fixed), `test-holder-risk-sampled.ts` (validation), `holder-risk-test-report.md` (results)
-  - [x] **Re-entry lifecycle bug FIXED** (2025-11-10): ✅ **RESOLVED**
-    - **Issue**: `buildTokenLifecycles()` was creating ONE lifecycle per token mint, not handling re-entries
-    - **Fix**: Lines 583-626 in `analyzer.ts` now split trades into separate cycles whenever balance hits 0
-    - **Result**: Accurate hold time calculations for wallets that exit and re-enter positions
-  - [x] **Phase 2 (Prediction Layer)**: ✅ **FUNCTIONALLY COMPLETE** (2025-11-12)
-    - [x] Add `predictTokenExit()` method (`analyzer.ts:312-397`)
-    - [x] Add current position analysis (weighted entry time, percent sold, status)
-    - [x] Calculate `estimatedTimeUntilExit = max(0, historical - weightedCurrentAge)`
-    - [x] Add risk level classification (CRITICAL <5min, HIGH <30min, MEDIUM <2h, LOW ≥2h) - optimized for memecoin flippers
-    - [x] Add `WalletTokenPrediction` TypeScript interface (`src/types/behavior.ts:67-92`)
-    - [x] Display predictions with confidence scores via scripts
-    - [x] **Validation via scripts**: `generate-prediction-report.ts` and `generate-holder-analysis.ts` demonstrate working predictions
-  - [ ] **Phase 2B (Validation Infrastructure)**: 4-5 days **← DEFERRED** (See `.ai/context/holder-risk/PHASE2-VALIDATION-PLAN.md` for details)
-    - **Goal**: Track prediction accuracy over time to validate and improve the model
-    - [ ] **Database Layer** (2 days):
-      - [ ] Add `WalletTokenPrediction` Prisma model with validation fields
-      - [ ] Add `PredictionAccuracyMetrics` model for aggregated stats
-      - [ ] Run migrations
-    - [ ] **Service Layer** (2 days):
-      - [ ] Create `PredictionService` (store, retrieve, validate predictions)
-      - [ ] Implement validation logic (check if positions actually exited)
-      - [ ] Implement accuracy calculation (by behavior type, risk level)
-    - [ ] **Background Worker** (1 day):
-      - [ ] Create BullMQ validation processor (daily validation job)
-      - [ ] Setup cron schedules (daily validation, weekly reports)
-      - [ ] Implement manual validation trigger
-    - [ ] **API & Dashboard** (1 day):
-      - [ ] Create `/api/v1/predictions` endpoints (CRUD)
-      - [ ] Create `/api/v1/predictions/accuracy/latest` endpoint
-      - [ ] Build accuracy dashboard component
-      - [ ] Add prediction history view
-    - [ ] **Testing** (1 day):
-      - [ ] Historical backtest on 19 test wallets
-      - [ ] Validate accuracy thresholds
-      - [ ] End-to-end test: predict → validate → metrics
-    - **Success Metrics**: After 30 days, achieve ≥70% overall accuracy, ≥80% for ULTRA_FLIPPER
+#### **Phase 3.1: User Timeline** (Days 1-2, 12h)
+- [ ] Backend: Create `GET /api/v1/users/me/jobs` endpoint
+  - Return user's analysis job history
+  - Schema: `{ id, type, status, createdAt, completedAt, metadata, result }`
+  - Pagination: `?limit=50&offset=0`
+  - Filtering: `?status=completed`
+- [ ] Create JobCard component (2h)
+  - Props: job (UserJob object)
+  - Display: status badge, timestamp, description
+  - Action: link to results (if completed)
+  - Status colors: queued (amber), running (blue), completed (green), failed (red)
+- [ ] Create `dashboard/src/app/timeline/page.tsx` (4h)
+  - Use ToolHubShell
+  - Fetch jobs via SWR
+  - Display JobCard list
+  - Loading state, error state, empty state
+  - Pagination controls
+- [ ] Test timeline (1h)
+  - Test with mock data
+  - Test with real jobs (if available)
+  - Mobile responsive
 
+#### **Phase 3.2: Onboarding Checklist** (Day 2, 4h)
+- [ ] Create `dashboard/src/components/onboarding/OnboardingChecklist.tsx`
+  - Check: Email verified (via `useAuth().user.emailVerified`)
+  - Check: Tool explored (via localStorage)
+  - Display as card with checkboxes
+  - Hide when all completed
+- [ ] Add to `/home/page.tsx`
+  - Show at top if incomplete
+  - Track tool exploration (set localStorage on first tool visit)
+- [ ] Test onboarding flow
+  - New user: see checklist
+  - Complete steps: checklist disappears
 
-PAY ATTENTION! 
+#### **Phase 3.3: Final Polish** (Day 3, 4h)
+- [ ] Accessibility audit
+  - Tab through entire app with keyboard
+  - Check focus indicators on all interactive elements
+  - Verify `aria-label` on icon-only buttons
+  - Test with screen reader (NVDA or VoiceOver)
+  - Run axe DevTools
+  - Check color contrast (WCAG AA: 4.5:1)
+- [ ] Performance audit
+  - Run Lighthouse on all pages
+  - Performance >90 (mobile)
+  - Accessibility >95
+  - Best Practices >90
+  - Check bundle size (should be <100KB added)
+- [ ] Mobile responsive final check
+  - Test on iPhone SE (375px)
+  - Test on iPad (768px)
+  - Test on desktop (1920px)
+  - Fix any overflow, layout issues
+- [ ] Fix remaining issues
+  - Address any bugs found
+  - Polish edge cases
 
-Need to find out a way to fulfill all token history for a wallet, when we have identified such in the X amount of txs we have fetch. Gake is having no holder data for the past 1000 tx, due to old tokens. 
+---
 
-Find a way to detect when tokens have changed the owner and sold off from a different wallet. 
+## Current Blockers
+
+**None** - Ready to start Week 1, Phase 1.1 (Design Tokens)
+
+---
+
+## After This (Future Work)
+
+**When auth branch merges:**
+- Apply design system to incoming auth components (already planned in Week 2, Phase 2.4)
+- Integrate timeline with real backend endpoint
+- Test full user flow (landing → sign up → verify → home → tools)
+
+**Future enhancements (not in scope):**
+- Admin panel redesign (user maintains, no changes planned)
+- Additional animations (keep CSS-only, 200ms transitions)
+- Custom theme builder (use Tailwind defaults for now)
+
+---
+
+## Notes
+
+- **Tremor charts**: Keep unchanged (AreaChart, BarChart, etc.) - they're excellent
+- **Admin panel**: No changes (user-maintained)
+- **API key store**: Deprecated for users (auth branch brings JWT)
+- **Demo mode**: Deprecated (auth branch brings user accounts)
+- **Bundle size**: Target <100KB added for all design changes
+- **Performance**: Lighthouse >90 mobile
+- **Accessibility**: WCAG AA compliant
