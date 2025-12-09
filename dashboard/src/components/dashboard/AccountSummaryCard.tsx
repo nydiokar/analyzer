@@ -65,7 +65,7 @@ export default function AccountSummaryCard({
 
   if (!walletAddress) {
     return (
-      <Card className={cn("w-full md:w-auto md:min-w-[300px] p-6 rounded-xl shadow-base", className)}>
+      <Card className={cn("w-full md:w-auto md:min-w-[300px] p-4 sm:p-5 rounded-xl shadow-base", className)}>
         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
           Please select a wallet.
         </div>
@@ -75,24 +75,24 @@ export default function AccountSummaryCard({
 
   if (isLoading) {
     return (
-      <Card className={cn("p-6 rounded-xl shadow-base w-full max-w-sm", className)}>
-        <div className="space-y-4">
+      <Card className={cn("p-4 sm:p-5 rounded-xl shadow-base w-full max-w-lg", className)}>
+        <div className="space-y-3">
           <div className="space-y-2">
             <Skeleton className="h-3 w-24" />
-            <Skeleton className="h-8 w-32" />
+            <Skeleton className="h-7 w-28" />
             <Skeleton className="h-3 w-20" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
             {[...Array(2)].map((_, idx) => (
               <div key={idx} className="space-y-2 rounded-lg border p-3">
                 <Skeleton className="h-3 w-20" />
-                <Skeleton className="h-5 w-24" />
+                <Skeleton className="h-5 w-20" />
                 <Skeleton className="h-3 w-16" />
               </div>
             ))}
           </div>
           <div className="pt-2 border-t border-muted/50">
-            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3.5 w-28" />
           </div>
         </div>
       </Card>
@@ -115,7 +115,7 @@ export default function AccountSummaryCard({
     }
     
     return (
-      <Card className={cn("p-6 rounded-xl shadow-base w-full", className)}>
+      <Card className={cn("p-4 sm:p-5 rounded-xl shadow-base w-full", className)}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-4">
             <Icon className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
@@ -149,7 +149,7 @@ export default function AccountSummaryCard({
 
   if (data?.status === 'unanalyzed' || !data) {
     return (
-      <Card className={cn("p-6 rounded-xl shadow-base w-full", className)}>
+      <Card className={cn("p-4 sm:p-5 rounded-xl shadow-base w-full", className)}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-4">
             <SearchX className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
@@ -182,10 +182,10 @@ export default function AccountSummaryCard({
 
   const formatPnl = (pnl: number | null) => {
     if (pnl === null || pnl === undefined) return 'N/A';
-    return `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} SOL`;
+    return `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}`;
   };
   
-   const formatWinRate = (rate: number | null) => {
+  const formatWinRate = (rate: number | null) => {
     if (rate === null || rate === undefined) return 'N/A';
     return `${rate.toFixed(1)}%`;
   };
@@ -193,57 +193,61 @@ export default function AccountSummaryCard({
   return (
     <Card
       className={cn(
-        "p-6 rounded-xl shadow-base hover:shadow-hover transition-shadow w-full max-w-xl",
+        "p-4 sm:p-5 rounded-xl shadow-base hover:shadow-hover transition-shadow w-full max-w-lg",
         className
       )}
     >
-      <div className="space-y-6">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Total PNL
-          </p>
-          <Metric variant={pnlVariant} size="lg" suffix="SOL">
-            {formatPnl(data.latestPnl ?? null)}
-          </Metric>
-          {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
-            <p className="text-sm text-muted-foreground">
-              {formatUsdValue(data.latestPnlUsd)}
+      <div className="space-y-4 sm:space-y-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Total PNL
             </p>
-          )}
-        </div>
+            <Metric variant={pnlVariant} size="md" suffix="SOL" className="leading-tight">
+              {formatPnl(data.latestPnl ?? null)}
+            </Metric>
+            {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
+              <p className="text-xs text-muted-foreground">
+                {formatUsdValue(data.latestPnlUsd)}
+              </p>
+            )}
+          </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <StatCard
-            label="Win Rate"
-            value={formatWinRate(data.tokenWinRate ?? null)}
-            subValue={
-              data.profitableTradesCount !== null &&
-              data.profitableTradesCount !== undefined &&
-              data.totalTradesCount !== null &&
-              data.totalTradesCount !== undefined &&
-              data.totalTradesCount > 0
-                ? `${data.profitableTradesCount}/${data.totalTradesCount} trades`
-                : undefined
-            }
-            variant={data.tokenWinRate && data.tokenWinRate >= 50 ? "success" : "default"}
-          />
-
-          {data.currentSolBalance !== undefined && (
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 sm:w-auto sm:min-w-[260px]">
             <StatCard
-              label="Balance"
-              value={`${data.currentSolBalance?.toFixed(2) ?? "N/A"} SOL`}
+              size="compact"
+              label="Win Rate"
+              value={formatWinRate(data.tokenWinRate ?? null)}
               subValue={
-                data.currentSolBalanceUsd !== null && data.currentSolBalanceUsd !== undefined
-                  ? formatUsdValue(data.currentSolBalanceUsd)
+                data.profitableTradesCount !== null &&
+                data.profitableTradesCount !== undefined &&
+                data.totalTradesCount !== null &&
+                data.totalTradesCount !== undefined &&
+                data.totalTradesCount > 0
+                  ? `${data.profitableTradesCount}/${data.totalTradesCount} trades`
                   : undefined
               }
-              variant="default"
+              variant={data.tokenWinRate && data.tokenWinRate >= 50 ? "success" : "default"}
             />
-          )}
+
+            {data.currentSolBalance !== undefined && (
+              <StatCard
+                size="compact"
+                label="Balance"
+                value={`${data.currentSolBalance?.toFixed(2) ?? "N/A"} SOL`}
+                subValue={
+                  data.currentSolBalanceUsd !== null && data.currentSolBalanceUsd !== undefined
+                    ? formatUsdValue(data.currentSolBalanceUsd)
+                    : undefined
+                }
+                variant="default"
+              />
+            )}
+          </div>
         </div>
 
-        <div className="pt-2 border-t border-muted/50">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+        <div className="pt-3 border-t border-muted/50">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm text-muted-foreground">
             <div className="flex items-center gap-1.5">
               <CalendarDays className="h-4 w-4" />
               <span>

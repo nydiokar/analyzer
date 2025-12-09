@@ -10,6 +10,7 @@ export interface StatCardProps {
   variant?: "default" | "success" | "error" | "warning"
   icon?: React.ReactNode
   className?: string
+  size?: "default" | "compact"
 }
 
 export function StatCard({
@@ -19,6 +20,7 @@ export function StatCard({
   variant = "default",
   icon,
   className,
+  size = "default",
 }: StatCardProps) {
   const variantClasses: Record<NonNullable<StatCardProps["variant"]>, string> = {
     default: "border-border",
@@ -28,23 +30,46 @@ export function StatCard({
       "border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-950/20",
   }
 
+  const sizeClasses =
+    size === "compact"
+      ? {
+          container: "p-3",
+          label: "text-[11px]",
+          value: "text-lg",
+          subValue: "text-[11px]",
+        }
+      : {
+          container: "p-4",
+          label: "text-xs",
+          value: "text-xl",
+          subValue: "text-xs",
+        }
+
   return (
     <Card
       className={cn(
-        "p-4 rounded-lg border shadow-base transition-shadow hover:shadow-hover",
+        "rounded-lg border shadow-base transition-shadow hover:shadow-hover",
+        sizeClasses.container,
         variantClasses[variant],
         className
       )}
     >
       <div className="flex items-center justify-between mb-1">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        <p
+          className={cn(
+            "font-medium text-muted-foreground uppercase tracking-wide",
+            sizeClasses.label
+          )}
+        >
           {label}
         </p>
         {icon && <div className="text-muted-foreground">{icon}</div>}
       </div>
-      <p className="text-xl font-bold tracking-tight">{value}</p>
+      <p className={cn("font-bold tracking-tight", sizeClasses.value)}>{value}</p>
       {subValue && (
-        <p className="text-xs text-muted-foreground mt-0.5">{subValue}</p>
+        <p className={cn("text-muted-foreground mt-0.5", sizeClasses.subValue)}>
+          {subValue}
+        </p>
       )}
     </Card>
   )
