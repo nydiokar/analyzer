@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { BehaviorAnalysisResponseDto } from '@/types/api'; // Assuming this type exists
-import { Card, Text, Title, Flex } from '@tremor/react';
 import { AlertTriangle, Hourglass, LineChart, Users, ShieldCheck, HelpCircle, Info } from 'lucide-react';
 import EChartComponent, { ECOption } from '../charts/EChartComponent'; // Import the new chart component
 import { VisualMapComponent, CalendarComponent } from 'echarts/components'; // Import VisualMap and Calendar
@@ -18,6 +17,8 @@ import { fetcher } from '@/lib/fetcher'; // Ensure global fetcher is used
 import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
@@ -31,6 +32,56 @@ const formatHoldTime = (hours: number): string => {
   } else {
     return `${(hours / 24).toFixed(1)}d`;
   }
+};
+
+// Minimal replacements for removed Tremor primitives
+const Title = ({ className, children }: { className?: string; children: React.ReactNode }) => (
+  <h3 className={cn("font-semibold text-foreground", className)}>{children}</h3>
+);
+
+const Text = ({ className, children }: { className?: string; children: React.ReactNode }) => (
+  <p className={cn("text-sm text-muted-foreground", className)}>{children}</p>
+);
+
+const Flex = ({
+  className,
+  children,
+  alignItems,
+  justifyContent,
+  flexDirection,
+}: {
+  className?: string;
+  children: React.ReactNode;
+  alignItems?: "start" | "center" | "end" | "stretch";
+  justifyContent?: "start" | "center" | "end" | "between";
+  flexDirection?: "row" | "col";
+}) => {
+  const alignMap: Record<string, string> = {
+    start: "items-start",
+    center: "items-center",
+    end: "items-end",
+    stretch: "items-stretch",
+  };
+  const justifyMap: Record<string, string> = {
+    start: "justify-start",
+    center: "justify-center",
+    end: "justify-end",
+    between: "justify-between",
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex",
+        flexDirection === "col" ? "flex-col" : "flex-row",
+        alignItems ? alignMap[alignItems] : "",
+        justifyContent ? justifyMap[justifyContent] : "",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
 };
 
 export interface BehavioralPatternsTabProps {
@@ -160,7 +211,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
   if (behaviorIsLoading && !isAnalyzingGlobal) {
     return (
-      <Card className="h-full p-4 md:p-6 space-y-6 flex flex-col">
+      <Card className="h-full p-4 md:p-6 space-y-6 flex flex-col rounded-xl shadow-base">
         <Tabs defaultValue="summary" className="w-full flex-1 flex flex-col">
           <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
             <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>
@@ -342,7 +393,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
   const activeTradingPeriodsData = behaviorData?.activeTradingPeriods;
 
   return (
-    <Card className="h-full max-h-full p-4 md:p-6 space-y-6 flex flex-col overflow-hidden">
+    <Card className="h-full max-h-full p-4 md:p-6 space-y-6 flex flex-col overflow-hidden rounded-xl shadow-base">
       <Tabs defaultValue="summary" className="w-full flex-1 flex flex-col min-h-0">
         <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
           <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>

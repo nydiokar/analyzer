@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { PnlOverviewResponse, PnlOverviewResponseData } from '@/types/api'; 
-import { Card, Metric, Text, Flex, Grid, Title, Subtitle, TabGroup, TabList, Tab } from '@tremor/react';
 import { useToast } from "@/hooks/use-toast";
 import { fetcher } from '@/lib/fetcher';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -14,6 +13,137 @@ import { Skeleton } from "@/components/ui/skeleton"; // Ensure Skeleton is impor
 import { format, isValid } from 'date-fns'; // Import isValid
 import useSWR from 'swr'; // Added SWR import
 import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
+import { Card } from "@/components/ui/card";
+import { Metric } from "@/components/ui/metric";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+
+// Minimal replacements for removed Tremor primitives
+const Title = ({ className, children }: { className?: string; children: React.ReactNode }) => (
+  <h3 className={cn("font-semibold text-foreground", className)}>{children}</h3>
+);
+
+const Subtitle = ({ className, children }: { className?: string; children: React.ReactNode }) => (
+  <p className={cn("text-sm text-muted-foreground", className)}>{children}</p>
+);
+
+const Text = ({ className, children }: { className?: string; children: React.ReactNode }) => (
+  <p className={cn("text-sm text-muted-foreground", className)}>{children}</p>
+);
+
+const Flex = ({
+  className,
+  children,
+  alignItems,
+  justifyContent,
+  flexDirection,
+}: {
+  className?: string;
+  children: React.ReactNode;
+  alignItems?: "start" | "center" | "end" | "stretch";
+  justifyContent?: "start" | "center" | "end" | "between";
+  flexDirection?: "row" | "col";
+}) => {
+  const alignMap: Record<string, string> = {
+    start: "items-start",
+    center: "items-center",
+    end: "items-end",
+    stretch: "items-stretch",
+  };
+  const justifyMap: Record<string, string> = {
+    start: "justify-start",
+    center: "justify-center",
+    end: "justify-end",
+    between: "justify-between",
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex",
+        flexDirection === "col" ? "flex-col" : "flex-row",
+        alignItems ? alignMap[alignItems] : "",
+        justifyContent ? justifyMap[justifyContent] : "",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
+};
+
+const Grid = ({
+  className,
+  numItemsSm,
+  numItemsMd,
+  numItemsLg,
+  children,
+}: {
+  className?: string;
+  numItemsSm?: number;
+  numItemsMd?: number;
+  numItemsLg?: number;
+  children: React.ReactNode;
+}) => {
+  const colMap = (size: "sm" | "md" | "lg", val?: number) => {
+    if (!val) return "";
+    const prefix = `${size}:grid-cols-`;
+    switch (val) {
+      case 1:
+        return `${prefix}1`;
+      case 2:
+        return `${prefix}2`;
+      case 3:
+        return `${prefix}3`;
+      case 4:
+        return `${prefix}4`;
+      default:
+        return "";
+    }
+  };
+
+  const cols = [colMap("sm", numItemsSm), colMap("md", numItemsMd), colMap("lg", numItemsLg)]
+    .filter(Boolean)
+    .join(" ");
+
+  return <div className={cn("grid grid-cols-1", cols, className)}>{children}</div>;
+};
+
+const TabGroup = ({
+  index,
+  onIndexChange,
+  className,
+  children,
+}: {
+  index: number;
+  onIndexChange?: (val: number) => void;
+  className?: string;
+  children: React.ReactNode;
+}) => (
+  <Tabs
+    value={String(index)}
+    onValueChange={(val) => onIndexChange?.(Number(val))}
+    className={className}
+  >
+    {children}
+  </Tabs>
+);
+
+const TabList = ({ children }: { children: React.ReactNode }) => (
+  <TabsList className="grid grid-cols-3 w-full">{children}</TabsList>
+);
+
+const Tab = ({
+  value,
+  children,
+}: {
+  value: number;
+  children: React.ReactNode;
+}) => (
+  <TabsTrigger value={String(value)} className="text-sm">
+    {children}
+  </TabsTrigger>
+);
 
 export interface AccountStatsPnlTabProps {
   walletAddress: string;
@@ -40,7 +170,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
   const formatMetric = (value: number | undefined | null, unit: string = '', decimals: number = 2) => {
     if (value === undefined || value === null) return 'N/A';
     const sign = Math.sign(value);
-    const textColor = sign === 1 ? 'text-green-500' : sign === -1 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle';
+    const textColor = sign === 1 ? 'text-green-500' : sign === -1 ? 'text-red-500' : 'text-muted-foreground';
     const arrowChar = sign === 1 ? '▲' : sign === -1 ? '▼' : '';
     const arrowElement = arrowChar ? <span className="text-xs mr-1 align-middle">{arrowChar}</span> : null;
     const formatted = Number(value.toFixed(decimals)).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
@@ -55,7 +185,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
   const formatPercentage = (value: number | undefined | null) => {
     if (value === undefined || value === null) return 'N/A';
     const sign = Math.sign(value);
-    const textColor = sign === 1 ? 'text-green-500' : sign === -1 ? 'text-red-500' : 'text-tremor-content-subtle dark:text-dark-tremor-content-subtle';
+    const textColor = sign === 1 ? 'text-green-500' : sign === -1 ? 'text-red-500' : 'text-muted-foreground';
     return <span className={textColor}>{value.toFixed(1)}%</span>;
   };
   
@@ -63,7 +193,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
     <div className="w-full h-full p-4 border rounded-lg bg-card flex flex-col">
       <Title className="text-lg">{title}</Title>
       {data?.dataFrom ? (
-        <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-3 text-sm">
+        <Subtitle className="text-muted-foreground mt-1 mb-3 text-sm">
           Data from: {data.dataFrom.replace(" UTC", "")}
         </Subtitle>
       ) : (
@@ -72,31 +202,31 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
       
       {/* Section 1: Core Trading Metrics with bottom border */}
       <div className="mb-3">
-        <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Core Trading Metrics</Text>
+        <Text className="text-sm font-semibold text-foreground mb-2">Core Trading Metrics</Text>
         <Card className="p-0">
           <div className="px-3 py-2">
             <Grid numItemsSm={2} numItemsMd={4} className="gap-x-3 gap-y-3">
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
-                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Realized PNL</Text>
+                <Text className="text-xs text-muted-foreground mb-0.5">Realized PNL</Text>
                 <Metric className="text-base">{formatMetric(data.realizedPnl, 'SOL')}</Metric>
               </Flex>
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
-                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Unrealized PNL</Text>
+                <Text className="text-xs text-muted-foreground mb-0.5">Unrealized PNL</Text>
                 <Metric className="text-base">{formatMetric(data.unrealizedPnl, 'SOL')}</Metric>
               </Flex>
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
-                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Avg. P/L per Trade</Text>
+                <Text className="text-xs text-muted-foreground mb-0.5">Avg. P/L per Trade</Text>
                 <Metric className="text-base">{formatMetric(data.avgPLTrade, 'SOL')}</Metric>
               </Flex>
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
-                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5 flex items-center">
+                <Text className="text-xs text-muted-foreground mb-0.5 flex items-center">
                   Token Win Rate
                   <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Percentage of tokens that were profitable (realized PnL &gt; 0) out of all tokens traded. This represents token selection success.</p></TooltipContent></Tooltip></TooltipProvider>
                 </Text>
                 <Metric className="text-base">{formatPercentage(data.tokenWinRate)}</Metric>
                 {data.profitableTokensCount !== null && data.profitableTokensCount !== undefined &&
                  data.unprofitableTokensCount !== null && data.unprofitableTokensCount !== undefined && (
-                  <Text className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-0.5">
+                  <Text className="text-xs text-muted-foreground mt-0.5">
                     {Number(data.profitableTokensCount).toLocaleString()}/{Number((data.profitableTokensCount || 0) + (data.unprofitableTokensCount || 0)).toLocaleString()} tokens
                   </Text>
                 )}
@@ -108,20 +238,20 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
 
       {/* Section 2: Volume & Capital Flow with bottom border */}
       <div className="mb-3">
-        <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Volume & Capital Flow</Text>
+        <Text className="text-sm font-semibold text-foreground mb-2">Volume & Capital Flow</Text>
         <Card className="p-0">
           <div className="px-3 py-2">
             <Grid numItemsSm={2} numItemsMd={3} className="gap-x-3 gap-y-3">
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
-                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total Volume Traded</Text>
+                <Text className="text-xs text-muted-foreground mb-0.5">Total Volume Traded</Text>
                 <Metric className="text-base text-blue-500">{formatPlainNumber(data.totalVolume, 2)} SOL</Metric>
               </Flex>
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
-                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total SOL Spent</Text>
+                <Text className="text-xs text-muted-foreground mb-0.5">Total SOL Spent</Text>
                 <Metric className="text-base text-blue-500">{formatPlainNumber(data.totalSolSpent, 2)} SOL</Metric>
               </Flex>
               <Flex flexDirection="col" alignItems="start" justifyContent="start">
-                <Text className="text-xs text-tremor-content dark:text-dark-tremor-content mb-0.5">Total SOL Received</Text>
+                <Text className="text-xs text-muted-foreground mb-0.5">Total SOL Received</Text>
                 <Metric className="text-base text-blue-500">{formatPlainNumber(data.totalSolReceived, 2)} SOL</Metric>
               </Flex>
             </Grid>
@@ -130,8 +260,8 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
       </div>
 
       {/* Section 3: Advanced Token Analytics */}
-      <div className="flex-1 p-2 rounded-md bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle overflow-hidden flex flex-col">
-        <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong flex items-center mb-2">
+      <div className="flex-1 p-2 rounded-md bg-muted/30 overflow-hidden flex flex-col">
+        <Text className="text-sm font-semibold text-foreground flex items-center mb-2">
           Advanced Token Analytics
           <TooltipProvider>
             <Tooltip delayDuration={0}>
@@ -146,52 +276,52 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
         </Text>
 
         <Accordion type="single" collapsible className="w-full flex-1 overflow-hidden flex flex-col" defaultValue="item-advanced-metrics">
-          <AccordionItem value="item-advanced-metrics" className="border-none rounded-md data-[state=open]:bg-tremor-background-muted dark:data-[state=open]:bg-dark-tremor-background-muted px-2 flex-1 flex flex-col">
+          <AccordionItem value="item-advanced-metrics" className="border-none rounded-md data-[state=open]:bg-muted px-2 flex-1 flex flex-col">
             <AccordionTrigger className="py-1 hover:no-underline">
               <Flex alignItems="center">
                 <TrendingUp className="w-3 h-3 mr-1.5 text-blue-500" />
-                <Text className="text-xs font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">Detailed Token Metrics</Text>
+                <Text className="text-xs font-medium text-foreground">Detailed Token Metrics</Text>
               </Flex>
             </AccordionTrigger>
             <AccordionContent className="pt-1 pb-2 overflow-auto">
               <Grid numItemsSm={2} numItemsMd={2} numItemsLg={2} className="gap-2">
                 <Card className="p-2 text-left">
-                  <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
+                  <Text className="text-xs font-medium mb-0.5 text-muted-foreground flex items-center">
                     Median P/L per Token
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">The median (middle value) of profit or loss across all individual tokens traded.</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
                   <Metric className="text-sm">{formatMetric(data.medianPLToken, 'SOL')}</Metric>
                 </Card>
                 <Card className="p-2 text-left">
-                  <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
+                  <Text className="text-xs font-medium mb-0.5 text-muted-foreground flex items-center">
                     PNL Standard Deviation
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Measures the dispersion or variability of PNL values across different tokens. Higher values indicate greater PNL volatility.</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
                   <Metric className="text-sm">{formatMetric(data.standardDeviationPnl, 'SOL')}</Metric>
                 </Card>
                 <Card className="p-2 text-left">
-                  <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
+                  <Text className="text-xs font-medium mb-0.5 text-muted-foreground flex items-center">
                     Trimmed Mean PNL (Token)
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">The average PNL per token after removing extreme outliers (e.g., top/bottom 5-10% of PNL values).</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
                   <Metric className="text-sm">{formatMetric(data.trimmedMeanPnlPerToken, 'SOL')}</Metric>
                 </Card>
                 <Card className="p-2 text-left">
-                  <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
+                  <Text className="text-xs font-medium mb-0.5 text-muted-foreground flex items-center">
                     Median PNL/Volatility Ratio
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Median token PNL divided by PNL standard deviation. A measure of risk-adjusted return.</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
                   <Metric className="text-sm">{formatMetric(data.medianPnlToVolatilityRatio, '', 2)}</Metric>
                 </Card>
                 <Card className="p-2 text-left">
-                  <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
+                  <Text className="text-xs font-medium mb-0.5 text-muted-foreground flex items-center">
                     Avg. PNL/Day Active (Approx)
                     <TooltipProvider><Tooltip delayDuration={0}><TooltipTrigger asChild><HelpCircle className="h-3 w-3 ml-1 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p className="text-sm">Average PnL per token divided by average trading duration per token. Shows trading intensity - how much PnL each token generated per day of active trading.</p></TooltipContent></Tooltip></TooltipProvider>
                   </Text>
                   <Metric className="text-sm">{formatMetric(data.averagePnlPerDayActiveApprox, 'SOL')}</Metric>
                 </Card>
                 <Card className="p-2 text-left">
-                  <Text className="text-xs font-medium mb-0.5 text-tremor-content dark:text-dark-tremor-content flex items-center">
+                  <Text className="text-xs font-medium mb-0.5 text-muted-foreground flex items-center">
                     Weighted Efficiency Score
                     <TooltipProvider>
                       <Tooltip delayDuration={0}>
@@ -220,13 +350,13 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
 const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
   <div className="w-full h-full p-4 border rounded-lg bg-card flex flex-col">
     <Title className="text-lg">{title}</Title>
-    <Subtitle className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle mt-1 mb-3 text-sm">
+    <Subtitle className="text-muted-foreground mt-1 mb-3 text-sm">
       <span className="inline-block animate-pulse rounded-md bg-primary/10 h-3 w-1/3">&nbsp;</span>
     </Subtitle>
 
     {/* Section 1: Core Trading Metrics Skeleton */}
     <div className="mb-3">
-      <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Core Trading Metrics</Text>
+      <Text className="text-sm font-semibold text-foreground mb-2">Core Trading Metrics</Text>
       <Card className="p-0">
         <div className="px-3 py-2">
           <Grid numItemsSm={2} numItemsMd={4} className="gap-x-3 gap-y-3">
@@ -243,7 +373,7 @@ const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
 
     {/* Section 2: Volume & Capital Flow Skeleton */}
     <div className="mb-3">
-      <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Volume & Capital Flow</Text>
+      <Text className="text-sm font-semibold text-foreground mb-2">Volume & Capital Flow</Text>
       <Card className="p-0">
         <div className="px-3 py-2">
           <Grid numItemsSm={2} numItemsMd={3} className="gap-x-3 gap-y-3">
@@ -259,12 +389,12 @@ const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
     </div>
 
     {/* Section 3: Advanced Token Analytics Skeleton */}
-    <div className="flex-1 p-2 rounded-md bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle overflow-hidden flex flex-col">
-      <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong flex items-center mb-2">
+    <div className="flex-1 p-2 rounded-md bg-muted/30 overflow-hidden flex flex-col">
+      <Text className="text-sm font-semibold text-foreground flex items-center mb-2">
         Advanced Token Analytics
       </Text>
       <Accordion type="single" collapsible className="w-full flex-1 overflow-hidden flex flex-col" defaultValue="item-advanced-metrics-skeleton">
-        <AccordionItem value="item-advanced-metrics-skeleton" className="border-none rounded-md data-[state=open]:bg-tremor-background-muted dark:data-[state=open]:bg-dark-tremor-background-muted px-2 flex-1 flex flex-col">
+        <AccordionItem value="item-advanced-metrics-skeleton" className="border-none rounded-md data-[state=open]:bg-muted px-2 flex-1 flex flex-col">
           <AccordionTrigger className="py-1 hover:no-underline">
             <Flex alignItems="center">
               <Skeleton className="h-3 w-3 mr-1.5 rounded-full" />
@@ -357,7 +487,7 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
       <div className="h-full flex flex-col p-4">
         <div className="flex justify-center mb-4">
           {/* Skeleton for the TabGroup */}
-          <div className="max-w-xs flex space-x-1 p-1 bg-tremor-background-muted dark:bg-dark-tremor-background-muted rounded-lg">
+          <div className="max-w-xs flex space-x-1 p-1 bg-muted rounded-lg">
             <Skeleton className="h-8 w-20" />
             <Skeleton className="h-8 w-20" />
             <Skeleton className="h-8 w-20" />

@@ -30,7 +30,7 @@ const formatUsdValue = (value: number | null | undefined): string => {
   if (value === null || value === undefined) return 'N/A';
   
   const absValue = Math.abs(value);
-  const sign = value >= 0 ? '+' : '';
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
   
   if (absValue >= 1_000_000_000) {
     // Billions
