@@ -924,11 +924,7 @@ export class BehaviorAnalyzer {
         });
       }
 
-      if (skippedSellOnlyCycles > 0) {
-        this.logger.debug(
-          `Token ${seq.mint}: skipped ${skippedSellOnlyCycles} sell-only cycle(s); processed ${processedCyclesForToken} buy/sell cycle(s)`
-        );
-      }
+      // Removed excessive per-token logging - summary stats available if needed
     }
 
     return lifecycles;

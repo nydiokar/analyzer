@@ -869,6 +869,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const childJobIds: string[] = [];
       const jobIdToWallet = new Map<string, string>();
 
+      // 🎯 Dynamic priority: Smaller jobs get higher priority to prevent starvation
+      // Priority calculation: Smaller topN = higher priority (lower number)
+      // Examples: topN=5 → priority=1, topN=10 → priority=2, topN=20 → priority=4
+      const jobPriority = Math.max(1, Math.min(5, Math.ceil(topN / 5)));
+      this.logger.log(`Using priority ${jobPriority} for topN=${topN} (lower=higher priority)`);
+
       for (const wallet of walletsNeedingJobs) {
         const metadata = holderMetadataByWallet.get(wallet);
         const childJob = await this.analysisQueueService.addHolderProfilesJob({
@@ -879,6 +885,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             rank: metadata?.rank ?? childJobIds.length + 1,
             supplyPercent: metadata?.supplyPercent ?? 0,
           },
+        }, {
+          priority: jobPriority,  // Pass priority to ensure fair processing
         });
 
         if (childJob?.id) {
