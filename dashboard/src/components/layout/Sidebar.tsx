@@ -123,7 +123,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             <li className="mb-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/similarity-lab" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
+                  <Link href="/similarity-lab" className={`flex items-center py-2 px-3 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-all duration-200`}>
                     <FlaskConical size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
                     {!isCollapsed && <span className="flex-1 font-semibold">Similarity LAB</span>}
                   </Link>
@@ -134,7 +134,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             <li>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/tools/holder-profiles" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
+                  <Link href="/tools/holder-profiles" className={`flex items-center py-2 px-3 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-all duration-200`}>
                     <IdCard size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
                     {!isCollapsed && <span className="flex-1 font-semibold">Holder Profiles</span>}
                   </Link>
@@ -159,7 +159,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             <li>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/settings" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
+                  <Link href="/settings" className={`flex items-center py-2 px-3 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-all duration-200`}>
                     <SettingsIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
                     {!isCollapsed && <span className="flex-1 font-semibold">Settings</span>}
                   </Link>
@@ -170,7 +170,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             <li>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/help" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
+                  <Link href="/help" className={`flex items-center py-2 px-3 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-all duration-200`}>
                     <HelpCircleIcon size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
                     {!isCollapsed && <span className="flex-1 font-semibold">Help/Doc</span>}
                   </Link>

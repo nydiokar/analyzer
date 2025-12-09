@@ -121,7 +121,11 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
-              <div className={cn("flex items-center space-x-2 cursor-pointer group", className)}>
+              <div className={cn(
+                "flex items-center space-x-2 cursor-pointer group rounded-lg px-2 py-1 transition-shadow duration-200",
+                "hover:shadow-hover hover:bg-accent/50",
+                className
+              )}>
                 <Avatar className={sizeClasses[size]}>
                   <AvatarImage
                     src={tokenImage ?? undefined}

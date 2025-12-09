@@ -10,22 +10,20 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import EmptyState from '@/components/shared/EmptyState'
 import { 
-  CopyIcon, 
-  WalletIcon, 
-  ChevronUp, 
-  ChevronDown, 
-  LayoutDashboard, // Overview
-  ListChecks,      // Token Performance (could also be BarChartHorizontal or similar)
+  CopyIcon,
+  WalletIcon,
+  ChevronUp,
+  ChevronDown,
+  ListChecks,      // Token Performance
   Calculator,      // Account Stats & PNL
-  Users,           // Behavioral Patterns (could also be Zap or ActivitySquare)
+  Users,           // Behavioral Patterns
   FileText,        // Notes
-  RefreshCw,     // Added for the refresh button
-  Star,          // Added Star icon for favorites
-
+  RefreshCw,       // Refresh button
+  Star,            // Favorites icon
   Tags,
   FolderOpen,
   Edit2,
-  Bot,          // Edit icon for wallet data
+  Bot,             // Edit icon for wallet data
   Loader2
 } from 'lucide-react' 
 import { toast } from 'sonner';
@@ -128,7 +126,7 @@ const ReviewerLogTabLazy = dynamic<ReviewerLogTabProps>(
   },
 );
 
-const TAB_VALUES = new Set<string>(['overview', 'token-performance', 'account-stats', 'behavioral-patterns', 'notes']);
+const TAB_VALUES = new Set<string>(['token-performance', 'account-stats', 'behavioral-patterns', 'notes']);
 const DEFAULT_TAB = 'token-performance';
 
 function truncateWalletAddress(address: string, startChars = 6, endChars = 4): string {
@@ -1291,37 +1289,17 @@ export default function WalletProfileLayout({
             <Users className="h-3.5 w-3.5" />
             Behavioral Patterns
           </TabsTrigger>
-          <TabsTrigger 
-            value="notes" 
+          <TabsTrigger
+            value="notes"
             className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
             <FileText className="h-3.5 w-3.5" />
             Notes
-          </TabsTrigger>
-          <TabsTrigger 
-            value="overview" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <LayoutDashboard className="h-3.5 w-3.5" />
-            Overview
           </TabsTrigger>
         </TabsList>
       </header>
 
       <main className="flex-1 overflow-hidden p-0 flex flex-col">
         <div className="w-full h-full flex flex-col min-h-0">
-          <LazyTabContent value="overview" activeTab={activeTab} className="flex-1 flex flex-col overflow-hidden" defer={false}>
-            <div className="h-full flex flex-col p-4 overflow-auto">
-              {children}
-              <div className="flex-1 flex flex-col border rounded-lg p-6 bg-card shadow-sm mt-4">
-                <h3 className="text-2xl font-bold mb-4">AI Overview Coming Soon</h3>
-                <div className="flex-1 bg-muted rounded-md flex items-center justify-center text-sm text-muted-foreground min-h-[300px]">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                    <p>AI-powered wallet insights are being developed...</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </LazyTabContent>
 
           <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} onMutateReady={handleTokenPerformanceMutateReady} />

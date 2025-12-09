@@ -29,7 +29,11 @@ export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <span className={cn("inline-flex items-center cursor-pointer font-mono text-blue-500 hover:underline", className)}>
+        <span className={cn(
+          "inline-flex items-center cursor-pointer font-mono text-blue-500 rounded-lg px-2 py-1",
+          "transition-shadow duration-200 hover:shadow-hover hover:bg-accent/50 hover:underline",
+          className
+        )}>
           <Wallet className="h-4 w-4 mr-1.5" />
           {truncateAddress(address)}
         </span>
