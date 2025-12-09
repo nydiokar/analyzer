@@ -1932,6 +1932,36 @@ const metricsAllTime = calculateHistoricalPattern(
 
 ---
 
+
+
+## Current Data Flow (Complete Pipeline)
+
+```
+1. POST /api/v1/analyses/holder-profiles/wallet
+   → AnalysisOperationsQueue.add('analyze-holder-profiles', {walletAddress})
+
+2. AnalysisOperationsProcessor.processAnalyzeHolderProfiles()
+   ├─ Sync wallet (HeliusSyncService)
+   │  └─ Helius TX cache → SwapAnalysisInput table
+   │
+   ├─ Aggregate PnL (PnlAnalysisService) ← NEW STEP
+   │  └─ SwapAnalysisInput → AnalysisResult table
+   │
+   └─ Analyze behavior (BehaviorService)
+      ├─ Query AnalysisResult for PnL map
+      ├─ BehaviorAnalyzer.calculateHistoricalPattern(swapRecords, wallet, pnlMap)
+      │  ├─ Build token lifecycles
+      │  ├─ Calculate hold time distribution (8 buckets)
+      │  ├─ Map tokens to buckets
+      │  └─ Calculate enriched distribution with WR/ROI per bucket
+      └─ Save to WalletBehaviorProfile (includes enrichedHoldTimeDistribution)
+
+3. Frontend fetches cached result
+   → HolderProfile includes enrichedHoldTimeDistribution
+   → WalletBaseballCard displays WR/ROI per bucket
+```
+
+
 ## References
 
 - Main documentation: `docs/3.metrics_compact_map.md` (Holding Time Methodology section)

@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { redisConfig } from '../src/queues/config/redis.config';
+import { redisConfig } from '../../src/queues/config/redis.config';
 
 async function clearAllQueues() {
   console.log('🧹 Starting queue cleanup...');
