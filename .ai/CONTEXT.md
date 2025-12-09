@@ -3,7 +3,7 @@
 **Project**: Sova Intel - Wallet Analysis System
 **Branch**: `pretty` (design system implementation)
 **Goal**: Apply modern, professional design system to the dashboard while preserving functionality
-**Status**: Ready to Start
+**Status**: In Progress - Phase 1.2 Complete
 **Last Updated:** 2025-12-09
 
 ---
@@ -62,16 +62,20 @@
   - Add `rounded-xl shadow-base`
   - Keep table logic unchanged
   - Test filters, pagination, sorting
-- [ ] Migrate `BehavioralPatternsTab.tsx` (3h)
-  - Replace Tremor Card wrappers
-  - Migrate metric displays to custom Metric component
-  - **Keep Tremor charts unchanged** (AreaChart, BarChart, etc.)
-  - Test chart rendering, metric displays
-- [ ] Migrate `AccountStatsPnlTab.tsx` (4h)
-  - Replace Tremor Card/Metric/Text
-  - Use StatCard for metrics grid
-  - Keep accordion logic, tooltip structure
-  - Test all three modes (Period, All-Time, Both)
+- [x] Migrate `BehavioralPatternsTab.tsx` (3h)
+  - Replaced Tremor Card wrappers with shadcn + local helpers
+  - Migrated to Title/Text/Flex helpers, kept Metric display logic
+  - **Tremor charts kept unchanged** (AreaChart, BarChart, etc.)
+- [x] Migrate `AccountStatsPnlTab.tsx` (4h)
+  - Replaced Tremor primitives with shadcn + local helpers (Title/Text/Flex/Grid/TabGroup)
+  - Made fully responsive with proper overflow scrolling
+  - Reduced font sizes for compact display on laptops
+  - Fixed TypeScript errors in Tab components
+  - Tested all three modes (Period, All-Time, Both)
+- [x] Polish `AccountSummaryCard.tsx`
+  - Made more compact with smaller fonts (text-sm for metrics, text-[10px] for labels)
+  - Fixed skeleton to match actual rectangular layout
+  - Reduced padding and spacing throughout
 - [ ] Polish shared components (2h)
   - `TokenBadge.tsx`: Add `rounded-lg`, `hover:shadow-hover`
   - `WalletBadge.tsx`: Add `rounded-lg`, `hover:shadow-hover`

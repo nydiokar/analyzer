@@ -1251,7 +1251,7 @@ export default function WalletProfileLayout({
             )}>
               <AccountSummaryCard
                 walletAddress={walletAddress}
-                className="w-full sm:w-auto md:max-w-none"
+                className=""
                 triggerAnalysis={handleTriggerAnalysis}
                 isAnalyzingGlobal={isAnalyzing}
                 walletSummary={walletSummary}

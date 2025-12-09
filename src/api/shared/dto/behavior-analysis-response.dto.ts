@@ -131,7 +131,7 @@ export class HistoricalPatternDto {
   behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
 
   @ApiProperty({ description: 'Exit pattern' })
-  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
+  exitPattern: 'GRADUAL' | 'ALL AT ONCE';
 
   @ApiProperty({ description: 'Data quality score (0-1)' })
   dataQuality: number;

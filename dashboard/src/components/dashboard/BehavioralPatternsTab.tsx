@@ -525,7 +525,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                       <MetricDisplay
                         label="Exit Pattern"
                         value={behaviorData.historicalPattern.exitPattern.replace('_', ' ')}
-                        tooltipText="How they typically exit positions: GRADUAL (multiple sells) or ALL_AT_ONCE (single sell)."
+                        tooltipText="How they typically exit positions: GRADUAL (multiple sells) or ALL AT ONCE (single sell)."
                       />
                       <MetricDisplay
                         label="Data Quality"

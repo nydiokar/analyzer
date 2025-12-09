@@ -64,7 +64,7 @@ export default function AccountSummaryCard({
 
   if (!walletAddress) {
     return (
-      <Card className={cn("w-full md:w-auto md:min-w-[300px] p-4 rounded-xl shadow-base", className)}>
+      <Card className={cn("w-full md:w-auto p-4 rounded-xl shadow-base", className)}>
         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
           Please select a wallet.
         </div>
@@ -74,16 +74,11 @@ export default function AccountSummaryCard({
 
   if (isLoading) {
     return (
-      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full", className)}>
+      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
         <div className="space-y-3">
-          <div className="space-y-2">
-            <Skeleton className="h-3 w-24" />
-            <Skeleton className="h-7 w-28" />
-            <Skeleton className="h-3 w-20" />
-          </div>
           <div className="grid grid-cols-3 gap-2">
             {[...Array(3)].map((_, idx) => (
-              <div key={idx} className="space-y-1.5 text-center">
+              <div key={idx} className="space-y-1 text-center">
                 <Skeleton className="h-3 w-16 mx-auto" />
                 <Skeleton className="h-5 w-20 mx-auto" />
                 <Skeleton className="h-3 w-14 mx-auto" />
@@ -91,7 +86,7 @@ export default function AccountSummaryCard({
             ))}
           </div>
           <div className="pt-2 border-t border-muted/50">
-            <Skeleton className="h-3.5 w-28" />
+            <Skeleton className="h-3.5 w-32" />
           </div>
         </div>
       </Card>
@@ -114,7 +109,7 @@ export default function AccountSummaryCard({
     }
     
     return (
-      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full", className)}>
+      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-4">
             <Icon className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
@@ -132,7 +127,7 @@ export default function AccountSummaryCard({
       </Card>
     );
   }
-  
+
   if (data?.status === 'restricted') {
     return (
       <div className={cn("p-4", className)}>
@@ -148,7 +143,7 @@ export default function AccountSummaryCard({
 
   if (data?.status === 'unanalyzed' || !data) {
     return (
-      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full", className)}>
+      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-4">
             <SearchX className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
@@ -194,11 +189,11 @@ export default function AccountSummaryCard({
   return (
     <Card
       className={cn(
-        "p-3 sm:p-4 rounded-xl shadow-base hover:shadow-hover transition-shadow w-full",
+        "p-2 sm:p-3 rounded-xl shadow-base hover:shadow-hover transition-shadow w-full md:w-auto",
         className
       )}
     >
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         <div
           className={cn(
             "grid gap-2 items-center",
@@ -206,24 +201,31 @@ export default function AccountSummaryCard({
           )}
         >
           <div className="text-center space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
               Total PNL
             </p>
-            <Metric variant={pnlVariant} size="sm" suffix="SOL" className="leading-tight">
-              {formatPnl(data.latestPnl ?? null)}
-            </Metric>
+            <div className="text-sm font-bold">
+              <span className={cn(
+                pnlVariant === "success" ? "text-green-600 dark:text-green-400" :
+                pnlVariant === "error" ? "text-red-600 dark:text-red-400" :
+                "text-foreground"
+              )}>
+                {formatPnl(data.latestPnl ?? null)}
+              </span>
+              <span className="text-[10px] text-muted-foreground ml-1 font-normal">SOL</span>
+            </div>
             {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[10px] text-muted-foreground">
                 {formatUsdValue(data.latestPnlUsd)}
               </p>
             )}
           </div>
 
           <div className="text-center space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
               Win Rate
             </p>
-            <p className="text-sm font-semibold">
+            <p className="text-sm font-bold">
               {formatWinRate(data.tokenWinRate ?? null)}
             </p>
             {data.profitableTradesCount !== null &&
@@ -231,7 +233,7 @@ export default function AccountSummaryCard({
               data.totalTradesCount !== null &&
               data.totalTradesCount !== undefined &&
               data.totalTradesCount > 0 && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[10px] text-muted-foreground">
                   {data.profitableTradesCount}/{data.totalTradesCount} trades
                 </p>
               )}
@@ -239,14 +241,14 @@ export default function AccountSummaryCard({
 
           {data.currentSolBalance !== undefined && (
             <div className="text-center space-y-1">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
                 Balance
               </p>
-              <p className="text-sm font-semibold">
-                {data.currentSolBalance?.toFixed(2) ?? "N/A"} SOL
+              <p className="text-sm font-bold">
+                {data.currentSolBalance?.toFixed(2) ?? "N/A"} <span className="text-[10px] text-muted-foreground font-normal">SOL</span>
               </p>
               {data.currentSolBalanceUsd !== null && data.currentSolBalanceUsd !== undefined && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[10px] text-muted-foreground">
                   {formatUsdValue(data.currentSolBalanceUsd)}
                 </p>
               )}
@@ -255,9 +257,9 @@ export default function AccountSummaryCard({
         </div>
 
         <div className="pt-2 border-t border-muted/50">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] sm:text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
             <div className="flex items-center gap-1.5">
-              <CalendarDays className="h-4 w-4" />
+              <CalendarDays className="h-3.5 w-3.5" />
               <span>
                 {data.lastActiveTimestamp
                   ? format(new Date(data.lastActiveTimestamp * 1000), "MMM d, yyyy")
@@ -266,7 +268,7 @@ export default function AccountSummaryCard({
             </div>
 
             {data.behaviorClassification && (
-              <Badge variant="outline" className="uppercase tracking-wide">
+              <Badge variant="outline" className="uppercase tracking-wide text-[10px] py-0.5 px-2">
                 {data.behaviorClassification}
               </Badge>
             )}
