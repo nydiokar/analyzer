@@ -10,6 +10,7 @@ export const DEFAULT_EXCLUDED_MINTS = [
   '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj', // stSOL
   'rndrizKT3MK1iimdxRdWabcF7Zb7nx9Vi3CY6A5J9NK', // rndr
   '8888xhvqnTWZ6tNbfAyP8mLLfaKsqfiW33tgA8RZ8888', // memeSOL - fake/scam token
+  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // usdc1
 
   // Wrapped tokens (Wormhole, Sollet, Allbridge, etc.)
   'KgV1GvrHQmRBY8sHQQeUKwTm2r2h8t4C8qt12Cw1HVE', // Wrapped AVAX (Wormhole)

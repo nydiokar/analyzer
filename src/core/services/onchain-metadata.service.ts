@@ -29,7 +29,10 @@ const TRUSTED_GATEWAYS = [
   'cdn-aibackrooms.s3.amazonaws.com',
   'cdn.dexscreener.com',
   'dexscreener.com',
-  'degencdn.com'
+  'degencdn.com',
+  'gateway.pinata.cloud',
+  'raw.githubusercontent.com',
+  'api.zeralabs.org'
 ];
 
 // Security error types (should not trigger retries)
@@ -123,7 +126,7 @@ function validateUri(uri: string): void {
 
   // Log warning for non-trusted gateways
   if (!TRUSTED_GATEWAYS.some(gateway => hostname.includes(gateway))) {
-    logger.warn(`Non-trusted gateway: ${sanitizeUriForLogging(uri)}`);
+    // logger.warn(`Non-trusted gateway: ${sanitizeUriForLogging(uri)}`);
   }
 }
 

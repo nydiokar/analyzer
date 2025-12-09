@@ -6,17 +6,90 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
 
 const logger = new Logger('RedisProvider');
 
+// Track connection state to avoid repetitive logging
+let lastConnectionError: string | null = null;
+let connectionErrorCount = 0;
+let lastConnectionState = 'disconnected';
+let isFirstConnectionAttempt = true;
+
 export const redisProvider: FactoryProvider<Redis> = {
   provide: REDIS_CLIENT,
   useFactory: () => {
-    const client = new Redis(redisConfig as RedisOptions);
+    // Override lazyConnect for the lock service - we want immediate connection
+    const lockServiceConfig = {
+      ...redisConfig,
+      lazyConnect: false, // Connect immediately for lock management
+    } as RedisOptions;
+    const client = new Redis(lockServiceConfig);
 
-    client.on('connect', () => logger.log('Redis client connected successfully.'));
-    client.on('ready', () => logger.log('Redis client is ready.'));
-    client.on('error', (err) => logger.error('Redis client error:', err.stack));
-    client.on('close', () => logger.warn('Redis client connection closed.'));
-    client.on('reconnecting', () => logger.log('Redis client is reconnecting...'));
-    client.on('end', () => logger.log('Redis client connection has ended.'));
+    // Clear error tracking on successful connection
+    client.on('connect', () => {
+      logger.log('✅ Redis client connected successfully.');
+      lastConnectionError = null;
+      connectionErrorCount = 0;
+      lastConnectionState = 'connected';
+      isFirstConnectionAttempt = false;
+    });
+
+    client.on('ready', () => {
+      logger.log('🚀 Redis client is ready and operational.');
+      lastConnectionState = 'ready';
+    });
+
+    // Improved error handling - less noisy, more informative
+    client.on('error', (err) => {
+      const errorMessage = err.message || 'Unknown Redis error';
+      const isConnectionError = errorMessage.includes('ECONNREFUSED') ||
+                               errorMessage.includes('ECONNRESET') ||
+                               errorMessage.includes('ECONNABORTED') ||
+                               errorMessage.includes('ENOTFOUND');
+
+      if (isConnectionError) {
+        // Only log connection errors once every 30 seconds to avoid spam
+        const now = Date.now();
+        if (lastConnectionError !== errorMessage || connectionErrorCount === 0) {
+          logger.error(`❌ Redis connection failed: ${errorMessage}`);
+          logger.error('💡 Make sure Redis is running: docker-compose up -d redis');
+          lastConnectionError = errorMessage;
+          connectionErrorCount = 1;
+        } else {
+          connectionErrorCount++;
+          // Log count every 10 occurrences
+          if (connectionErrorCount % 10 === 0) {
+            logger.warn(`🔄 Redis connection still failing (${connectionErrorCount} attempts): ${errorMessage}`);
+          }
+        }
+      } else {
+        // Non-connection errors should still be logged with full details
+        logger.error(`🔥 Redis error: ${errorMessage}`, err.stack);
+      }
+    });
+
+    client.on('close', () => {
+      if (lastConnectionState !== 'disconnected') {
+        logger.warn('⚠️  Redis connection closed unexpectedly.');
+        lastConnectionState = 'disconnected';
+      }
+    });
+
+    client.on('reconnecting', (delay: number) => {
+      if (lastConnectionState !== 'reconnecting') {
+        logger.log(`🔄 Redis reconnecting in ${delay}ms...`);
+        lastConnectionState = 'reconnecting';
+      }
+    });
+
+    client.on('end', () => {
+      logger.log('🛑 Redis client connection has ended.');
+      lastConnectionState = 'disconnected';
+    });
+
+    // Log initial connection attempt
+    setTimeout(() => {
+      if (isFirstConnectionAttempt) {
+        logger.log('🔍 Attempting to connect to Redis...');
+      }
+    }, 100);
 
     return client;
   },

@@ -71,8 +71,32 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   constructor(@Inject(REDIS_CLIENT) private readonly redisPublisher: Redis) {
     // The publisher is injected. We create a dedicated subscriber from it.
     this.redisSubscriber = this.redisPublisher.duplicate();
-    
-    this.redisSubscriber.on('error', (err) => this.logger.error('Redis subscriber connection error:', err));
+
+    // Track subscriber errors to avoid spam
+    let lastSubscriberError: string | null = null;
+    let subscriberErrorCount = 0;
+
+    this.redisSubscriber.on('error', (err) => {
+      const errorMessage = err.message || 'Unknown Redis subscriber error';
+      const isConnectionError = errorMessage.includes('ECONNREFUSED') ||
+                               errorMessage.includes('ECONNRESET') ||
+                               errorMessage.includes('ECONNABORTED') ||
+                               errorMessage.includes('ENOTFOUND');
+
+      if (isConnectionError) {
+        // Only log subscriber connection errors once every 30 seconds
+        if (lastSubscriberError !== errorMessage || subscriberErrorCount === 0) {
+          this.logger.warn(`⚠️  WebSocket Redis subscriber: ${errorMessage}`);
+          lastSubscriberError = errorMessage;
+          subscriberErrorCount = 1;
+        } else {
+          subscriberErrorCount++;
+        }
+      } else {
+        // Non-connection errors still get full logging
+        this.logger.error(`🔥 Redis subscriber error: ${errorMessage}`, err.stack);
+      }
+    });
   }
 
   afterInit(server: Server) {
@@ -84,7 +108,8 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
       this.logger.error(`Socket.IO connection error: ${err.message}`, err);
     });
     
-    setImmediate(() => this.setupRedisSubscriptions());
+    // Set up Redis subscriptions with delay to ensure Redis connection is established
+    setTimeout(() => this.setupRedisSubscriptions(), 5000); // Wait 5 seconds for Redis
   }
 
   handleConnection(client: Socket) {
@@ -101,13 +126,28 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
 
   private setupRedisSubscriptions() {
     const pattern = 'job-events:*';
-    this.redisSubscriber.psubscribe(pattern, (err) => {
-      if (err) {
-        this.logger.error(`Failed to subscribe to ${pattern}:`, err);
+
+    try {
+      this.redisSubscriber.psubscribe(pattern, (err) => {
+        if (err) {
+          const errorMessage = err.message || 'Unknown subscription error';
+          if (errorMessage.includes('enableOfflineQueue') || errorMessage.includes('writeable')) {
+            this.logger.warn(`⚠️  Redis not ready for WebSocket subscriptions. Make sure Redis is running.`);
+          } else {
+            this.logger.error(`Failed to subscribe to ${pattern}:`, err);
+          }
+        } else {
+          this.logger.log(`📡 Subscribed to Redis pattern: ${pattern}`);
+        }
+      });
+    } catch (error) {
+      const errorMessage = (error as Error).message || 'Unknown error';
+      if (errorMessage.includes('enableOfflineQueue') || errorMessage.includes('writeable')) {
+        this.logger.warn(`⚠️  Cannot setup Redis subscriptions - Redis not connected. Will retry later.`);
       } else {
-        this.logger.log(`Subscribed to Redis pattern: ${pattern}`);
+        this.logger.error(`Failed to setup Redis subscriptions:`, error);
       }
-    });
+    }
 
     this.redisSubscriber.on('pmessage', (pattern, channel, message) => {
       try {
