@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Job, Worker, QueueEvents } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { ComprehensiveSimilarityFlowData, SimilarityFlowResult } from '../jobs/types';
@@ -20,12 +20,16 @@ import { Wallet } from '@prisma/client';
 import { BatchProcessor } from '../utils/batch-processor';
 import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
 import { KNOWN_SYSTEM_WALLETS, WALLET_CLASSIFICATIONS, SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
+import { REDIS_CLIENT } from '../config/redis.provider';
+import Redis from 'ioredis';
 
 @Injectable()
 export class SimilarityOperationsProcessor implements OnModuleDestroy {
   private readonly logger = new Logger(SimilarityOperationsProcessor.name);
   private readonly worker: Worker;
   private readonly walletBalanceService: WalletBalanceService;
+  private readonly resultTtlSeconds = 15 * 60; // 15 minutes for clients to fetch results
+  private readonly PAYLOAD_WARN_BYTES = 5 * 1024 * 1024; // 5MB threshold
 
   constructor(
     private readonly redisLockService: RedisLockService,
@@ -39,6 +43,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly balanceCacheService: BalanceCacheService,
     private readonly websocketGateway: JobProgressGateway,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {
     // Note: In a proper NestJS setup, WalletBalanceService would be injected via constructor
     // For now, we'll keep the manual instantiation for the processor
@@ -301,7 +306,9 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
 
       const result: SimilarityFlowResult = {
         success: true,
-        data: similarityResult,
+        data: {
+          resultKey: this.buildResultKey(requestId),
+        },
         requestId: requestId,
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime,
@@ -318,7 +325,21 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       };
       
       const mode = 'full_sync_raw_balances_with_background_enrichment';
-      
+      const serialized = JSON.stringify(similarityResult);
+      const payloadSize = Buffer.byteLength(serialized, 'utf8');
+      if (payloadSize > this.PAYLOAD_WARN_BYTES) {
+        this.logger.warn(`Similarity result is large (${(payloadSize / 1024 / 1024).toFixed(2)} MB) for request ${requestId}`);
+      }
+
+      try {
+        await this.redisClient.set(this.buildResultKey(requestId), serialized, 'EX', this.resultTtlSeconds);
+        this.logger.debug(`Stored similarity result for ${requestId} with TTL ${this.resultTtlSeconds}s`);
+      } catch (storeError) {
+        this.logger.error(`Failed to store similarity result for ${requestId}:`, storeError);
+        // As a fallback, include the data directly if Redis storage fails
+        result.data = similarityResult as any;
+      }
+
       this.logger.log(`Advanced similarity analysis completed successfully in ${Date.now() - startTime}ms. Mode: ${mode}`);
       return result;
 
@@ -346,6 +367,10 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         this.logger.warn(`Failed to release lock ${lockKey}:`, lockError);
       }
     }
+  }
+
+  private buildResultKey(requestId: string) {
+    return `similarity:result:${requestId}`;
   }
 
 

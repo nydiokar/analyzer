@@ -15,10 +15,11 @@ let isFirstConnectionAttempt = true;
 export const redisProvider: FactoryProvider<Redis> = {
   provide: REDIS_CLIENT,
   useFactory: () => {
-    // Override lazyConnect for the lock service - we want immediate connection
+    // Override a few defaults to match prior per-service settings (bounded retries) while keeping lazyConnect
     const lockServiceConfig = {
       ...redisConfig,
-      lazyConnect: false, // Connect immediately for lock management
+      lazyConnect: redisConfig.lazyConnect ?? true, // allow startup without immediate Redis
+      maxRetriesPerRequest: 3,
     } as RedisOptions;
     const client = new Redis(lockServiceConfig);
 

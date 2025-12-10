@@ -1,8 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { HolderProfilesResult, HolderProfile } from '../../queues/jobs/types';
 import { DatabaseService } from './database.service';
 import type { HolderProfileSnapshot, Wallet as PrismaWallet } from '@prisma/client';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 /**
  * TWO-TIER CACHE SERVICE: Manages both Redis (Tier 1) and PostgreSQL (Tier 2) caching
@@ -74,22 +75,9 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
 
   constructor(
     private readonly databaseService: DatabaseService,
+    @Inject(REDIS_CLIENT) redisClient: Redis,
   ) {
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-      retryStrategy: (attempt) => {
-        if (attempt > 3) {
-          this.logger.error('Redis connection failed for holder profiles cache after 3 attempts');
-          return null;
-        }
-        const delay = Math.min(attempt * 100, 3000);
-        this.logger.warn(`Redis connection attempt ${attempt}/3, retrying in ${delay}ms...`);
-        return delay;
-      },
-    });
+    this.redis = redisClient;
 
     this.redis.on('error', (err) => this.logger.error('Redis connection error (holder profiles cache):', err.message));
     this.redis.on('connect', () => this.logger.log('Redis connected for holder profiles cache'));
@@ -216,11 +204,8 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    try {
-      await this.redis.quit();
-    } catch (error) {
-      this.logger.warn('Error closing Redis connection in HolderProfilesCacheService', error as Error);
-    }
+    // Shared Redis connection managed centrally
+    return;
   }
 
   async getCacheStats(): Promise<{ totalKeys: number; sampleKeys: string[] }> {

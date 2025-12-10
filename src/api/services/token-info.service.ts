@@ -7,6 +7,7 @@ import { IPriceProvider } from '../../types/price-provider.interface';
 import { ITokenInfoService } from '../../types/token-info-service.interface';
 import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../core/services/onchain-metadata.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 /**
  * TokenInfoService - Unified Token Information & Price Management
@@ -31,12 +32,9 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     @Inject('IPriceProvider') private readonly priceProvider: IPriceProvider,
     private readonly onchainMetadataService: OnchainMetadataService, // NEW: Onchain metadata enrichment
     private readonly heliusApiClient: HeliusApiClient, // For fetching token supply
+    @Inject(REDIS_CLIENT) redisClient: Redis,
   ) {
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      maxRetriesPerRequest: 3,
-    });
+    this.redis = redisClient;
     this.logger.log('TokenInfoService initialized with price caching (30s TTL) and onchain metadata enrichment');
   }
 
@@ -430,10 +428,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    try {
-      await this.redis.quit();
-    } catch (error) {
-      this.logger.warn('Error closing Redis connection in TokenInfoService', error as Error);
-    }
+    // Shared Redis connection managed centrally
+    return;
   }
 } 

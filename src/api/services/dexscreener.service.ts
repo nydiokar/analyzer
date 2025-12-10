@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { DexscreenerService as CoreDexscreenerService } from '../../core/services/dexscreener-service';
 import { DatabaseService } from '../services/database.service';
 import { HttpService } from '@nestjs/axios';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 @Injectable()
 export class DexscreenerService {
@@ -13,13 +14,10 @@ export class DexscreenerService {
   constructor(
     private databaseService: DatabaseService,
     private httpService: HttpService,
+    @Inject(REDIS_CLIENT) redisClient: Redis,
   ) {
     this.coreDexscreenerService = new CoreDexscreenerService(this.databaseService, this.httpService);
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      maxRetriesPerRequest: 3,
-    });
+    this.redis = redisClient;
     this.logger.log('CoreDexscreenerService instantiated within NestJS DexscreenerService wrapper.');
   }
 

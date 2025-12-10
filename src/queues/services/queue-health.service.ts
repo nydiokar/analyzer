@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { Redis, RedisOptions } from 'ioredis';
+import { Redis } from 'ioredis';
 import { redisConfig } from '../config/redis.config';
+import { REDIS_CLIENT } from '../config/redis.provider';
 
 export interface QueueHealthStatus {
   queueName: string;
@@ -79,19 +80,8 @@ export class QueueHealthService implements OnModuleInit {
   private readonly BATCH_SIZE = 100; // Limit job fetching
   private healthCheckTimer?: NodeJS.Timeout;
 
-  constructor() {
-    // Create Redis instance using environment variables directly for type safety
-    const ioredisOptions: RedisOptions = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD,
-      db: parseInt(process.env.REDIS_DB || '0', 10),
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: false,
-      lazyConnect: true,
-    };
-    
-    this.redis = new Redis(ioredisOptions);
+  constructor(@Inject(REDIS_CLIENT) redisClient: Redis) {
+    this.redis = redisClient;
   }
 
   /**
@@ -388,7 +378,6 @@ export class QueueHealthService implements OnModuleInit {
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
     }
-    // Close Redis connection
-    await this.redis.quit();
+    // Shared Redis connection is managed centrally
   }
-} 
+}
