@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { SignInModal } from '@/components/auth/SignInModal';
 import { SignUpModal } from '@/components/auth/SignUpModal';
 import { UserProfileDropdown } from '@/components/auth/UserProfileDropdown';
+import { RequireVerifiedEmail } from '@/components/auth/RequireVerifiedEmail';
 
 export default function HomePage() {
   const { isAuthenticated, user } = useAuth();
@@ -25,7 +26,8 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden">
+    <RequireVerifiedEmail>
+      <div className="min-h-screen w-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden">
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
@@ -136,6 +138,7 @@ export default function HomePage() {
         onOpenChange={setShowSignUp}
         onSwitchToSignIn={switchToSignIn}
       />
-    </div>
+      </div>
+    </RequireVerifiedEmail>
   );
 }

@@ -3,16 +3,11 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { Shield, Mail, X, KeyRound } from 'lucide-react';
-import { toast } from 'sonner';
+import { Shield, Mail, X } from 'lucide-react';
 
 export function EmailVerificationBanner() {
-  const { user, isAuthenticated, requestEmailVerification, verifyEmail, loading } = useAuth();
-  const [verificationToken, setVerificationToken] = useState('');
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [showTokenInput, setShowTokenInput] = useState(false);
+  const { user, isAuthenticated, requestEmailVerification, loading } = useAuth();
   const [isDismissed, setIsDismissed] = useState(false);
 
   // Only show for JWT authenticated users with unverified email
@@ -21,25 +16,7 @@ export function EmailVerificationBanner() {
   }
 
   const handleRequestVerification = async () => {
-    const success = await requestEmailVerification();
-    if (success) {
-      setShowTokenInput(true);
-    }
-  };
-
-  const handleVerifyEmail = async () => {
-    if (!verificationToken.trim()) {
-      toast.error('Please enter the verification token');
-      return;
-    }
-
-    setIsVerifying(true);
-    const success = await verifyEmail(verificationToken.trim());
-    if (success) {
-      setVerificationToken('');
-      setShowTokenInput(false);
-    }
-    setIsVerifying(false);
+    await requestEmailVerification();
   };
 
   return (
@@ -53,8 +30,7 @@ export function EmailVerificationBanner() {
               <div>
                 <p className="text-sm font-semibold text-slate-100">Email verification required</p>
                 <p className="text-sm text-slate-400 mt-1">
-                  We sent a verification link to <span className="font-medium text-slate-200">{user.email}</span>.
-                  Verify your address to unlock full access.
+                  Please check your email at <span className="font-medium text-slate-200">{user.email}</span> and click the verification link to unlock full access.
                 </p>
               </div>
 
@@ -76,43 +52,9 @@ export function EmailVerificationBanner() {
                 className="bg-sky-600 hover:bg-sky-500 text-white"
               >
                 <Mail className="w-4 h-4 mr-2" />
-                {loading ? 'Sending…' : 'Send verification email'}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-slate-300 hover:text-slate-100"
-                onClick={() => setShowTokenInput(!showTokenInput)}
-              >
-                <KeyRound className="w-4 h-4 mr-2" />
-                {showTokenInput ? 'Hide manual token entry' : 'Enter token manually'}
+                {loading ? 'Sending…' : 'Resend verification email'}
               </Button>
             </div>
-
-            {showTokenInput && (
-              <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
-                <p className="text-xs text-slate-400">
-                  If email delivery isn’t configured yet, copy the verification token from the server logs and paste it below.
-                </p>
-                <div className="flex gap-2">
-                  <Input
-                    type="text"
-                    placeholder="Enter verification token"
-                    value={verificationToken}
-                    onChange={(e) => setVerificationToken(e.target.value)}
-                    className="flex-1 h-9 text-sm"
-                    disabled={isVerifying}
-                  />
-                  <Button
-                    onClick={handleVerifyEmail}
-                    disabled={isVerifying || !verificationToken.trim()}
-                    size="sm"
-                  >
-                    {isVerifying ? 'Verifying…' : 'Verify'}
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

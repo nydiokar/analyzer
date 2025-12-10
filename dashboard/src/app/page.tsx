@@ -4,13 +4,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SearchIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, ChevronRightIcon } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { UserMenu } from '@/components/auth/UserMenu';
 import Image from 'next/image';
 import { Badge } from "@/components/ui/badge";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 // It's better to import WalletSearch if it can be made context-agnostic
 // For now, we'll create a simple search input placeholder
@@ -53,8 +53,36 @@ const FEATURED_WALLETS = [
 
 export default function Home() {
   const router = useRouter();
-  const { isAuthenticated, user, requestEmailVerification } = useAuth();
+  const searchParams = useSearchParams();
+  const { isAuthenticated, user, requestEmailVerification, verifyEmail } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Handle verify-token parameter (when user clicks email link while logged out)
+  useEffect(() => {
+    const verifyToken = searchParams.get('verify-token');
+    if (verifyToken && isAuthenticated) {
+      // User is now logged in, attempt verification
+      const attemptVerify = async () => {
+        try {
+          const success = await verifyEmail(verifyToken);
+          if (success) {
+            toast.success('Email verified successfully! 🎉');
+            // Clear the token from URL
+            router.replace('/');
+          } else {
+            toast.error('Verification link expired or invalid. Please request a new one.');
+          }
+        } catch (error) {
+          toast.error('Verification failed. Please try again.');
+        }
+      };
+      attemptVerify();
+    } else if (verifyToken && !isAuthenticated) {
+      // Show auth modal with a message
+      toast.info('Please sign in to verify your email', { duration: 5000 });
+      setShowAuthModal(true);
+    }
+  }, [searchParams, isAuthenticated, verifyEmail, router]);
 
   const handleSearch = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

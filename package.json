@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "0.18.3",
+  "version": "0.18.4",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "engines": {
@@ -78,6 +78,8 @@
     "@prisma/client": "6.18.0",
     "@prisma/client-runtime-utils": "^7.0.0",
     "@radix-ui/react-avatar": "^1.1.10",
+    "@react-email/components": "^1.0.1",
+    "@react-email/render": "^2.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/csv-stringify": "^1.4.3",
     "@types/nodemailer": "^7.0.1",

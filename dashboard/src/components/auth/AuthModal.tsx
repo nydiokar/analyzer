@@ -57,8 +57,8 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
       // Show email verification notice for new registrations
       if (!isLogin) {
         setTimeout(() => {
-          toast.info('Please check your email to verify your account before proceeding.', {
-            duration: 6000,
+          toast.success('Account created! Please check your email and click the verification link to get started.', {
+            duration: 8000,
           });
         }, 1000);
       }

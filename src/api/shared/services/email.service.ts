@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { EmailEventService } from './email-event.service';
 import { Resend } from 'resend';
+import { render } from '@react-email/render';
+import { VerificationEmail } from '../../../emails/VerificationEmail';
 
 @Injectable()
 export class EmailService {
@@ -75,50 +77,36 @@ export class EmailService {
 
     const appName = this.configService.get<string>('APP_NAME', 'Sova Intel');
     const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    const verificationUrl = `${frontendUrl}/verify?token=${token}`;
 
     const subject = `Verify your ${appName} account`;
-    const html = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="utf-8">
-            <title>Verify your email</title>
-          </head>
-          <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #333;">Welcome to ${appName}!</h2>
-            <p>Please verify your email address to complete your account setup.</p>
-            <p>Your verification token is:</p>
-            <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0; font-family: monospace; font-size: 16px; text-align: center;">
-              <strong>${token}</strong>
-            </div>
-            <p>Copy and paste this token into the verification field in your account settings.</p>
-            <p>This token will expire in 24 hours.</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-            <p style="color: #666; font-size: 12px;">
-              If you didn't create an account with ${appName}, you can safely ignore this email.
-            </p>
-          </body>
-          </html>
-        `;
+
+    // Render React Email template to HTML
+    const html = await render(
+      VerificationEmail({
+        verificationUrl,
+        appName,
+      })
+    );
+
     const text = `
-          Welcome to ${appName}!
-          
-          Please verify your email address to complete your account setup.
-          
-          Your verification token is: ${token}
-          
-          Copy and paste this token into the verification field in your account settings.
-          This token will expire in 24 hours.
-          
-          If you didn't create an account with ${appName}, you can safely ignore this email.
-        `;
+Welcome to ${appName}!
+
+Please verify your email address by clicking the link below:
+
+${verificationUrl}
+
+This link will expire in 24 hours.
+
+If you didn't create an account with ${appName}, you can safely ignore this email.
+    `.trim();
 
     return this.sendEmail({
       to: email,
       subject,
       html,
       text,
-      devLog: `Verification email to ${email} token: ${token}`,
+      devLog: `Verification email to ${email} with URL: ${verificationUrl}`,
     });
   }
 
