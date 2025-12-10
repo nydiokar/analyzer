@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { DatabaseModule } from './database.module';
 import { AuthController } from '../controllers/auth.controller';
 import { SecurityController } from '../controllers/security.controller'
@@ -34,6 +35,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     DatabaseModule, // Required for JwtDatabaseService and ApiKeyDatabaseService
     PassportModule.register({ defaultStrategy: 'jwt' }),
     ThrottlerModule,
+    EventEmitterModule.forRoot(), // Enable event-driven architecture for cache invalidation
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {

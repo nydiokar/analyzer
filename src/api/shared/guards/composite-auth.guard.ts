@@ -1,5 +1,6 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, ForbiddenException, Logger, OnModuleInit } from '@nestjs/common';
 import { Request } from 'express';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { JwtDatabaseService } from '../services/jwt-database.service';
 import { AuthService } from '../services/auth.service';
 import { ApiKeyService, ApiKeyScope } from '../services/api-key.service';
@@ -307,5 +308,20 @@ export class CompositeAuthGuard implements CanActivate {
     this.jwtCache.clear();
     this.apiKeyCache.clear();
     this.logger.log('All authentication caches cleared');
+  }
+
+  /**
+   * Event listener for cache invalidation events
+   * Listens to: 'auth.cache.invalidate'
+   * Triggered by: API key revocation/deletion, password changes
+   */
+  @OnEvent('auth.cache.invalidate')
+  handleCacheInvalidation(payload: { reason: string; userId?: string; keyId?: string; prefix?: string }) {
+    this.clearAllCaches();
+    this.logger.warn(`SECURITY: Authentication caches cleared. Reason: ${payload.reason}`, {
+      userId: payload.userId,
+      keyId: payload.keyId,
+      prefix: payload.prefix,
+    });
   }
 }

@@ -53,13 +53,19 @@ export class SecurityCleanupService implements OnModuleInit {
   @Cron('0 0 */6 * * *') // Every 6 hours
   async logSecurityMetrics() {
     try {
-      this.logger.log('Security cleanup service is running periodic maintenance');
-      
       // Log throttler security stats
       const stats = this.advancedThrottlerService.getSecurityStats();
-      this.logger.log(`Security stats: ${stats.blockedIps} blocked IPs, ${stats.recentEvents} recent events`, {
-        topViolatingIps: stats.topViolatingIps,
-      });
+
+      // Only log if there's something interesting (blocked IPs or recent events)
+      if (stats.blockedIps > 0 || stats.recentEvents > 0) {
+        this.logger.log('Security cleanup service is running periodic maintenance');
+        this.logger.log(`Security stats: ${stats.blockedIps} blocked IPs, ${stats.recentEvents} recent events`, {
+          topViolatingIps: stats.topViolatingIps,
+        });
+      } else {
+        // Silent in production, only show in debug mode
+        this.logger.debug('Security cleanup: No security events detected');
+      }
     } catch (error) {
       this.logger.error('Failed to log security metrics', error);
     }

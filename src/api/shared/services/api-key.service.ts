@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { ApiKeyDatabaseService } from './api-key-database.service';
@@ -43,6 +44,7 @@ export class ApiKeyService {
     private readonly apiKeyDatabaseService: ApiKeyDatabaseService,
     private readonly jwtDatabaseService: JwtDatabaseService,
     private readonly configService: ConfigService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -226,6 +228,14 @@ export class ApiKeyService {
     await this.apiKeyDatabaseService.updateApiKeyStatus(keyId, false);
     this.logger.log(`Admin: Revoked API key: ${keyRecord.prefix}***`);
 
+    // CRITICAL: Emit event to invalidate authentication caches immediately
+    this.eventEmitter.emit('auth.cache.invalidate', {
+      reason: 'api_key_revoked',
+      keyId: keyRecord.id,
+      prefix: keyRecord.prefix,
+      userId: keyRecord.userId,
+    });
+
     return {
       success: true,
       message: `API key ${keyRecord.prefix}*** revoked successfully`
@@ -319,6 +329,15 @@ export class ApiKeyService {
     }
 
     this.logger.log(`Admin: Permanently deleted API key: ${key.prefix}***`);
+
+    // CRITICAL: Emit event to invalidate authentication caches immediately
+    this.eventEmitter.emit('auth.cache.invalidate', {
+      reason: 'api_key_deleted',
+      keyId: key.id,
+      prefix: key.prefix,
+      userId: key.userId,
+    });
+
     return {
       success: true,
       message: `API key ${key.prefix}*** deleted permanently`

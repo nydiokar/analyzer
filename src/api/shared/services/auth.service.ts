@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
@@ -60,6 +61,7 @@ export class AuthService {
     private readonly refreshTokenService: RefreshTokenService,
     private readonly keyRotationService: JwtKeyRotationService,
     private readonly emailService: EmailService,
+    private readonly eventEmitter: EventEmitter2,
     // Security logger will be injected via method calls to avoid circular dependency
   ) {
     // Load password pepper from environment
@@ -390,12 +392,18 @@ export class AuthService {
     try {
       const passwordWithPepper = newPassword + this.passwordPepper;
       const passwordHash = await this.hashPassword(passwordWithPepper);
-      
+
       await this.databaseService.updateUserPassword(userId, passwordHash);
-      
+
       // Revoke all refresh sessions after password change for security
       await this.refreshTokenService.revokeAllUserSessions(userId);
-      
+
+      // CRITICAL: Emit event to invalidate authentication caches immediately
+      this.eventEmitter.emit('auth.cache.invalidate', {
+        reason: 'password_changed',
+        userId,
+      });
+
       this.logger.log(`Password updated for user: ${userId}`);
     } catch (error) {
       this.logger.error(`Failed to update password for user: ${userId}`, error);
