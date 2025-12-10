@@ -10,7 +10,7 @@ import { AuthModal } from '@/components/auth/AuthModal';
 import { UserMenu } from '@/components/auth/UserMenu';
 import Image from 'next/image';
 import { Badge } from "@/components/ui/badge";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { toast } from 'sonner';
 // It's better to import WalletSearch if it can be made context-agnostic
 // For now, we'll create a simple search input placeholder
@@ -51,7 +51,7 @@ const FEATURED_WALLETS = [
 ];
 
 
-export default function Home() {
+function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user, requestEmailVerification, verifyEmail } = useAuth();
@@ -294,5 +294,19 @@ function FeatureCard({ icon, title, description }: FeatureCardProps) {
       <h3 className="text-xl font-semibold mb-2 mt-1 text-slate-100">{title}</h3>
       <p className="text-slate-300 text-sm">{description}</p>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="w-full min-h-full text-white animated-gradient flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto"></div>
+        </div>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
   );
 }
