@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { DatabaseService } from '../services/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
@@ -6,7 +6,7 @@ import { WalletBalanceService } from '../../core/services/wallet-balance-service
 import { WalletBalance } from '../../types/wallet';
 
 @Injectable()
-export class BalanceCacheService {
+export class BalanceCacheService implements OnModuleDestroy {
   private readonly logger = new Logger(BalanceCacheService.name);
   private redis: Redis;
   private walletBalanceService: WalletBalanceService;
@@ -142,4 +142,12 @@ export class BalanceCacheService {
       await this.redis.del(...keys);
     }
   }
-} 
+
+  async onModuleDestroy(): Promise<void> {
+    try {
+      await this.redis.quit();
+    } catch (error) {
+      this.logger.warn('Error closing Redis connection in BalanceCacheService', error as Error);
+    }
+  }
+}

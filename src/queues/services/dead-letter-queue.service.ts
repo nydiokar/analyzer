@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Queue, QueueEvents, Job } from 'bullmq';
 import { redisConfig } from '../config/redis.config';
 import { AlertingService } from './alerting.service';
@@ -16,7 +16,7 @@ export interface FailedJobMetrics {
 }
 
 @Injectable()
-export class DeadLetterQueueService implements OnModuleInit {
+export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DeadLetterQueueService.name);
   private readonly deadLetterQueue: Queue;
   private readonly queueEvents: Map<string, QueueEvents> = new Map();
@@ -104,6 +104,21 @@ export class DeadLetterQueueService implements OnModuleInit {
       await queueEvents.close();
       this.queueEvents.delete(queueName);
       this.logger.log(`Stopped monitoring queue: ${queueName}`);
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+    for (const queueEvents of this.queueEvents.values()) {
+      await queueEvents.close();
+    }
+    this.queueEvents.clear();
+    try {
+      await this.deadLetterQueue.close();
+    } catch (error) {
+      this.logger.warn('Error closing dead letter queue on shutdown', error as Error);
     }
   }
 

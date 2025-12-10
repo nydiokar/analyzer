@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { HolderProfilesResult, HolderProfile } from '../../queues/jobs/types';
 import { DatabaseService } from './database.service';
@@ -60,7 +60,7 @@ import type { HolderProfileSnapshot, Wallet as PrismaWallet } from '@prisma/clie
  * @see AnalysisOperationsProcessor.processAnalyzeHolderProfiles (orchestration)
  */
 @Injectable()
-export class HolderProfilesCacheService {
+export class HolderProfilesCacheService implements OnModuleDestroy {
   private readonly logger = new Logger(HolderProfilesCacheService.name);
   private readonly TTL_SECONDS = 3600; // 1 hour - holder profiles don't change frequently
   private redis: Redis;
@@ -139,12 +139,6 @@ export class HolderProfilesCacheService {
         this.logger.log(`Invalidated wallet holder profile cache for ${walletAddress}`);
       }
 
-      const tokenKeys = await this.redis.keys('holder-profiles:token:*');
-      if (tokenKeys.length === 0) {
-        this.logger.debug(`No token caches found while invalidating wallet ${walletAddress}`);
-        return;
-      }
-
       const luaScript = `
         local keysToDelete = {}
         for i, key in ipairs(KEYS) do
@@ -167,9 +161,22 @@ export class HolderProfilesCacheService {
         return #keysToDelete
       `;
 
-      const deleted = tokenKeys.length > 0
-        ? Number(await this.redis.eval(luaScript, tokenKeys.length, ...tokenKeys, walletAddress))
-        : 0;
+      const pattern = 'holder-profiles:token:*';
+      let cursor = '0';
+      const batchSize = 200;
+      let deleted = 0;
+
+      do {
+        const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', batchSize);
+        cursor = nextCursor;
+
+        if (keys.length === 0) {
+          continue;
+        }
+
+        const batchDeleted = Number(await this.redis.eval(luaScript, keys.length, ...keys, walletAddress));
+        deleted += batchDeleted;
+      } while (cursor !== '0');
 
       const duration = Date.now() - startTime;
       if (deleted > 0) {
@@ -205,6 +212,14 @@ export class HolderProfilesCacheService {
       }
     } catch (error) {
       this.logger.error('Error clearing holder profile caches:', error);
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    try {
+      await this.redis.quit();
+    } catch (error) {
+      this.logger.warn('Error closing Redis connection in HolderProfilesCacheService', error as Error);
     }
   }
 

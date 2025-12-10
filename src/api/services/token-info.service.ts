@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { DatabaseService } from '../services/database.service';
 import { Prisma } from '@prisma/client';
@@ -21,7 +21,7 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
  * to swap data sources (Dexscreener, Bird.io, CoinGecko, etc.)
  */
 @Injectable()
-export class TokenInfoService implements ITokenInfoService {
+export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
   private readonly logger = new Logger(TokenInfoService.name);
   private redis: Redis;
 
@@ -426,6 +426,14 @@ export class TokenInfoService implements ITokenInfoService {
       } else {
         this.logger.error('An unknown error occurred during bulk upsert of token info:', error);
       }
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    try {
+      await this.redis.quit();
+    } catch (error) {
+      this.logger.warn('Error closing Redis connection in TokenInfoService', error as Error);
     }
   }
 } 
