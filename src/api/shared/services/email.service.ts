@@ -89,17 +89,16 @@ export class EmailService {
       })
     );
 
-    const text = `
-Welcome to ${appName}!
+    // Plain text fallback (used by email clients that don't support HTML)
+    const text = `Verify your email
 
-Please verify your email address by clicking the link below:
+Welcome to ${appName}. Click the link below to verify your email address and start analyzing on-chain wallet behavior.
 
 ${verificationUrl}
 
 This link will expire in 24 hours.
 
-If you didn't create an account with ${appName}, you can safely ignore this email.
-    `.trim();
+If you didn't create an account, you can safely ignore this email.`.trim();
 
     return this.sendEmail({
       to: email,
@@ -167,8 +166,13 @@ If you didn't create an account with ${appName}, you can safely ignore this emai
         if (!this.resendClient) {
           this.resendClient = new Resend(this.resendApiKey);
         }
+
+        // Format sender with app name: "App Name <email@domain.com>"
+        const appName = this.configService.get<string>('APP_NAME', 'Sova Intel');
+        const fromAddress = `${appName} <${this.mailFrom}>`;
+
         const res = await this.resendClient.emails.send({
-          from: this.mailFrom,
+          from: fromAddress,
           to: params.to,
           subject: params.subject,
           html: params.html,

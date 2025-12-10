@@ -6,20 +6,22 @@
 **Last Updated:** 2025-11-18 22:30 UTC
 **Updated By:** Codex
 
-### Latest Summary (2025‑04‑12)
-- Tightened email verification enforcement: backend guard now blocks unverified JWT/API‑key requests unless routes opt in; frontend shows subtle verification prompts with resend/manual token entry; Home and Settings disable analysis when unverified.
+### Latest Summary (2025‑12‑10)
+- **Email verification with React Email** ✅ Complete: Professional email templates via React Email, clickable verification URLs (no copy-paste), Resend integration, route protection via middleware + client guards, verification page handles logged-in/out users.
 - Admin flag now lives entirely on the controller layer so auth responses expose `isAdmin`, restoring the Admin Panel entry in the UI; fetcher now surfaces structured error codes for better UX.
 
 ### Next Tasks
-1. **Resend integration** – Wire Resend in a dev-friendly way so local environments can skip actual email delivery (graceful fallbacks) but production uses verified domains automatically.
+1. ~~**Resend integration**~~ ✅ DONE – React Email templates + Resend configured with verify@sova-intel.com sender.
 2. **Landing page removal** – Remove the standalone landing page at `/` (and any references) so we don’t maintain unused marketing content.
 3. **Route reshuffle** – Make `/home` the default route and update the sidebar logo to link there.
 4. **Home redesign plan** – Outline/plan a modern single-page scrolling “tool showcase” for Home that highlights each module before we rebuild it.
 5. **Layout separation** – Design a layout split so Home uses a dedicated shell (no sidebar), while the sidebar remains in the tool hub only; document the approach before coding.
 6. **Reset-password UX** – Hook up the dashboard reset-password flow (request + token-based reset) to the existing backend endpoints so users can trigger the journey end-to-end.
 7. **Global theme toggle** – Extend the existing dark/light theme controls from the dashboard shell to the entire app (landing + home + tool hub), so users set their preference once and it applies everywhere.
-8. **User analysis timeline** – Add a simple timeline/history page that surfaces a user’s recent jobs (submitted, running, completed) with status and timestamps, so they can track work without digging through logs.
+8. **User analysis timeline** – Add a simple timeline/history page that surfaces a user's recent jobs (submitted, running, completed) with status and timestamps, so they can track work without digging through logs.
 9. **First-run onboarding flow** – Replace the post-registration drop-off with a guided checklist (verify email → sync wallet → explore tool hub). Ties into the new layout split so unauthenticated vs. tool hub experiences feel purpose-built.
+10. **Fix favorites API spam** – useFavorites hook calls /users/me/favorites before email verification, causing throttling errors. Add emailVerified check.
+11. **Clear URL params on logout** – verify-token parameter persists after logout, showing "Please sign in to verify" to logged-out users. Clear params on logout.
 
 ---
 
@@ -96,6 +98,30 @@ Poll GET /jobs/:jobId until status = 'completed'
 None - Ready for next feature.
 
 ## Recently Completed (Last 3-4 Days)
+
+- **Email Verification with React Email** ✅ (2025-12-10)
+  - [x] **Backend**: React Email templates + Resend integration
+    - Installed @react-email/components and @react-email/render
+    - Created VerificationEmail.tsx template (professional design with button + fallback URL)
+    - Updated EmailService to render React Email templates
+    - Configured TypeScript for JSX support in backend (tsconfig.json)
+    - Email sender format: "Sova Intel <verify@sova-intel.com>"
+  - [x] **Frontend**: Verification flow with route protection
+    - Created /verify page to handle verification links (logged-in/out users)
+    - Added Next.js middleware for route protection (/wallets, /home, /tools require auth)
+    - Created RequireVerifiedEmail wrapper component for email verification gates
+    - Protected pages: /wallets/[address], /home with verification requirement
+    - Handles verify-token URL parameter for logged-out users clicking email links
+  - [x] **UI Updates**:
+    - Removed manual token copy-paste flow from EmailVerificationBanner
+    - Simplified banner to show "Resend verification email" button only
+    - Updated AuthModal success message
+    - Verify page redirects to /home after successful verification
+  - **Known UX issues** (defer to layout refactor):
+    - Favorites API called before email verification (causes throttling)
+    - verify-token parameter persists after logout
+    - Double verification attempt (verify page + home page)
+  - **Status**: ✅ Core functionality complete, UX polish deferred to layout refactor
 
 - **Admin Panel for API Key Management** ✅ (2025-12-04)
   - [x] **Backend**: Admin REST API endpoints for API key CRUD operations
