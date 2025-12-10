@@ -21,8 +21,9 @@ interface AuthModalProps {
 export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess }: AuthModalProps) {
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [showPassword, setShowPassword] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '' });
-  const { login, register, loading } = useAuth();
+  const { login, register, forgotPassword, loading } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent, isLogin: boolean) => {
     e.preventDefault();
@@ -170,15 +171,49 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                   {loading ? 'Signing in...' : 'Sign In'}
                 </Button>
                 
-                <div className="text-center mt-4">
-                  <button
-                    type="button"
-                    onClick={() => toast.info('Forgot password functionality will be available soon. Please contact support if you need help.', { duration: 6000 })}
-                    className="text-sm text-blue-400 hover:text-blue-300 underline"
-                  >
-                    Forgot your password?
-                  </button>
-                </div>
+                {!showForgotPassword && (
+                  <div className="text-center mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-sm text-blue-400 hover:text-blue-300 underline"
+                    >
+                      Forgot your password?
+                    </button>
+                  </div>
+                )}
+
+                {showForgotPassword && (
+                  <div className="mt-4 p-4 border border-slate-700 rounded-lg bg-slate-800/50">
+                    <p className="text-sm text-slate-300 mb-3">
+                      Enter your email address and we'll send you a link to reset your password.
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={async () => {
+                        if (!formData.email || !isValidEmail(formData.email)) {
+                          toast.error('Please enter a valid email address');
+                          return;
+                        }
+                        const success = await forgotPassword(formData.email);
+                        if (success) {
+                          setShowForgotPassword(false);
+                        }
+                      }}
+                      className="w-full bg-slate-700 hover:bg-slate-600"
+                      disabled={loading || !formData.email}
+                    >
+                      {loading ? 'Sending...' : 'Send Reset Link'}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(false)}
+                      className="w-full mt-2 text-sm text-slate-400 hover:text-slate-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </form>
             </TabsContent>
 

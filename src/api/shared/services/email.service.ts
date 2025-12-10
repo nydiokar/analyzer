@@ -116,6 +116,9 @@ If you didn't create an account, you can safely ignore this email.`.trim();
     }
 
     const appName = this.configService.get<string>('APP_NAME', 'Sova Intel');
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    const resetUrl = `${frontendUrl}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
+
     const subject = `Reset your ${appName} password`;
     const html = `
           <!DOCTYPE html>
@@ -126,15 +129,17 @@ If you didn't create an account, you can safely ignore this email.`.trim();
           </head>
           <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
             <h2 style="color: #333;">Password reset request</h2>
-            <p>Use the token below to reset your password. If you did not request this, you can ignore this email.</p>
-            <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0; font-family: monospace; font-size: 16px; text-align: center;">
-              <strong>${token}</strong>
+            <p>Click the button below to reset your password. If you did not request this, you can safely ignore this email.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetUrl}" style="background: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Reset Password</a>
             </div>
-            <p>This token will expire in 1 hour.</p>
+            <p style="color: #666; font-size: 14px;">Or copy and paste this URL into your browser:</p>
+            <p style="background: #f5f5f5; padding: 10px; border-radius: 5px; word-break: break-all; font-size: 12px;">${resetUrl}</p>
+            <p style="color: #999; font-size: 12px;">This link will expire in 1 hour.</p>
           </body>
           </html>
         `;
-    const text = `Use this token to reset your password: ${token}\nThis token expires in 1 hour.`;
+    const text = `Reset your password by clicking this link: ${resetUrl}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, you can safely ignore this email.`;
 
     return this.sendEmail({
       to: email,

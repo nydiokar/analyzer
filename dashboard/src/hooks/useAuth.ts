@@ -239,7 +239,7 @@ export const useAuth = () => {
 
       const data = await response.json();
       toast.success(data.message || 'Email verified successfully!');
-      
+
       // Refresh user profile to get updated verification status
       await refreshUserProfile();
       return true;
@@ -249,6 +249,66 @@ export const useAuth = () => {
       return false;
     }
   }, [authStore, refreshUserProfile]);
+
+  const forgotPassword = useCallback(async (email: string): Promise<boolean> => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        toast.error(errorData.message || 'Failed to request password reset');
+        return false;
+      }
+
+      const data = await response.json();
+      toast.success(data.message || 'If this email is registered, you will receive a password reset link.', {
+        duration: 8000,
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to request password reset:', error);
+      toast.error('Failed to request password reset. Please try again.');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (email: string, token: string, newPassword: string): Promise<boolean> => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, token, newPassword }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        toast.error(errorData.message || 'Failed to reset password');
+        return false;
+      }
+
+      const data = await response.json();
+      toast.success(data.message || 'Password reset successfully! Please log in with your new password.');
+      return true;
+    } catch (error) {
+      console.error('Failed to reset password:', error);
+      toast.error('Failed to reset password. Please try again.');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   return {
     // Auth state from store
@@ -270,6 +330,8 @@ export const useAuth = () => {
     refreshUserProfile,
     requestEmailVerification,
     verifyEmail,
+    forgotPassword,
+    resetPassword,
     getAuthHeader: authStore.getAuthHeader,
 
     // Loading state
