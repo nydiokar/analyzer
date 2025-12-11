@@ -8,6 +8,7 @@ import { formatAddress } from './utils/formatters';
 import { useState } from 'react';
 import { WalletBaseballCard } from './WalletBaseballCard';
 import { createPortal } from 'react-dom';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface Props {
   result: HolderProfilesResult;
@@ -22,7 +23,19 @@ export function TokenPulse({ result }: Props) {
   return (
     <section className="space-y-4">
       <div className="flex flex-col gap-2">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">Token Pulse</p>
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground cursor-help w-fit">Token Pulse</p>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-md text-xs">
+              <p className="font-semibold mb-1">Token Pulse Analysis</p>
+              <p className="text-muted-foreground">
+                Comprehensive behavioral analysis of token holders. Analyzes trading patterns, hold times, and conviction levels to understand who is holding this token and their typical trading behavior.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <div className="text-sm text-muted-foreground">Token {formatAddress(result.tokenMint)}</div>
       </div>
 
@@ -32,11 +45,33 @@ export function TokenPulse({ result }: Props) {
 
       <div className="space-y-4">
         <div>
-          <p className="text-sm font-medium mb-2">Behavior composition</p>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <p className="text-sm font-medium mb-2 cursor-help w-fit">Behavior composition</p>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm text-xs">
+                <p className="text-muted-foreground">
+                  Distribution of trading behaviors among token holders. Shows the proportion of different trader types (scalpers, day traders, swing traders, etc.) holding this token.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <BehaviorCompositionBar profiles={result.profiles} />
         </div>
         <div>
-          <p className="text-sm font-medium mb-2">Supporting evidence</p>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <p className="text-sm font-medium mb-2 cursor-help w-fit">Supporting evidence</p>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm text-xs">
+                <p className="text-muted-foreground">
+                  Individual holder profiles that make up this analysis. Click any row to see detailed trading patterns for that wallet.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <MinimalHoldersTable
             profiles={result.profiles}
             mode="token"
