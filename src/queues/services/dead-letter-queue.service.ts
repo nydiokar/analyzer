@@ -107,22 +107,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async onModuleDestroy(): Promise<void> {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-    }
-    for (const queueEvents of this.queueEvents.values()) {
-      await queueEvents.close();
-    }
-    this.queueEvents.clear();
-    try {
-      await this.deadLetterQueue.close();
-    } catch (error) {
-      this.logger.warn('Error closing dead letter queue on shutdown', error as Error);
-    }
-  }
-
-    /**
+  /**
    * Handle a failed job
    */
   private async handleFailedJob(

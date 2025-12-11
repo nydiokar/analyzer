@@ -304,7 +304,7 @@ export class HeliusSyncService {
             const finalStats = mappingStatsAccumulator.get(walletAddress);
             if (finalStats) {
                 try {
-                    await this.databaseService.saveMappingActivityLog(walletAddress, finalStats);
+                    await this.databaseService.saveMappingActivityLog(walletAddress, finalStats as any);
                     logger.debug(`[Sync] Successfully saved accumulated mapping activity log for ${walletAddress}`);
                 } catch (error) {
                     logger.error(`[Sync] Failed to save accumulated mapping activity log for ${walletAddress}`, { error });
@@ -412,7 +412,7 @@ export class HeliusSyncService {
             const finalStats = mappingStatsAccumulator.get(walletAddress);
             if (finalStats) {
                 try {
-                    await this.databaseService.saveMappingActivityLog(walletAddress, finalStats);
+                    await this.databaseService.saveMappingActivityLog(walletAddress, finalStats as any);
                     logger.debug(`[Sync] Successfully saved accumulated mapping activity log for ${walletAddress} (standard fetch)`);
                 } catch (error) {
                     logger.error(`[Sync] Failed to save accumulated mapping activity log for ${walletAddress}`, { error });

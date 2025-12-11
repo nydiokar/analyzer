@@ -16,11 +16,18 @@ export const redisProvider: FactoryProvider<Redis> = {
   provide: REDIS_CLIENT,
   useFactory: () => {
     // Override a few defaults to match prior per-service settings (bounded retries) while keeping lazyConnect
-    const lockServiceConfig = {
-      ...redisConfig,
-      lazyConnect: redisConfig.lazyConnect ?? true, // allow startup without immediate Redis
+    const lockServiceConfig: RedisOptions = {
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      password: process.env.REDIS_PASSWORD,
+      db: parseInt(process.env.REDIS_DB || '0', 10),
+      lazyConnect: true, // allow startup without immediate Redis
       maxRetriesPerRequest: 3,
-    } as RedisOptions;
+      retryStrategy: (times: number) => {
+        const delay = Math.min(times * 50, 3000);
+        return delay;
+      },
+    };
     const client = new Redis(lockServiceConfig);
 
     // Clear error tracking on successful connection

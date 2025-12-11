@@ -646,9 +646,19 @@ async function main() {
 
   console.log(`\n${colors.cyan}Initializing services...${colors.reset}`);
 
-  // Initialize services (no dependencies needed - just DatabaseService)
+  // Initialize services
   const databaseService = new DatabaseService();
-  const cacheService = new HolderProfilesCacheService(databaseService);
+  // Create Redis client for cache service
+  const Redis = require('ioredis');
+  const redisClient = new Redis({
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD,
+    db: parseInt(process.env.REDIS_DB || '0', 10),
+    lazyConnect: true,
+    maxRetriesPerRequest: 3,
+  });
+  const cacheService = new HolderProfilesCacheService(databaseService, redisClient);
 
   console.log(`${colors.green}✓ Services initialized${colors.reset}`);
 
