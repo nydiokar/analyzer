@@ -53,17 +53,21 @@ export const useAuth = () => {
       }
 
       const data = await response.json();
-      
+
       // Login the user immediately after successful registration
-      authStore.login(data.access_token, {
-        id: data.user.id,
-        email: data.user.email,
-        isDemo: data.user.isDemo,
-        emailVerified: data.user.emailVerified,
-        isAdmin: data.user.isAdmin || false,
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString(),
-      });
+      authStore.login(
+        data.access_token,
+        {
+          id: data.user.id,
+          email: data.user.email,
+          isDemo: data.user.isDemo,
+          emailVerified: data.user.emailVerified,
+          isAdmin: data.user.isAdmin || false,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+        },
+        data.refresh_token // ✅ Store refresh token
+      );
 
       toast.success('Account created successfully!');
       return true;
@@ -108,15 +112,19 @@ export const useAuth = () => {
 
       const data = await response.json();
 
-      authStore.login(data.access_token, {
-        id: data.user.id,
-        email: data.user.email,
-        isDemo: data.user.isDemo,
-        emailVerified: data.user.emailVerified,
-        isAdmin: data.user.isAdmin || false,
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString(),
-      });
+      authStore.login(
+        data.access_token,
+        {
+          id: data.user.id,
+          email: data.user.email,
+          isDemo: data.user.isDemo,
+          emailVerified: data.user.emailVerified,
+          isAdmin: data.user.isAdmin || false,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+        },
+        data.refresh_token // ✅ Store refresh token
+      );
 
       toast.success('Successfully logged in!');
       return true;
@@ -130,23 +138,7 @@ export const useAuth = () => {
   }, [authStore]);
 
   const logout = useCallback(async () => {
-    try {
-      // Call logout endpoint to clear server-side session/cookies if needed
-      const authHeader = authStore.getAuthHeader();
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        await fetch(`${API_BASE_URL}/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-        });
-      }
-    } catch (error) {
-      // Ignore errors on logout endpoint - we'll clear local state anyway
-      console.warn('Logout endpoint error (ignored):', error);
-    }
-    
+    // Store handles API call with refresh token
     authStore.logout();
     toast.success('Successfully logged out');
   }, [authStore]);
@@ -263,7 +255,15 @@ export const useAuth = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        toast.error(errorData.message || 'Failed to request password reset');
+
+        // Special handling for rate limiting (429)
+        if (response.status === 429) {
+          toast.error(errorData.message || 'Too many password reset requests. Please wait a few minutes.', {
+            duration: 6000, // Show for 6 seconds for rate limit errors
+          });
+        } else {
+          toast.error(errorData.message || 'Failed to request password reset');
+        }
         return false;
       }
 
@@ -294,7 +294,15 @@ export const useAuth = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        toast.error(errorData.message || 'Failed to reset password');
+
+        // Special handling for rate limiting (429) with longer toast duration
+        if (response.status === 429) {
+          toast.error(errorData.message || 'Too many attempts. Please wait a moment.', {
+            duration: 5000, // Show for 5 seconds for rate limit errors
+          });
+        } else {
+          toast.error(errorData.message || 'Failed to reset password');
+        }
         return false;
       }
 

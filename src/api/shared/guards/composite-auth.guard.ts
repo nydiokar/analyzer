@@ -26,6 +26,8 @@ export class CompositeAuthGuard implements CanActivate {
   private readonly jwtCache = new Map<string, {user: User, expiresAt: number}>();
   private readonly JWT_CACHE_TTL = 15 * 60 * 1000; // 15 minutes in milliseconds
   private readonly API_KEY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
+  private static instanceCount = 0;
+  private readonly instanceId: number;
 
   constructor(
     private readonly databaseService: JwtDatabaseService,
@@ -37,10 +39,13 @@ export class CompositeAuthGuard implements CanActivate {
     private readonly configService: ConfigService,
     // Security logging will be handled at controller level to avoid circular dependencies
   ) {
+    this.instanceId = ++CompositeAuthGuard.instanceCount;
+    this.logger.log(`CompositeAuthGuard instance #${this.instanceId} created`);
+
     const demoWalletsFromEnv = this.configService.get<string>('DEMO_WALLETS');
     this.demoWallets = demoWalletsFromEnv ? demoWalletsFromEnv.split(',').map(w => w.trim()) : [];
     if (this.demoWallets.length > 0) {
-      this.logger.log(`Initialized with ${this.demoWallets.length} demo wallets.`);
+      this.logger.log(`Instance #${this.instanceId} initialized with ${this.demoWallets.length} demo wallets.`);
     }
   }
 
@@ -104,7 +109,7 @@ export class CompositeAuthGuard implements CanActivate {
     // No valid authentication method found
     // Security logging handled at controller level
     this.logger.warn('No valid authentication provided');
-    throw new UnauthorizedException('Authentication required. Provide either a Bearer token or X-API-Key header.');
+    throw new UnauthorizedException('Authentication required. Log in with your account to perform analysis.');
   }
 
   private async validateJwtToken(token: string): Promise<User | null> {
@@ -318,10 +323,15 @@ export class CompositeAuthGuard implements CanActivate {
   @OnEvent('auth.cache.invalidate')
   handleCacheInvalidation(payload: { reason: string; userId?: string; keyId?: string; prefix?: string }) {
     this.clearAllCaches();
-    this.logger.warn(`SECURITY: Authentication caches cleared. Reason: ${payload.reason}`, {
-      userId: payload.userId,
-      keyId: payload.keyId,
-      prefix: payload.prefix,
-    });
+
+    // Build a clean context object with only defined fields
+    const context: Record<string, string> = {};
+    if (payload.userId) context.userId = payload.userId;
+    if (payload.keyId) context.keyId = payload.keyId;
+    if (payload.prefix) context.prefix = payload.prefix;
+
+    this.logger.warn(`Instance #${this.instanceId} - SECURITY: Authentication caches cleared. Reason: ${payload.reason}`,
+      Object.keys(context).length > 0 ? context : undefined
+    );
   }
 }

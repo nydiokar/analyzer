@@ -151,6 +151,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                       value={formData.password}
                       onChange={(e) => handleInputChange('password', e.target.value)}
                       className="pl-10 pr-10 h-11"
+                      autoComplete="current-password"
                       required
                     />
                     <button
@@ -253,6 +254,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                       value={formData.password}
                       onChange={(e) => handleInputChange('password', e.target.value)}
                       className="pl-10 pr-10 h-11"
+                      autoComplete="new-password"
                       required
                     />
                     <button
@@ -298,6 +300,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                       value={formData.confirmPassword}
                       onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                       className="pl-10 h-11"
+                      autoComplete="new-password"
                       required
                     />
                   </div>

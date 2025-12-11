@@ -83,10 +83,10 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     EmailEventService,
     AuthService,
     JwtStrategy,
-    CompositeAuthGuard,
+    // CompositeAuthGuard is registered as APP_GUARD in AppModule, not here (but needs to be available for injection)
     CsrfGuard,
     AdvancedThrottlerGuard,
-    AdminGuard,
+    AdminGuard, // Keep this - it's injected into AuthController and used as APP_GUARD
   ],
   exports: [
     JwtDatabaseService,
@@ -96,13 +96,13 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     ApiKeyService,
     AuthService,
     JwtStrategy,
-    CompositeAuthGuard,
+    // CompositeAuthGuard is a global guard in AppModule (not exported from here)
     CsrfGuard,
     AdvancedThrottlerService,
     SecurityLoggerService,
     SecurityAlertsService,
     AdvancedThrottlerGuard,
-    AdminGuard,
+    AdminGuard, // Export for use as APP_GUARD in AppModule
     JwtModule,
     PassportModule,
   ],

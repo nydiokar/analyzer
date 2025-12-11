@@ -384,31 +384,26 @@ export class AuthService {
    * Update user password (with proper hashing)
    */
   async updateUserPassword(userId: string, newPassword: string): Promise<void> {
-    // Validate password strength
+    // Validate password strength (throws UnauthorizedException - not logged, expected user input error)
     if (!this.isStrongPassword(newPassword)) {
       throw new UnauthorizedException('Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number');
     }
 
-    try {
-      const passwordWithPepper = newPassword + this.passwordPepper;
-      const passwordHash = await this.hashPassword(passwordWithPepper);
+    const passwordWithPepper = newPassword + this.passwordPepper;
+    const passwordHash = await this.hashPassword(passwordWithPepper);
 
-      await this.databaseService.updateUserPassword(userId, passwordHash);
+    await this.databaseService.updateUserPassword(userId, passwordHash);
 
-      // Revoke all refresh sessions after password change for security
-      await this.refreshTokenService.revokeAllUserSessions(userId);
+    // Revoke all refresh sessions after password change for security
+    await this.refreshTokenService.revokeAllUserSessions(userId);
 
-      // CRITICAL: Emit event to invalidate authentication caches immediately
-      this.eventEmitter.emit('auth.cache.invalidate', {
-        reason: 'password_changed',
-        userId,
-      });
+    // CRITICAL: Emit event to invalidate authentication caches immediately
+    this.eventEmitter.emit('auth.cache.invalidate', {
+      reason: 'password_changed',
+      userId,
+    });
 
-      this.logger.log(`Password updated for user: ${userId}`);
-    } catch (error) {
-      this.logger.error(`Failed to update password for user: ${userId}`, error);
-      throw new UnauthorizedException('Password update failed');
-    }
+    this.logger.log(`Password updated for user: ${userId}`);
   }
 
   /**
@@ -497,9 +492,25 @@ export class AuthService {
       throw new UnauthorizedException('Password reset token has expired');
     }
 
-    // Update password and mark token as used
-    await this.updateUserPassword(user.id, newPassword);
+    // VALIDATION: Verify new password is different from current password BEFORE consuming token
+    // This allows users to retry with different passwords without burning their token
+    // NOTE: This throws UnauthorizedException on failure - it's NOT logged as an error (expected user mistake)
+    const passwordWithPepper = newPassword + this.passwordPepper;
+    if (user.passwordHash) {
+      const isSamePassword = await this.verifyPassword(passwordWithPepper, user.passwordHash);
+      if (isSamePassword) {
+        throw new UnauthorizedException('New password must be different from your current password');
+      }
+    }
+
+    // SECURITY: Mark token as used AFTER validation passes, BEFORE database update
+    // ✅ Prevents: Token reuse, race conditions
+    // ✅ Allows: Multiple attempts if user enters same password (token NOT consumed on validation errors)
+    // ⚠️ Trade-off: If database update fails (rare), token is consumed but password unchanged
     await this.databaseService.markPasswordResetTokenAsUsed(resetToken.id);
+
+    // Update password - if this fails, token is already consumed (correct for security)
+    await this.updateUserPassword(user.id, newPassword);
 
     this.logger.log(`Password reset: ${user.id}`);
 

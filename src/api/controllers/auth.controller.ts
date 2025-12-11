@@ -451,11 +451,14 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Public()
   @UseGuards(CsrfGuard, ThrottlerGuard)
-  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 requests per 5 minutes
-  @ApiOperation({ summary: 'Request password reset token' })
+  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 requests per 5 minutes - strict to prevent email spam
+  @ApiOperation({
+    summary: 'Request password reset token',
+    description: 'Request a password reset link via email. Limited to 3 requests per 5 minutes to prevent abuse.'
+  })
   @ApiBody({ type: PasswordResetRequestDto })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Password reset requested',
     schema: {
       type: 'object',
@@ -464,6 +467,7 @@ export class AuthController {
       }
     }
   })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Too many password reset requests. Please wait a few minutes before trying again.' })
   async forgotPassword(@Body() body: PasswordResetRequestDto): Promise<{ message: string }> {
     try {
       const result = await this.authService.requestPasswordReset(body.email);
@@ -476,11 +480,14 @@ export class AuthController {
   @Post('reset-password')
   @Public()
   @UseGuards(CsrfGuard, ThrottlerGuard)
-  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
-  @ApiOperation({ summary: 'Reset password with token' })
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 attempts per minute - reasonable for legitimate use
+  @ApiOperation({
+    summary: 'Reset password with token',
+    description: 'Reset your password using the token received via email. You have 10 attempts per minute.'
+  })
   @ApiBody({ type: PasswordResetDto })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Password reset successfully',
     schema: {
       type: 'object',
@@ -490,7 +497,8 @@ export class AuthController {
       }
     }
   })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Invalid reset token' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Invalid reset token, token already used, token expired, or new password is same as old password' })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Whoa, slow down! Too many attempts. Take a breather and try again in a minute.' })
   async resetPassword(@Body() body: PasswordResetDto): Promise<{ success: boolean; message: string }> {
     try {
       const result = await this.authService.resetPassword(body.email, body.token, body.newPassword);

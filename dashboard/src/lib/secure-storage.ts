@@ -188,7 +188,7 @@ export class TokenManager {
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
       const now = Date.now() / 1000;
-      
+
       // Check if token expires in the next 5 minutes
       if (payload.exp && payload.exp < now + 300) {
         console.log('Access token is expired or expiring soon');
@@ -202,6 +202,20 @@ export class TokenManager {
       this.storage.removeItem('analyzer.access_token');
       return null;
     }
+  }
+
+  /**
+   * Store refresh token
+   */
+  setRefreshToken(token: string): void {
+    this.storage.setItem('analyzer.refresh_token', token);
+  }
+
+  /**
+   * Get refresh token
+   */
+  getRefreshToken(): string | null {
+    return this.storage.getItem('analyzer.refresh_token');
   }
 
   /**

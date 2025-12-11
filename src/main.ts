@@ -1,6 +1,7 @@
 import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ForbiddenExceptionFilter } from './api/shared/forbidden-exception.filter';
+import { ThrottlerExceptionFilter } from './api/shared/throttler-exception.filter';
 import { Logger, LogLevel } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
@@ -67,7 +68,11 @@ async function bootstrap() {
   SwaggerModule.setup('api-docs', app, document);
   // --- End Swagger Setup ---
 
-  app.useGlobalFilters(new ForbiddenExceptionFilter());
+  // Register global exception filters for user-friendly error messages
+  app.useGlobalFilters(
+    new ForbiddenExceptionFilter(),
+    new ThrottlerExceptionFilter()
+  );
 
   await app.listen(port, host);
 

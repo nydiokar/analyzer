@@ -38,7 +38,7 @@ interface AuthStore {
   isInitialized: boolean;
   
   // Actions
-  login: (token: string, user: User) => void;
+  login: (token: string, user: User, refreshToken?: string) => void;
   logout: () => void;
   setApiKey: (key: string | null) => Promise<void>;
   setDemoMode: () => Promise<void>;
@@ -72,10 +72,13 @@ export const useAuthStore = create<AuthStore>()(
       isInitialized: false,
 
       // Actions
-      login: (token: string, user: User) => {
-        // Store token securely
+      login: (token: string, user: User, refreshToken?: string) => {
+        // Store tokens securely
         tokenManager.setAccessToken(token);
-        
+        if (refreshToken) {
+          tokenManager.setRefreshToken(refreshToken);
+        }
+
         set({
           token,
           user,
@@ -86,20 +89,25 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       logout: () => {
-        // Clear tokens securely
-        tokenManager.clearTokens();
-        
-        // Call logout endpoint to clear httpOnly cookies
+        // Get refresh token before clearing
+        const refreshToken = tokenManager.getRefreshToken();
+
+        // Call logout endpoint to revoke session
         fetch(`${API_BASE_URL}/auth/logout`, {
           method: 'POST',
           credentials: 'include', // Include cookies
           headers: {
             'Authorization': get().getAuthHeader() || '',
+            'Content-Type': 'application/json',
           },
+          body: JSON.stringify({ refresh_token: refreshToken }), // ✅ Send refresh token to revoke session
         }).catch(error => {
           console.error('Logout API call failed:', error);
         });
-        
+
+        // Clear tokens securely
+        tokenManager.clearTokens();
+
         set({
           token: null,
           user: null,
