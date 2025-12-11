@@ -27,6 +27,7 @@ async function bootstrap() {
     logger: logLevels,
   });
   const port = process.env.PORT || 3001;
+  const host = process.env.BACKEND_HOST || '::'; // Default to all IPv6 interfaces, or use configured host
 
   app.setGlobalPrefix('api/v1');
 
@@ -68,9 +69,16 @@ async function bootstrap() {
 
   app.useGlobalFilters(new ForbiddenExceptionFilter());
 
-  await app.listen(port, '::');
-  Logger.log(`🚀 Application is running on: http://localhost:${port}/api/v1`, 'Bootstrap');
-  Logger.log(`📚 API Documentation available at: http://localhost:${port}/api-docs`, 'Bootstrap');
-  Logger.log(`🔌 WebSocket server enabled at: ws://localhost:${port}/job-progress`, 'Bootstrap');
+  await app.listen(port, host);
+
+  // Display appropriate URL based on configured host
+  const displayHost = host === '::' ? 'localhost' : (host.includes(':') ? `[${host}]` : host);
+  Logger.log(`🚀 Application is running on: http://${displayHost}:${port}/api/v1`, 'Bootstrap');
+  Logger.log(`📚 API Documentation available at: http://${displayHost}:${port}/api-docs`, 'Bootstrap');
+  Logger.log(`🔌 WebSocket server enabled at: ws://${displayHost}:${port}/job-progress`, 'Bootstrap');
+
+  if (host !== '::' && host !== 'localhost' && host !== '127.0.0.1') {
+    Logger.log(`🌐 Server bound to specific address: ${host}`, 'Bootstrap');
+  }
 }
 bootstrap();
