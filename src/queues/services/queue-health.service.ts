@@ -89,9 +89,32 @@ export class QueueHealthService implements OnModuleInit {
       maxRetriesPerRequest: 3,
       enableReadyCheck: false,
       lazyConnect: true,
+      // Enhanced reconnection strategy
+      retryStrategy: (times: number) => {
+        const delay = Math.min(times * 50, 2000); // Exponential backoff, max 2s
+        return delay;
+      },
+      connectTimeout: 10000, // 10 seconds
+      keepAlive: 30000, // 30 seconds
+      enableOfflineQueue: false, // Disable offline queue for health checks (fail fast)
     };
-    
+
     this.redis = new Redis(ioredisOptions);
+
+    // Add event listeners for health monitoring
+    this.redis.on('error', (err) => {
+      if (!err.message.includes('ECONNREFUSED') && !err.message.includes('LOADING')) {
+        this.logger.error('Health check Redis error:', err.message);
+      }
+    });
+
+    this.redis.on('connect', () => {
+      this.logger.log('Health check Redis connected');
+    });
+
+    this.redis.on('ready', () => {
+      this.logger.log('Health check Redis ready');
+    });
   }
 
   /**
