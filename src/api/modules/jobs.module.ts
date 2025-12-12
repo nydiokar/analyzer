@@ -2,9 +2,13 @@ import { Module } from '@nestjs/common';
 import { JobsController } from '../controllers/jobs.controller';
 import { JobsService } from '../services/jobs.service';
 import { QueueModule } from '../../queues/queue.module';
+import { RedisModule } from '../../queues/config/redis.module';
 
 @Module({
-  imports: [QueueModule], // Import QueueModule to access queue services
+  imports: [
+    QueueModule, // Import QueueModule to access queue services
+    RedisModule, // Import RedisModule to access REDIS_CLIENT
+  ],
   controllers: [JobsController],
   providers: [JobsService],
   exports: [JobsService], // Export JobsService for use in other modules (C3 task)
