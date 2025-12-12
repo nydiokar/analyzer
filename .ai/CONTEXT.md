@@ -18,10 +18,10 @@
 5. **Layout separation** – Design a layout split so Home uses a dedicated shell (no sidebar), while the sidebar remains in the tool hub only; document the approach before coding.
 6. **Reset-password UX** – Hook up the dashboard reset-password flow (request + token-based reset) to the existing backend endpoints so users can trigger the journey end-to-end.
 7. **Global theme toggle** – Extend the existing dark/light theme controls from the dashboard shell to the entire app (landing + home + tool hub), so users set their preference once and it applies everywhere.
-8. **User analysis timeline** – Add a simple timeline/history page that surfaces a user's recent jobs (submitted, running, completed) with status and timestamps, so they can track work without digging through logs.
+8. **User analysis timeline** – Add a simple timeline/history page that surfaces a user's recent jobs (submitted, running, completed) with status and timestamps, so they can track work without digging through logs. What Is the way to actually implement this with hyperlinks or some sort of navigation, if you did analysis of a token or a wallets, and you refresh you need to find them once more, but we need to be able to re-run jobs with ease - just one click in the history. 
 9. **First-run onboarding flow** – Replace the post-registration drop-off with a guided checklist (verify email → sync wallet → explore tool hub). Ties into the new layout split so unauthenticated vs. tool hub experiences feel purpose-built.
 10. **Fix favorites API spam** – useFavorites hook calls /users/me/favorites before email verification, causing throttling errors. Add emailVerified check.
-11. **Clear URL params on logout** – verify-token parameter persists after logout, showing "Please sign in to verify" to logged-out users. Clear params on logout.
+11. Search on the sidebar is currently using only API, not the new auth system, modify it to fit. 
 
 ---
 
