@@ -36,7 +36,7 @@ model Wallet {
 }
 
 model HeliusTransactionCache {
-  signature String   @id @unique
+  signature String   @id
   timestamp Int
   fetchedAt DateTime @default(now())
 
@@ -59,7 +59,6 @@ model SwapAnalysisInput {
 
   @@unique([signature, mint, direction, amount], name: "signature_mint_direction_amount")
   @@index([walletAddress, timestamp])
-  @@index([signature])
   @@index([mint])
 }
 
