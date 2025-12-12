@@ -53,8 +53,7 @@ export const redisProvider: FactoryProvider<Redis> = {
                                errorMessage.includes('ENOTFOUND');
 
       if (isConnectionError) {
-        // Only log connection errors once every 30 seconds to avoid spam
-        const now = Date.now();
+        // Only log connection errors periodically to avoid spam
         if (lastConnectionError !== errorMessage || connectionErrorCount === 0) {
           logger.error(`❌ Redis connection failed: ${errorMessage}`);
           logger.error('💡 Make sure Redis is running: docker-compose up -d redis');
@@ -67,6 +66,8 @@ export const redisProvider: FactoryProvider<Redis> = {
             logger.warn(`🔄 Redis connection still failing (${connectionErrorCount} attempts): ${errorMessage}`);
           }
         }
+      } else if (errorMessage.includes('LOADING')) {
+        logger.warn('⏳ Redis is loading data into memory. Waiting for it to be ready...');
       } else {
         // Non-connection errors should still be logged with full details
         logger.error(`🔥 Redis error: ${errorMessage}`, err.stack);
@@ -98,6 +99,17 @@ export const redisProvider: FactoryProvider<Redis> = {
         logger.log('🔍 Attempting to connect to Redis...');
       }
     }, 100);
+
+    // Handle graceful shutdown
+    process.on('SIGTERM', async () => {
+      logger.log('SIGTERM received, closing Redis connection gracefully...');
+      try {
+        await client.quit();
+        logger.log('Redis connection closed gracefully.');
+      } catch (error) {
+        logger.error('Error closing Redis connection:', error);
+      }
+    });
 
     return client;
   },
