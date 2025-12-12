@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Queue, QueueEvents, Job } from 'bullmq';
 import { redisConfig } from '../config/redis.config';
 import { AlertingService } from './alerting.service';
@@ -16,7 +16,7 @@ export interface FailedJobMetrics {
 }
 
 @Injectable()
-export class DeadLetterQueueService implements OnModuleInit {
+export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DeadLetterQueueService.name);
   private readonly deadLetterQueue: Queue;
   private readonly queueEvents: Map<string, QueueEvents> = new Map();
@@ -107,7 +107,7 @@ export class DeadLetterQueueService implements OnModuleInit {
     }
   }
 
-    /**
+  /**
    * Handle a failed job
    */
   private async handleFailedJob(

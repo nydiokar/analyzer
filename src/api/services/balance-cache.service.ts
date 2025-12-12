@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { DatabaseService } from '../services/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { WalletBalance } from '../../types/wallet';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 @Injectable()
 export class BalanceCacheService {
@@ -14,12 +15,9 @@ export class BalanceCacheService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly heliusApiClient: HeliusApiClient,
+    @Inject(REDIS_CLIENT) redisClient: Redis,
   ) {
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      maxRetriesPerRequest: 3,
-    });
+    this.redis = redisClient;
     // The service is manually instantiated here, following the existing pattern in the codebase.
     this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService);
   }
@@ -142,4 +140,4 @@ export class BalanceCacheService {
       await this.redis.del(...keys);
     }
   }
-} 
+}

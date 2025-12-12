@@ -5,9 +5,10 @@ import { DatabaseModule } from '../modules/database.module';
 import { DexscreenerModule } from './dexscreener.module';
 import { HeliusModule } from './helius.module';
 import { TokenInfoController } from '../controllers/token-info.controller';
+import { RedisModule } from '../../queues/config/redis.module';
 
 @Module({
-  imports: [DatabaseModule, DexscreenerModule, HeliusModule],
+  imports: [DatabaseModule, DexscreenerModule, HeliusModule, RedisModule],
   controllers: [TokenInfoController],
   providers: [TokenInfoService, TokenHoldersService],
   exports: [TokenInfoService, TokenHoldersService],

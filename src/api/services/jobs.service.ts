@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { WalletOperationsQueue } from '../../queues/queues/wallet-operations.queue';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
@@ -21,6 +21,8 @@ import { DatabaseService } from './database.service';
 import { DashboardAnalysisScope } from '../../shared/dashboard-analysis.types';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { JobPriority } from '../../queues/config/queue.config';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import Redis from 'ioredis';
 
 @Injectable()
 export class JobsService {
@@ -33,6 +35,7 @@ export class JobsService {
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly redisLockService: RedisLockService,
     private readonly databaseService: DatabaseService,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {}
 
   // === DIRECT JOB SUBMISSION METHODS ===
@@ -513,10 +516,29 @@ export class JobsService {
           const state = job.finishedOn ? (job.failedReason ? 'failed' : 'completed') : 
                         job.processedOn ? 'active' : 'waiting';
 
+          let result = job.returnvalue;
+          // For similarity jobs we store large payloads in Redis; fetch if key provided
+          if (name === 'similarity-operations' && result && typeof result === 'object' && 'data' in result) {
+            const data: any = (result as any).data;
+            const resultKey = data?.resultKey;
+            if (resultKey) {
+              try {
+                const cached = await this.redisClient.get(resultKey);
+                if (cached) {
+                  result = JSON.parse(cached);
+                } else {
+                  this.logger.warn(`Similarity result key ${resultKey} not found in Redis for job ${jobId}`);
+                }
+              } catch (error) {
+                this.logger.warn(`Failed to read similarity result from Redis (${resultKey}) for job ${jobId}`, error as Error);
+              }
+            }
+          }
+
           return {
             jobId: job.id!,
             status: state,
-            result: job.returnvalue,
+            result,
             error: job.failedReason,
           };
         }

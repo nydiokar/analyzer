@@ -48,12 +48,6 @@ export class HeliusSyncService {
     private heliusClient: HeliusApiClient;
 
     private smartFetchService: SmartFetchService;
-    
-    // ✅ ADD: Accumulated mapping stats for streaming operations
-    private accumulatedMappingStats: Map<string, any> | null = null;
-    
-    // ✅ ADD: Transaction counters for better logging
-    private walletTransactionCounters: Map<string, number> = new Map();
 
     /**
      * Constructs an instance of the HeliusSyncService.
@@ -90,6 +84,10 @@ export class HeliusSyncService {
             logger.debug(`[Sync] Skipping API fetch for ${walletAddress} (--skipApi).`);
             return;
         }
+
+        // Per-run accumulators to avoid long-lived shared state
+        const mappingStatsAccumulator = new Map<string, Record<string, number>>();
+        const walletTransactionCounters = new Map<string, number>();
 
         // Early check: Skip wallets already marked as INVALID to avoid wasting resources
         try {
@@ -162,9 +160,9 @@ export class HeliusSyncService {
         // Execute sync with (potentially adjusted) options
         try {
             if (adjustedOptions.smartFetch && adjustedOptions.maxSignatures) {
-                 await this.executeSmartFetch(walletAddress, adjustedOptions);
+                 await this.executeSmartFetch(walletAddress, adjustedOptions, mappingStatsAccumulator, walletTransactionCounters);
             } else {
-                 await this.executeStandardFetch(walletAddress, adjustedOptions);
+                 await this.executeStandardFetch(walletAddress, adjustedOptions, mappingStatsAccumulator, walletTransactionCounters);
             }
              // logger.debug(`[Sync] Synchronization complete for wallet: ${walletAddress}`);
         } catch (error) {
@@ -186,31 +184,27 @@ export class HeliusSyncService {
      * @param options Sync options, particularly `maxSignatures` which is crucial for this strategy.
      * @returns A promise that resolves when the smart fetch process is complete.
      */
-    private async executeSmartFetch(walletAddress: string, options: SyncOptions): Promise<void> {
+    protected async executeSmartFetch(
+      walletAddress: string,
+      options: SyncOptions,
+      mappingStatsAccumulator: Map<string, Record<string, number>>,
+      walletTransactionCounters: Map<string, number>,
+    ): Promise<void> {
         logger.debug(`[Sync] Executing SmartFetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures in DB.`);
         
         if (!options.maxSignatures || options.maxSignatures <= 0) {
             logger.warn(`[Sync] SmartFetch called for ${walletAddress} without a valid positive options.maxSignatures. Proceeding with only fetching newer transactions.`);
-            // Allow fetching newer even if maxSignatures is invalid, but log a warning.
-            // Older transactions won't be fetched in this case.
         }
 
         const walletState = await this.databaseService.getWallet(walletAddress);
         
-        // --- 1. Fetch Newer Transactions (Always attempt this for SmartFetch) ---
         const stopAtSignatureForNewer = walletState?.newestProcessedSignature ?? undefined;
         const newestProcessedTimestampForNewer = walletState?.newestProcessedTimestamp ?? undefined;
-
-        // Determine a reasonable cap for fetching newer transactions. 
-        // If maxSignatures is set, use it. Otherwise, fetch without a hard cap for "newer" phase,
-        // relying on Helius default limits or a sensible internal cap in heliusClient if any.
-        // For this phase, we primarily want to get anything NEW.
         const capForNewerFetch = options.maxSignatures && options.maxSignatures > 0 ? options.maxSignatures : undefined;
 
-        logger.debug(`[Sync] SmartFetch Phase 1 (Newer): Fetching for ${walletAddress} since sig: ${stopAtSignatureForNewer}, ts: ${newestProcessedTimestampForNewer}. API client call will be capped by ${capForNewerFetch ?? 'Helius default/internal cap'}.`);
-        options.onProgress?.(10, 'Fetching newer transactions...');
         try {
-            // ✅ STREAM PROCESSING: Process batches as they arrive
+            logger.debug(`[Sync] SmartFetch Phase 1 (Newer): Fetching for ${walletAddress} since sig: ${stopAtSignatureForNewer}, ts: ${newestProcessedTimestampForNewer}. API client call will be capped by ${capForNewerFetch ?? 'Helius default/internal cap'}.`);
+            options.onProgress?.(10, 'Fetching newer transactions...');
             let newerTransactionsFetchedCount = 0;
             const newerTransactions = await this.heliusClient.getAllTransactionsForAddress(
                walletAddress, 
@@ -221,23 +215,19 @@ export class HeliusSyncService {
                undefined,
                HELIUS_CONFIG.INTERNAL_CONCURRENCY,
                (progress) => options.onProgress?.(10 + (progress * 0.4), 'Fetching newer transactions...'),
-               // ✅ NEW: Stream callback - process immediately
                async (batch: HeliusTransaction[]) => {
-                   await this.processAndSaveTransactions(walletAddress, batch, true, options);
+                   await this.processAndSaveTransactions(walletAddress, batch, true, options, mappingStatsAccumulator, walletTransactionCounters);
                    newerTransactionsFetchedCount += batch.length;
-                   const currentCount = this.walletTransactionCounters.get(walletAddress) || 0;
-                   // ✅ INCREMENTAL PROGRESS: Show fetched vs processed
+                   const currentCount = walletTransactionCounters.get(walletAddress) || 0;
                    if (currentCount % 500 === 0 || currentCount <= 200) {
                        // logger.debug(`[Sync] Phase 1 progress: ${newerTransactionsFetchedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
                    }
                }
            );
            newerTransactionsFetchedCount = newerTransactionsFetchedCount || newerTransactions.length;
-           const finalNewerCount = this.walletTransactionCounters.get(walletAddress) || 0;
            logger.info(`[Sync] SmartFetch Phase 1 (Newer): ✅ Completed processing ${newerTransactionsFetchedCount} newer transactions for ${walletAddress}.`);
            options.onProgress?.(50, 'Newer transactions processed...');
         } catch (fetchError) {
-           // Check if this is a WrongSize error - mark wallet as invalid and stop processing
            if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
                logger.warn(`[Sync] WrongSize error detected for ${walletAddress}. Marking wallet as invalid.`);
                try {
@@ -250,94 +240,83 @@ export class HeliusSyncService {
                throw fetchError; // Re-throw to stop further processing
            }
             logger.error(`[Sync] SmartFetch Phase 1 (Newer): Failed to fetch/process newer transactions for ${walletAddress}:`, { fetchError });
-            // Decide if we should still attempt to fetch older ones or re-throw. For now, log and continue.
         }
 
-        // --- 2. Fetch Older Transactions if still needed (and if maxSignatures is valid) ---
-        if (options.maxSignatures && options.maxSignatures > 0) {
-            const countAfterNewerFetch = await this.getDbTransactionCount(walletAddress);
-            logger.debug(`[Sync] SmartFetch: DB count for ${walletAddress} after fetching newer is ${countAfterNewerFetch}. Target is ${options.maxSignatures}.`);
+        try {
+            if (options.maxSignatures && options.maxSignatures > 0) {
+                const countAfterNewerFetch = await this.getDbTransactionCount(walletAddress);
+                logger.debug(`[Sync] SmartFetch: DB count for ${walletAddress} after fetching newer is ${countAfterNewerFetch}. Target is ${options.maxSignatures}.`);
 
-            if (countAfterNewerFetch < options.maxSignatures) {
-                const remainingSignaturesToFetchForOlder = options.maxSignatures - countAfterNewerFetch;
-                logger.debug(`[Sync] SmartFetch Phase 2 (Older): Current count ${countAfterNewerFetch} is less than target ${options.maxSignatures}. Still need ${remainingSignaturesToFetchForOlder} older transactions.`);
-                
-                // Re-fetch wallet state to get the most up-to-date oldestProcessedTimestamp after Phase 1
-                const updatedWalletStateAfterPhase1 = await this.databaseService.getWallet(walletAddress);
-                const oldestProcessedTimestamp = updatedWalletStateAfterPhase1?.firstProcessedTimestamp ?? undefined;
-                
-                logger.debug(`[Sync] SmartFetch Phase 2 (Older): Attempting to fetch ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress}, older than ts: ${oldestProcessedTimestamp}.`);
-                options.onProgress?.(55, 'Fetching older transactions...');
-                try {
-                    // ✅ STREAM PROCESSING: Process older transactions as they arrive
-                    let totalOlderProcessedCount = 0;
-                    const olderTransactions = await this.heliusClient.getAllTransactionsForAddress(
-                        walletAddress, 
-                        options.limit, 
-                        remainingSignaturesToFetchForOlder,
-                        undefined,
-                        undefined,
-                        oldestProcessedTimestamp,
-                        HELIUS_CONFIG.INTERNAL_CONCURRENCY,
-                        (progress) => options.onProgress?.(55 + (progress * 0.4), 'Fetching older transactions...'),
-                        // ✅ NEW: Stream callback for older transactions
-                        async (batch: HeliusTransaction[]) => {
-                            await this.processAndSaveTransactions(walletAddress, batch, false, options);
-                            totalOlderProcessedCount += batch.length;
-                            const currentCount = this.walletTransactionCounters.get(walletAddress) || 0;
-                            // ✅ INCREMENTAL PROGRESS: Show older transactions progress
-                            if (currentCount % 500 === 0) {
-                                // logger.debug(`[Sync] Phase 2 progress: ${totalOlderProcessedCount} older txs fetched → ${currentCount} total processed & saved for ${walletAddress}`);
+                if (countAfterNewerFetch < options.maxSignatures) {
+                    const remainingSignaturesToFetchForOlder = options.maxSignatures - countAfterNewerFetch;
+                    logger.debug(`[Sync] SmartFetch Phase 2 (Older): Current count ${countAfterNewerFetch} is less than target ${options.maxSignatures}. Still need ${remainingSignaturesToFetchForOlder} older transactions.`);
+                    
+                    const updatedWalletStateAfterPhase1 = await this.databaseService.getWallet(walletAddress);
+                    const oldestProcessedTimestamp = updatedWalletStateAfterPhase1?.firstProcessedTimestamp ?? undefined;
+                    
+                    logger.debug(`[Sync] SmartFetch Phase 2 (Older): Attempting to fetch ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress}, older than ts: ${oldestProcessedTimestamp}.`);
+                    options.onProgress?.(55, 'Fetching older transactions...');
+                    try {
+                        let totalOlderProcessedCount = 0;
+                        const olderTransactions = await this.heliusClient.getAllTransactionsForAddress(
+                            walletAddress, 
+                            options.limit, 
+                            remainingSignaturesToFetchForOlder,
+                            undefined,
+                            undefined,
+                            oldestProcessedTimestamp,
+                            HELIUS_CONFIG.INTERNAL_CONCURRENCY,
+                            (progress) => options.onProgress?.(55 + (progress * 0.4), 'Fetching older transactions...'),
+                            async (batch: HeliusTransaction[]) => {
+                                await this.processAndSaveTransactions(walletAddress, batch, false, options, mappingStatsAccumulator, walletTransactionCounters);
+                                totalOlderProcessedCount += batch.length;
+                                const currentCount = walletTransactionCounters.get(walletAddress) || 0;
+                                if (currentCount % 500 === 0) {
+                                    // logger.debug(`[Sync] Phase 2 progress: ${totalOlderProcessedCount} older txs fetched → ${currentCount} total processed & saved for ${walletAddress}`);
+                                }
                             }
+                        );
+                        totalOlderProcessedCount = totalOlderProcessedCount || olderTransactions.length;
+                        const finalTotalCount = walletTransactionCounters.get(walletAddress) || 0;
+                        logger.info(`[Sync] SmartFetch Phase 2 (Older): ✅ Completed processing ${totalOlderProcessedCount} older transactions for ${walletAddress}. Total: ${finalTotalCount} transactions.`);
+                        options.onProgress?.(95, 'Older transactions processed...');
+                    } catch (fetchError) {
+                        if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
+                            logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Phase 2. Marking wallet as invalid.`);
+                            try {
+                                await this.databaseService.updateWallet(walletAddress, { 
+                                    classification: 'INVALID'
+                                });
+                            } catch (updateError) {
+                                logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+                            }
+                            throw fetchError; // Re-throw to stop further processing
                         }
-                    );
-                    totalOlderProcessedCount = totalOlderProcessedCount || olderTransactions.length;
-                    const finalTotalCount = this.walletTransactionCounters.get(walletAddress) || 0;
-                    logger.info(`[Sync] SmartFetch Phase 2 (Older): ✅ Completed processing ${totalOlderProcessedCount} older transactions for ${walletAddress}. Total: ${finalTotalCount} transactions.`);
-                    options.onProgress?.(95, 'Older transactions processed...');
-                } catch (fetchError) {
-                    // Check if this is a WrongSize error - mark wallet as invalid and stop processing
-                    if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
-                        logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Phase 2. Marking wallet as invalid.`);
-                        try {
-                            await this.databaseService.updateWallet(walletAddress, { 
-                                classification: 'INVALID'
-                            });
-                        } catch (updateError) {
-                            logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
-                        }
-                        throw fetchError; // Re-throw to stop further processing
+                        logger.error(`[Sync] SmartFetch Phase 2 (Older): Failed to fetch/process older transactions for ${walletAddress}:`, { fetchError });
                     }
-                    logger.error(`[Sync] SmartFetch Phase 2 (Older): Failed to fetch/process older transactions for ${walletAddress}:`, { fetchError });
+                } else {
+                   logger.debug(`[Sync] SmartFetch Phase 2 (Older): DB count (${countAfterNewerFetch}) already meets or exceeds target ${options.maxSignatures}. Skipping older fetch for ${walletAddress}.`);
                 }
             } else {
-               logger.debug(`[Sync] SmartFetch Phase 2 (Older): DB count (${countAfterNewerFetch}) already meets or exceeds target ${options.maxSignatures}. Skipping older fetch for ${walletAddress}.`);
+                logger.debug(`[Sync] SmartFetch: Skipping Phase 2 (Older) because options.maxSignatures is not valid or not set. Only newer transactions were fetched if available.`);
             }
-        } else {
-            logger.debug(`[Sync] SmartFetch: Skipping Phase 2 (Older) because options.maxSignatures is not valid or not set. Only newer transactions were fetched if available.`);
-        }
-        // ✅ SAVE ACCUMULATED MAPPING STATS AT THE END
-        if (this.accumulatedMappingStats && this.accumulatedMappingStats.has(walletAddress)) {
-            try {
-                const finalStats = this.accumulatedMappingStats.get(walletAddress);
-                await this.databaseService.saveMappingActivityLog(walletAddress, finalStats);
-                logger.debug(`[Sync] Successfully saved accumulated mapping activity log for ${walletAddress}`);
-            } catch (error) {
-                logger.error(`[Sync] Failed to save accumulated mapping activity log for ${walletAddress}`, { error });
+        } finally {
+            const finalStats = mappingStatsAccumulator.get(walletAddress);
+            if (finalStats) {
+                try {
+                    await this.databaseService.saveMappingActivityLog(walletAddress, finalStats as any);
+                    logger.debug(`[Sync] Successfully saved accumulated mapping activity log for ${walletAddress}`);
+                } catch (error) {
+                    logger.error(`[Sync] Failed to save accumulated mapping activity log for ${walletAddress}`, { error });
+                }
             }
+            mappingStatsAccumulator.delete(walletAddress);
+            
+            const finalCount = walletTransactionCounters.get(walletAddress) || 0;
+            walletTransactionCounters.delete(walletAddress);
+            options.onProgress?.(100, 'Sync complete.');
+            logger.info(`[Sync] 🎉 SmartFetch completed for ${walletAddress}: ${finalCount} transactions processed and saved to database.`);
         }
-        
-        // ✅ CLEANUP: Reset accumulated stats and counters for this wallet
-        if (this.accumulatedMappingStats) {
-            this.accumulatedMappingStats.delete(walletAddress);
-        }
-        
-        // ✅ FINAL SUMMARY LOG
-        const finalCount = this.walletTransactionCounters.get(walletAddress) || 0;
-        this.walletTransactionCounters.delete(walletAddress); // Cleanup counter
-        
-        options.onProgress?.(100, 'Sync complete.');
-        logger.info(`[Sync] 🎉 SmartFetch completed for ${walletAddress}: ${finalCount} transactions processed and saved to database.`);
     }
 
     /**
@@ -353,7 +332,12 @@ export class HeliusSyncService {
      * @returns A promise that resolves when the standard fetch process is complete.
      * @throws Throws an error if the underlying Helius API client call fails critically.
      */
-    private async executeStandardFetch(walletAddress: string, options: SyncOptions): Promise<void> {
+    protected async executeStandardFetch(
+      walletAddress: string,
+      options: SyncOptions,
+      mappingStatsAccumulator: Map<string, Record<string, number>>,
+      walletTransactionCounters: Map<string, number>,
+    ): Promise<void> {
         logger.debug(`[Sync] Executing Standard Fetch for ${walletAddress} with overall target of ${options.maxSignatures} signatures.`);
 
         if (!options.maxSignatures || options.maxSignatures <= 0) {
@@ -383,7 +367,6 @@ export class HeliusSyncService {
         try {
             logger.debug(`[Sync] Standard Fetch: Calling HeliusApiClient for ${walletAddress} with maxSignatures: ${options.maxSignatures}, limit: ${options.limit}`);
             
-            // ✅ STREAM PROCESSING: Process standard fetch transactions as they arrive
             let totalStandardProcessedCount = 0;
             const transactions = await this.heliusClient.getAllTransactionsForAddress(
                 walletAddress, 
@@ -394,23 +377,20 @@ export class HeliusSyncService {
                 untilTimestampForStd,
                 HELIUS_CONFIG.INTERNAL_CONCURRENCY,
                 (progress) => options.onProgress?.(10 + (progress * 0.8), 'Fetching transactions...'),
-                // ✅ NEW: Stream callback for standard fetch
                 async (batch: HeliusTransaction[]) => {
-                    await this.processAndSaveTransactions(walletAddress, batch, isEffectivelyInitialFetch, options);
+                    await this.processAndSaveTransactions(walletAddress, batch, isEffectivelyInitialFetch, options, mappingStatsAccumulator, walletTransactionCounters);
                     totalStandardProcessedCount += batch.length;
-                    const currentCount = this.walletTransactionCounters.get(walletAddress) || 0;
-                    // ✅ INCREMENTAL PROGRESS: Show standard fetch progress
+                    const currentCount = walletTransactionCounters.get(walletAddress) || 0;
                     if (currentCount % 500 === 0 || currentCount <= 200) {
                         // logger.debug(`[Sync] Standard progress: ${totalStandardProcessedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
                     }
                 }
             );
             totalStandardProcessedCount = totalStandardProcessedCount || transactions.length;
-            const finalStandardCount = this.walletTransactionCounters.get(walletAddress) || 0;
+            const finalStandardCount = walletTransactionCounters.get(walletAddress) || 0;
             logger.info(`[Sync] Standard Fetch: ✅ Completed processing ${totalStandardProcessedCount} transactions for ${walletAddress}.`);
             options.onProgress?.(90, 'Transactions processed...');
         } catch (fetchError) {
-            // Check if this is a WrongSize error - mark wallet as invalid and stop processing
             if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
                 logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Standard Fetch. Marking wallet as invalid.`);
                 try {
@@ -424,18 +404,27 @@ export class HeliusSyncService {
             }
             if (fetchError instanceof Error && fetchError.message.includes('Non-retryable RPC Error')) {
                 logger.error(`[Sync] CRITICAL: Aborting sync for ${walletAddress} due to a non-retryable RPC error (e.g., invalid address).`, { error: fetchError.message });
-                // Do not re-throw, allowing the batch process to continue with other wallets
             } else {
                 logger.error(`[Sync] Standard Fetch: Failed to fetch/process transactions for ${walletAddress}:`, { fetchError });
                 throw fetchError; 
             }
+        } finally {
+            const finalStats = mappingStatsAccumulator.get(walletAddress);
+            if (finalStats) {
+                try {
+                    await this.databaseService.saveMappingActivityLog(walletAddress, finalStats as any);
+                    logger.debug(`[Sync] Successfully saved accumulated mapping activity log for ${walletAddress} (standard fetch)`);
+                } catch (error) {
+                    logger.error(`[Sync] Failed to save accumulated mapping activity log for ${walletAddress}`, { error });
+                }
+            }
+            mappingStatsAccumulator.delete(walletAddress);
+
+            const finalCount = walletTransactionCounters.get(walletAddress) || 0;
+            walletTransactionCounters.delete(walletAddress);
+            options.onProgress?.(100, 'Sync complete.');
+            logger.info(`[Sync] 🎉 Standard Fetch completed for ${walletAddress}: ${finalCount} transactions processed and saved to database.`);
         }
-        // ✅ FINAL CLEANUP AND SUMMARY
-        const finalCount = this.walletTransactionCounters.get(walletAddress) || 0;
-        this.walletTransactionCounters.delete(walletAddress); // Cleanup counter
-        
-        options.onProgress?.(100, 'Sync complete.');
-        logger.info(`[Sync] 🎉 Standard Fetch completed for ${walletAddress}: ${finalCount} transactions processed and saved to database.`);
     }
 
     /**
@@ -448,11 +437,13 @@ export class HeliusSyncService {
      * @param options The original SyncOptions to ensure context.
      * @returns A promise that resolves when processing and saving are complete.
      */
-    private async processAndSaveTransactions(
+    protected async processAndSaveTransactions(
       walletAddress: string, 
       transactions: HeliusTransaction[], 
       isNewerFetchOrInitial: boolean, 
-      options: SyncOptions
+      options: SyncOptions,
+      mappingStatsAccumulator: Map<string, Record<string, number>>,
+      walletTransactionCounters: Map<string, number>,
     ): Promise<void> {
       // logger.debug(`[Sync] Processing ${transactions.length} transactions for wallet ${walletAddress}...`);
       const mappingResult: MappingResult = mapHeliusTransactionsToIntermediateRecords(walletAddress, transactions);
@@ -462,19 +453,13 @@ export class HeliusSyncService {
       // ✅ ACCUMULATE MAPPING STATS INSTEAD OF SAVING INDIVIDUALLY
       // We'll save this at the end of the entire sync operation
       if (mappingStats) {
-          // Store for later accumulation instead of saving now
-          if (!this.accumulatedMappingStats) {
-              this.accumulatedMappingStats = new Map();
-          }
-          
-          const existingStats = this.accumulatedMappingStats.get(walletAddress) || {};
-          // Merge stats (assuming they're numeric values)
+          const existingStats = mappingStatsAccumulator.get(walletAddress) || {};
           Object.keys(mappingStats).forEach(key => {
               if (typeof mappingStats[key] === 'number') {
                   existingStats[key] = (existingStats[key] || 0) + mappingStats[key];
               }
           });
-          this.accumulatedMappingStats.set(walletAddress, existingStats);
+          mappingStatsAccumulator.set(walletAddress, existingStats);
       }
 
       // ✅ SILENT SAVING: Save without logging each batch
@@ -482,8 +467,8 @@ export class HeliusSyncService {
         await this.databaseService.saveSwapAnalysisInputs(analysisInputsToSave);
         
         // ✅ UPDATE COUNTER: Track total processed for this wallet
-        const currentCount = this.walletTransactionCounters.get(walletAddress) || 0;
-        this.walletTransactionCounters.set(walletAddress, currentCount + analysisInputsToSave.length);
+        const currentCount = walletTransactionCounters.get(walletAddress) || 0;
+        walletTransactionCounters.set(walletAddress, currentCount + analysisInputsToSave.length);
       }
     
       if (transactions.length > 0) {
