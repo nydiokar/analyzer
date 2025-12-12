@@ -94,13 +94,40 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
   const tokenTwitter = metadata?.twitterUrl || metadata?.onchainTwitterUrl;
   const tokenTelegram = metadata?.telegramUrl || metadata?.onchainTelegramUrl;
 
-  const handleCopy = (e: React.MouseEvent) => {
+  const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(mint);
-    toast({
-      title: "Copied!",
-      description: "Token address copied to clipboard.",
-    });
+
+    try {
+      // Try modern Clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(mint);
+        toast({
+          title: "Copied!",
+          description: "Token address copied to clipboard.",
+        });
+      } else {
+        // Fallback for older browsers or non-secure contexts
+        const textArea = document.createElement('textarea');
+        textArea.value = mint;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+
+        toast({
+          title: "Copied!",
+          description: "Token address copied to clipboard.",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Copy failed",
+        description: "Could not copy to clipboard. Please copy manually.",
+        variant: "destructive",
+      });
+    }
   };
 
   const sizeClasses = {

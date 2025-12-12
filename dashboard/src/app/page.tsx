@@ -1,56 +1,88 @@
 'use client';
 
-// import type { Metadata } from 'next'; // Metadata type can be removed if not used elsewhere in this file
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { SearchIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, ChevronRightIcon, CheckIcon, SettingsIcon } from 'lucide-react';
+import { SearchIcon, ListIcon, UsersIcon, TrendingUpIcon, ActivityIcon, ChevronRightIcon } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useApiKeyStore } from '@/store/api-key-store';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
+import { AuthModal } from '@/components/auth/AuthModal';
+import { UserMenu } from '@/components/auth/UserMenu';
 import Image from 'next/image';
 import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useState, useEffect, Suspense } from 'react';
+import { toast } from 'sonner';
 // It's better to import WalletSearch if it can be made context-agnostic
 // For now, we'll create a simple search input placeholder
 // import { WalletSearch } from \'@/components/sidebar/WalletSearch\';
 
-function StatusIndicator({ isDemo }: { isDemo: boolean }) {
-  const tooltipContent = isDemo 
-    ? "Using demo mode. Click to change key for unrestricted analysis." 
-    : "Using your key for unrestricted analysis.";
+function AuthHeader({ onShowAuthModal }: { onShowAuthModal?: () => void }) {
+  const { isAuthenticated } = useAuth();
+
+  if (isAuthenticated) {
+    return <UserMenu className="ml-auto" />;
+  }
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Link href="/settings" className="flex items-center gap-3 group">
-            <div className="text-right">
-              <p className="text-sm font-medium text-slate-200">{isDemo ? 'Demo Mode' : 'Full Access'}</p>
-              <p className="text-xs text-slate-400 group-hover:text-blue-400 transition-colors"></p>
-            </div>
-            <SettingsIcon className={`h-5 w-5 transition-all duration-300 group-hover:rotate-90 ${isDemo ? 'text-blue-400' : 'text-green-400'}`} />
-          </Link>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{tooltipContent}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
+    <div className="flex items-center gap-2">
+      <Button
+        onClick={() => onShowAuthModal?.()}
+        variant="ghost"
+        size="sm"
+        className="text-slate-200 hover:text-white hover:bg-slate-700"
+      >
+        Sign In
+      </Button>
+      <Button
+        onClick={() => onShowAuthModal?.()}
+        size="sm"
+        className="bg-green-600 hover:bg-green-700 text-white"
+      >
+        Sign Up
+      </Button>
+    </div>
+  );
 }
 
-// These wallets are for demonstration purposes and can be accessed without an API key.
-// This list should ideally match the one defined in the backend's ApiKeyAuthGuard.
-const DEMO_WALLETS = [
+const FEATURED_WALLETS = [
   { address: 'DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm', name: 'Gake', suggested: true, description: "High-volume trader, risky profile" },
   { address: '96sErVjEN7LNJ6Uvj63bdRWZxNuBngj56fnT9biHLKBf', name: 'Orange', suggested: true, description: "Momentum strategy, mid-cap bias" },
   { address: 'Hnnw2hAgPgGiFKouRWvM3fSk3HnYgRv4Xq1PjUEBEuWM', name: 'SmartMoney', suggested: false, description: "Frequent sniping, low win rate" },
 ];
 
 
-export default function Home() {
+function HomeContent() {
   const router = useRouter();
-  const { apiKey, isInitialized, isDemo, setDemoMode } = useApiKeyStore();
+  const searchParams = useSearchParams();
+  const { isAuthenticated, user, requestEmailVerification, verifyEmail } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Handle verify-token parameter (when user clicks email link while logged out)
+  useEffect(() => {
+    const verifyToken = searchParams.get('verify-token');
+    if (verifyToken && isAuthenticated) {
+      // User is now logged in, attempt verification
+      const attemptVerify = async () => {
+        try {
+          const success = await verifyEmail(verifyToken);
+          if (success) {
+            toast.success('Email verified successfully! 🎉');
+            // Clear the token from URL
+            router.replace('/');
+          } else {
+            toast.error('Verification link expired or invalid. Please request a new one.');
+          }
+        } catch (error) {
+          toast.error('Verification failed. Please try again.');
+        }
+      };
+      attemptVerify();
+    } else if (verifyToken && !isAuthenticated) {
+      // Show auth modal with a message
+      toast.info('Please sign in to verify your email', { duration: 5000 });
+      setShowAuthModal(true);
+    }
+  }, [searchParams, isAuthenticated, verifyEmail, router]);
 
   const handleSearch = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -63,11 +95,17 @@ export default function Home() {
     }
   };
 
-  const useDemoKey = async () => {
-    await setDemoMode();
-  };
+  const isVerified = Boolean(user?.emailVerified);
+  const showSearch = isAuthenticated && isVerified;
 
-  const showSearch = isInitialized && apiKey && !isDemo;
+  const handleResendVerification = async () => {
+    const success = await requestEmailVerification();
+    if (success) {
+      toast.success('Verification email sent');
+    } else {
+      toast.error('Unable to send verification email right now. Please try again.');
+    }
+  };
 
   return (
     <div className="w-full min-h-full text-white animated-gradient">
@@ -75,7 +113,7 @@ export default function Home() {
       <link rel="preload" href="/preview/dashboard-preview.png" as="image" type="image/png" />
       
       <header className="container mx-auto max-w-5xl h-16 flex justify-end items-center px-4 sm:px-6 lg:px-8">
-          {isInitialized && apiKey && <StatusIndicator isDemo={isDemo} />}
+        <AuthHeader onShowAuthModal={() => setShowAuthModal(true)} />
       </header>
 
       <main className="container mx-auto max-w-5xl text-center flex flex-col h-full px-4 sm:px-6 lg:px-8 pb-12 sm:pb-16">
@@ -90,14 +128,31 @@ export default function Home() {
             Institutional-grade tools to analyze any Solana wallet. Track PNL, uncover patterns, and get historical insights.
           </p>
 
-          {isInitialized && !apiKey && (
+          {!isAuthenticated && (
             <div className="flex flex-col sm:flex-row justify-center gap-4 mt-8">
-              <Button onClick={useDemoKey} size="lg" className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
-                Try Demo Mode
+              <Button onClick={() => setShowAuthModal(true)} size="lg" className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
+                Get Started
               </Button>
               <Button asChild variant="outline" size="lg" className="w-full sm:w-auto border-slate-600 hover:border-slate-400">
-                <Link href="/settings">Use Key</Link>
+                <Link href="/help">View documentation</Link>
               </Button>
+            </div>
+          )}
+
+          {isAuthenticated && !isVerified && (
+            <div className="max-w-2xl mx-auto mt-8 mb-10 rounded-xl border border-slate-800 bg-slate-900/70 p-5 text-left shadow-sm">
+              <h2 className="text-lg font-semibold text-slate-100 mb-1">Verify your email to run analyses</h2>
+              <p className="text-sm text-slate-400 mb-4">
+                A verification link was sent to <span className="font-medium text-slate-200">{user?.email}</span>. We'll unlock analysis tools once your email is confirmed.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={handleResendVerification} size="sm">
+                  Resend verification email
+                </Button>
+                <Button asChild variant="outline" size="sm" className="border-slate-700 text-slate-200 hover:bg-slate-800">
+                  <Link href="/help">Need help?</Link>
+                </Button>
+              </div>
             </div>
           )}
 
@@ -144,11 +199,11 @@ export default function Home() {
           <section className="mt-16 text-left">
             <h2 className="text-xl font-semibold text-slate-100 mb-2 flex items-center">
               <ListIcon className="h-5 w-5 mr-2 text-slate-400"/>
-              Explore a Wallet
+              Featured Wallets
             </h2>
-            <p className="text-center text-sm text-slate-500 mb-4">Choose a wallet to start exploring</p>
+            <p className="text-center text-sm text-slate-500 mb-4">Jump into an analysis with one of our curated wallets.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-              {DEMO_WALLETS.map(wallet => (
+              {FEATURED_WALLETS.map(wallet => (
                 <Link key={wallet.address} href={`/wallets/${wallet.address}`} className="block group">
                   <div className="p-4 bg-slate-800/70 rounded-lg shadow-lg border border-slate-700 hover:border-blue-500/80 transition-all duration-300 h-full flex flex-col justify-between hover:shadow-xl hover:shadow-blue-500/20 bg-gradient-to-br from-slate-800 to-slate-900 hover:-translate-y-1">
                     <div className="flex justify-between items-start">
@@ -167,36 +222,17 @@ export default function Home() {
           </section>
 
           <section className="mt-20 text-left">
-            <h2 className="text-2xl font-semibold text-slate-100 mb-8 text-center">Access the Dashboard</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-              {/* Demo Card */}
-              <div className="p-6 bg-slate-800/60 rounded-lg shadow-lg border border-slate-700">
-                <h3 className="text-xl font-semibold text-blue-400 mb-4">Demo Mode</h3>
-                <p className="text-sm text-slate-400 mb-6">Get a feel for our platform with a curated experience.</p>
-                <ul className="space-y-3">
-                  <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Access to 3 Demo Wallets</span></li>
-                  <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Full PNL and ROI Analysis</span></li>
-                  <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Behavioral Pattern Recognition</span></li>
-                </ul>
-                <Button onClick={async () => await setDemoMode()} variant="secondary" className="w-full mt-8">
-                  Start Demo
+            <div className="p-8 bg-slate-900/70 rounded-2xl border border-slate-700 shadow-xl text-center max-w-4xl mx-auto">
+              <h2 className="text-2xl font-semibold text-slate-100 mb-3">Access the full dashboard</h2>
+              <p className="text-slate-400 text-base mb-8">
+                Create an account to unlock unlimited wallet analysis, behavioral insights, and historical performance data.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Button onClick={() => setShowAuthModal(true)} size="lg" className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700">
+                  Create Account
                 </Button>
-              </div>
-              {/* Full Access Card */}
-              <div className="p-6 bg-slate-800 rounded-lg shadow-lg border-2 border-purple-500 relative">
-                 <div className="absolute top-0 right-4 -mt-3">
-                    <Badge className="bg-purple-600 text-purple-100 text-xs border-purple-500">Full Power</Badge>
-                  </div>
-                <h3 className="text-xl font-semibold text-purple-400 mb-4">Full Access</h3>
-                <p className="text-sm text-slate-400 mb-6">Unlock unlimited analysis on any Solana wallet.</p>
-                <ul className="space-y-3">
-                  <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Analyze Any Wallet Address</span></li>
-                  <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Unlimited Searches</span></li>
-                  <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Save and Track Favorite Wallets</span></li>
-                  <li className="flex items-center"><CheckIcon className="h-5 w-5 text-green-500 mr-3" /><span>Priority Access to New Features</span></li>
-                </ul>
-                <Button asChild variant="default" className="w-full mt-8 bg-purple-600 hover:bg-purple-700">
-                  <Link href="/settings">Use Your Key</Link>
+                <Button asChild variant="outline" size="lg" className="w-full sm:w-auto border-slate-600 hover:border-slate-400">
+                  <Link href="/help">Learn more</Link>
                 </Button>
               </div>
             </div>
@@ -232,6 +268,15 @@ export default function Home() {
           </p>
         </footer>
       </main>
+      
+      {/* Auth Modal */}
+      <AuthModal 
+        open={showAuthModal} 
+        onOpenChange={setShowAuthModal}
+        onSuccess={() => {
+          setShowAuthModal(false);
+        }}
+      />
     </div>
   );
 }
@@ -249,5 +294,19 @@ function FeatureCard({ icon, title, description }: FeatureCardProps) {
       <h3 className="text-xl font-semibold mb-2 mt-1 text-slate-100">{title}</h3>
       <p className="text-slate-300 text-sm">{description}</p>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="w-full min-h-full text-white animated-gradient flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto"></div>
+        </div>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
   );
 }

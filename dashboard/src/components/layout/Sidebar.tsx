@@ -1,6 +1,10 @@
+'use client';
+
 import Link from 'next/link';
 import Image from 'next/image';
-import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, SearchIcon, FlaskConical, IdCard } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon, HelpCircleIcon, SearchIcon, FlaskConical, IdCard, LogIn, UserPlus, Shield } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
     Tooltip,
     TooltipContent,
@@ -14,6 +18,9 @@ import {
 } from "@/components/ui/popover";
 import { FavoriteWalletsList } from '../sidebar/FavoriteWalletsList';
 import { WalletSearch } from '../sidebar/WalletSearch';
+import { UserMenu } from '../auth/UserMenu';
+import { AuthModal } from '../auth/AuthModal';
+import { useAuth } from '@/hooks/useAuth';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -21,6 +28,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
+  const { isAuthenticated, user } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   return (
     <aside 
@@ -156,6 +165,20 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
         {/* Footer Navigation - Always visible */}
         <div className="flex-shrink-0 mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
           <ul className="space-y-2">
+            {/* Admin Panel - Only visible to admins */}
+            {user?.isAdmin && (
+              <li>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link href="/admin/api-keys" className={`flex items-center py-2 px-3 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors`}>
+                      <Shield size={20} className={`${isCollapsed ? 'm-auto' : 'mr-3'} flex-shrink-0`} />
+                      {!isCollapsed && <span className="flex-1 font-semibold">Admin Panel</span>}
+                    </Link>
+                  </TooltipTrigger>
+                  {isCollapsed && <TooltipContent side="right" align="center"><p>Admin Panel</p></TooltipContent>}
+                </Tooltip>
+              </li>
+            )}
             <li>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -181,6 +204,13 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
           </ul>
         </div>
       </TooltipProvider>
+      
+      {/* Auth Modal */}
+      <AuthModal 
+        open={showAuthModal} 
+        onOpenChange={setShowAuthModal}
+        onSuccess={() => setShowAuthModal(false)}
+      />
     </aside>
   );
 } 

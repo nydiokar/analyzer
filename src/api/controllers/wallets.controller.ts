@@ -18,7 +18,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 // Services from their respective feature folders
 import { DatabaseService } from '../services/database.service';
@@ -43,8 +43,6 @@ import { CreateNoteDto } from '../shared/dto/create-note.dto';
 import { UpdateNoteDto } from '../shared/dto/update-note.dto';
 import { WalletSearchQueryDto } from '../shared/dto/wallet-search-query.dto';
 import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../shared/dto/wallet-search-result.dto';
-
-
 @ApiTags('Wallets')
 @Controller('wallets')
 export class WalletsController {

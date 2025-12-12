@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, Req, ForbiddenException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
@@ -14,6 +14,8 @@ import { RedisLockService } from '../../queues/services/redis-lock.service';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
 import { JobPriority } from '../../queues/config/queue.config';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
+import { Request } from 'express';
+import { User } from '@prisma/client';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -53,6 +55,7 @@ export class AnalysesController {
   })
   @HttpCode(202)
   async enrichWalletBalances(
+    @Req() req: Request & { user?: User },
     @Body() body: { walletBalances: Record<string, any> },
   ): Promise<{
     jobId: string;
@@ -153,6 +156,7 @@ export class AnalysesController {
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
   @HttpCode(202)
   async queueSimilarityAnalysis(
+    @Req() req: Request & { user?: User },
     @Body() dto: SimilarityAnalysisRequestDto,
   ): Promise<{
     jobId: string;
@@ -263,6 +267,7 @@ export class AnalysesController {
   @ApiResponse({ status: 503, description: 'Analysis already in progress for this wallet' })
   @HttpCode(202)
   async queueDashboardWalletAnalysis(
+    @Req() req: Request & { user?: User },
     @Body() dto: DashboardAnalysisRequestDto,
   ): Promise<DashboardAnalysisResponseDto> {
     const scope = dto.analysisScope ?? 'deep';

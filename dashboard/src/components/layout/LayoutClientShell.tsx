@@ -3,6 +3,8 @@
 import React, { useState, useMemo } from 'react';
 import { ThemeProvider } from "@/components/theme-provider";
 import Sidebar from "@/components/layout/Sidebar";
+import { EmailVerificationBanner } from "@/components/auth/EmailVerificationBanner";
+import { usePathname } from "next/navigation";
 import { Toaster } from 'sonner';
 import { SWRConfig, SWRConfiguration } from 'swr';
 import { defaultSWRConfig } from '@/lib/swr-config';
@@ -14,6 +16,7 @@ interface LayoutClientShellProps {
 
 export default function LayoutClientShell({ children }: LayoutClientShellProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+  const pathname = usePathname();
 
   // ✅ Create cache provider once and reuse it
   const cacheProvider = useMemo(() => new AppCacheProvider(), []);
@@ -39,6 +42,7 @@ export default function LayoutClientShell({ children }: LayoutClientShellProps) 
         <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden">
           <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
           <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out">
+            <EmailVerificationBanner />
             {children}
           </main>
         </div>
@@ -46,4 +50,4 @@ export default function LayoutClientShell({ children }: LayoutClientShellProps) 
       </ThemeProvider>
     </SWRConfig>
   );
-} 
+}

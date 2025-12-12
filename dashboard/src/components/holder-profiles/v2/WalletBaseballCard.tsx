@@ -20,6 +20,52 @@ interface Props {
 
 type TimeBucket = 'instant' | 'ultraFast' | 'fast' | 'momentum' | 'intraday' | 'day' | 'swing' | 'position';
 
+function getTimeBucketDescription(bucket: TimeBucket): { title: string; description: string; tradingStyle: string } {
+  const descriptions: Record<TimeBucket, { title: string; description: string; tradingStyle: string }> = {
+    instant: {
+      title: 'Instant Exits (< 1 second)',
+      description: 'Lightning-fast exits executed within a second. These are typically algorithmic trades, MEV bot activity, or automated arbitrage strategies.',
+      tradingStyle: 'Style: Algorithmic / Bot-driven'
+    },
+    ultraFast: {
+      title: 'Ultra-Fast Exits (< 1 minute)',
+      description: 'Very rapid scalping trades that capture immediate price movements. Common in high-frequency trading strategies.',
+      tradingStyle: 'Style: High-frequency scalping'
+    },
+    fast: {
+      title: 'Fast Exits (1-5 minutes)',
+      description: 'Quick momentum captures targeting short-lived price spikes. Traders look for rapid entry and exit opportunities.',
+      tradingStyle: 'Style: Scalping / Quick momentum'
+    },
+    momentum: {
+      title: 'Momentum Exits (5-30 minutes)',
+      description: 'Short-term trend following where traders ride momentum for 5-30 minutes. Enter on strength, exit when momentum fades.',
+      tradingStyle: 'Style: Momentum trading'
+    },
+    intraday: {
+      title: 'Intraday Exits (30m - 4 hours)',
+      description: 'Intraday positions held for several hours but typically closed within the same trading session. Focuses on intraday price action.',
+      tradingStyle: 'Style: Intraday trading'
+    },
+    day: {
+      title: 'Day Exits (4-24 hours)',
+      description: 'Day trading positions that complete within 24 hours. May hold overnight but typically close within a day.',
+      tradingStyle: 'Style: Day trading'
+    },
+    swing: {
+      title: 'Swing Exits (1-7 days)',
+      description: 'Medium-term swing trades capitalizing on multi-day price movements. Traders hold through minor fluctuations to capture larger swings.',
+      tradingStyle: 'Style: Swing trading'
+    },
+    position: {
+      title: 'Position Exits (7+ days)',
+      description: 'Long-term positions held for weeks or months. Reflects patient trading with conviction in fundamental value.',
+      tradingStyle: 'Style: Position trading / Holding'
+    },
+  };
+  return descriptions[bucket];
+}
+
 interface ExitTimingBreakdownProps {
   distribution: {
     instant: number;
@@ -134,26 +180,44 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
               : 'text-muted-foreground'
           : '';
 
+        const bucketInfo = getTimeBucketDescription(bucket.bucket);
+
         return (
-          <div key={bucket.label} className="flex items-center gap-2 text-[11px]">
-            <span className="w-10 text-muted-foreground">{bucket.label}</span>
-            <div
-              className="flex-1 h-3 bg-muted/20 rounded-full overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
-              onClick={(e) => rawValue > 0 && onBucketClick(bucket.bucket, bucket.label, { x: e.clientX, y: e.clientY })}
-              title={rawValue > 0 ? `Click to see ${label} tokens in ${bucket.label} range` : undefined}
-            >
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 via-teal-400/70 to-sky-500/80"
-                style={{ width: `${widthPercent}%`, opacity: 0.35 + relativeValue * 0.65 }}
-              />
-            </div>
-            <span className="w-9 text-right font-mono text-muted-foreground">{label}</span>
-            {hasMetrics && (
-              <span className={`w-32 text-right text-xs font-mono ${roiColor}`}>
-                {bucket.winRate!.toFixed(0)}% WR, {bucket.roiPercent! > 0 ? '+' : ''}{bucket.roiPercent!.toFixed(0)}% ROI
-              </span>
-            )}
-          </div>
+          <TooltipProvider key={bucket.label} delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="w-10 text-muted-foreground cursor-help">{bucket.label}</span>
+                  <div
+                    className="flex-1 h-3 bg-muted/20 rounded-full overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+                    onClick={(e) => rawValue > 0 && onBucketClick(bucket.bucket, bucket.label, { x: e.clientX, y: e.clientY })}
+                    title={rawValue > 0 ? `Click to see ${label} tokens in ${bucket.label} range` : undefined}
+                  >
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 via-teal-400/70 to-sky-500/80"
+                      style={{ width: `${widthPercent}%`, opacity: 0.35 + relativeValue * 0.65 }}
+                    />
+                  </div>
+                  <span className="w-9 text-right font-mono text-muted-foreground">{label}</span>
+                  {hasMetrics && (
+                    <span className={`w-32 text-right text-xs font-mono ${roiColor}`}>
+                      {bucket.winRate!.toFixed(0)}% WR, {bucket.roiPercent! > 0 ? '+' : ''}{bucket.roiPercent!.toFixed(0)}% ROI
+                    </span>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm text-xs" side="left">
+                <p className="font-semibold mb-1">{bucketInfo.title}</p>
+                <p className="text-muted-foreground mb-2">{bucketInfo.description}</p>
+                <p className="text-xs text-primary font-medium">{bucketInfo.tradingStyle}</p>
+                {rawValue > 0 && (
+                  <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
+                    💡 Click the bar to see specific tokens in this timeframe
+                  </p>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         );
       })}
     </div>
@@ -318,9 +382,21 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <span className="text-xs text-muted-foreground">
-              {Math.round(profile.confidence * 100)}% confidence
-            </span>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-xs text-muted-foreground cursor-help">
+                    {Math.round(profile.confidence * 100)}% confidence
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  <p className="font-semibold mb-1">Classification Confidence</p>
+                  <p className="text-muted-foreground">
+                    Statistical confidence in the behavior classification. Higher confidence means more consistent trading patterns with sufficient data points.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
           <TooltipProvider delayDuration={200}>
             <Tooltip>
@@ -372,9 +448,25 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
         </div>
 
         <div className="bg-muted/10 rounded-md p-3 border w-full lg:min-w-[280px]">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
-            Exit Timing
-          </p>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-2 cursor-help w-fit">
+                  Exit Timing
+                </p>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm text-xs">
+                <p className="font-semibold mb-1">Exit Timing Distribution</p>
+                <p className="text-muted-foreground mb-2">
+                  Shows how long this holder typically keeps positions before exiting.
+                  Each bar represents the proportion of exits within that timeframe.
+                </p>
+                <p className="text-xs text-primary font-medium">
+                  Hover over time ranges for detailed descriptions
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {profile.holdTimeDistribution ? (
             <ExitTimingBreakdown
               distribution={profile.holdTimeDistribution}
