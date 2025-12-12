@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { Redis, RedisOptions } from 'ioredis';
+import { Redis } from 'ioredis';
 import { redisConfig } from '../config/redis.config';
+import { REDIS_CLIENT } from '../config/redis.provider';
 
 export interface QueueHealthStatus {
   queueName: string;
@@ -79,42 +80,8 @@ export class QueueHealthService implements OnModuleInit {
   private readonly BATCH_SIZE = 100; // Limit job fetching
   private healthCheckTimer?: NodeJS.Timeout;
 
-  constructor() {
-    // Create Redis instance using environment variables directly for type safety
-    const ioredisOptions: RedisOptions = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD,
-      db: parseInt(process.env.REDIS_DB || '0', 10),
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: false,
-      lazyConnect: true,
-      // Enhanced reconnection strategy
-      retryStrategy: (times: number) => {
-        const delay = Math.min(times * 50, 2000); // Exponential backoff, max 2s
-        return delay;
-      },
-      connectTimeout: 10000, // 10 seconds
-      keepAlive: 30000, // 30 seconds
-      enableOfflineQueue: false, // Disable offline queue for health checks (fail fast)
-    };
-
-    this.redis = new Redis(ioredisOptions);
-
-    // Add event listeners for health monitoring
-    this.redis.on('error', (err) => {
-      if (!err.message.includes('ECONNREFUSED') && !err.message.includes('LOADING')) {
-        this.logger.error('Health check Redis error:', err.message);
-      }
-    });
-
-    this.redis.on('connect', () => {
-      this.logger.log('Health check Redis connected');
-    });
-
-    this.redis.on('ready', () => {
-      this.logger.log('Health check Redis ready');
-    });
+  constructor(@Inject(REDIS_CLIENT) redisClient: Redis) {
+    this.redis = redisClient;
   }
 
   /**
@@ -411,7 +378,6 @@ export class QueueHealthService implements OnModuleInit {
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
     }
-    // Close Redis connection
-    await this.redis.quit();
+    // Shared Redis connection is managed centrally
   }
-} 
+}

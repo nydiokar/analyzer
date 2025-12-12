@@ -54,7 +54,15 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     for (const queueEvents of this.queueEventsMap.values()) {
       await queueEvents.close();
     }
+    for (const queue of this.queueMap.values()) {
+      try {
+        await queue.close();
+      } catch (error) {
+        this.logger.warn(`Error closing queue ${queue.name} during shutdown`, error as Error);
+      }
+    }
     this.queueEventsMap.clear();
+    this.queueMap.clear();
   }
 
   private async setupQueueEvents(queueName: string) {

@@ -26,6 +26,7 @@ import { DexscreenerService } from '../api/services/dexscreener.service';
 import { TokenInfoService } from '../api/services/token-info.service';
 import { OnchainMetadataService } from '../core/services/onchain-metadata.service';
 import { HttpService } from '@nestjs/axios';
+import Redis from 'ioredis';
 
 // Initialize environment variables
 dotenv.config();
@@ -164,7 +165,17 @@ async function analyzeWalletWithHelius() {
   // Pass HeliusApiClient to PnlAnalysisService
   // Ensure PnlAnalysisService also uses dbService as its first argument if needed
   const httpService = new HttpService();
-  const dexscreenerService = new DexscreenerService(dbService, httpService);
+  // Create Redis client for services that require it
+  const redisClient = new Redis({
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD,
+    db: parseInt(process.env.REDIS_DB || '0', 10),
+    lazyConnect: true,
+    maxRetriesPerRequest: 3,
+  });
+
+  const dexscreenerService = new DexscreenerService(dbService, httpService, redisClient);
   const dexscreenerProvider = new (require('../api/services/dexscreener-price-provider').DexscreenerPriceProvider)(
     dbService,
     httpService
@@ -174,7 +185,7 @@ async function analyzeWalletWithHelius() {
     throw new Error('HeliusApiClient is required for TokenInfoService (needed for OnchainMetadataService)');
   }
   const onchainMetadataService = new OnchainMetadataService(heliusApiClient);
-  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService, dexscreenerProvider, onchainMetadataService, heliusApiClient);
+  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService, dexscreenerProvider, onchainMetadataService, heliusApiClient, redisClient);
   const pnlAnalysisService = new PnlAnalysisService(dbService, heliusApiClient, tokenInfoService);
   
   // Use undefined instead of null for optional service dependencies

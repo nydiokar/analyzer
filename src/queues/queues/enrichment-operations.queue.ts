@@ -27,6 +27,8 @@ export class EnrichmentOperationsQueue {
       jobId,
       priority: options?.priority || data.priority || 3,
       delay: options?.delay || 0,
+      removeOnComplete: { count: 3, age: 600 },
+      removeOnFail: 20,
     });
   }
 
@@ -41,6 +43,8 @@ export class EnrichmentOperationsQueue {
       jobId,
       priority: options?.priority || 7, // Lower priority than core analysis
       delay: options?.delay || 0,
+      removeOnComplete: { count: 3, age: 600 },
+      removeOnFail: 20,
     });
   }
 
