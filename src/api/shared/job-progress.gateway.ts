@@ -165,13 +165,37 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
         this.broadcastToSubscribers('job-progress', data, data.jobId, data.queue);
       } else if (channel === 'job-events:completed') {
         this.broadcastToSubscribers('job-completed', data, data.jobId, data.queue);
+        this.pruneJobSubscriptions(data.jobId);
       } else if (channel === 'job-events:failed') {
         this.broadcastToSubscribers('job-failed', data, data.jobId, data.queue);
+        this.pruneJobSubscriptions(data.jobId);
       } else if (channel === 'job-events:queue-to-start') {
         this.broadcastToSubscribers('job-queue-to-start', data, data.jobId, data.queue);
       }
     } catch (error) {
       this.logger.warn(`Failed to parse Redis message from ${channel}:`, error);
+    }
+  }
+
+  /**
+   * Remove completed/failed job IDs from all client subscriptions to prevent unbounded growth.
+   */
+  private pruneJobSubscriptions(jobId?: string) {
+    if (!jobId) {
+      return;
+    }
+    let pruned = 0;
+    for (const [clientId, subscription] of this.clientSubscriptions) {
+      if (subscription.jobIds.delete(jobId)) {
+        pruned++;
+        // Clean up empty subscription sets to avoid stale entries
+        if (subscription.jobIds.size === 0) {
+          this.clientSubscriptions.delete(clientId);
+        }
+      }
+    }
+    if (pruned > 0) {
+      this.logger.debug(`Pruned job ${jobId} from ${pruned} client subscription(s).`);
     }
   }
 

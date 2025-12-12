@@ -3,6 +3,7 @@ import { HttpModule } from '@nestjs/axios';
 import { DexscreenerService } from '../services/dexscreener.service';
 import { DexscreenerPriceProvider } from '../services/dexscreener-price-provider';
 import { DatabaseModule } from '../modules/database.module';
+import { RedisModule } from '../../queues/config/redis.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { DatabaseModule } from '../modules/database.module';
       maxRedirects: 5,
     }),
     DatabaseModule,
+    RedisModule,
   ],
   providers: [
     DexscreenerService, // Legacy service (backwards compatibility)

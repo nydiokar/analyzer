@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { HolderProfilesResult, HolderProfile } from '../../queues/jobs/types';
 import { DatabaseService } from './database.service';
 import type { HolderProfileSnapshot, Wallet as PrismaWallet } from '@prisma/client';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 /**
  * TWO-TIER CACHE SERVICE: Manages both Redis (Tier 1) and PostgreSQL (Tier 2) caching
@@ -60,7 +61,7 @@ import type { HolderProfileSnapshot, Wallet as PrismaWallet } from '@prisma/clie
  * @see AnalysisOperationsProcessor.processAnalyzeHolderProfiles (orchestration)
  */
 @Injectable()
-export class HolderProfilesCacheService {
+export class HolderProfilesCacheService implements OnModuleDestroy {
   private readonly logger = new Logger(HolderProfilesCacheService.name);
   private readonly TTL_SECONDS = 3600; // 1 hour - holder profiles don't change frequently
   private redis: Redis;
@@ -74,22 +75,9 @@ export class HolderProfilesCacheService {
 
   constructor(
     private readonly databaseService: DatabaseService,
+    @Inject(REDIS_CLIENT) redisClient: Redis,
   ) {
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-      retryStrategy: (attempt) => {
-        if (attempt > 3) {
-          this.logger.error('Redis connection failed for holder profiles cache after 3 attempts');
-          return null;
-        }
-        const delay = Math.min(attempt * 100, 3000);
-        this.logger.warn(`Redis connection attempt ${attempt}/3, retrying in ${delay}ms...`);
-        return delay;
-      },
-    });
+    this.redis = redisClient;
 
     this.redis.on('error', (err) => this.logger.error('Redis connection error (holder profiles cache):', err.message));
     this.redis.on('connect', () => this.logger.log('Redis connected for holder profiles cache'));
@@ -139,12 +127,6 @@ export class HolderProfilesCacheService {
         this.logger.log(`Invalidated wallet holder profile cache for ${walletAddress}`);
       }
 
-      const tokenKeys = await this.redis.keys('holder-profiles:token:*');
-      if (tokenKeys.length === 0) {
-        this.logger.debug(`No token caches found while invalidating wallet ${walletAddress}`);
-        return;
-      }
-
       const luaScript = `
         local keysToDelete = {}
         for i, key in ipairs(KEYS) do
@@ -167,9 +149,22 @@ export class HolderProfilesCacheService {
         return #keysToDelete
       `;
 
-      const deleted = tokenKeys.length > 0
-        ? Number(await this.redis.eval(luaScript, tokenKeys.length, ...tokenKeys, walletAddress))
-        : 0;
+      const pattern = 'holder-profiles:token:*';
+      let cursor = '0';
+      const batchSize = 200;
+      let deleted = 0;
+
+      do {
+        const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', batchSize);
+        cursor = nextCursor;
+
+        if (keys.length === 0) {
+          continue;
+        }
+
+        const batchDeleted = Number(await this.redis.eval(luaScript, keys.length, ...keys, walletAddress));
+        deleted += batchDeleted;
+      } while (cursor !== '0');
 
       const duration = Date.now() - startTime;
       if (deleted > 0) {
@@ -206,6 +201,11 @@ export class HolderProfilesCacheService {
     } catch (error) {
       this.logger.error('Error clearing holder profile caches:', error);
     }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    // Shared Redis connection managed centrally
+    return;
   }
 
   async getCacheStats(): Promise<{ totalKeys: number; sampleKeys: string[] }> {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { ComprehensiveSimilarityFlowData } from '../jobs/types';
@@ -7,6 +7,8 @@ import { generateJobId } from '../utils/job-id-generator';
 @Injectable()
 export class SimilarityOperationsQueue {
   private readonly queue: Queue;
+  private readonly logger = new Logger(SimilarityOperationsQueue.name);
+  private readonly PAYLOAD_WARN_BYTES = 5 * 1024 * 1024; // 5MB
 
   constructor() {
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
@@ -18,11 +20,17 @@ export class SimilarityOperationsQueue {
    */
   async addSimilarityAnalysisFlow(data: ComprehensiveSimilarityFlowData, options?: { priority?: number; delay?: number }) {
     const jobId = generateJobId.calculateSimilarity(data.walletAddresses, data.requestId);
+    const payloadSize = Buffer.byteLength(JSON.stringify(data), 'utf8');
+    if (payloadSize > this.PAYLOAD_WARN_BYTES) {
+      this.logger.warn(`Similarity job payload is large (${(payloadSize / 1024 / 1024).toFixed(2)} MB) for request ${data.requestId}`);
+    }
     
     return this.queue.add('similarity-analysis-flow', data, {
       jobId,
       priority: options?.priority || 5,
       delay: options?.delay || 0,
+      removeOnComplete: { count: 3, age: 600 }, // keep a tiny window to avoid Redis bloat from large payloads
+      removeOnFail: 20,
     });
   }
 

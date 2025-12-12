@@ -20,6 +20,7 @@ import { DexscreenerService } from '../../api/services/dexscreener.service';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { OnchainMetadataService } from '../services/onchain-metadata.service';
 import { HttpService } from '@nestjs/axios';
+import Redis from 'ioredis';
 
 const logger = createLogger('WalletAnalysisCommands');
 const BOT_SYSTEM_USER_DESCRIPTION = "SystemUser_TelegramBot"; // Define it here as it was originally
@@ -95,7 +96,17 @@ export class WalletAnalysisCommands {
     this.advancedStatsAnalyzer = new AdvancedStatsAnalyzer();
 
     // Instantiate TokenInfo service dependencies (manual instantiation for bot, not using NestJS DI)
-    const dexscreenerService = new DexscreenerService(this.databaseService, this.httpService);
+    // Create Redis client for services that require it
+    const redisClient = new Redis({
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      password: process.env.REDIS_PASSWORD,
+      db: parseInt(process.env.REDIS_DB || '0', 10),
+      lazyConnect: true,
+      maxRetriesPerRequest: 3,
+    });
+
+    const dexscreenerService = new DexscreenerService(this.databaseService, this.httpService, redisClient);
     const dexscreenerProvider = new (require('../../../api/services/dexscreener-price-provider').DexscreenerPriceProvider)(
       this.databaseService,
       this.httpService
@@ -105,7 +116,7 @@ export class WalletAnalysisCommands {
       throw new Error('HeliusApiClient is required for TokenInfoService (needed for OnchainMetadataService)');
     }
     const onchainMetadataService = new OnchainMetadataService(this.heliusApiClient);
-    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService, dexscreenerProvider, onchainMetadataService, this.heliusApiClient);
+    const tokenInfoService = new TokenInfoService(this.databaseService, dexscreenerService, dexscreenerProvider, onchainMetadataService, this.heliusApiClient, redisClient);
 
     this.pnlAnalysisService = new PnlAnalysisService(this.databaseService, this.heliusApiClient, tokenInfoService); 
     

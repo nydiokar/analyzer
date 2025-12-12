@@ -15,11 +15,19 @@ let isFirstConnectionAttempt = true;
 export const redisProvider: FactoryProvider<Redis> = {
   provide: REDIS_CLIENT,
   useFactory: () => {
-    // Override lazyConnect for the lock service - we want immediate connection
-    const lockServiceConfig = {
-      ...redisConfig,
-      lazyConnect: false, // Connect immediately for lock management
-    } as RedisOptions;
+    // Override a few defaults to match prior per-service settings (bounded retries) while keeping lazyConnect
+    const lockServiceConfig: RedisOptions = {
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      password: process.env.REDIS_PASSWORD,
+      db: parseInt(process.env.REDIS_DB || '0', 10),
+      lazyConnect: true, // allow startup without immediate Redis
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times: number) => {
+        const delay = Math.min(times * 50, 3000);
+        return delay;
+      },
+    };
     const client = new Redis(lockServiceConfig);
 
     // Clear error tracking on successful connection
@@ -45,8 +53,7 @@ export const redisProvider: FactoryProvider<Redis> = {
                                errorMessage.includes('ENOTFOUND');
 
       if (isConnectionError) {
-        // Only log connection errors once every 30 seconds to avoid spam
-        const now = Date.now();
+        // Only log connection errors periodically to avoid spam
         if (lastConnectionError !== errorMessage || connectionErrorCount === 0) {
           logger.error(`❌ Redis connection failed: ${errorMessage}`);
           logger.error('💡 Make sure Redis is running: docker-compose up -d redis');
@@ -59,6 +66,8 @@ export const redisProvider: FactoryProvider<Redis> = {
             logger.warn(`🔄 Redis connection still failing (${connectionErrorCount} attempts): ${errorMessage}`);
           }
         }
+      } else if (errorMessage.includes('LOADING')) {
+        logger.warn('⏳ Redis is loading data into memory. Waiting for it to be ready...');
       } else {
         // Non-connection errors should still be logged with full details
         logger.error(`🔥 Redis error: ${errorMessage}`, err.stack);
@@ -90,6 +99,17 @@ export const redisProvider: FactoryProvider<Redis> = {
         logger.log('🔍 Attempting to connect to Redis...');
       }
     }, 100);
+
+    // Handle graceful shutdown
+    process.on('SIGTERM', async () => {
+      logger.log('SIGTERM received, closing Redis connection gracefully...');
+      try {
+        await client.quit();
+        logger.log('Redis connection closed gracefully.');
+      } catch (error) {
+        logger.error('Error closing Redis connection:', error);
+      }
+    });
 
     return client;
   },
