@@ -72,7 +72,7 @@ export default function HolderProfilesPage() {
     []
   );
 
-  const { subscribeToJob } = useJobProgress({
+  const { subscribeToJob, unsubscribeFromJob } = useJobProgress({
     onJobProgress: useCallback(
       (data: JobProgressData) => {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
@@ -187,6 +187,11 @@ export default function HolderProfilesPage() {
     }
 
     try {
+      // Unsubscribe from previous job if it exists
+      if (tokenJobIdRef.current) {
+        unsubscribeFromJob(tokenJobIdRef.current);
+      }
+
       setTokenStatus('running');
           setTokenProgress(0);
           setTokenMessage('Queued');

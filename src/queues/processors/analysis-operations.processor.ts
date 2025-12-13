@@ -532,7 +532,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }`,
       );
 
-      await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
+      // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
+      // No need to manually publish here to avoid duplicate events
+      // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
 
       return result;
     } catch (error) {
@@ -992,7 +994,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await this.holderProfilesCacheService.cacheTokenResult(tokenMint, topN, result);
       await job.updateProgress(100);
 
-      await this.jobProgressGateway.publishCompletedEvent(job.id!, job.queueName, result, processingTimeMs);
+      // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
+      // No need to manually publish here to avoid duplicate events
+      // await this.jobProgressGateway.publishCompletedEvent(job.id!, job.queueName, result, processingTimeMs);
       this.logger.log(
         `Token holder orchestration for ${tokenMint} completed: ${analyzedCount}/${walletAddresses.length} profiles in ${processingTimeMs}ms`,
       );
@@ -1126,8 +1130,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(100);
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
 
-    // Emit WebSocket completion event so frontend receives updates
-    await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
+    // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
+    // No need to manually publish here to avoid duplicate events
+    // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
 
     this.logger.log(`Holder profile analysis for wallet ${walletAddress} completed in ${processingTimeMs}ms`);
 
