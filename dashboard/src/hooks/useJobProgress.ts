@@ -42,6 +42,16 @@ type DebugJobStats = {
   httpFallbacks: number;
 };
 
+const getResultPointerKey = (result: unknown): string | null => {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+  const payload = result as Record<string, unknown>;
+  const data = payload.data as Record<string, unknown> | undefined;
+  const key = data?.resultKey;
+  return typeof key === 'string' ? key : null;
+};
+
 export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +101,19 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       });
     },
     [jobSocketDebug, debugLog]
+  );
+
+  const hydrateJobResult = useCallback(
+    async (jobId: string): Promise<any | null> => {
+      try {
+        const response = await fetcher(`/jobs/${jobId}/result`);
+        return response?.result ?? null;
+      } catch (fetchError) {
+        console.error(`Failed to hydrate job result for ${jobId}`, fetchError);
+        return null;
+      }
+    },
+    []
   );
 
   // This handler processes job completion data from the initial HTTP poll.
@@ -200,19 +223,42 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
         return; 
       }
       setCompletedJobs(prev => new Set(prev).add(data.jobId));
-      
-      // console.log('📢 Job completed (WebSocket):', data.jobId, 'Processing time:', data.processingTime);
-      
-      if (data.queue === 'enrichment-operations') {
-        const enrichmentData: EnrichmentCompletionData = {
-          requestId: data.jobId,
-          enrichedBalances: (data.result as { enrichedBalances?: unknown; data?: unknown }).enrichedBalances || data.result.data || {},
-          timestamp: data.timestamp,
+
+      const processCompletion = async () => {
+        let resolvedResult = data.result;
+        const pointerKey = getResultPointerKey(resolvedResult);
+        if (data.queue === 'similarity-operations' && pointerKey) {
+          debugLog('hydrate-job-result', { jobId: data.jobId, pointerKey });
+          const hydrated = await hydrateJobResult(data.jobId);
+          if (hydrated) {
+            resolvedResult = hydrated;
+            debugLog('hydrate-job-result-success', { jobId: data.jobId });
+          } else {
+            debugLog('hydrate-job-result-miss', { jobId: data.jobId });
+          }
+        }
+
+        const finalData: JobCompletionData = {
+          ...data,
+          result: resolvedResult,
         };
-        callbacksRef.current.onEnrichmentComplete?.(enrichmentData);
-      } else {
-        callbacksRef.current.onJobCompleted?.(data);
-      }
+        
+        if (finalData.queue === 'enrichment-operations') {
+          const enrichmentData: EnrichmentCompletionData = {
+            requestId: finalData.jobId,
+            enrichedBalances:
+              (finalData.result as { enrichedBalances?: unknown; data?: unknown })?.enrichedBalances ||
+              (finalData.result as { data?: unknown })?.data ||
+              {},
+            timestamp: finalData.timestamp,
+          };
+          callbacksRef.current.onEnrichmentComplete?.(enrichmentData);
+        } else {
+          callbacksRef.current.onJobCompleted?.(finalData);
+        }
+      };
+
+      void processCompletion();
     };
 
     const handleJobProgress = (data: JobProgressData) => {
@@ -281,7 +327,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       });
       newSocket.disconnect();
     };
-  }, [debugLog, incrementDebugCounter]);
+  }, [debugLog, incrementDebugCounter, hydrateJobResult]);
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {
