@@ -227,7 +227,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       const processCompletion = async () => {
         let resolvedResult = data.result;
         const pointerKey = getResultPointerKey(resolvedResult);
-        if (data.queue === 'similarity-operations' && pointerKey) {
+        const requiresHydration =
+          data.queue === 'similarity-operations' && (!resolvedResult || pointerKey !== null);
+        if (requiresHydration) {
           debugLog('hydrate-job-result', { jobId: data.jobId, pointerKey });
           const hydrated = await hydrateJobResult(data.jobId);
           if (hydrated) {
@@ -236,6 +238,12 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
           } else {
             debugLog('hydrate-job-result-miss', { jobId: data.jobId });
           }
+        }
+
+        if (data.queue === 'similarity-operations' && !resolvedResult) {
+          console.warn(
+            `[JobBridgeClient] Similarity completion ${data.jobId} missing result payload even after hydration`
+          );
         }
 
         const finalData: JobCompletionData = {
