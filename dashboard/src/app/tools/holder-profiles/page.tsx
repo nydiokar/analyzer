@@ -88,14 +88,6 @@ export default function HolderProfilesPage() {
             const total = payload.totalHoldersRequested ?? payload.profiles?.length ?? 0;
             const analyzed = payload.analyzedCount ?? payload.profiles?.length ?? 0;
             const percent = total > 0 ? Math.min(100, Math.round((analyzed / total) * 100)) : 0;
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[Token holder progress payload]', {
-                holders: analyzed,
-                total,
-                profilesLen: payload.profiles?.length ?? 0,
-                sampleProfile: payload.profiles?.[0]?.walletAddress,
-              });
-            }
             setTokenProgress(percent);
             setTokenPartialResult({
               mode: 'token',
@@ -109,9 +101,6 @@ export default function HolderProfilesPage() {
               },
             });
           } else if (typeof data.progress === 'number') {
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[Token holder numeric progress]', data.progress);
-            }
             setTokenProgress(data.progress);
           }
           return;
@@ -369,6 +358,4 @@ export default function HolderProfilesPage() {
     </div>
   );
 }
-
-
 

@@ -171,6 +171,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
     const handleConnect = () => {
       console.log('✅ WebSocket connected');
+      debugLog('socket-connected', { socketId: newSocket.id });
       setIsConnected(true);
       setError(null);
       callbacksRef.current.onConnectionChange?.(true);
@@ -178,6 +179,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
     const handleDisconnect = (reason: string) => {
       console.log('🔌 WebSocket disconnected:', reason);
+      debugLog('socket-disconnected', { reason });
       setIsConnected(false);
       callbacksRef.current.onConnectionChange?.(false);
     };
@@ -290,6 +292,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     // Subscribe to WebSocket to catch live events.
     if (socket?.connected) {
       console.log(`🔔 Subscribing to WebSocket for job: ${jobId}`);
+      debugLog('job-subscribe', { jobId });
       socket.emit('subscribe-to-job', { jobId });
       activeJobIdsRef.current.add(jobId);
       incrementDebugCounter(jobId, 'subscribe', { socketConnected: true });
@@ -323,16 +326,17 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
         }
       }
     }
-  }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp, incrementDebugCounter]);
+  }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp, incrementDebugCounter, debugLog]);
 
   const unsubscribeFromJob = useCallback((jobId: string) => {
     if (socket?.connected) {
       console.log(`🔕 Unsubscribing from job: ${jobId}`);
+      debugLog('job-unsubscribe', { jobId });
       socket.emit('unsubscribe-from-job', { jobId });
       activeJobIdsRef.current.delete(jobId);
       incrementDebugCounter(jobId, 'unsubscribe');
     }
-  }, [socket, incrementDebugCounter]);
+  }, [socket, incrementDebugCounter, debugLog]);
 
   const cleanup = useCallback(() => {
     if (socket) {
