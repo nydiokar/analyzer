@@ -9,10 +9,12 @@ import { QueueModule } from './queues/queue.module'; // Add BullMQ queue integra
 import { APP_GUARD } from '@nestjs/core';
 import { ApiKeyAuthGuard } from './api/shared/guards/api-key-auth.guard';
 import { SentryModule } from '@sentry/nestjs/setup';
+import { MetricsModule } from './api/modules/metrics.module';
 
 @Module({
   imports: [
     SentryModule.forRoot(), // Add Sentry monitoring
+    MetricsModule, // Add Prometheus metrics
     ThrottlerModule.forRoot([{
       ttl: 60000, // 1 minute in milliseconds
       limit: 200, // 500 requests per minute (increased for concurrent job testing)
