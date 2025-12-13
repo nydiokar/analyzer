@@ -32,16 +32,66 @@ export interface UseJobProgressCallbacks {
   onJobQueueToStart?: (data: JobQueueToStartData) => void; // New callback for queue-to-start timing
 }
 
+type DebugJobStats = {
+  progress: number;
+  completed: number;
+  failed: number;
+  queueToStart: number;
+  subscribe: number;
+  unsubscribe: number;
+  httpFallbacks: number;
+};
+
 export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [completedJobs, setCompletedJobs] = useState<Set<string>>(new Set());
+  const jobSocketDebug = process.env.NEXT_PUBLIC_JOB_SOCKET_DEBUG === 'true';
+  const debugStatsRef = useRef<Map<string, DebugJobStats>>(new Map());
+  const activeJobIdsRef = useRef<Set<string>>(new Set());
 
   const callbacksRef = useRef(callbacks);
   useEffect(() => {
     callbacksRef.current = callbacks;
   }, [callbacks]);
+
+  const debugLog = useCallback(
+    (message: string, payload?: Record<string, unknown>) => {
+      if (!jobSocketDebug) {
+        return;
+      }
+      console.debug(`[JobBridgeClient] ${message}`, payload ?? {});
+    },
+    [jobSocketDebug]
+  );
+
+  const incrementDebugCounter = useCallback(
+    (jobId: string | undefined, key: keyof DebugJobStats, extra?: Record<string, unknown>) => {
+      if (!jobSocketDebug || !jobId) {
+        return;
+      }
+      const stats =
+        debugStatsRef.current.get(jobId) ?? {
+          progress: 0,
+          completed: 0,
+          failed: 0,
+          queueToStart: 0,
+          subscribe: 0,
+          unsubscribe: 0,
+          httpFallbacks: 0,
+        };
+      stats[key]++;
+      debugStatsRef.current.set(jobId, stats);
+      debugLog(`event:${key}`, {
+        jobId,
+        stats,
+        activeJobs: Array.from(activeJobIdsRef.current.values()),
+        ...extra,
+      });
+    },
+    [jobSocketDebug, debugLog]
+  );
 
   // This handler processes job completion data from the initial HTTP poll.
   const handleJobCompletedFromHttp = useCallback((job: JobStatusResponseDto) => {
@@ -143,6 +193,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobCompleted = (data: JobCompletionData) => {
+      incrementDebugCounter(data.jobId, 'completed', { dedupSkipped: completedJobs.has(data.jobId) });
       if (completedJobs.has(data.jobId)) {
         return; 
       }
@@ -163,10 +214,12 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobProgress = (data: JobProgressData) => {
+      incrementDebugCounter(data.jobId, 'progress', { status: data.status, progress: data.progress });
       callbacksRef.current.onJobProgress?.(data);
     };
 
     const handleJobFailed = (data: JobFailedData) => {
+      incrementDebugCounter(data.jobId, 'failed', { error: data.error });
       console.error('❌ Job failed (WebSocket):', data.jobId, data.error);
       if (data.queue === 'enrichment-operations' && callbacksRef.current.onEnrichmentError) {
         callbacksRef.current.onEnrichmentError?.({ requestId: data.jobId, error: data.error });
@@ -176,8 +229,22 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobQueueToStart = (data: JobQueueToStartData) => {
+      incrementDebugCounter(data.jobId, 'queueToStart', { queue: data.queue, queueToStartTime: data.queueToStartTime });
       // console.log('🚀 Job started processing (WebSocket):', data.jobId, 'Queue time:', data.queueToStartTime + 'ms');
       callbacksRef.current.onJobQueueToStart?.(data);
+    };
+
+    const getListenerCount = (eventName: string) => {
+      const socketAny = newSocket as unknown as { listeners?: (event: string) => unknown[] };
+      try {
+        if (typeof socketAny?.listeners === 'function') {
+          const listeners = socketAny.listeners(eventName);
+          return Array.isArray(listeners) ? listeners.length : undefined;
+        }
+      } catch (listenerError) {
+        debugLog('listener-count-error', { event: eventName, error: (listenerError as Error).message });
+      }
+      return undefined;
     };
 
     newSocket.on('connect', handleConnect);
@@ -187,6 +254,12 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     newSocket.on('job-completed', handleJobCompleted);
     newSocket.on('job-failed', handleJobFailed);
     newSocket.on('job-queue-to-start', handleJobQueueToStart);
+    debugLog('handlers-registered', {
+      progressHandlers: getListenerCount('job-progress') ?? 1,
+      completedHandlers: getListenerCount('job-completed') ?? 1,
+      failedHandlers: getListenerCount('job-failed') ?? 1,
+      queueToStartHandlers: getListenerCount('job-queue-to-start') ?? 1,
+    });
 
     setSocket(newSocket);
 
@@ -198,9 +271,15 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       newSocket.off('job-completed', handleJobCompleted);
       newSocket.off('job-failed', handleJobFailed);
       newSocket.off('job-queue-to-start', handleJobQueueToStart);
+      debugLog('handlers-removed', {
+        progressHandlers: getListenerCount('job-progress') ?? 0,
+        completedHandlers: getListenerCount('job-completed') ?? 0,
+        failedHandlers: getListenerCount('job-failed') ?? 0,
+        queueToStartHandlers: getListenerCount('job-queue-to-start') ?? 0,
+      });
       newSocket.disconnect();
     };
-  }, []);
+  }, [debugLog, incrementDebugCounter]);
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {
@@ -212,10 +291,13 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     if (socket?.connected) {
       console.log(`🔔 Subscribing to WebSocket for job: ${jobId}`);
       socket.emit('subscribe-to-job', { jobId });
+      activeJobIdsRef.current.add(jobId);
+      incrementDebugCounter(jobId, 'subscribe', { socketConnected: true });
       // That's it! WebSocket will handle all updates (progress, completion, failure)
       // No HTTP polling needed - avoids browser connection limits
     } else {
       console.warn(`⚠️ WebSocket not connected for job ${jobId}. Falling back to HTTP polling.`);
+      incrementDebugCounter(jobId, 'httpFallbacks', { socketConnected: false });
       // Fallback: If WebSocket is not connected, poll via HTTP
       try {
         const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
@@ -241,14 +323,16 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
         }
       }
     }
-  }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp]);
+  }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp, incrementDebugCounter]);
 
   const unsubscribeFromJob = useCallback((jobId: string) => {
     if (socket?.connected) {
       console.log(`🔕 Unsubscribing from job: ${jobId}`);
       socket.emit('unsubscribe-from-job', { jobId });
+      activeJobIdsRef.current.delete(jobId);
+      incrementDebugCounter(jobId, 'unsubscribe');
     }
-  }, [socket]);
+  }, [socket, incrementDebugCounter]);
 
   const cleanup = useCallback(() => {
     if (socket) {
@@ -256,7 +340,10 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     }
     // Clear completed jobs on cleanup
     setCompletedJobs(new Set());
-  }, [socket]);
+    activeJobIdsRef.current.clear();
+    debugStatsRef.current.clear();
+    debugLog('cleanup', {});
+  }, [socket, debugLog]);
 
   return {
     subscribeToJob,
