@@ -74,13 +74,15 @@ export default function AnalysisLabPage() {
         setJobProgress(100);
         setSyncMessage('Analysis complete! Processing results...');
         try {
-          // WebSocket should always contain the complete result data from the job processor
-          // No HTTP fallback needed - the job-events-bridge ensures complete data delivery
-          if (!data.result || !data.result.data) {
-            throw new Error("WebSocket completion event missing result data - this should not happen");
+          // WebSocket should contain the full analysis result (either directly or hydrated by useJobProgress)
+          if (!data.result) {
+            throw new Error("WebSocket completion event missing result payload");
           }
           
-          const resultData = data.result;
+          const resultData =
+            data.result && 'data' in data.result && data.result.data
+              ? data.result
+              : { data: data.result };
           console.log('✅ Using similarity result data from WebSocket:', { 
             pairs: resultData.data?.pairwiseSimilarities?.length,
             wallets: resultData.data?.globalMetrics?.analyzedWallets || 'undefined (using walletBalances keys)',
