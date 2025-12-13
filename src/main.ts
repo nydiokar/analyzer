@@ -1,3 +1,6 @@
+// IMPORTANT: Import Sentry instrumentation FIRST, before any other imports
+import './instrument';
+
 import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ForbiddenExceptionFilter } from './api/shared/forbidden-exception.filter';
