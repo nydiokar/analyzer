@@ -10,6 +10,7 @@ import {
   EnrichmentCompletionData,
   JobQueueToStartData
 } from '@/types/websockets';
+import type { JobResult } from '@/types/websockets';
 
 // Define proper error types
 interface ApiError extends Error {
@@ -235,17 +236,25 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
           if (hydrated) {
             const existingResult =
               resolvedResult && typeof resolvedResult === 'object'
-                ? (resolvedResult as Record<string, unknown>)
+                ? (resolvedResult as JobResult)
                 : undefined;
-            const baseResult: Record<string, unknown> = {
-              success: (existingResult?.success as boolean | undefined) ?? true,
-              timestamp: (existingResult?.timestamp as number | undefined) ?? Date.now(),
-            };
-            resolvedResult = {
-              ...baseResult,
-              ...(existingResult ?? {}),
+            const hydratedResult: JobResult = {
+              success: existingResult?.success ?? true,
+              timestamp: existingResult?.timestamp ?? Date.now(),
               data: hydrated,
+              requestId: existingResult?.requestId,
+              processingTimeMs: existingResult?.processingTimeMs,
+              enrichmentJobId: existingResult?.enrichmentJobId,
+              analysisScope: existingResult?.analysisScope,
+              triggerSource: existingResult?.triggerSource,
+              historyWindowDays: existingResult?.historyWindowDays ?? null,
+              targetSignatureCount: existingResult?.targetSignatureCount,
+              signaturesConsidered: existingResult?.signaturesConsidered,
+              timeRange: existingResult?.timeRange,
+              followUpJobsQueued: existingResult?.followUpJobsQueued,
+              metadata: existingResult?.metadata,
             };
+            resolvedResult = hydratedResult;
             debugLog('hydrate-job-result-success', { jobId: data.jobId });
           } else {
             debugLog('hydrate-job-result-miss', { jobId: data.jobId });
