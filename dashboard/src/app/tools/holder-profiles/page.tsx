@@ -133,6 +133,8 @@ export default function HolderProfilesPage() {
             setTokenStatus('completed');
             setTokenProgress(100);
             setTokenMessage('Analysis complete');
+            // Unsubscribe from the completed job
+            unsubscribeFromJob(tokenJobIdRef.current);
             tokenJobIdRef.current = null;
             toast.success('Holder profiles ready', {
               description: `Analyzed ${resultData.metadata.totalHoldersAnalyzed} holders`,
@@ -148,7 +150,7 @@ export default function HolderProfilesPage() {
           result: data.result as unknown as HolderProfilesResult,
         }));
       },
-      [updateWalletEntryByJob]
+      [updateWalletEntryByJob, unsubscribeFromJob]
     ),
 
     onJobFailed: useCallback(
@@ -157,6 +159,8 @@ export default function HolderProfilesPage() {
           setTokenStatus('failed');
           setTokenProgress(0);
           setTokenMessage('Analysis failed');
+          // Unsubscribe from the failed job
+          unsubscribeFromJob(tokenJobIdRef.current);
           tokenJobIdRef.current = null;
           toast.error('Token analysis failed', { description: data.error });
           return;
@@ -168,7 +172,7 @@ export default function HolderProfilesPage() {
           error: data.error,
         }));
       },
-      [updateWalletEntryByJob]
+      [updateWalletEntryByJob, unsubscribeFromJob]
     ),
 
     onEnrichmentComplete: () => {},
@@ -187,11 +191,6 @@ export default function HolderProfilesPage() {
     }
 
     try {
-      // Unsubscribe from previous job if it exists
-      if (tokenJobIdRef.current) {
-        unsubscribeFromJob(tokenJobIdRef.current);
-      }
-
       setTokenStatus('running');
           setTokenProgress(0);
           setTokenMessage('Queued');
