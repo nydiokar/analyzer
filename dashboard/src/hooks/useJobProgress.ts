@@ -233,7 +233,14 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
           debugLog('hydrate-job-result', { jobId: data.jobId, pointerKey });
           const hydrated = await hydrateJobResult(data.jobId);
           if (hydrated) {
-            resolvedResult = hydrated;
+            if (resolvedResult && typeof resolvedResult === 'object') {
+              resolvedResult = {
+                ...(resolvedResult as Record<string, unknown>),
+                data: hydrated,
+              };
+            } else {
+              resolvedResult = { data: hydrated };
+            }
             debugLog('hydrate-job-result-success', { jobId: data.jobId });
           } else {
             debugLog('hydrate-job-result-miss', { jobId: data.jobId });

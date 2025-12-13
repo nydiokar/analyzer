@@ -46,6 +46,7 @@ export default function AnalysisLabPage() {
   
   // toast is now imported directly from sonner
   const apiKey = useApiKeyStore((state) => state.apiKey);
+  const jobSocketDebug = process.env.NEXT_PUBLIC_JOB_SOCKET_DEBUG === 'true';
 
   // Simple WebSocket callbacks that DON'T depend on changing state
   const {
@@ -57,20 +58,28 @@ export default function AnalysisLabPage() {
     onJobProgress: useCallback((data: JobProgressData) => {
       // Only update the main progress bar for the main analysis job (not enrichment)
       if (data.jobId === currentJobId && jobStatuses.analysis === 'running') {
-        console.log('📊 Main analysis progress:', data.jobId, data.progress);
+        if (jobSocketDebug) {
+          console.log('📊 Main analysis progress:', data.jobId, data.progress);
+        }
         setJobProgress(data.progress);
         setSyncMessage(`Analyzing similarities... ${data.status || 'processing'}`);
       } else {
-        console.log('🎨 Ignoring progress for job:', data.jobId, '(enrichment or completed analysis)');
+        if (jobSocketDebug) {
+          console.log('🎨 Ignoring progress for job:', data.jobId, '(enrichment or completed analysis)');
+        }
       }
-    }, [currentJobId, jobStatuses.analysis]),
+    }, [currentJobId, jobStatuses.analysis, jobSocketDebug]),
     
     onJobCompleted: useCallback(async (data: any) => {
-      console.log('✅ Job completed hook fired. Job ID:', data.jobId);
+      if (jobSocketDebug) {
+        console.log('✅ Job completed hook fired. Job ID:', data.jobId);
+      }
 
       // Case 1: The main analysis job has completed.
       if (data.jobId === currentJobId) {
-        console.log('✅ Processing completion for MAIN job:', data.jobId);
+        if (jobSocketDebug) {
+          console.log('✅ Processing completion for MAIN job:', data.jobId);
+        }
         setJobProgress(100);
         setSyncMessage('Analysis complete! Processing results...');
         try {
@@ -83,11 +92,16 @@ export default function AnalysisLabPage() {
             data.result && 'data' in data.result && data.result.data
               ? data.result
               : { data: data.result };
-          console.log('✅ Using similarity result data from WebSocket:', { 
-            pairs: resultData.data?.pairwiseSimilarities?.length,
-            wallets: resultData.data?.globalMetrics?.analyzedWallets || 'undefined (using walletBalances keys)',
-            hasEnrichmentJob: !!resultData.enrichmentJobId
-          });
+          const walletCount =
+            resultData.data?.globalMetrics?.analyzedWallets ??
+            Object.keys(resultData.data?.walletBalances ?? {}).length;
+          if (jobSocketDebug) {
+            console.log('✅ Using similarity result data from WebSocket:', { 
+              pairs: resultData.data?.pairwiseSimilarities?.length,
+              wallets: walletCount,
+              hasEnrichmentJob: !!resultData.enrichmentJobId
+            });
+          }
           
           // The correct data structure is: resultData.data (the actual analysis data)
           // resultData is the SimilarityFlowResult wrapper, resultData.data is the analysis data
@@ -132,9 +146,11 @@ export default function AnalysisLabPage() {
       } 
       // All enrichment logic is now in onEnrichmentComplete
       else {
-        console.log('Ignoring completion for unrelated job:', data.jobId);
+        if (jobSocketDebug) {
+          console.log('Ignoring completion for unrelated job:', data.jobId);
+        }
       }
-    }, [toast, currentJobId]),
+    }, [toast, currentJobId, jobSocketDebug]),
     
     onJobFailed: useCallback((data: JobFailedData) => {
       console.error('❌ Job failed (WebSocket):', data.jobId, data.error);
@@ -179,7 +195,9 @@ export default function AnalysisLabPage() {
     }, [toast, currentJobId, enrichmentJobId]),
     
     onEnrichmentComplete: useCallback(async (data: EnrichmentCompletionData) => {
-      console.log('🎨 Processing completion for ENRICHMENT job:', data);
+      if (jobSocketDebug) {
+        console.log('🎨 Processing completion for ENRICHMENT job:', data);
+      }
       try {
         // The enrichment data is passed directly in the event payload
         if (!data || !data.enrichedBalances) {
@@ -207,7 +225,7 @@ export default function AnalysisLabPage() {
         setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
         setIsRefreshing(false);
       }
-    }, [toast]),
+    }, [toast, jobSocketDebug]),
   });
 
   const isRunning = useMemo(() => {
@@ -244,11 +262,13 @@ export default function AnalysisLabPage() {
   // Subscribe to enrichment job when ID is set
   useEffect(() => {
     if (enrichmentJobId && wsConnected) {
-      console.log('🔔 Subscribing to enrichment job:', enrichmentJobId);
+      if (jobSocketDebug) {
+        console.log('🔔 Subscribing to enrichment job:', enrichmentJobId);
+      }
       subscribeToJob(enrichmentJobId);
       setJobStatuses(prev => ({ ...prev, enrichment: 'running' }));
     }
-  }, [enrichmentJobId, wsConnected, subscribeToJob]);
+  }, [enrichmentJobId, wsConnected, subscribeToJob, jobSocketDebug]);
 
   // This callback will be passed to the new form component
   const handleWalletsChange = useCallback((wallets: string[]) => {
@@ -315,7 +335,9 @@ export default function AnalysisLabPage() {
   const handleAnalyze = async () => {
     // Prevent multiple simultaneous analyses
     if (jobStatuses.analysis === 'running') {
-      console.log('⚠️ Analysis already running, ignoring duplicate request');
+      if (jobSocketDebug) {
+        console.log('⚠️ Analysis already running, ignoring duplicate request');
+      }
       return;
     }
     
@@ -389,10 +411,14 @@ export default function AnalysisLabPage() {
       setSyncMessage(`Job submitted! ID: ${jobResponse.jobId.slice(0, 8)}...`);
       
       if (wsConnected) {
-        console.log('🔌 Using WebSocket for job updates');
+        if (jobSocketDebug) {
+          console.log('🔌 Using WebSocket for job updates');
+        }
         subscribeToJob(jobResponse.jobId);
       } else {
-        console.log('📊 WebSocket not connected - using polling');
+        if (jobSocketDebug) {
+          console.log('📊 WebSocket not connected - using polling');
+        }
         await pollJobStatus(jobResponse.jobId);
       }
       
@@ -409,7 +435,9 @@ export default function AnalysisLabPage() {
   };
 
   const pollJobStatus = async (jobId: string) => {
-    console.log('📊 Starting polling for job:', jobId);
+    if (jobSocketDebug) {
+      console.log('📊 Starting polling for job:', jobId);
+    }
     let attempts = 0;
     const maxAttempts = 60;
     
