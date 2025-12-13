@@ -61,6 +61,9 @@ export default function HolderProfilesPage() {
 
   const parsedWallets = useMemo(() => parseWalletList(walletInput), [walletInput]);
 
+  // Use a ref to store unsubscribeFromJob so we can call it from callbacks
+  const unsubscribeFromJobRef = useRef<((jobId: string) => void) | null>(null);
+
   const updateWalletEntryByJob = useCallback((jobId: string, updater: (entry: WalletClassifierEntry) => WalletClassifierEntry) => {
     setWalletEntries((prev) => prev.map((entry) => (entry.jobId === jobId ? updater(entry) : entry)));
   }, []);
@@ -134,7 +137,9 @@ export default function HolderProfilesPage() {
             setTokenProgress(100);
             setTokenMessage('Analysis complete');
             // Unsubscribe from the completed job
-            unsubscribeFromJob(tokenJobIdRef.current);
+            if (unsubscribeFromJobRef.current) {
+              unsubscribeFromJobRef.current(tokenJobIdRef.current);
+            }
             tokenJobIdRef.current = null;
             toast.success('Holder profiles ready', {
               description: `Analyzed ${resultData.metadata.totalHoldersAnalyzed} holders`,
@@ -150,7 +155,7 @@ export default function HolderProfilesPage() {
           result: data.result as unknown as HolderProfilesResult,
         }));
       },
-      [updateWalletEntryByJob, unsubscribeFromJob]
+      [updateWalletEntryByJob]
     ),
 
     onJobFailed: useCallback(
@@ -160,7 +165,9 @@ export default function HolderProfilesPage() {
           setTokenProgress(0);
           setTokenMessage('Analysis failed');
           // Unsubscribe from the failed job
-          unsubscribeFromJob(tokenJobIdRef.current);
+          if (unsubscribeFromJobRef.current) {
+            unsubscribeFromJobRef.current(tokenJobIdRef.current);
+          }
           tokenJobIdRef.current = null;
           toast.error('Token analysis failed', { description: data.error });
           return;
@@ -172,12 +179,15 @@ export default function HolderProfilesPage() {
           error: data.error,
         }));
       },
-      [updateWalletEntryByJob, unsubscribeFromJob]
+      [updateWalletEntryByJob]
     ),
 
     onEnrichmentComplete: () => {},
     onConnectionChange: () => {},
   });
+
+  // Store the unsubscribe function in the ref so callbacks can use it
+  unsubscribeFromJobRef.current = unsubscribeFromJob;
 
   const handleTokenAnalyze = async () => {
     if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
