@@ -75,5 +75,11 @@ async function bootstrap() {
   Logger.log(`🚀 Application is running on: http://localhost:${port}/api/v1`, 'Bootstrap');
   Logger.log(`📚 API Documentation available at: http://localhost:${port}/api-docs`, 'Bootstrap');
   Logger.log(`🔌 WebSocket server enabled at: ws://localhost:${port}/job-progress`, 'Bootstrap');
+
+  // Heartbeat logging to detect event loop blocking / system freezes
+  // Logs every 30 seconds to help diagnose issues like database checkpoint hangs
+  setInterval(() => {
+    Logger.log('[Heartbeat] Backend responsive', 'HealthCheck');
+  }, 30000); // 30 seconds
 }
 bootstrap();
