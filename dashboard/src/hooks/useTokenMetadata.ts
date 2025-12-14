@@ -8,6 +8,7 @@ interface TokenMetadata {
   websiteUrl?: string;
   twitterUrl?: string;
   telegramUrl?: string;
+  marketCapUsd?: number | null;
   onchainName?: string;
   onchainSymbol?: string;
   onchainImageUrl?: string;
@@ -95,15 +96,16 @@ class TokenMetadataBatcher {
       const resultMap = new Map<string, TokenMetadata>();
       if (response && Array.isArray(response)) {
         response.forEach((tokenData: any) => {
-          const metadata: TokenMetadata = {
-            name: tokenData.name,
-            symbol: tokenData.symbol,
-            imageUrl: tokenData.imageUrl,
-            onchainName: tokenData.onchainName,
-            onchainSymbol: tokenData.onchainSymbol,
-            onchainImageUrl: tokenData.onchainImageUrl,
-            websiteUrl: tokenData.websiteUrl,
-            twitterUrl: tokenData.twitterUrl,
+      const metadata: TokenMetadata = {
+        name: tokenData.name,
+        symbol: tokenData.symbol,
+        imageUrl: tokenData.imageUrl,
+        marketCapUsd: tokenData.marketCapUsd,
+        onchainName: tokenData.onchainName,
+        onchainSymbol: tokenData.onchainSymbol,
+        onchainImageUrl: tokenData.onchainImageUrl,
+        websiteUrl: tokenData.websiteUrl,
+        twitterUrl: tokenData.twitterUrl,
             telegramUrl: tokenData.telegramUrl,
             onchainWebsiteUrl: tokenData.onchainWebsiteUrl,
             onchainTwitterUrl: tokenData.onchainTwitterUrl,
@@ -162,15 +164,16 @@ class TokenMetadataBatcher {
       // Update cache with enriched data AND notify all subscribers
       if (response && Array.isArray(response)) {
         response.forEach((tokenData: any) => {
-          const metadata: TokenMetadata = {
-            name: tokenData.name,
-            symbol: tokenData.symbol,
-            imageUrl: tokenData.imageUrl,
-            onchainName: tokenData.onchainName,
-            onchainSymbol: tokenData.onchainSymbol,
-            onchainImageUrl: tokenData.onchainImageUrl,
-            websiteUrl: tokenData.websiteUrl,
-            twitterUrl: tokenData.twitterUrl,
+      const metadata: TokenMetadata = {
+        name: tokenData.name,
+        symbol: tokenData.symbol,
+        imageUrl: tokenData.imageUrl,
+        marketCapUsd: tokenData.marketCapUsd,
+        onchainName: tokenData.onchainName,
+        onchainSymbol: tokenData.onchainSymbol,
+        onchainImageUrl: tokenData.onchainImageUrl,
+        websiteUrl: tokenData.websiteUrl,
+        twitterUrl: tokenData.twitterUrl,
             telegramUrl: tokenData.telegramUrl,
             onchainWebsiteUrl: tokenData.onchainWebsiteUrl,
             onchainTwitterUrl: tokenData.onchainTwitterUrl,
@@ -212,12 +215,7 @@ export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata)
   const [isLoading, setIsLoading] = useState(!providedMetadata);
 
   useEffect(() => {
-    // If metadata was provided, don't fetch
-    if (providedMetadata) {
-      setMetadata(providedMetadata);
-      setIsLoading(false);
-      return;
-    }
+    setMetadata(providedMetadata || null);
 
     // Callback for updates
     const updateCallback = (fetchedMetadata: TokenMetadata | null) => {
@@ -226,7 +224,7 @@ export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata)
     };
 
     // Request metadata (will be batched automatically)
-    setIsLoading(true);
+    setIsLoading(!providedMetadata);
     globalBatcher.request(mint, updateCallback);
 
     // Cleanup: unsubscribe on unmount

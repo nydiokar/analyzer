@@ -4,11 +4,11 @@ import { CognitivePrimitivesRow } from './CognitivePrimitivesRow';
 import { BehaviorCompositionBar } from './BehaviorCompositionBar';
 import { MinimalHoldersTable } from './MinimalHoldersTable';
 import { getTokenOutcome } from './utils/outcome-logic';
-import { formatAddress } from './utils/formatters';
 import { useEffect, useState } from 'react';
 import { WalletBaseballCard } from './WalletBaseballCard';
 import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TokenBadge } from '@/components/shared/TokenBadge';
 
 interface Props {
   result: HolderProfilesResult;
@@ -49,7 +49,11 @@ export function TokenPulse({ result }: Props) {
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-        <div className="text-sm text-muted-foreground">Token {formatAddress(result.tokenMint)}</div>
+        {result.tokenMint && (
+          <div className="w-fit">
+            <TokenBadge mint={result.tokenMint} size="s" />
+          </div>
+        )}
       </div>
 
       <OutcomeStrip {...outcome} badge={`${result.metadata.totalHoldersAnalyzed} holders analyzed`} />

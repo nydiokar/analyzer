@@ -30,13 +30,10 @@
 1. **Holder Profile Color Scheme** – Improve trader category colors for better visual hierarchy and intuition. Current colors aren't eye-friendly or intuitive for different trader categories. Research industry-standard color schemes for trader classifications (e.g., Fast Exit, Diamond Hands, etc.).
 
 2. **TokenBadge Redesign** – Transform into an always-visible, resizable profile component:
-   - **Sizes**: Add s, m, l, xl variants to fit various contexts
-   - **No Modal**: Keep inline instead of opening new window/modal
-   - **Token Name**: Clickable → links to Solscan
-   - **Symbol + Copy**: Make symbol clickable with copy icon next to it (like Axiom design pattern) - provides more surface area than tiny copy icon alone
-   - **Market Cap**: Display current market cap (already fetched during enrichment)
-   - **Social Icons**: Include directly in badge (Twitter, Telegram, website, etc.) instead of requiring extra clicks
-   - **Contract Address**: Copy via symbol click + icon indicator for discoverability
+   - ✅ **Implemented**: Always-visible inline badge with s/m/l/xl (sm/md/lg aliases) showing name→Solscan, copyable symbol, market-cap chip, gmgn + socials inline.
+   - ✅ Merges provided metadata with fetched batch data so partial callers still get enrichment.
+   - ✅ Small size shows full icon row; price/volume/liquidity dropped—only market cap shown from market data.
+   - **Next**: Swap truncated token address on Holder Profiles token-mode view for the TokenBadge component.
 
 3. **Comprehensive Tooltips** – Add tooltips everywhere to explain concepts in practice:
    - **Trader Categories**: Hover over classification to see what it means (e.g., "Fast Exit: Traders who typically sell within 1 hour of purchase")

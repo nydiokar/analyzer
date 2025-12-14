@@ -1,50 +1,21 @@
 /**
- * TokenBadge - Smart, Self-Sufficient Token Metadata Display Component
+ * TokenBadge - Inline token profile badge with smart metadata fetching
  *
- * ARCHITECTURE:
- * This component automatically handles token metadata fetching and enrichment.
- * You should NEVER manually trigger enrichment when using TokenBadge.
- *
- * BATCHING (CRITICAL):
- * Multiple TokenBadges rendering simultaneously are AUTOMATICALLY BATCHED into ONE API call.
- * Example: 10 badges render → Wait 50ms → Make 1 batched call for all 10 tokens
- * This prevents the "10 badges = 10 API calls" problem.
- *
- * USAGE:
- * 1. Simple (recommended): <TokenBadge mint="..." />
- *    - Component fetches metadata automatically with batching
- *    - Triggers enrichment if metadata is missing/stale
- *    - Shows fallback display while loading
- *    - Safe for any number of tokens (batching handles it)
- *
- * 2. With metadata (optional optimization):
- *    <TokenBadge mint="..." metadata={{name, symbol, imageUrl, ...}} />
- *    - Use when parent already has metadata (e.g., from API response)
- *    - Skips automatic fetching entirely
- *    - Still recommended for large tables (100+ tokens)
- *
- * IMPORTANT:
- * - TokenBadge uses batched POST /token-info which triggers enrichment AND returns data
- * - DO NOT call enrichment APIs separately when using TokenBadge
- * - Backend token-info endpoint handles: trigger enrichment + return current data
- * - This ensures centralized, consistent metadata handling across the app
- *
- * PERFORMANCE:
- * - Metadata prop is optional (batching makes it less critical)
- * - Without metadata: Batched fetching (1 API call per 50ms window, regardless of token count)
- * - With metadata: Zero API calls (immediate display)
- * - Both approaches are performant - choose based on convenience
+ * - Always-visible (no popover) so users see key details at a glance
+ * - Batches metadata requests automatically via useTokenMetadata
+ * - Prioritizes onchain fields for name/symbol, DexScreener for imagery/market data
+ * - Size variants (s, m, l, xl) for embedding in tables or cards
  */
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Copy, ExternalLink, TrendingUp, Globe, Twitter, Send } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { memo } from "react";
 import { useTokenMetadata } from "@/hooks/useTokenMetadata";
+import { Copy, ExternalLink, Globe, Send, TrendingUp, Twitter } from "lucide-react";
+import { memo, MouseEvent, useMemo } from "react";
 
 interface TokenMetadata {
   // DexScreener fields (fresher, updated by community)
@@ -54,6 +25,7 @@ interface TokenMetadata {
   websiteUrl?: string;
   twitterUrl?: string;
   telegramUrl?: string;
+  marketCapUsd?: number | null;
 
   // Onchain fields (immutable, authoritative - fallback)
   onchainName?: string;
@@ -64,41 +36,95 @@ interface TokenMetadata {
   onchainTelegramUrl?: string;
 }
 
+type TokenBadgeSize = "s" | "m" | "l" | "xl" | "sm" | "md" | "lg";
+
 interface TokenBadgeProps {
   mint: string;
   metadata?: TokenMetadata;
   className?: string;
-  size?: "sm" | "md" | "lg";
+  size?: TokenBadgeSize;
 }
 
-const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "md" }: TokenBadgeProps) => {
+const sizeConfig = {
+  s: {
+    avatar: "h-8 w-8",
+    padding: "px-2.5 py-1.5",
+    gap: "gap-2",
+    text: "text-[11px]",
+    subtext: "text-[10px]",
+    metric: "text-[11px]",
+    icon: "h-3 w-3",
+    actionsGap: "gap-1.5",
+  },
+  m: {
+    avatar: "h-9 w-9",
+    padding: "px-3 py-2",
+    gap: "gap-3",
+    text: "text-sm",
+    subtext: "text-xs",
+    metric: "text-xs",
+    icon: "h-3.5 w-3.5",
+    actionsGap: "gap-2",
+  },
+  l: {
+    avatar: "h-10 w-10",
+    padding: "px-3.5 py-2.5",
+    gap: "gap-3",
+    text: "text-base",
+    subtext: "text-sm",
+    metric: "text-sm",
+    icon: "h-4 w-4",
+    actionsGap: "gap-2.5",
+  },
+  xl: {
+    avatar: "h-12 w-12",
+    padding: "px-4 py-3",
+    gap: "gap-4",
+    text: "text-lg",
+    subtext: "text-sm",
+    metric: "text-sm",
+    icon: "h-4 w-4",
+    actionsGap: "gap-3",
+  },
+} satisfies Record<"s" | "m" | "l" | "xl", Record<string, string>>;
+
+const formatMarketCap = (value: number | null | undefined) => {
+  if (typeof value === "number" && !isNaN(value) && value > 0) {
+    if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+    if (value >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+    if (value >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
+    return `$${value.toFixed(0)}`;
+  }
+  return "–";
+};
+
+const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "m" }: TokenBadgeProps) => {
   // ===== SMART METADATA FETCHING WITH BATCHING =====
-  // useTokenMetadata hook automatically batches requests from multiple TokenBadges
-  // If 10 TokenBadges render at once, they make ONE batched API call instead of 10
   const { metadata: fetchedMetadata, isLoading } = useTokenMetadata(mint, providedMetadata);
 
-  // Use provided metadata if available, otherwise use batched fetch result
-  const metadata = providedMetadata || fetchedMetadata;
+  // Merge provided + fetched so upstream partial metadata still benefits from enrichment
+  const metadata = useMemo(() => {
+    if (!providedMetadata && !fetchedMetadata) return null;
+    return { ...(fetchedMetadata || {}), ...(providedMetadata || {}) };
+  }, [providedMetadata, fetchedMetadata]);
 
   // ===== CENTRALIZED METADATA PRIORITY LOGIC =====
-  // This is the SINGLE SOURCE OF TRUTH for all metadata priority decisions
-  // Priority rules:
-  // - Name/Symbol: Onchain FIRST (immutable, authoritative)
-  // - Image: DexScreener FIRST (fresher, working links), fallback to onchain
-  // - Social links: DexScreener FIRST (more up-to-date), fallback to onchain
-
-  const tokenName = metadata?.onchainName || metadata?.name || 'Unknown Token';
+  const tokenName = metadata?.onchainName || metadata?.name || "Unknown Token";
   const tokenSymbol = metadata?.onchainSymbol || metadata?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
   const tokenImage = metadata?.imageUrl || metadata?.onchainImageUrl;
   const tokenWebsite = metadata?.websiteUrl || metadata?.onchainWebsiteUrl;
   const tokenTwitter = metadata?.twitterUrl || metadata?.onchainTwitterUrl;
   const tokenTelegram = metadata?.telegramUrl || metadata?.onchainTelegramUrl;
+  const marketCap = metadata?.marketCapUsd ?? null;
+  const truncatedMint = `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+  const normalizedSize =
+    size === "sm" ? "s" : size === "md" ? "m" : size === "lg" ? "l" : size;
+  const resolvedSize = sizeConfig[normalizedSize as keyof typeof sizeConfig] ?? sizeConfig.m;
 
-  const handleCopy = async (e: React.MouseEvent) => {
+  const handleCopy = async (e: MouseEvent) => {
     e.stopPropagation();
 
     try {
-      // Try modern Clipboard API first
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(mint);
         toast({
@@ -106,14 +132,13 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
           description: "Token address copied to clipboard.",
         });
       } else {
-        // Fallback for older browsers or non-secure contexts
-        const textArea = document.createElement('textarea');
+        const textArea = document.createElement("textarea");
         textArea.value = mint;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-999999px';
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
         document.body.appendChild(textArea);
         textArea.select();
-        document.execCommand('copy');
+        document.execCommand("copy");
         document.body.removeChild(textArea);
 
         toast({
@@ -130,161 +155,163 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
     }
   };
 
-  const sizeClasses = {
-    sm: "h-4 w-4",
-    md: "h-5 w-5", 
-    lg: "h-8 w-8"
-  };
-
-  const textSizeClasses = {
-    sm: "text-xs",
-    md: "text-xs",
-    lg: "text-sm"
-  };
+  if (isLoading) {
+    return (
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-lg border border-border/50 bg-muted/30",
+          resolvedSize.padding,
+          className
+        )}
+      >
+        <Skeleton className={cn("rounded-lg", resolvedSize.avatar)} />
+        <div className="flex flex-col gap-2 flex-1 min-w-0">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-48" />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <Popover>
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <div className={cn(
-                "flex items-center space-x-2 cursor-pointer group rounded-lg px-2 py-1 transition-shadow duration-200",
-                "hover:shadow-hover hover:bg-accent/50",
-                className
-              )}>
-                <Avatar className={sizeClasses[size]}>
-                  <AvatarImage
-                    src={tokenImage ?? undefined}
-                    alt={tokenName}
-                    className={sizeClasses[size]}
-                  />
-                  <AvatarFallback className={cn("text-xs", sizeClasses[size])}>{tokenName.charAt(0)}</AvatarFallback>
-                </Avatar>
-                <span className={cn("font-mono group-hover:underline", textSizeClasses[size])}>
-                  {tokenName} ({tokenSymbol})
-                </span>
-              </div>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Click for external links and copy</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <PopoverContent className="w-auto p-2" onClick={(e) => e.stopPropagation()}>
-        <div className="flex flex-col space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="font-bold text-sm text-blue-400">{tokenName}</div>
-            {tokenName === 'Unknown Token' && (
-              <span className="text-xs text-orange-500 font-medium">(probably spam/rug)</span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-1 pt-1">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" onClick={handleCopy} className="h-auto px-2 py-1 text-xs" tabIndex={-1}>
-                    <Copy className="h-3 w-3 mr-1" />
-                    Copy
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Copy token address</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild>
-                    <a href={`https://solscan.io/token/${mint}`} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
-                      <ExternalLink className="h-3 w-3 mr-1" />
-                      Solscan
-                    </a>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>View on Solscan</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-auto px-2 py-1 text-xs" asChild>
-                    <a href={`https://gmgn.ai/sol/token/${mint}`} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
-                      <TrendingUp className="h-3 w-3 mr-1" />
-                      gmgn.ai
-                    </a>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>View chart on gmgn.ai</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          {/* Social links row */}
-          {(tokenWebsite || tokenTwitter || tokenTelegram) && (
-            <div className="flex items-center gap-1 pt-1">
-              {tokenWebsite && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <a href={tokenWebsite} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
-                          <Globe className="h-4 w-4" />
-                        </a>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Visit website</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-              {tokenTwitter && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <a href={tokenTwitter} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
-                          <Twitter className="h-4 w-4" />
-                        </a>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Follow on Twitter</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-              {tokenTelegram && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                        <a href={tokenTelegram} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
-                          <Send className="h-4 w-4" />
-                        </a>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Join Telegram</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+    <TooltipProvider>
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 sm:gap-4 rounded-lg border border-border/50 bg-muted/30 shadow-base transition-shadow duration-200 hover:shadow-hover",
+          resolvedSize.padding,
+          className
+        )}
+      >
+        <div className={cn("flex min-w-0 items-center", resolvedSize.gap, "flex-1")}>
+          <Avatar className={resolvedSize.avatar}>
+            <AvatarImage
+              src={tokenImage ?? undefined}
+              alt={tokenName}
+              className={resolvedSize.avatar}
+            />
+            <AvatarFallback className="text-xs">{tokenName.charAt(0)}</AvatarFallback>
+          </Avatar>
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex items-center gap-1 min-w-0">
+              <a
+                href={`https://solscan.io/token/${mint}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "inline-flex items-center gap-1 font-semibold text-foreground hover:underline",
+                  resolvedSize.text
+                )}
+              >
+                {tokenName}
+                <ExternalLink className={cn("text-muted-foreground", resolvedSize.icon)} />
+              </a>
+              {tokenName === "Unknown Token" && (
+                <span className="text-[11px] font-medium text-orange-500">(unverified)</span>
               )}
             </div>
+            <div
+              className={cn(
+                "flex flex-wrap items-center text-muted-foreground",
+                resolvedSize.gap,
+                resolvedSize.subtext
+              )}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="inline-flex items-center gap-1 rounded-md bg-transparent px-1 py-0.5 text-muted-foreground transition hover:bg-accent/60 hover:text-foreground"
+                  >
+                    <span className="font-mono">{tokenSymbol}</span>
+                    <Copy className={cn(resolvedSize.icon)} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Copy contract address</p>
+                </TooltipContent>
+              </Tooltip>
+              <span className="text-muted-foreground/70">{truncatedMint}</span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            "flex flex-wrap items-center justify-end",
+            resolvedSize.actionsGap,
+            "mt-2 sm:mt-0"
+          )}
+        >
+          <div className="inline-flex items-center gap-1 rounded-full bg-background/70 px-2 py-1 text-muted-foreground border border-border/60">
+            <span className="uppercase text-[10px] tracking-wide">Mcap</span>
+            <span className={cn("font-semibold text-foreground", resolvedSize.metric)}>
+              {formatMarketCap(marketCap)}
+            </span>
+          </div>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                <a href={`https://gmgn.ai/sol/token/${mint}`} target="_blank" rel="noopener noreferrer">
+                  <TrendingUp className={cn("text-muted-foreground", resolvedSize.icon)} />
+                </a>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Open chart (gmgn.ai)</p>
+            </TooltipContent>
+          </Tooltip>
+
+          {tokenWebsite && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                  <a href={tokenWebsite} target="_blank" rel="noopener noreferrer">
+                    <Globe className={cn("text-muted-foreground", resolvedSize.icon)} />
+                  </a>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Website</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {tokenTwitter && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                  <a href={tokenTwitter} target="_blank" rel="noopener noreferrer">
+                    <Twitter className={cn("text-muted-foreground", resolvedSize.icon)} />
+                  </a>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Twitter / X</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {tokenTelegram && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                  <a href={tokenTelegram} target="_blank" rel="noopener noreferrer">
+                    <Send className={cn("text-muted-foreground", resolvedSize.icon)} />
+                  </a>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Telegram</p>
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
-      </PopoverContent>
-    </Popover>
+      </div>
+    </TooltipProvider>
   );
 });
 
 TokenBadge.displayName = "TokenBadge";
 
 export { TokenBadge };
-export type { TokenBadgeProps, TokenMetadata }; 
+export type { TokenBadgeProps, TokenMetadata };
