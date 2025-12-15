@@ -1,71 +1,12 @@
 import type { HolderProfile } from '../types';
 import { formatAddress, formatHoldTime, formatHoldSource, getTypicalHoldTimeHours } from './utils/formatters';
-import { getBehaviorBarColor, getBehaviorColor, getQualityColor } from './utils/behavior';
+import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta, getQualityColor } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface Props {
   profiles: HolderProfile[];
   mode: 'token' | 'wallet';
   onSelect?: (profile: HolderProfile) => void;
-}
-
-const behaviorDescriptions: Record<
-  string,
-  { title: string; description: string; timeframe: string }
-> = {
-  SNIPER: {
-    title: 'Sniper',
-    description:
-      'Lightning-fast traders who target specific price points with precision timing. Often algorithmic or bot-driven.',
-    timeframe: 'Hold time: < 1 second',
-  },
-  SCALPER: {
-    title: 'Scalper',
-    description:
-      'High-frequency traders capturing small price movements. Execute many trades per day for incremental gains.',
-    timeframe: 'Hold time: < 1 minute',
-  },
-  MOMENTUM: {
-    title: 'Momentum Trader',
-    description:
-      'Traders who ride short-term price trends and momentum. Enter on strength and exit when momentum fades.',
-    timeframe: 'Hold time: 5-30 minutes',
-  },
-  INTRADAY: {
-    title: 'Intraday Trader',
-    description:
-      'Full-session traders who analyze price action throughout the day. Hold positions for several hours but close before day end.',
-    timeframe: 'Hold time: 30 minutes - 4 hours',
-  },
-  DAY_TRADER: {
-    title: 'Day Trader',
-    description:
-      'Traders who complete their positions within 24 hours. May hold overnight but typically close within a day.',
-    timeframe: 'Hold time: 4-24 hours',
-  },
-  SWING: {
-    title: 'Swing Trader',
-    description:
-      'Medium-term traders who capitalize on multi-day price swings. Hold through minor fluctuations to capture larger moves.',
-    timeframe: 'Hold time: 1-7 days',
-  },
-  POSITION: {
-    title: 'Position Trader',
-    description:
-      'Patient traders who take long-term positions based on fundamental analysis. Willing to hold through volatility.',
-    timeframe: 'Hold time: 7+ days',
-  },
-  HOLDER: {
-    title: 'Holder',
-    description:
-      'Long-term investors with strong conviction. Hold assets for extended periods regardless of short-term price action.',
-    timeframe: 'Hold time: Extended (weeks to months)',
-  },
-};
-
-function getBehaviorDescription(type: string | null | undefined) {
-  if (!type) return null;
-  return behaviorDescriptions[type] ?? null;
 }
 
 function getQualityDescription(tier: string | null | undefined): string {
@@ -94,13 +35,41 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                     <span className="cursor-help">Behavior</span>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs text-xs">
-                    <p className="text-muted-foreground">Trading behavior classification based on typical hold times from completed positions</p>
+                    <p className="text-muted-foreground">
+                      Trading behavior classification based on typical exited hold times; current holdings do not affect this tag.
+                    </p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </th>
-            <th className="text-left px-4 py-2">Exited Hold</th>
-            <th className="text-left px-4 py-2">Active + Exited</th>
+            <th className="text-left px-4 py-2">
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-help">Exited Hold</span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    <p className="text-muted-foreground">
+                      Hold times calculated only from completed exits. Median = typical exit; Average = mean across all exits.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </th>
+            <th className="text-left px-4 py-2">
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-help">Active + Exited</span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    <p className="text-muted-foreground">
+                      Mixes current holdings with exits to show present behavior. Use alongside exit-only stats to spot recent shifts.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </th>
             <th className="text-left px-4 py-2">
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
@@ -117,6 +86,7 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
         </thead>
         <tbody>
           {profiles.map((profile) => {
+            const behaviorMeta = getBehaviorMeta(profile.behaviorType);
             const typicalHold = getTypicalHoldTimeHours(profile);
             const exitedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours;
             const exitedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours;
@@ -135,7 +105,7 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${getBehaviorColor(profile.behaviorType)}`}
                         >
-                          {profile.behaviorType ?? '🏷️'}
+                          {behaviorMeta?.label ?? profile.behaviorType ?? 'Unclassified'}
                         </span>
                       </TooltipTrigger>
                       <TooltipContent className="max-w-xs text-xs">

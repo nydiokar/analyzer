@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { HolderProfile } from '../types';
 import { formatHoldTime, formatHoldSource, formatPercentage, getTypicalHoldTimeHours } from './utils/formatters';
-import { getBehaviorColor } from './utils/behavior';
+import { getBehaviorColor, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ExitTimingDrilldownPanel } from './ExitTimingDrilldownPanel';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { TransactionDateRange } from './TransactionDateRange';
 import { WalletBadge } from '@/components/shared/WalletBadge';
+import { InfoIcon } from 'lucide-react';
 
 const formatBalanceCompact = (value: number | null | undefined) => {
   if (value === null || value === undefined) return '–';
@@ -94,35 +95,35 @@ interface ExitTimingBreakdownProps {
 function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress, onBucketClick }: ExitTimingBreakdownProps) {
   const buckets: Array<{ label: string; count: number; bucket: TimeBucket; winRate?: number; roiPercent?: number }> = [
     {
-      label: '<1s',
+      label: '<1 sec',
       count: distribution.instant ?? 0,
       bucket: 'instant',
       winRate: enrichedDistribution?.instant.winRate,
       roiPercent: enrichedDistribution?.instant.roiPercent
     },
     {
-      label: '<1m',
+      label: '<1 min',
       count: distribution.ultraFast ?? 0,
       bucket: 'ultraFast',
       winRate: enrichedDistribution?.ultraFast.winRate,
       roiPercent: enrichedDistribution?.ultraFast.roiPercent
     },
     {
-      label: '1-5m',
+      label: '1-5 min',
       count: distribution.fast ?? 0,
       bucket: 'fast',
       winRate: enrichedDistribution?.fast.winRate,
       roiPercent: enrichedDistribution?.fast.roiPercent
     },
     {
-      label: '5-30m',
+      label: '5-30 min',
       count: distribution.momentum ?? 0,
       bucket: 'momentum',
       winRate: enrichedDistribution?.momentum.winRate,
       roiPercent: enrichedDistribution?.momentum.roiPercent
     },
     {
-      label: '30m-4h',
+      label: '30 min-4h',
       count: distribution.intraday ?? 0,
       bucket: 'intraday',
       winRate: enrichedDistribution?.intraday.winRate,
@@ -232,13 +233,36 @@ function HoldMetricCard(props: {
   mixedValue: string;
   highlightMixed?: boolean;
   footer?: React.ReactNode;
+  tooltip?: string;
 }) {
-  const { label, exitedLabel = 'Exited', exitedValue, mixedLabel = 'Active + exited', mixedValue, highlightMixed, footer } =
-    props;
+  const {
+    label,
+    exitedLabel = 'Exited',
+    exitedValue,
+    mixedLabel = 'Active + exited',
+    mixedValue,
+    highlightMixed,
+    footer,
+    tooltip,
+  } = props;
 
   return (
     <div className="bg-muted/30 rounded-md p-3 border space-y-3">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
+      <div className="flex items-center gap-1">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
+        {tooltip && (
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <InfoIcon className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                <p>{tooltip}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <p className="text-[11px] text-muted-foreground">{exitedLabel}</p>
@@ -374,7 +398,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-help ${getBehaviorColor(profile.behaviorType)}`}>
-                    {profile.behaviorType ?? 'UNCLASSIFIED'}
+                    {getBehaviorMeta(profile.behaviorType)?.label ?? profile.behaviorType ?? 'Unclassified'}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
@@ -425,6 +449,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             mixedValue={formatHoldTime(inclusiveMedian)}
             highlightMixed={includesCurrentData}
             mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
+            tooltip="Median exit hold time. Active + exited blends current positions with completed exits to show present behavior shifts."
           />
           <HoldMetricCard
             label="Average Hold"
@@ -444,6 +469,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                 </button>
               ) : undefined
             }
+            tooltip="Average hold duration. Compare to the median to spot skew from a few long or short positions."
           />
         </div>
 
@@ -495,13 +521,13 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             </button>
           </div>
           <div className="max-h-[360px] overflow-y-auto pr-1">
-            <div className="grid gap-1.5 md:grid-cols-2">
+            <div className="grid gap-1 md:grid-cols-2">
               {displayedHoldings.map((holding) => (
-                <div key={holding.tokenAddress} className="flex items-center justify-between rounded-md border bg-background px-2.5 py-1.5">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <TokenBadge mint={holding.tokenAddress} size="sm" className="py-1" />
+                <div key={holding.tokenAddress} className="flex items-center justify-between rounded-md border bg-background px-2 py-1">
+                  <div className="flex items-center gap-1 min-w-0">
+                    <TokenBadge mint={holding.tokenAddress} size="sm" className="py-0.5" />
                   </div>
-                  <div className="text-xs text-muted-foreground text-right">
+                  <div className="text-xs text-muted-foreground text-right leading-tight">
                     Bal: {formatBalanceCompact(holding.uiBalance)}
                   </div>
                 </div>
