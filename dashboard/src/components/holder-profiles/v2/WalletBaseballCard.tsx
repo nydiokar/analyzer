@@ -439,7 +439,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
               <TooltipContent className="max-w-xs text-xs">
                 <p className="font-semibold mb-1">Token accounting</p>
                 <p className="text-muted-foreground">
-                  Total analyzed · fully exited · active holdings. "Other" covers dust/partial data the backend did not classify as active or exited.
+                Total analyzed / fully exited / active holdings. "Other" covers dust/spam/partial data, not classify as active or exited.
                 </p>
               </TooltipContent>
             </Tooltip>
