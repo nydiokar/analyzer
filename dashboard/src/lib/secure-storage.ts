@@ -1,5 +1,4 @@
 import { getCookie, setCookie, deleteCookie } from 'cookies-next';
-import { sessionEvents } from './session-events';
 
 export interface SecureStorage {
   getItem(key: string): string | null;
@@ -187,11 +186,6 @@ export class TokenManager {
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
       const now = Date.now() / 1000;
-
-      // If expiring within 5 minutes, emit pre-refresh so UI can refresh proactively
-      if (payload.exp && payload.exp < now + 300) {
-        sessionEvents.emitPreRefresh();
-      }
 
       return token;
     } catch (error) {

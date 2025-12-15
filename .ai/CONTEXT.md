@@ -20,9 +20,11 @@
 - Production build will be much faster (minified, optimized)
 - Not critical for internal tool
 
-### Latest Summary (2025‑12‑10)
+### Latest Summary (2025‑12‑15)
 - **Email verification with React Email** ✅ Complete: Professional email templates via React Email, clickable verification URLs (no copy-paste), Resend integration, route protection via middleware + client guards, verification page handles logged-in/out users.
 - Admin flag now lives entirely on the controller layer so auth responses expose `isAdmin`, restoring the Admin Panel entry in the UI; fetcher now surfaces structured error codes for better UX.
+- **Session handling polished**: proactive JWT refresh 5 minutes before expiry while active; inline re-auth modal (no page reload); failed request auto-replay after re-auth; cookie-mode refresh supported.
+- **TokenBadge/UI polish**: badges simplified (no nested boxes), clearer background; behavior tooltips unified across holder profile table and composition bar.
 
 ### Next Tasks
 
@@ -57,15 +59,16 @@
 
 #### **PRIORITY: Critical Bugs to Investigate (New - 2025-12-12)**
 6. **JWT Session Expiration Bug** – Sessions clearing after ~20 minutes unexpectedly:
-   - **Current Behavior**: Users being logged out after approximately 20 minutes
-   - **Expected**: JWT_EXPIRES_IN=7d in .env.example suggests 7-day sessions
-   - **Investigate**:
-     - Frontend token storage mechanism (localStorage vs memory vs cookies)
-     - Backend JWT expiration configuration
-     - Refresh token logic (if implemented)
-     - Browser/network interceptors that might be clearing tokens
-   - **Research**: Industry standard session duration (7 days vs 14 days vs 30 days for "remember me")
-   - **Goal**: Determine if 20-minute logout is a bug or misconfiguration, fix to match expected 7-day duration
+  - **Current Behavior**: Users being logged out after approximately 20 minutes
+  - **Expected**: JWT_EXPIRES_IN=7d in .env.example suggests 7-day sessions
+  - **Investigate**:
+    - Frontend token storage mechanism (localStorage vs memory vs cookies)
+    - Backend JWT expiration configuration
+    - Refresh token logic (if implemented)
+    - Browser/network interceptors that might be clearing tokens
+  - **Research**: Industry standard session duration (7 days vs 14 days vs 30 days for "remember me")
+  - **Goal**: Determine if 20-minute logout is a bug or misconfiguration, fix to match expected 7-day duration
+  - **Status**: Frontend mitigated — auto-refresh, inline re-auth modal, and request replay now in place; still verify backend JWT_EXPIRES_IN is set to desired duration.
 
 7. **Holder Profile Classification Bug** – "Unclassified" showing incorrectly:
    - **Scenario**: Wallets with no exited tokens (only holding) show as "Unclassified"

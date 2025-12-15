@@ -56,6 +56,7 @@ interface AuthStore {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+let refreshPromise: Promise<boolean> | null = null;
 
 // Create secure storage instance
 const secureStorage = createSecureStorage();
@@ -222,51 +223,58 @@ export const useAuthStore = create<AuthStore>()(
       
       // Security features
       refreshToken: async (): Promise<boolean> => {
+        if (refreshPromise) return refreshPromise;
         const refreshToken = tokenManager.getRefreshToken();
         if (!refreshToken) {
           return false;
         }
 
-        try {
-          const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', // support cookie-based auth mode
-            body: JSON.stringify({ refresh_token: refreshToken }),
-          });
+        refreshPromise = (async () => {
+          try {
+            const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include', // support cookie-based auth mode
+              body: JSON.stringify({ refresh_token: refreshToken }),
+            });
 
-          if (!response.ok) {
+            if (!response.ok) {
+              return false;
+            }
+
+            const data: AuthResponse = await response.json();
+
+            // Update tokens (rotate refresh if provided)
+            tokenManager.setAccessToken(data.access_token);
+            if (data.refresh_token) {
+              tokenManager.setRefreshToken(data.refresh_token);
+            }
+
+            set({
+              token: data.access_token,
+              user: {
+                id: data.user.id,
+                email: data.user.email,
+                isDemo: data.user.isDemo,
+                emailVerified: data.user.emailVerified,
+                isAdmin: data.user.isAdmin,
+                createdAt: new Date().toISOString(),
+                lastLoginAt: new Date().toISOString(),
+              },
+              isAuthenticated: true,
+              isUsingApiKey: false,
+            });
+
+            return true;
+          } catch (error) {
+            console.error('Token refresh failed', error);
             return false;
+          } finally {
+            refreshPromise = null;
           }
+        })();
 
-          const data: AuthResponse = await response.json();
-
-          // Update tokens (rotate refresh if provided)
-          tokenManager.setAccessToken(data.access_token);
-          if (data.refresh_token) {
-            tokenManager.setRefreshToken(data.refresh_token);
-          }
-
-          set({
-            token: data.access_token,
-            user: {
-              id: data.user.id,
-              email: data.user.email,
-              isDemo: data.user.isDemo,
-              emailVerified: data.user.emailVerified,
-              isAdmin: data.user.isAdmin,
-              createdAt: new Date().toISOString(),
-              lastLoginAt: new Date().toISOString(),
-            },
-            isAuthenticated: true,
-            isUsingApiKey: false,
-          });
-
-          return true;
-        } catch (error) {
-          console.error('Token refresh failed', error);
-          return false;
-        }
+        return refreshPromise;
       },
       
       isTokenValid: (): boolean => {
