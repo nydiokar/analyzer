@@ -272,6 +272,7 @@ export class PnlAnalysisService {
             }
             
             // Calculate unrealized PNL for current holdings using stored balance data
+            const holdingValueByMint = new Map<string, { valueSol: number; valueUsd: number }>();
             if (currentWalletBalance && currentWalletBalance.tokenBalances.length > 0) {
                 try {
                     // Get token info for price data
@@ -302,6 +303,7 @@ export class PnlAnalysisService {
                                     // Calculate current value in SOL (USD / SOL_price)
                                     const currentHoldingsValueUsd = currentUiBalance * priceUsd;
                                     const currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
+                                    holdingValueByMint.set(tokenBalance.mint, { valueSol: currentHoldingsValueSol, valueUsd: currentHoldingsValueUsd });
                                     
                                     // ✅ FILTER UNREALISTIC SOL VALUES
                                     // Skip tokens with unrealistic SOL values (likely DexScreener pricing errors)
@@ -501,6 +503,8 @@ export class PnlAnalysisService {
                     currentUiBalance: r.currentUiBalance,
                     currentUiBalanceString: r.currentUiBalanceString,
                     balanceDecimals: r.balanceDecimals,
+                    currentHoldingsValueSol: holdingValueByMint.get(r.tokenAddress)?.valueSol ?? null,
+                    currentHoldingsValueUsd: holdingValueByMint.get(r.tokenAddress)?.valueUsd ?? null,
                     balanceFetchedAt: r.balanceFetchedAt,
                 }));
 

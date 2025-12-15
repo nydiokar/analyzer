@@ -375,6 +375,19 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       } catch (error) {
         this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
       }
+      if (!solPriceUsd || solPriceUsd <= 0) {
+        try {
+          const cachedSol = await this.tokenInfoService.getCachedSolPrice();
+          if (cachedSol && cachedSol > 0) {
+            solPriceUsd = cachedSol;
+            this.logger.log(`Using cached SOL price fallback for PNL analysis: $${solPriceUsd}`);
+          } else {
+            this.logger.warn('No cached SOL price available; unrealized PNL/SOL conversions will be skipped.');
+          }
+        } catch (fallbackError) {
+          this.logger.warn(`Failed to read cached SOL price fallback: ${fallbackError}`);
+        }
+      }
       await job.updateProgress(55);
 
       this.logger.debug(`Running PNL analysis for ${walletAddress} [scope=${scope}]`);
@@ -1276,7 +1289,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     // Query pre-computed PnL from AnalysisResult table (source of truth)
     let pnlMap: Map<string, { pnl: number; capital: number }> | undefined;
-    let currentHoldings: Array<{ tokenAddress: string; uiBalance: number | null; decimals: number | null }> = [];
+    let currentHoldings: Array<{ tokenAddress: string; uiBalance: number | null; decimals: number | null; valueSol?: number | null; valueUsd?: number | null }> = [];
     try {
       const pnlResults = await this.databaseService.getAnalysisResults({
         where: { walletAddress },
@@ -1298,6 +1311,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             tokenAddress: r.tokenAddress,
             uiBalance: r.currentUiBalance,
             decimals: typeof r.balanceDecimals === 'number' ? r.balanceDecimals : null,
+            valueSol: r.currentHoldingsValueSol,
+            valueUsd: r.currentHoldingsValueUsd,
           }));
         this.logger.debug(
           `Loaded PnL for ${pnlResults.length} tokens for wallet ${walletAddress}`
@@ -1338,9 +1353,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const percentValueInCurrentHoldings = typeof behaviorResult?.percentOfValueInCurrentHoldings === 'number'
         ? behaviorResult.percentOfValueInCurrentHoldings
         : null;
-      const currentHoldingsCount = typeof behaviorResult?.tokensWithOnlyBuys === 'number'
-        ? behaviorResult.tokensWithOnlyBuys
-        : null;
+      const HOLD_VALUE_THRESHOLD_SOL = 0.01;
+      const valueFilteredHoldings = currentHoldings.filter((holding) => {
+        if (typeof holding.valueSol === 'number') {
+          return holding.valueSol >= HOLD_VALUE_THRESHOLD_SOL;
+        }
+        return (holding.uiBalance ?? 0) > 0;
+      });
+      const rawHoldingsCount = currentHoldings.length;
+      const currentHoldingsCount = valueFilteredHoldings.length;
       const currentHoldMedianHours = hasCurrentHoldingsData
         ? (behaviorResult?.medianCurrentHoldingDurationHours ?? null)
         : null;
@@ -1422,6 +1443,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const totalTokensTraded = behaviorResult?.uniqueTokensTraded ?? 0;
       const exitedTokensCount = historicalPattern?.completedCycleCount ?? 0;
       const exitRate = totalTokensTraded > 0 ? (exitedTokensCount / totalTokensTraded) * 100 : 0;
+      const unresolvedTokensCount = Math.max(totalTokensTraded - exitedTokensCount - (currentHoldingsCount ?? 0), 0);
 
       // Determine data quality tier
       const dataQualityTier = hasEnoughExitedData
@@ -1431,6 +1453,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           )
         : 'BRONZE' as const; // Current holdings data = lower quality
 
+      // Fallback classification for holders with no exits
+      const behaviorType =
+        historicalPattern?.behaviorType ??
+        ((currentHoldingsCount ?? 0) > 0 ? 'HOLDER' : null);
+
       return {
         walletAddress,
         rank,
@@ -1439,7 +1466,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         avgHoldTimeHours,
         dailyFlipRatio: flipRatioResult.ratio,
         dailyFlipRatioConfidence: flipRatioResult.confidence,
-        behaviorType: historicalPattern?.behaviorType ?? null,
+        behaviorType,
         exitPattern: historicalPattern?.exitPattern ?? null,
         dataQualityTier,
         completedCycleCount: exitedTokensCount,
@@ -1458,7 +1485,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         currentHoldAverageHours,
         percentValueInCurrentHoldings,
         currentHoldingsCount,
-        currentHoldings,
+        currentHoldings: valueFilteredHoldings,
+        unresolvedTokensCount,
+        activeHoldingsFilteredOut: Math.max(rawHoldingsCount - (currentHoldingsCount ?? 0), 0),
+        heldValueThresholdSol: HOLD_VALUE_THRESHOLD_SOL,
         oldestTransactionTimestamp,
         newestTransactionTimestamp,
       };

@@ -14,8 +14,6 @@ const formatBalanceCompact = (value: number | null | undefined) => {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(value);
 };
 
-const HOLDINGS_MIN_BALANCE = 0.001; // hide obvious dust so counts align with held token summary
-
 interface Props {
   profile: HolderProfile;
   walletAddress: string;
@@ -328,7 +326,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const behaviorDisplayType = profile.behaviorType ?? (heldTokens > 0 ? 'HOLDER' : null);
   const currentHoldingsList = useMemo(
     () => (profile.currentHoldings || [])
-      .filter((holding) => (holding.uiBalance ?? 0) >= HOLDINGS_MIN_BALANCE)
+      .filter((holding) => (holding.uiBalance ?? 0) > 0)
       .sort((a, b) => (b.uiBalance ?? 0) - (a.uiBalance ?? 0)),
     [profile.currentHoldings]
   );

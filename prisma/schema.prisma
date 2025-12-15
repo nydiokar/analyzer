@@ -84,6 +84,8 @@ model AnalysisResult {
   currentUiBalance        Float?
   currentUiBalanceString  String?
   balanceDecimals         Int?
+  currentHoldingsValueSol Float?
+  currentHoldingsValueUsd Float?
   balanceFetchedAt        DateTime?
   updatedAt               DateTime  @default(now()) @updatedAt
   wallet                  Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)

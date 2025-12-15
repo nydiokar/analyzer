@@ -217,7 +217,12 @@ export interface HolderProfile {
     tokenAddress: string;
     uiBalance: number | null;
     decimals: number | null;
+    valueSol?: number | null;
+    valueUsd?: number | null;
   }>;
+  unresolvedTokensCount?: number | null;
+  activeHoldingsFilteredOut?: number | null;
+  heldValueThresholdSol?: number | null;
   oldestTransactionTimestamp?: number;
   newestTransactionTimestamp?: number;
 }

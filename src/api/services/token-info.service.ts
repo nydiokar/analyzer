@@ -67,6 +67,18 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
   }
 
   /**
+   * Get SOL price from cache only (no network call).
+   * Returns null if not cached or parse fails.
+   */
+  async getCachedSolPrice(): Promise<number | null> {
+    const cacheKey = 'sol_price_usd';
+    const cached = await this.redis.get(cacheKey);
+    if (!cached) return null;
+    const price = parseFloat(cached);
+    return Number.isFinite(price) && price > 0 ? price : null;
+  }
+
+  /**
    * Get token supply (cached permanently - supply doesn't change for immutable tokens)
    * Token supply is immutable blockchain data, so we cache it indefinitely
    *
