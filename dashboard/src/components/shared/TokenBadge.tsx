@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useTokenMetadata } from "@/hooks/useTokenMetadata";
-import { Copy, ExternalLink, Globe, Send, TrendingUp, Twitter } from "lucide-react";
+import { Copy, Globe, Send, TrendingUp, Twitter } from "lucide-react";
 import { memo, MouseEvent, useMemo } from "react";
 
 interface TokenMetadata {
@@ -47,46 +47,63 @@ interface TokenBadgeProps {
 
 const sizeConfig = {
   s: {
-    avatar: "h-8 w-8",
-    padding: "px-2.5 py-1.5",
+    avatar: "h-7 w-7",
+    padding: "px-2.5 py-1.25",
     gap: "gap-2",
-    text: "text-[11px]",
-    subtext: "text-[10px]",
+    name: "text-[11px]",
+    ticker: "text-[12px]",
     metric: "text-[11px]",
     icon: "h-3 w-3",
+    chipPadding: "px-2 py-0.5",
     actionsGap: "gap-1.5",
   },
   m: {
-    avatar: "h-9 w-9",
-    padding: "px-3 py-2",
-    gap: "gap-3",
-    text: "text-sm",
-    subtext: "text-xs",
+    avatar: "h-8 w-8",
+    padding: "px-3 py-1.75",
+    gap: "gap-2.5",
+    name: "text-[13px]",
+    ticker: "text-sm",
     metric: "text-xs",
     icon: "h-3.5 w-3.5",
+    chipPadding: "px-2.5 py-0.5",
     actionsGap: "gap-2",
   },
   l: {
-    avatar: "h-10 w-10",
-    padding: "px-3.5 py-2.5",
+    avatar: "h-9 w-9",
+    padding: "px-3.5 py-2",
     gap: "gap-3",
-    text: "text-base",
-    subtext: "text-sm",
+    name: "text-[15px]",
+    ticker: "text-base",
     metric: "text-sm",
     icon: "h-4 w-4",
+    chipPadding: "px-3 py-1",
     actionsGap: "gap-2.5",
   },
   xl: {
     avatar: "h-12 w-12",
-    padding: "px-4 py-3",
+    padding: "px-4 py-2.5",
     gap: "gap-4",
-    text: "text-lg",
-    subtext: "text-sm",
+    name: "text-[17px]",
+    ticker: "text-lg",
     metric: "text-sm",
     icon: "h-4 w-4",
+    chipPadding: "px-3.5 py-1",
     actionsGap: "gap-3",
   },
-} satisfies Record<"s" | "m" | "l" | "xl", Record<string, string>>;
+} satisfies Record<
+  "s" | "m" | "l" | "xl",
+  {
+    avatar: string;
+    padding: string;
+    gap: string;
+    name: string;
+    ticker: string;
+    metric: string;
+    icon: string;
+    chipPadding: string;
+    actionsGap: string;
+  }
+>;
 
 const formatMarketCap = (value: number | null | undefined) => {
   if (typeof value === "number" && !isNaN(value) && value > 0) {
@@ -110,30 +127,39 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
 
   // ===== CENTRALIZED METADATA PRIORITY LOGIC =====
   const tokenName = metadata?.onchainName || metadata?.name || "Unknown Token";
-  const tokenSymbol = metadata?.onchainSymbol || metadata?.symbol || `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+  const tokenSymbol = metadata?.onchainSymbol || metadata?.symbol || "";
   const tokenImage = metadata?.imageUrl || metadata?.onchainImageUrl;
   const tokenWebsite = metadata?.websiteUrl || metadata?.onchainWebsiteUrl;
   const tokenTwitter = metadata?.twitterUrl || metadata?.onchainTwitterUrl;
   const tokenTelegram = metadata?.telegramUrl || metadata?.onchainTelegramUrl;
   const marketCap = metadata?.marketCapUsd ?? null;
-  const truncatedMint = `${mint.slice(0, 4)}...${mint.slice(-4)}`;
   const normalizedSize =
     size === "sm" ? "s" : size === "md" ? "m" : size === "lg" ? "l" : size;
   const resolvedSize = sizeConfig[normalizedSize as keyof typeof sizeConfig] ?? sizeConfig.m;
+  const displaySymbol = tokenSymbol ? tokenSymbol.toUpperCase() : "—";
 
-  const handleCopy = async (e: MouseEvent) => {
+  const handleCopyTicker = async (e: MouseEvent) => {
     e.stopPropagation();
+
+    if (!tokenSymbol) {
+      toast({
+        title: "No ticker available",
+        description: "This token has no ticker to copy yet.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(mint);
+        await navigator.clipboard.writeText(displaySymbol);
         toast({
           title: "Copied!",
-          description: "Token address copied to clipboard.",
+          description: "Ticker copied to clipboard.",
         });
       } else {
         const textArea = document.createElement("textarea");
-        textArea.value = mint;
+        textArea.value = displaySymbol;
         textArea.style.position = "fixed";
         textArea.style.left = "-999999px";
         document.body.appendChild(textArea);
@@ -143,7 +169,7 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
 
         toast({
           title: "Copied!",
-          description: "Token address copied to clipboard.",
+          description: "Ticker copied to clipboard.",
         });
       }
     } catch (error) {
@@ -159,7 +185,7 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
     return (
       <div
         className={cn(
-          "flex items-center gap-3 rounded-lg border border-border/50 bg-muted/30",
+          "flex items-center gap-3 rounded-xl border border-border/60 bg-card/80",
           resolvedSize.padding,
           className
         )}
@@ -177,79 +203,78 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
     <TooltipProvider>
       <div
         className={cn(
-          "flex flex-wrap items-center justify-between gap-3 sm:gap-4 rounded-lg border border-border/50 bg-muted/30 shadow-base transition-shadow duration-200 hover:shadow-hover",
+          "flex flex-col gap-3 rounded-xl border border-border/60 bg-card/80 shadow-base transition-shadow duration-200 hover:shadow-hover",
           resolvedSize.padding,
           className
         )}
       >
-        <div className={cn("flex min-w-0 items-center", resolvedSize.gap, "flex-1")}>
-          <Avatar className={resolvedSize.avatar}>
-            <AvatarImage
-              src={tokenImage ?? undefined}
-              alt={tokenName}
-              className={resolvedSize.avatar}
-            />
-            <AvatarFallback className="text-xs">{tokenName.charAt(0)}</AvatarFallback>
-          </Avatar>
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="flex items-center gap-1 min-w-0">
-              <a
-                href={`https://solscan.io/token/${mint}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn(
-                  "inline-flex items-center gap-1 font-semibold text-foreground hover:underline",
-                  resolvedSize.text
-                )}
-              >
-                {tokenName}
-                <ExternalLink className={cn("text-muted-foreground", resolvedSize.icon)} />
-              </a>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <div className={cn("flex min-w-0 items-center", resolvedSize.gap, "flex-1")}>
+            <Avatar className={resolvedSize.avatar}>
+              <AvatarImage
+                src={tokenImage ?? undefined}
+                alt={tokenName}
+                className={resolvedSize.avatar}
+              />
+              <AvatarFallback className="text-xs">{tokenName.charAt(0)}</AvatarFallback>
+            </Avatar>
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <a
+                  href={`https://solscan.io/token/${mint}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    "inline-flex min-w-0 items-center truncate font-semibold text-foreground transition-colors hover:text-primary",
+                    resolvedSize.name
+                  )}
+                  title={tokenName}
+                >
+                  <span className="truncate">{tokenName}</span>
+                </a>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleCopyTicker}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-md bg-background/70 px-2 py-1 uppercase text-foreground transition hover:bg-accent/70",
+                        resolvedSize.ticker
+                      )}
+                    >
+                      <span className="font-semibold tracking-wide">{displaySymbol}</span>
+                      <Copy className={cn(resolvedSize.icon)} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Copy ticker</p>
+                  </TooltipContent>
+                </Tooltip>
+                <div
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 text-muted-foreground",
+                    resolvedSize.chipPadding
+                  )}
+                >
+                  <span className="uppercase text-[10px] tracking-wide">Mcap</span>
+                  <span className={cn("font-semibold text-foreground", resolvedSize.metric)}>
+                    {formatMarketCap(marketCap)}
+                  </span>
+                </div>
+              </div>
               {tokenName === "Unknown Token" && (
-                <span className="text-[11px] font-medium text-orange-500">(unverified)</span>
+                <span className="text-[11px] font-medium text-orange-500">Unverified metadata</span>
               )}
-            </div>
-            <div
-              className={cn(
-                "flex flex-wrap items-center text-muted-foreground",
-                resolvedSize.gap,
-                resolvedSize.subtext
-              )}
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className="inline-flex items-center gap-1 rounded-md bg-transparent px-1 py-0.5 text-muted-foreground transition hover:bg-accent/60 hover:text-foreground"
-                  >
-                    <span className="font-mono">{tokenSymbol}</span>
-                    <Copy className={cn(resolvedSize.icon)} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Copy contract address</p>
-                </TooltipContent>
-              </Tooltip>
-              <span className="text-muted-foreground/70">{truncatedMint}</span>
             </div>
           </div>
         </div>
 
         <div
           className={cn(
-            "flex flex-wrap items-center justify-end",
-            resolvedSize.actionsGap,
-            "mt-2 sm:mt-0"
+            "flex flex-wrap items-center justify-start rounded-lg border border-border/50 bg-background/60 px-1.5 py-1 sm:justify-end",
+            resolvedSize.actionsGap
           )}
         >
-          <div className="inline-flex items-center gap-1 rounded-full bg-background/70 px-2 py-1 text-muted-foreground border border-border/60">
-            <span className="uppercase text-[10px] tracking-wide">Mcap</span>
-            <span className={cn("font-semibold text-foreground", resolvedSize.metric)}>
-              {formatMarketCap(marketCap)}
-            </span>
-          </div>
-
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
