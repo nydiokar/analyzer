@@ -222,8 +222,8 @@ export class DexscreenerService {
                 if (pair && pair.priceUsd) {
                     const solPrice = parseFloat(pair.priceUsd);
                     
-                    // Sanity check: SOL price should be reasonable ($50-$500 range)
-                    if (solPrice >= 50 && solPrice <= 500) {
+                    // Sanity check removed — rely on provider data, let downstream filters handle anomalies
+                    if (solPrice > 0) {
                         // Cache the price
                         this.solPriceCache = {
                             price: solPrice,
