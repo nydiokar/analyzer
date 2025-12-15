@@ -152,14 +152,14 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
 
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(displaySymbol);
+        await navigator.clipboard.writeText(mint);
         toast({
           title: "Copied!",
-          description: "Ticker copied to clipboard.",
+          description: "Token address copied to clipboard.",
         });
       } else {
         const textArea = document.createElement("textarea");
-        textArea.value = displaySymbol;
+        textArea.value = mint;
         textArea.style.position = "fixed";
         textArea.style.left = "-999999px";
         document.body.appendChild(textArea);
@@ -169,7 +169,7 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
 
         toast({
           title: "Copied!",
-          description: "Ticker copied to clipboard.",
+          description: "Token address copied to clipboard.",
         });
       }
     } catch (error) {
@@ -250,17 +250,6 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
                     <p>Copy ticker</p>
                   </TooltipContent>
                 </Tooltip>
-                <div
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 text-muted-foreground",
-                    resolvedSize.chipPadding
-                  )}
-                >
-                  <span className="uppercase text-[10px] tracking-wide">Mcap</span>
-                  <span className={cn("font-semibold text-foreground", resolvedSize.metric)}>
-                    {formatMarketCap(marketCap)}
-                  </span>
-                </div>
               </div>
               {tokenName === "Unknown Token" && (
                 <span className="text-[11px] font-medium text-orange-500">Unverified metadata</span>
@@ -276,6 +265,18 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
             "pt-1 border-t border-border/40"
           )}
         >
+          <div
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 text-muted-foreground",
+              resolvedSize.chipPadding
+            )}
+          >
+            <span className="uppercase text-[10px] tracking-wide">Mcap</span>
+            <span className={cn("font-semibold text-foreground", resolvedSize.metric)}>
+              {formatMarketCap(marketCap)}
+            </span>
+          </div>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
