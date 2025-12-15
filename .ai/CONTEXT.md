@@ -25,11 +25,14 @@
 - Admin flag now lives entirely on the controller layer so auth responses expose `isAdmin`, restoring the Admin Panel entry in the UI; fetcher now surfaces structured error codes for better UX.
 - **Session handling polished**: proactive JWT refresh 5 minutes before expiry while active; inline re-auth modal (no page reload); failed request auto-replay after re-auth; cookie-mode refresh supported.
 - **TokenBadge/UI polish**: badges simplified (no nested boxes), clearer background; behavior tooltips unified across holder profile table and composition bar; holder current-holdings layout tightened.
+- **Holder profiles cleanup**: new behavior palette/labels + holder-without-exits fallback, value-aware active count (0.01 SOL threshold) with “Other” bucket, tooltips clarified for median/average and value-held. Added per-token value to `AnalysisResult` and server-side filtering; UI no longer client-filters dust.
+- **SOL price resilience**: PnL now fetches SOL price internally (CoinGecko primary, Dexscreener fallback, Redis cache) and no caller-side fetch is required; removed redundant holder-profile fetch. SOL values persist when price is available; USD always stored.
 
 ### Next Tasks
 
 #### **PRIORITY: UX & Design Improvements (New - 2025-12-12)**
 1. **Holder Profile Color Scheme** – Improve trader category colors for better visual hierarchy and intuition. Current colors aren't eye-friendly or intuitive for different trader categories. Research industry-standard color schemes for trader classifications (e.g., Fast Exit, Diamond Hands, etc.).
+   - **Status**: ✅ Revised palette/labels and applied across badges/bars.
 
 2. **TokenBadge Redesign** – Transform into an always-visible, resizable profile component:
    - ✅ **Implemented**: Always-visible inline badge with s/m/l/xl (sm/md/lg aliases) showing name→Solscan, copyable symbol, market-cap chip, gmgn + socials inline.
@@ -43,7 +46,7 @@
    - **Exit Timing Metrics**: What does "Fast Exit (median 23m)" mean in practice? Why is it useful?
    - **Hold Times**: Clarify what each metric represents and how to interpret it
    - **All Dashboard Metrics**: User-friendly explanations for every data point - assume non-technical users
-   - **Status**: Behavior/tooltips unified in holder profiles; remaining metrics (median vs avg, exit timing explanations) still pending.
+   - **Status**: Behavior/tooltips unified in holder profiles; median/avg and value-held clarified. Exit timing/global metrics still pending.
 
 4. **Fast Exit Metric Clarification** – In aggregated data fields (holder profile cards):
    - **Current Issue**: Shows "Fast Exit (median 23m)" then repeats "(median 23m)" - redundant
@@ -81,6 +84,7 @@
      - Review classification criteria - why does it require exit data?
      - Consider separate classification for "holders only" vs "traders"
    - **Question**: Is "Unclassified" the intended behavior or a gap in the classification system?
+   - **Status**: Partially addressed — holder-without-exits now falls back to HOLDER with value-aware counts; deeper heuristics still to decide.
 
 #### **Original Planned Tasks**
 8. ~~**Resend integration**~~ ✅ DONE – React Email templates + Resend configured with verify@sova-intel.com sender.
