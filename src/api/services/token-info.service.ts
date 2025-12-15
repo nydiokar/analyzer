@@ -57,7 +57,14 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
 
     // Cache miss - fetch from provider
     this.logger.log('[SOL Price] Cache miss, fetching from provider');
-    const price = await this.priceProvider.fetchSolPrice();
+    let price: number;
+    try {
+      price = await this.priceProvider.fetchSolPrice();
+      this.logger.log(`[SOL Price] Provider returned: $${price}`);
+    } catch (err) {
+      this.logger.error(`[SOL Price] Provider fetch failed`, err);
+      throw err;
+    }
     
     // Cache with 30-second TTL
     await this.redis.set(cacheKey, price.toString(), 'EX', 30);
