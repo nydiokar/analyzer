@@ -205,8 +205,8 @@ export class BehaviorAnalyzer {
     );
 
     // Get config thresholds
-    const minCompletedCycles = this.config.historicalPatternConfig?.minimumCompletedCycles ?? 3;
-    const maxDataAgeDays = this.config.historicalPatternConfig?.maximumDataAgeDays ?? 90;
+    const minCompletedCycles = this.config.historicalPatternConfig?.minimumCompletedCycles ?? 1;
+    const maxDataAgeDays = this.config.historicalPatternConfig?.maximumDataAgeDays ?? 10000;
     const maxDataAgeSeconds = maxDataAgeDays * 24 * 60 * 60;
 
     // Filter by data age if configured
@@ -646,7 +646,7 @@ export class BehaviorAnalyzer {
       return { exited: false, exitTimestamp: null };
     }
 
-    const exitThreshold = this.config.holdingThresholds?.exitThreshold ?? 0.20;
+    const exitThreshold = this.config.holdingThresholds?.exitThreshold ?? 0.80;
     const exitThresholdAmount = peakPosition * exitThreshold;
 
     let currentPosition = 0;
