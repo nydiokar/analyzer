@@ -3,7 +3,10 @@
 import { useEffect } from "react";
 import { sessionEvents } from "@/lib/session-events";
 import { useAuthStore } from "@/store/auth-store";
-import { tokenManager } from "@/lib/secure-storage";
+import { createSecureStorage, TokenManager } from "@/lib/secure-storage";
+
+// Local token manager instance pointing at the same underlying storage (cookies/local)
+const proactiveTokenManager = new TokenManager(createSecureStorage());
 
 /**
  * Proactively refresh 5 minutes before exp while the user is active.
@@ -13,7 +16,7 @@ export const useProactiveRefresh = () => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
 
     const schedule = () => {
-      const token = tokenManager.getAccessToken();
+      const token = proactiveTokenManager.getAccessToken();
       if (!token) return;
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));
