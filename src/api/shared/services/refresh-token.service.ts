@@ -28,10 +28,16 @@ export class RefreshTokenService {
   private readonly REFRESH_PREFIX = 'refresh_session:';
   private readonly REFRESH_TOKEN_PREFIX = 'refresh_token_hash:';
   private readonly USER_SESSIONS_PREFIX = 'user_sessions:';
-  private readonly REFRESH_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
-  private readonly ABSOLUTE_REFRESH_TTL = 30 * 24 * 60 * 60; // 30 days in seconds (defense-in-depth)
+  private readonly REFRESH_TTL: number; // seconds
+  private readonly ABSOLUTE_REFRESH_TTL: number; // seconds (defense-in-depth)
   
   constructor(private readonly configService: ConfigService) {
+    // TTLs are env-driven with sane defaults
+    const refreshTtlDays = Number(this.configService.get<string>('REFRESH_TOKEN_TTL_DAYS') || 7);
+    const absoluteRefreshTtlDays = Number(this.configService.get<string>('REFRESH_TOKEN_ABSOLUTE_TTL_DAYS') || 30);
+    this.REFRESH_TTL = refreshTtlDays * 24 * 60 * 60;
+    this.ABSOLUTE_REFRESH_TTL = absoluteRefreshTtlDays * 24 * 60 * 60;
+
     // Initialize Redis connection
     const redisUrl = this.configService.get<string>('REDIS_URL') || 'redis://localhost:6379';
     this.redis = new Redis(redisUrl, {

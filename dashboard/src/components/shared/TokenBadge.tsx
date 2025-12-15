@@ -208,7 +208,7 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
           className
         )}
       >
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <div className={cn("flex min-w-0 items-center", resolvedSize.gap, "flex-1")}>
             <Avatar className={resolvedSize.avatar}>
               <AvatarImage
@@ -264,6 +264,7 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
             resolvedSize.actionsGap,
             "pt-1 border-t border-border/40"
           )}
+          style={{ marginTop: "-4px" }} // tighten vertical spacing between title row and actions
         >
           <div
             className={cn(
