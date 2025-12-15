@@ -388,7 +388,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           this.logger.warn(`Failed to read cached SOL price fallback: ${fallbackError}`);
         }
       }
-      this.logger.debug(`PNL analysis using solPriceUsd=${solPriceUsd}`);
+      this.logger.warn(`PNL analysis using solPriceUsd=${solPriceUsd}`);
       await job.updateProgress(55);
 
       this.logger.debug(`Running PNL analysis for ${walletAddress} [scope=${scope}]`);

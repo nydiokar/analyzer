@@ -83,7 +83,7 @@ export class PnlAnalysisService {
         timeRange?: { startTs?: number; endTs?: number },
         options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean, solPriceUsd?: number }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
-        logger.debug(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, options });
+        logger.warn(`[PnlAnalysis] Starting analysis for wallet ${walletAddress} with solPriceUsd=${options?.solPriceUsd ?? 'null/undefined'}`, { timeRange });
 
         let runId: number | undefined = undefined;
         let analysisRunStatus: 'COMPLETED' | 'FAILED' | 'IN_PROGRESS' = 'IN_PROGRESS';

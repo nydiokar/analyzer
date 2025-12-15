@@ -51,7 +51,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     const cached = await this.redis.get(cacheKey);
     if (cached) {
       const price = parseFloat(cached);
-      this.logger.debug(`[SOL Price] Cache hit: $${price}`);
+      this.logger.log(`[SOL Price] Cache hit: $${price}`);
       return price;
     }
 
