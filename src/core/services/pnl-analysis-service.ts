@@ -83,7 +83,16 @@ export class PnlAnalysisService {
         timeRange?: { startTs?: number; endTs?: number },
         options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean, solPriceUsd?: number }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
-        logger.warn(`[PnlAnalysis] Starting analysis for wallet ${walletAddress} with solPriceUsd=${options?.solPriceUsd ?? 'null/undefined'}`, { timeRange });
+        let estimatedSolPriceUsd = options?.solPriceUsd || 0;
+        if ((!estimatedSolPriceUsd || estimatedSolPriceUsd <= 0) && this.tokenInfoService) {
+            try {
+                estimatedSolPriceUsd = await this.tokenInfoService.getSolPrice();
+            } catch (err) {
+                logger.warn(`[PnlAnalysis] Failed to fetch SOL price internally: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
+
+        logger.warn(`[PnlAnalysis] Starting analysis for wallet ${walletAddress} with solPriceUsd=${estimatedSolPriceUsd || 'null/undefined'}`, { timeRange });
 
         let runId: number | undefined = undefined;
         let analysisRunStatus: 'COMPLETED' | 'FAILED' | 'IN_PROGRESS' = 'IN_PROGRESS';
