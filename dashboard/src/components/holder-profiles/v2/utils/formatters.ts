@@ -12,19 +12,17 @@ export function formatHoldTime(hours: number | null | undefined) {
     if (minutes < 1) {
       return `${Math.round(minutes * 60)}s`;
     }
-    return `${Math.round(minutes)}m`;
+    return `${Math.round(minutes)}min`;
   }
   if (hours < 24) {
     const wholeHours = Math.floor(hours);
     const mins = Math.round((hours - wholeHours) * 60);
-    return mins ? `${wholeHours}h ${mins}m` : `${wholeHours}h`;
+    return mins ? `${wholeHours}h ${mins}min` : `${wholeHours}h`;
   }
   const days = hours / 24;
-  if (days < 7) return `${days.toFixed(1)}d`;
-  const weeks = days / 7;
-  if (weeks < 4) return `${weeks.toFixed(1)}w`;
-  const months = weeks / 4;
-  return `${months.toFixed(1)}m`; // ~months
+  if (days < 30) return `${days.toFixed(1)}d`;
+  const months = days / 30;
+  return `${months.toFixed(1)}mo`;
 }
 
 export function formatPercentage(value: number | null | undefined, digits = 1) {
