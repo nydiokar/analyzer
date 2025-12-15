@@ -325,16 +325,51 @@ export const BEHAVIOR_ANALYSIS_CONFIG = {
     MIN_TOKENS_WITH_TRADES: 2,          // Minimum tokens with both buys/sells - from analyzer.ts:1550
   },
 
-  // Hold time distribution buckets (in hours) - from analyzer.ts:299-306
-  HOLD_TIME_BUCKETS: {
+  // Time-based bucket boundaries (in hours) - shared between different analyses
+  TIME_BUCKETS: {
     INSTANT: 0.0001,     // < 0.36 seconds (same transaction)
     ULTRA_FAST: 1/60,    // < 1 minute
+    VERY_FAST: 1/60,     // < 1 minute (alias for consistency)
     FAST: 5/60,          // 1-5 minutes
-    MOMENTUM: 0.5,       // 5-30 minutes
-    INTRADAY: 4,         // 30 minutes - 4 hours
-    DAY: 24,             // 4-24 hours
+    MOMENTUM: 0.5,       // 5-30 minutes / < 30 min for trading speed
+    MODERATE: 1,         // 30-60 min / 1 hour
+    INTRADAY: 4,         // 1-4 hours
+    DAY_TRADER: 8,       // 4-8 hours
+    DAY: 24,             // 8-24 hours / 4-24 hours for hold times
     SWING: 168,          // 1-7 days (24*7)
     // POSITION: > 168 hours (7+ days)
+  },
+
+  // Behavior classification thresholds
+  BEHAVIOR_CLASSIFICATION: {
+    FULL_HOLDER_THRESHOLD: 0.75,  // Position >75% remaining = FULL_HOLDER
+    BALANCED_SYMMETRY_MIN: 0.7,   // Min symmetry for BALANCED classification
+    BALANCED_CONSISTENCY_MIN: 0.7, // Min consistency for BALANCED classification
+    ACCUMULATOR_RATIO_MIN: 2.5,    // Buy/sell ratio >2.5 = ACCUMULATOR
+    DISTRIBUTOR_RATIO_MAX: 0.4,    // Buy/sell ratio <0.4 = DISTRIBUTOR
+    HOLDER_RATIO_MIN: 1.5,         // Buy/sell ratio >1.5 = HOLDER
+  },
+
+  // Flipper score calculation weights - from analyzer.ts:1514-1529
+  FLIPPER_SCORE: {
+    ULTRA_FAST_WEIGHT: 0.85,    // Weight for ultra-fast trading
+    VERY_FAST_WEIGHT: 0.10,     // Weight for very fast trading
+    FAST_WEIGHT: 0.05,          // Weight for fast trading
+    SPEED_WEIGHT: 0.7,          // Overall speed weight in final score
+    BALANCE_WEIGHT: 0.3,        // Balance weight in final score
+    ULTRA_FAST_DOMINANCE_MIN: 0.5, // Min ultra-fast % to trigger bonus
+    DOMINANCE_BONUS: 0.2,       // Bonus added when ultra-fast dominates
+  },
+
+  // Confidence score calculation weights - from analyzer.ts:1600-1617
+  CONFIDENCE_SCORE: {
+    DATA_QUALITY_WEIGHT: 0.4,   // Weight for data quality in confidence
+    DEFAULT_DATA_QUALITY: 0.5,  // Default data quality when not available
+    SAMPLE_SIZE_BONUS_10: 0.3,  // Bonus for 10+ completed cycles
+    SAMPLE_SIZE_BONUS_5: 0.2,   // Bonus for 5+ completed cycles
+    SAMPLE_SIZE_BONUS_3: 0.1,   // Bonus for 3+ completed cycles
+    BALANCE_WEIGHT: 0.3,        // Weight for balance consistency
+    MAX_CONFIDENCE: 1.0,        // Maximum confidence score
   },
 } as const;
 
