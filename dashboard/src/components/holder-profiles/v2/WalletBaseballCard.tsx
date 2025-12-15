@@ -14,6 +14,8 @@ const formatBalanceCompact = (value: number | null | undefined) => {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(value);
 };
 
+const HOLDINGS_MIN_BALANCE = 0.001; // hide obvious dust so counts align with held token summary
+
 interface Props {
   profile: HolderProfile;
   walletAddress: string;
@@ -323,9 +325,10 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const heldTokens = profile.currentHoldingsCount ?? 0;
   const exitedTokens = profile.completedCycleCount ?? 0;
   const percentHeldValue = profile.percentValueInCurrentHoldings ?? 0;
+  const behaviorDisplayType = profile.behaviorType ?? (heldTokens > 0 ? 'HOLDER' : null);
   const currentHoldingsList = useMemo(
     () => (profile.currentHoldings || [])
-      .filter((holding) => (holding.uiBalance ?? 0) > 0)
+      .filter((holding) => (holding.uiBalance ?? 0) >= HOLDINGS_MIN_BALANCE)
       .sort((a, b) => (b.uiBalance ?? 0) - (a.uiBalance ?? 0)),
     [profile.currentHoldings]
   );
@@ -338,14 +341,11 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
       : percentHeldValue > 0
         ? Math.max(1, Math.round((percentHeldValue / 100) * Math.max(totalTokens, 1)))
         : 0;
-  const heldDisplay =
-    heldTokens > 0
-      ? heldTokens.toLocaleString()
-      : percentHeldValue > 0
-        ? `~${estimatedHeld.toLocaleString()}`
-        : '0';
+  const activeTokens = heldTokens > 0 ? heldTokens : estimatedHeld;
+  const heldDisplay = activeTokens > 0 ? activeTokens.toLocaleString() : '0';
+  const unresolvedTokens = Math.max(totalTokens - exitedTokens - activeTokens, 0);
   const tokensSummary = `${totalTokens.toLocaleString()} tokens`;
-  const exitHoldSummary = `${exitedTokens.toLocaleString()} exited / ${heldDisplay} held`;
+  const exitHoldSummary = `Exited: ${exitedTokens.toLocaleString()} · Active: ${heldDisplay}${unresolvedTokens ? ` · Other: ${unresolvedTokens.toLocaleString()}` : ''}`;
 
   const toggleHoldingsVisibility = () => {
     if (!hasHoldingsList) return;
@@ -397,16 +397,20 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-help ${getBehaviorColor(profile.behaviorType)}`}>
-                    {getBehaviorMeta(profile.behaviorType)?.label ?? profile.behaviorType ?? 'Unclassified'}
+                  <span className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-help ${getBehaviorColor(behaviorDisplayType)}`}>
+                    {getBehaviorMeta(profile.behaviorType)?.label
+                      ?? (heldTokens > 0 ? 'Holder (no exits yet)' : profile.behaviorType)
+                      ?? 'Unclassified'}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
                   <p className="font-semibold">
-                    {getBehaviorMeta(profile.behaviorType)?.label ?? profile.behaviorType ?? 'Unclassified'} · Hold times: {getBehaviorMeta(profile.behaviorType)?.timeframe ?? 'n/a'}
+                    {getBehaviorMeta(profile.behaviorType)?.label
+                      ?? (heldTokens > 0 ? 'Holder (no exits yet)' : profile.behaviorType)
+                      ?? 'Unclassified'} · Hold times: {getBehaviorMeta(profile.behaviorType)?.timeframe ?? (heldTokens > 0 ? 'Not enough exits' : 'n/a')}
                   </p>
                   <p className="text-muted-foreground">
-                    Classification derived from typical exited hold time. Still-held positions do not affect this tag.
+                    Classification derived from typical exited hold time. Still-held positions do not affect this tag; if only holdings exist, we mark as holders until exits are observed.
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -435,7 +439,10 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                 </div>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs text-xs">
-                Total tokens analysed / fully exited tokens / estimated currently held tokens (estimated via % of value still held when counts are missing).
+                <p className="font-semibold mb-1">Token accounting</p>
+                <p className="text-muted-foreground">
+                  Total analyzed · fully exited · active holdings. "Other" covers dust/partial data the backend did not classify as active or exited.
+                </p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -464,14 +471,26 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
             footer={
               typeof profile.percentValueInCurrentHoldings === 'number' ? (
-                <button
-                  onClick={toggleHoldingsVisibility}
-                  disabled={!hasHoldingsList}
-                  className={`underline-offset-2 ${hasHoldingsList ? 'underline hover:text-primary transition-colors' : 'text-muted-foreground cursor-not-allowed'}`}
-                >
-                  Value still held: {formatPercentage(profile.percentValueInCurrentHoldings)}{' '}
-                  {hasHoldingsList ? '(click to view tokens)' : '(no current tokens detected)'}
-                </button>
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={toggleHoldingsVisibility}
+                        disabled={!hasHoldingsList}
+                        className={`underline-offset-2 ${hasHoldingsList ? 'underline hover:text-primary transition-colors' : 'text-muted-foreground cursor-not-allowed'}`}
+                      >
+                        Value still held: {formatPercentage(profile.percentValueInCurrentHoldings)}{' '}
+                        {hasHoldingsList ? '(click to view tokens)' : '(no current tokens detected)'}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-xs">
+                      <p className="font-semibold mb-1">Value still held</p>
+                      <p className="text-muted-foreground">
+                        Percentage of portfolio value still in current holdings. May differ from token counts because dust/low-balance tokens are filtered by backend thresholds.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               ) : undefined
             }
             tooltip="Average (mean) hold duration. Sensitive to outliers; compare against the median to spot skew from very long or very short trades. Mixed value includes active positions to show current behavior."

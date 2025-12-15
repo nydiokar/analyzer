@@ -86,7 +86,15 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
         </thead>
         <tbody>
           {profiles.map((profile) => {
-            const behaviorMeta = getBehaviorMeta(profile.behaviorType);
+            const isHolderOnly = !profile.behaviorType && (profile.currentHoldingsCount ?? 0) > 0;
+            const behaviorMeta = getBehaviorMeta(profile.behaviorType) ?? (isHolderOnly
+              ? {
+                  label: 'Holder (no exits yet)',
+                  description: 'No completed exits yet; classification will update once exits occur.',
+                  timeframe: 'Not enough exits',
+                }
+              : null);
+            const behaviorDisplayType = profile.behaviorType ?? (isHolderOnly ? 'HOLDER' : null);
             const typicalHold = getTypicalHoldTimeHours(profile);
             const exitedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours;
             const exitedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours;
@@ -103,20 +111,20 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${getBehaviorColor(profile.behaviorType)}`}
+                          className={`px-2 py-1 rounded-full text-xs font-medium ${getBehaviorColor(behaviorDisplayType)}`}
                         >
                           {behaviorMeta?.label ?? profile.behaviorType ?? 'Unclassified'}
                         </span>
                       </TooltipTrigger>
                       <TooltipContent className="max-w-xs text-xs">
                         {(() => {
-                          const info = getBehaviorDescription(profile.behaviorType);
+                          const info = getBehaviorDescription(profile.behaviorType) || behaviorMeta;
                           if (!info) {
                             return <p className="text-muted-foreground">No behavior classification yet.</p>;
                           }
                           return (
                             <div className="space-y-1">
-                              <p className="font-semibold">{info.title}</p>
+                              <p className="font-semibold">{info.title ?? info.label}</p>
                               <p className="text-muted-foreground">{info.description}</p>
                               <p className="text-primary font-medium">{info.timeframe}</p>
                             </div>
