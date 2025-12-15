@@ -45,24 +45,31 @@ export class SecurityAlertsService {
   private readonly maxAlertsInMemory = 100;
   
   // Alert thresholds (configurable via environment)
-  private readonly thresholds: AlertThreshold = {
-    criticalEventsPerHour: parseInt(this.configService.get<string>('SECURITY_CRITICAL_THRESHOLD') || '3'),
-    highEventsPerHour: parseInt(this.configService.get<string>('SECURITY_HIGH_THRESHOLD') || '10'),
-    uniqueSuspiciousIpsPerHour: parseInt(this.configService.get<string>('SECURITY_SUSPICIOUS_IPS_THRESHOLD') || '5'),
-    rateLimitViolationsPerHour: parseInt(this.configService.get<string>('SECURITY_RATE_LIMIT_THRESHOLD') || '20'),
-    failedLoginsPerHour: parseInt(this.configService.get<string>('SECURITY_FAILED_LOGINS_THRESHOLD') || '15'),
-  };
+  private readonly thresholds: AlertThreshold;
 
   // Notification settings
-  private readonly telegramEnabled = Boolean(this.configService.get<string>('TELEGRAM_BOT_TOKEN'));
-  private readonly emailEnabled = Boolean(this.configService.get<string>('SMTP_HOST'));
-  private readonly webhookEnabled = Boolean(this.configService.get<string>('SECURITY_WEBHOOK_URL'));
+  private readonly telegramEnabled: boolean;
+  private readonly emailEnabled: boolean;
+  private readonly webhookEnabled: boolean;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly securityLogger: SecurityLoggerService,
     private readonly throttlerService: AdvancedThrottlerService,
   ) {
+    // Initialize configuration-dependent properties
+    this.thresholds = {
+      criticalEventsPerHour: parseInt(this.configService.get<string>('SECURITY_CRITICAL_THRESHOLD') || '3'),
+      highEventsPerHour: parseInt(this.configService.get<string>('SECURITY_HIGH_THRESHOLD') || '10'),
+      uniqueSuspiciousIpsPerHour: parseInt(this.configService.get<string>('SECURITY_SUSPICIOUS_IPS_THRESHOLD') || '5'),
+      rateLimitViolationsPerHour: parseInt(this.configService.get<string>('SECURITY_RATE_LIMIT_THRESHOLD') || '20'),
+      failedLoginsPerHour: parseInt(this.configService.get<string>('SECURITY_FAILED_LOGINS_THRESHOLD') || '15'),
+    };
+
+    this.telegramEnabled = Boolean(this.configService.get<string>('TELEGRAM_BOT_TOKEN'));
+    this.emailEnabled = Boolean(this.configService.get<string>('SMTP_HOST'));
+    this.webhookEnabled = Boolean(this.configService.get<string>('SECURITY_WEBHOOK_URL'));
+
     this.logger.log('Security Alerts Service initialized');
     this.logger.log(`Alert thresholds: ${JSON.stringify(this.thresholds)}`);
   }

@@ -456,7 +456,7 @@ export class BehaviorAnalyzer {
       return lc.sellCount;
     });
     const avgSellsPerToken = sellPatterns.reduce((sum, count) => sum + count, 0) / sellPatterns.length;
-    const exitPattern: 'GRADUAL' | 'ALL_AT_ONCE' = avgSellsPerToken > 2 ? 'GRADUAL' : 'ALL_AT_ONCE';
+    const exitPattern: 'GRADUAL' | 'ALL AT ONCE' = avgSellsPerToken > 2 ? 'GRADUAL' : 'ALL AT ONCE';
 
     // ✅ FIX: Use token count (not lifecycle count) for metrics
     const uniqueTokenCount = perTokenHoldTimes.length;

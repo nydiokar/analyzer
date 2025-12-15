@@ -194,7 +194,7 @@ export interface HolderProfile {
   dailyFlipRatio: number | null;        // Percentage of completed positions held <5min
   dailyFlipRatioConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';  // Based on sample size
   behaviorType: string | null;          // SNIPER, SCALPER, MOMENTUM, INTRADAY, DAY_TRADER, SWING, POSITION, HOLDER
-  exitPattern: string | null;           // GRADUAL, ALL_AT_ONCE
+  exitPattern: string | null;           // GRADUAL, ALL AT ONCE
   dataQualityTier: DataQualityTier;
   completedCycleCount: number;
   confidence: number;

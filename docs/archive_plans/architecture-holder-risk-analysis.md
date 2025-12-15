@@ -297,7 +297,7 @@ interface WalletHistoricalPattern {
 
   // Behavioral classification
   behaviorType: 'ULTRA_FLIPPER' | 'FLIPPER' | 'SWING' | 'HOLDER';
-  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';  // Based on sell distribution
+  exitPattern: 'GRADUAL' | 'ALL AT ONCE';  // Based on sell distribution
 
   // Confidence metrics
   dataQuality: number;                     // 0-1, based on sample size
@@ -969,7 +969,7 @@ interface StoredPrediction {
 - ✅ Token lifecycles with entry/exit timestamps for every token (handles re-entries correctly)
 - ✅ Position status classification (ACTIVE/EXITED)
 - ✅ Behavioral classification (ULTRA_FLIPPER <1min / FLIPPER 1-24h / SWING 1-7d / HOLDER >7d)
-- ✅ Exit pattern detection (GRADUAL >2 sells/token / ALL_AT_ONCE ≤2 sells/token)
+- ✅ Exit pattern detection (GRADUAL >2 sells/token / ALL AT ONCE ≤2 sells/token)
 - ✅ Weighted average holding time calculation (matches FIFO sell logic)
 - ✅ Data quality scoring based on sample size
 - ✅ Deprecated old metrics (`weightedAverageHoldingDurationHours`, `averageFlipDurationHours`)
@@ -1492,7 +1492,7 @@ async analyzeHolderProfiles(
       avgHoldTimeHours: 3.1,
       dailyFlipRatio: 85,
       behaviorType: "ULTRA_FLIPPER",
-      exitPattern: "ALL_AT_ONCE",
+      exitPattern: "ALL AT ONCE",
 
       // Data quality (always present)
       dataQualityTier: "HIGH",

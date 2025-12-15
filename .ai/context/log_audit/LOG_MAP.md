@@ -642,7 +642,7 @@ This document maps all log statements across the codebase, organized by layer (C
 | test-holder-risk-analysis.ts | `'✓ Position status classification'` | LOG | 250 | ✓ Position status classification |
 | test-holder-risk-analysis.ts | `'✓ Weighted average holding time'` | LOG | 251 | ✓ Weighted average holding time |
 | test-holder-risk-analysis.ts | `'✓ Behavior type classification (ULTRA_FLIPPER, FLIPPER, SWING, HOLDER)'` | LOG | 252 | ✓ Behavior type classification (ULTRA_FLIPPER, |
-| test-holder-risk-analysis.ts | `'✓ Exit pattern detection (ALL_AT_ONCE, GRADUAL)'` | LOG | 253 | ✓ Exit pattern detection (ALL_AT_ONCE, |
+| test-holder-risk-analysis.ts | `'✓ Exit pattern detection (ALL AT ONCE, GRADUAL)'` | LOG | 253 | ✓ Exit pattern detection (ALL AT ONCE, |
 | test-holder-risk-analysis.ts | `'\n✅ All holder risk analysis tests passed!\n'` | LOG | 254 | \n✅ All holder risk analysis |
 
 ### Component: token-first-buyers-service.ts
