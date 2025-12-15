@@ -1101,6 +1101,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(40);
 
     // Aggregate SwapAnalysisInput → AnalysisResult (PnL calculation)
+    // PnL analysis now fetches SOL price internally when not provided
     this.logger.debug(`Running PnL aggregation for ${walletAddress} [holder-profile mode]`);
     await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined);
     await job.updateProgress(50);

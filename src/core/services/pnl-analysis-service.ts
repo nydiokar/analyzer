@@ -284,7 +284,16 @@ export class PnlAnalysisService {
                     }
                     
                     // Get SOL price for USD conversion
-                    let estimatedSolPriceUsd = options?.solPriceUsd || 0;
+        let estimatedSolPriceUsd = options?.solPriceUsd || 0;
+        // Fallback: fetch SOL price if not provided or zero
+        if ((!estimatedSolPriceUsd || estimatedSolPriceUsd <= 0) && this.tokenInfoService) {
+            try {
+                estimatedSolPriceUsd = await this.tokenInfoService.getSolPrice();
+                logger.warn(`[PnlAnalysis] Fetched SOL price internally: $${estimatedSolPriceUsd} for ${walletAddress}`);
+            } catch (err) {
+                logger.warn(`[PnlAnalysis] Failed to fetch SOL price internally: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
                     if (estimatedSolPriceUsd <= 0) {
                         logger.warn(`[PnlAnalysis] Cannot calculate unrealized PNL without proper SOL price. Skipping unrealized PNL calculation.`);
                     } else {

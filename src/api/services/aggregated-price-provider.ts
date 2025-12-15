@@ -18,7 +18,6 @@ export class AggregatedPriceProvider implements IPriceProvider {
   ) {}
 
   async fetchSolPrice(): Promise<number> {
-    this.logger.log('[SOL Price] Aggregated provider invoked');
     // Primary: CoinGecko simple price API (stable and rate-limit friendly)
     try {
       const resp = await this.http.axiosRef.get(
