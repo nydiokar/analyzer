@@ -1,4 +1,5 @@
 import { getCookie, setCookie, deleteCookie } from 'cookies-next';
+import { sessionEvents } from './session-events';
 
 export interface SecureStorage {
   getItem(key: string): string | null;
@@ -164,7 +165,6 @@ export function createSecureStorage(): SecureStorage {
  */
 export class TokenManager {
   private storage: SecureStorage;
-  private refreshTokenTimer: NodeJS.Timeout | null = null;
 
   constructor(storage: SecureStorage) {
     this.storage = storage;
@@ -175,7 +175,6 @@ export class TokenManager {
    */
   setAccessToken(token: string): void {
     this.storage.setItem('analyzer.access_token', token);
-    this.scheduleTokenRefresh(token);
   }
 
   /**
@@ -189,11 +188,9 @@ export class TokenManager {
       const payload = JSON.parse(atob(token.split('.')[1]));
       const now = Date.now() / 1000;
 
-      // Check if token expires in the next 5 minutes
+      // If expiring within 5 minutes, emit pre-refresh so UI can refresh proactively
       if (payload.exp && payload.exp < now + 300) {
-        console.log('Access token is expired or expiring soon');
-        this.storage.removeItem('analyzer.access_token');
-        return null;
+        sessionEvents.emitPreRefresh();
       }
 
       return token;
@@ -219,42 +216,9 @@ export class TokenManager {
   }
 
   /**
-   * Schedule automatic token refresh
-   */
-  private scheduleTokenRefresh(token: string): void {
-    if (this.refreshTokenTimer) {
-      clearTimeout(this.refreshTokenTimer);
-    }
-
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const now = Date.now() / 1000;
-      
-      if (payload.exp) {
-        // Refresh 5 minutes before expiration
-        const refreshTime = (payload.exp - now - 300) * 1000;
-        
-        if (refreshTime > 0) {
-          this.refreshTokenTimer = setTimeout(() => {
-            console.log('Token refresh needed');
-            // In a complete implementation, this would trigger a refresh
-            // For now, we'll let the user handle re-authentication
-          }, refreshTime);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to schedule token refresh');
-    }
-  }
-
-  /**
    * Clear all tokens
    */
   clearTokens(): void {
-    if (this.refreshTokenTimer) {
-      clearTimeout(this.refreshTokenTimer);
-      this.refreshTokenTimer = null;
-    }
     this.storage.clear();
   }
 }

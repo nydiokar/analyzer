@@ -15,6 +15,7 @@ export interface User {
 
 export interface AuthResponse {
   access_token: string;
+  refresh_token?: string;
   user: {
     id: string;
     email: string;
@@ -221,14 +222,51 @@ export const useAuthStore = create<AuthStore>()(
       
       // Security features
       refreshToken: async (): Promise<boolean> => {
-        // In a complete implementation, this would call a refresh endpoint
-        // For now, return false to trigger re-authentication
-        const token = tokenManager.getAccessToken();
-        if (!token) {
-          get().clearAuth();
+        const refreshToken = tokenManager.getRefreshToken();
+        if (!refreshToken) {
           return false;
         }
-        return true;
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', // support cookie-based auth mode
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          });
+
+          if (!response.ok) {
+            return false;
+          }
+
+          const data: AuthResponse = await response.json();
+
+          // Update tokens (rotate refresh if provided)
+          tokenManager.setAccessToken(data.access_token);
+          if (data.refresh_token) {
+            tokenManager.setRefreshToken(data.refresh_token);
+          }
+
+          set({
+            token: data.access_token,
+            user: {
+              id: data.user.id,
+              email: data.user.email,
+              isDemo: data.user.isDemo,
+              emailVerified: data.user.emailVerified,
+              isAdmin: data.user.isAdmin,
+              createdAt: new Date().toISOString(),
+              lastLoginAt: new Date().toISOString(),
+            },
+            isAuthenticated: true,
+            isUsingApiKey: false,
+          });
+
+          return true;
+        } catch (error) {
+          console.error('Token refresh failed', error);
+          return false;
+        }
       },
       
       isTokenValid: (): boolean => {

@@ -4,6 +4,7 @@ import "./globals.css";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import LayoutClientShell from "@/components/layout/LayoutClientShell";
+import { SessionGuardProvider } from "@/components/providers/SessionGuardProvider";
 
 const geistSans = GeistSans;
 const geistMono = GeistMono;
@@ -37,9 +38,11 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/favicon.svg" />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} ${inter.className}`}>
-        <LayoutClientShell>
-          {children}
-        </LayoutClientShell>
+        <SessionGuardProvider>
+          <LayoutClientShell>
+            {children}
+          </LayoutClientShell>
+        </SessionGuardProvider>
       </body>
     </html>
   );

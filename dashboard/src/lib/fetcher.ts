@@ -1,91 +1,137 @@
-import { useApiKeyStore } from '@/store/api-key-store';
 import { useAuthStore } from '@/store/auth-store';
+import { useApiKeyStore } from '@/store/api-key-store';
+import { sessionEvents } from '@/lib/session-events';
+
+// Stash last failed request to optionally replay after re-auth
+let lastFailedRequest: { url: string; options?: RequestInit } | null = null;
+
+export const replayLastFailedRequest = async () => {
+  if (!lastFailedRequest) return null;
+  const { url, options } = lastFailedRequest;
+  lastFailedRequest = null;
+  const baseHeaders = buildAuthHeaders();
+  const mergedHeaders = { ...baseHeaders, ...(options?.headers || {}) };
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  const absoluteUrl = `${baseUrl}${url}`;
+  const res = await fetch(absoluteUrl, { ...options, headers: mergedHeaders });
+  if (!res.ok) throw new Error('Failed to replay request');
+  const contentLength = res.headers.get('content-length');
+  if (res.status === 204 || (contentLength && parseInt(contentLength, 10) === 0)) {
+    return null;
+  }
+  return res.json();
+};
+
+// Build auth headers from stores (JWT preferred, API key fallback)
+const buildAuthHeaders = () => {
+  const authState = useAuthStore.getState();
+  const legacyApiKeyState = useApiKeyStore.getState();
+  const authHeader = authState.getAuthHeader?.();
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+
+  if (authHeader?.startsWith('Bearer ')) {
+    headers['Authorization'] = authHeader;
+  } else if (authHeader) {
+    headers['X-API-Key'] = authHeader;
+  } else if (legacyApiKeyState.apiKey) {
+    headers['X-API-Key'] = legacyApiKeyState.apiKey;
+  }
+
+  return headers;
+};
+
+// If access token expired, try refreshing once and retry the original request
+const attemptRefreshAndRetry = async (
+  absoluteUrl: string,
+  options: RequestInit | undefined
+) => {
+  const authStore = useAuthStore.getState();
+  const refreshed = await authStore.refreshToken();
+  if (!refreshed) {
+    const error = new Error('Session expired. Please sign in again.');
+    Object.defineProperty(error, 'status', { value: 401 });
+    Object.defineProperty(error, 'code', { value: 'SESSION_EXPIRED' });
+    throw error;
+  }
+
+  // Rebuild headers with new token and retry once
+  const retryHeaders = {
+    ...buildAuthHeaders(),
+    ...(options?.headers || {}),
+  };
+
+  const retryRes = await fetch(absoluteUrl, { ...options, headers: retryHeaders });
+  return retryRes;
+};
 
 export const fetcher = async (url: string, options?: RequestInit) => {
-    // Try modern auth store first, then fallback to legacy API key store
-    const authState = useAuthStore.getState();
-    const apiKeyState = useApiKeyStore.getState();
-    
-    const baseHeaders: HeadersInit = {
-        'Content-Type': 'application/json',
-    };
+  const baseHeaders = buildAuthHeaders();
+  const mergedHeaders = {
+    ...baseHeaders,
+    ...(options?.headers || {}),
+  };
 
-    // Priority: JWT token > API key from auth store > legacy API key
-    if (authState.token && !authState.isUsingApiKey) {
-        baseHeaders['Authorization'] = `Bearer ${authState.token}`;
-    } else if (authState.apiKey && authState.isUsingApiKey) {
-        baseHeaders['X-API-Key'] = authState.apiKey;
-    } else if (apiKeyState.apiKey) {
-        // Legacy fallback
-        baseHeaders['X-API-Key'] = apiKeyState.apiKey;
-    }
-    // No warning if auth is missing, as the backend will handle unauthorized requests.
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  const absoluteUrl = `${baseUrl}${url}`;
 
-    // Merge base headers with any headers provided in the specific fetch call
-    const mergedHeaders = {
-        ...baseHeaders,
-        ...(options?.headers || {}),
-    };
+  let res;
+  try {
+    res = await fetch(absoluteUrl, {
+      ...options,
+      headers: mergedHeaders,
+    });
+  } catch (e: unknown) {
+    const errorMessage =
+      e instanceof Error
+        ? e.message
+        : 'Network error: Failed to fetch data. Please check your connection and the server status.';
+    const networkError = new Error(errorMessage);
+    Object.defineProperty(networkError, 'isNetworkError', { value: true });
+    Object.defineProperty(networkError, 'status', { value: (e as any).status || 0 });
+    Object.defineProperty(networkError, 'originalError', { value: e });
+    throw networkError;
+  }
 
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-    // The baseUrl from env variables is now the single source of truth.
-    // All calls from components should start with a '/', e.g. /wallets/summary
-    const absoluteUrl = `${baseUrl}${url}`;
+  // Handle expired JWT: attempt silent refresh once, then retry
+  if (res.status === 401 && useAuthStore.getState().token && !useAuthStore.getState().isUsingApiKey) {
+    res = await attemptRefreshAndRetry(absoluteUrl, options);
+  }
 
-    let res;
+  if (!res.ok) {
+    let errorPayload;
     try {
-        res = await fetch(absoluteUrl, {
-            ...options,
-            headers: mergedHeaders,
-        });
-    } catch (e: unknown) {
-        // Network errors - using built-in Error type
-        const errorMessage = e instanceof Error ? e.message : 'Network error: Failed to fetch data. Please check your connection and the server status.';
-        const networkError = new Error(errorMessage);
-        // Using built-in Error properties
-        Object.defineProperty(networkError, 'isNetworkError', { value: true });
-        Object.defineProperty(networkError, 'status', { value: (e as any).status || 0 });
-        Object.defineProperty(networkError, 'originalError', { value: e });
-        throw networkError;
+      errorPayload = await res.json();
+    } catch {
+      errorPayload = { message: res.statusText || 'An error occurred' };
     }
+    // Capture last failed request to allow replay after re-auth
+    lastFailedRequest = { url, options };
+    const error = new Error(errorPayload.message || 'An error occurred while fetching the data.');
+    Object.defineProperty(error, 'status', { value: res.status });
+    Object.defineProperty(error, 'payload', { value: errorPayload });
+    if (errorPayload.code) {
+      Object.defineProperty(error, 'code', { value: errorPayload.code });
+      if (errorPayload.code === 'EMAIL_VERIFICATION_REQUIRED') {
+        Object.defineProperty(error, 'requiresEmailVerification', { value: true });
+      }
+    }
+    if (res.status === 401 || errorPayload.code === 'SESSION_EXPIRED') {
+      sessionEvents.emitExpired();
+    }
+    throw error;
+  }
 
-    if (!res.ok) {
-        let errorPayload;
-        try {
-            errorPayload = await res.json();
-        } catch {
-            errorPayload = { message: res.statusText || 'An error occurred' };
-        }
-        const error = new Error(errorPayload.message || 'An error occurred while fetching the data.');
-        // Using built-in Error properties
-        Object.defineProperty(error, 'status', { value: res.status });
-        Object.defineProperty(error, 'payload', { value: errorPayload });
-        if (errorPayload.code) {
-            Object.defineProperty(error, 'code', { value: errorPayload.code });
-            if (errorPayload.code === 'EMAIL_VERIFICATION_REQUIRED') {
-                Object.defineProperty(error, 'requiresEmailVerification', { value: true });
-            }
-        }
-        throw error;
-    }
+  const contentLength = res.headers.get('content-length');
+  if (res.status === 204 || (contentLength && parseInt(contentLength, 10) === 0)) {
+    return null;
+  }
 
-    // Handle responses that are successful but may have no content body.
-    // Only treat 204 as no-content. Some of our POST endpoints (201) still return JSON payloads.
-    const contentLength = res.headers.get('content-length');
-    if (res.status === 204 || (contentLength && parseInt(contentLength, 10) === 0)) {
-        return null;
-    }
-
-    // For any other successful response, try to parse JSON.
-    try {
-        return await res.json();
-    } catch (e) {
-        // This handles cases where the server returns a successful status
-        // but the body is not valid JSON.
-        const jsonError = new Error('Failed to parse JSON response from server.');
-        // Using built-in Error properties
-        Object.defineProperty(jsonError, 'status', { value: res.status });
-        Object.defineProperty(jsonError, 'originalError', { value: e });
-        throw jsonError;
-    }
-}; 
+  try {
+    return await res.json();
+  } catch (e) {
+    const jsonError = new Error('Failed to parse JSON response from server.');
+    Object.defineProperty(jsonError, 'status', { value: res.status });
+    Object.defineProperty(jsonError, 'originalError', { value: e });
+    throw jsonError;
+  }
+};

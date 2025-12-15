@@ -9,12 +9,16 @@ import { Toaster } from 'sonner';
 import { SWRConfig, SWRConfiguration } from 'swr';
 import { defaultSWRConfig } from '@/lib/swr-config';
 import { AppCacheProvider } from '@/lib/cache-provider';
+import { useProactiveRefresh } from '@/hooks/useProactiveRefresh';
 
 interface LayoutClientShellProps {
   children: React.ReactNode;
 }
 
 export default function LayoutClientShell({ children }: LayoutClientShellProps) {
+  // Keep active users signed in by refreshing 5 minutes before expiry when tab is active
+  useProactiveRefresh();
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const pathname = usePathname();
 
