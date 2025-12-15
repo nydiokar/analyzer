@@ -16,8 +16,8 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     description: 'Instant exits executed in seconds; often bot-driven or arb focused.',
     timeframe: '< 10 seconds',
     palette: {
-      badge: 'bg-rose-500/10 text-rose-700 dark:text-rose-200',
-      bar: 'bg-rose-500',
+      badge: 'bg-rose-500/15 text-rose-800 dark:text-rose-100',
+      bar: 'bg-rose-600',
     },
   },
   SCALPER: {
@@ -26,8 +26,8 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     description: 'High-frequency flips targeting tiny moves with tight stops.',
     timeframe: '< 1 minute',
     palette: {
-      badge: 'bg-orange-500/10 text-orange-700 dark:text-orange-200',
-      bar: 'bg-orange-500',
+      badge: 'bg-orange-500/15 text-orange-800 dark:text-orange-100',
+      bar: 'bg-orange-600',
     },
   },
   MOMENTUM: {
@@ -36,7 +36,7 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     description: 'Rides short bursts of momentum; exits quickly when trend cools.',
     timeframe: '5-30 minutes',
     palette: {
-      badge: 'bg-amber-400/15 text-amber-800 dark:text-amber-200',
+      badge: 'bg-amber-400/20 text-amber-900 dark:text-amber-100',
       bar: 'bg-amber-500',
     },
   },
@@ -46,8 +46,8 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     description: 'Holds through the session but flattens out before day end.',
     timeframe: '30 min - 4 hours',
     palette: {
-      badge: 'bg-yellow-400/15 text-yellow-800 dark:text-yellow-200',
-      bar: 'bg-yellow-400',
+      badge: 'bg-emerald-200/30 text-emerald-900 dark:text-emerald-100',
+      bar: 'bg-emerald-500',
     },
   },
   DAY_TRADER: {
@@ -56,8 +56,8 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     description: 'Keeps positions open for up to a day; may hold overnight occasionally.',
     timeframe: '4-24 hours',
     palette: {
-      badge: 'bg-lime-400/15 text-lime-800 dark:text-lime-200',
-      bar: 'bg-lime-500',
+      badge: 'bg-teal-300/25 text-teal-900 dark:text-teal-100',
+      bar: 'bg-teal-500',
     },
   },
   SWING: {
@@ -66,8 +66,8 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     description: 'Carries trades across days to capture larger moves.',
     timeframe: '1-7 days',
     palette: {
-      badge: 'bg-emerald-400/15 text-emerald-800 dark:text-emerald-200',
-      bar: 'bg-emerald-500',
+      badge: 'bg-sky-300/25 text-sky-900 dark:text-sky-100',
+      bar: 'bg-sky-500',
     },
   },
   POSITION: {
@@ -76,8 +76,8 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     description: 'Conviction trades held for weeks; tolerant of volatility.',
     timeframe: '7+ days',
     palette: {
-      badge: 'bg-teal-400/15 text-teal-800 dark:text-teal-200',
-      bar: 'bg-teal-500',
+      badge: 'bg-indigo-300/25 text-indigo-900 dark:text-indigo-100',
+      bar: 'bg-indigo-600',
     },
   },
   HOLDER: {
@@ -86,8 +86,8 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     description: 'Long-term conviction; accumulates and rarely exits.',
     timeframe: 'Weeks to months',
     palette: {
-      badge: 'bg-indigo-500/12 text-indigo-800 dark:text-indigo-200',
-      bar: 'bg-indigo-500',
+      badge: 'bg-purple-300/25 text-purple-900 dark:text-purple-100',
+      bar: 'bg-purple-600',
     },
   },
 };

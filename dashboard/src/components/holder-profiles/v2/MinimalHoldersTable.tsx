@@ -137,14 +137,21 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                   <div className="text-muted-foreground text-[11px]">
                     Average: {formatHoldTime(profile.currentHoldAverageHours ?? typicalHold)}
                   </div>
-                  <div className="text-muted-foreground text-[11px]" title="Active + exited mixes current holdings with exited positions">
-                    Source: {formatHoldSource(profile.typicalHoldTimeSource)}
-                  </div>
                 </td>
                 <td className="px-4 py-2">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getQualityColor(profile.dataQualityTier)}`}>
-                    {profile.dataQualityTier}
-                  </span>
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getQualityColor(profile.dataQualityTier)}`}>
+                          {profile.dataQualityTier}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-xs">
+                        <p className="font-semibold mb-1">{profile.dataQualityTier || 'Unknown quality'}</p>
+                        <p className="text-muted-foreground">{getQualityDescription(profile.dataQualityTier)}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </td>
               </tr>
             );

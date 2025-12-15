@@ -402,7 +402,12 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                   </span>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
-                  Classification derived from typical exited hold time. Still-held positions do not affect this tag.
+                  <p className="font-semibold">
+                    {getBehaviorMeta(profile.behaviorType)?.label ?? profile.behaviorType ?? 'Unclassified'} · Hold times: {getBehaviorMeta(profile.behaviorType)?.timeframe ?? 'n/a'}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Classification derived from typical exited hold time. Still-held positions do not affect this tag.
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -449,7 +454,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             mixedValue={formatHoldTime(inclusiveMedian)}
             highlightMixed={includesCurrentData}
             mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
-            tooltip="Median exit hold time. Active + exited blends current positions with completed exits to show present behavior shifts."
+            tooltip="Median hold time across exits: half of the exits were faster and half slower. The mixed value blends current positions with exits to reflect present behavior."
           />
           <HoldMetricCard
             label="Average Hold"
@@ -469,7 +474,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                 </button>
               ) : undefined
             }
-            tooltip="Average hold duration. Compare to the median to spot skew from a few long or short positions."
+            tooltip="Average (mean) hold duration. Sensitive to outliers; compare against the median to spot skew from very long or very short trades. Mixed value includes active positions to show current behavior."
           />
         </div>
 
