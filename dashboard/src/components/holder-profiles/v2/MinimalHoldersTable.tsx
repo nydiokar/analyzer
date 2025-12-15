@@ -124,7 +124,7 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                           }
                           return (
                             <div className="space-y-1">
-                              <p className="font-semibold">{info.title ?? info.label}</p>
+                              <p className="font-semibold">{'title' in info ? info.title : info.label}</p>
                               <p className="text-muted-foreground">{info.description}</p>
                               <p className="text-primary font-medium">{info.timeframe}</p>
                             </div>

@@ -247,7 +247,7 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Copy ticker</p>
+                    <p>Copy CA</p>
                   </TooltipContent>
                 </Tooltip>
               </div>

@@ -280,10 +280,68 @@ export const KNOWN_SYSTEM_WALLETS = [
   // Add more as they're discovered
 ] as const;
 
+// =============================================================================
+// BEHAVIORAL ANALYSIS CONFIGURATION
+// =============================================================================
+
+// Holder Profile Analysis - Token Categorization Thresholds
+export const BEHAVIOR_ANALYSIS_CONFIG = {
+  // Token lifecycle completion criteria
+  HISTORICAL_PATTERN: {
+    MINIMUM_COMPLETED_CYCLES: 1,        // Accept tokens with at least 1 complete buy-sell cycle (was: 3)
+    MAXIMUM_DATA_AGE_DAYS: 10000,       // Include all historical data, no time limit (was: 90)
+    MIN_VALID_HOLD_HOURS: 0.0001,       // ~0.36 seconds minimum (prevents true zero/corruption) - from analyzer.ts:231
+    MAX_VALID_HOLD_HOURS: 18760,        // 1 year maximum - from analyzer.ts:232
+  },
+
+  // Position exit detection thresholds
+  HOLDING_THRESHOLDS: {
+    EXIT_THRESHOLD: 0.80,               // Position considered "exited" when <=80% of peak remains (was: 0.20) - creates binary split
+    MINIMUM_SOL_VALUE: 0.001,           // Minimum SOL value for dust filtering - from analyzer.ts:1212
+    MINIMUM_PERCENTAGE_REMAINING: 0.05, // Minimum % of original for dust filtering - from analyzer.ts:1213
+    MINIMUM_HOLDING_TIME_SECONDS: 60,   // Minimum time held for dust filtering - from analyzer.ts:1214
+  },
+
+  // Scam token filtering
+  SCAM_FILTERING: {
+    ENABLED: true,                      // Enable scam token filtering
+    LOG_FILTERED_TOKENS: false,         // Log details about filtered tokens
+    STRICT_MODE: false,                 // Use stricter thresholds
+    THRESHOLDS: {
+      MIN_TRADE_COUNT: 100,             // Minimum trade count for scam detection - from analyzer.ts:1957
+      MIN_TOTAL_VALUE: 0.001,           // Minimum total SOL value - from analyzer.ts:1958
+      MIN_TOTAL_USDC_VALUE: 5,          // Minimum total USDC value - from analyzer.ts:1959
+    },
+  },
+
+  // Session analysis parameters
+  SESSION_ANALYSIS: {
+    SESSION_GAP_THRESHOLD_HOURS: 2,     // Gap > 2 hours creates new session
+  },
+
+  // Trading analysis thresholds
+  TRADING_ANALYSIS: {
+    MIN_TRADES_FOR_ANALYSIS: 5,         // Minimum trades for reliable analysis - from analyzer.ts:1550
+    MIN_TOKENS_WITH_TRADES: 2,          // Minimum tokens with both buys/sells - from analyzer.ts:1550
+  },
+
+  // Hold time distribution buckets (in hours) - from analyzer.ts:299-306
+  HOLD_TIME_BUCKETS: {
+    INSTANT: 0.0001,     // < 0.36 seconds (same transaction)
+    ULTRA_FAST: 1/60,    // < 1 minute
+    FAST: 5/60,          // 1-5 minutes
+    MOMENTUM: 0.5,       // 5-30 minutes
+    INTRADAY: 4,         // 30 minutes - 4 hours
+    DAY: 24,             // 4-24 hours
+    SWING: 168,          // 1-7 days (24*7)
+    // POSITION: > 168 hours (7+ days)
+  },
+} as const;
+
 // Wallet classification types for database tagging
 export const WALLET_CLASSIFICATIONS = {
   NORMAL: 'NORMAL',           // Regular user wallet
-  SYSTEM: 'SYSTEM',           // System/protocol account  
+  SYSTEM: 'SYSTEM',           // System/protocol account
   JUPITER: 'JUPITER',         // Jupiter aggregator account
   EXCHANGE: 'EXCHANGE',       // CEX deposit/withdrawal account
   BOT: 'BOT',                 // Trading bot account
