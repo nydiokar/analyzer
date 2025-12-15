@@ -185,7 +185,7 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
     return (
       <div
         className={cn(
-          "flex items-center gap-3 rounded-xl border border-border/60 bg-card/80",
+          "flex items-center gap-3 rounded-xl border border-border/50 bg-accent/20 shadow-base",
           resolvedSize.padding,
           className
         )}
@@ -203,7 +203,7 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
     <TooltipProvider>
       <div
         className={cn(
-          "flex flex-col gap-3 rounded-xl border border-border/60 bg-card/80 shadow-base transition-shadow duration-200 hover:shadow-hover",
+          "flex flex-col gap-3 rounded-xl border border-border/50 bg-accent/15 shadow-base transition-all duration-200 hover:shadow-hover hover:bg-accent/25",
           resolvedSize.padding,
           className
         )}
@@ -271,8 +271,9 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
 
         <div
           className={cn(
-            "flex flex-wrap items-center justify-start rounded-lg border border-border/50 bg-background/60 px-1.5 py-1 sm:justify-end",
-            resolvedSize.actionsGap
+            "flex flex-wrap items-center justify-start sm:justify-end",
+            resolvedSize.actionsGap,
+            "pt-1 border-t border-border/40"
           )}
         >
           <Tooltip>

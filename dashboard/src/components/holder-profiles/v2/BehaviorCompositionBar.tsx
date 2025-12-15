@@ -87,16 +87,25 @@ export function BehaviorCompositionBar({ profiles }: Props) {
                 {segments.map((segment) => {
                   const info = getBehaviorDescription(segment.type);
                   return (
-                    <div
-                      key={segment.type}
-                      className={`h-full text-[10px] uppercase flex items-center justify-center text-white ${getBehaviorBarColor(segment.type)}`}
-                      style={{ width: `${segment.percentage}%` }}
-                      title={`${info.title}: ${segment.count} holders (${segment.percentage}%)`}
-                    >
-                      <span className="px-2 whitespace-nowrap">
-                        {segment.type} ({segment.count})
-                      </span>
-                    </div>
+                    <Tooltip key={segment.type}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className={`h-full text-[10px] uppercase flex items-center justify-center text-white ${getBehaviorBarColor(segment.type)}`}
+                          style={{ width: `${segment.percentage}%` }}
+                        >
+                          <span className="px-2 whitespace-nowrap">
+                            {segment.type} ({segment.count})
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-xs">
+                        <p className="font-semibold mb-1">
+                          {info.title} — {segment.count} holders ({segment.percentage}%)
+                        </p>
+                        <p className="text-muted-foreground mb-1">{info.description}</p>
+                        <p className="text-primary font-medium">{info.timeframe}</p>
+                      </TooltipContent>
+                    </Tooltip>
                   );
                 })}
               </div>

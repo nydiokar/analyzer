@@ -4,14 +4,14 @@ interface BehaviorColorSet {
 }
 
 export const BEHAVIOR_COLORS: Record<string, BehaviorColorSet> = {
-  SNIPER: { badge: 'bg-red-500/15 text-red-500', bar: 'bg-red-500' },
-  SCALPER: { badge: 'bg-orange-500/15 text-orange-500', bar: 'bg-orange-500' },
-  MOMENTUM: { badge: 'bg-yellow-500/15 text-yellow-500', bar: 'bg-yellow-500' },
-  INTRADAY: { badge: 'bg-amber-500/15 text-amber-500', bar: 'bg-amber-500' },
-  DAY_TRADER: { badge: 'bg-blue-500/15 text-blue-500', bar: 'bg-blue-500' },
-  SWING: { badge: 'bg-cyan-500/15 text-cyan-500', bar: 'bg-cyan-500' },
-  POSITION: { badge: 'bg-green-500/15 text-green-500', bar: 'bg-green-500' },
-  HOLDER: { badge: 'bg-emerald-500/15 text-emerald-500', bar: 'bg-emerald-500' },
+  SNIPER: { badge: 'bg-rose-600/15 text-rose-600', bar: 'bg-rose-600' },
+  SCALPER: { badge: 'bg-orange-500/15 text-orange-600', bar: 'bg-orange-500' },
+  MOMENTUM: { badge: 'bg-amber-400/20 text-amber-600', bar: 'bg-amber-500' },
+  INTRADAY: { badge: 'bg-lime-400/20 text-lime-700', bar: 'bg-lime-500' },
+  DAY_TRADER: { badge: 'bg-sky-400/20 text-sky-700', bar: 'bg-sky-500' },
+  SWING: { badge: 'bg-indigo-400/20 text-indigo-700', bar: 'bg-indigo-500' },
+  POSITION: { badge: 'bg-emerald-400/20 text-emerald-700', bar: 'bg-emerald-500' },
+  HOLDER: { badge: 'bg-teal-400/20 text-teal-700', bar: 'bg-teal-500' },
 };
 
 export const QUALITY_COLORS: Record<string, string> = {

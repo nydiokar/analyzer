@@ -26,12 +26,22 @@ echarts.use([VisualMapComponent, CalendarComponent]);
 // Helper function to format hold time nicely
 const formatHoldTime = (hours: number): string => {
   if (hours < 1) {
-    return `${(hours * 60).toFixed(0)}m`;
-  } else if (hours < 24) {
-    return `${hours.toFixed(1)}h`;
-  } else {
-    return `${(hours / 24).toFixed(1)}d`;
+    const minutes = hours * 60;
+    if (minutes < 1) return `${Math.round(minutes * 60)}s`;
+    return `${Math.round(minutes)}min`;
   }
+
+  if (hours < 24) {
+    const wholeHours = Math.floor(hours);
+    const mins = Math.round((hours - wholeHours) * 60);
+    return mins ? `${wholeHours}h ${mins}min` : `${wholeHours}h`;
+  }
+
+  const days = hours / 24;
+  if (days < 30) return `${days.toFixed(1)}d`;
+
+  const months = days / 30;
+  return `${months.toFixed(1)}mo`;
 };
 
 // Minimal replacements for removed Tremor primitives

@@ -1,6 +1,6 @@
 import type { HolderProfile } from '../types';
 import { formatAddress, formatHoldTime, formatHoldSource, getTypicalHoldTimeHours } from './utils/formatters';
-import { getBehaviorColor, getQualityColor } from './utils/behavior';
+import { getBehaviorBarColor, getBehaviorColor, getQualityColor } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface Props {
@@ -9,19 +9,63 @@ interface Props {
   onSelect?: (profile: HolderProfile) => void;
 }
 
-function getBehaviorDescription(type: string | null | undefined): string {
-  if (!type) return 'No behavior classification yet';
-  const descriptions: Record<string, string> = {
-    SNIPER: 'Lightning-fast trader (< 1 second holds)',
-    SCALPER: 'High-frequency scalper (< 1 minute holds)',
-    MOMENTUM: 'Momentum trader (5-30 minutes holds)',
-    INTRADAY: 'Intraday trader (30m - 4 hours holds)',
-    DAY_TRADER: 'Day trader (4-24 hours holds)',
-    SWING: 'Swing trader (1-7 days holds)',
-    POSITION: 'Position trader (7+ days holds)',
-    HOLDER: 'Long-term holder (extended holds)',
-  };
-  return descriptions[type] || 'Trading behavior classification';
+const behaviorDescriptions: Record<
+  string,
+  { title: string; description: string; timeframe: string }
+> = {
+  SNIPER: {
+    title: 'Sniper',
+    description:
+      'Lightning-fast traders who target specific price points with precision timing. Often algorithmic or bot-driven.',
+    timeframe: 'Hold time: < 1 second',
+  },
+  SCALPER: {
+    title: 'Scalper',
+    description:
+      'High-frequency traders capturing small price movements. Execute many trades per day for incremental gains.',
+    timeframe: 'Hold time: < 1 minute',
+  },
+  MOMENTUM: {
+    title: 'Momentum Trader',
+    description:
+      'Traders who ride short-term price trends and momentum. Enter on strength and exit when momentum fades.',
+    timeframe: 'Hold time: 5-30 minutes',
+  },
+  INTRADAY: {
+    title: 'Intraday Trader',
+    description:
+      'Full-session traders who analyze price action throughout the day. Hold positions for several hours but close before day end.',
+    timeframe: 'Hold time: 30 minutes - 4 hours',
+  },
+  DAY_TRADER: {
+    title: 'Day Trader',
+    description:
+      'Traders who complete their positions within 24 hours. May hold overnight but typically close within a day.',
+    timeframe: 'Hold time: 4-24 hours',
+  },
+  SWING: {
+    title: 'Swing Trader',
+    description:
+      'Medium-term traders who capitalize on multi-day price swings. Hold through minor fluctuations to capture larger moves.',
+    timeframe: 'Hold time: 1-7 days',
+  },
+  POSITION: {
+    title: 'Position Trader',
+    description:
+      'Patient traders who take long-term positions based on fundamental analysis. Willing to hold through volatility.',
+    timeframe: 'Hold time: 7+ days',
+  },
+  HOLDER: {
+    title: 'Holder',
+    description:
+      'Long-term investors with strong conviction. Hold assets for extended periods regardless of short-term price action.',
+    timeframe: 'Hold time: Extended (weeks to months)',
+  },
+};
+
+function getBehaviorDescription(type: string | null | undefined) {
+  if (!type) return null;
+  return behaviorDescriptions[type] ?? null;
 }
 
 function getQualityDescription(tier: string | null | undefined): string {
@@ -85,9 +129,32 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                 {mode === 'token' && <td className="px-4 py-2 text-muted-foreground">#{profile.rank}</td>}
                 <td className="px-4 py-2 font-mono text-xs">{formatAddress(profile.walletAddress)}</td>
                 <td className="px-4 py-2">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getBehaviorColor(profile.behaviorType)}`}>
-                    {profile.behaviorType ?? '🏷️'}
-                  </span>
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs font-medium ${getBehaviorColor(profile.behaviorType)}`}
+                        >
+                          {profile.behaviorType ?? '🏷️'}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-xs">
+                        {(() => {
+                          const info = getBehaviorDescription(profile.behaviorType);
+                          if (!info) {
+                            return <p className="text-muted-foreground">No behavior classification yet.</p>;
+                          }
+                          return (
+                            <div className="space-y-1">
+                              <p className="font-semibold">{info.title}</p>
+                              <p className="text-muted-foreground">{info.description}</p>
+                              <p className="text-primary font-medium">{info.timeframe}</p>
+                            </div>
+                          );
+                        })()}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </td>
                 <td className="px-4 py-2 text-xs">
                   <div className="font-semibold text-sm">Median: {formatHoldTime(exitedMedian)}</div>
