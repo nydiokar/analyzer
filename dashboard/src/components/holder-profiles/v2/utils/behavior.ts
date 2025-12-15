@@ -83,8 +83,8 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
   HOLDER: {
     key: 'HOLDER',
     label: 'Holder',
-    description: 'Long-term conviction; accumulates and rarely exits.',
-    timeframe: 'Weeks to months',
+    description: 'Lack of exited tokens; accumulates and waiting.',
+    timeframe: 'Holds until it is not',
     palette: {
       badge: 'bg-purple-300/25 text-purple-900 dark:text-purple-100',
       bar: 'bg-purple-600',

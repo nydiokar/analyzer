@@ -274,7 +274,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
 
         if (onchainMetadata.length > 0) {
           await this.saveOnchainBasicMetadata(onchainMetadata);
-          this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
+          // this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
         }
       } catch (error) {
         this.logger.error('Stage 1 (DAS) failed:', error);
