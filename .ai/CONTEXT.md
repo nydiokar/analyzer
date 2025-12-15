@@ -28,9 +28,9 @@
 - **Holder profiles cleanup**: new behavior palette/labels + holder-without-exits fallback, value-aware active count (0.01 SOL threshold) with “Other” bucket, tooltips clarified for median/average and value-held. Added per-token value to `AnalysisResult` and server-side filtering; UI no longer client-filters dust.
 - **SOL price resilience**: PnL now fetches SOL price internally (CoinGecko primary, Dexscreener fallback, Redis cache) and no caller-side fetch is required; removed redundant holder-profile fetch. SOL values persist when price is available; USD always stored.
 
-### Next Tasks
+### Next 18 Tasks
 
-#### **PRIORITY: UX & Design Improvements (New - 2025-12-12)**
+**Done (4 tasks):**
 1. **Holder Profile Color Scheme** – Improve trader category colors for better visual hierarchy and intuition. Current colors aren't eye-friendly or intuitive for different trader categories. Research industry-standard color schemes for trader classifications (e.g., Fast Exit, Diamond Hands, etc.).
    - **Status**: ✅ Revised palette/labels and applied across badges/bars.
 
@@ -40,7 +40,13 @@
    - ✅ Small size shows full icon row; price/volume/liquidity dropped—only market cap shown from market data.
    - **Next**: Swap truncated token address on Holder Profiles token-mode view for the TokenBadge component.
 
-3. **Comprehensive Tooltips** – Add tooltips everywhere to explain concepts in practice:
+3. ~~**Resend integration**~~ ✅ DONE – React Email templates + Resend configured with verify@sova-intel.com sender.
+4. **Reset-password UX** – ✅ DONE Hook up the dashboard reset-password flow (request + token-based reset) to the existing backend endpoints so users can trigger the journey end-to-end.
+
+**Partial (5 tasks):**
+5. **TokenBadge Redesign (Next Step)** – Swap truncated token address on Holder Profiles token-mode view for the TokenBadge component.
+
+6. **Comprehensive Tooltips** – Add tooltips everywhere to explain concepts in practice:
    - **Trader Categories**: Hover over classification to see what it means (e.g., "Fast Exit: Traders who typically sell within 1 hour of purchase")
    - **Median vs Average**: Explain the difference in simple, user-friendly terms
    - **Exit Timing Metrics**: What does "Fast Exit (median 23m)" mean in practice? Why is it useful?
@@ -48,13 +54,7 @@
    - **All Dashboard Metrics**: User-friendly explanations for every data point - assume non-technical users
    - **Status**: Behavior/tooltips unified in holder profiles; median/avg and value-held clarified. Exit timing/global metrics still pending.
 
-4. **Fast Exit Metric Clarification** – In aggregated data fields (holder profile cards):
-   - **Current Issue**: Shows "Fast Exit (median 23m)" then repeats "(median 23m)" - redundant
-   - **Fix**: Show both meaningful metrics: "Fast Exit (median: 23m, avg: 45m)" or similar
-   - **Add Tooltip**: Explain median vs average for this specific context - keep it super short (1-2 sentences max)
-   - Make it immediately clear which number is which
-
-5. **Time Unit Disambiguation** – Fix ambiguous time format display:
+7. **Time Unit Disambiguation** – Fix ambiguous time format display:
    - **Current Issue**: Both minutes and months show as "35m" and "7m" - impossible to tell which is which
    - **Verify First**: Check if this ambiguity actually exists in the UI
    - **Fix Options**: Use clear formats like "35 min" vs "7 mo" OR "35m" vs "7M" (capital M for months)
@@ -62,8 +62,7 @@
    - **Ensure Consistency**: Apply same format across all components (holder profiles, exit timing, hold duration, etc.)
    - **Status**: Implemented in hold-time formatters and BehavioralPatternsTab; confirm any stragglers.
 
-#### **PRIORITY: Critical Bugs to Investigate (New - 2025-12-12)**
-6. **JWT Session Expiration Bug** – Sessions clearing after ~20 minutes unexpectedly:
+8. **JWT Session Expiration Bug** – Sessions clearing after ~20 minutes unexpectedly:
    - **Current Behavior**: Users being logged out after approximately 20 minutes
    - **Expected**: JWT_EXPIRES_IN=7d in .env.example suggests 7-day sessions
   - **Investigate**:
@@ -73,9 +72,9 @@
     - Browser/network interceptors that might be clearing tokens
    - **Research**: Industry standard session duration (7 days vs 14 days vs 30 days for "remember me")
    - **Goal**: Determine if 20-minute logout is a bug or misconfiguration, fix to match expected 7-day duration
-  - **Status**: Frontend mitigated — auto-refresh, inline re-auth modal, request replay; refresh TTLs now env-driven (`REFRESH_TOKEN_TTL_DAYS`, `REFRESH_TOKEN_ABSOLUTE_TTL_DAYS`). Still verify backend `JWT_EXPIRES_IN`/refresh TTLs are set as desired.
+  - **Status**: ✅ **IMPLEMENTED** - Frontend mitigated — auto-refresh, inline re-auth modal, request replay; refresh TTLs now env-driven (`REFRESH_TOKEN_TTL_DAYS`, `REFRESH_TOKEN_ABSOLUTE_TTL_DAYS`). Still verify backend `JWT_EXPIRES_IN`/refresh TTLs are set as desired. Introduced auto-refreshing of JWT and kept the overall token refresh.
 
-7. **Holder Profile Classification Bug** – "Unclassified" showing incorrectly:
+9. **Holder Profile Classification Bug** – "Unclassified" showing incorrectly:
    - **Scenario**: Wallets with no exited tokens (only holding) show as "Unclassified"
    - **Expected**: Should have appropriate classification based on holding behavior patterns
    - **Examples**: Long-term holder, accumulator, etc. - even without exits
@@ -86,18 +85,21 @@
    - **Question**: Is "Unclassified" the intended behavior or a gap in the classification system?
    - **Status**: Partially addressed — holder-without-exits now falls back to HOLDER with value-aware counts; deeper heuristics still to decide.
 
-#### **Original Planned Tasks**
-8. ~~**Resend integration**~~ ✅ DONE – React Email templates + Resend configured with verify@sova-intel.com sender.
-9. **Landing page removal** – Remove the standalone landing page at `/` (and any references) so we don't maintain unused marketing content.
-10. **Route reshuffle** – Make `/home` the default route and update the sidebar logo to link there.
-11. **Home redesign plan** – Outline/plan a modern single-page scrolling "tool showcase" for Home that highlights each module before we rebuild it.
-12. **Layout separation** – Design a layout split so Home uses a dedicated shell (no sidebar), while the sidebar remains in the tool hub only; document the approach before coding.
-13. **Reset-password UX** – Hook up the dashboard reset-password flow (request + token-based reset) to the existing backend endpoints so users can trigger the journey end-to-end.
-14. **Global theme toggle** – Extend the existing dark/light theme controls from the dashboard shell to the entire app (landing + home + tool hub), so users set their preference once and it applies everywhere.
-15. **User analysis timeline** – Add a simple timeline/history page that surfaces a user's recent jobs (submitted, running, completed) with status and timestamps, so they can track work without digging through logs. What Is the way to actually implement this with hyperlinks or some sort of navigation, if you did analysis of a token or a wallets, and you refresh you need to find them once more, but we need to be able to re-run jobs with ease - just one click in the history.
-16. **First-run onboarding flow** – Replace the post-registration drop-off with a guided checklist (verify email → sync wallet → explore tool hub). Ties into the new layout split so unauthenticated vs. tool hub experiences feel purpose-built.
-17. **Fix favorites API spam** – useFavorites hook calls /users/me/favorites before email verification, causing throttling errors. Add emailVerified check.
-18. **Search on sidebar** – Currently using only API key auth, not the new JWT system. Update to support JWT authentication. 
+**Not Started (9 tasks):**
+10. **Fast Exit Metric Clarification** – In aggregated data fields (holder profile cards):
+   - **Current Issue**: Shows "Fast Exit (median 23m)" then repeats "(median 23m)" - redundant
+   - **Fix**: Show both meaningful metrics: "Fast Exit (median: 23m, avg: 45m)" or similar
+   - **Add Tooltip**: Explain median vs average for this specific context - keep it super short (1-2 sentences max)
+   - Make it immediately clear which number is which
+
+11. **Landing page removal** – Remove the standalone landing page at `/` (and any references) so we don't maintain unused marketing content.
+12. **Route reshuffle** – Make `/home` the default route and update the sidebar logo to link there.
+13. **Home redesign plan** – Outline/plan a modern single-page scrolling "tool showcase" for Home that highlights each module before we rebuild it.
+14. **Layout separation** – Design a layout split so Home uses a dedicated shell (no sidebar), while the sidebar remains in the tool hub only; document the approach before coding.
+15. **Global theme toggle** – Extend the existing dark/light theme controls from the dashboard shell to the entire app (landing + home + tool hub), so users set their preference once and it applies everywhere.
+16. **User analysis timeline** – Add a simple timeline/history page that surfaces a user's recent jobs (submitted, running, completed) with status and timestamps, so they can track work without digging through logs. What Is the way to actually implement this with hyperlinks or some sort of navigation, if you did analysis of a token or a wallets, and you refresh you need to find them once more, but we need to be able to re-run jobs with ease - just one click in the history.
+17. **First-run onboarding flow** – Replace the post-registration drop-off with a guided checklist (verify email → sync wallet → explore tool hub). Ties into the new layout split so unauthenticated vs. tool hub experiences feel purpose-built.
+18. **Fix favorites API spam** – useFavorites hook calls /users/me/favorites before email verification, causing throttling errors. Add emailVerified check. 
 
 ---
 
