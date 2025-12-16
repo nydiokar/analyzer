@@ -12,7 +12,7 @@
 - ✅ **Top bar navigation** - Horizontal nav replacing collapsible sidebar
 - ✅ **All tool pages wrapped** - Wallet analysis, Similarity Lab, Holder Profiles, Top Holders, Settings
 - ✅ **/discover placeholder** - Featured wallets page (logo redirects here after login)
-- ✅ **/trackers placeholder** - "My Wallets" page for tracked addresses
+- ✅ **/trackers placeholder** - "Tracked Wallets" page for tracked addresses
 - ✅ **UserMenu updated** - Added Admin Panel link (conditional on `user.isAdmin`)
 - ✅ **Build verified** - Clean build with only linter warnings
 
@@ -31,7 +31,7 @@
 - Not critical for internal tool
 
 ### Latest Summary (2025‑12‑16 - Session 2)
-- **Auth UX fixes**: AppShell now shows Sign In/Sign Up buttons when logged out (no more dead state); polished Account modal (icons, better spacing, colored sections); polished Settings modal (visual theme picker with icons); removed /settings page (Settings now a modal).
+- **Auth UX fixes**: AppShell now shows Log In/Sign Up buttons when logged out (no more dead state); polished Account modal (icons, better spacing, colored sections); polished Settings modal (visual theme picker with icons); removed /settings page (Settings now a modal).
 - **Consistent auth flow**: All logged-out states show auth buttons in top bar; AuthModal is the single source of auth UI (no more "session expired" inconsistencies).
 
   Known Remaining Issues:
@@ -337,7 +337,7 @@
 - [ ] Update `dashboard/src/app/page.tsx`
   - Remove animated gradient orbs (performance)
   - Keep static gradient background
-  - Keep auth CTAs (Sign In, Sign Up)
+  - Keep auth CTAs (Log In, Sign Up)
   - Keep featured wallets section
   - Clean, minimal design
 

@@ -54,7 +54,7 @@ export function AppShell({ children }: AppShellProps) {
 
   const navItems = [
     { href: '/discover', label: 'Discover' },
-    { href: '/trackers', label: 'My Wallets' },
+    { href: '/trackers', label: 'Tracked Wallets' },
     { href: '/similarity-lab', label: 'Similarity Lab' },
     { href: '/tools/holder-profiles', label: 'Holder Profiles' },
     { href: '/tools/top-holders', label: 'Top Holders' },
@@ -140,7 +140,7 @@ export function AppShell({ children }: AppShellProps) {
                       size="sm"
                       className="text-white/70 hover:text-white"
                     >
-                      Sign In
+                      Log In
                     </Button>
                     <Button
                       onClick={() => setShowAuthModal(true)}

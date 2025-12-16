@@ -36,7 +36,7 @@ export default function LandingPage() {
 
         {/* Header */}
         <header className="relative z-10 w-full px-6 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <Image
               src="/sova_badge_primary.svg"
               alt="Sova Intel Logo"
@@ -44,6 +44,7 @@ export default function LandingPage() {
               height={40}
               className="rounded-lg"
             />
+            <span className="font-semibold text-lg text-white">Sova Intel</span>
           </div>
 
           {/* Auth Buttons */}
@@ -53,7 +54,7 @@ export default function LandingPage() {
               variant="ghost"
               className="text-slate-300 hover:text-white hover:bg-slate-800/50 transition-all"
             >
-              Sign In
+              Log In
             </Button>
             <Button
               onClick={() => setShowAuthModal(true)}
@@ -75,7 +76,7 @@ export default function LandingPage() {
                 </span>
               </h2>
               <p className="text-xl text-slate-400 max-w-2xl mx-auto">
-                Your gateway to advanced Solana wallet analytics, behavioral insights, and trading intelligence.
+              Your control layer for advanced Solana wallet analytics and behavioral intelligence.
               </p>
             </div>
 

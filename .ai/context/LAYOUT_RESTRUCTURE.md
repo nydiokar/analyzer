@@ -81,7 +81,7 @@ Complete overhaul of the layout system to match modern web app patterns (inspire
 **LEFT SIDE:**
 - Logo + "Sova Intel" → `/discover` (default home)
 - Discover → `/discover` (placeholder, featured wallets)
-- My Wallets → `/trackers` (user's tracked wallets)
+- Tracked Wallets → `/trackers` (user's tracked wallets)
 - Similarity Lab → `/similarity-lab`
 - Holder Profiles → `/holder-profiles`
 - Top Holders → `/top-holders`
@@ -232,9 +232,9 @@ Complete overhaul of the layout system to match modern web app patterns (inspire
 - App needs persistent navigation (top bar)
 - Clear separation of concerns
 
-### Why "My Wallets" Not "Trackers"?
+### Why "Tracked Wallets" Not "Trackers"?
 - "Trackers" doesn't speak to users
-- "My Wallets" is clear and self-explanatory
+- "Tracked Wallets" is clear and self-explanatory
 - Industry standard naming
 
 ### Why `/discover` as Default?
@@ -307,7 +307,7 @@ dashboard/src/components/layout/
 - ✅ Clean landing page (hero + CTA)
 - ✅ Top bar navigation (modern, clean)
 - ✅ Clear default home (`/discover`)
-- ✅ Placeholders for future features (My Wallets, Favorites)
+- ✅ Placeholders for future features (Tracked Wallets, Favorites)
 - ✅ Profile dropdown with all settings
 - ✅ No sidebar collapse/expand complexity
 

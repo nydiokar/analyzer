@@ -12,7 +12,7 @@ export default function TrackersPage() {
         <div className="mb-12">
           <div className="flex items-center gap-3 mb-4">
             <Bookmark className="h-8 w-8 text-purple-500" />
-            <h1 className="text-4xl font-bold">My Wallets</h1>
+            <h1 className="text-4xl font-bold">Tracked Wallets</h1>
           </div>
           <p className="text-lg text-muted-foreground">
             Track your favorite Solana wallets and monitor their performance.

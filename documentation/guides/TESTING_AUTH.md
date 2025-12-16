@@ -115,7 +115,7 @@ curl -X POST http://localhost:8080/auth/register \
 1. Logout if logged in
 2. Click **"Login"**
 3. Enter credentials
-4. Click **"Sign In"**
+4. Click **"Log In"**
 5. **Expected**: Successfully logged in, JWT stored
 
 **API**:

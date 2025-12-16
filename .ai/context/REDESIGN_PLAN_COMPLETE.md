@@ -434,7 +434,7 @@ export default function RootLayout({
 
 **Current State (Auth Branch):**
 - Gradient animated background
-- Auth CTAs (Sign In, Sign Up)
+- Auth CTAs (Log In, Sign Up)
 - Featured wallets
 - Email verification banner if authenticated
 
@@ -464,7 +464,7 @@ export default function LandingPage() {
                 variant="ghost"
                 onClick={() => setShowAuthModal(true)}
               >
-                Sign In
+                Log In
               </Button>
               <Button
                 onClick={() => setShowAuthModal(true)}
@@ -1143,7 +1143,7 @@ interface UserJobsResponse {
 
 ### **User Impact:**
 1. **New User:** Landing → Sign Up → Email Verify → Onboarding → Home (tool cards) → Choose Tool
-2. **Returning User:** Sign In → Home (see tools + recent jobs) → Continue Work
+2. **Returning User:** Log In → Home (see tools + recent jobs) → Continue Work
 3. **Admin:** Additional admin link in sidebar → API key management
 4. **Visual Consistency:** Every card looks similar, shadows consistent, spacing predictable
 

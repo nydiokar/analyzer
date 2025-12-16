@@ -111,7 +111,7 @@ Current State (needs updating based on CONTEXT.md):
 
 1. User visits "/" (landing page)
    ✅ Shows marketing content
-   ✅ Shows "Sign In" and "Sign Up" buttons
+   ✅ Shows "Log In" and "Sign Up" buttons
    ✅ Shows featured wallets (clickable)
    ✅ Shows demo content
 
@@ -198,7 +198,7 @@ PUBLIC ROUTES (unauthenticated):
 ├── / (marketing page - NEW, to be created)
 │   ├── No sidebar
 │   ├── Marketing content
-│   ├── Sign up / Sign in CTAs
+│   ├── Sign up / Log in CTAs
 │   └── Onboarding messaging
 │
 └── /verify (email verification - EXISTS)

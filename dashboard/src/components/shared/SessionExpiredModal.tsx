@@ -93,7 +93,7 @@ export function SessionExpiredModal({ open, onClose }: SessionExpiredModalProps)
             Keep browsing
           </Button>
           <Button onClick={handleReauth} disabled={loading || !email || !password}>
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? "Signing in..." : "Log in"}
           </Button>
         </DialogFooter>
       </DialogContent>

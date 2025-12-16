@@ -1,14 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
-import { Eye, EyeOff, Mail, Lock, UserPlus, LogIn, Sparkles, Check } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AuthModalProps {
@@ -90,40 +89,29 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[440px] p-0 overflow-hidden">
-        <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6">
-          <DialogHeader className="text-center space-y-3">
-            <div className="mx-auto w-12 h-12 rounded-full bg-blue-600/20 flex items-center justify-center">
-              <Sparkles className="w-6 h-6 text-blue-400" />
-            </div>
-            <DialogTitle className="text-2xl font-semibold text-slate-100">
-              Welcome to Sova Intel
-            </DialogTitle>
-            <DialogDescription className="text-slate-400">
-              Sign in to your account or create a new one to get full access to wallet analysis.
-            </DialogDescription>
-          </DialogHeader>
-        </div>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-semibold">
+            {activeTab === 'login' ? 'Welcome Back' : 'Create Account'}
+          </DialogTitle>
+          <DialogDescription className="text-sm">
+            {activeTab === 'login'
+              ? 'Sign in to access wallet analytics'
+              : 'Sign up to start analyzing wallets'}
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="p-6">
+        <div className="mt-4">
           <Tabs value={activeTab} onValueChange={(tab) => setActiveTab(tab as 'login' | 'register')}>
-            <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="login" className="flex items-center gap-2">
-                <LogIn className="w-4 h-4" />
-                Sign In
-              </TabsTrigger>
-              <TabsTrigger value="register" className="flex items-center gap-2">
-                <UserPlus className="w-4 h-4" />
-                Sign Up
-              </TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="login">Log In</TabsTrigger>
+              <TabsTrigger value="register">Sign Up</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="login" className="space-y-4 mt-0">
-              <form onSubmit={(e) => handleSubmit(e, true)} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="login-email" className="text-sm font-medium">
-                    Email Address
-                  </Label>
+            <TabsContent value="login" className="space-y-3 mt-0">
+              <form onSubmit={(e) => handleSubmit(e, true)} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="login-email" className="text-sm">Email</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                     <Input
@@ -138,10 +126,8 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="login-password" className="text-sm font-medium">
-                    Password
-                  </Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="login-password" className="text-sm">Password</Label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                     <Input
@@ -169,7 +155,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                   className="w-full h-11 bg-blue-600 hover:bg-blue-700"
                   disabled={loading || !canSubmitLogin}
                 >
-                  {loading ? 'Signing in...' : 'Sign In'}
+                  {loading ? 'Signing in...' : 'Log In'}
                 </Button>
                 
                 {!showForgotPassword && (
@@ -218,12 +204,10 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
               </form>
             </TabsContent>
 
-            <TabsContent value="register" className="space-y-4 mt-0">
-              <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="register-email" className="text-sm font-medium">
-                    Email Address
-                  </Label>
+            <TabsContent value="register" className="space-y-3 mt-0">
+              <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="register-email" className="text-sm">Email</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                     <Input
@@ -241,10 +225,8 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="register-password" className="text-sm font-medium">
-                    Password
-                  </Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="register-password" className="text-sm">Password</Label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                     <Input
@@ -287,10 +269,8 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="register-confirm-password" className="text-sm font-medium">
-                    Confirm Password
-                  </Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="register-confirm-password" className="text-sm">Confirm Password</Label>
                   <div className="relative">
                     <Check className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                     <Input
