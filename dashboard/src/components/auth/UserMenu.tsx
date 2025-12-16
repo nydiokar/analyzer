@@ -5,9 +5,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
-import { User, Settings, LogOut, Sparkles } from 'lucide-react';
+import { User, Settings, LogOut, Sparkles, HelpCircle } from 'lucide-react';
 import { AccountModal } from './AccountModal';
 import { SettingsModal } from './SettingsModal';
+import Link from 'next/link';
 
 interface UserMenuProps {
   className?: string;
@@ -66,6 +67,13 @@ export function UserMenu({ className }: UserMenuProps) {
           <DropdownMenuItem onClick={() => setShowSettingsModal(true)} className="cursor-pointer">
             <Settings className="w-4 h-4 mr-2" />
             Settings
+          </DropdownMenuItem>
+
+          <DropdownMenuItem asChild className="cursor-pointer">
+            <Link href="/help">
+              <HelpCircle className="w-4 h-4 mr-2" />
+              Help & About
+            </Link>
           </DropdownMenuItem>
 
           <DropdownMenuItem disabled className="cursor-not-allowed opacity-50">

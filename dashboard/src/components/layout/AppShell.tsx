@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { ThemeProvider } from "@/components/theme-provider";
 import { EmailVerificationBanner } from "@/components/auth/EmailVerificationBanner";
 import { UserMenu } from "@/components/auth/UserMenu";
-import { WalletSearch } from "@/components/sidebar/WalletSearch";
+import { WalletSearch } from "@/components/shared/WalletSearch";
 import { AuthModal } from "@/components/auth/AuthModal";
 import { Toaster } from 'sonner';
 import { SWRConfig, SWRConfiguration } from 'swr';

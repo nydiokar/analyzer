@@ -6,10 +6,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { changelog } from "@/lib/changelog";
+import { AppShell } from "@/components/layout/AppShell";
 
 export default function HelpPage() {
   return (
-    <div className="container mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
+    <AppShell>
+      <div className="container mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
       <div className="space-y-8">
         <header className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl flex items-center gap-3">
@@ -157,7 +159,7 @@ export default function HelpPage() {
           </PopoverContent>
         </Popover>
       </div>
-      
-    </div>
+      </div>
+    </AppShell>
   );
 } 
