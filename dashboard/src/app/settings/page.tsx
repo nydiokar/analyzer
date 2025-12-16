@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { UserIcon, Shield, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
+import { AppShell } from '@/components/layout/AppShell';
 
 const formatDate = (value?: string | null) => {
   if (!value) return '--';
@@ -53,13 +54,14 @@ export default function SettingsPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto">
-        <header className="mb-6">
-          <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-          <p className="text-muted-foreground mt-1">
-            Sign in to manage your Sova Intel account.
-          </p>
-        </header>
+      <AppShell>
+        <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto">
+          <header className="mb-6">
+            <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+            <p className="text-muted-foreground mt-1">
+              Sign in to manage your Sova Intel account.
+            </p>
+          </header>
 
         <Card>
           <CardHeader>
@@ -77,18 +79,20 @@ export default function SettingsPage() {
             </Button>
           </CardContent>
         </Card>
-      </div>
+        </div>
+      </AppShell>
     );
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-1">
-          Review your account details and manage your current session.
-        </p>
-      </header>
+    <AppShell>
+      <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+        <header className="mb-8">
+          <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+          <p className="text-muted-foreground mt-1">
+            Review your account details and manage your current session.
+          </p>
+        </header>
 
       <div className="grid gap-6">
         <Card>
@@ -162,6 +166,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+      </div>
+    </AppShell>
   );
 }

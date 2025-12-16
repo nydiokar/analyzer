@@ -20,6 +20,7 @@ import {
   WalletClassifier,
   WalletClassifierEntry,
 } from '@/components/holder-profiles/v2/WalletClassifier';
+import { AppShell } from '@/components/layout/AppShell';
 
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 type AnalysisMode = 'token' | 'wallet';
@@ -264,11 +265,12 @@ export default function HolderProfilesPage() {
   const disableAnalyze = analysisMode === 'token' ? isTokenRunning : isWalletRunning || parsedWallets.list.length === 0;
 
   return (
-    <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Holder Profiles</h1>
-        <p className="text-sm text-muted-foreground">Outcome-first analysis for token cohorts and wallet scouts.</p>
-      </header>
+    <AppShell>
+      <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-6">
+        <header className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">Holder Profiles</h1>
+          <p className="text-sm text-muted-foreground">Outcome-first analysis for token cohorts and wallet scouts.</p>
+        </header>
 
       <div className="flex flex-col md:flex-row items-start md:items-center gap-3 p-3 rounded-lg border bg-card">
         <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
@@ -352,7 +354,8 @@ export default function HolderProfilesPage() {
       )}
 
       {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}
-    </div>
+      </div>
+    </AppShell>
   );
 }
 

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
-import { Settings, LogOut, Key, Crown, Sparkles } from 'lucide-react';
+import { Settings, LogOut, Key, Crown, Sparkles, Shield } from 'lucide-react';
 import Link from 'next/link';
 
 interface UserMenuProps {
@@ -114,17 +114,26 @@ export function UserMenu({ className, isCollapsed = false }: UserMenuProps) {
         </DropdownMenuLabel>
         
         <DropdownMenuSeparator />
-        
+
         <DropdownMenuItem asChild>
           <Link href="/settings" className="flex items-center gap-2 cursor-pointer">
             <Settings className="w-4 h-4" />
-            Account Settings
+            Settings
           </Link>
         </DropdownMenuItem>
-        
+
+        {user.isAdmin && (
+          <DropdownMenuItem asChild>
+            <Link href="/admin/api-keys" className="flex items-center gap-2 cursor-pointer">
+              <Shield className="w-4 h-4" />
+              Admin Panel
+            </Link>
+          </DropdownMenuItem>
+        )}
+
         <DropdownMenuSeparator />
-        
-        <DropdownMenuItem 
+
+        <DropdownMenuItem
           onClick={handleLogout}
           className="flex items-center gap-2 cursor-pointer text-red-400 hover:text-red-300 focus:text-red-300"
         >

@@ -1,5 +1,6 @@
 import WalletProfileLayout from "@/components/layout/WalletProfileLayout";
 import { RequireVerifiedEmail } from "@/components/auth/RequireVerifiedEmail";
+import { AppShell } from "@/components/layout/AppShell";
 
 export const dynamic = 'force-dynamic'; // Keep this, it's good practice for dynamic routes
 
@@ -17,12 +18,14 @@ export default async function WalletProfilePage({ params }: WalletProfilePagePro
   const { walletAddress } = await params;
 
   return (
-    <RequireVerifiedEmail>
-      <div className="h-full w-full flex flex-col overflow-hidden">
-        <WalletProfileLayout walletAddress={walletAddress}>
-          {null}
-        </WalletProfileLayout>
-      </div>
-    </RequireVerifiedEmail>
+    <AppShell>
+      <RequireVerifiedEmail>
+        <div className="h-full w-full flex flex-col overflow-hidden">
+          <WalletProfileLayout walletAddress={walletAddress}>
+            {null}
+          </WalletProfileLayout>
+        </div>
+      </RequireVerifiedEmail>
+    </AppShell>
   );
 } 

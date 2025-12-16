@@ -15,6 +15,7 @@ import { useJobProgress } from '@/hooks/useJobProgress';
 import { JobProgressData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { useApiKeyStore } from '@/store/api-key-store';
+import { AppShell } from '@/components/layout/AppShell';
 
 
 // Removed TopProgressBar - progress now handled inline
@@ -495,12 +496,13 @@ export default function AnalysisLabPage() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-5">
-      <header className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
-          Similarity LAB <span className="text-muted-foreground">- discover hidden connections</span>
-        </h1>
-      </header>
+    <AppShell>
+      <div className="container mx-auto p-4 md:p-5">
+        <header className="mb-6">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
+            Similarity LAB <span className="text-muted-foreground">- discover hidden connections</span>
+          </h1>
+        </header>
       
       <div className="bg-card p-6 rounded-lg shadow-sm border">
         <div className="flex items-start justify-between gap-3">
@@ -586,6 +588,7 @@ export default function AnalysisLabPage() {
         </Button>
       )}
 
-    </div>
+      </div>
+    </AppShell>
   );
 } 

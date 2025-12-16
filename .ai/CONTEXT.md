@@ -3,10 +3,20 @@
 **Project**: Sova Intel - Wallet Analysis System
 **Branch**: `pretty` (design system implementation)
 **Goal**: Apply modern, professional design system to the dashboard while preserving functionality
-**Status**: Phase 1.2 COMPLETE ✅ - Ready for Week 2
-**Last Updated:** 2025-12-09
+**Status**: Layout Restructure COMPLETE ✅ - Modern two-shell architecture implemented
+**Last Updated:** 2025-12-16
 
-**What's Done (Phase 1.2):**
+**What's Done (Layout Restructure - 2025-12-16):**
+- ✅ **Two-shell architecture** - LandingShell (hero page) + AppShell (top bar navigation)
+- ✅ **Landing page redesigned** - Clean hero with tagline, CTA, and feature cards
+- ✅ **Top bar navigation** - Horizontal nav replacing collapsible sidebar
+- ✅ **All tool pages wrapped** - Wallet analysis, Similarity Lab, Holder Profiles, Top Holders, Settings
+- ✅ **/discover placeholder** - Featured wallets page (logo redirects here after login)
+- ✅ **/trackers placeholder** - "My Wallets" page for tracked addresses
+- ✅ **UserMenu updated** - Added Admin Panel link (conditional on `user.isAdmin`)
+- ✅ **Build verified** - Clean build with only linter warnings
+
+**What's Done (Phase 1.2 - 2025-12-09):**
 - ✅ All dashboard components migrated to shadcn + custom design system
 - ✅ Made fully responsive with proper overflow scrolling (works on laptop screens)
 - ✅ Reduced font sizes for compact, readable display
@@ -20,7 +30,10 @@
 - Production build will be much faster (minified, optimized)
 - Not critical for internal tool
 
-### Latest Summary (2025‑12‑15)
+### Latest Summary (2025‑12‑16)
+- **Layout restructure COMPLETE**: Two-shell system (LandingShell for marketing, AppShell for tools), top bar navigation (no sidebar), clean landing page, placeholders for /discover and /trackers.
+
+### Previous Summary (2025‑12‑15)
 - **Email verification with React Email** ✅ Complete: Professional email templates via React Email, clickable verification URLs (no copy-paste), Resend integration, route protection via middleware + client guards, verification page handles logged-in/out users.
 - Admin flag now lives entirely on the controller layer so auth responses expose `isAdmin`, restoring the Admin Panel entry in the UI; fetcher now surfaces structured error codes for better UX.
 - **Session handling polished**: proactive JWT refresh 5 minutes before expiry while active; inline re-auth modal (no page reload); failed request auto-replay after re-auth; cookie-mode refresh supported.
