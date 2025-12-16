@@ -1,142 +1,106 @@
 'use client';
 
-import { Button } from "@/components/ui/button";
-import Link from 'next/link';
+import { useState, useEffect } from 'react';
+import Image from 'next/image';
+import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthModal } from '@/components/auth/AuthModal';
-import Image from 'next/image';
-import { useState } from 'react';
-import { LandingShell } from '@/components/layout/LandingShell';
 import { useRouter } from 'next/navigation';
+import { LandingShell } from '@/components/layout/LandingShell';
 
 export default function LandingPage() {
   const { isAuthenticated } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const router = useRouter();
 
-  // If authenticated, redirect to discover
+  // Redirect authenticated users to discover
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push('/discover');
+    }
+  }, [isAuthenticated, router]);
+
+  // Don't render anything while redirecting
   if (isAuthenticated) {
-    router.push('/discover');
     return null;
   }
 
   return (
     <LandingShell>
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900">
-        {/* Minimal Header */}
-        <header className="container mx-auto max-w-6xl px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="flex items-center gap-2">
-            <Image
-              src="/logo.svg"
-              alt="Sova Intel"
-              width={32}
-              height={32}
-              className="w-8 h-8"
-            />
-            <span className="font-bold text-xl text-slate-50">Sova Intel</span>
-          </Link>
+      <div className="min-h-screen w-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden">
+        {/* Animated background elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        </div>
 
-          <div className="flex gap-2">
+        {/* Header */}
+        <header className="relative z-10 w-full px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <Image
+              src="/sova_badge_primary.svg"
+              alt="Sova Intel Logo"
+              width={40}
+              height={40}
+              className="rounded-lg"
+            />
+          </div>
+
+          {/* Auth Buttons */}
+          <div className="flex items-center gap-3">
             <Button
               onClick={() => setShowAuthModal(true)}
               variant="ghost"
-              size="sm"
-              className="text-slate-200 hover:text-white hover:bg-slate-700"
+              className="text-slate-300 hover:text-white hover:bg-slate-800/50 transition-all"
             >
-              Log In
+              Sign In
             </Button>
             <Button
               onClick={() => setShowAuthModal(true)}
-              size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-6 shadow-lg shadow-blue-500/25 transition-all"
             >
               Sign Up
             </Button>
           </div>
         </header>
 
-        {/* Hero Section */}
-        <main className="container mx-auto max-w-4xl px-6 py-20 text-center">
-          {/* Logo */}
-          <div className="mb-8 flex justify-center">
-            <div className="relative">
-              <div className="absolute inset-0 bg-blue-500/20 blur-3xl rounded-full"></div>
-              <Image
-                src="/logo.svg"
-                alt="Sova Intel"
-                width={120}
-                height={120}
-                className="w-24 h-24 sm:w-32 sm:h-32 relative"
-              />
+        {/* Main Content */}
+        <main className="relative z-10 flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-6 text-center">
+          <div className="max-w-4xl mx-auto space-y-8">
+            <div className="space-y-4">
+              <h2 className="text-6xl font-bold text-white leading-tight">
+                Welcome to{' '}
+                <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                  Sova Intel
+                </span>
+              </h2>
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto">
+                Your gateway to advanced Solana wallet analytics, behavioral insights, and trading intelligence.
+              </p>
             </div>
-          </div>
 
-          {/* Tagline */}
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-6 text-slate-50">
-            Decode Solana Wallets
-          </h1>
-
-          {/* Description */}
-          <p className="text-lg sm:text-xl text-slate-300 mb-10 max-w-2xl mx-auto">
-            Sova Intel is the professional wallet analysis platform for Solana.
-            Track PNL, uncover behavioral patterns, and analyze trading strategies with institutional-grade tools.
-          </p>
-
-          {/* CTA */}
-          <Button
-            onClick={() => setShowAuthModal(true)}
-            size="lg"
-            className="bg-blue-600 hover:bg-blue-700 text-white text-lg px-8 py-6 h-auto"
-          >
-            Start Analyzing
-          </Button>
-
-          {/* Feature Highlights */}
-          <div className="mt-20 grid md:grid-cols-3 gap-8 text-left">
-            <FeatureCard
-              title="Deep PNL Tracking"
-              description="Realized and unrealized gains, win rates, and ROI across all trades."
-            />
-            <FeatureCard
-              title="Behavior Recognition"
-              description="Automatically classify wallet strategies: snipers, holders, farmers, and more."
-            />
-            <FeatureCard
-              title="Complete History"
-              description="Every purchase, sale, and transfer for any Solana wallet."
-            />
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-8">
+              <Button
+                onClick={() => setShowAuthModal(true)}
+                size="lg"
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-6 text-lg shadow-2xl shadow-blue-500/30 transition-all hover:scale-105"
+              >
+                Start Analyzing
+              </Button>
+            </div>
           </div>
         </main>
 
-        {/* Footer */}
-        <footer className="container mx-auto max-w-6xl px-6 py-8 text-center text-sm text-slate-500 border-t border-slate-800">
-          <p>&copy; {new Date().getFullYear()} Sova Intel. All rights reserved.</p>
-        </footer>
+        {/* Auth Modal */}
+        <AuthModal
+          open={showAuthModal}
+          onOpenChange={setShowAuthModal}
+          onSuccess={() => {
+            setShowAuthModal(false);
+            router.push('/discover');
+          }}
+        />
       </div>
-
-      {/* Auth Modal */}
-      <AuthModal
-        open={showAuthModal}
-        onOpenChange={setShowAuthModal}
-        onSuccess={() => {
-          setShowAuthModal(false);
-          router.push('/discover');
-        }}
-      />
     </LandingShell>
-  );
-}
-
-interface FeatureCardProps {
-  title: string;
-  description: string;
-}
-
-function FeatureCard({ title, description }: FeatureCardProps) {
-  return (
-    <div className="p-6 bg-slate-800/50 rounded-xl border border-slate-700 hover:border-slate-600 transition-colors">
-      <h3 className="text-lg font-semibold mb-2 text-slate-100">{title}</h3>
-      <p className="text-sm text-slate-400">{description}</p>
-    </div>
   );
 }

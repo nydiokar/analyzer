@@ -30,7 +30,17 @@
 - Production build will be much faster (minified, optimized)
 - Not critical for internal tool
 
-### Latest Summary (2025‑12‑16)
+### Latest Summary (2025‑12‑16 - Session 2)
+- **Auth UX fixes**: AppShell now shows Sign In/Sign Up buttons when logged out (no more dead state); polished Account modal (icons, better spacing, colored sections); polished Settings modal (visual theme picker with icons); removed /settings page (Settings now a modal).
+- **Consistent auth flow**: All logged-out states show auth buttons in top bar; AuthModal is the single source of auth UI (no more "session expired" inconsistencies).
+
+  Known Remaining Issues:
+
+  1. "Session Expired" modal still exists - Need to trace where it's triggered (likely in SessionExpiredModal.tsx or fetcher error handling)
+  2. Wallet profile redirect - Should show auth prompt instead of redirecting to /
+
+
+### Previous Summary (2025‑12‑16 - Session 1)
 - **Layout restructure COMPLETE**: Two-shell system (LandingShell for marketing, AppShell for tools), top bar navigation (no sidebar), clean landing page, placeholders for /discover and /trackers.
 
 ### Previous Summary (2025‑12‑15)

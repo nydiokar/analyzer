@@ -5,13 +5,15 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { EmailVerificationBanner } from "@/components/auth/EmailVerificationBanner";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { WalletSearch } from "@/components/sidebar/WalletSearch";
+import { AuthModal } from "@/components/auth/AuthModal";
 import { Toaster } from 'sonner';
 import { SWRConfig, SWRConfiguration } from 'swr';
 import { defaultSWRConfig } from '@/lib/swr-config';
 import { AppCacheProvider } from '@/lib/cache-provider';
 import { useProactiveRefresh } from '@/hooks/useProactiveRefresh';
+import { useAuth } from '@/hooks/useAuth';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -37,6 +39,9 @@ export function AppShell({ children }: AppShellProps) {
   useProactiveRefresh();
 
   const pathname = usePathname();
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   // Create cache provider once and reuse it
   const cacheProvider = useMemo(() => new AppCacheProvider(), []);
@@ -79,13 +84,13 @@ export function AppShell({ children }: AppShellProps) {
                 {/* Logo */}
                 <Link href="/discover" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
                   <Image
-                    src="/logo.svg"
+                    src="/sova_badge_primary.svg"
                     alt="Sova Intel"
-                    width={24}
-                    height={24}
-                    className="w-6 h-6"
+                    width={28}
+                    height={28}
+                    className="w-7 h-7"
                   />
-                  <span className="font-semibold text-base hidden sm:inline-block">Sova Intel</span>
+                  <span className="font-semibold text-base text-white">Sova Intel</span>
                 </Link>
 
                 {/* Navigation Links */}
@@ -97,8 +102,8 @@ export function AppShell({ children }: AppShellProps) {
                       className={cn(
                         "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
                         isActiveRoute(item.href)
-                          ? "bg-accent text-accent-foreground"
-                          : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                          ? "bg-accent text-white"
+                          : "text-white/70 hover:text-white hover:bg-accent/50"
                       )}
                     >
                       {item.label}
@@ -107,7 +112,7 @@ export function AppShell({ children }: AppShellProps) {
                 </nav>
               </div>
 
-              {/* Right: Search + Favorites + Profile */}
+              {/* Right: Search + Favorites + Profile/Auth */}
               <div className="ml-auto flex items-center gap-3">
                 {/* Search */}
                 <div className="w-64 hidden lg:block">
@@ -124,8 +129,28 @@ export function AppShell({ children }: AppShellProps) {
                   <Star className="h-4 w-4" />
                 </Button>
 
-                {/* Profile Menu */}
-                <UserMenu />
+                {/* Profile Menu or Auth Buttons */}
+                {isAuthenticated ? (
+                  <UserMenu />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => setShowAuthModal(true)}
+                      variant="ghost"
+                      size="sm"
+                      className="text-white/70 hover:text-white"
+                    >
+                      Sign In
+                    </Button>
+                    <Button
+                      onClick={() => setShowAuthModal(true)}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Sign Up
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </header>
@@ -137,6 +162,16 @@ export function AppShell({ children }: AppShellProps) {
           </main>
         </div>
         <Toaster />
+
+        {/* Auth Modal */}
+        <AuthModal
+          open={showAuthModal}
+          onOpenChange={setShowAuthModal}
+          onSuccess={() => {
+            setShowAuthModal(false);
+            router.push('/discover');
+          }}
+        />
       </ThemeProvider>
     </SWRConfig>
   );
