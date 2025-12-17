@@ -3,8 +3,6 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
-import { SessionGuardProvider } from "@/components/providers/SessionGuardProvider";
-
 const geistSans = GeistSans;
 const geistMono = GeistMono;
 const inter = Inter({
@@ -37,9 +35,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/favicon.svg" />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} ${inter.className}`}>
-        <SessionGuardProvider>
-          {children}
-        </SessionGuardProvider>
+        {children}
       </body>
     </html>
   );

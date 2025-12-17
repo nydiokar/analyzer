@@ -1,20 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
-import { sessionEvents } from "@/lib/session-events";
 import { useAuthStore } from "@/store/auth-store";
 import { createSecureStorage, TokenManager } from "@/lib/secure-storage";
+import { toast } from "sonner";
 
 // Local token manager instance pointing at the same underlying storage (cookies/local)
 const proactiveTokenManager = new TokenManager(createSecureStorage());
 
 /**
- * Proactively refresh 5 minutes before exp while the user is active.
+ * Proactively refresh 5 minutes before expiry while the user is active.
+ * Industry standard: refresh tokens silently in the background without user interruption.
  */
 export const useProactiveRefresh = () => {
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
-    const leadSeconds = 60; // refresh 1 minute before expiry (avoids 0ms loops on very short TTLs)
+    const leadSeconds = 300; // refresh 5 minutes before expiry (industry standard buffer)
     const minDelayMs = 15_000; // never schedule faster than 15s to avoid throttling
 
     const schedule = () => {
@@ -28,12 +29,17 @@ export const useProactiveRefresh = () => {
         const msUntilRefresh = Math.max(secondsUntilRefresh * 1000, minDelayMs);
         if (timeout) clearTimeout(timeout);
         timeout = setTimeout(async () => {
-          sessionEvents.emitPreRefresh();
           const ok = await useAuthStore.getState().refreshToken();
-          sessionEvents.emitPostRefresh(ok);
           if (!ok) {
-            sessionEvents.emitExpired();
+            // Only show error if refresh token is actually expired (not just network issues)
+            const refreshToken = proactiveTokenManager.getRefreshToken();
+            if (!refreshToken) {
+              toast.error("Your session has expired. Please log in again.");
+              useAuthStore.getState().logout();
+            }
+            // For network errors, we'll retry on next focus/visibility change
           } else {
+            // Silent success - no toast needed for smooth UX
             schedule();
           }
         }, msUntilRefresh);

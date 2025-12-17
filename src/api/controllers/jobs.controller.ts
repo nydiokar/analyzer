@@ -134,30 +134,30 @@ export class JobsController {
   // === Existing Job Status Endpoints ===
 
   @Get(':jobId')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Get job status by ID',
-    description: 'Retrieves the status, progress, and results of a specific job by its ID across all queues.'
+    description: 'Retrieves the status, progress, and results of a specific job by its ID across all queues. Users can query any job ID (no ownership validation yet - TODO: add userId to jobs).'
   })
   @ApiParam({ name: 'jobId', description: 'The unique job ID', type: String })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Job status retrieved successfully',
     type: JobStatusResponseDto
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
   async getJobStatus(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<JobStatusResponseDto> {
-    this.assertAdmin(req.user);
+    // Read-only endpoint - no admin check needed (TODO: add userId validation when job history feature is built)
     return this.jobsService.getJobStatus(jobId);
   }
 
   @Get(':jobId/progress')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Get job progress by ID',
     description: 'Retrieves only the progress information for a specific job.'
   })
   @ApiParam({ name: 'jobId', description: 'The unique job ID', type: String })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Job progress retrieved successfully',
     schema: {
       type: 'object',
@@ -170,18 +170,18 @@ export class JobsController {
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
   async getJobProgress(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<{ jobId: string; status: string; progress: number | object }> {
-    this.assertAdmin(req.user);
+    // Read-only endpoint - no admin check needed
     return this.jobsService.getJobProgress(jobId);
   }
 
   @Get(':jobId/result')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Get job result by ID',
     description: 'Retrieves only the result information for a specific job.'
   })
   @ApiParam({ name: 'jobId', description: 'The unique job ID', type: String })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Job result retrieved successfully',
     schema: {
       type: 'object',
@@ -195,7 +195,7 @@ export class JobsController {
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
   async getJobResult(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<{ jobId: string; status: string; result?: any; error?: string }> {
-    this.assertAdmin(req.user);
+    // Read-only endpoint - no admin check needed
     return this.jobsService.getJobResult(jobId);
   }
 

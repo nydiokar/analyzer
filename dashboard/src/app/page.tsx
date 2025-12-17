@@ -1,29 +1,54 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, Suspense, useEffect } from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthModal } from '@/components/auth/AuthModal';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { LandingShell } from '@/components/layout/LandingShell';
 
-export default function LandingPage() {
+// Component that uses search params - must be wrapped in Suspense
+function SearchParamsHandler({ showAuthModal, setShowAuthModal }: { showAuthModal: boolean; setShowAuthModal: (show: boolean) => void }) {
   const { isAuthenticated } = useAuth();
-  const [showAuthModal, setShowAuthModal] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  // Redirect authenticated users to discover
+  // Check if redirected from a protected route
+  useEffect(() => {
+    const redirectPath = searchParams.get('redirect');
+    if (redirectPath && !isAuthenticated) {
+      setShowAuthModal(true);
+    }
+  }, [searchParams, isAuthenticated, setShowAuthModal]);
+
+  // Redirect authenticated users to discover (or to their intended destination)
   useEffect(() => {
     if (isAuthenticated) {
-      router.push('/discover');
+      const redirectPath = searchParams.get('redirect');
+      router.push(redirectPath || '/discover');
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, router, searchParams]);
 
   // Don't render anything while redirecting
   if (isAuthenticated) {
     return null;
   }
+
+  return (
+    <AuthModal
+      open={showAuthModal}
+      onOpenChange={setShowAuthModal}
+      onSuccess={() => {
+        setShowAuthModal(false);
+        router.push('/discover');
+      }}
+    />
+  );
+}
+
+export default function LandingPage() {
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   return (
     <LandingShell>
@@ -92,15 +117,10 @@ export default function LandingPage() {
           </div>
         </main>
 
-        {/* Auth Modal */}
-        <AuthModal
-          open={showAuthModal}
-          onOpenChange={setShowAuthModal}
-          onSuccess={() => {
-            setShowAuthModal(false);
-            router.push('/discover');
-          }}
-        />
+        {/* Search Params Handler with Suspense */}
+        <Suspense fallback={null}>
+          <SearchParamsHandler showAuthModal={showAuthModal} setShowAuthModal={setShowAuthModal} />
+        </Suspense>
       </div>
     </LandingShell>
   );

@@ -23,67 +23,49 @@ export function BehaviorCompositionBar({ profiles }: Props) {
 
   if (!segments.length) {
     return (
-      <div className="rounded-xl border p-4 text-sm text-muted-foreground">No behavior classifications yet.</div>
+      <div className="rounded-lg border p-4 bg-card text-sm text-muted-foreground">No behavior classifications yet.</div>
     );
   }
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-xl border p-4">
-        <div className="w-full h-8 rounded-md overflow-hidden flex">
-          {segments.map((segment) => {
-            const meta = getBehaviorMeta(segment.type);
-            const info = getBehaviorDescription(segment.type);
-            const label = meta?.label || segment.type;
-            return (
-              <TooltipProvider key={segment.type} delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div
-                      className={`h-full text-[10px] uppercase flex items-center justify-center text-white ${getBehaviorBarColor(segment.type)}`}
-                      style={{ width: `${segment.percentage}%` }}
-                    >
-                      <span className="px-2 whitespace-nowrap">
-                        {label} ({segment.count})
-                      </span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs text-xs">
-                    <p className="font-semibold mb-1">
-                      {info?.title || label} — {segment.count} holders ({segment.percentage}%)
-                    </p>
-                    <p className="text-muted-foreground mb-1">{info?.description || 'Trading behavior classification based on typical hold times.'}</p>
-                    <p className="text-primary font-medium">{info?.timeframe || 'Hold time varies'}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            );
-          })}
-        </div>
-        <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-          {segments.map((segment) => {
-            const meta = getBehaviorMeta(segment.type);
-            const info = getBehaviorDescription(segment.type);
-            const label = meta?.label || segment.type;
-            return (
-              <TooltipProvider key={segment.type} delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center gap-2 cursor-help">
-                      <span className={`h-2 w-2 rounded-full ${getBehaviorBarColor(segment.type)}`}></span>
-                      <span>{label} — {segment.count}</span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs text-xs">
-                    <p className="font-semibold mb-1">{info?.title || label}</p>
-                    <p className="text-muted-foreground mb-2">{info?.description || 'Trading behavior classification based on typical hold times.'}</p>
-                    <p className="text-xs text-primary font-medium">{info?.timeframe || 'Hold time varies'}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            );
-          })}
-        </div>
+    <div className="rounded-lg border p-4 bg-card space-y-3">
+      <div className="w-full h-6 rounded-md overflow-hidden flex">
+        {segments.map((segment) => {
+          const meta = getBehaviorMeta(segment.type);
+          const info = getBehaviorDescription(segment.type);
+          const label = meta?.label || segment.type;
+          return (
+            <TooltipProvider key={segment.type} delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div
+                    className={`h-full cursor-help transition-opacity hover:opacity-80 ${getBehaviorBarColor(segment.type)}`}
+                    style={{ width: `${segment.percentage}%` }}
+                  />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  <p className="font-semibold mb-1">
+                    {info?.title || label} — {segment.count} holders ({segment.percentage}%)
+                  </p>
+                  <p className="text-muted-foreground mb-1">{info?.description || 'Trading behavior classification based on typical hold times.'}</p>
+                  <p className="text-primary font-medium">{info?.timeframe || 'Hold time varies'}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
+        {segments.map((segment) => {
+          const meta = getBehaviorMeta(segment.type);
+          const label = meta?.label || segment.type;
+          return (
+            <div key={segment.type} className="flex items-center gap-2">
+              <span className={`h-2.5 w-2.5 rounded-full ${getBehaviorBarColor(segment.type)}`}></span>
+              <span className="text-muted-foreground">{label} — {segment.count}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

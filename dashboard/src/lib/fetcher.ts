@@ -1,26 +1,6 @@
 import { useAuthStore } from '@/store/auth-store';
 import { useApiKeyStore } from '@/store/api-key-store';
-import { sessionEvents } from '@/lib/session-events';
-
-// Stash last failed request to optionally replay after re-auth
-let lastFailedRequest: { url: string; options?: RequestInit } | null = null;
-
-export const replayLastFailedRequest = async () => {
-  if (!lastFailedRequest) return null;
-  const { url, options } = lastFailedRequest;
-  lastFailedRequest = null;
-  const baseHeaders = buildAuthHeaders();
-  const mergedHeaders = { ...baseHeaders, ...(options?.headers || {}) };
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-  const absoluteUrl = `${baseUrl}${url}`;
-  const res = await fetch(absoluteUrl, { ...options, headers: mergedHeaders });
-  if (!res.ok) throw new Error('Failed to replay request');
-  const contentLength = res.headers.get('content-length');
-  if (res.status === 204 || (contentLength && parseInt(contentLength, 10) === 0)) {
-    return null;
-  }
-  return res.json();
-};
+import { toast } from 'sonner';
 
 // Build auth headers from stores (JWT preferred, API key fallback)
 const buildAuthHeaders = () => {
@@ -46,13 +26,21 @@ const attemptRefreshAndRetry = async (
   options: RequestInit | undefined
 ) => {
   const authStore = useAuthStore.getState();
+
+  console.log('Access token expired, attempting automatic refresh...');
   const refreshed = await authStore.refreshToken();
+
   if (!refreshed) {
-    const error = new Error('Session expired. Please sign in again.');
+    console.log('Automatic refresh failed - refresh token may be expired');
+    // Don't throw error immediately - let the 401 propagate naturally
+    // The logout will be handled by the auth store if refresh token is truly expired
+    const error = new Error('Unable to refresh session. Please log in again.');
     Object.defineProperty(error, 'status', { value: 401 });
-    Object.defineProperty(error, 'code', { value: 'SESSION_EXPIRED' });
+    Object.defineProperty(error, 'code', { value: 'REFRESH_FAILED' });
     throw error;
   }
+
+  console.log('Access token refreshed, retrying request...');
 
   // Rebuild headers with new token and retry once
   const retryHeaders = {
@@ -94,7 +82,20 @@ export const fetcher = async (url: string, options?: RequestInit) => {
 
   // Handle expired JWT: attempt silent refresh once, then retry
   if (res.status === 401 && useAuthStore.getState().token && !useAuthStore.getState().isUsingApiKey) {
-    res = await attemptRefreshAndRetry(absoluteUrl, options);
+    try {
+      res = await attemptRefreshAndRetry(absoluteUrl, options);
+    } catch (refreshError) {
+      // If refresh fails, show a user-friendly toast and redirect to login
+      const authStore = useAuthStore.getState();
+      if (!authStore.isAuthenticated) {
+        // Already logged out by refresh logic, just redirect
+        toast.error('Your session has expired. Please log in again.');
+        if (typeof window !== 'undefined') {
+          window.location.href = '/';
+        }
+      }
+      throw refreshError;
+    }
   }
 
   if (!res.ok) {
@@ -104,8 +105,7 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     } catch {
       errorPayload = { message: res.statusText || 'An error occurred' };
     }
-    // Capture last failed request to allow replay after re-auth
-    lastFailedRequest = { url, options };
+
     const error = new Error(errorPayload.message || 'An error occurred while fetching the data.');
     Object.defineProperty(error, 'status', { value: res.status });
     Object.defineProperty(error, 'payload', { value: errorPayload });
@@ -115,9 +115,13 @@ export const fetcher = async (url: string, options?: RequestInit) => {
         Object.defineProperty(error, 'requiresEmailVerification', { value: true });
       }
     }
-    if (res.status === 401 || errorPayload.code === 'SESSION_EXPIRED') {
-      sessionEvents.emitExpired();
+
+    // Don't emit session expired events - let automatic refresh handle it
+    // Only show user-facing error for non-auth issues
+    if (res.status !== 401) {
+      console.error('API Error:', error);
     }
+
     throw error;
   }
 

@@ -127,7 +127,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
               onchainTwitterUrl: item.onchainTwitterUrl || undefined,
               onchainTelegramUrl: item.onchainTelegramUrl || undefined,
             }}
-            size="lg"
+            size="s"
             className="flex-1"
           />
           <div className="flex items-center gap-1">

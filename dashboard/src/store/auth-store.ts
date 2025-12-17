@@ -56,7 +56,10 @@ interface AuthStore {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+
+// Global refresh lock to prevent race conditions between proactive refresh and fetcher retry
 let refreshPromise: Promise<boolean> | null = null;
+let isRefreshing = false;
 
 // Create secure storage instance
 const secureStorage = createSecureStorage();
@@ -223,12 +226,21 @@ export const useAuthStore = create<AuthStore>()(
       
       // Security features
       refreshToken: async (): Promise<boolean> => {
+        // Global lock: if already refreshing, return the existing promise
         if (refreshPromise) return refreshPromise;
+
         const refreshToken = tokenManager.getRefreshToken();
         if (!refreshToken) {
           return false;
         }
 
+        // Prevent multiple simultaneous refresh attempts
+        if (isRefreshing) {
+          console.log('Refresh already in progress, waiting...');
+          return refreshPromise || false;
+        }
+
+        isRefreshing = true;
         refreshPromise = (async () => {
           try {
             const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
@@ -239,6 +251,18 @@ export const useAuthStore = create<AuthStore>()(
             });
 
             if (!response.ok) {
+              // Check if it's a 401 (refresh token expired) vs network error
+              if (response.status === 401) {
+                console.log('Refresh token expired, clearing auth');
+                tokenManager.clearTokens();
+                set({
+                  token: null,
+                  user: null,
+                  isAuthenticated: false,
+                  isUsingApiKey: false,
+                  apiKey: null,
+                });
+              }
               return false;
             }
 
@@ -265,11 +289,13 @@ export const useAuthStore = create<AuthStore>()(
               isUsingApiKey: false,
             });
 
+            console.log('Token refreshed successfully');
             return true;
           } catch (error) {
-            console.error('Token refresh failed', error);
+            console.error('Token refresh failed with error:', error);
             return false;
           } finally {
+            isRefreshing = false;
             refreshPromise = null;
           }
         })();

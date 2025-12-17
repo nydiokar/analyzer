@@ -4,10 +4,11 @@ import type { NextRequest } from 'next/server';
 // Routes that require authentication
 const protectedRoutes = [
   '/wallets',
-  '/home',
   '/similarity-lab',
   '/tools',
   '/admin',
+  '/trackers',
+  '/discover',
 ];
 
 // Routes that require email verification

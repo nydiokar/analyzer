@@ -11,43 +11,50 @@ const COLOR_MAP: Record<OutcomeVerdict['color'], string> = {
 };
 
 interface OutcomeStripProps extends OutcomeVerdict {
-  badge?: string;
+  holdersCount?: number;
 }
 
 function getOutcomeTooltip(verdict: string): string {
   const tooltips: Record<string, string> = {
-    'High churn, likely short-lived': 'Holders exit within minutes. High risk of volatility.',
-    'Mixed behavior, unstable': 'Mix of bot and human activity. Expect volatility.',
-    'Still breathing': 'Some conviction remains but momentum is fading.',
-    'Relatively stable': 'Holders show patience with longer hold times and low daily flip rates.',
+    'High churn, likely short-lived': 'Holders exit very quickly, typically within minutes. High risk of rapid price volatility.',
+    'Mixed behavior, unstable': 'Holders show varying exit patterns - some quick, some patient. Unpredictable price action expected.',
+    'Still breathing': 'Some holders maintain positions for days, but overall conviction appears moderate. Watch for momentum shifts.',
+    'Relatively stable': 'Holders tend to maintain positions for extended periods with low turnover, suggesting conviction and patience.',
   };
-  return tooltips[verdict] || 'Assessment based on holder exit speeds, conviction, and behavior patterns.';
+  return tooltips[verdict] || 'Assessment based on holder exit speeds and conviction patterns.';
 }
 
-export function OutcomeStrip({ verdict, description, color, badge }: OutcomeStripProps) {
+export function OutcomeStrip({ verdict, description, color, holdersCount }: OutcomeStripProps) {
   return (
     <div
       className={cn(
-        'rounded-2xl border p-5 bg-gradient-to-br flex flex-col gap-1',
+        'rounded-lg border p-4 bg-gradient-to-br flex flex-col gap-2 h-full',
         COLOR_MAP[color]
       )}
     >
-      <div className="flex items-center gap-1.5">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">Outcome</div>
-        <TooltipProvider delayDuration={200}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <InfoIcon className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs">
-              <p>{getOutcomeTooltip(verdict)}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Outcome</div>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <InfoIcon className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-md text-xs">
+                <p className="font-semibold mb-1">How is this determined?</p>
+                <p className="text-muted-foreground">{getOutcomeTooltip(verdict)}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        {holdersCount !== undefined && (
+          <div className="text-xs font-medium text-muted-foreground">
+            {holdersCount} holder{holdersCount !== 1 ? 's' : ''}
+          </div>
+        )}
       </div>
-      <div className="text-xl font-semibold">{verdict}</div>
-      <p className="text-sm text-muted-foreground">{description}</p>
-      {badge && <div className="text-xs font-mono text-muted-foreground">{badge}</div>}
+      <div className="text-lg font-semibold leading-tight">{verdict}</div>
+      <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
     </div>
   );
 }

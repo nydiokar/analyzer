@@ -34,38 +34,26 @@ export function TokenPulse({ result }: Props) {
   if (!result?.profiles?.length) return null;
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-col gap-2">
-        <TooltipProvider delayDuration={200}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground cursor-help w-fit">Token Pulse</p>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-md text-xs">
-              <p className="font-semibold mb-1">Token Pulse Analysis</p>
-              <p className="text-muted-foreground">
-                Comprehensive behavioral analysis of token holders. Analyzes trading patterns, hold times, and conviction levels to understand who is holding this token and their typical trading behavior.
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        {result.tokenMint && (
-          <div className="w-fit">
-            <TokenBadge mint={result.tokenMint} size="s" />
-          </div>
-        )}
+    <section className="space-y-4 max-w-7xl mx-auto">
+      {/* Token Badge */}
+      {result.tokenMint && (
+        <div className="flex justify-start">
+          <TokenBadge mint={result.tokenMint} size="lg" />
+        </div>
+      )}
+
+      {/* Outcome + Cognitive Metrics */}
+      <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-4">
+        <OutcomeStrip {...outcome} holdersCount={result.metadata.totalHoldersAnalyzed} />
+        <CognitivePrimitivesRow profiles={result.profiles} />
       </div>
-
-      <OutcomeStrip {...outcome} badge={`${result.metadata.totalHoldersAnalyzed} holders analyzed`} />
-
-      <CognitivePrimitivesRow profiles={result.profiles} />
 
       <div className="space-y-4">
         <div>
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <p className="text-sm font-medium mb-2 cursor-help w-fit">Behavior composition</p>
+                <p className="text-sm font-medium mb-3 cursor-help w-fit">Behavior composition</p>
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-xs">
                 <p className="text-muted-foreground">
@@ -80,7 +68,7 @@ export function TokenPulse({ result }: Props) {
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <p className="text-sm font-medium mb-2 cursor-help w-fit">Supporting evidence</p>
+                <p className="text-sm font-medium mb-3 cursor-help w-fit">Supporting evidence</p>
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-xs">
                 <p className="text-muted-foreground">
