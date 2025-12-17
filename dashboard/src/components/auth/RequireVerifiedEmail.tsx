@@ -15,21 +15,22 @@ interface RequireVerifiedEmailProps {
 
 /**
  * Wrapper component that enforces email verification.
- * Shows a verification prompt if user is authenticated but not verified.
- * Redirects to home if user is not authenticated.
+ * Assumes middleware already verified authentication.
+ * Only blocks access if email is not verified.
  */
 export function RequireVerifiedEmail({ children, redirectTo = '/' }: RequireVerifiedEmailProps) {
-  const { isAuthenticated, user, loading, requestEmailVerification } = useAuth();
+  const { isAuthenticated, user, isInitialized, requestEmailVerification } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !isAuthenticated) {
+    // Only redirect after store has initialized to prevent redirect loops during rehydration
+    if (isInitialized && !isAuthenticated) {
       router.push(redirectTo);
     }
-  }, [isAuthenticated, loading, router, redirectTo]);
+  }, [isAuthenticated, isInitialized, router, redirectTo]);
 
-  // Loading state
-  if (loading) {
+  // Wait for store to initialize before checking anything
+  if (!isInitialized) {
     return (
       <div className="flex items-center justify-center h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
         <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
@@ -37,7 +38,7 @@ export function RequireVerifiedEmail({ children, redirectTo = '/' }: RequireVeri
     );
   }
 
-  // Not authenticated
+  // Not authenticated (middleware should have caught this, but safety check)
   if (!isAuthenticated) {
     return null; // Will redirect in useEffect
   }

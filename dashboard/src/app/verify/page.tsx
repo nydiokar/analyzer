@@ -43,9 +43,9 @@ function VerifyEmailContent() {
         const success = await verifyEmail(token);
         if (success) {
           setStatus('success');
-          // Redirect to dashboard after 2 seconds
+          // Redirect to landing page after 2 seconds (will redirect to /discover if authenticated)
           setTimeout(() => {
-            router.push('/home');
+            router.push('/');
           }, 2000);
         } else {
           setStatus('error');
@@ -113,7 +113,7 @@ function VerifyEmailContent() {
                 </p>
               </div>
               <Button
-                onClick={() => router.push('/home')}
+                onClick={() => router.push('/')}
                 className="bg-blue-600 hover:bg-blue-500 text-white"
               >
                 Go to Dashboard
