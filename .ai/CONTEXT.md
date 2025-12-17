@@ -30,14 +30,35 @@
 - Production build will be much faster (minified, optimized)
 - Not critical for internal tool
 
-### Latest Summary (2025‑12‑16 - Session 2)
-- **Auth UX fixes**: AppShell now shows Log In/Sign Up buttons when logged out (no more dead state); polished Account modal (icons, better spacing, colored sections); polished Settings modal (visual theme picker with icons); removed /settings page (Settings now a modal).
-- **Consistent auth flow**: All logged-out states show auth buttons in top bar; AuthModal is the single source of auth UI (no more "session expired" inconsistencies).
+### Latest Summary (2025‑12‑17 - Session 3)
+- **Tracked Wallets page complete** ✅:
+  - Moved favorites from auto-fetching sidebar to dedicated /trackers page
+  - Full CRUD: view, edit (nickname/tags/collections), delete wallets
+  - Filter by tags and collections (multi-select)
+  - Group by collection with collapse/expand
+  - Portfolio stats: Total wallets, P&L (color-coded), analyzed percentage
+  - Fixed TypeScript errors (wallet.collection → wallet.collections array, wallet.name → wallet.nickname)
+  - Fixed WalletEditForm integration with proper props
+- **Command modal search** ✅:
+  - Converted WalletSearch to use Command modal (Cmd/Ctrl+K keyboard shortcut)
+  - Removed dependency on deprecated useApiKeyStore (uses useAuth instead)
+  - Better UX: full-screen modal instead of tiny dropdown
+  - Shows wallet results + "Import & Analyze" action for new wallets
+- **Component cleanup**:
+  - Deleted old sidebar system: Sidebar.tsx, LayoutClientShell.tsx, FavoriteWalletsList.tsx, FavoriteWalletItem.tsx
+  - Moved WalletSearch from sidebar/ to shared/
+  - Removed entire sidebar/ folder
+  - Help page added to UserMenu dropdown, wrapped in AppShell
+- **Auth modal polish**: Dynamic title/description based on tab (Login: "Welcome Back", Signup: "Create Account"), more compact spacing
 
   Known Remaining Issues:
 
   1. "Session Expired" modal still exists - Need to trace where it's triggered (likely in SessionExpiredModal.tsx or fetcher error handling)
   2. Wallet profile redirect - Should show auth prompt instead of redirecting to /
+
+### Previous Summary (2025‑12‑16 - Session 2)
+- **Auth UX fixes**: AppShell now shows Log In/Sign Up buttons when logged out (no more dead state); polished Account modal (icons, better spacing, colored sections); polished Settings modal (visual theme picker with icons); removed /settings page (Settings now a modal).
+- **Consistent auth flow**: All logged-out states show auth buttons in top bar; AuthModal is the single source of auth UI
 
 
 ### Previous Summary (2025‑12‑16 - Session 1)

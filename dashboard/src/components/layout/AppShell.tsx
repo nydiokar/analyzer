@@ -124,7 +124,7 @@ export function AppShell({ children }: AppShellProps) {
                   variant="ghost"
                   size="icon"
                   className="h-9 w-9"
-                  title="Favorites (Coming Soon)"
+                  title="Favorite tokens (Coming Soon)"
                 >
                   <Star className="h-4 w-4" />
                 </Button>

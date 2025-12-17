@@ -1,220 +1,198 @@
-import { useState, useCallback, useEffect } from 'react';
-import useSWR from 'swr';
-import Link from 'next/link';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Loader2, AlertTriangle, Search, Info, DownloadCloud } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { toast } from 'sonner';
-import { debounce } from 'lodash';
-import { fetcher } from '@/lib/fetcher'; // Use the global fetcher
-import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
-import { DashboardAnalysisResponse } from '@/types/api';
+'use client';
 
-const DEBOUNCE_DELAY = 500;
+import { useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Loader2, Search, DownloadCloud } from 'lucide-react';
+import { toast } from 'sonner';
+import { fetcher } from '@/lib/fetcher';
+import { useAuth } from '@/hooks/useAuth';
+import { DashboardAnalysisResponse } from '@/types/api';
+import { debounce } from 'lodash';
+
+const DEBOUNCE_DELAY = 300;
 const MIN_QUERY_LENGTH = 3;
 
-// --- Types ---
 interface WalletSearchResultItem {
   address: string;
-  // name?: string; // Optional: if backend provides a name/alias
 }
 
-// --- API Fetcher ---
-// const fetcher = async (url: string, apiKey?: string) => { ... };
-
-// --- SWR Hooks ---
-function useWalletSearch(query: string) {
-  const { apiKey, isInitialized } = useApiKeyStore();
-  const searchQuery = query.trim();
-  const shouldFetch = isInitialized && apiKey && searchQuery.length >= MIN_QUERY_LENGTH;
-
-  const swrKey = shouldFetch ? `/wallets/search?query=${encodeURIComponent(searchQuery)}` : null;
-
-  return useSWR<WalletSearchResultItem[]>(
-    swrKey,
-    async (url: string) => {
-      const responseData = await fetcher(url) as { wallets: WalletSearchResultItem[] };
-      if (responseData && Array.isArray(responseData.wallets)) {
-        return responseData.wallets;
-      }
-      return [];
-    },
-    { revalidateOnFocus: false, errorRetryCount: 2 }
-  );
-}
-
-// --- Component ---
 export function WalletSearch() {
-  const [inputValue, setInputValue] = useState('');
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [showResults, setShowResults] = useState(false);
+  const [searchResults, setSearchResults] = useState<WalletSearchResultItem[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisTarget, setAnalysisTarget] = useState<string | null>(null);
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
 
-  const { apiKey, isInitialized } = useApiKeyStore();
+  // Debounced search function
+  const debouncedSearch = useCallback(
+    debounce(async (searchQuery: string) => {
+      if (searchQuery.length < MIN_QUERY_LENGTH) {
+        setSearchResults([]);
+        return;
+      }
 
-  const {
-    data: searchResults,
-    error: searchError,
-    isLoading: isSearchLoading,
-    // mutate: mutateSearch
-  } = useWalletSearch(query);
-
-  const debouncedSetQuery = useCallback(debounce((newQuery: string) => {
-    setQuery(newQuery);
-  }, DEBOUNCE_DELAY), []);
+      setIsSearching(true);
+      try {
+        const responseData = await fetcher(`/wallets/search?query=${encodeURIComponent(searchQuery)}`) as { wallets: WalletSearchResultItem[] };
+        if (responseData && Array.isArray(responseData.wallets)) {
+          setSearchResults(responseData.wallets);
+        } else {
+          setSearchResults([]);
+        }
+      } catch (error) {
+        console.error('Search error:', error);
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, DEBOUNCE_DELAY),
+    []
+  );
 
   useEffect(() => {
+    debouncedSearch(query);
     return () => {
-      debouncedSetQuery.cancel();
+      debouncedSearch.cancel();
     };
-  }, [debouncedSetQuery]);
+  }, [query, debouncedSearch]);
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newQuery = event.target.value;
-    setInputValue(newQuery);
+  // Keyboard shortcut: Cmd+K or Ctrl+K
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setOpen((open) => !open);
+      }
+    };
 
-    if (newQuery.trim() === '') {
-      setQuery('');
-      setShowResults(false);
-    } else {
-      debouncedSetQuery(newQuery.trim());
-      setShowResults(true);
-    }
-  };
-
-  const handleTriggerAnalysis = async (walletAddress: string) => {
-    setIsAnalyzing(true);
-    setAnalysisTarget(walletAddress);
-    try {
-      // Use the new dashboard analysis endpoint instead of deprecated trigger-analysis
-      const requestData = {
-        walletAddress,
-        forceRefresh: true,
-        enrichMetadata: true,
-      };
-      
-      const result: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
-        method: 'POST',
-        body: JSON.stringify(requestData),
-      });
-      
-      toast.success(`Analysis queued for ${walletAddress.substring(0,6)}...`);
-      
-      // Navigate to the wallet page to show progress, passing the job ID
-      window.location.href = `/wallets/${walletAddress}?jobId=${result.jobId}`;
-      
-    } catch (err: any) {
-      toast.error(`Analysis error: ${err.message}`);
-    } finally {
-      setIsAnalyzing(false);
-      setAnalysisTarget(null);
-    }
-  };
+    document.addEventListener('keydown', down);
+    return () => document.removeEventListener('keydown', down);
+  }, []);
 
   const isValidSolanaAddress = (address: string): boolean => {
     return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
   };
 
-  const canTriggerAnalysisForQuery = 
-    inputValue.trim() && 
-    isValidSolanaAddress(inputValue.trim()) && 
-    !isSearchLoading && 
-    (!searchResults || searchResults.length === 0);
+  const handleSelectWallet = (walletAddress: string) => {
+    setOpen(false);
+    setQuery('');
+    router.push(`/wallets/${walletAddress}`);
+  };
 
-  if (!isInitialized || !apiKey) {
-    return (
-      <div className="p-2 text-xs text-muted-foreground text-center border rounded-md bg-muted/30">
-         <Info size={14} className="inline mr-1" />
-         {isInitialized ? 'Search requires an API key.' : <Loader2 size={14} className="inline animate-spin"/>}
-      </div>
-    )
+  const handleTriggerAnalysis = async (walletAddress: string) => {
+    setIsAnalyzing(true);
+    try {
+      const requestData = {
+        walletAddress,
+        forceRefresh: true,
+        enrichMetadata: true,
+      };
+
+      const result: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
+        method: 'POST',
+        body: JSON.stringify(requestData),
+      });
+
+      toast.success(`Analysis queued for ${walletAddress.substring(0, 6)}...`);
+      setOpen(false);
+      setQuery('');
+
+      // Navigate to wallet page with job ID
+      router.push(`/wallets/${walletAddress}?jobId=${result.jobId}`);
+    } catch (err: any) {
+      toast.error(`Analysis error: ${err.message || 'Failed to queue analysis'}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const canTriggerAnalysis =
+    query.trim() &&
+    isValidSolanaAddress(query.trim()) &&
+    !isSearching &&
+    searchResults.length === 0;
+
+  if (!isAuthenticated) {
+    return null; // Don't show search if not authenticated
   }
 
   return (
-    <div className="relative">
-      <div className="relative">
-        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input 
-          id="wallet-search"
-          name="wallet-search"
-          type="search" 
-          placeholder="Search wallet address..." 
-          className="h-9 pl-8 w-full text-sm"
-          value={inputValue}
-          onChange={handleInputChange}
-          onFocus={() => setShowResults(true)}
-          onBlur={() => setTimeout(() => setShowResults(false), 150)}
+    <>
+      {/* Search trigger button */}
+      <button
+        onClick={() => setOpen(true)}
+        className="h-9 w-full px-3 py-2 text-sm text-muted-foreground bg-background border rounded-md hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-2"
+      >
+        <Search className="h-4 w-4" />
+        <span>Search wallets...</span>
+        <kbd className="ml-auto pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+          <span className="text-xs">⌘</span>K
+        </kbd>
+      </button>
+
+      {/* Command Dialog */}
+      <CommandDialog open={open} onOpenChange={setOpen}>
+        <CommandInput
+          placeholder="Type wallet address to search..."
+          value={query}
+          onValueChange={setQuery}
         />
-        {isSearchLoading && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
-      </div>
+        <CommandList>
+          <CommandEmpty>
+            {isSearching ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : query.length < MIN_QUERY_LENGTH ? (
+              <p className="text-sm text-muted-foreground">Type at least {MIN_QUERY_LENGTH} characters to search.</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">No wallets found.</p>
+            )}
+          </CommandEmpty>
 
-      {showResults && inputValue.trim() !== '' && (
-        <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover p-1 shadow-lg text-popover-foreground max-h-60 overflow-y-auto">
-          {searchError && (
-            <div className="p-2 text-center text-xs text-red-500">
-              <AlertTriangle className="h-4 w-4 inline mr-1" /> Error: {searchError.message}
-            </div>
-          )}
-          
-          {inputValue.trim().length > 0 && inputValue.trim().length < MIN_QUERY_LENGTH && (
-             <p className="p-2 text-center text-xs text-muted-foreground">
-              Type at least {MIN_QUERY_LENGTH} characters to search.
-            </p>
-          )}
-
-          {!searchError && !isSearchLoading && query.length >= MIN_QUERY_LENGTH && searchResults && searchResults.length === 0 && (
-            <p className="p-2 text-center text-xs text-muted-foreground">
-              No wallets found matching &quot;{query.length > 15 ? query.substring(0,15)+"..." : query}&quot;.
-            </p>
-          )}
-          
-          {!searchError && !isSearchLoading && searchResults && searchResults.length > 0 && (
-            <ul className="space-y-0.5">
-              {searchResults.map((wallet: WalletSearchResultItem) => (
-                <li key={wallet.address}>
-                  <Link 
-                    href={`/wallets/${wallet.address}`} 
-                    className="block px-2 py-1.5 text-xs rounded-sm hover:bg-muted transition-colors truncate"
-                    onClick={() => { setInputValue(''); setQuery(''); setShowResults(false); }}
-                    title={wallet.address}
-                  >
-                    {wallet.address}
-                  </Link>
-                </li>
+          {searchResults.length > 0 && (
+            <CommandGroup heading="Wallets">
+              {searchResults.map((wallet) => (
+                <CommandItem
+                  key={wallet.address}
+                  value={wallet.address}
+                  onSelect={() => handleSelectWallet(wallet.address)}
+                  className="cursor-pointer"
+                >
+                  <Search className="mr-2 h-4 w-4" />
+                  <span className="font-mono text-xs">{wallet.address}</span>
+                </CommandItem>
               ))}
-            </ul>
+            </CommandGroup>
           )}
-          
-          {canTriggerAnalysisForQuery && (
-            <div className="p-1 mt-1 border-t">
-              <TooltipProvider delayDuration={100}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      className="w-full text-xs justify-start h-auto py-1.5 px-2"
-                      onClick={() => handleTriggerAnalysis(inputValue.trim())}
-                      disabled={isAnalyzing && analysisTarget === inputValue.trim()}
-                    >
-                      {isAnalyzing && analysisTarget === inputValue.trim() ? (
-                        <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Analyzing...</>
-                      ) : (
-                        <><DownloadCloud className="h-3.5 w-3.5 mr-1.5" /> Import & Analyze: {inputValue.substring(0,6)}...{inputValue.substring(inputValue.length-4)}</>
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" align="start" className="max-w-[250px] text-xs">
-                    <p>This wallet isn&apos;t in our database. Click to fetch its transaction history, perform an initial analysis, and then view its details.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
+
+          {canTriggerAnalysis && (
+            <CommandGroup heading="Actions">
+              <CommandItem
+                value={`analyze-${query}`}
+                onSelect={() => handleTriggerAnalysis(query.trim())}
+                disabled={isAnalyzing}
+                className="cursor-pointer"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <span>Analyzing...</span>
+                  </>
+                ) : (
+                  <>
+                    <DownloadCloud className="mr-2 h-4 w-4" />
+                    <span>Import & Analyze: {query.substring(0, 6)}...{query.substring(query.length - 4)}</span>
+                  </>
+                )}
+              </CommandItem>
+            </CommandGroup>
           )}
-        </div>
-      )}
-    </div>
+        </CommandList>
+      </CommandDialog>
+    </>
   );
-} 
+}

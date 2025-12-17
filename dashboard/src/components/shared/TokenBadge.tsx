@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTokenMetadata } from "@/hooks/useTokenMetadata";
 import { Copy, Globe, Send, TrendingUp, Twitter } from "lucide-react";
@@ -142,41 +142,21 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
     e.stopPropagation();
 
     if (!tokenSymbol) {
-      toast({
-        title: "No ticker available",
+      toast.error("No ticker available", {
         description: "This token has no ticker to copy yet.",
-        variant: "destructive",
       });
       return;
     }
 
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(mint);
-        toast({
-          title: "Copied!",
-          description: "Token address copied to clipboard.",
-        });
-      } else {
-        const textArea = document.createElement("textarea");
-        textArea.value = mint;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-999999px";
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textArea);
-
-        toast({
-          title: "Copied!",
-          description: "Token address copied to clipboard.",
-        });
-      }
+      await navigator.clipboard.writeText(mint);
+      toast.success("Copied!", {
+        description: "Token address copied to clipboard.",
+        duration: 2000,
+      });
     } catch (error) {
-      toast({
-        title: "Copy failed",
+      toast.error("Copy failed", {
         description: "Could not copy to clipboard. Please copy manually.",
-        variant: "destructive",
       });
     }
   };
