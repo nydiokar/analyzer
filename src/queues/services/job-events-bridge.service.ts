@@ -1,9 +1,11 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { Queue, QueueEvents } from 'bullmq';
 import { QueueNames } from '../config/queue.config';
 import { redisConfig } from '../config/redis.config';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { RedisLockService } from './redis-lock.service';
+import { REDIS_CLIENT } from '../config/redis.provider';
+import { Redis } from 'ioredis';
 
 @Injectable()
 export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
@@ -13,7 +15,8 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly jobProgressGateway: JobProgressGateway,
-    private readonly redisLockService: RedisLockService
+    private readonly redisLockService: RedisLockService,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {}
 
   async onModuleInit() {
@@ -71,7 +74,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     queueEvents.on('progress', async ({ jobId, data }) => {
       // Extract userId from job data for room-based broadcasting
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
-      const userId = (job?.data as any)?.userId;
+      const userId = await this.resolveUserId(job, jobId);
 
       let progressData: number | object;
       if (typeof data === 'string') {
@@ -91,7 +94,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
       if (job && job.processedOn && job.timestamp) {
         const queueToStartTime = job.processedOn - job.timestamp;
-        const userId = (job.data as any)?.userId;
+        const userId = await this.resolveUserId(job, jobId);
 
         this.logger.log(`Job started processing: ${jobId} after ${queueToStartTime}ms in queue`);
 
@@ -102,7 +105,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
 
     queueEvents.on('completed', async ({ jobId, returnvalue }) => {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
-      const userId = (job?.data as any)?.userId;
+      const userId = await this.resolveUserId(job, jobId);
 
       // Use manual processing time from job result if available, otherwise fallback to BullMQ timing
       let processingTime = 0;
@@ -122,14 +125,16 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`Job completed: ${jobId} - Processing: ${processingTime}ms, Total: ${totalTime}ms`);
       await this.jobProgressGateway.publishCompletedEvent(jobId, queueName, result || {}, processingTime, totalTime, userId);
+      await this.cleanupUserMapping(jobId);
     });
 
     queueEvents.on('failed', async ({ jobId, failedReason }) => {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
-      const userId = (job?.data as any)?.userId;
+      const userId = await this.resolveUserId(job, jobId);
 
       this.logger.warn(`Job failed: ${jobId} - ${failedReason}`);
       await this.jobProgressGateway.publishFailedEvent(jobId, queueName, failedReason, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0, userId);
+      await this.cleanupUserMapping(jobId);
     });
 
     queueEvents.on('error', (err) => {
@@ -138,5 +143,27 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
 
     this.queueEventsMap.set(queueName, queueEvents);
     this.logger.log(`Set up queue events for: ${queueName}`);
+  }
+
+  private async resolveUserId(job: any, jobId: string): Promise<string | undefined> {
+    const fromData = (job?.data as any)?.userId;
+    if (fromData) {
+      return fromData;
+    }
+    try {
+      const cached = await this.redisClient.get(`job:user:${jobId}`);
+      return cached || undefined;
+    } catch (error) {
+      this.logger.warn(`Failed to resolve userId for job ${jobId}:`, error as Error);
+      return undefined;
+    }
+  }
+
+  private async cleanupUserMapping(jobId: string) {
+    try {
+      await this.redisClient.del(`job:user:${jobId}`);
+    } catch (error) {
+      this.logger.warn(`Failed to clean user mapping for job ${jobId}:`, error as Error);
+    }
   }
 }

@@ -1,8 +1,5 @@
 import {
   WebSocketGateway,
-  SubscribeMessage,
-  MessageBody,
-  ConnectedSocket,
   OnGatewayInit,
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -43,11 +40,6 @@ interface JobFailedEvent {
   userId?: string; // For room-based broadcasting
 }
 
-interface ClientSubscription {
-  jobIds: Set<string>;
-  userId?: string; // User ID for room membership
-}
-
 interface JobQueueToStartEvent {
   jobId: string;
   queueToStartTime: number;
@@ -71,7 +63,6 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
 
   private readonly logger = new Logger(JobProgressGateway.name);
   private readonly redisSubscriber: Redis;
-  private readonly clientSubscriptions = new Map<string, ClientSubscription>();
 
   constructor(@Inject(REDIS_CLIENT) private readonly redisPublisher: Redis) {
     // The publisher is injected. We create a dedicated subscriber from it.
@@ -132,12 +123,6 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
       this.logger.log(`Client connected: ${clientId} (no userId provided)`);
     }
 
-    // Store subscription info (keep for backward compatibility)
-    this.clientSubscriptions.set(clientId, {
-      jobIds: new Set(),
-      userId // Store userId for reference
-    });
-
     client.emit('connected', {
       message: 'Connected to job progress updates',
       clientId,
@@ -149,7 +134,6 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
-    this.clientSubscriptions.delete(client.id);
   }
 
   private setupRedisSubscriptions() {
@@ -193,10 +177,8 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
         this.broadcastToSubscribers('job-progress', data, data.jobId, data.queue);
       } else if (channel === 'job-events:completed') {
         this.broadcastToSubscribers('job-completed', data, data.jobId, data.queue);
-        this.pruneJobSubscriptions(data.jobId);
       } else if (channel === 'job-events:failed') {
         this.broadcastToSubscribers('job-failed', data, data.jobId, data.queue);
-        this.pruneJobSubscriptions(data.jobId);
       } else if (channel === 'job-events:queue-to-start') {
         this.broadcastToSubscribers('job-queue-to-start', data, data.jobId, data.queue);
       }
@@ -205,67 +187,12 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     }
   }
 
-  /**
-   * Remove completed/failed job IDs from all client subscriptions to prevent unbounded growth.
-   */
-  private pruneJobSubscriptions(jobId?: string) {
-    if (!jobId) {
-      return;
-    }
-    let pruned = 0;
-    for (const [clientId, subscription] of this.clientSubscriptions) {
-      if (subscription.jobIds.delete(jobId)) {
-        pruned++;
-      }
-    }
-    if (pruned > 0) {
-      this.logger.debug(`Pruned job ${jobId} from ${pruned} client subscription(s).`);
-    }
-  }
-
   private broadcastToSubscribers(event: string, data: any, jobId?: string, queue?: string) {
-    // NEW: Room-based broadcast (if job has userId)
     if (data.userId) {
       const userRoom = `user-${data.userId}`;
       this.server.to(userRoom).emit(event, data);
-      this.logger.warn(`📡 Room broadcast: ${event} → user-${data.userId} (job: ${jobId})`);
-      return; // Early exit - room handles all tabs automatically
-    }
-
-    // FALLBACK: Legacy per-job subscription (backward compatibility)
-    for (const [clientId, subscription] of this.clientSubscriptions) {
-      if (jobId && subscription.jobIds.has(jobId)) {
-        this.server.to(clientId).emit(event, data);
-        // The following line is the source of the excessive log messages.
-        // this.logger.debug(`Broadcasted ${event} to client ${clientId} for job ${jobId}`);
-      }
-    }
-  }
-
-  @SubscribeMessage('subscribe-to-job')
-  handleSubscribeToJob(@MessageBody() data: { jobId: string }, @ConnectedSocket() client: Socket) {
-    const { jobId } = data;
-    if (jobId) {
-      let subscription = this.clientSubscriptions.get(client.id);
-      if (!subscription) {
-        // Recreate subscription entry if it was pruned after a previous completion
-        subscription = { jobIds: new Set(), userId: client.handshake.auth?.userId };
-        this.clientSubscriptions.set(client.id, subscription);
-      }
-      subscription.jobIds.add(jobId);
-      this.logger.log(`Client ${client.id} subscribed to job: ${jobId}`);
-    }
-  }
-
-  @SubscribeMessage('unsubscribe-from-job')
-  handleUnsubscribeFromJob(@MessageBody() data: { jobId: string }, @ConnectedSocket() client: Socket) {
-     const { jobId } = data;
-    if (jobId) {
-      const subscription = this.clientSubscriptions.get(client.id);
-      if (subscription) {
-        subscription.jobIds.delete(jobId);
-        this.logger.log(`Client ${client.id} unsubscribed from job: ${jobId}`);
-      }
+    } else {
+      this.logger.warn(`Received ${event} without userId; event dropped (job: ${jobId}, queue: ${queue})`);
     }
   }
   

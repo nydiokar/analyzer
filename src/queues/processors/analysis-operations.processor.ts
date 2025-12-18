@@ -445,6 +445,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
             enrichmentJob = await this.enrichmentOperationsQueue.addEnrichTokenBalances({
               walletBalances: walletBalancesForEnrichment,
+              userId: job.data.userId,
               requestId: job.data.requestId,
               priority: JobPriority.LOW,
               enrichmentContext: 'dashboard-analysis',
@@ -892,6 +893,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         const metadata = holderMetadataByWallet.get(wallet);
         const childJob = await this.analysisQueueService.addHolderProfilesJob({
           mode: 'wallet',
+          userId: job.data.userId,
           walletAddress: wallet,
           requestId: `${requestId}-wallet-${wallet}`,
           _holderContext: {
