@@ -46,7 +46,7 @@ export class EnrichmentOperationsQueue {
    * Add parallel enrichment job to the queue
    * This is a simplified version for the new parallel architecture
    */
-  async addParallelEnrichmentJob(data: { walletBalances: Record<string, any>, requestId: string }, options?: { priority?: number, delay?: number }): Promise<Job> {
+  async addParallelEnrichmentJob(data: { walletBalances: Record<string, any>, requestId: string, userId?: string }, options?: { priority?: number, delay?: number }): Promise<Job> {
     const jobId = generateJobId.enrichParallel(data.requestId);
 
     const job = await this.queue.add('parallel-enrichment', data, {

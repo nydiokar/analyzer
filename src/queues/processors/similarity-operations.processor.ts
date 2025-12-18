@@ -240,6 +240,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
             walletBalances: validWalletBalances,
             requestId,
+            userId: job.data.userId,
           });
           this.logger.log(`Background enrichment job queued: ${enrichmentJob?.id} for request: ${requestId}.`);
           // DON'T wait for enrichment - keep it truly parallel!
