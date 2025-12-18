@@ -545,7 +545,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }`,
       );
 
-      await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
+      // Extract userId for room-based WebSocket broadcasting
+      const userId = job.data.userId;
+      await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs, undefined, userId);
 
       return result;
     } catch (error) {
@@ -836,13 +838,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         );
         const percent = Math.min(95, 20 + Math.floor((analyzedCount / walletAddresses.length) * 70));
         await job.updateProgress(percent);
+        // Extract userId for room-based WebSocket broadcasting
+        const userId = job.data.userId;
         await this.jobProgressGateway.publishProgressEvent(job.id!, job.queueName, {
           mode: 'token',
           tokenMint,
           totalHoldersRequested: walletAddresses.length,
           analyzedCount,
           profiles: orderedProfiles,
-        });
+        }, undefined, userId);
       };
 
       const streamProfile = async (wallet: string, profile: HolderProfile) => {
@@ -1005,7 +1009,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await this.holderProfilesCacheService.cacheTokenResult(tokenMint, topN, result);
       await job.updateProgress(100);
 
-      await this.jobProgressGateway.publishCompletedEvent(job.id!, job.queueName, result, processingTimeMs);
+      // Extract userId for room-based WebSocket broadcasting
+      const userId = job.data.userId;
+      await this.jobProgressGateway.publishCompletedEvent(job.id!, job.queueName, result, processingTimeMs, undefined, userId);
       this.logger.log(
         `Token holder orchestration for ${tokenMint} completed: ${analyzedCount}/${walletAddresses.length} profiles in ${processingTimeMs}ms`,
       );
@@ -1141,7 +1147,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
 
     // Emit WebSocket completion event so frontend receives updates
-    await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
+    // Extract userId for room-based WebSocket broadcasting
+    const userId = job.data.userId;
+    await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs, undefined, userId);
 
     this.logger.log(`Holder profile analysis for wallet ${walletAddress} completed in ${processingTimeMs}ms`);
 

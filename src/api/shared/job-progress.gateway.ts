@@ -232,7 +232,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     if (data.userId) {
       const userRoom = `user-${data.userId}`;
       this.server.to(userRoom).emit(event, data);
-      this.logger.debug(`Broadcasted ${event} to room ${userRoom} for job ${jobId}`);
+      this.logger.warn(`📡 Room broadcast: ${event} → user-${data.userId} (job: ${jobId})`);
       return; // Early exit - room handles all tabs automatically
     }
 

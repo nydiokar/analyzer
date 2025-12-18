@@ -111,7 +111,9 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     try {
       this.logger.log(`Starting ADVANCED similarity analysis for ${walletAddresses.length} wallets.`);
       await job.updateProgress(5);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
+      // Extract userId for room-based WebSocket broadcasting
+      const userId = job.data.userId;
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5, undefined, userId);
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
       // 🏷️ UNIFIED SYSTEM WALLET HANDLING: Handle both pre-tagged and dynamic detection
@@ -183,7 +185,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       
       // Log progress but don't block
       await job.updateProgress(10);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 10);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 10, undefined, userId);
 
       // ⚡ STEP 2: WAIT FOR BOTH TO COMPLETE
       this.logger.log('⏳ Waiting for BOTH sync and balance fetch to complete...');
@@ -252,7 +254,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       }
 
       await job.updateProgress(60);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60, undefined, userId);
       this.checkTimeout(startTime, timeoutMs, 'Parallel operations completed');
 
       // STEP 3.5: Use only valid wallets that have balances for similarity calculation
@@ -294,14 +296,14 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       );
       
       await job.updateProgress(90);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90, undefined, userId);
       this.checkTimeout(startTime, timeoutMs, 'Final analysis');
 
       // STEP 5: PREPARE RESULTS (The result from the service is now complete)
       this.logger.log('Similarity analysis completed successfully.');
 
       await job.updateProgress(100);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100, undefined, userId);
       this.checkTimeout(startTime, timeoutMs, 'Final result preparation');
 
       const result: SimilarityFlowResult = {
@@ -419,7 +421,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           currentProgress += progressStep;
           const progress = Math.floor(currentProgress);
           await job.updateProgress(progress);
-          await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
+          await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress, undefined, userId);
 
           return { walletAddress, status: 'completed' };
 

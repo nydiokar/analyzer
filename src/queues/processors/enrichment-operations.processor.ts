@@ -79,9 +79,11 @@ export class EnrichmentOperationsProcessor {
       
       // Use the existing sophisticated enrichment logic
       const { enrichedBalances, summary } = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
-      
+
       await job.updateProgress(100);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
+      // Extract userId for room-based WebSocket broadcasting
+      const userId = job.data.userId;
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100, undefined, userId);
 
       // If no new tokens were actually fetched, we can short-circuit the expensive cache write.
       if (summary.newTokensFetched === 0) {
@@ -167,13 +169,15 @@ export class EnrichmentOperationsProcessor {
 
       try {
         await job.updateProgress(5);
-        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
+        // Extract userId for room-based WebSocket broadcasting
+        const userId = job.data.userId;
+        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5, undefined, userId);
 
         // Use the sophisticated logic from enrichBalances method
         const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
 
         await job.updateProgress(100);
-        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
+        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100, undefined, userId);
         
         // Format the result according to the new interface
         const result: EnrichTokenBalancesResult = {
@@ -342,8 +346,10 @@ export class EnrichmentOperationsProcessor {
       // Update progress
       const progress = Math.min(90, Math.floor((processedTokens / tokensToFetch.length) * 90));
       await job.updateProgress(progress);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
-      
+      // Extract userId for room-based WebSocket broadcasting
+      const userId = job.data.userId;
+      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress, undefined, userId);
+
       this.logger.log(`Enriched batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(tokensToFetch.length / batchSize)} (${processedTokens}/${tokensToFetch.length} tokens)`);
       
     } catch (error) {
@@ -362,7 +368,9 @@ export class EnrichmentOperationsProcessor {
     this.logger.log('All tokens already have recent metadata, no API calls needed');
   }
   await job.updateProgress(90);
-  await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
+  // Extract userId for room-based WebSocket broadcasting
+  const userId = job.data.userId;
+  await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90, undefined, userId);
 }
 
     
