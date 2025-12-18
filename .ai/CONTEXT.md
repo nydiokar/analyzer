@@ -128,6 +128,34 @@ Frontend:
   🔕 Unsubscribing from job: dashboard-xxxxx
 ```
 
+### ⚠️ CRITICAL: Architecture Not Yet Fully Centralized
+
+**Problem Discovered After Implementation:**
+
+Despite fixing all 15 direct gateway calls to include userId, the architecture is NOT truly centralized. We're extracting userId in 15+ places instead of once.
+
+**Current Architecture (TWO PATHS):**
+
+1. **Path A - Simple Progress** (CENTRALIZED ✅):
+   - Processors call `job.updateProgress(data)`
+   - BullMQ emits event → Bridge listens
+   - Bridge extracts `userId` from `job.data` ONCE
+   - Bridge calls gateway with userId
+
+2. **Path B - Rich Progress** (DECENTRALIZED ❌):
+   - Processors call `gateway.publishProgressEvent(jobId, queue, customData, undefined, userId)`
+   - Each of 15 call sites extracts userId manually: `const userId = job.data.userId`
+   - Direct to gateway, bypassing bridge entirely
+
+**Why This Is a Problem:**
+- Adding new jobs requires manual userId extraction in every processor
+- Inconsistent patterns (some through bridge, some direct)
+- Maintenance burden - easy to forget userId on new calls
+- Not DRY - violates "extract once" principle
+
+
+Definitive solution: BullMQ handles progress - bridge picks it up automatically no need for adding second path of job progress in the processor and mixing it with the business logic. 
+
 ### 🧹 Cleanup After Verification
 
 Once verified working, remove backward compatibility code:
@@ -162,7 +190,12 @@ Once verified working, remove backward compatibility code:
 
 ## Next Session Quick Start
 
-**Current Priority**: Test WebSocket refactor (see testing section above)
+**Current Priority**: Test WebSocket refactor + centralized architecture (see testing section above)
+
+**Recent Changes (2025-12-18)**:
+- ✅ Fully centralized job event architecture through bridge
+- ✅ All 15 direct gateway calls now rely on bridge - only using job.updateProgress(data)
+- ✅ No more manual userId extraction in processors
 
 **After WebSocket Verified**:
 - Merge refactor/websocket-user-rooms → main → pretty

@@ -16,7 +16,6 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { SyncOptions } from '../../core/services/helius-sync-service';
 import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
-import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenHoldersService } from '../../api/services/token-holders.service';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
@@ -24,7 +23,6 @@ import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
 import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../shared/dashboard-analysis.types';
-import { DexscreenerService } from '../../api/services/dexscreener.service';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
 
@@ -42,12 +40,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly analysisQueueService: AnalysisOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly heliusApiClient: HeliusApiClient,
-    private readonly jobProgressGateway: JobProgressGateway,
     private readonly tokenInfoService: TokenInfoService,
     private readonly tokenHoldersService: TokenHoldersService,
     private readonly holderProfilesCacheService: HolderProfilesCacheService,
     private readonly telegramAlerts: TelegramAlertsService,
-    private readonly dexscreenerService: DexscreenerService,
     private readonly balanceCacheService: BalanceCacheService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
@@ -545,10 +541,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }`,
       );
 
-      // Extract userId for room-based WebSocket broadcasting
-      const userId = job.data.userId;
-      await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs, undefined, userId);
-
+      // BullMQ automatically fires 'completed' event when job returns
       return result;
     } catch (error) {
       this.logger.error(`Dashboard analysis for ${walletAddress} [scope=${scope}] failed:`, error);
@@ -837,16 +830,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           (a, b) => (orderLookup.get(a.walletAddress) ?? 0) - (orderLookup.get(b.walletAddress) ?? 0),
         );
         const percent = Math.min(95, 20 + Math.floor((analyzedCount / walletAddresses.length) * 70));
-        await job.updateProgress(percent);
-        // Extract userId for room-based WebSocket broadcasting
-        const userId = job.data.userId;
-        await this.jobProgressGateway.publishProgressEvent(job.id!, job.queueName, {
+        // BullMQ handles rich progress objects - bridge picks it up automatically
+        await job.updateProgress({
+          percent,
           mode: 'token',
           tokenMint,
           totalHoldersRequested: walletAddresses.length,
           analyzedCount,
           profiles: orderedProfiles,
-        }, undefined, userId);
+        });
       };
 
       const streamProfile = async (wallet: string, profile: HolderProfile) => {
@@ -1009,13 +1001,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await this.holderProfilesCacheService.cacheTokenResult(tokenMint, topN, result);
       await job.updateProgress(100);
 
-      // Extract userId for room-based WebSocket broadcasting
-      const userId = job.data.userId;
-      await this.jobProgressGateway.publishCompletedEvent(job.id!, job.queueName, result, processingTimeMs, undefined, userId);
       this.logger.log(
         `Token holder orchestration for ${tokenMint} completed: ${analyzedCount}/${walletAddresses.length} profiles in ${processingTimeMs}ms`,
       );
 
+      // BullMQ automatically fires 'completed' event when job returns
       return result;
     } catch (error) {
       this.logger.error(`Holder profiles analysis failed for ${tokenMint}:`, error);
@@ -1146,13 +1136,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(100);
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
 
-    // Emit WebSocket completion event so frontend receives updates
-    // Extract userId for room-based WebSocket broadcasting
-    const userId = job.data.userId;
-    await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs, undefined, userId);
-
     this.logger.log(`Holder profile analysis for wallet ${walletAddress} completed in ${processingTimeMs}ms`);
 
+    // BullMQ automatically fires 'completed' event when job returns
     return result;
   }
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {
