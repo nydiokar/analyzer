@@ -20,6 +20,7 @@ interface JobProgressEvent {
   details?: string;
   timestamp: number;
   queue: string;
+  userId?: string; // For room-based broadcasting
 }
 
 interface JobCompletedEvent {
@@ -29,6 +30,7 @@ interface JobCompletedEvent {
   queue: string;
   processingTime: number;
   totalTime?: number; // Total time from queue to completion
+  userId?: string; // For room-based broadcasting
 }
 
 interface JobFailedEvent {
@@ -38,10 +40,12 @@ interface JobFailedEvent {
   queue: string;
   attempts: number;
   maxAttempts: number;
+  userId?: string; // For room-based broadcasting
 }
 
 interface ClientSubscription {
   jobIds: Set<string>;
+  userId?: string; // User ID for room membership
 }
 
 interface JobQueueToStartEvent {
@@ -49,6 +53,7 @@ interface JobQueueToStartEvent {
   queueToStartTime: number;
   timestamp: number;
   queue: string;
+  userId?: string; // For room-based broadcasting
 }
 
 @WebSocketGateway({
@@ -114,9 +119,32 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
 
   handleConnection(client: Socket) {
     const clientId = client.id;
-    this.logger.log(`Client connected: ${clientId}`);
-    this.clientSubscriptions.set(clientId, { jobIds: new Set() });
-    client.emit('connected', { message: 'Connected to job progress updates', clientId, timestamp: Date.now() });
+
+    // Extract userId from socket handshake auth (passed from frontend)
+    const userId = client.handshake.auth?.userId;
+
+    if (userId) {
+      // Join user-specific room for automatic job propagation
+      const userRoom = `user-${userId}`;
+      client.join(userRoom);
+      this.logger.log(`Client ${clientId} connected and joined room: ${userRoom}`);
+    } else {
+      this.logger.log(`Client connected: ${clientId} (no userId provided)`);
+    }
+
+    // Store subscription info (keep for backward compatibility)
+    this.clientSubscriptions.set(clientId, {
+      jobIds: new Set(),
+      userId // Store userId for reference
+    });
+
+    client.emit('connected', {
+      message: 'Connected to job progress updates',
+      clientId,
+      userId,
+      room: userId ? `user-${userId}` : null,
+      timestamp: Date.now()
+    });
   }
 
   handleDisconnect(client: Socket) {
@@ -200,6 +228,15 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   }
 
   private broadcastToSubscribers(event: string, data: any, jobId?: string, queue?: string) {
+    // NEW: Room-based broadcast (if job has userId)
+    if (data.userId) {
+      const userRoom = `user-${data.userId}`;
+      this.server.to(userRoom).emit(event, data);
+      this.logger.debug(`Broadcasted ${event} to room ${userRoom} for job ${jobId}`);
+      return; // Early exit - room handles all tabs automatically
+    }
+
+    // FALLBACK: Legacy per-job subscription (backward compatibility)
     for (const [clientId, subscription] of this.clientSubscriptions) {
       if (jobId && subscription.jobIds.has(jobId)) {
         this.server.to(clientId).emit(event, data);
@@ -233,23 +270,23 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     }
   }
   
-  async publishProgressEvent(jobId: string, queue: string, progress: number | object, details?: string) {
-    const event: JobProgressEvent = { jobId, queue, progress, details, timestamp: Date.now() };
+  async publishProgressEvent(jobId: string, queue: string, progress: number | object, details?: string, userId?: string) {
+    const event: JobProgressEvent = { jobId, queue, progress, details, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:progress', JSON.stringify(event));
   }
 
-  async publishCompletedEvent(jobId: string, queue: string, result: any, processingTime: number, totalTime?: number) {
-    const event: JobCompletedEvent = { jobId, queue, result, processingTime, totalTime, timestamp: Date.now() };
+  async publishCompletedEvent(jobId: string, queue: string, result: any, processingTime: number, totalTime?: number, userId?: string) {
+    const event: JobCompletedEvent = { jobId, queue, result, processingTime, totalTime, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:completed', JSON.stringify(event));
   }
 
-  async publishFailedEvent(jobId: string, queue: string, error: string, attempts: number, maxAttempts: number) {
-    const event: JobFailedEvent = { jobId, queue, error, attempts, maxAttempts, timestamp: Date.now() };
+  async publishFailedEvent(jobId: string, queue: string, error: string, attempts: number, maxAttempts: number, userId?: string) {
+    const event: JobFailedEvent = { jobId, queue, error, attempts, maxAttempts, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:failed', JSON.stringify(event));
   }
 
-  async publishQueueToStartEvent(jobId: string, queue: string, queueToStartTime: number) {
-    const event: JobQueueToStartEvent = { jobId, queue, queueToStartTime, timestamp: Date.now() };
+  async publishQueueToStartEvent(jobId: string, queue: string, queueToStartTime: number, userId?: string) {
+    const event: JobQueueToStartEvent = { jobId, queue, queueToStartTime, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:queue-to-start', JSON.stringify(event));
   }
   

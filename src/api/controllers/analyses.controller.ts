@@ -97,6 +97,7 @@ export class AnalysesController {
       // Prepare job data
       const jobData: EnrichTokenBalancesJobData = {
         walletBalances: body.walletBalances,
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         priority: 5, // Normal priority
         optimizationHint
@@ -195,6 +196,7 @@ export class AnalysesController {
       // Prepare job data - delegate to existing SimilarityApiService
       const jobData: ComprehensiveSimilarityFlowData = {
         walletAddresses: dto.walletAddresses,
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         walletsNeedingSync, // Pass specific wallets to sync (empty array = no sync needed)
         enrichMetadata: true, // Enable metadata enrichment for proper token display
@@ -409,6 +411,7 @@ export class AnalysesController {
 
       const jobData: DashboardWalletAnalysisJobData = {
         walletAddress: dto.walletAddress,
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         analysisScope: scope,
         triggerSource,
@@ -492,6 +495,7 @@ export class AnalysesController {
   @ApiResponse({ status: 400, description: 'Invalid token mint address or parameters' })
   @HttpCode(202)
   async queueHolderProfilesAnalysis(
+    @Req() req: Request & { user?: User },
     @Body() body: { tokenMint: string; topN?: number },
   ): Promise<{
     jobId: string;
@@ -521,6 +525,7 @@ export class AnalysesController {
       // Prepare job data
       const jobData: AnalyzeHolderProfilesJobData = {
         mode: 'token',
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         tokenMint: body.tokenMint,
         topN,
         requestId,
@@ -569,6 +574,7 @@ export class AnalysesController {
   @ApiResponse({ status: 400, description: 'Invalid wallet address' })
   @HttpCode(202)
   async queueWalletHolderProfile(
+    @Req() req: Request & { user?: User },
     @Body() body: { walletAddress: string },
   ): Promise<{
     jobId: string;
@@ -586,6 +592,7 @@ export class AnalysesController {
       const requestId = `holder-profile-wallet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const jobData: AnalyzeHolderProfilesJobData = {
         mode: 'wallet',
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         walletAddress: body.walletAddress,
         requestId,
       };

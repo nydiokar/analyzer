@@ -69,17 +69,21 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     const queueEvents = new QueueEvents(queueName, { connection: redisConfig });
 
     queueEvents.on('progress', async ({ jobId, data }) => {
+      // Extract userId from job data for room-based broadcasting
+      const job = await this.queueMap.get(queueName)?.getJob(jobId);
+      const userId = (job?.data as any)?.userId;
+
       let progressData: number | object;
       if (typeof data === 'string') {
         const num = parseInt(data, 10);
         progressData = isNaN(num) ? { status: data } : num;
       } else if (typeof data === 'boolean') {
         progressData = { status: data ? 'active' : 'inactive' };
-      } 
+      }
       else {
         progressData = data;
       }
-      await this.jobProgressGateway.publishProgressEvent(jobId, queueName, progressData);
+      await this.jobProgressGateway.publishProgressEvent(jobId, queueName, progressData, undefined, userId);
     });
 
     // Track when job starts processing (queue-to-start time)
@@ -87,16 +91,19 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
       if (job && job.processedOn && job.timestamp) {
         const queueToStartTime = job.processedOn - job.timestamp;
+        const userId = (job.data as any)?.userId;
+
         this.logger.log(`Job started processing: ${jobId} after ${queueToStartTime}ms in queue`);
-        
-        // Publish queue-to-start timing event
-        await this.jobProgressGateway.publishQueueToStartEvent(jobId, queueName, queueToStartTime);
+
+        // Publish queue-to-start timing event with userId for room-based broadcasting
+        await this.jobProgressGateway.publishQueueToStartEvent(jobId, queueName, queueToStartTime, userId);
       }
     });
 
     queueEvents.on('completed', async ({ jobId, returnvalue }) => {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
-      
+      const userId = (job?.data as any)?.userId;
+
       // Use manual processing time from job result if available, otherwise fallback to BullMQ timing
       let processingTime = 0;
       const result = returnvalue as any;
@@ -106,21 +113,23 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
         // Fallback: use actual finish time - start time (not queue time)
         processingTime = job.finishedOn - job.processedOn;
       }
-      
+
       // Calculate total time (queue to completion)
       let totalTime = 0;
       if (job && job.finishedOn && job.timestamp) {
         totalTime = job.finishedOn - job.timestamp;
       }
-      
+
       this.logger.log(`Job completed: ${jobId} - Processing: ${processingTime}ms, Total: ${totalTime}ms`);
-      await this.jobProgressGateway.publishCompletedEvent(jobId, queueName, result || {}, processingTime, totalTime);
+      await this.jobProgressGateway.publishCompletedEvent(jobId, queueName, result || {}, processingTime, totalTime, userId);
     });
 
     queueEvents.on('failed', async ({ jobId, failedReason }) => {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
+      const userId = (job?.data as any)?.userId;
+
       this.logger.warn(`Job failed: ${jobId} - ${failedReason}`);
-      await this.jobProgressGateway.publishFailedEvent(jobId, queueName, failedReason, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0);
+      await this.jobProgressGateway.publishFailedEvent(jobId, queueName, failedReason, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0, userId);
     });
 
     queueEvents.on('error', (err) => {
