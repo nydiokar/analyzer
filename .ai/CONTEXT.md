@@ -1,9 +1,10 @@
 # Current State
 
 **Project**: Sova Intel - Wallet Analysis System
-**Branch**: `pretty` (design system + auth polish)
-**Status**: Core features complete, ready for polish tasks
-**Last Updated**: 2025-12-17
+**Branch**: `refactor/websocket-user-rooms` (WebSocket architecture refactor)
+**Previous Branch**: `pretty` (design system + auth polish)
+**Status**: WebSocket refactor complete, ready for testing
+**Last Updated**: 2025-12-18
 
 ---
 
@@ -73,26 +74,106 @@
 
 ---
 
+## WebSocket Refactor (Branch: refactor/websocket-user-rooms)
+
+### ✅ What Was Completed (2025-12-18)
+
+**Problem Solved:**
+- ❌ Race conditions on page load causing missed job events
+- ❌ Multiple socket connections from HMR breaking subscriptions
+- ❌ Jobs completing but frontend never receiving events
+- ❌ Tabs not loading due to incomplete job event handling
+
+**Implementation:**
+1. **Phase 1**: Added `userId` to all job data interfaces and controllers ✅
+2. **Phase 2**: Gateway auto-joins clients to `user-{userId}` rooms ✅
+3. **Phase 3**: All job publishers extract and pass userId ✅
+4. **Phase 4**: Frontend passes userId in socket auth handshake ✅
+5. **Critical Fix**: Fixed 15 direct gateway calls bypassing the bridge ✅
+
+**Files Modified:**
+- `src/queues/jobs/types/index.ts` - Added userId to all job interfaces
+- `src/api/controllers/analyses.controller.ts` - Extract userId from req.user
+- `src/api/shared/job-progress.gateway.ts` - Room-based broadcasting
+- `src/queues/services/job-events-bridge.service.ts` - Pass userId from job.data
+- `src/queues/processors/analysis-operations.processor.ts` - 4 direct calls fixed
+- `src/queues/processors/enrichment-operations.processor.ts` - 5 direct calls fixed
+- `src/queues/processors/similarity-operations.processor.ts` - 6 direct calls fixed
+- `dashboard/src/hooks/useJobProgress.ts` - Pass userId in socket auth
+
+**How It Works:**
+- Jobs created with `userId` from authenticated requests
+- WebSocket gateway routes events to `user-{userId}` rooms
+- All tabs receive events automatically via room membership
+- Backward compatible: jobs without userId use legacy per-job subscription
+
+### 🧪 Testing Required
+
+**Expected Behavior:**
+1. Page loads → WebSocket connects → Joins user room
+2. All 3 dashboard jobs complete with proper subscribe/unsubscribe
+3. Tabs load correctly with all data
+4. Multiple tabs receive same events
+5. HMR doesn't break subscriptions
+
+**Console Logs to Verify:**
+```
+Backend:
+  Client {id} connected and joined room: user-{userId}
+  📡 Room broadcast: job-completed → user-{userId} (job: xxx)
+
+Frontend:
+  ✅ WebSocket connected
+  🔔 Subscribing to job: dashboard-xxxxx
+  🔕 Unsubscribing from job: dashboard-xxxxx
+```
+
+### 🧹 Cleanup After Verification
+
+Once verified working, remove backward compatibility code:
+
+1. **Gateway (job-progress.gateway.ts)**:
+   - Remove legacy per-job subscription loop in `broadcastToSubscribers` (lines 239-246)
+   - Remove `subscribe-to-job` / `unsubscribe-from-job` handlers (lines 249-269)
+   - Remove `clientSubscriptions.jobIds` tracking (keep only userId)
+   - Remove `pruneJobSubscriptions` method (no longer needed)
+
+2. **Frontend (useJobProgress.ts)**:
+   - Simplify `subscribeToJob` - no need to emit 'subscribe-to-job'
+   - Remove HTTP polling fallback (or keep for non-authenticated users)
+
+3. **Types**:
+   - Update `ClientSubscription` interface to remove `jobIds: Set<string>`
+
+**Branch Strategy:**
+- Test thoroughly on `refactor/websocket-user-rooms`
+- When verified: merge to `main` first (production fix)
+- Then merge `main` → `pretty` to continue design work
+
+---
+
 ## Known Issues
 
 1. **Dev mode slow** - First page visit compiles (6-12s), subsequent fast. Production is optimized.
 2. **Job polling admin error** - Fixed: GET `/jobs/:jobId` now accessible to all users.
-3. **WebSocket race condition** - HTTP fallback works, proper fix in refactor plan.
+3. **WebSocket race condition** - ✅ **FIXED** in refactor/websocket-user-rooms branch.
 
 ---
 
 ## Next Session Quick Start
 
-**Ask**: "What should we work on?"
+**Current Priority**: Test WebSocket refactor (see testing section above)
 
-**Options**:
-- Fast exit metric polish (#4) - 30 min
-- Finish tooltips (#1) - 1-2 hours
-- Sanity check/Polishing of every individual page
-- Discover page content (#5) - 2-3 hours
-- Job history page (#6) - requires WebSocket refactor first
-- Onboarding flow (#7) - 3-4 hours
-- WebSocket refactor (#8) - separate branch, 8-13 hours (see plan)
+**After WebSocket Verified**:
+- Merge refactor/websocket-user-rooms → main → pretty
+- Clean up backward compatibility code (see cleanup section)
+- Resume `pretty` branch work:
+  - Fast exit metric polish (#4) - 30 min
+  - Finish tooltips (#1) - 1-2 hours
+  - Sanity check/Polishing of every individual page
+  - Discover page content (#5) - 2-3 hours
+  - Job history page (#6) - now possible with reliable WebSocket
+  - Onboarding flow (#7) - 3-4 hours
 
 
 ---
