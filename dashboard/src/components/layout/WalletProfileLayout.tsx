@@ -158,7 +158,7 @@ export default function WalletProfileLayout({
   walletAddress,
 }: WalletProfileLayoutProps) {
   const { mutate: globalMutate, cache } = useSWRConfig();
-  const { apiKey, isDemo: isDemoAccount } = useApiKeyStore();
+  const { isDemo: isDemoAccount } = useApiKeyStore();
   const { startDate, endDate } = useTimeRangeStore();
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true); // Start with true for SSR consistency
   const [isHydrated, setIsHydrated] = useState(false); // Track hydration state
@@ -896,7 +896,7 @@ export default function WalletProfileLayout({
   }, [triggerDashboardScope, isDemoAccount]);
 
   const handleToggleFavorite = async () => {
-    if (!walletAddress || !apiKey || isTogglingFavorite) {
+    if (!walletAddress || isTogglingFavorite) {
       return;
     }
   
@@ -912,7 +912,7 @@ export default function WalletProfileLayout({
   };
 
   const confirmRemoveFavorite = async () => {
-    if (!walletAddress || !apiKey) return;
+    if (!walletAddress) return;
     
     setIsTogglingFavorite(true);
     
@@ -1064,7 +1064,7 @@ export default function WalletProfileLayout({
                       </span>
                     )}
                     
-                    {apiKey && (
+                    {(
                       <>
                         <TooltipProvider delayDuration={100}>
                           <Tooltip>
@@ -1171,7 +1171,7 @@ export default function WalletProfileLayout({
                     </span>
                   )}
                   
-                  {apiKey && (
+                  {(
                     <>
                       <Button 
                         variant="ghost" 

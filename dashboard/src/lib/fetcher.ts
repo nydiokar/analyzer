@@ -1,11 +1,9 @@
 import { useAuthStore } from '@/store/auth-store';
-import { useApiKeyStore } from '@/store/api-key-store';
 import { toast } from 'sonner';
 
 // Build auth headers from stores (JWT preferred, API key fallback)
 const buildAuthHeaders = () => {
   const authState = useAuthStore.getState();
-  const legacyApiKeyState = useApiKeyStore.getState();
   const authHeader = authState.getAuthHeader?.();
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
 
@@ -13,8 +11,6 @@ const buildAuthHeaders = () => {
     headers['Authorization'] = authHeader;
   } else if (authHeader) {
     headers['X-API-Key'] = authHeader;
-  } else if (legacyApiKeyState.apiKey) {
-    headers['X-API-Key'] = legacyApiKeyState.apiKey;
   }
 
   return headers;

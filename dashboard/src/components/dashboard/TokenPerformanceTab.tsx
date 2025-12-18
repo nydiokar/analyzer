@@ -47,7 +47,6 @@ import EmptyState from '@/components/shared/EmptyState';
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { Button as UiButton } from "@/components/ui/button";
-import { useApiKeyStore } from '@/store/api-key-store';
 import { fetcher } from '@/lib/fetcher';
 import { TokenBadge } from "@/components/shared/TokenBadge";
 
@@ -428,7 +427,6 @@ const ESTIMATED_ROW_HEIGHT = 64;
 
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
-  const { apiKey, isInitialized } = useApiKeyStore();
   const [page, setPage] = useState(1);
   // Default to a smaller page size to reduce initial render cost and improve interactivity
   const [pageSize, setPageSize] = useState(10);
@@ -485,7 +483,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const apiUrlBase = walletAddress ? `/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
 
-  if (apiUrlBase && isInitialized && apiKey) {
+  if (apiUrlBase) {
     const params = new URLSearchParams();
     params.append('page', page.toString());
     params.append('pageSize', pageSize.toString());
@@ -519,7 +517,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
   const { data, error, isLoading: isLoadingData, mutate: localMutate } = useSWR<PaginatedTokenPerformanceResponse, Error>(
     // Do not fetch data while enrichment is happening.
-    swrKey ? [swrKey, apiKey] : null,
+    swrKey ? [swrKey] : null,
     ([url]: [string]) => {
       // console.log(`[TokenPerformance] 🔄 Fetching data:`, {
       //   url,
@@ -666,7 +664,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       // Use SWR's built-in revalidation instead of manual mutate
       // This prevents multiple calls
     }
-  }, [walletAddress, apiKey]); // Removed localMutate from dependencies
+  }, [walletAddress]); // Removed localMutate from dependencies
 
   // Effect to auto-refresh when analysis completes
   const prevAnalyzingRef = useRef(isAnalyzingGlobal);

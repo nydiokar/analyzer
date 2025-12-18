@@ -12,7 +12,6 @@ import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 import { Skeleton } from "@/components/ui/skeleton"; // Ensure Skeleton is imported
 import { format, isValid } from 'date-fns'; // Import isValid
 import useSWR from 'swr'; // Added SWR import
-import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 import { Card } from "@/components/ui/card";
 import { Metric } from "@/components/ui/metric";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -419,19 +418,17 @@ const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
 
 export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, lastAnalysisTimestamp }: AccountStatsPnlTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
-  const { apiKey, isInitialized } = useApiKeyStore(); // Get key and init status
   const [displayMode, setDisplayMode] = useState<number>(2);
 
   const pnlOverviewApiUrlBase = walletAddress ? `/wallets/${walletAddress}/pnl-overview` : null;
   let swrKeyPnl: (string | null)[] | null = null;
 
-  if (pnlOverviewApiUrlBase && !isAnalyzingGlobal && isInitialized && apiKey) { // Only build key if not analyzing and store is ready
+  if (pnlOverviewApiUrlBase && !isAnalyzingGlobal) {
     const queryParams = new URLSearchParams();
     if (startDate) queryParams.append('startDate', startDate.toISOString());
     if (endDate) queryParams.append('endDate', endDate.toISOString());
     const url = queryParams.toString() ? `${pnlOverviewApiUrlBase}?${queryParams.toString()}` : pnlOverviewApiUrlBase;
-    // The key now includes the URL and the API key for reactivity
-    swrKeyPnl = [url, apiKey];
+    swrKeyPnl = [url];
   }
   
   const { 

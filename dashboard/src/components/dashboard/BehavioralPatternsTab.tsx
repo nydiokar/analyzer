@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label";   // Added Label
 import { fetcher } from '@/lib/fetcher'; // Ensure global fetcher is used
 import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 import { Skeleton } from "@/components/ui/skeleton";
-import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -169,22 +168,21 @@ const formatHour = (hour: number | undefined | null): string => {
 
 export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: BehavioralPatternsTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
-  const { apiKey, isInitialized } = useApiKeyStore(); // Get key and init status
   const [useLogScaleDuration, setUseLogScaleDuration] = useState<boolean>(false);
 
   const behaviorApiUrlBase = walletAddress ? `/wallets/${walletAddress}/behavior-analysis` : null;
   let swrKeyBehavior: (string | null)[] | null = null;
 
-  if (behaviorApiUrlBase && isInitialized && apiKey) { // Check for key and init status
+  if (behaviorApiUrlBase) {
     const behaviorParams = new URLSearchParams();
     if (startDate && endDate) {
       behaviorParams.append('startDate', startDate.toISOString());
       behaviorParams.append('endDate', endDate.toISOString());
       const url = `${behaviorApiUrlBase}?${behaviorParams.toString()}`;
-      swrKeyBehavior = [url, apiKey];
+      swrKeyBehavior = [url];
     } else {
       const url = behaviorApiUrlBase; 
-      swrKeyBehavior = [url, apiKey];
+      swrKeyBehavior = [url];
     }
   }
   

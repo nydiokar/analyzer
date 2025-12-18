@@ -14,7 +14,6 @@ import { toast } from 'sonner';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import { JobProgressData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
-import { useApiKeyStore } from '@/store/api-key-store';
 import { AppShell } from '@/components/layout/AppShell';
 
 
@@ -46,8 +45,6 @@ export default function AnalysisLabPage() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   
   // toast is now imported directly from sonner
-  const apiKey = useApiKeyStore((state) => state.apiKey);
-
   // Simple WebSocket callbacks that DON'T depend on changing state
   const {
     isConnected: wsConnected,
@@ -292,7 +289,7 @@ export default function AnalysisLabPage() {
       // Queue an enrichment job
       const job = await fetcher('/analyses/similarity/enrich-balances', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey || '' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ walletBalances: analysisResult.walletBalances }),
       });
 
@@ -309,7 +306,7 @@ export default function AnalysisLabPage() {
         description: error.message || "Could not start the price refresh job.",
       });
     }
-  }, [analysisResult, apiKey, subscribeToJob, toast, setEnrichmentJobId]);
+  }, [analysisResult, subscribeToJob, toast, setEnrichmentJobId]);
 
   const handleAnalyze = async () => {
     // Prevent multiple simultaneous analyses
