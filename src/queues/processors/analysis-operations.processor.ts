@@ -500,6 +500,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           scope: 'working',
           parentRequestId: job.data.requestId,
           forceRefresh: job.data.forceRefresh ?? false,
+          userId: job.data.userId,
         });
         if (queuedJobId) {
           followUpJobsQueued.push({ scope: 'working', jobId: queuedJobId });
@@ -512,6 +513,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           scope: 'deep',
           parentRequestId: job.data.requestId,
           forceRefresh: job.data.forceRefresh ?? false,
+          userId: job.data.userId,
         });
         if (queuedJobId) {
           followUpJobsQueued.push({ scope: 'deep', jobId: queuedJobId });
@@ -576,6 +578,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     scope: DashboardAnalysisScope;
     parentRequestId: string;
     forceRefresh: boolean;
+    userId?: string;
   }): Promise<string | null> {
     if (params.scope === 'flash') {
       return null;
@@ -610,6 +613,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     const jobData: DashboardWalletAnalysisJobData = {
       walletAddress: params.walletAddress,
+      userId: params.userId,
       requestId,
       analysisScope: params.scope,
       triggerSource: 'system',

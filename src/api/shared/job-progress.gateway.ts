@@ -216,10 +216,6 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     for (const [clientId, subscription] of this.clientSubscriptions) {
       if (subscription.jobIds.delete(jobId)) {
         pruned++;
-        // Clean up empty subscription sets to avoid stale entries
-        if (subscription.jobIds.size === 0) {
-          this.clientSubscriptions.delete(clientId);
-        }
       }
     }
     if (pruned > 0) {
@@ -250,11 +246,14 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   handleSubscribeToJob(@MessageBody() data: { jobId: string }, @ConnectedSocket() client: Socket) {
     const { jobId } = data;
     if (jobId) {
-      const subscription = this.clientSubscriptions.get(client.id);
-      if (subscription) {
-        subscription.jobIds.add(jobId);
-        this.logger.log(`Client ${client.id} subscribed to job: ${jobId}`);
+      let subscription = this.clientSubscriptions.get(client.id);
+      if (!subscription) {
+        // Recreate subscription entry if it was pruned after a previous completion
+        subscription = { jobIds: new Set(), userId: client.handshake.auth?.userId };
+        this.clientSubscriptions.set(client.id, subscription);
       }
+      subscription.jobIds.add(jobId);
+      this.logger.log(`Client ${client.id} subscribed to job: ${jobId}`);
     }
   }
 
