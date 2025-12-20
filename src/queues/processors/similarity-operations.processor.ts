@@ -306,9 +306,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
 
       const result: SimilarityFlowResult = {
         success: true,
-        data: {
-          resultKey: this.buildResultKey(requestId),
-        },
+        data: similarityResult, // Return the actual data, not just a resultKey
         requestId: requestId,
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime,

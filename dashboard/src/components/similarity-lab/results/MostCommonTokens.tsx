@@ -127,7 +127,7 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
               </div>
             </CardHeader>
             <CardContent>
-                <ScrollArea className="h-[400px]">
+                <ScrollArea className="max-h-[600px]">
                     <ul className="space-y-3">
                         {commonTokens.map((token) => {
                             const metadata = tokenMetadataMap.get(token.mint);
@@ -158,7 +158,18 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
                                         </TooltipProvider>
                                     </div>
                                     <div className="flex items-center gap-2 ml-4">
-                                        <Badge variant="secondary">{token.count} wallets</Badge>
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Badge variant="secondary" className="cursor-help">
+                                                        {token.count} wallets
+                                                    </Badge>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <p>Number of wallets holding this token</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
                                     </div>
                                 </li>
                             );

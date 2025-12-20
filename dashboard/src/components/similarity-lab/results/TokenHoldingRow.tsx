@@ -2,6 +2,7 @@
 
 import { memo } from 'react';
 import { TokenBadge } from "@/components/shared/TokenBadge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 // Types would be imported from a shared types file in a real app
 interface TokenBalance {
@@ -37,9 +38,18 @@ const TokenHoldingRow = memo(({ token, walletAddress, formatUsdValue, truncateAd
                 className="flex-1 min-w-0"
             />
         </div>
-        <div className="font-mono text-right text-foreground font-medium flex-shrink-0">
-            {formatUsdValue(token.valueUsd)}
-        </div>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="font-mono text-right text-foreground font-medium flex-shrink-0 cursor-help">
+                  {formatUsdValue(token.valueUsd)}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>USD value of this token holding in the wallet</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
     </div>
   );
 });
