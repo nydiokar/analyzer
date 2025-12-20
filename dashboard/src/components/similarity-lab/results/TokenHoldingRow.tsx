@@ -25,14 +25,16 @@ const TokenHoldingRow = memo(({ token, walletAddress, formatUsdValue, truncateAd
   return (
     <div className="flex items-center justify-between space-x-2 text-xs p-1 hover:bg-muted/50 rounded-sm">
         <div className="flex items-center space-x-2 overflow-hidden flex-1 min-w-0">
-            <TokenBadge 
-                mint={token.mint} 
+            <TokenBadge
+                mint={token.mint}
                 metadata={{
                     name: token?.name || undefined,
                     symbol: token?.symbol || undefined,
                     imageUrl: token?.imageUrl || undefined
-                }} 
-                size="sm" 
+                }}
+                variant="inline"
+                size="sm"
+                className="flex-1 min-w-0"
             />
         </div>
         <div className="font-mono text-right text-foreground font-medium flex-shrink-0">

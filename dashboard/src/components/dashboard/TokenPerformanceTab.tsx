@@ -112,7 +112,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
           <TokenBadge
             mint={item.tokenAddress}
             metadata={{
-              // Pass ALL fields raw - TokenBadge decides priority
+              // Pass ALL fields - inline variant (2-row compact) handles it gracefully
               name: item.name || undefined,
               symbol: item.symbol || undefined,
               imageUrl: item.imageUrl || undefined,
@@ -125,11 +125,13 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
               onchainWebsiteUrl: item.onchainWebsiteUrl || undefined,
               onchainTwitterUrl: item.onchainTwitterUrl || undefined,
               onchainTelegramUrl: item.onchainTelegramUrl || undefined,
+              marketCapUsd: item.marketCapUsd || undefined,
             }}
+            variant="inline"
             size="s"
-            className="flex-1"
+            className="flex-1 min-w-0"
           />
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {riskLevel === 'high-risk' ? (
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
@@ -391,12 +393,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
     },
     meta: { className: 'text-right px-2 min-w-[150px]' },
   },
-  {
-    accessorKey: 'marketCapDisplay',
-    header: 'Market Cap',
-    cell: ({ row }) => formatMarketCap(row.original.marketCapUsd),
-    meta: { className: 'text-right px-2 min-w-[100px]' },
-  },
+  // Market Cap column REMOVED - now shown inside TokenBadge inline variant
   {
     accessorKey: 'transferCountIn',
     header: 'In',
@@ -1122,17 +1119,7 @@ const formatSolAmount = (value: number | null | undefined) => {
   return 'N/A';
 };
 
-const formatMarketCap = (value: number | null | undefined) => {
-  if (typeof value === 'number' && !isNaN(value) && value > 0) {
-    if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
-    if (value >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
-    if (value >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
-    return `$${value.toFixed(0)}`;
-  }
-  return 'N/A';
-};
-
-
+// formatMarketCap removed - now handled by TokenBadge component
 
 // Memoize the component to prevent unnecessary re-renders
 export default memo(TokenPerformanceTab);

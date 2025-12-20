@@ -7,7 +7,13 @@ import { cn } from "@/lib/utils"
 
 const Popover = PopoverPrimitive.Root
 
-const PopoverTrigger = PopoverPrimitive.Trigger
+const PopoverTrigger = React.forwardRef<
+  React.ComponentRef<typeof PopoverPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Trigger>
+>((props, ref) => (
+  <PopoverPrimitive.Trigger ref={ref} {...props} suppressHydrationWarning />
+))
+PopoverTrigger.displayName = "PopoverTrigger"
 
 const PopoverAnchor = PopoverPrimitive.Anchor
 

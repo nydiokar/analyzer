@@ -546,10 +546,10 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             <div className="grid gap-1 md:grid-cols-2">
               {displayedHoldings.map((holding) => (
                 <div key={holding.tokenAddress} className="flex items-center justify-between rounded-md border bg-background px-2 py-1">
-                  <div className="flex items-center gap-1 min-w-0">
-                    <TokenBadge mint={holding.tokenAddress} size="sm" className="py-0.5" />
+                  <div className="flex items-center gap-1 min-w-0 flex-1">
+                    <TokenBadge mint={holding.tokenAddress} variant="inline" size="sm" className="min-w-0" />
                   </div>
-                  <div className="text-xs text-muted-foreground text-right leading-tight">
+                  <div className="text-xs text-muted-foreground text-right leading-tight flex-shrink-0 ml-2">
                     Bal: {formatBalanceCompact(holding.uiBalance)}
                   </div>
                 </div>

@@ -2,22 +2,70 @@
 
 ## TL;DR
 
-**Just pass the mint address. TokenBadge handles the rest.**
+**Just pass the mint address + choose your variant. TokenBadge handles the rest.**
 
 ```tsx
-// ✅ CORRECT - Simple and recommended
+// ✅ CORRECT - Simple and recommended (card variant, default)
 <TokenBadge mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" />
 
-// ✅ ALSO CORRECT - Optimization for bulk operations
+// ✅ INLINE VARIANT - For tables/lists/grids (2-row compact horizontal)
+<TokenBadge
+  mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+  variant="inline"
+  size="s"
+/>
+
+// ✅ WITH METADATA - Optimization for bulk operations
 <TokenBadge
   mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
   metadata={tokenData} // If parent already has it
+  variant="inline"
 />
 
 // ❌ WRONG - Don't fetch metadata separately
 const metadata = await fetcher('/token-info', { ... })
 <TokenBadge mint={mint} metadata={metadata} /> // Unnecessary
 ```
+
+---
+
+## Layout Variants
+
+TokenBadge has **two layout variants** to fit different UI contexts:
+
+### **"card" (default)** - Vertical 2-row card
+
+```
+┌──────────────────────────────────────┐
+│ [🪙] TokenName                       │
+│      [SYM] (copy button)             │
+│                                      │
+│ ──────────────────────────────────── │
+│ [Mcap: $12.3M]  [📈][🐦][🌐][📱]    │
+└──────────────────────────────────────┘
+```
+
+**Use for**: Feature sections, headers, standalone token displays
+**Height**: ~100-120px (taller, spacious)
+
+### **"inline"** - Horizontal 2-row compact
+
+```
+┌──────────────────────────────────────┐
+│ [🪙] TokenName [SYM] | [Mcap: $12M] │  ← Row 1
+│             [📈][🐦][🌐][📱]         │  ← Row 2
+└──────────────────────────────────────┘
+```
+
+**Use for**: Tables, lists, grids - anywhere you need low vertical height
+**Height**: ~50-70px (compact, lean)
+**Width**: Fits in 280px+ columns
+
+**Key benefits:**
+- ✅ Shows ALL social buttons (no popovers needed)
+- ✅ Compact vertical footprint for tables
+- ✅ Horizontal-oriented, fits in narrow grids
+- ✅ Action buttons on 2nd row (aligned right, tidy)
 
 ---
 
@@ -120,25 +168,60 @@ Display token with metadata
 
 ## Examples from Codebase
 
-### ✅ Exit Timing Drilldown (Simplified)
+### ✅ Table Cell (Token Performance Tab)
+```tsx
+// dashboard/src/components/dashboard/TokenPerformanceTab.tsx
+// Inline variant + size="s" for compact table rows
+<TokenBadge
+  mint={item.tokenAddress}
+  metadata={item} // Parent already has metadata
+  variant="inline"
+  size="s"
+/>
+```
+
+### ✅ Toolbar (Top Holders Panel)
+```tsx
+// dashboard/src/components/similarity-lab/TopHoldersPanel.tsx
+// Inline variant in flex-wrap toolbar
+<TokenBadge
+  mint={debouncedMint}
+  metadata={tokenMeta}
+  variant="inline"
+  size="sm"
+/>
+```
+
+### ✅ Grid Item (Holdings Display)
+```tsx
+// dashboard/src/components/holder-profiles/v2/WalletBaseballCard.tsx
+// Inline variant in 2-column grid
+<TokenBadge
+  mint={holding.tokenAddress}
+  variant="inline"
+  size="sm"
+/>
+```
+
+### ✅ Header/Feature (Token Pulse)
+```tsx
+// dashboard/src/components/holder-profiles/v2/TokenPulse.tsx
+// Card variant (default) for prominent display
+<TokenBadge
+  mint={result.tokenMint}
+  size="lg"
+/>
+```
+
+### ✅ Simple List (Exit Timing Drilldown)
 ```tsx
 // dashboard/src/components/holder-profiles/v2/ExitTimingDrilldownPanel.tsx
 const { tokens } = await fetcher(`/wallets/${address}/exit-timing-tokens/${bucket}`)
-tokens.map(mint => <TokenBadge mint={mint} size="sm" />)
-```
-
-### ✅ Token Performance Tab (Optimized)
-```tsx
-// dashboard/src/components/dashboard/TokenPerformanceTab.tsx
-data.items.map(item => (
+tokens.map(mint => (
   <TokenBadge
-    mint={item.tokenAddress}
-    metadata={{
-      name: item.name,
-      symbol: item.symbol,
-      imageUrl: item.imageUrl,
-      // ... parent already has all fields
-    }}
+    mint={mint}
+    variant="inline"
+    size="sm"
   />
 ))
 ```

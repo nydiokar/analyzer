@@ -1,10 +1,11 @@
 /**
- * TokenBadge - Inline token profile badge with smart metadata fetching
+ * TokenBadge - Universal token profile badge with smart metadata fetching
  *
- * - Always-visible (no popover) so users see key details at a glance
+ * - Layout variants: "card" (vertical 2-row) or "inline" (horizontal 1-row)
+ * - All actions visible in both variants - no popovers needed
  * - Batches metadata requests automatically via useTokenMetadata
  * - Prioritizes onchain fields for name/symbol, DexScreener for imagery/market data
- * - Size variants (s, m, l, xl) for embedding in tables or cards
+ * - Size variants (s, m, l, xl) for fine-grained control
  */
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -37,12 +38,14 @@ interface TokenMetadata {
 }
 
 type TokenBadgeSize = "s" | "m" | "l" | "xl" | "sm" | "md" | "lg";
+type TokenBadgeVariant = "card" | "inline";
 
 interface TokenBadgeProps {
   mint: string;
   metadata?: TokenMetadata;
   className?: string;
   size?: TokenBadgeSize;
+  variant?: TokenBadgeVariant;
 }
 
 const sizeConfig = {
@@ -50,9 +53,9 @@ const sizeConfig = {
     avatar: "h-7 w-7",
     padding: "px-2.5 py-1.25",
     gap: "gap-2",
-    name: "text-[11px]",
-    ticker: "text-[12px]",
-    metric: "text-[11px]",
+    name: "text-sm",
+    ticker: "text-xs",
+    metric: "text-xs",
     icon: "h-3 w-3",
     chipPadding: "px-2 py-0.5",
     actionsGap: "gap-1.5",
@@ -61,9 +64,9 @@ const sizeConfig = {
     avatar: "h-8 w-8",
     padding: "px-3 py-1.75",
     gap: "gap-2.5",
-    name: "text-[13px]",
+    name: "text-base",
     ticker: "text-sm",
-    metric: "text-xs",
+    metric: "text-sm",
     icon: "h-3.5 w-3.5",
     chipPadding: "px-2.5 py-0.5",
     actionsGap: "gap-2",
@@ -72,9 +75,9 @@ const sizeConfig = {
     avatar: "h-9 w-9",
     padding: "px-3.5 py-2",
     gap: "gap-3",
-    name: "text-[15px]",
+    name: "text-lg",
     ticker: "text-base",
-    metric: "text-sm",
+    metric: "text-base",
     icon: "h-4 w-4",
     chipPadding: "px-3 py-1",
     actionsGap: "gap-2.5",
@@ -83,9 +86,9 @@ const sizeConfig = {
     avatar: "h-12 w-12",
     padding: "px-4 py-2.5",
     gap: "gap-4",
-    name: "text-[17px]",
+    name: "text-xl",
     ticker: "text-lg",
-    metric: "text-sm",
+    metric: "text-lg",
     icon: "h-4 w-4",
     chipPadding: "px-3.5 py-1",
     actionsGap: "gap-3",
@@ -115,7 +118,13 @@ const formatMarketCap = (value: number | null | undefined) => {
   return "–";
 };
 
-const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "m" }: TokenBadgeProps) => {
+const TokenBadge = memo(({
+  mint,
+  metadata: providedMetadata,
+  className,
+  size = "m",
+  variant = "card"
+}: TokenBadgeProps) => {
   // ===== SMART METADATA FETCHING WITH BATCHING =====
   const { metadata: fetchedMetadata, isLoading } = useTokenMetadata(mint, providedMetadata);
 
@@ -165,20 +174,160 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
     return (
       <div
         className={cn(
-          "flex items-center gap-3 rounded-xl border border-border/50 bg-accent/20 shadow-base",
+          "flex items-center rounded-xl border border-border/50 bg-accent/20 shadow-base",
+          variant === "inline" ? "gap-2" : "gap-3",
           resolvedSize.padding,
           className
         )}
       >
-        <Skeleton className={cn("rounded-lg", resolvedSize.avatar)} />
-        <div className="flex flex-col gap-2 flex-1 min-w-0">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-3 w-48" />
+        <Skeleton className={cn("rounded-lg flex-shrink-0", resolvedSize.avatar)} />
+        <div className={cn("flex gap-2 flex-1 min-w-0", variant === "inline" ? "flex-row items-center" : "flex-col")}>
+          <Skeleton className={variant === "inline" ? "h-3 w-24" : "h-4 w-32"} />
+          <Skeleton className={variant === "inline" ? "h-3 w-16" : "h-3 w-48"} />
         </div>
       </div>
     );
   }
 
+  // ===== RENDER INLINE VARIANT (horizontal 2-row compact) =====
+  if (variant === "inline") {
+    return (
+      <TooltipProvider>
+        <div
+          className={cn(
+            "flex flex-col gap-1",
+            resolvedSize.padding,
+            className
+          )}
+        >
+          {/* Row 1: Avatar + Name + Symbol (grouped together, compact) */}
+          <div className={cn("flex items-center gap-1.5 min-w-0", resolvedSize.gap)}>
+            {/* Avatar */}
+            <Avatar className={cn(resolvedSize.avatar, "flex-shrink-0")}>
+              <AvatarImage
+                src={tokenImage ?? undefined}
+                alt={tokenName}
+                className={resolvedSize.avatar}
+              />
+              <AvatarFallback className="text-xs">{tokenName.charAt(0)}</AvatarFallback>
+            </Avatar>
+
+            {/* Name (clickable to Solscan) */}
+            <a
+              href={`https://solscan.io/token/${mint}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                "truncate font-semibold text-foreground transition-colors hover:text-primary min-w-0",
+                resolvedSize.name
+              )}
+              title={tokenName}
+            >
+              {tokenName}
+            </a>
+
+            {/* Symbol pill with copy - shoulder to shoulder with name */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleCopyTicker}
+                  className={cn(
+                    "inline-flex items-center gap-0.5 rounded-md bg-background/70 px-1.5 py-0.5 uppercase text-foreground transition hover:bg-accent/70 flex-shrink-0",
+                    resolvedSize.ticker
+                  )}
+                >
+                  <span className="font-semibold tracking-wide">{displaySymbol}</span>
+                  <Copy className={cn(resolvedSize.icon)} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Copy CA</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Row 2: Mcap (left) + Action buttons (right) */}
+          <div className="flex items-center justify-between -mt-0.5">
+            {/* Market cap - left aligned under token name */}
+            <div className="inline-flex items-center gap-1">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">MC:</span>
+              <span className={cn("font-semibold text-foreground", resolvedSize.metric)}>
+                {formatMarketCap(marketCap)}
+              </span>
+            </div>
+
+            {/* Action buttons - right aligned */}
+            <div className="flex items-center gap-0.5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
+                    <a href={`https://gmgn.ai/sol/token/${mint}`} target="_blank" rel="noopener noreferrer">
+                      <TrendingUp className={cn("text-muted-foreground", resolvedSize.icon)} />
+                    </a>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Open chart (gmgn.ai)</p>
+                </TooltipContent>
+              </Tooltip>
+
+              {tokenWebsite && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
+                      <a href={tokenWebsite} target="_blank" rel="noopener noreferrer">
+                        <Globe className={cn("text-muted-foreground", resolvedSize.icon)} />
+                      </a>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Website</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
+              {tokenTwitter && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
+                      <a href={tokenTwitter} target="_blank" rel="noopener noreferrer">
+                        <Twitter className={cn("text-muted-foreground", resolvedSize.icon)} />
+                      </a>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Twitter / X</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
+              {tokenTelegram && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
+                      <a href={tokenTelegram} target="_blank" rel="noopener noreferrer">
+                        <Send className={cn("text-muted-foreground", resolvedSize.icon)} />
+                      </a>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Telegram</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
+              {tokenName === "Unknown Token" && (
+                <span className="text-[9px] font-medium text-orange-500 flex-shrink-0 ml-2">Unverified</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
+
+  // ===== RENDER CARD VARIANT (vertical two-row, default) =====
   return (
     <TooltipProvider>
       <div
@@ -322,4 +471,4 @@ const TokenBadge = memo(({ mint, metadata: providedMetadata, className, size = "
 TokenBadge.displayName = "TokenBadge";
 
 export { TokenBadge };
-export type { TokenBadgeProps, TokenMetadata };
+export type { TokenBadgeProps, TokenMetadata, TokenBadgeVariant, TokenBadgeSize };

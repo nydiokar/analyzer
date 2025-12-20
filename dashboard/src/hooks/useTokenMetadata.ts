@@ -54,6 +54,15 @@ class TokenMetadataBatcher {
     this.scheduleBatch();
   }
 
+  // Subscribe for enrichment updates WITHOUT triggering initial fetch
+  // Used when component already has metadata from parent
+  subscribeOnly(mint: string, callback: (metadata: TokenMetadata | null) => void) {
+    if (!this.subscribers.has(mint)) {
+      this.subscribers.set(mint, new Set());
+    }
+    this.subscribers.get(mint)!.add(callback);
+  }
+
   // Unsubscribe from updates
   unsubscribe(mint: string, callback: (metadata: TokenMetadata | null) => void) {
     const subs = this.subscribers.get(mint);
@@ -223,9 +232,20 @@ export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata)
       setIsLoading(false);
     };
 
-    // Request metadata (will be batched automatically)
-    setIsLoading(!providedMetadata);
-    globalBatcher.request(mint, updateCallback);
+    // Skip batch request if provided metadata is "complete enough"
+    // Complete = has name/symbol (essential fields)
+    const isMetadataComplete = providedMetadata && (providedMetadata.name || providedMetadata.onchainName);
+
+    if (isMetadataComplete) {
+      // Metadata provided and sufficient - skip fetch, just subscribe for enrichment updates
+      setIsLoading(false);
+      // Still subscribe for potential enrichment updates (but don't trigger initial fetch)
+      globalBatcher.subscribeOnly(mint, updateCallback);
+    } else {
+      // No metadata or incomplete - request from API (will be batched automatically)
+      setIsLoading(!providedMetadata);
+      globalBatcher.request(mint, updateCallback);
+    }
 
     // Cleanup: unsubscribe on unmount
     return () => {

@@ -1,10 +1,9 @@
 # Current State
 
 **Project**: Sova Intel - Wallet Analysis System
-**Branch**: `refactor/websocket-user-rooms` (WebSocket architecture refactor)
-**Previous Branch**: `pretty` (design system + auth polish)
-**Status**: WebSocket refactor complete, tested and working! Next is polishing and design.
-**Last Updated**: 2025-12-18
+**Branch**: `pretty` (design system + auth polish)
+**Status**: WebSocket refactor merged. Working on TokenBadge refactor to fix layout issues.
+**Last Updated**: 2025-12-20
 
 ---
 
@@ -40,12 +39,18 @@
 
 ## Current Tasks
 
-### 🔨 Partial (3 tasks - finish these)
-1. **Comprehensive Tooltips** – Exit timing/global metrics still need tooltips
-2. **Time Unit Disambiguation** – Verify no "35m" (min vs month) ambiguity remains
-3. **Holder Classification** – Edge case: better heuristics for holders without exits
+### 🔨 In Progress (1 task)
+1. **TokenBadge Refactor** – Add layout variants (card/inline/compact) to fix broken layouts in Token Performance Tab and Top Holders Panel. Component is currently vertical card being used in horizontal contexts.
 
-### 📋 Ready to Start (5 tasks)
+### 📋 Blocked/On Hold (requires partner discussion)
+2. **Comprehensive Tooltips** – Exit timing/global metrics still need tooltips (waiting on partner for content)
+3. **Holder Classification** – Edge case: better heuristics for holders without exits (needs partner input on logic)
+
+### ✅ Recently Completed
+- **Time Unit Disambiguation** – VERIFIED: All time formatting uses unambiguous suffixes (min, mo, h, d, s)
+- **WebSocket Refactor** – User-scoped rooms, merged to `pretty` branch
+
+### 📋 Ready to Start (4 tasks)
 4. **Fast Exit Metric Clarification** – Show median + avg (not redundant), add tooltip
 5. **Discover Page Redesign** – Add featured wallets, tool showcase (layout exists)
 6. **Job History Page** – Timeline with re-run capability, hyperlinks to results

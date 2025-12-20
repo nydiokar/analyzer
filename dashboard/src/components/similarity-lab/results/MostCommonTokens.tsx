@@ -47,7 +47,7 @@ const TokenBadgeWithFallback = ({ mint, metadata, size }: { mint: string; metada
     );
   }
 
-  return <TokenBadge mint={mint} metadata={metadata} size={size} />;
+  return <TokenBadge mint={mint} metadata={metadata} variant="inline" size={size} />;
 };
 
 // Function to build a lookup map for token metadata from enriched balances

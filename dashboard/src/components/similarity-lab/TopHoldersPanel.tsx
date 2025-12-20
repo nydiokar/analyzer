@@ -89,8 +89,8 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
 
   return (
     <Card className="p-4 space-y-3">
-      <div className="flex gap-2 items-center">
-        <Input placeholder="Enter token mint" value={mint} onChange={e => setMint(e.target.value.trim())} />
+      <div className="flex gap-2 items-center flex-wrap">
+        <Input placeholder="Enter token mint" value={mint} onChange={e => setMint(e.target.value.trim())} className="flex-1 min-w-[240px]" />
         {(debouncedMint || mint) && (
           <TokenBadge
             key={`badge-${debouncedMint || mint}-${tokenMeta?.name || 'unknown'}`}
@@ -110,8 +110,8 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
               onchainTwitterUrl: tokenMeta.onchainTwitterUrl,
               onchainTelegramUrl: tokenMeta.onchainTelegramUrl,
             } : undefined}
-            className="px-2 py-1 rounded border bg-background/40"
-            size="md"
+            variant="inline"
+            size="sm"
           />
         )}
         <Select value={commitment} onValueChange={(v: any) => setCommitment(v)}>
