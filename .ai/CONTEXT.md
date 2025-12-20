@@ -2,7 +2,7 @@
 
 **Project**: Sova Intel - Wallet Analysis System
 **Branch**: `pretty` (design system + auth polish)
-**Status**: WebSocket refactor merged. Working on TokenBadge refactor to fix layout issues.
+**Status**: TokenBadge refactor complete. UI polish and tooltips added.
 **Last Updated**: 2025-12-20
 
 ---
@@ -39,14 +39,15 @@
 
 ## Current Tasks
 
-### 🔨 In Progress (1 task)
-1. **TokenBadge Refactor** – Add layout variants (card/inline/compact) to fix broken layouts in Token Performance Tab and Top Holders Panel. Component is currently vertical card being used in horizontal contexts.
-
 ### 📋 Blocked/On Hold (requires partner discussion)
-2. **Comprehensive Tooltips** – Exit timing/global metrics still need tooltips (waiting on partner for content)
-3. **Holder Classification** – Edge case: better heuristics for holders without exits (needs partner input on logic)
+1. **Comprehensive Tooltips** – Exit timing/global metrics still need tooltips (waiting on partner for content)
+2. **Holder Classification** – Edge case: better heuristics for holders without exits (needs partner input on logic)
 
 ### ✅ Recently Completed
+- **TokenBadge Refactor** (2025-12-20) – Inline variant now borderless, compact, horizontal 2-row layout. Fixed sizing hierarchy (name > symbol), added "MC:" prefix, removed duplicate Market Cap column
+- **Radix UI Hydration Fix** – Added `suppressHydrationWarning` to Popover/Tooltip/Tabs/DropdownMenu triggers
+- **Tooltips & UX Polish** – Added tooltips to wallet header (refresh, favorites, edit, status indicators), AccountSummaryCard (classification descriptions, trades breakdown, activity date)
+- **Theme Picker Cleanup** – Removed duplicate from wallet page (already in profile)
 - **Time Unit Disambiguation** – VERIFIED: All time formatting uses unambiguous suffixes (min, mo, h, d, s)
 - **WebSocket Refactor** – User-scoped rooms, merged to `pretty` branch
 
@@ -83,8 +84,9 @@
 ## Known Issues
 
 1. **Dev mode slow** - First page visit compiles (6-12s), subsequent fast. Production is optimized.
-2. **Job polling admin error** - Fixed: GET `/jobs/:jobId` now accessible to all users.
-3. **WebSocket race condition** - ✅ **FIXED** in refactor/websocket-user-rooms branch.
+2. **Favorites state sync** - Occasional cache staleness after add/remove (investigate SWR revalidation) ✅ Fixed
+3. ~~Job polling admin error~~ - ✅ Fixed: GET `/jobs/:jobId` now accessible to all users
+4. ~~WebSocket race condition~~ - ✅ Fixed in user-scoped rooms refactor
 
 ---
 

@@ -1007,16 +1007,25 @@ export default function WalletProfileLayout({
 
     return (
       <div className="flex flex-col items-start gap-1 w-full md:w-auto">
-        <Button
-          onClick={handleTriggerAnalysis}
-          variant="outline"
-          size="sm"
-          className="w-full md:w-auto"
-          disabled={ctaDisabled}
-        >
-          <RefreshCw className={`mr-2 h-4 w-4 ${ctaBusy ? 'animate-spin' : ''}`} />
-          {ctaLabel}
-        </Button>
+        <TooltipProvider delayDuration={100}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleTriggerAnalysis}
+                variant="outline"
+                size="sm"
+                className="w-full md:w-auto"
+                disabled={ctaDisabled}
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${ctaBusy ? 'animate-spin' : ''}`} />
+                {ctaLabel}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Trigger full wallet analysis to refresh all data</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         {!ctaBusy && !isRestrictedWallet && !isDemoAccount && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
           <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
@@ -1173,27 +1182,46 @@ export default function WalletProfileLayout({
                   
                   {(
                     <>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={handleToggleFavorite} 
-                        disabled={isTogglingFavorite}
-                        className="h-6 w-6 flex-shrink-0"
-                      >
-                        <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
-                      </Button>
-                      
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={handleToggleFavorite}
+                              disabled={isTogglingFavorite}
+                              className="h-6 w-6 flex-shrink-0"
+                            >
+                              <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
+                              <span className="sr-only">{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p>{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+
                       {/* Edit button for favorites */}
                       {isCurrentWalletFavorite && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={openEditModal} 
-                          className="h-6 w-6 flex-shrink-0"
-                        >
-                          <Edit2 className="h-3 w-3" />
-                          <span className="sr-only">Edit wallet data</span>
-                        </Button>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={openEditModal}
+                                className="h-6 w-6 flex-shrink-0"
+                              >
+                                <Edit2 className="h-3 w-3" />
+                                <span className="sr-only">Edit wallet data</span>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">
+                              <p>Edit wallet data</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )}
                     </>
                   )}
@@ -1216,27 +1244,58 @@ export default function WalletProfileLayout({
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
-                    <div className={cn(
-                        "h-2.5 w-2.5 rounded-full", 
-                        lastAnalysisStatus === 'success' && "bg-green-500",
-                        lastAnalysisStatus === 'error' && "bg-red-500",
-                        lastAnalysisStatus === 'idle' && "bg-yellow-500",
-                        "cursor-help hidden sm:block"
-                      )}
-                    />
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className={cn(
+                              "h-2.5 w-2.5 rounded-full",
+                              lastAnalysisStatus === 'success' && "bg-green-500",
+                              lastAnalysisStatus === 'error' && "bg-red-500",
+                              lastAnalysisStatus === 'idle' && "bg-yellow-500",
+                              "cursor-help hidden sm:block"
+                            )}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>
+                            {lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
+                             lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
+                             lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   ) : lastAnalysisStatus === 'idle' && !isAnalyzing ? (
-                     <div className="h-2.5 w-2.5 rounded-full bg-gray-400 cursor-help hidden sm:block" title="Not yet analyzed" />
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="h-2.5 w-2.5 rounded-full bg-gray-400 cursor-help hidden sm:block" />
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>Not yet analyzed</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   ) : null}
-                  <Button 
-                    onClick={handleTriggerAnalysis} 
-                    variant="outline"
-                    size="sm"
-                    className="px-2 py-1 h-auto text-xs"
-                    disabled={isAnalyzing || !walletAddress}
-                  >
-                    <RefreshCw className={`mr-1 h-3.5 w-3.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                    {lastAnalysisTimestamp ? 'Refresh' : 'Analyze'}
-                  </Button>
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          onClick={handleTriggerAnalysis}
+                          variant="outline"
+                          size="sm"
+                          className="px-2 py-1 h-auto text-xs"
+                          disabled={isAnalyzing || !walletAddress}
+                        >
+                          <RefreshCw className={`mr-1 h-3.5 w-3.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                          {lastAnalysisTimestamp ? 'Refresh' : 'Analyze'}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p>Trigger full wallet analysis to refresh all data</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               </div>
             )}
@@ -1266,7 +1325,6 @@ export default function WalletProfileLayout({
                 {isHeaderExpanded ? <ChevronUp className="h-4 w-4 md:h-5 md:w-5" /> : <ChevronDown className="h-4 w-4 md:h-5 md:w-5" />}
                 <span className="sr-only">{isHeaderExpanded ? 'Collapse Summary' : 'Expand Summary'}</span>
               </Button>
-              <ThemeToggleButton />
             </div>
           </div>
         </div>

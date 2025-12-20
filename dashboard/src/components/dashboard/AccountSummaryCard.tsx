@@ -13,6 +13,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { WalletSummaryData } from "@/types/api";
 import { useApiKeyStore } from "@/store/api-key-store";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface AccountSummaryCardProps {
   walletAddress: string;
@@ -61,6 +67,21 @@ export default function AccountSummaryCard({
     if (data?.latestPnl === null || data?.latestPnl === undefined) return "default" as const;
     return data.latestPnl >= 0 ? "success" : "error";
   }, [data?.latestPnl]);
+
+  // Get behavioral classification description
+  const getClassificationDescription = (classification: string): string => {
+    const descriptions: Record<string, string> = {
+      'swing_trader': 'Holds positions for days to weeks, capitalizing on medium-term price movements',
+      'day_trader': 'Opens and closes positions within the same day, avoiding overnight exposure',
+      'scalper': 'Makes numerous quick trades for small profits, holding positions for minutes',
+      'holder': 'Long-term investor who holds positions for extended periods',
+      'high_frequency': 'Executes large volumes of trades at very high speeds (likely bot activity)',
+      'momentum_trader': 'Follows strong price trends and rides market momentum',
+      'contrarian': 'Takes positions against prevailing market trends',
+      'passive': 'Minimal trading activity, buy-and-hold strategy',
+    };
+    return descriptions[classification.toLowerCase()] || 'Trading behavior pattern identified by analysis';
+  };
 
   if (!walletAddress) {
     return (
@@ -233,9 +254,18 @@ export default function AccountSummaryCard({
               data.totalTradesCount !== null &&
               data.totalTradesCount !== undefined &&
               data.totalTradesCount > 0 && (
-                <p className="text-[10px] text-muted-foreground">
-                  {data.profitableTradesCount}/{data.totalTradesCount} trades
-                </p>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <p className="text-[10px] text-muted-foreground cursor-help">
+                        {data.profitableTradesCount}/{data.totalTradesCount} trades
+                      </p>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Profitable trades / Total trades</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               )}
           </div>
 
@@ -258,19 +288,38 @@ export default function AccountSummaryCard({
 
         <div className="pt-2 border-t border-muted/50">
           <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <CalendarDays className="h-3.5 w-3.5" />
-              <span>
-                {data.lastActiveTimestamp
-                  ? format(new Date(data.lastActiveTimestamp * 1000), "MMM d, yyyy")
-                  : "N/A"}
-              </span>
-            </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1.5 cursor-help">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    <span>
+                      {data.lastActiveTimestamp
+                        ? format(new Date(data.lastActiveTimestamp * 1000), "MMM d, yyyy")
+                        : "N/A"}
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Latest Activity Date</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
             {data.behaviorClassification && (
-              <Badge variant="outline" className="uppercase tracking-wide text-[10px] py-0.5 px-2">
-                {data.behaviorClassification}
-              </Badge>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="uppercase tracking-wide text-[10px] py-0.5 px-2 cursor-help">
+                      {data.behaviorClassification}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="font-semibold mb-1">{data.behaviorClassification.replace(/_/g, ' ').toUpperCase()}</p>
+                    <p className="text-xs">{getClassificationDescription(data.behaviorClassification)}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
           </div>
         </div>
