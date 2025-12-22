@@ -201,7 +201,7 @@ export default function DiscoverPage() {
       setLoading(false);
       setIsUpdating(false);
     }
-  }, [cacheKey, minFreshnessHours, minTradeCount, page, sort]);
+  }, [cacheKey, holdBias, minFreshnessHours, minTradeCount, minUniqueTokens, page, sort, style]);
 
   useEffect(() => {
     const cached = readCache(cacheKey);
@@ -245,7 +245,7 @@ export default function DiscoverPage() {
       setMinFreshnessHours(168); // one week
     }
     setPage(1);
-    fetchWallets();
+    // setters above will trigger useEffect via cacheKey change
   };
 
   return (
