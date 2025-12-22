@@ -2469,6 +2469,38 @@ export class DatabaseService {
     }
     // --- End Wallet Search Method ---
 
+    /**
+     * Retrieves wallets for the Discover page using cached summary tables only.
+     * Applies pagination and ordering to keep the query lightweight.
+     */
+    async getDiscoverWallets(params: {
+        where: Prisma.WalletWhereInput;
+        orderBy: Prisma.WalletOrderByWithRelationInput[];
+        skip: number;
+        take: number;
+    }): Promise<{
+        total: number;
+        wallets: Array<Prisma.WalletGetPayload<{ include: { pnlSummary: { include: { advancedStats: true } }, behaviorProfile: true } }>>;
+    }> {
+        return this.executeWithRetry('getDiscoverWallets', async () => {
+            const [total, wallets] = await this.prismaClient.$transaction([
+                this.prismaClient.wallet.count({ where: params.where }),
+                this.prismaClient.wallet.findMany({
+                    where: params.where,
+                    include: {
+                        pnlSummary: { include: { advancedStats: true } },
+                        behaviorProfile: true,
+                    },
+                    orderBy: params.orderBy,
+                    skip: params.skip,
+                    take: params.take,
+                }),
+            ]);
+
+            return { total, wallets };
+        });
+    }
+
     // --- TokenInfo Methods ---
     async findManyTokenInfo(tokenAddresses: string[]): Promise<TokenInfo[]> {
         if (tokenAddresses.length === 0) return [];

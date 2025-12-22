@@ -1,0 +1,28 @@
+import { Controller, Get, Header, Query, UsePipes, ValidationPipe } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { DiscoverService } from '../services/discover.service';
+import {
+  DiscoverWalletsQueryDto,
+  DiscoverWalletsResponseDto,
+} from '../shared/dto/discover-wallet.dto';
+
+@ApiTags('Discover')
+@Controller('discover')
+export class DiscoverController {
+  constructor(private readonly discoverService: DiscoverService) {}
+
+  @Get('wallets')
+  @Header('Cache-Control', 'public, max-age=120')
+  @ApiOperation({
+    summary: 'Discover interesting wallets using cached analytics snapshots.',
+    description:
+      'Returns a lightweight, paginated list of wallets with explainable reasons based on existing PnL summaries and behavior profiles.',
+  })
+  @ApiResponse({ status: 200, type: DiscoverWalletsResponseDto })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  async getDiscoverWallets(
+    @Query() query: DiscoverWalletsQueryDto,
+  ): Promise<DiscoverWalletsResponseDto> {
+    return this.discoverService.getDiscoverWallets(query);
+  }
+}

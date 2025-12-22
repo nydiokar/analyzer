@@ -13,6 +13,7 @@ import { HealthModule } from './api/modules/health.module';
 import { JobsModule } from './api/modules/jobs.module'; // Import JobsModule for job status API
 import { WebSocketModule } from './api/modules/websocket.module'; // Import WebSocketModule for real-time updates
 import { HeliusWebhookModule } from './api/integrations/helius-webhook.module';
+import { DiscoverModule } from './api/modules/discover.module';
 
 
 @Module({
@@ -29,6 +30,7 @@ import { HeliusWebhookModule } from './api/integrations/helius-webhook.module';
     JobsModule,     // Imports job status API endpoints
     WebSocketModule, // Imports WebSocket gateway for real-time job progress
     HeliusWebhookModule, // Helius webhook integration
+    DiscoverModule,
     // QueueModule, HeliusModule, DatabaseModule are already global from AppModule
     // BehaviorModule is now imported by WalletsModule, so remove from here if not directly used by ApiModule itself
   ],
