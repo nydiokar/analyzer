@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { toast } from "@/hooks/use-toast"; // Import the standalone toast function
+import { toast } from "sonner"; // Import the standalone toast function
 import { cn } from "@/lib/utils";
 import { Copy, ExternalLink, Wallet, Info } from "lucide-react";
 import Link from "next/link";
@@ -15,21 +15,24 @@ interface WalletBadgeProps {
 const truncateAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
 export const WalletBadge = memo(({ address, className }: WalletBadgeProps) => {
-  // No longer need the useToast() hook here
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent the popover from closing
     navigator.clipboard.writeText(address);
-    toast({
-      title: "Copied!",
+    toast.success("Copied!", {
       description: "Wallet address copied to clipboard.",
+      duration: 2000,
     });
   };
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <span className={cn("inline-flex items-center cursor-pointer font-mono text-blue-500 hover:underline", className)}>
+        <span className={cn(
+          "inline-flex items-center cursor-pointer font-mono text-blue-500 rounded-lg px-2 py-1",
+          "transition-shadow duration-200 hover:shadow-hover hover:bg-accent/50 hover:underline",
+          className
+        )}>
           <Wallet className="h-4 w-4 mr-1.5" />
           {truncateAddress(address)}
         </span>

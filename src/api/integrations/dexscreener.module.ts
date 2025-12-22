@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { DexscreenerService } from '../services/dexscreener.service';
 import { DexscreenerPriceProvider } from '../services/dexscreener-price-provider';
+import { AggregatedPriceProvider } from '../services/aggregated-price-provider';
 import { DatabaseModule } from '../modules/database.module';
 import { RedisModule } from '../../queues/config/redis.module';
 
@@ -17,9 +18,10 @@ import { RedisModule } from '../../queues/config/redis.module';
   providers: [
     DexscreenerService, // Legacy service (backwards compatibility)
     DexscreenerPriceProvider, // New provider implementation
+    AggregatedPriceProvider, // Aggregated provider with fallbacks
     {
       provide: 'IPriceProvider',
-      useClass: DexscreenerPriceProvider, // Default provider
+      useClass: AggregatedPriceProvider, // Default provider with fallback
     },
   ],
   exports: [

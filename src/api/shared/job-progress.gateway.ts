@@ -1,8 +1,5 @@
 import {
   WebSocketGateway,
-  SubscribeMessage,
-  MessageBody,
-  ConnectedSocket,
   OnGatewayInit,
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -20,6 +17,7 @@ interface JobProgressEvent {
   details?: string;
   timestamp: number;
   queue: string;
+  userId?: string; // For room-based broadcasting
 }
 
 interface JobCompletedEvent {
@@ -29,6 +27,7 @@ interface JobCompletedEvent {
   queue: string;
   processingTime: number;
   totalTime?: number; // Total time from queue to completion
+  userId?: string; // For room-based broadcasting
 }
 
 interface JobFailedEvent {
@@ -38,10 +37,7 @@ interface JobFailedEvent {
   queue: string;
   attempts: number;
   maxAttempts: number;
-}
-
-interface ClientSubscription {
-  jobIds: Set<string>;
+  userId?: string; // For room-based broadcasting
 }
 
 interface JobQueueToStartEvent {
@@ -49,6 +45,7 @@ interface JobQueueToStartEvent {
   queueToStartTime: number;
   timestamp: number;
   queue: string;
+  userId?: string; // For room-based broadcasting
 }
 
 type JobEventCounter = {
@@ -74,8 +71,6 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   private readonly logger = new Logger(JobProgressGateway.name);
   private readonly debugJobBridge = process.env.JOB_SOCKET_DEBUG === 'true';
   private readonly redisSubscriber: Redis;
-  private readonly clientSubscriptions = new Map<string, ClientSubscription>();
-  private readonly jobEventCounters = new Map<string, JobEventCounter>();
 
   constructor(@Inject(REDIS_CLIENT) private readonly redisPublisher: Redis) {
     // The publisher is injected. We create a dedicated subscriber from it.
@@ -123,16 +118,30 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
 
   handleConnection(client: Socket) {
     const clientId = client.id;
-    this.logger.log(`Client connected: ${clientId}`);
-    this.clientSubscriptions.set(clientId, { jobIds: new Set() });
-    this.logSubscriptionState('connect', clientId);
-    client.emit('connected', { message: 'Connected to job progress updates', clientId, timestamp: Date.now() });
+
+    // Extract userId from socket handshake auth (passed from frontend)
+    const userId = client.handshake.auth?.userId;
+
+    if (userId) {
+      // Join user-specific room for automatic job propagation
+      const userRoom = `user-${userId}`;
+      client.join(userRoom);
+      this.logger.log(`Client ${clientId} connected and joined room: ${userRoom}`);
+    } else {
+      this.logger.log(`Client connected: ${clientId} (no userId provided)`);
+    }
+
+    client.emit('connected', {
+      message: 'Connected to job progress updates',
+      clientId,
+      userId,
+      room: userId ? `user-${userId}` : null,
+      timestamp: Date.now()
+    });
   }
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
-    this.clientSubscriptions.delete(client.id);
-    this.logSubscriptionState('disconnect', client.id);
   }
 
   private setupRedisSubscriptions() {
@@ -176,10 +185,8 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
         this.broadcastToSubscribers('job-progress', data, data.jobId, data.queue);
       } else if (channel === 'job-events:completed') {
         this.broadcastToSubscribers('job-completed', data, data.jobId, data.queue);
-        this.pruneJobSubscriptions(data.jobId);
       } else if (channel === 'job-events:failed') {
         this.broadcastToSubscribers('job-failed', data, data.jobId, data.queue);
-        this.pruneJobSubscriptions(data.jobId);
       } else if (channel === 'job-events:queue-to-start') {
         this.broadcastToSubscribers('job-queue-to-start', data, data.jobId, data.queue);
       }
@@ -188,138 +195,33 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     }
   }
 
-  /**
-   * Remove completed/failed job IDs from all client subscriptions to prevent unbounded growth.
-   */
-  private pruneJobSubscriptions(jobId?: string) {
-    if (!jobId) {
-      return;
-    }
-    let pruned = 0;
-    for (const [clientId, subscription] of this.clientSubscriptions) {
-      if (subscription.jobIds.delete(jobId)) {
-        pruned++;
-        this.logSubscriptionState('prune', clientId, jobId);
-      }
-    }
-    if (pruned > 0) {
-      this.logger.debug(`Pruned job ${jobId} from ${pruned} client subscription(s).`);
-    }
-  }
-
   private broadcastToSubscribers(event: string, data: any, jobId?: string, queue?: string) {
-    let delivered = 0;
-    for (const [clientId, subscription] of this.clientSubscriptions) {
-      if (jobId && subscription.jobIds.has(jobId)) {
-        this.server.to(clientId).emit(event, data);
-        delivered++;
-        // The following line is the source of the excessive log messages.
-        // this.logger.debug(`Broadcasted ${event} to client ${clientId} for job ${jobId}`);
-      }
-    }
-    if (jobId) {
-      this.trackJobEventStats(jobId, event, delivered, queue);
-    }
-    if (this.debugJobBridge) {
-      this.logger.debug(`[JobBridge] Broadcast ${event} for job ${jobId ?? 'n/a'} to ${delivered} subscriber(s)`);
-    }
-  }
-
-  @SubscribeMessage('subscribe-to-job')
-  handleSubscribeToJob(@MessageBody() data: { jobId: string }, @ConnectedSocket() client: Socket) {
-    const { jobId } = data;
-    if (jobId) {
-      const subscription = this.ensureClientSubscription(client.id);
-      subscription.jobIds.add(jobId);
-      this.logger.log(`Client ${client.id} subscribed to job: ${jobId}`);
-      this.logSubscriptionState('subscribe', client.id, jobId);
-    }
-  }
-
-  @SubscribeMessage('unsubscribe-from-job')
-  handleUnsubscribeFromJob(@MessageBody() data: { jobId: string }, @ConnectedSocket() client: Socket) {
-    const { jobId } = data;
-    if (jobId) {
-      const subscription = this.clientSubscriptions.get(client.id);
-      if (subscription && subscription.jobIds.delete(jobId)) {
-        this.logger.log(`Client ${client.id} unsubscribed from job: ${jobId}`);
-        this.logSubscriptionState('unsubscribe', client.id, jobId);
-      }
+    if (data.userId) {
+      const userRoom = `user-${data.userId}`;
+      this.server.to(userRoom).emit(event, data);
+    } else {
+      this.logger.warn(`Received ${event} without userId; event dropped (job: ${jobId}, queue: ${queue})`);
     }
   }
   
-  async publishProgressEvent(jobId: string, queue: string, progress: number | object, details?: string) {
-    const event: JobProgressEvent = { jobId, queue, progress, details, timestamp: Date.now() };
+  async publishProgressEvent(jobId: string, queue: string, progress: number | object, details?: string, userId?: string) {
+    const event: JobProgressEvent = { jobId, queue, progress, details, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:progress', JSON.stringify(event));
   }
 
-  async publishCompletedEvent(jobId: string, queue: string, result: any, processingTime: number, totalTime?: number) {
-    const event: JobCompletedEvent = { jobId, queue, result, processingTime, totalTime, timestamp: Date.now() };
+  async publishCompletedEvent(jobId: string, queue: string, result: any, processingTime: number, totalTime?: number, userId?: string) {
+    const event: JobCompletedEvent = { jobId, queue, result, processingTime, totalTime, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:completed', JSON.stringify(event));
   }
 
-  async publishFailedEvent(jobId: string, queue: string, error: string, attempts: number, maxAttempts: number) {
-    const event: JobFailedEvent = { jobId, queue, error, attempts, maxAttempts, timestamp: Date.now() };
+  async publishFailedEvent(jobId: string, queue: string, error: string, attempts: number, maxAttempts: number, userId?: string) {
+    const event: JobFailedEvent = { jobId, queue, error, attempts, maxAttempts, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:failed', JSON.stringify(event));
   }
 
-  async publishQueueToStartEvent(jobId: string, queue: string, queueToStartTime: number) {
-    const event: JobQueueToStartEvent = { jobId, queue, queueToStartTime, timestamp: Date.now() };
+  async publishQueueToStartEvent(jobId: string, queue: string, queueToStartTime: number, userId?: string) {
+    const event: JobQueueToStartEvent = { jobId, queue, queueToStartTime, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:queue-to-start', JSON.stringify(event));
-  }
-  
-  private ensureClientSubscription(clientId: string): ClientSubscription {
-    let subscription = this.clientSubscriptions.get(clientId);
-    if (!subscription) {
-      subscription = { jobIds: new Set() };
-      this.clientSubscriptions.set(clientId, subscription);
-      if (this.debugJobBridge) {
-        this.logger.debug(`[JobBridge] Created subscription bucket for client ${clientId}`);
-      }
-    }
-    return subscription;
-  }
-
-  private trackJobEventStats(jobId: string, event: string, delivered: number, queue?: string) {
-    if (!this.debugJobBridge) {
-      return;
-    }
-    const key = this.mapEventToCounterKey(event);
-    if (!key) {
-      return;
-    }
-    const stats = this.jobEventCounters.get(jobId) ?? { progress: 0, completed: 0, failed: 0, queueToStart: 0 };
-    stats[key]++;
-    this.jobEventCounters.set(jobId, stats);
-    this.logger.debug(
-      `[JobBridge] Event=${event} job=${jobId} queue=${queue ?? 'n/a'} delivered=${delivered} stats=${JSON.stringify(stats)}`
-    );
-  }
-
-  private mapEventToCounterKey(event: string): keyof JobEventCounter | null {
-    switch (event) {
-      case 'job-progress':
-        return 'progress';
-      case 'job-completed':
-        return 'completed';
-      case 'job-failed':
-        return 'failed';
-      case 'job-queue-to-start':
-        return 'queueToStart';
-      default:
-        return null;
-    }
-  }
-
-  private logSubscriptionState(action: string, clientId: string, jobId?: string) {
-    if (!this.debugJobBridge) {
-      return;
-    }
-    const subscription = this.clientSubscriptions.get(clientId);
-    const jobs = subscription ? Array.from(subscription.jobIds.values()) : [];
-    this.logger.debug(
-      `[JobBridge] ${action} client=${clientId} job=${jobId ?? 'n/a'} jobs=${jobs.join(',') || 'none'} total=${jobs.length}`
-    );
   }
   
   async onModuleDestroy() {

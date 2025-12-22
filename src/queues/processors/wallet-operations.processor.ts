@@ -8,7 +8,6 @@ import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { DatabaseService } from '../../api/services/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
-import { JobEventsBridgeService } from '../services/job-events-bridge.service';
 import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
 

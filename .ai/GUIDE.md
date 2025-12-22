@@ -98,7 +98,11 @@ npm run similarity -- --wallets <A,B,C>
 ```
 
 Environment essentials: copy `.env.example`, set `HELIUS_API_KEY`, Redis credentials, optional `FRONTEND_URL`, and any LLM provider keys once the interpreter lands.
-
+Auth-wise
+- `JWT_SECRET`
+- `JWT_EXPIRES_IN=7d`
+- If cookie-based: `AUTH_COOKIE_NAME=analyzer.sid`, `AUTH_COOKIE_SECURE=true|false`, `FRONTEND_URL`, `BACKEND_URL`.
+- Optional: `ALLOWED_WS_ORIGINS` for WebSocket CORS tightening.
 ---
 
 ## Testing and Verification

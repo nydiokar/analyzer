@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, Req, ForbiddenException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
@@ -14,6 +14,8 @@ import { RedisLockService } from '../../queues/services/redis-lock.service';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
 import { JobPriority } from '../../queues/config/queue.config';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
+import { Request } from 'express';
+import { User } from '@prisma/client';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -53,6 +55,7 @@ export class AnalysesController {
   })
   @HttpCode(202)
   async enrichWalletBalances(
+    @Req() req: Request & { user?: User },
     @Body() body: { walletBalances: Record<string, any> },
   ): Promise<{
     jobId: string;
@@ -94,6 +97,7 @@ export class AnalysesController {
       // Prepare job data
       const jobData: EnrichTokenBalancesJobData = {
         walletBalances: body.walletBalances,
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         priority: 5, // Normal priority
         optimizationHint
@@ -153,6 +157,7 @@ export class AnalysesController {
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
   @HttpCode(202)
   async queueSimilarityAnalysis(
+    @Req() req: Request & { user?: User },
     @Body() dto: SimilarityAnalysisRequestDto,
   ): Promise<{
     jobId: string;
@@ -191,6 +196,7 @@ export class AnalysesController {
       // Prepare job data - delegate to existing SimilarityApiService
       const jobData: ComprehensiveSimilarityFlowData = {
         walletAddresses: dto.walletAddresses,
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         walletsNeedingSync, // Pass specific wallets to sync (empty array = no sync needed)
         enrichMetadata: true, // Enable metadata enrichment for proper token display
@@ -263,6 +269,7 @@ export class AnalysesController {
   @ApiResponse({ status: 503, description: 'Analysis already in progress for this wallet' })
   @HttpCode(202)
   async queueDashboardWalletAnalysis(
+    @Req() req: Request & { user?: User },
     @Body() dto: DashboardAnalysisRequestDto,
   ): Promise<DashboardAnalysisResponseDto> {
     const scope = dto.analysisScope ?? 'deep';
@@ -404,6 +411,7 @@ export class AnalysesController {
 
       const jobData: DashboardWalletAnalysisJobData = {
         walletAddress: dto.walletAddress,
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         analysisScope: scope,
         triggerSource,
@@ -487,6 +495,7 @@ export class AnalysesController {
   @ApiResponse({ status: 400, description: 'Invalid token mint address or parameters' })
   @HttpCode(202)
   async queueHolderProfilesAnalysis(
+    @Req() req: Request & { user?: User },
     @Body() body: { tokenMint: string; topN?: number },
   ): Promise<{
     jobId: string;
@@ -516,6 +525,7 @@ export class AnalysesController {
       // Prepare job data
       const jobData: AnalyzeHolderProfilesJobData = {
         mode: 'token',
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         tokenMint: body.tokenMint,
         topN,
         requestId,
@@ -564,6 +574,7 @@ export class AnalysesController {
   @ApiResponse({ status: 400, description: 'Invalid wallet address' })
   @HttpCode(202)
   async queueWalletHolderProfile(
+    @Req() req: Request & { user?: User },
     @Body() body: { walletAddress: string },
   ): Promise<{
     jobId: string;
@@ -581,6 +592,7 @@ export class AnalysesController {
       const requestId = `holder-profile-wallet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const jobData: AnalyzeHolderProfilesJobData = {
         mode: 'wallet',
+        userId: req.user?.id, // For user-scoped WebSocket rooms
         walletAddress: body.walletAddress,
         requestId,
       };

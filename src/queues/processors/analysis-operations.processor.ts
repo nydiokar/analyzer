@@ -16,7 +16,6 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { SyncOptions } from '../../core/services/helius-sync-service';
 import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
-import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenHoldersService } from '../../api/services/token-holders.service';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
@@ -24,7 +23,6 @@ import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
 import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../shared/dashboard-analysis.types';
-import { DexscreenerService } from '../../api/services/dexscreener.service';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
 
@@ -42,12 +40,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly analysisQueueService: AnalysisOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly heliusApiClient: HeliusApiClient,
-    private readonly jobProgressGateway: JobProgressGateway,
     private readonly tokenInfoService: TokenInfoService,
     private readonly tokenHoldersService: TokenHoldersService,
     private readonly holderProfilesCacheService: HolderProfilesCacheService,
     private readonly telegramAlerts: TelegramAlertsService,
-    private readonly dexscreenerService: DexscreenerService,
     private readonly balanceCacheService: BalanceCacheService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
@@ -371,9 +367,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       let solPriceUsd: number | undefined;
       try {
         solPriceUsd = await this.tokenInfoService.getSolPrice();
-        this.logger.log(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
+        // this.logger.log(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
       } catch (error) {
-        this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
+        // this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
+      }
+      if (!solPriceUsd || solPriceUsd <= 0) {
+        try {
+          const cachedSol = await this.tokenInfoService.getCachedSolPrice();
+          if (cachedSol && cachedSol > 0) {
+            solPriceUsd = cachedSol;
+            this.logger.log(`Using cached SOL price fallback for PNL analysis: $${solPriceUsd}`);
+          } else {
+            this.logger.warn('No cached SOL price available; unrealized PNL/SOL conversions will be skipped.');
+          }
+        } catch (fallbackError) {
+          this.logger.warn(`Failed to read cached SOL price fallback: ${fallbackError}`);
+        }
       }
       await job.updateProgress(55);
 
@@ -436,6 +445,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
             enrichmentJob = await this.enrichmentOperationsQueue.addEnrichTokenBalances({
               walletBalances: walletBalancesForEnrichment,
+              userId: job.data.userId,
               requestId: job.data.requestId,
               priority: JobPriority.LOW,
               enrichmentContext: 'dashboard-analysis',
@@ -491,6 +501,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           scope: 'working',
           parentRequestId: job.data.requestId,
           forceRefresh: job.data.forceRefresh ?? false,
+          userId: job.data.userId,
         });
         if (queuedJobId) {
           followUpJobsQueued.push({ scope: 'working', jobId: queuedJobId });
@@ -503,6 +514,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           scope: 'deep',
           parentRequestId: job.data.requestId,
           forceRefresh: job.data.forceRefresh ?? false,
+          userId: job.data.userId,
         });
         if (queuedJobId) {
           followUpJobsQueued.push({ scope: 'deep', jobId: queuedJobId });
@@ -570,6 +582,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     scope: DashboardAnalysisScope;
     parentRequestId: string;
     forceRefresh: boolean;
+    userId?: string;
   }): Promise<string | null> {
     if (params.scope === 'flash') {
       return null;
@@ -604,6 +617,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     const jobData: DashboardWalletAnalysisJobData = {
       walletAddress: params.walletAddress,
+      userId: params.userId,
       requestId,
       analysisScope: params.scope,
       triggerSource: 'system',
@@ -824,8 +838,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           (a, b) => (orderLookup.get(a.walletAddress) ?? 0) - (orderLookup.get(b.walletAddress) ?? 0),
         );
         const percent = Math.min(95, 20 + Math.floor((analyzedCount / walletAddresses.length) * 70));
-        await job.updateProgress(percent);
-        await this.jobProgressGateway.publishProgressEvent(job.id!, job.queueName, {
+        // BullMQ handles rich progress objects - bridge picks it up automatically
+        await job.updateProgress({
+          percent,
           mode: 'token',
           tokenMint,
           totalHoldersRequested: walletAddresses.length,
@@ -881,6 +896,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         const metadata = holderMetadataByWallet.get(wallet);
         const childJob = await this.analysisQueueService.addHolderProfilesJob({
           mode: 'wallet',
+          userId: job.data.userId,
           walletAddress: wallet,
           requestId: `${requestId}-wallet-${wallet}`,
           _holderContext: {
@@ -1091,6 +1107,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(40);
 
     // Aggregate SwapAnalysisInput → AnalysisResult (PnL calculation)
+    // PnL analysis now fetches SOL price internally when not provided
     this.logger.debug(`Running PnL aggregation for ${walletAddress} [holder-profile mode]`);
     await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined);
     await job.updateProgress(50);
@@ -1281,7 +1298,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     // Query pre-computed PnL from AnalysisResult table (source of truth)
     let pnlMap: Map<string, { pnl: number; capital: number }> | undefined;
-    let currentHoldings: Array<{ tokenAddress: string; uiBalance: number | null; decimals: number | null }> = [];
+    let currentHoldings: Array<{ tokenAddress: string; uiBalance: number | null; decimals: number | null; valueSol?: number | null; valueUsd?: number | null }> = [];
     try {
       const pnlResults = await this.databaseService.getAnalysisResults({
         where: { walletAddress },
@@ -1303,6 +1320,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             tokenAddress: r.tokenAddress,
             uiBalance: r.currentUiBalance,
             decimals: typeof r.balanceDecimals === 'number' ? r.balanceDecimals : null,
+            valueSol: r.currentHoldingsValueSol,
+            valueUsd: r.currentHoldingsValueUsd,
           }));
         this.logger.debug(
           `Loaded PnL for ${pnlResults.length} tokens for wallet ${walletAddress}`
@@ -1343,9 +1362,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const percentValueInCurrentHoldings = typeof behaviorResult?.percentOfValueInCurrentHoldings === 'number'
         ? behaviorResult.percentOfValueInCurrentHoldings
         : null;
-      const currentHoldingsCount = typeof behaviorResult?.tokensWithOnlyBuys === 'number'
-        ? behaviorResult.tokensWithOnlyBuys
-        : null;
+      const HOLD_VALUE_THRESHOLD_SOL = 0.01;
+      const valueFilteredHoldings = currentHoldings.filter((holding) => {
+        if (typeof holding.valueSol === 'number') {
+          return holding.valueSol >= HOLD_VALUE_THRESHOLD_SOL;
+        }
+        return (holding.uiBalance ?? 0) > 0;
+      });
+      const rawHoldingsCount = currentHoldings.length;
+      const currentHoldingsCount = valueFilteredHoldings.length;
       const currentHoldMedianHours = hasCurrentHoldingsData
         ? (behaviorResult?.medianCurrentHoldingDurationHours ?? null)
         : null;
@@ -1427,6 +1452,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const totalTokensTraded = behaviorResult?.uniqueTokensTraded ?? 0;
       const exitedTokensCount = historicalPattern?.completedCycleCount ?? 0;
       const exitRate = totalTokensTraded > 0 ? (exitedTokensCount / totalTokensTraded) * 100 : 0;
+      const unresolvedTokensCount = Math.max(totalTokensTraded - exitedTokensCount - (currentHoldingsCount ?? 0), 0);
 
       // Determine data quality tier
       const dataQualityTier = hasEnoughExitedData
@@ -1436,6 +1462,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           )
         : 'BRONZE' as const; // Current holdings data = lower quality
 
+      // Fallback classification for holders with no exits
+      const behaviorType =
+        historicalPattern?.behaviorType ??
+        ((currentHoldingsCount ?? 0) > 0 ? 'HOLDER' : null);
+
       return {
         walletAddress,
         rank,
@@ -1444,7 +1475,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         avgHoldTimeHours,
         dailyFlipRatio: flipRatioResult.ratio,
         dailyFlipRatioConfidence: flipRatioResult.confidence,
-        behaviorType: historicalPattern?.behaviorType ?? null,
+        behaviorType,
         exitPattern: historicalPattern?.exitPattern ?? null,
         dataQualityTier,
         completedCycleCount: exitedTokensCount,
@@ -1463,7 +1494,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         currentHoldAverageHours,
         percentValueInCurrentHoldings,
         currentHoldingsCount,
-        currentHoldings,
+        currentHoldings: valueFilteredHoldings,
+        unresolvedTokensCount,
+        activeHoldingsFilteredOut: Math.max(rawHoldingsCount - (currentHoldingsCount ?? 0), 0),
+        heldValueThresholdSol: HOLD_VALUE_THRESHOLD_SOL,
         oldestTransactionTimestamp,
         newestTransactionTimestamp,
       };

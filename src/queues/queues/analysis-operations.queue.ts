@@ -1,15 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalyzeHolderProfilesJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { buildHolderProfilesJobId } from '../utils/holder-profiles-job-id';
+import { REDIS_CLIENT } from '../config/redis.provider';
+import { Redis } from 'ioredis';
 
 @Injectable()
 export class AnalysisOperationsQueue {
   private readonly queue: Queue;
 
-  constructor() {
+  constructor(@Inject(REDIS_CLIENT) private readonly redisClient: Redis) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     this.queue = new Queue(QueueNames.ANALYSIS_OPERATIONS, config.queueOptions);
   }
@@ -46,11 +48,20 @@ export class AnalysisOperationsQueue {
   async addDashboardWalletAnalysisJob(data: DashboardWalletAnalysisJobData, options?: { priority?: number; delay?: number }) {
     const jobId = generateJobId.dashboardWalletAnalysis(data.walletAddress, data.requestId);
 
-    return this.queue.add('dashboard-wallet-analysis', data, {
+    const job = await this.queue.add('dashboard-wallet-analysis', data, {
       jobId,
       priority: options?.priority || 10, // High priority for user-initiated requests
       delay: options?.delay || 0,
     });
+
+    // Map jobId -> userId for room-based websocket routing (TTL 24h)
+    // This is the single place we persist routing metadata; processors stay unaware of sockets.
+    if (data.userId) {
+      const key = `job:user:${jobId}`;
+      await this.redisClient.set(key, data.userId, 'EX', 24 * 60 * 60);
+    }
+
+    return job;
   }
 
   /**
@@ -59,11 +70,19 @@ export class AnalysisOperationsQueue {
   async addHolderProfilesJob(data: AnalyzeHolderProfilesJobData, options?: { priority?: number; delay?: number }) {
     const jobId = buildHolderProfilesJobId(data);
 
-    return this.queue.add('analyze-holder-profiles', data, {
+    const job = await this.queue.add('analyze-holder-profiles', data, {
       jobId,
       priority: options?.priority || 5,
       delay: options?.delay || 0,
     });
+
+    // Persist routing metadata once per job
+    if (data.userId) {
+      const key = `job:user:${jobId}`;
+      await this.redisClient.set(key, data.userId, 'EX', 24 * 60 * 60);
+    }
+
+    return job;
   }
 
   /**

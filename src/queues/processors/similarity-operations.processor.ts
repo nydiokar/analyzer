@@ -13,7 +13,6 @@ import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
 import { BehaviorService } from '../../api/services/behavior.service';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
-import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { generateJobId } from '../utils/job-id-generator';
 import { WalletBalance } from '../../types/wallet';
 import { Wallet } from '@prisma/client';
@@ -42,7 +41,6 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     private readonly behaviorService: BehaviorService,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly balanceCacheService: BalanceCacheService,
-    private readonly websocketGateway: JobProgressGateway,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {
     // Note: In a proper NestJS setup, WalletBalanceService would be injected via constructor
@@ -111,7 +109,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     try {
       this.logger.log(`Starting ADVANCED similarity analysis for ${walletAddresses.length} wallets.`);
       await job.updateProgress(5);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
+      // Publish progress via bridge (centralized userId extraction)
+      // BullMQ handles progress - bridge picks it up automatically
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
       // 🏷️ UNIFIED SYSTEM WALLET HANDLING: Handle both pre-tagged and dynamic detection
@@ -183,8 +182,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       
       // Log progress but don't block
       await job.updateProgress(10);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 10);
-
+      // BullMQ handles progress - bridge picks it up automatically
+      
       // ⚡ STEP 2: WAIT FOR BOTH TO COMPLETE
       this.logger.log('⏳ Waiting for BOTH sync and balance fetch to complete...');
       const [syncResult, balanceResult] = await Promise.allSettled([syncPromise, balancePromise]);
@@ -241,6 +240,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
             walletBalances: validWalletBalances,
             requestId,
+            userId: job.data.userId,
           });
           this.logger.log(`Background enrichment job queued: ${enrichmentJob?.id} for request: ${requestId}.`);
           // DON'T wait for enrichment - keep it truly parallel!
@@ -252,7 +252,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       }
 
       await job.updateProgress(60);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60);
+      // BullMQ handles progress - bridge picks it up automatically
       this.checkTimeout(startTime, timeoutMs, 'Parallel operations completed');
 
       // STEP 3.5: Use only valid wallets that have balances for similarity calculation
@@ -292,23 +292,21 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         },
         balancesMap,
       );
-      
+
       await job.updateProgress(90);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
+      // BullMQ handles progress - bridge picks it up automatically
       this.checkTimeout(startTime, timeoutMs, 'Final analysis');
 
       // STEP 5: PREPARE RESULTS (The result from the service is now complete)
       this.logger.log('Similarity analysis completed successfully.');
 
       await job.updateProgress(100);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
+      // BullMQ handles progress - bridge picks it up automatically
       this.checkTimeout(startTime, timeoutMs, 'Final result preparation');
 
       const result: SimilarityFlowResult = {
         success: true,
-        data: {
-          resultKey: this.buildResultKey(requestId),
-        },
+        data: similarityResult, // Return the actual data, not just a resultKey
         requestId: requestId,
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime,
@@ -419,7 +417,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           currentProgress += progressStep;
           const progress = Math.floor(currentProgress);
           await job.updateProgress(progress);
-          await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
+          // BullMQ handles progress - bridge picks it up automatically
 
           return { walletAddress, status: 'completed' };
 

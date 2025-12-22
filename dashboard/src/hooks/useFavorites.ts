@@ -1,13 +1,10 @@
 import { fetcher } from '@/lib/fetcher';
-import { useApiKeyStore } from '@/store/api-key-store';
 import useSWR from 'swr';
 import { FavoriteWallet } from '@/types/api';
 import { createCacheKey } from '@/lib/swr-config';
 
 export function useFavorites() {
-  const { apiKey, isInitialized } = useApiKeyStore();
-
-  const swrKey = isInitialized && apiKey ? createCacheKey.favorites() : null;
+  const swrKey = createCacheKey.favorites();
 
   const { data: favorites, error, mutate } = useSWR<FavoriteWallet[]>(
     swrKey,

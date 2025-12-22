@@ -50,20 +50,35 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     // Try cache first
     const cached = await this.redis.get(cacheKey);
     if (cached) {
-      const price = parseFloat(cached);
-      this.logger.debug(`[SOL Price] Cache hit: $${price}`);
-      return price;
+      return parseFloat(cached);
     }
 
     // Cache miss - fetch from provider
-    this.logger.log('[SOL Price] Cache miss, fetching from provider');
-    const price = await this.priceProvider.fetchSolPrice();
+    let price: number;
+    try {
+      price = await this.priceProvider.fetchSolPrice();
+    } catch (err) {
+      this.logger.error(`[SOL Price] Provider fetch failed`, err);
+      throw err;
+    }
     
     // Cache with 30-second TTL
     await this.redis.set(cacheKey, price.toString(), 'EX', 30);
     this.logger.log(`[SOL Price] Fetched and cached: $${price} (TTL: 30s)`);
     
     return price;
+  }
+
+  /**
+   * Get SOL price from cache only (no network call).
+   * Returns null if not cached or parse fails.
+   */
+  async getCachedSolPrice(): Promise<number | null> {
+    const cacheKey = 'sol_price_usd';
+    const cached = await this.redis.get(cacheKey);
+    if (!cached) return null;
+    const price = parseFloat(cached);
+    return Number.isFinite(price) && price > 0 ? price : null;
   }
 
   /**
@@ -259,7 +274,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
 
         if (onchainMetadata.length > 0) {
           await this.saveOnchainBasicMetadata(onchainMetadata);
-          this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
+          // this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
         }
       } catch (error) {
         this.logger.error('Stage 1 (DAS) failed:', error);

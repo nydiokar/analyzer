@@ -1,8 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { ComprehensiveSimilarityFlowData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
+import { REDIS_CLIENT } from '../config/redis.provider';
+import { Redis } from 'ioredis';
 
 @Injectable()
 export class SimilarityOperationsQueue {
@@ -10,7 +12,7 @@ export class SimilarityOperationsQueue {
   private readonly logger = new Logger(SimilarityOperationsQueue.name);
   private readonly PAYLOAD_WARN_BYTES = 5 * 1024 * 1024; // 5MB
 
-  constructor() {
+  constructor(@Inject(REDIS_CLIENT) private readonly redisClient: Redis) {
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
     this.queue = new Queue(QueueNames.SIMILARITY_OPERATIONS, config.queueOptions);
   }
@@ -24,14 +26,22 @@ export class SimilarityOperationsQueue {
     if (payloadSize > this.PAYLOAD_WARN_BYTES) {
       this.logger.warn(`Similarity job payload is large (${(payloadSize / 1024 / 1024).toFixed(2)} MB) for request ${data.requestId}`);
     }
-    
-    return this.queue.add('similarity-analysis-flow', data, {
+
+    const job = await this.queue.add('similarity-analysis-flow', data, {
       jobId,
       priority: options?.priority || 5,
       delay: options?.delay || 0,
       removeOnComplete: { count: 3, age: 600 }, // keep a tiny window to avoid Redis bloat from large payloads
       removeOnFail: 20,
     });
+
+    if (data.userId) {
+      const key = `job:user:${jobId}`;
+      // Persist routing metadata once per job (24h TTL); processors remain transport-agnostic.
+      await this.redisClient.set(key, data.userId, 'EX', 24 * 60 * 60);
+    }
+
+    return job;
   }
 
   /**

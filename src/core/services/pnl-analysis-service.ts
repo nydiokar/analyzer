@@ -83,7 +83,16 @@ export class PnlAnalysisService {
         timeRange?: { startTs?: number; endTs?: number },
         options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean, solPriceUsd?: number }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
-        logger.debug(`[PnlAnalysis] Starting analysis for wallet ${walletAddress}`, { timeRange, options });
+        let estimatedSolPriceUsd = options?.solPriceUsd || 0;
+        if ((!estimatedSolPriceUsd || estimatedSolPriceUsd <= 0) && this.tokenInfoService) {
+            try {
+                estimatedSolPriceUsd = await this.tokenInfoService.getSolPrice();
+            } catch (err) {
+                logger.warn(`[PnlAnalysis] Failed to fetch SOL price internally: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
+
+        // logger.warn(`[PnlAnalysis] Starting analysis for wallet ${walletAddress} with solPriceUsd=${estimatedSolPriceUsd || 'null/undefined'}`, { timeRange });
 
         let runId: number | undefined = undefined;
         let analysisRunStatus: 'COMPLETED' | 'FAILED' | 'IN_PROGRESS' = 'IN_PROGRESS';
@@ -272,6 +281,7 @@ export class PnlAnalysisService {
             }
             
             // Calculate unrealized PNL for current holdings using stored balance data
+            const holdingValueByMint = new Map<string, { valueSol: number; valueUsd: number }>();
             if (currentWalletBalance && currentWalletBalance.tokenBalances.length > 0) {
                 try {
                     // Get token info for price data
@@ -283,7 +293,16 @@ export class PnlAnalysisService {
                     }
                     
                     // Get SOL price for USD conversion
-                    let estimatedSolPriceUsd = options?.solPriceUsd || 0;
+        let estimatedSolPriceUsd = options?.solPriceUsd || 0;
+        // Fallback: fetch SOL price if not provided or zero
+        if ((!estimatedSolPriceUsd || estimatedSolPriceUsd <= 0) && this.tokenInfoService) {
+            try {
+                estimatedSolPriceUsd = await this.tokenInfoService.getSolPrice();
+                // logger.warn(`[PnlAnalysis] Fetched SOL price internally: $${estimatedSolPriceUsd} for ${walletAddress}`);
+            } catch (err) {
+                logger.warn(`[PnlAnalysis] Failed to fetch SOL price internally: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
                     if (estimatedSolPriceUsd <= 0) {
                         logger.warn(`[PnlAnalysis] Cannot calculate unrealized PNL without proper SOL price. Skipping unrealized PNL calculation.`);
                     } else {
@@ -291,63 +310,60 @@ export class PnlAnalysisService {
                     }
                     
                     // Only calculate unrealized PNL if we have proper SOL price
-                    if (estimatedSolPriceUsd > 0) {
-                        for (const tokenBalance of currentWalletBalance.tokenBalances) {
-                            const currentUiBalance = tokenBalance.uiBalance || 0;
-                            if (currentUiBalance > 0) {
-                                const tokenInfo = tokenInfoMap.get(tokenBalance.mint);
-                                const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
-                                
-                                if (priceUsd && priceUsd > 0) {
-                                    // Calculate current value in SOL (USD / SOL_price)
-                                    const currentHoldingsValueUsd = currentUiBalance * priceUsd;
-                                    const currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
-                                    
-                                    // ✅ FILTER UNREALISTIC SOL VALUES
-                                    // Skip tokens with unrealistic SOL values (likely DexScreener pricing errors)
-                                    const maxReasonableSolValue = 10000; // Max 10k SOL value for any single token holding
-                                    const maxReasonablePriceRatio = 1000; // Token price shouldn't be more than 1000x SOL price
-                                    
-                                    if (currentHoldingsValueSol > maxReasonableSolValue) {
-                                        logger.warn(`[PnlAnalysis] Skipping unrealistic token ${tokenBalance.mint}: ${currentHoldingsValueSol.toFixed(2)} SOL value (${currentUiBalance.toLocaleString()} tokens @ $${priceUsd})`);
-                                        continue;
-                                    }
-                                    
-                                    if (priceUsd > estimatedSolPriceUsd * maxReasonablePriceRatio) {
-                                        logger.warn(`[PnlAnalysis] Skipping token with suspicious price ${tokenBalance.mint}: $${priceUsd} vs SOL $${estimatedSolPriceUsd}`);
-                                        continue;
-                                    }
-                                    
-                                    // ✅ USE CENTRALIZED EXCLUDED MINTS LIST
-                                    // This includes stablecoins, liquid staking tokens, and problematic tokens
-                                    if (DEFAULT_EXCLUDED_MINTS.includes(tokenBalance.mint)) {
-                                        logger.debug(`[PnlAnalysis] Skipping excluded token ${tokenBalance.mint} from unrealized PnL calculation (configured in DEFAULT_EXCLUDED_MINTS)`);
-                                        continue;
-                                    }
-                                    
-                                    // Find the corresponding analysis result for cost basis
-                                    const analysisResult = enrichedSwapAnalysisResults.find(r => r.tokenAddress === tokenBalance.mint);
-                                    if (analysisResult) {
-                                        const totalSolSpent = analysisResult.totalSolSpent || 0;
-                                        const totalAmountIn = analysisResult.totalAmountIn || 0;
-                                        const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
-                                        const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
-                                        
-                                        // Unrealized P&L: Current value vs cost basis of remaining holdings (both in SOL)
-                                        const unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
-                                        
-                                        // ✅ ADDITIONAL SANITY CHECK: Don't add unrealistic unrealized PnL
-                                        if (Math.abs(unrealizedPnlSol) < 10000) { // Max 10k SOL unrealized PnL per token
-                                            unrealizedPnl += unrealizedPnlSol;
-                                        } else {
-                                            logger.warn(`[PnlAnalysis] Skipping unrealistic unrealized PnL for ${tokenBalance.mint}: ${unrealizedPnlSol.toFixed(2)} SOL`);
-                                        }
+                    for (const tokenBalance of currentWalletBalance.tokenBalances) {
+                        const currentUiBalance = tokenBalance.uiBalance || 0;
+                        if (currentUiBalance <= 0) continue;
+
+                        const tokenInfo = tokenInfoMap.get(tokenBalance.mint);
+                        const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
+                        
+                        if (priceUsd && priceUsd > 0) {
+                            const currentHoldingsValueUsd = currentUiBalance * priceUsd;
+                            let currentHoldingsValueSol: number | null = null;
+
+                            if (estimatedSolPriceUsd > 0) {
+                                const candidateSolValue = currentHoldingsValueUsd / estimatedSolPriceUsd;
+                                // ✅ FILTER UNREALISTIC SOL VALUES
+                                const maxReasonableSolValue = 10000; // Max 10k SOL value for any single token holding
+                                const maxReasonablePriceRatio = 1000; // Token price shouldn't be more than 1000x SOL price
+
+                                if (candidateSolValue > maxReasonableSolValue) {
+                                    logger.warn(`[PnlAnalysis] Skipping unrealistic token ${tokenBalance.mint}: ${candidateSolValue.toFixed(2)} SOL value (${currentUiBalance.toLocaleString()} tokens @ $${priceUsd})`);
+                                } else if (priceUsd > estimatedSolPriceUsd * maxReasonablePriceRatio) {
+                                    logger.warn(`[PnlAnalysis] Skipping token with suspicious price ${tokenBalance.mint}: $${priceUsd} vs SOL $${estimatedSolPriceUsd}`);
+                                } else if (!DEFAULT_EXCLUDED_MINTS.includes(tokenBalance.mint)) {
+                                    currentHoldingsValueSol = candidateSolValue;
+                                }
+                            }
+
+                            if (!DEFAULT_EXCLUDED_MINTS.includes(tokenBalance.mint)) {
+                                holdingValueByMint.set(tokenBalance.mint, {
+                                    valueSol: currentHoldingsValueSol ?? 0,
+                                    valueUsd: currentHoldingsValueUsd,
+                                });
+                            }
+
+                            // Unrealized PNL only when SOL price is valid and we have cost basis
+                            if (currentHoldingsValueSol !== null && estimatedSolPriceUsd > 0) {
+                                const analysisResult = enrichedSwapAnalysisResults.find(r => r.tokenAddress === tokenBalance.mint);
+                                if (analysisResult) {
+                                    const totalSolSpent = analysisResult.totalSolSpent || 0;
+                                    const totalAmountIn = analysisResult.totalAmountIn || 0;
+                                    const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
+                                    const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
+                                    const unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
+
+                                    if (Math.abs(unrealizedPnlSol) < 10000) {
+                                        unrealizedPnl += unrealizedPnlSol;
+                                    } else {
+                                        logger.warn(`[PnlAnalysis] Skipping unrealistic unrealized PnL for ${tokenBalance.mint}: ${unrealizedPnlSol.toFixed(2)} SOL`);
                                     }
                                 }
                             }
                         }
-                    } else {
-                        logger.warn(`[PnlAnalysis] Skipping unrealized PNL calculation due to missing SOL price data`);
+                    }
+                    if (estimatedSolPriceUsd <= 0) {
+                        logger.warn(`[PnlAnalysis] Skipping SOL-denominated unrealized PNL calculation due to missing SOL price; USD values still captured for holdings.`);
                     }
                     
                     logger.debug(`[PnlAnalysis] Calculated unrealized PNL for ${walletAddress}: ${unrealizedPnl} SOL`);
@@ -501,6 +517,8 @@ export class PnlAnalysisService {
                     currentUiBalance: r.currentUiBalance,
                     currentUiBalanceString: r.currentUiBalanceString,
                     balanceDecimals: r.balanceDecimals,
+                    currentHoldingsValueSol: holdingValueByMint.get(r.tokenAddress)?.valueSol ?? null,
+                    currentHoldingsValueUsd: holdingValueByMint.get(r.tokenAddress)?.valueUsd ?? null,
                     balanceFetchedAt: r.balanceFetchedAt,
                 }));
 

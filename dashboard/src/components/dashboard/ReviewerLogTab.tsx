@@ -60,7 +60,7 @@ export interface ReviewerLogTabProps {
 
 export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
   const { toast } = useToast();
-  const { apiKey, isInitialized, isDemo } = useApiKeyStore();
+  const { isDemo } = useApiKeyStore();
   const [newNoteContent, setNewNoteContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showInputArea, setShowInputArea] = useState(false);
@@ -71,7 +71,7 @@ export default function ReviewerLogTab({ walletAddress }: ReviewerLogTabProps) {
 
   const notesApiUrl = walletAddress ? `/wallets/${walletAddress}/notes` : null;
 
-  const swrKey = (notesApiUrl && isInitialized && apiKey) ? [notesApiUrl, apiKey] : null;
+  const swrKey = notesApiUrl ? [notesApiUrl] : null;
 
   const { data: notes, error: notesError, isLoading: isLoadingNotes, mutate: mutateNotes } = useSWR<WalletNote[], Error & { status?: number; payload?: any }>(swrKey, ([url]) => fetcher(url), {
     // Remove auto-polling to prevent unnecessary API calls when tab is not active

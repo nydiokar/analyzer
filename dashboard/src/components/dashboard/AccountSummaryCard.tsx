@@ -1,21 +1,24 @@
 "use client";
 
-import React from 'react';
-import { Card, Metric, Text, Flex, Badge } from '@tremor/react';
-import { WalletSummaryData } from '@/types/api';
-import { cn } from '@/lib/utils';
-import { AlertTriangle, CalendarDays, Landmark, SearchX, ShieldAlert } from 'lucide-react';
-import { format } from 'date-fns';
+import React, { useMemo } from "react";
+import { AlertTriangle, CalendarDays, SearchX, ShieldAlert } from "lucide-react";
+import { format } from "date-fns";
+
+import { Metric } from "@/components/ui/metric";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import EmptyState from "@/components/shared/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { WalletSummaryData } from "@/types/api";
+import { useApiKeyStore } from "@/store/api-key-store";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
-import EmptyState from '@/components/shared/EmptyState';
-import { Skeleton } from "@/components/ui/skeleton";
-import { useApiKeyStore } from '@/store/api-key-store';
-import { Button } from '@/components/ui/button';
+} from "@/components/ui/tooltip";
 
 interface AccountSummaryCardProps {
   walletAddress: string;
@@ -33,7 +36,7 @@ const formatUsdValue = (value: number | null | undefined): string => {
   if (value === null || value === undefined) return 'N/A';
   
   const absValue = Math.abs(value);
-  const sign = value >= 0 ? '+' : '';
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
   
   if (absValue >= 1_000_000_000) {
     // Billions
@@ -55,51 +58,56 @@ export default function AccountSummaryCard({
   className,
   triggerAnalysis,
   isAnalyzingGlobal,
-  // NEW: Destructure the data props
   walletSummary: data,
   summaryError: error,
-  summaryIsLoading: isLoading
+  summaryIsLoading: isLoading,
 }: AccountSummaryCardProps) {
   const { isDemo } = useApiKeyStore();
+  const pnlVariant = useMemo(() => {
+    if (data?.latestPnl === null || data?.latestPnl === undefined) return "default" as const;
+    return data.latestPnl >= 0 ? "success" : "error";
+  }, [data?.latestPnl]);
 
-
+  // Get behavioral classification description
+  const getClassificationDescription = (classification: string): string => {
+    const descriptions: Record<string, string> = {
+      'swing_trader': 'Holds positions for days to weeks, capitalizing on medium-term price movements',
+      'day_trader': 'Opens and closes positions within the same day, avoiding overnight exposure',
+      'scalper': 'Makes numerous quick trades for small profits, holding positions for minutes',
+      'holder': 'Long-term investor who holds positions for extended periods',
+      'high_frequency': 'Executes large volumes of trades at very high speeds (likely bot activity)',
+      'momentum_trader': 'Follows strong price trends and rides market momentum',
+      'contrarian': 'Takes positions against prevailing market trends',
+      'passive': 'Minimal trading activity, buy-and-hold strategy',
+    };
+    return descriptions[classification.toLowerCase()] || 'Trading behavior pattern identified by analysis';
+  };
 
   if (!walletAddress) {
     return (
-      <Card className={cn("w-full md:w-auto md:min-w-[300px]", className)}>
-        <Flex alignItems="center" justifyContent="center" className="h-full">
-            <Text>Please select a wallet.</Text>
-        </Flex>
+      <Card className={cn("w-full md:w-auto p-4 rounded-xl shadow-base", className)}>
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          Please select a wallet.
+        </div>
       </Card>
     );
   }
 
   if (isLoading) {
     return (
-      <Card className={cn("p-3 shadow-sm w-full max-w-sm", className)}>
+      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
         <div className="space-y-3">
-          {/* Main metrics skeleton - match the actual layout */}
           <div className="grid grid-cols-3 gap-2">
-            <div className="flex flex-col items-center text-center">
-              <Skeleton className="h-3 w-8 mb-1" />
-              <Skeleton className="h-5 w-16" />
-            </div>
-            <div className="flex flex-col items-center text-center">
-              <Skeleton className="h-3 w-12 mb-1" />
-              <Skeleton className="h-5 w-12" />
-            </div>
-            <div className="flex flex-col items-center text-center">
-              <Skeleton className="h-3 w-10 mb-1" />
-              <Skeleton className="h-5 w-12" />
-            </div>
+            {[...Array(3)].map((_, idx) => (
+              <div key={idx} className="space-y-1 text-center">
+                <Skeleton className="h-3 w-16 mx-auto" />
+                <Skeleton className="h-5 w-20 mx-auto" />
+                <Skeleton className="h-3 w-14 mx-auto" />
+              </div>
+            ))}
           </div>
-
-          {/* Additional info skeleton */}
           <div className="pt-2 border-t border-muted/50">
-            <div className="flex items-center justify-between">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-4 w-16" />
-            </div>
+            <Skeleton className="h-3.5 w-32" />
           </div>
         </div>
       </Card>
@@ -122,23 +130,25 @@ export default function AccountSummaryCard({
     }
     
     return (
-      <div className={cn("flex items-center justify-between p-4 border bg-card rounded-lg shadow-sm w-full", className)}>
-        <div className="flex items-center gap-4">
-          <Icon className="h-8 w-8 text-blue-500" strokeWidth={1.5} />
-          <div>
-            <h3 className="font-semibold text-foreground">{title}</h3>
-            <p className="text-sm text-muted-foreground">{description}</p>
+      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <Icon className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+              <p className="text-sm text-muted-foreground">{description}</p>
+            </div>
           </div>
+          {error.statusCode === 404 && (
+            <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
+              {isAnalyzingGlobal ? "Analysis in Progress..." : "Analyze Wallet"}
+            </Button>
+          )}
         </div>
-        {error.statusCode === 404 && (
-          <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
-            {isAnalyzingGlobal ? 'Analysis in Progress...' : 'Analyze Wallet'}
-          </Button>
-        )}
-      </div>
+      </Card>
     );
   }
-  
+
   if (data?.status === 'restricted') {
     return (
       <div className={cn("p-4", className)}>
@@ -154,18 +164,20 @@ export default function AccountSummaryCard({
 
   if (data?.status === 'unanalyzed' || !data) {
     return (
-      <div className={cn("flex items-center justify-between p-4 border bg-card rounded-lg shadow-sm w-full", className)}>
-        <div className="flex items-center gap-4">
-          <SearchX className="h-8 w-8 text-blue-500" strokeWidth={1.5} />
-          <div>
-            <h3 className="font-semibold text-foreground">Not Yet Analyzed</h3>
-            <p className="text-sm text-muted-foreground">Trigger an analysis to get started.</p>
+      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <SearchX className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Not Yet Analyzed</h3>
+              <p className="text-sm text-muted-foreground">Trigger an analysis to get started.</p>
+            </div>
           </div>
+          <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
+            {isAnalyzingGlobal ? "Analysis in Progress..." : "Analyze Wallet"}
+          </Button>
         </div>
-        <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
-          {isAnalyzingGlobal ? 'Analysis in Progress...' : 'Analyze Wallet'}
-        </Button>
-      </div>
+      </Card>
     );
   }
 
@@ -185,77 +197,133 @@ export default function AccountSummaryCard({
 
   const formatPnl = (pnl: number | null) => {
     if (pnl === null || pnl === undefined) return 'N/A';
-    return `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} SOL`;
+    return `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}`;
   };
   
-   const formatWinRate = (rate: number | null) => {
+  const formatWinRate = (rate: number | null) => {
     if (rate === null || rate === undefined) return 'N/A';
     return `${rate.toFixed(1)}%`;
   };
 
+  const hasBalance = data.currentSolBalance !== undefined;
+
   return (
-    <Card className={cn("p-3 shadow-sm w-full max-w-sm", className)}>
-      <div className="space-y-2">
-        {/* Main metrics in a horizontal layout */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="flex flex-col items-center text-center">
-            <Text className="text-xs text-muted-foreground">PNL</Text>
-            <Metric color={(data.latestPnl ?? 0) >= 0 ? 'emerald' : 'red'} className="text-sm">
-              {formatPnl(data.latestPnl ?? null)}
-            </Metric>
+    <Card
+      className={cn(
+        "p-2 sm:p-3 rounded-xl shadow-base hover:shadow-hover transition-shadow w-full md:w-auto",
+        className
+      )}
+    >
+      <div className="space-y-2.5">
+        <div
+          className={cn(
+            "grid gap-2 items-center",
+            hasBalance ? "grid-cols-3" : "grid-cols-2"
+          )}
+        >
+          <div className="text-center space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
+              Total PNL
+            </p>
+            <div className="text-sm font-bold">
+              <span className={cn(
+                pnlVariant === "success" ? "text-green-600 dark:text-green-400" :
+                pnlVariant === "error" ? "text-red-600 dark:text-red-400" :
+                "text-foreground"
+              )}>
+                {formatPnl(data.latestPnl ?? null)}
+              </span>
+              <span className="text-[10px] text-muted-foreground ml-1 font-normal">SOL</span>
+            </div>
             {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
-              <Text className="text-xs text-muted-foreground">
+              <p className="text-[10px] text-muted-foreground">
                 {formatUsdValue(data.latestPnlUsd)}
-              </Text>
+              </p>
             )}
           </div>
 
-          <div className="flex flex-col items-center text-center">
-            <Text className="text-xs text-muted-foreground">Win Rate</Text>
-            <Text className="text-sm font-semibold">{formatWinRate(data.tokenWinRate ?? null)}</Text>
-                        {data.profitableTradesCount !== null && data.profitableTradesCount !== undefined &&
-             data.totalTradesCount !== null && data.totalTradesCount !== undefined && data.totalTradesCount > 0 && (
-              <Text className="text-xs text-muted-foreground">
-                {data.profitableTradesCount}/{data.totalTradesCount} trades
-              </Text>
-            )}
+          <div className="text-center space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
+              Win Rate
+            </p>
+            <p className="text-sm font-bold">
+              {formatWinRate(data.tokenWinRate ?? null)}
+            </p>
+            {data.profitableTradesCount !== null &&
+              data.profitableTradesCount !== undefined &&
+              data.totalTradesCount !== null &&
+              data.totalTradesCount !== undefined &&
+              data.totalTradesCount > 0 && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <p className="text-[10px] text-muted-foreground cursor-help">
+                        {data.profitableTradesCount}/{data.totalTradesCount} trades
+                      </p>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Profitable trades / Total trades</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
           </div>
 
           {data.currentSolBalance !== undefined && (
-            <div className="flex flex-col items-center text-center">
-              <Text className="text-xs text-muted-foreground">Balance</Text>
-              <Text className="text-sm font-semibold">
-                {data.currentSolBalance?.toFixed(2) ?? 'N/A'} SOL
-              </Text>
+            <div className="text-center space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
+                Balance
+              </p>
+              <p className="text-sm font-bold">
+                {data.currentSolBalance?.toFixed(2) ?? "N/A"} <span className="text-[10px] text-muted-foreground font-normal">SOL</span>
+              </p>
               {data.currentSolBalanceUsd !== null && data.currentSolBalanceUsd !== undefined && (
-                <Text className="text-xs text-muted-foreground">
+                <p className="text-[10px] text-muted-foreground">
                   {formatUsdValue(data.currentSolBalanceUsd)}
-                </Text>
+                </p>
               )}
             </div>
           )}
         </div>
 
-        {/* Additional info with proper spacing */}
         <div className="pt-2 border-t border-muted/50">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <CalendarDays className="h-3.5 w-3.5" />
-              <span>
-                {data.lastActiveTimestamp
-                  ? format(new Date(data.lastActiveTimestamp * 1000), 'MMM d, yyyy')
-                  : 'N/A'}
-              </span>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1.5 cursor-help">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    <span>
+                      {data.lastActiveTimestamp
+                        ? format(new Date(data.lastActiveTimestamp * 1000), "MMM d, yyyy")
+                        : "N/A"}
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Latest Activity Date</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
             {data.behaviorClassification && (
-              <Badge color="sky" size="xs">
-                {data.behaviorClassification}
-              </Badge>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="uppercase tracking-wide text-[10px] py-0.5 px-2 cursor-help">
+                      {data.behaviorClassification}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="font-semibold mb-1">{data.behaviorClassification.replace(/_/g, ' ').toUpperCase()}</p>
+                    <p className="text-xs">{getClassificationDescription(data.behaviorClassification)}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
           </div>
         </div>
       </div>
     </Card>
   );
-} 
+}

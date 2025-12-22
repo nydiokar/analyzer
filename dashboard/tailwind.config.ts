@@ -2,13 +2,18 @@ import type { Config } from "tailwindcss";
 
 export default {
     darkMode: ["class"],
-    content: [
-    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  		content: [
+   	"./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+   	"./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+   	"./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
   	extend: {
+  		boxShadow: {
+  			base: "0 1px 3px 0 rgb(0 0 0 / 0.1)",
+  			hover: "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+  			active: "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+  		},
   		colors: {
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
@@ -52,9 +57,11 @@ export default {
   			}
   		},
   		borderRadius: {
-  			lg: 'var(--radius)',
-  			md: 'calc(var(--radius) - 2px)',
-  			sm: 'calc(var(--radius) - 4px)'
+  			lg: "0.75rem",
+  			xl: "1rem",
+  			"2xl": "1.5rem",
+  			md: "calc(0.75rem - 2px)",
+  			sm: "calc(0.75rem - 4px)",
   		},
   		keyframes: {
   			'accordion-down': {

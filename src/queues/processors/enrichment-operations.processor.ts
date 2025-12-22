@@ -5,9 +5,6 @@ import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult } from '../jobs/t
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { TokenInfoService } from '../../api/services/token-info.service';
-import { DexscreenerService } from '../../api/services/dexscreener.service';
-import { BalanceCacheService } from '../../api/services/balance-cache.service';
-import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import { Redis } from 'ioredis';
 
@@ -18,10 +15,8 @@ export class EnrichmentOperationsProcessor {
 
     constructor(
     private readonly redisLockService: RedisLockService,
-        private readonly tokenInfoService: TokenInfoService,
-    private readonly dexscreenerService: DexscreenerService,
-    private readonly balanceCacheService: BalanceCacheService,
-        private readonly websocketGateway: JobProgressGateway,
+    private readonly tokenInfoService: TokenInfoService, 
+
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {
     const config = QueueConfigs[QueueNames.ENRICHMENT_OPERATIONS];
@@ -79,9 +74,9 @@ export class EnrichmentOperationsProcessor {
       
       // Use the existing sophisticated enrichment logic
       const { enrichedBalances, summary } = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
-      
+
+      // BullMQ handles progress - bridge picks it up automatically
       await job.updateProgress(100);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
 
       // If no new tokens were actually fetched, we can short-circuit the expensive cache write.
       if (summary.newTokensFetched === 0) {
@@ -166,15 +161,14 @@ export class EnrichmentOperationsProcessor {
       }
 
       try {
+        // BullMQ handles progress - bridge picks it up automatically
         await job.updateProgress(5);
-        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
 
         // Use the sophisticated logic from enrichBalances method
         const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
 
         await job.updateProgress(100);
-        await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
-        
+
         // Format the result according to the new interface
         const result: EnrichTokenBalancesResult = {
           success: true,
@@ -341,9 +335,9 @@ export class EnrichmentOperationsProcessor {
       
       // Update progress
       const progress = Math.min(90, Math.floor((processedTokens / tokensToFetch.length) * 90));
+      // BullMQ handles progress - bridge picks it up automatically
       await job.updateProgress(progress);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
-      
+
       this.logger.log(`Enriched batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(tokensToFetch.length / batchSize)} (${processedTokens}/${tokensToFetch.length} tokens)`);
       
     } catch (error) {
@@ -361,11 +355,11 @@ export class EnrichmentOperationsProcessor {
   } else {
     this.logger.log('All tokens already have recent metadata, no API calls needed');
   }
+  // BullMQ handles progress - bridge picks it up automatically
   await job.updateProgress(90);
-  await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
 }
 
-    
+
     // STEP 4: Return enriched balances with metadata from database
     const finalTokenInfos = await this.tokenInfoService.findMany(meaningfulTokens);
     const finalTokenMap = new Map(finalTokenInfos.map(t => [t.tokenAddress, t]));

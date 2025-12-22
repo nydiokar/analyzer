@@ -10,6 +10,7 @@ import {
   EnrichmentCompletionData,
   JobQueueToStartData
 } from '@/types/websockets';
+import { useAuthStore } from '@/store/auth-store';
 import type { JobResult } from '@/types/websockets';
 
 // Define proper error types
@@ -168,6 +169,10 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   }, [callbacksRef]);
 
   useEffect(() => {
+    // Get user from auth store for room-based WebSocket subscription
+    const user = useAuthStore.getState().user;
+    const userId = user?.id;
+
     // Use the backend URL directly - no proxy needed
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'https://sova-intel.duckdns.org';
     const forceNewSocket = (process.env.NEXT_PUBLIC_SOCKET_FORCE_NEW === 'true');
@@ -191,6 +196,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       timeout: 20000, // 20 second timeout
       forceNew: forceNewSocket, // Allow forcing a fresh Manager via env flag when debugging sticky sessions
       query,
+      auth: {
+        userId // Pass userId for user-scoped room join
+      },
     });
 
     const handleConnect = () => {

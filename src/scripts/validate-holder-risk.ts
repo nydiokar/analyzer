@@ -194,7 +194,7 @@ async function validateWallet(walletAddress: string) {
       console.log('  VERY LOW risk of immediate exit');
     }
 
-    if (pattern.exitPattern === 'ALL_AT_ONCE') {
+    if (pattern.exitPattern === 'ALL AT ONCE') {
       console.log('  Exit pattern: Tends to exit positions in 1-2 large sells');
     } else {
       console.log('  Exit pattern: Tends to exit gradually over multiple sells');

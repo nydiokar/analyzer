@@ -3,6 +3,7 @@ import { BehavioralMetrics, ActiveTradingPeriods, IdentifiedTradingWindow, Walle
 import { SwapAnalysisInput } from '@prisma/client';
 import { createLogger } from 'core/utils/logger';
 import { classifyHolderBehavior, classifyTradingSpeed } from './constants';
+import { BEHAVIOR_ANALYSIS_CONFIG } from '../../../config/constants';
 
 // List of common utility token mints to exclude from behavioral analysis
 const EXCLUDED_TOKEN_MINTS: string[] = [
@@ -205,8 +206,8 @@ export class BehaviorAnalyzer {
     );
 
     // Get config thresholds
-    const minCompletedCycles = this.config.historicalPatternConfig?.minimumCompletedCycles ?? 1;
-    const maxDataAgeDays = this.config.historicalPatternConfig?.maximumDataAgeDays ?? 10000;
+    const minCompletedCycles = this.config.historicalPatternConfig?.minimumCompletedCycles ?? BEHAVIOR_ANALYSIS_CONFIG.HISTORICAL_PATTERN.MINIMUM_COMPLETED_CYCLES;
+    const maxDataAgeDays = this.config.historicalPatternConfig?.maximumDataAgeDays ?? BEHAVIOR_ANALYSIS_CONFIG.HISTORICAL_PATTERN.MAXIMUM_DATA_AGE_DAYS;
     const maxDataAgeSeconds = maxDataAgeDays * 24 * 60 * 60;
 
     // Filter by data age if configured
@@ -228,8 +229,8 @@ export class BehaviorAnalyzer {
     // Additional quality check: Ensure we have meaningful hold times
     // Filter out any positions with hold times that seem corrupted (negative or impossibly long)
     // Allow times as low as 1 second (0.000278 hours) - important for bot detection!
-    const MIN_VALID_HOLD_HOURS = 0.0001; // ~0.36 seconds minimum (prevents true zero/corruption)
-    const MAX_VALID_HOLD_HOURS = 18760; // 1 year maximum
+    const MIN_VALID_HOLD_HOURS = BEHAVIOR_ANALYSIS_CONFIG.HISTORICAL_PATTERN.MIN_VALID_HOLD_HOURS;
+    const MAX_VALID_HOLD_HOURS = BEHAVIOR_ANALYSIS_CONFIG.HISTORICAL_PATTERN.MAX_VALID_HOLD_HOURS;
 
     let filteredOutCount = 0;
     const validLifecycles = filteredLifecycles.filter(lc => {
@@ -296,14 +297,14 @@ export class BehaviorAnalyzer {
 
     // Calculate hold time distribution for insights
     const distribution = {
-      instant: sortedDurations.filter(d => d < 0.0001).length,      // <0.36 seconds (same tx)
-      ultraFast: sortedDurations.filter(d => d >= 0.0001 && d < 1/60).length,  // <1min
-      fast: sortedDurations.filter(d => d >= 1/60 && d < 5/60).length,         // 1-5min
-      momentum: sortedDurations.filter(d => d >= 5/60 && d < 0.5).length,      // 5-30min
-      intraday: sortedDurations.filter(d => d >= 0.5 && d < 4).length,         // 30min-4h
-      day: sortedDurations.filter(d => d >= 4 && d < 24).length,               // 4-24h
-      swing: sortedDurations.filter(d => d >= 24 && d < 168).length,           // 1-7d
-      position: sortedDurations.filter(d => d >= 168).length,                  // 7+d
+      instant: sortedDurations.filter(d => d < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.INSTANT).length,
+      ultraFast: sortedDurations.filter(d => d >= BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.INSTANT && d < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.ULTRA_FAST).length,
+      fast: sortedDurations.filter(d => d >= BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.ULTRA_FAST && d < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.FAST).length,
+      momentum: sortedDurations.filter(d => d >= BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.FAST && d < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.MOMENTUM).length,
+      intraday: sortedDurations.filter(d => d >= BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.MOMENTUM && d < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.INTRADAY).length,
+      day: sortedDurations.filter(d => d >= BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.INTRADAY && d < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.DAY).length,
+      swing: sortedDurations.filter(d => d >= BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.DAY && d < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.SWING).length,
+      position: sortedDurations.filter(d => d >= BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.SWING).length,
     };
 
     // Build token mapping for drilldown (which tokens are in each bucket)
@@ -323,19 +324,19 @@ export class BehaviorAnalyzer {
       const tokenMedian = this.calculateMedian(tokenDurations);
 
       // Classify into bucket
-      if (tokenMedian < 0.0001) {
+      if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.INSTANT) {
         tokenMap.instant.push(mint);
-      } else if (tokenMedian < 1/60) {
+      } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.ULTRA_FAST) {
         tokenMap.ultraFast.push(mint);
-      } else if (tokenMedian < 5/60) {
+      } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.FAST) {
         tokenMap.fast.push(mint);
-      } else if (tokenMedian < 0.5) {
+      } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.MOMENTUM) {
         tokenMap.momentum.push(mint);
-      } else if (tokenMedian < 4) {
+      } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.INTRADAY) {
         tokenMap.intraday.push(mint);
-      } else if (tokenMedian < 24) {
+      } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.DAY) {
         tokenMap.day.push(mint);
-      } else if (tokenMedian < 168) {
+      } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.SWING) {
         tokenMap.swing.push(mint);
       } else {
         tokenMap.position.push(mint);
@@ -390,19 +391,19 @@ export class BehaviorAnalyzer {
 
         // Determine bucket (same logic as tokenMap)
         let bucket: keyof typeof enriched;
-        if (tokenMedian < 0.0001) {
+        if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.INSTANT) {
           bucket = 'instant';
-        } else if (tokenMedian < 1/60) {
+        } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.ULTRA_FAST) {
           bucket = 'ultraFast';
-        } else if (tokenMedian < 5/60) {
+        } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.FAST) {
           bucket = 'fast';
-        } else if (tokenMedian < 0.5) {
+        } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.MOMENTUM) {
           bucket = 'momentum';
-        } else if (tokenMedian < 4) {
+        } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.INTRADAY) {
           bucket = 'intraday';
-        } else if (tokenMedian < 24) {
+        } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.DAY) {
           bucket = 'day';
-        } else if (tokenMedian < 168) {
+        } else if (tokenMedian < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.SWING) {
           bucket = 'swing';
         } else {
           bucket = 'position';
@@ -456,7 +457,7 @@ export class BehaviorAnalyzer {
       return lc.sellCount;
     });
     const avgSellsPerToken = sellPatterns.reduce((sum, count) => sum + count, 0) / sellPatterns.length;
-    const exitPattern: 'GRADUAL' | 'ALL_AT_ONCE' = avgSellsPerToken > 2 ? 'GRADUAL' : 'ALL_AT_ONCE';
+    const exitPattern: 'GRADUAL' | 'ALL AT ONCE' = avgSellsPerToken > 2 ? 'GRADUAL' : 'ALL AT ONCE';
 
     // ✅ FIX: Use token count (not lifecycle count) for metrics
     const uniqueTokenCount = perTokenHoldTimes.length;
@@ -646,7 +647,7 @@ export class BehaviorAnalyzer {
       return { exited: false, exitTimestamp: null };
     }
 
-    const exitThreshold = this.config.holdingThresholds?.exitThreshold ?? 0.80;
+    const exitThreshold = this.config.holdingThresholds?.exitThreshold ?? BEHAVIOR_ANALYSIS_CONFIG.HOLDING_THRESHOLDS.EXIT_THRESHOLD;
     const exitThresholdAmount = peakPosition * exitThreshold;
 
     let currentPosition = 0;
@@ -775,7 +776,7 @@ export class BehaviorAnalyzer {
     currentTimestamp: number
   ): TokenPositionLifecycle[] {
     const lifecycles: TokenPositionLifecycle[] = [];
-    const exitThreshold = this.config.holdingThresholds?.exitThreshold ?? 0.20;
+    const exitThreshold = this.config.holdingThresholds?.exitThreshold ?? BEHAVIOR_ANALYSIS_CONFIG.HOLDING_THRESHOLDS.EXIT_THRESHOLD;
 
     for (const seq of sequences) {
       const sortedTrades = [...seq.trades].sort((a, b) => a.timestamp - b.timestamp);
@@ -881,7 +882,7 @@ export class BehaviorAnalyzer {
         // Determine behavior type
         let behaviorType: 'FULL_HOLDER' | 'PROFIT_TAKER' | 'MOSTLY_EXITED' | null = null;
         if (positionStatus === 'ACTIVE') {
-          if (percentOfPeakRemaining > 0.75) {
+          if (percentOfPeakRemaining > BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.FULL_HOLDER_THRESHOLD) {
             behaviorType = 'FULL_HOLDER';
           } else if (percentOfPeakRemaining > exitThreshold) {
             behaviorType = 'PROFIT_TAKER';
@@ -1208,10 +1209,10 @@ export class BehaviorAnalyzer {
       
       // Smart thresholds for what constitutes a "real" holding vs dust:
       const thresholds = this.config.holdingThresholds || {};
-      const isSignificantHolding = 
-        position.solValue >= (thresholds.minimumSolValue ?? 0.001) &&                           // Configurable minimum SOL value
-        remainingPercentage >= (thresholds.minimumPercentageRemaining ?? 0.05) &&               // Configurable minimum % of original
-        (currentTimestamp - position.timestamp) >= (thresholds.minimumHoldingTimeSeconds ?? 60); // Reduced from 300 to 60 seconds (1 minute)
+      const isSignificantHolding =
+        position.solValue >= (thresholds.minimumSolValue ?? BEHAVIOR_ANALYSIS_CONFIG.HOLDING_THRESHOLDS.MINIMUM_SOL_VALUE) &&
+        remainingPercentage >= (thresholds.minimumPercentageRemaining ?? BEHAVIOR_ANALYSIS_CONFIG.HOLDING_THRESHOLDS.MINIMUM_PERCENTAGE_REMAINING) &&
+        (currentTimestamp - position.timestamp) >= (thresholds.minimumHoldingTimeSeconds ?? BEHAVIOR_ANALYSIS_CONFIG.HOLDING_THRESHOLDS.MINIMUM_HOLDING_TIME_SECONDS);
       
       if (isSignificantHolding) {
         const holdingDurationSeconds = currentTimestamp - position.timestamp;
@@ -1268,13 +1269,13 @@ export class BehaviorAnalyzer {
 
     allDurations.forEach(hours => {
       sumDurations += hours;
-      if (hours < 0.5) distribution.ultraFast++;        // < 30 min
-      else if (hours < 1) distribution.veryFast++;    // 30-60 min
-      else if (hours < 4) distribution.fast++;        // 1-4h
-      else if (hours < 8) distribution.moderate++;    // 4-8h
-      else if (hours < 24) distribution.dayTrader++; // 8-24h
-      else if (hours < 168) distribution.swing++;   // 1-7d (24*7)
-      else distribution.position++;                      // > 7d
+      if (hours < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.MOMENTUM) distribution.ultraFast++;
+      else if (hours < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.MODERATE) distribution.veryFast++;
+      else if (hours < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.INTRADAY) distribution.fast++;
+      else if (hours < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.DAY_TRADER) distribution.moderate++;
+      else if (hours < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.DAY) distribution.dayTrader++;
+      else if (hours < BEHAVIOR_ANALYSIS_CONFIG.TIME_BUCKETS.SWING) distribution.swing++;
+      else distribution.position++;
     });
 
     // Normalize distribution
@@ -1512,18 +1513,19 @@ export class BehaviorAnalyzer {
    */
   private calculateFlipperScore(metrics: BehavioralMetrics): number {
     const speedScore = (
-      metrics.tradingTimeDistribution.ultraFast * 0.85 +
-      metrics.tradingTimeDistribution.veryFast * 0.10 +
-      metrics.tradingTimeDistribution.fast * 0.05
+      metrics.tradingTimeDistribution.ultraFast * BEHAVIOR_ANALYSIS_CONFIG.FLIPPER_SCORE.ULTRA_FAST_WEIGHT +
+      metrics.tradingTimeDistribution.veryFast * BEHAVIOR_ANALYSIS_CONFIG.FLIPPER_SCORE.VERY_FAST_WEIGHT +
+      metrics.tradingTimeDistribution.fast * BEHAVIOR_ANALYSIS_CONFIG.FLIPPER_SCORE.FAST_WEIGHT
     );
     const balanceScore = (metrics.buySellSymmetry + metrics.sequenceConsistency) / 2;
-    
+
     // Give more weight to speed, especially ultra-fast
-    let score = (speedScore * 0.7) + (balanceScore * 0.3);
-    
+    let score = (speedScore * BEHAVIOR_ANALYSIS_CONFIG.FLIPPER_SCORE.SPEED_WEIGHT) +
+                (balanceScore * BEHAVIOR_ANALYSIS_CONFIG.FLIPPER_SCORE.BALANCE_WEIGHT);
+
     // Boost score significantly if ultra-fast trading is dominant
-    if(metrics.tradingTimeDistribution.ultraFast > 0.5) {
-      score = Math.min(1, score + 0.2);
+    if(metrics.tradingTimeDistribution.ultraFast > BEHAVIOR_ANALYSIS_CONFIG.FLIPPER_SCORE.ULTRA_FAST_DOMINANCE_MIN) {
+      score = Math.min(1, score + BEHAVIOR_ANALYSIS_CONFIG.FLIPPER_SCORE.DOMINANCE_BONUS);
     }
     
     return Math.max(0, Math.min(1, score)); // Clamp between 0 and 1
@@ -1547,7 +1549,7 @@ export class BehaviorAnalyzer {
     } = metrics;
 
     // Check minimum data requirements
-    if (totalTradeCount < 5 || tokensWithBothBuyAndSell < 2) {
+    if (totalTradeCount < BEHAVIOR_ANALYSIS_CONFIG.TRADING_ANALYSIS.MIN_TRADES_FOR_ANALYSIS || tokensWithBothBuyAndSell < BEHAVIOR_ANALYSIS_CONFIG.TRADING_ANALYSIS.MIN_TOKENS_WITH_TRADES) {
       metrics.tradingStyle = 'Low Activity';
       metrics.confidenceScore = 1.0;
       this.logger.debug(`Classified as Low Activity (${totalTradeCount} trades, ${tokensWithBothBuyAndSell} tokens)`);
@@ -1572,19 +1574,22 @@ export class BehaviorAnalyzer {
 
     // ✅ NEW: Classify BEHAVIORAL PATTERN (buy/sell characteristics)
     let behavioralPattern: string;
-    const isBalanced = buySellSymmetry > 0.7 && sequenceConsistency > 0.7;
+    const isBalanced = buySellSymmetry > BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.BALANCED_SYMMETRY_MIN &&
+                       sequenceConsistency > BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.BALANCED_CONSISTENCY_MIN;
 
     if (totalSellCount === 0) {
       behavioralPattern = 'HOLDER';
     } else if (totalBuyCount === 0) {
       behavioralPattern = 'DUMPER';
-    } else if (buySellRatio > 2.5 && totalBuyCount > totalSellCount * 2) {
+    } else if (buySellRatio > BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.ACCUMULATOR_RATIO_MIN &&
+               totalBuyCount > totalSellCount * 2) {
       behavioralPattern = 'ACCUMULATOR';
-    } else if (buySellRatio < 0.4 && totalSellCount > totalBuyCount * 2) {
+    } else if (buySellRatio < BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.DISTRIBUTOR_RATIO_MAX &&
+               totalSellCount > totalBuyCount * 2) {
       behavioralPattern = 'DISTRIBUTOR';
     } else if (isBalanced) {
       behavioralPattern = 'BALANCED';
-    } else if (buySellRatio > 1.5) {
+    } else if (buySellRatio > BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.HOLDER_RATIO_MIN) {
       behavioralPattern = 'HOLDER';
     } else {
       behavioralPattern = 'MIXED';
@@ -1595,24 +1600,24 @@ export class BehaviorAnalyzer {
 
     // ✅ NEW: Calculate confidence based on data quality
     const completedCycles = metrics.historicalPattern?.completedCycleCount || 0;
-    const dataQuality = metrics.historicalPattern?.dataQuality || 0.5;
+    const dataQuality = metrics.historicalPattern?.dataQuality || BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.DEFAULT_DATA_QUALITY;
 
-    let confidence = dataQuality * 0.4;
+    let confidence = dataQuality * BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.DATA_QUALITY_WEIGHT;
 
     // Bonus for sufficient sample size
     if (completedCycles >= 10) {
-      confidence += 0.3;
+      confidence += BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.SAMPLE_SIZE_BONUS_10;
     } else if (completedCycles >= 5) {
-      confidence += 0.2;
+      confidence += BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.SAMPLE_SIZE_BONUS_5;
     } else if (completedCycles >= 3) {
-      confidence += 0.1;
+      confidence += BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.SAMPLE_SIZE_BONUS_3;
     }
 
     // Bonus for pattern consistency
-    confidence += (buySellSymmetry * sequenceConsistency) * 0.3;
+    confidence += (buySellSymmetry * sequenceConsistency) * BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.BALANCE_WEIGHT;
 
     metrics.tradingStyle = combinedStyle;
-    metrics.confidenceScore = Math.max(0, Math.min(1, confidence));
+    metrics.confidenceScore = Math.max(0, Math.min(BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.MAX_CONFIDENCE, confidence));
 
     // ✅ NEW: Generate rich trading interpretation (speed vs economic analysis)
     // Use weighted average from historicalPattern, or fallback to median if pattern unavailable
@@ -1890,7 +1895,7 @@ export class BehaviorAnalyzer {
     let currentSessionStartTime = 0;
     let totalSessionDurationMinutes = 0;
     const sessionStartHours: number[] = [];
-    const SESSION_GAP_THRESHOLD_HOURS = this.config.sessionGapThresholdHours ?? 2;
+    const SESSION_GAP_THRESHOLD_HOURS = this.config.sessionGapThresholdHours ?? BEHAVIOR_ANALYSIS_CONFIG.SESSION_ANALYSIS.SESSION_GAP_THRESHOLD_HOURS;
 
     if (timestamps.length > 0) {
       sessionCount = 1;
@@ -1954,9 +1959,9 @@ export class BehaviorAnalyzer {
   private isScamTokenByValue(tradeCount: number, totalValue: number, totalUsdcValue?: number): boolean {
     // Get thresholds from config or use defaults
     const thresholds = this.config.scamFiltering?.thresholds || {};
-    const minTradeCount = thresholds.minTradeCount ?? 100;  // Default: 100+ trades
-    const minTotalValue = thresholds.minTotalValue ?? 0.001; // Default: 0.001 SOL minimum
-    const minTotalUsdcValue = thresholds.minTotalUsdcValue ?? 5; // Default: $0.01 USDC minimum
+    const minTradeCount = thresholds.minTradeCount ?? BEHAVIOR_ANALYSIS_CONFIG.SCAM_FILTERING.THRESHOLDS.MIN_TRADE_COUNT;
+    const minTotalValue = thresholds.minTotalValue ?? BEHAVIOR_ANALYSIS_CONFIG.SCAM_FILTERING.THRESHOLDS.MIN_TOTAL_VALUE;
+    const minTotalUsdcValue = thresholds.minTotalUsdcValue ?? BEHAVIOR_ANALYSIS_CONFIG.SCAM_FILTERING.THRESHOLDS.MIN_TOTAL_USDC_VALUE;
 
     // Check if token has meaningful value in either SOL or USDC
     const hasSolValue = totalValue >= minTotalValue;

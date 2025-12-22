@@ -1,15 +1,30 @@
-import { Controller, Get, Req, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Controller, Get, Req, InternalServerErrorException, Logger, UseGuards, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { DatabaseService } from '../services/database.service'; // Assuming this path is correct
+import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
+import { ConfigService } from '@nestjs/config';
+import { User } from '@prisma/client';
 
 @Controller('test-auth') // This will be accessible at /api/v1/test-auth
+@UseGuards(CompositeAuthGuard)
 export class TestController {
   private readonly logger = new Logger(TestController.name);
+  private readonly adminUserIds: Set<string>;
+  private readonly adminEmails: Set<string>;
 
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService,
+  ) {
+    const ids = (this.configService.get<string>('ADMIN_USER_IDS') || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const emails = (this.configService.get<string>('ADMIN_EMAILS') || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    this.adminUserIds = new Set(ids);
+    this.adminEmails = new Set(emails);
+  }
 
   @Get()
   async getTestData(@Req() req: Request & { user?: any }) {
+    this.assertAdmin(req.user);
     const actionType = 'get_test_data';
     const userId = req.user?.id;
     const sourceIp = req.ip;
@@ -90,4 +105,16 @@ export class TestController {
       throw new InternalServerErrorException('Error processing test data');
     }
   }
-} 
+
+  private assertAdmin(user?: User): void {
+    if (!user) {
+      throw new ForbiddenException('Admin access required');
+    }
+    const isAdminId = user.id && this.adminUserIds.has(user.id);
+    const isAdminEmail = user.email && this.adminEmails.has(user.email.toLowerCase());
+    if (isAdminId || isAdminEmail) {
+      return;
+    }
+    throw new ForbiddenException('Admin access required');
+  }
+}

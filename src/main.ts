@@ -4,6 +4,7 @@ import './instrument';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ForbiddenExceptionFilter } from './api/shared/forbidden-exception.filter';
+import { ThrottlerExceptionFilter } from './api/shared/throttler-exception.filter';
 import { Logger, LogLevel } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
@@ -30,6 +31,7 @@ async function bootstrap() {
     logger: logLevels,
   });
   const port = process.env.PORT || 3001;
+  const host = process.env.BACKEND_HOST || '::'; // Default to all IPv6 interfaces, or use configured host
 
   app.setGlobalPrefix('api/v1');
 
@@ -69,12 +71,23 @@ async function bootstrap() {
   SwaggerModule.setup('api-docs', app, document);
   // --- End Swagger Setup ---
 
-  app.useGlobalFilters(new ForbiddenExceptionFilter());
+  // Register global exception filters for user-friendly error messages
+  app.useGlobalFilters(
+    new ForbiddenExceptionFilter(),
+    new ThrottlerExceptionFilter()
+  );
 
-  await app.listen(port, '::');
-  Logger.log(`🚀 Application is running on: http://localhost:${port}/api/v1`, 'Bootstrap');
-  Logger.log(`📚 API Documentation available at: http://localhost:${port}/api-docs`, 'Bootstrap');
-  Logger.log(`🔌 WebSocket server enabled at: ws://localhost:${port}/job-progress`, 'Bootstrap');
+  await app.listen(port, host);
+
+  // Display appropriate URL based on configured host
+  const displayHost = host === '::' ? 'localhost' : (host.includes(':') ? `[${host}]` : host);
+  Logger.log(`🚀 Application is running on: http://${displayHost}:${port}/api/v1`, 'Bootstrap');
+  Logger.log(`📚 API Documentation available at: http://${displayHost}:${port}/api-docs`, 'Bootstrap');
+  Logger.log(`🔌 WebSocket server enabled at: ws://${displayHost}:${port}/job-progress`, 'Bootstrap');
+
+  if (host !== '::' && host !== 'localhost' && host !== '127.0.0.1') {
+    Logger.log(`🌐 Server bound to specific address: ${host}`, 'Bootstrap');
+  }
 
   // Heartbeat logging to detect event loop blocking / system freezes
   // Logs every 30 seconds to help diagnose issues like database checkpoint hangs
