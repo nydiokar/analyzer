@@ -51,13 +51,13 @@ const sortOptions = [
 ] as const;
 
 const freshnessOptions = [
-  { value: '', label: 'Any freshness' },
+  { value: 'any', label: 'Any freshness' },
   { value: '24', label: 'Updated in last 24h' },
   { value: '72', label: 'Updated in last 72h' },
 ] as const;
 
 const styleOptions = [
-  { value: '', label: 'Any style' },
+  { value: 'any', label: 'Any style' },
   { value: 'flipper', label: 'Flipper / Scalper' },
   { value: 'swing', label: 'Swing' },
   { value: 'position', label: 'Position' },
@@ -67,7 +67,7 @@ const styleOptions = [
 ] as const;
 
 const holdBiasOptions = [
-  { value: '', label: 'Any hold bias' },
+  { value: 'any', label: 'Any hold bias' },
   { value: 'short', label: 'Short (<12h)' },
   { value: 'medium', label: 'Medium (12–72h)' },
   { value: 'long', label: 'Long (>72h)' },
@@ -139,9 +139,9 @@ export default function DiscoverPage() {
   const [sort, setSort] = useState<string>('interesting');
   const [minTradeCount, setMinTradeCount] = useState<number | ''>('');
   const [minFreshnessHours, setMinFreshnessHours] = useState<number | ''>('');
-  const [style, setStyle] = useState<string>('');
+  const [style, setStyle] = useState<string>('any');
   const [minUniqueTokens, setMinUniqueTokens] = useState<number | ''>('');
-  const [holdBias, setHoldBias] = useState<string>('');
+  const [holdBias, setHoldBias] = useState<string>('any');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -150,7 +150,7 @@ export default function DiscoverPage() {
 
   const cacheKey = useMemo(
     () =>
-      `discover:${sort}:${page}:${minTradeCount || 'any'}:${minFreshnessHours || 'any'}:${style || 'any'}:${minUniqueTokens || 'any'}:${holdBias || 'any'}:${PAGE_SIZE}`,
+      `discover:${sort}:${page}:${minTradeCount || 'any'}:${minFreshnessHours || 'any'}:${(style && style !== 'any') ? style : 'any'}:${minUniqueTokens || 'any'}:${(holdBias && holdBias !== 'any') ? holdBias : 'any'}:${PAGE_SIZE}`,
     [sort, page, minTradeCount, minFreshnessHours, style, minUniqueTokens, holdBias],
   );
 
@@ -176,13 +176,13 @@ export default function DiscoverPage() {
       if (minFreshnessHours !== '' && minFreshnessHours > 0) {
         params.set('minFreshnessHours', String(minFreshnessHours));
       }
-      if (style) {
+      if (style && style !== 'any') {
         params.set('style', style);
       }
       if (minUniqueTokens !== '' && minUniqueTokens > 0) {
         params.set('minUniqueTokens', String(minUniqueTokens));
       }
-      if (holdBias) {
+      if (holdBias && holdBias !== 'any') {
         params.set('holdBias', holdBias);
       }
 
@@ -315,7 +315,7 @@ export default function DiscoverPage() {
                 <TooltipContent className="max-w-xs">
                   <p className="font-semibold">Patient holder</p>
                   <p className="text-xs text-muted-foreground">
-                    Long-bias styles (>72h holds) with some history and multiple tokens; good for position takers.
+                    Long-bias styles ({'>'}72h holds) with some history and multiple tokens; good for position takers.
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -426,9 +426,9 @@ export default function DiscoverPage() {
 
               <div className="min-w-[180px]">
                 <Select
-                  value={minFreshnessHours === '' ? '' : String(minFreshnessHours)}
+                  value={minFreshnessHours === '' ? 'any' : String(minFreshnessHours)}
                   onValueChange={(value) => {
-                    setMinFreshnessHours(value === '' ? '' : Number(value));
+                    setMinFreshnessHours(value === 'any' ? '' : Number(value));
                     setPage(1);
                   }}
                 >
