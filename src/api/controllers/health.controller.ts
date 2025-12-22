@@ -25,12 +25,13 @@ export class HealthController {
   /**
    * Public basic health check - Returns only operational status
    * Safe to expose publicly for external monitoring/status pages
+   * Supports both GET and HEAD requests for monitoring tools
    */
   @Get()
   @Public()
   @ApiOperation({
     summary: 'Basic health status (public)',
-    description: 'Returns a simple operational status without exposing internal details. Safe for public monitoring.'
+    description: 'Returns a simple operational status without exposing internal details. Safe for public monitoring. Supports HEAD requests.'
   })
   @ApiResponse({ status: 200, description: 'Service is operational' })
   @ApiResponse({ status: 503, description: 'Service is down or degraded' })

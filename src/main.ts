@@ -42,13 +42,15 @@ async function bootstrap() {
   // Secure CORS setup for production
   const frontendUrl = process.env.FRONTEND_URL;
   if (frontendUrl) {
+    // Support comma-separated URLs for multiple domains (e.g., with and without www)
+    const allowedOrigins = frontendUrl.split(',').map(url => url.trim());
     app.enableCors({
-      origin: [frontendUrl], // Allow both configured and Vercel
+      origin: allowedOrigins,
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'X-CSRF-Token'],
     });
-    Logger.log(`CORS enabled for origins: ${frontendUrl}`, 'Bootstrap');
+    Logger.log(`CORS enabled for origins: ${allowedOrigins.join(', ')}`, 'Bootstrap');
   } else {
     // Fallback for local development
     app.enableCors({

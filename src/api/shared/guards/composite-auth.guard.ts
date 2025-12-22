@@ -108,7 +108,7 @@ export class CompositeAuthGuard implements CanActivate {
 
     // No valid authentication method found
     // Security logging handled at controller level
-    this.logger.warn('No valid authentication provided');
+    this.logger.warn(`No valid authentication provided for ${request.method} ${request.path} (IP: ${request.ip})`);
     throw new UnauthorizedException('Authentication required. Log in with your account to perform analysis.');
   }
 
