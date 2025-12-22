@@ -46,7 +46,7 @@ async function bootstrap() {
       origin: [frontendUrl], // Allow both configured and Vercel
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
       credentials: true,
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'X-CSRF-Token'],
     });
     Logger.log(`CORS enabled for origins: ${frontendUrl}`, 'Bootstrap');
   } else {
