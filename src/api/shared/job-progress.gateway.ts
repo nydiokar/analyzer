@@ -48,6 +48,13 @@ interface JobQueueToStartEvent {
   userId?: string; // For room-based broadcasting
 }
 
+type JobEventCounter = {
+  progress: number;
+  completed: number;
+  failed: number;
+  queueToStart: number;
+};
+
 @WebSocketGateway({
   cors: {
     origin: true,
@@ -62,6 +69,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   server: Server;
 
   private readonly logger = new Logger(JobProgressGateway.name);
+  private readonly debugJobBridge = process.env.JOB_SOCKET_DEBUG === 'true';
   private readonly redisSubscriber: Redis;
 
   constructor(@Inject(REDIS_CLIENT) private readonly redisPublisher: Redis) {

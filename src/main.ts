@@ -1,3 +1,6 @@
+// IMPORTANT: Import Sentry instrumentation FIRST, before any other imports
+import './instrument';
+
 import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ForbiddenExceptionFilter } from './api/shared/forbidden-exception.filter';
@@ -85,5 +88,11 @@ async function bootstrap() {
   if (host !== '::' && host !== 'localhost' && host !== '127.0.0.1') {
     Logger.log(`🌐 Server bound to specific address: ${host}`, 'Bootstrap');
   }
+
+  // Heartbeat logging to detect event loop blocking / system freezes
+  // Logs every 30 seconds to help diagnose issues like database checkpoint hangs
+  setInterval(() => {
+    Logger.log('[Heartbeat] Backend responsive', 'HealthCheck');
+  }, 30000); // 30 seconds
 }
 bootstrap();
