@@ -192,13 +192,13 @@ export default function AccountSummaryCard({
 
     return (
       <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <AlertTriangle className="h-4 w-4" />
-            Summary not ready yet
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Run an analysis to unlock this summary
           </div>
           <p className="text-sm text-muted-foreground">
-            We need one analysis run to populate PnL and win rate. You can still open the wallet and kick off analysis now.
+            We haven&apos;t generated PnL and win rate yet. Kick off one run to populate the summary cards.
           </p>
           <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">

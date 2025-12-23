@@ -3,12 +3,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { format, formatDistanceToNow } from "date-fns";
-import { toast } from "sonner";
 import {
   ArrowRight,
   Calendar,
-  Check,
-  Copy,
+  Info,
   Loader2,
   RefreshCcw,
 } from "lucide-react";
@@ -94,20 +92,20 @@ const formatLastActive = (isoString?: string | null) => {
 const formatUpdatedAgo = (wallet: DiscoverWallet) => {
   if (wallet.metrics.stalenessMinutes !== null && wallet.metrics.stalenessMinutes !== undefined) {
     const minutes = Math.round(wallet.metrics.stalenessMinutes);
-    if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 60) return { label: `${minutes}m ago`, status: "fresh" as const };
     const hours = Math.round(minutes / 60);
-    if (hours < 48) return `${hours}h ago`;
-    return `${Math.round(hours / 24)}d ago`;
+    if (hours < 48) return { label: `${hours}h ago`, status: hours <= 12 ? "fresh" as const : "ok" as const };
+    return { label: `${Math.round(hours / 24)}d ago`, status: "stale" as const };
   }
 
   if (wallet.lastUpdatedAt) {
     const date = new Date(wallet.lastUpdatedAt);
     if (!Number.isNaN(date.getTime())) {
-      return formatDistanceToNow(date, { addSuffix: true });
+      return { label: formatDistanceToNow(date, { addSuffix: true }), status: "ok" as const };
     }
   }
 
-  return "Unknown recency";
+  return { label: "Unknown recency", status: "stale" as const };
 };
 
 const formatPnLValue = (val?: number | null) => {
@@ -119,8 +117,17 @@ const getBehaviorPresentation = (wallet: DiscoverWallet) => {
   const map = behaviorTagCopy[wallet.reasonCode] || behaviorTagCopy.INTERESTING;
   const hold = wallet.metrics.medianHoldHours ?? wallet.metrics.averageHoldHours;
   const trades = wallet.metrics.totalTrades ?? wallet.metrics.totalExecutedSwaps;
+  const tokens = wallet.metrics.uniqueTokensTraded;
 
   let detail = map.fallbackDetail;
+  if (trades !== null && trades !== undefined && trades < 3) {
+    return {
+      label: "New data",
+      detail: `${trades} trade${trades === 1 ? "" : "s"} so far · rerun analysis for depth`,
+      rawReason: wallet.reason,
+    };
+  }
+
   if (wallet.reasonCode === "FLIPPER" && hold) {
     detail = `Quick exits (~${formatHours(hold)}) across ${trades ?? "many"} trades`;
   } else if (wallet.reasonCode === "HOLDER" && hold) {
@@ -138,7 +145,7 @@ const getBehaviorPresentation = (wallet: DiscoverWallet) => {
 
   return {
     label: map.label,
-    detail,
+    detail: tokens === 0 && (trades ?? 0) > 0 ? `${detail} · token details pending` : detail,
     rawReason: wallet.reason,
   };
 };
@@ -247,11 +254,6 @@ export default function DiscoverPage() {
     fetchWallets();
   }, [cacheKey, fetchWallets]);
 
-  const handleCopy = (address: string) => {
-    navigator.clipboard.writeText(address);
-    toast.success('Copied to clipboard');
-  };
-
   const applyPreset = (preset: 'hyper-flipper' | 'balanced-fast' | 'patient-holder') => {
     if (preset === 'hyper-flipper') {
       setStyle('flipper');
@@ -274,47 +276,39 @@ export default function DiscoverPage() {
 
   return (
     <AppShell>
-      <div className="container max-w-6xl mx-auto px-6 py-8 space-y-6">
+      <div className="container max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold">Discover Wallets</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Explainable picks from cached snapshots with clear reasons to explore further.
-            </p>
-          </div>
-          <Badge variant="outline" className="text-xs px-3 py-1">
-            Curated &amp; cache-friendly
-          </Badge>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold">Discover Wallets</h1>
+          <p className="text-sm text-muted-foreground">
+            Plain reasons, fresh recency, and ready-to-hunt presets.
+          </p>
         </div>
 
         {/* Filters */}
         <Card>
           <CardHeader className="pb-2">
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <CardTitle className="text-base">Guide the hunt</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Filters stay open so you can steer the list without digging through menus.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => applyPreset('hyper-flipper')}>
-                  Hyper Flipper
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => applyPreset('balanced-fast')}>
-                  Balanced Fast
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => applyPreset('patient-holder')}>
-                  Patient Holder
-                </Button>
-              </div>
-            </div>
+            <CardTitle className="text-base">Tune the feed</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-3 lg:grid-cols-6 items-start">
+              <div className="space-y-2 lg:col-span-2">
+                <Label className="text-sm font-medium">Prepared filters</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => applyPreset('hyper-flipper')}>
+                    Hyper Flipper
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => applyPreset('balanced-fast')}>
+                    Balanced Fast
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => applyPreset('patient-holder')}>
+                    Patient Holder
+                  </Button>
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Sort wallets</Label>
+                <Label className="text-sm font-medium">Sort focus</Label>
                 <Select value={sort} onValueChange={(v) => { setSort(v); setPage(1); }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose sorting" />
@@ -330,7 +324,6 @@ export default function DiscoverPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Pick what you care about first: activity, PnL, or freshness.</p>
               </div>
 
               <div className="space-y-2">
@@ -345,7 +338,6 @@ export default function DiscoverPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Narrow to flippers, swing traders, or let us mix them.</p>
               </div>
 
               <div className="space-y-2">
@@ -360,7 +352,6 @@ export default function DiscoverPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Choose whether to spotlight sprinters or patient holders.</p>
               </div>
 
               <div className="space-y-2">
@@ -376,11 +367,10 @@ export default function DiscoverPage() {
                     setPage(1);
                   }}
                 />
-                <p className="text-xs text-muted-foreground">Ignore wallets with only a couple of interactions.</p>
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Min tokens touched</Label>
+                <Label className="text-sm font-medium">Min tokens</Label>
                 <Input
                   type="number"
                   inputMode="numeric"
@@ -392,13 +382,12 @@ export default function DiscoverPage() {
                     setPage(1);
                   }}
                 />
-                <p className="text-xs text-muted-foreground">Focus on explorers instead of single-token experiments.</p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
-                Filters apply instantly; refresh if you want a clean fetch.
+                Filters update live. Refresh pulls fresh snapshots.
               </p>
               <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating}>
                 {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
@@ -440,22 +429,60 @@ export default function DiscoverPage() {
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="border-b bg-muted/50">
-                    <tr>
+                    <tr className="align-bottom">
                       <th className="text-left p-3 font-medium text-sm">Wallet</th>
-                      <th className="text-left p-3 font-medium text-sm">Activity</th>
-                      <th className="text-left p-3 font-medium text-sm">Behavior Tag</th>
-                      <th className="text-left p-3 font-medium text-sm">Trading Style</th>
+                      <th className="text-left p-3 font-medium text-sm">Recency</th>
+                      <th className="text-left p-3 font-medium text-sm">
+                        <div className="inline-flex items-center gap-1">
+                          Behavior tag
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                Signal we think makes this wallet worth a look (flipping speed, explorer behavior, profitability, or recent activity).
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                      </th>
+                      <th className="text-left p-3 font-medium text-sm">
+                        <div className="inline-flex items-center gap-1">
+                          Trading style
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent>Classification from behavior analysis.</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                      </th>
                       <th className="text-right p-3 font-medium text-sm">Trades</th>
-                      <th className="text-right p-3 font-medium text-sm">Tokens</th>
-                      <th className="text-right p-3 font-medium text-sm">Hold Time</th>
+                      <th className="text-right p-3 font-medium text-sm">
+                        <div className="inline-flex items-center gap-1 justify-end">
+                          Tokens
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent>Unique tokens traded (0 can mean token metadata not captured yet).</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                      </th>
+                      <th className="text-right p-3 font-medium text-sm">Hold</th>
                       <th className="text-right p-3 font-medium text-sm">PnL</th>
-                      <th className="text-right p-3 font-medium text-sm">Win Rate</th>
+                      <th className="text-right p-3 font-medium text-sm">Win</th>
                       <th className="text-right p-3 font-medium text-sm"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {wallets.map((wallet) => (
-                      <WalletRow key={wallet.walletAddress} wallet={wallet} onCopy={handleCopy} />
+                      <WalletRow key={wallet.walletAddress} wallet={wallet} />
                     ))}
                   </tbody>
                 </table>
@@ -486,6 +513,9 @@ export default function DiscoverPage() {
                 <Button size="sm" variant="secondary" onClick={() => applyPreset('balanced-fast')}>
                   Try Balanced Fast
                 </Button>
+                <Button size="sm" variant="secondary" onClick={() => applyPreset('hyper-flipper')}>
+                  Try Hyper Flipper
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -512,8 +542,7 @@ export default function DiscoverPage() {
   );
 }
 
-function WalletRow({ wallet, onCopy }: { wallet: DiscoverWallet; onCopy: (address: string) => void }) {
-  const [copied, setCopied] = useState(false);
+function WalletRow({ wallet }: { wallet: DiscoverWallet }) {
   const reasonMeta = getBehaviorPresentation(wallet);
   const reasonColor = reasonColorMap[wallet.reasonCode] || reasonColorMap.INTERESTING;
   const lastActive = formatLastActive(wallet.metrics.lastActiveAt);
@@ -531,44 +560,37 @@ function WalletRow({ wallet, onCopy }: { wallet: DiscoverWallet; onCopy: (addres
       : wallet.metrics.realizedPnl !== null && wallet.metrics.realizedPnl !== undefined && wallet.metrics.realizedPnl < 0
         ? "text-red-600"
         : "";
+  const winRateDisplay =
+    wallet.metrics.winRatePercent !== null && wallet.metrics.winRatePercent !== undefined
+      ? `${Math.round(wallet.metrics.winRatePercent)}%`
+      : "—";
+  const holdDisplay = formatHours(wallet.metrics.medianHoldHours ?? wallet.metrics.averageHoldHours);
 
   return (
     <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors align-top">
       <td className="p-3">
         <div className="space-y-2">
           <WalletBadge address={wallet.walletAddress} className="text-xs px-2 py-1 bg-muted/80 hover:bg-muted" />
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {lastActive.text}
-                  </span>
-                </TooltipTrigger>
-                {lastActive.tooltip && (
-                  <TooltipContent>
-                    <p>Last on-chain activity</p>
-                    <p className="text-xs text-muted-foreground">{lastActive.tooltip}</p>
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
-            <span className="inline-flex items-center gap-1">
-              <RefreshCcw className="h-3 w-3" />
-              Updated {updatedAgo}
-            </span>
-            <button
-              onClick={() => {
-                onCopy(wallet.walletAddress);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              }}
-              className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
-            >
-              {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
-              <span>Copy</span>
-            </button>
+        </div>
+      </td>
+      <td className="p-3">
+        <div className="space-y-1 text-[12px] text-muted-foreground">
+          <div className="inline-flex items-center gap-1">
+            <Calendar className="h-3.5 w-3.5" />
+            {lastActive.text}
+          </div>
+          <div
+            className={cn(
+              "inline-flex items-center gap-1",
+              updatedAgo.status === "fresh"
+                ? "text-emerald-600"
+                : updatedAgo.status === "stale"
+                  ? "text-amber-600"
+                  : ""
+            )}
+          >
+            <RefreshCcw className="h-3.5 w-3.5" />
+            Updated {updatedAgo.label}
           </div>
         </div>
       </td>
@@ -587,7 +609,9 @@ function WalletRow({ wallet, onCopy }: { wallet: DiscoverWallet; onCopy: (addres
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <p className="text-xs text-muted-foreground">{reasonMeta.detail}</p>
+          <p className="text-xs text-muted-foreground">
+            {reasonMeta.detail} · {tradesDisplay} trades · hold {holdDisplay} · win {winRateDisplay}
+          </p>
         </div>
       </td>
       <td className="p-3 align-top">
@@ -600,15 +624,13 @@ function WalletRow({ wallet, onCopy }: { wallet: DiscoverWallet; onCopy: (addres
         {wallet.metrics.uniqueTokensTraded ?? "—"}
       </td>
       <td className="p-3 text-right text-sm">
-        {formatHours(wallet.metrics.medianHoldHours ?? wallet.metrics.averageHoldHours)}
+        {holdDisplay}
       </td>
       <td className="p-3 text-right text-sm">
         <span className={pnlClass}>{pnlDisplay}</span>
       </td>
       <td className="p-3 text-right text-sm">
-        {wallet.metrics.winRatePercent !== null && wallet.metrics.winRatePercent !== undefined
-          ? `${Math.round(wallet.metrics.winRatePercent)}%`
-          : "—"}
+        {winRateDisplay}
       </td>
       <td className="p-3 text-right">
         <Button asChild variant="ghost" size="sm">
