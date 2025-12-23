@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { AlertTriangle, CalendarDays, SearchX, ShieldAlert } from "lucide-react";
-import { format } from "date-fns";
+import { AlertTriangle, CalendarDays, RefreshCcw, SearchX, ShieldAlert } from "lucide-react";
+import { format, formatDistanceToNow } from "date-fns";
 
 import { Metric } from "@/components/ui/metric";
 import { Badge } from "@/components/ui/badge";
@@ -182,17 +182,46 @@ export default function AccountSummaryCard({
   }
 
   // This is a fallback, but with the checks above, data should be valid here.
-  if (!data.latestPnl) {
+  if (data.latestPnl === null || data.latestPnl === undefined) {
+    const lastActive = data.lastActiveTimestamp
+      ? formatDistanceToNow(new Date(data.lastActiveTimestamp * 1000), { addSuffix: true })
+      : "No activity yet";
+    const lastAnalyzed = data.lastAnalyzedAt
+      ? formatDistanceToNow(new Date(data.lastAnalyzedAt), { addSuffix: true })
+      : null;
+
     return (
-       <div className={cn("p-4", className)}>
-        <EmptyState
-          icon={AlertTriangle}
-          title="No Summary Data"
-          description="Could not display wallet summary details."
-          variant="error"
-        />
-      </div>
-    )
+      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <AlertTriangle className="h-4 w-4" />
+            Summary not ready yet
+          </div>
+          <p className="text-sm text-muted-foreground">
+            We need one analysis run to populate PnL and win rate. You can still open the wallet and kick off analysis now.
+          </p>
+          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <CalendarDays className="h-4 w-4" />
+              {lastActive}
+            </span>
+            {lastAnalyzed && (
+              <span className="inline-flex items-center gap-1">
+                <RefreshCcw className="h-4 w-4" />
+                Last analyzed {lastAnalyzed}
+              </span>
+            )}
+          </div>
+          {triggerAnalysis && (
+            <div className="flex justify-end">
+              <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
+                {isAnalyzingGlobal ? "Analysis in Progress..." : "Analyze Wallet"}
+              </Button>
+            </div>
+          )}
+        </div>
+      </Card>
+    );
   }
 
   const formatPnl = (pnl: number | null) => {

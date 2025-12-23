@@ -1,38 +1,36 @@
-'use client';
+"use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { AppShell } from '@/components/layout/AppShell';
-import { fetcher } from '@/lib/fetcher';
-import { DiscoverWallet, DiscoverWalletsResponse } from '@/types/discover';
-import { toast } from 'sonner';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { format, formatDistanceToNow } from "date-fns";
+import { toast } from "sonner";
 import {
   ArrowRight,
-  Copy,
+  Calendar,
   Check,
-  RefreshCcw,
+  Copy,
   Loader2,
-  ChevronDown,
-  ChevronUp,
-} from 'lucide-react';
+  RefreshCcw,
+} from "lucide-react";
+
+import { AppShell } from "@/components/layout/AppShell";
+import { WalletBadge } from "@/components/shared/WalletBadge";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
+} from "@/components/ui/tooltip";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { fetcher } from "@/lib/fetcher";
+import { DiscoverWallet, DiscoverWalletsResponse } from "@/types/discover";
 
 const PAGE_SIZE = 24;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -61,6 +59,89 @@ const holdBiasOptions = [
   { value: 'medium', label: 'Medium (12–72h)' },
   { value: 'long', label: 'Long (>72h)' },
 ] as const;
+
+const behaviorTagCopy: Record<
+  string,
+  { label: string; fallbackDetail: string }
+> = {
+  FLIPPER: { label: "Fast rotations", fallbackDetail: "Short holds and timing-focused moves." },
+  HOLDER: { label: "Patient moves", fallbackDetail: "Longer holds and selective entries." },
+  EXPLORER: { label: "Token scout", fallbackDetail: "Sampling many tokens to find momentum." },
+  RECENT: { label: "Warming up", fallbackDetail: "Fresh on-chain activity to watch." },
+  PNL: { label: "Profitable streak", fallbackDetail: "Realized gains worth a look." },
+  WINNER: { label: "High win rate", fallbackDetail: "Converting trades efficiently." },
+  INTERESTING: { label: "Curated pick", fallbackDetail: "Signals that merit a closer look." },
+};
+
+const formatHours = (val?: number | null) => {
+  if (!val) return "—";
+  if (val < 1) return `${Math.round(val * 60)}m`;
+  if (val < 24) return `${Math.round(val)}h`;
+  return `${Math.round(val / 24)}d`;
+};
+
+const formatLastActive = (isoString?: string | null) => {
+  if (!isoString) return { text: "No activity yet", tooltip: null };
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return { text: "No activity yet", tooltip: null };
+
+  return {
+    text: formatDistanceToNow(date, { addSuffix: true }),
+    tooltip: format(date, "PPpp"),
+  };
+};
+
+const formatUpdatedAgo = (wallet: DiscoverWallet) => {
+  if (wallet.metrics.stalenessMinutes !== null && wallet.metrics.stalenessMinutes !== undefined) {
+    const minutes = Math.round(wallet.metrics.stalenessMinutes);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return `${hours}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
+  }
+
+  if (wallet.lastUpdatedAt) {
+    const date = new Date(wallet.lastUpdatedAt);
+    if (!Number.isNaN(date.getTime())) {
+      return formatDistanceToNow(date, { addSuffix: true });
+    }
+  }
+
+  return "Unknown recency";
+};
+
+const formatPnLValue = (val?: number | null) => {
+  if (val === null || val === undefined) return "—";
+  return `${val >= 0 ? "+" : ""}${val.toFixed(2)}`;
+};
+
+const getBehaviorPresentation = (wallet: DiscoverWallet) => {
+  const map = behaviorTagCopy[wallet.reasonCode] || behaviorTagCopy.INTERESTING;
+  const hold = wallet.metrics.medianHoldHours ?? wallet.metrics.averageHoldHours;
+  const trades = wallet.metrics.totalTrades ?? wallet.metrics.totalExecutedSwaps;
+
+  let detail = map.fallbackDetail;
+  if (wallet.reasonCode === "FLIPPER" && hold) {
+    detail = `Quick exits (~${formatHours(hold)}) across ${trades ?? "many"} trades`;
+  } else if (wallet.reasonCode === "HOLDER" && hold) {
+    detail = `Prefers longer holds (~${formatHours(hold)})`;
+  } else if (wallet.reasonCode === "EXPLORER" && wallet.metrics.uniqueTokensTraded) {
+    detail = `${wallet.metrics.uniqueTokensTraded} unique tokens explored`;
+  } else if (wallet.reasonCode === "RECENT") {
+    const lastActive = formatLastActive(wallet.metrics.lastActiveAt);
+    detail = `Active ${lastActive.text}`;
+  } else if (wallet.reasonCode === "PNL" && wallet.metrics.realizedPnl !== null && wallet.metrics.realizedPnl !== undefined) {
+    detail = `Realized ${formatPnLValue(wallet.metrics.realizedPnl)} SOL recently`;
+  } else if (wallet.metrics.tradingStyle) {
+    detail = wallet.metrics.tradingStyle;
+  }
+
+  return {
+    label: map.label,
+    detail,
+    rawReason: wallet.reason,
+  };
+};
 
 type CacheShape = { timestamp: number; data: DiscoverWalletsResponse };
 
@@ -109,7 +190,6 @@ export default function DiscoverPage() {
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const cacheKey = useMemo(
     () =>
@@ -196,56 +276,48 @@ export default function DiscoverPage() {
     <AppShell>
       <div className="container max-w-6xl mx-auto px-6 py-8 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Discover Wallets</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Explainable picks from cached snapshots
+              Explainable picks from cached snapshots with clear reasons to explore further.
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => applyPreset('hyper-flipper')}>
-              Hyper Flipper
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => applyPreset('balanced-fast')}>
-              Balanced Fast
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => applyPreset('patient-holder')}>
-              Patient Holder
-            </Button>
-          </div>
+          <Badge variant="outline" className="text-xs px-3 py-1">
+            Curated &amp; cache-friendly
+          </Badge>
         </div>
 
         {/* Filters */}
         <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Filters</CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setFiltersExpanded(!filtersExpanded)}
-              >
-                {filtersExpanded ? (
-                  <>
-                    <ChevronUp className="h-4 w-4 mr-1" />
-                    Less
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="h-4 w-4 mr-1" />
-                    More
-                  </>
-                )}
-              </Button>
+          <CardHeader className="pb-2">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <CardTitle className="text-base">Guide the hunt</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Filters stay open so you can steer the list without digging through menus.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => applyPreset('hyper-flipper')}>
+                  Hyper Flipper
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => applyPreset('balanced-fast')}>
+                  Balanced Fast
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => applyPreset('patient-holder')}>
+                  Patient Holder
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-3">
-              <div className="min-w-[200px]">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Sort wallets</Label>
                 <Select value={sort} onValueChange={(v) => { setSort(v); setPage(1); }}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Choose sorting" />
                   </SelectTrigger>
                   <SelectContent>
                     {sortOptions.map((o) => (
@@ -258,66 +330,96 @@ export default function DiscoverPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">Pick what you care about first: activity, PnL, or freshness.</p>
               </div>
 
-              {filtersExpanded && (
-                <>
-                  <div className="min-w-[150px]">
-                    <Select value={style} onValueChange={(v) => { setStyle(v); setPage(1); }}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {styleOptions.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Trading style</Label>
+                <Select value={style} onValueChange={(v) => { setStyle(v); setPage(1); }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Any style" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {styleOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Narrow to flippers, swing traders, or let us mix them.</p>
+              </div>
 
-                  <div className="min-w-[150px]">
-                    <Select value={holdBias} onValueChange={(v) => { setHoldBias(v); setPage(1); }}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {holdBiasOptions.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Hold bias</Label>
+                <Select value={holdBias} onValueChange={(v) => { setHoldBias(v); setPage(1); }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Any hold bias" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {holdBiasOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Choose whether to spotlight sprinters or patient holders.</p>
+              </div>
 
-                  <Input
-                    type="number"
-                    placeholder="Min trades"
-                    className="w-32"
-                    value={minTradeCount}
-                    onChange={(e) => {
-                      setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
-                      setPage(1);
-                    }}
-                  />
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Min trades</Label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="e.g. 10"
+                  className="w-full"
+                  value={minTradeCount === '' ? '' : String(minTradeCount)}
+                  onChange={(e) => {
+                    setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
+                    setPage(1);
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">Ignore wallets with only a couple of interactions.</p>
+              </div>
 
-                  <Input
-                    type="number"
-                    placeholder="Min tokens"
-                    className="w-32"
-                    value={minUniqueTokens}
-                    onChange={(e) => {
-                      setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
-                      setPage(1);
-                    }}
-                  />
-                </>
-              )}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Min tokens touched</Label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="e.g. 5"
+                  className="w-full"
+                  value={minUniqueTokens === '' ? '' : String(minUniqueTokens)}
+                  onChange={(e) => {
+                    setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
+                    setPage(1);
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">Focus on explorers instead of single-token experiments.</p>
+              </div>
+            </div>
 
-              <Button variant="outline" size="default" onClick={fetchWallets} disabled={isUpdating}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Filters apply instantly; refresh if you want a clean fetch.
+              </p>
+              <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating}>
                 {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                <span className="ml-2 hidden sm:inline">Refresh</span>
               </Button>
             </div>
           </CardContent>
         </Card>
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertTitle>Couldn&apos;t load wallets</AlertTitle>
+            <AlertDescription className="flex flex-wrap items-center gap-2">
+              <span className="text-sm">{error}</span>
+              <Button size="sm" variant="secondary" onClick={fetchWallets} disabled={isUpdating}>
+                {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                <span className="ml-2">Retry</span>
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Table */}
         {loading && (
@@ -340,7 +442,8 @@ export default function DiscoverPage() {
                   <thead className="border-b bg-muted/50">
                     <tr>
                       <th className="text-left p-3 font-medium text-sm">Wallet</th>
-                      <th className="text-left p-3 font-medium text-sm">Reason</th>
+                      <th className="text-left p-3 font-medium text-sm">Activity</th>
+                      <th className="text-left p-3 font-medium text-sm">Behavior Tag</th>
                       <th className="text-left p-3 font-medium text-sm">Trading Style</th>
                       <th className="text-right p-3 font-medium text-sm">Trades</th>
                       <th className="text-right p-3 font-medium text-sm">Tokens</th>
@@ -363,8 +466,27 @@ export default function DiscoverPage() {
 
         {!loading && wallets.length === 0 && (
           <Card>
-            <CardContent className="p-12 text-center">
-              <p className="text-muted-foreground">No wallets found. Try adjusting filters.</p>
+            <CardContent className="p-12 text-center space-y-3">
+              <p className="text-muted-foreground">No wallets match these filters yet.</p>
+              <div className="flex items-center justify-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSort('interesting');
+                    setStyle('any');
+                    setHoldBias('any');
+                    setMinTradeCount('');
+                    setMinUniqueTokens('');
+                    setPage(1);
+                  }}
+                >
+                  Reset filters
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => applyPreset('balanced-fast')}>
+                  Try Balanced Fast
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -392,57 +514,101 @@ export default function DiscoverPage() {
 
 function WalletRow({ wallet, onCopy }: { wallet: DiscoverWallet; onCopy: (address: string) => void }) {
   const [copied, setCopied] = useState(false);
-  const shortAddress = `${wallet.walletAddress.slice(0, 6)}...${wallet.walletAddress.slice(-4)}`;
+  const reasonMeta = getBehaviorPresentation(wallet);
   const reasonColor = reasonColorMap[wallet.reasonCode] || reasonColorMap.INTERESTING;
-
-  const handleCopy = () => {
-    onCopy(wallet.walletAddress);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const formatPnL = (val?: number | null) => {
-    if (val === null || val === undefined) return '—';
-    return `${val >= 0 ? '+' : ''}${val.toFixed(2)}`;
-  };
-
-  const formatHours = (val?: number | null) => {
-    if (!val) return '—';
-    if (val < 1) return `${Math.round(val * 60)}m`;
-    if (val < 24) return `${Math.round(val)}h`;
-    return `${Math.round(val / 24)}d`;
-  };
+  const lastActive = formatLastActive(wallet.metrics.lastActiveAt);
+  const updatedAgo = formatUpdatedAgo(wallet);
+  const trades = wallet.metrics.totalTrades ?? wallet.metrics.totalExecutedSwaps;
+  const tradesDisplay =
+    trades === null || trades === undefined ? "—" : trades.toLocaleString();
+  const pnlDisplay =
+    wallet.metrics.realizedPnl === null || wallet.metrics.realizedPnl === undefined
+      ? "—"
+      : `${formatPnLValue(wallet.metrics.realizedPnl)} SOL`;
+  const pnlClass =
+    wallet.metrics.realizedPnl !== null && wallet.metrics.realizedPnl !== undefined && wallet.metrics.realizedPnl > 0
+      ? "text-green-600"
+      : wallet.metrics.realizedPnl !== null && wallet.metrics.realizedPnl !== undefined && wallet.metrics.realizedPnl < 0
+        ? "text-red-600"
+        : "";
 
   return (
-    <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+    <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors align-top">
       <td className="p-3">
-        <div className="flex items-center gap-2">
-          <code className="text-sm font-mono">{shortAddress}</code>
-          <button onClick={handleCopy} className="text-muted-foreground hover:text-foreground">
-            {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
+        <div className="space-y-2">
+          <WalletBadge address={wallet.walletAddress} className="text-xs px-2 py-1 bg-muted/80 hover:bg-muted" />
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    {lastActive.text}
+                  </span>
+                </TooltipTrigger>
+                {lastActive.tooltip && (
+                  <TooltipContent>
+                    <p>Last on-chain activity</p>
+                    <p className="text-xs text-muted-foreground">{lastActive.tooltip}</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
+            <span className="inline-flex items-center gap-1">
+              <RefreshCcw className="h-3 w-3" />
+              Updated {updatedAgo}
+            </span>
+            <button
+              onClick={() => {
+                onCopy(wallet.walletAddress);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+              <span>Copy</span>
+            </button>
+          </div>
         </div>
       </td>
       <td className="p-3">
-        <Badge variant="outline" className={`text-xs ${reasonColor}`}>
-          {wallet.reason}
-        </Badge>
+        <div className="space-y-1">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className={`text-[11px] ${reasonColor}`}>
+                  {reasonMeta.label}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm">
+                <p className="font-medium">{reasonMeta.label}</p>
+                <p className="text-xs text-muted-foreground">{reasonMeta.rawReason}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <p className="text-xs text-muted-foreground">{reasonMeta.detail}</p>
+        </div>
       </td>
-      <td className="p-3">
-        <span className="text-sm">{wallet.metrics.tradingStyle || '—'}</span>
+      <td className="p-3 align-top">
+        <span className="text-sm">{wallet.metrics.tradingStyle || "—"}</span>
       </td>
-      <td className="p-3 text-right text-sm">{wallet.metrics.totalTrades?.toLocaleString() || '—'}</td>
-      <td className="p-3 text-right text-sm">{wallet.metrics.uniqueTokensTraded || '—'}</td>
+      <td className="p-3 text-right text-sm align-top">
+        {tradesDisplay}
+      </td>
+      <td className="p-3 text-right text-sm align-top">
+        {wallet.metrics.uniqueTokensTraded ?? "—"}
+      </td>
       <td className="p-3 text-right text-sm">
-        {formatHours(wallet.metrics.medianHoldHours || wallet.metrics.averageHoldHours)}
+        {formatHours(wallet.metrics.medianHoldHours ?? wallet.metrics.averageHoldHours)}
       </td>
       <td className="p-3 text-right text-sm">
-        <span className={wallet.metrics.realizedPnl && wallet.metrics.realizedPnl > 0 ? 'text-green-600' : wallet.metrics.realizedPnl && wallet.metrics.realizedPnl < 0 ? 'text-red-600' : ''}>
-          {formatPnL(wallet.metrics.realizedPnl)} SOL
-        </span>
+        <span className={pnlClass}>{pnlDisplay}</span>
       </td>
       <td className="p-3 text-right text-sm">
-        {wallet.metrics.winRatePercent ? `${Math.round(wallet.metrics.winRatePercent)}%` : '—'}
+        {wallet.metrics.winRatePercent !== null && wallet.metrics.winRatePercent !== undefined
+          ? `${Math.round(wallet.metrics.winRatePercent)}%`
+          : "—"}
       </td>
       <td className="p-3 text-right">
         <Button asChild variant="ghost" size="sm">
