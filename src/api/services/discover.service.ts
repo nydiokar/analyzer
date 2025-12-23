@@ -43,6 +43,41 @@ export class DiscoverService {
 
     const andFilters: Prisma.WalletWhereInput[] = [];
 
+    // Require behaviorProfile for sorts that depend on behavior metrics
+    const behaviorSorts = ['most_active', 'longest_holders', 'interesting'];
+    if (behaviorSorts.includes(sort)) {
+      andFilters.push({ behaviorProfile: { isNot: null } });
+
+      // For specific sorts, ensure key fields are not null
+      if (sort === 'longest_holders') {
+        andFilters.push({
+          behaviorProfile: {
+            is: {
+              medianHoldTime: { not: null },
+            },
+          },
+        });
+      }
+      if (sort === 'interesting') {
+        andFilters.push({
+          behaviorProfile: {
+            is: {
+              flipperScore: { not: null },
+            },
+          },
+        });
+      }
+      if (sort === 'most_active') {
+        andFilters.push({
+          behaviorProfile: {
+            is: {
+              totalTradeCount: { not: null },
+            },
+          },
+        });
+      }
+    }
+
     if (typeof minTradeCount === 'number' && minTradeCount > 0) {
       where.behaviorProfile = { is: { totalTradeCount: { gte: minTradeCount } } };
     }

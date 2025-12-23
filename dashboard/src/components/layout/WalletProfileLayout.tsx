@@ -1063,64 +1063,18 @@ export default function WalletProfileLayout({
               <>
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
-                    {/* Use WalletBadge component */}
-                    <WalletBadge address={walletAddress} className="text-sm" />
-                    
-                    {/* Display nickname if available */}
-                    {currentFavoriteData?.nickname && (
-                      <span className="text-sm font-medium text-muted-foreground">
-                        ({currentFavoriteData.nickname})
-                      </span>
-                    )}
-                    
-                    {(
-                      <>
-                        <TooltipProvider delayDuration={100}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                onClick={handleToggleFavorite} 
-                                disabled={isTogglingFavorite}
-                                className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
-                              >
-                                <Star 
-                                  className={`h-3.5 w-3.5 md:h-4 md:w-4 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} 
-                                />
-                                <span className="sr-only">{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</span>
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom">
-                              <p>{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                        
-                        {/* Edit button for favorites */}
-                        {isCurrentWalletFavorite && (
-                          <TooltipProvider delayDuration={100}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  onClick={openEditModal} 
-                                  className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
-                                >
-                                  <Edit2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                                  <span className="sr-only">Edit wallet data</span>
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="bottom">
-                                <p>Edit wallet data</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                      </>
-                    )}
-                    
+                    {/* Use WalletBadge component with favorite data, toggle, and edit */}
+                    <WalletBadge
+                      address={walletAddress}
+                      className="text-sm"
+                      favoriteData={currentFavoriteData}
+                      isFavorite={isCurrentWalletFavorite}
+                      onFavoriteToggle={handleToggleFavorite}
+                      onEdit={openEditModal}
+                      showActions={true}
+                      showMetrics={false}
+                    />
+
                     {/* High-frequency wallet indicator */}
                     {isValidData && walletSummary?.classification === 'high_frequency' && (
                       <TooltipProvider delayDuration={100}>
@@ -1170,62 +1124,18 @@ export default function WalletProfileLayout({
             {walletAddress && !isHeaderExpanded && (
               <div className="w-full flex items-center justify-between gap-2 py-1">
                 <div className="flex items-center gap-1 flex-shrink min-w-0">
-                  {/* Use WalletBadge component for collapsed state */}
-                  <WalletBadge address={walletAddress} className="text-xs" />
-                  
-                  {/* Display nickname if available */}
-                  {currentFavoriteData?.nickname && (
-                    <span className="text-xs font-medium text-muted-foreground truncate">
-                      ({currentFavoriteData.nickname})
-                    </span>
-                  )}
-                  
-                  {(
-                    <>
-                      <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={handleToggleFavorite}
-                              disabled={isTogglingFavorite}
-                              className="h-6 w-6 flex-shrink-0"
-                            >
-                              <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
-                              <span className="sr-only">{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            <p>{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                  {/* Use WalletBadge component for collapsed state with favorite data, toggle, and edit */}
+                  <WalletBadge
+                    address={walletAddress}
+                    className="text-xs"
+                    favoriteData={currentFavoriteData}
+                    isFavorite={isCurrentWalletFavorite}
+                    onFavoriteToggle={handleToggleFavorite}
+                    onEdit={openEditModal}
+                    showActions={true}
+                    showMetrics={false}
+                  />
 
-                      {/* Edit button for favorites */}
-                      {isCurrentWalletFavorite && (
-                        <TooltipProvider delayDuration={100}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={openEditModal}
-                                className="h-6 w-6 flex-shrink-0"
-                              >
-                                <Edit2 className="h-3 w-3" />
-                                <span className="sr-only">Edit wallet data</span>
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom">
-                              <p>Edit wallet data</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </>
-                  )}
-                  
                   {/* High-frequency wallet indicator (collapsed) */}
                   {isValidData && walletSummary?.classification === 'high_frequency' && (
                     <TooltipProvider delayDuration={100}>

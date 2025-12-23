@@ -44,6 +44,13 @@
 2. **Holder Classification** – Edge case: better heuristics for holders without exits (needs partner input on logic)
 
 ### ✅ Recently Completed
+- **WalletBadge Component Complete** (2025-12-23) – Fully synchronized favorite system:
+  - Added nickname/tags display in both inline and card variants
+  - Integrated Edit button for favorites management
+  - All profile/solscan links open in new tabs (no workflow disruption)
+  - Removed duplicate buttons from WalletProfileLayout
+  - Professional add/remove flow with modals everywhere
+  - Single source of truth: useFavorites() hook
 - **Discover Page Data Quality Fix** (2025-12-23) – Fixed fundamental data issues:
   - Trading style filter now works (changed from exact match to CONTAINS)
   - Exposed unrealized PnL and buy/sell counts from database (data existed, wasn't shown)
@@ -59,20 +66,22 @@
 - **Time Unit Disambiguation** – VERIFIED: All time formatting uses unambiguous suffixes (min, mo, h, d, s)
 - **WebSocket Refactor** – User-scoped rooms, merged to `pretty` branch
 
-### 📋 Ready to Start (6 tasks)
+### 📋 Current Priority (IN PROGRESS)
+**Wallet Classification System Overhaul** – Fix confusing/contradictory classifications:
+   - Current mess: "DAY_TRADER (ACCUMULATOR)", "SWING_TRADER (DISTRIBUTOR)", "POSITION_TRADER (DISTRIBUTOR)"
+   - Holder profiles show wrong "exited timings" for pure holders (never exited)
+   - Need proper holder types: 1-2 token snipers, multi-token holders, large unrealized PnL
+   - Investigate all classification sources (BehaviorService, frontend, discover.service.ts)
+   - Define clear, non-contradictory categories
+   - Special focus: Holders with 1 token, 21+ days, waiting for pump (currently "unknown" - should be classified!)
+
+### 📋 Ready to Start (3 tasks)
 4. **Fast Exit Metric Clarification** – Show median + avg (not redundant), add tooltip
 5. **Discover Page Redesign** – Add featured wallets, tool showcase (layout exists)
 6. **Job History Page** – Timeline with re-run capability, hyperlinks to results
 7. **Onboarding Flow** – Post-registration checklist (verify email → explore tools)
-8. **Enhanced WalletBadge Component** – Create reusable wallet badge (mirror TokenBadge pattern):
-   - Inline variant (2-row compact) for tables
-   - Card variant for profile pages
-   - Show: address (clickable/copyable), trades (buy↑/sell↓), PnL (labeled as realized/unrealized), win rate, last active
-   - Action icons inline (copy address by clicking it, solscan link, profile link)
-   - Replaces current simple WalletBadge + frees up table columns (Recency, separate Trades/PnL/Win columns)
-   - See: `dashboard/src/components/shared/TokenBadge.tsx` as reference pattern
-   - Design doc: `.ai/context/wallet_badge_and_categorization_refactor.md`
-9. **Categorization System Analysis** (research task) – Investigate and document current categorization chaos:
+8. ~~**Enhanced WalletBadge Component**~~ – ✅ DONE (2025-12-23)
+9. **Categorization System Documentation** (research task) – Document current categorization:
    - Analyze how each component currently categorizes wallets (Discover, Holder Profiles, Analytics)
    - Document `categorize-holdings.ts` logic (FIFO weighted hold time, time buckets) and why it's not used
    - Identify ad-hoc categories invented per-component (PARTIAL_HOLDER, ACCUMULATOR, etc.)

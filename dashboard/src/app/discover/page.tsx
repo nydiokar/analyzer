@@ -2,18 +2,18 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { format, formatDistanceToNow } from "date-fns";
 import {
   ArrowRight,
-  Calendar,
+  ExternalLink,
   Info,
   Loader2,
   RefreshCcw,
 } from "lucide-react";
-
+import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { WalletBadge } from "@/components/shared/WalletBadge";
 import { Badge } from "@/components/ui/badge";
+import { useFavorites } from "@/hooks/useFavorites";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -25,9 +25,21 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { fetcher } from "@/lib/fetcher";
 import { cn } from "@/lib/utils";
 import { DiscoverWallet, DiscoverWalletsResponse } from "@/types/discover";
+import { FavoriteWallet } from "@/types/api";
+import QuickAddForm from "@/components/layout/QuickAddForm";
 
 const PAGE_SIZE = 24;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -42,15 +54,12 @@ const sortOptions = [
 
 const styleOptions = [
   { value: 'any', label: 'Any style' },
-  { value: 'SNIPER', label: 'Sniper' },
-  { value: 'SCALPER', label: 'Scalper' },
-  { value: 'FLIPPER', label: 'Flipper' },
-  { value: 'MOMENTUM', label: 'Momentum' },
-  { value: 'INTRADAY', label: 'Intraday' },
-  { value: 'DAY_TRADER', label: 'Day Trader' },
-  { value: 'SWING', label: 'Swing' },
-  { value: 'POSITION', label: 'Position' },
-  { value: 'HOLDER', label: 'Holder' },
+  { value: 'sniper', label: 'Sniper' },
+  { value: 'scalper', label: 'Scalper' },
+  { value: 'flipper', label: 'Flipper' },
+  { value: 'swing', label: 'Swing' },
+  { value: 'position', label: 'Position' },
+  { value: 'holder', label: 'Holder' },
 ] as const;
 
 const holdBiasOptions = [
@@ -84,35 +93,39 @@ const formatLastActive = (isoString?: string | null) => {
   if (!isoString) return { text: "No activity yet", tooltip: null };
   const date = new Date(isoString);
   if (Number.isNaN(date.getTime())) return { text: "No activity yet", tooltip: null };
+  const distance = new Date().getTime() - date.getTime();
+  const seconds = Math.floor(distance / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
 
-  return {
-    text: formatDistanceToNow(date, { addSuffix: true }),
-    tooltip: format(date, "PPpp"),
-  };
+  let text = "No activity yet";
+  if (days > 0) text = `${days}d ago`;
+  else if (hours > 0) text = `${hours}h ago`;
+  else if (minutes > 0) text = `${minutes}m ago`;
+  else text = "just now";
+
+  return { text, tooltip: null };
 };
 
-const formatUpdatedAgo = (wallet: DiscoverWallet) => {
-  if (wallet.metrics.stalenessMinutes !== null && wallet.metrics.stalenessMinutes !== undefined) {
-    const minutes = Math.round(wallet.metrics.stalenessMinutes);
-    if (minutes < 60) return { label: `${minutes}m ago`, status: "fresh" as const };
-    const hours = Math.round(minutes / 60);
-    if (hours < 48) return { label: `${hours}h ago`, status: hours <= 12 ? "fresh" as const : "ok" as const };
-    return { label: `${Math.round(hours / 24)}d ago`, status: "stale" as const };
-  }
+const formatSOL = (val: number): string => {
+  const absVal = Math.abs(val);
+  const sign = val >= 0 ? "+" : "-";
 
-  if (wallet.lastUpdatedAt) {
-    const date = new Date(wallet.lastUpdatedAt);
-    if (!Number.isNaN(date.getTime())) {
-      return { label: formatDistanceToNow(date, { addSuffix: true }), status: "ok" as const };
-    }
+  if (absVal >= 1000000) {
+    return `${sign}${(absVal / 1000000).toFixed(1)}M`;
+  } else if (absVal >= 1000) {
+    return `${sign}${(absVal / 1000).toFixed(1)}k`;
+  } else if (absVal >= 100) {
+    return `${sign}${absVal.toFixed(0)}`;
+  } else {
+    return `${sign}${absVal.toFixed(2)}`;
   }
-
-  return { label: "Unknown recency", status: "stale" as const };
 };
 
 const formatPnLValue = (val?: number | null) => {
   if (val === null || val === undefined) return "—";
-  return `${val >= 0 ? "+" : ""}${val.toFixed(2)}`;
+  return formatSOL(val);
 };
 
 const getBehaviorPresentation = (wallet: DiscoverWallet) => {
@@ -204,6 +217,20 @@ export default function DiscoverPage() {
   const [error, setError] = useState<string | null>(null);
   const [activePreset, setActivePreset] = useState<string | null>(null);
 
+  // Get user's favorite wallets
+  const { favorites, mutate: mutateFavorites } = useFavorites();
+  const favoriteAddresses = useMemo(() => new Set(favorites.map(f => f.walletAddress)), [favorites]);
+  const favoritesMap = useMemo(() => {
+    const map = new Map();
+    favorites.forEach(fav => map.set(fav.walletAddress, fav));
+    return map;
+  }, [favorites]);
+
+  // Favorite management modals
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [currentWallet, setCurrentWallet] = useState<{ address: string; nickname?: string } | null>(null);
+
   const cacheKey = useMemo(
     () =>
       `discover:${sort}:${page}:${minTradeCount || 'any'}:${style !== 'any' ? style : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${PAGE_SIZE}`,
@@ -259,6 +286,64 @@ export default function DiscoverPage() {
     }
     fetchWallets();
   }, [cacheKey, fetchWallets]);
+
+  // Handle favorite add - opens modal
+  const handleAddFavorite = (address: string) => {
+    setCurrentWallet({ address });
+    setShowQuickAddModal(true);
+  };
+
+  // Handle favorite remove - opens confirmation dialog
+  const handleRemoveFavorite = (address: string, nickname?: string) => {
+    setCurrentWallet({ address, nickname });
+    setShowDeleteConfirm(true);
+  };
+
+  // Quick add save handler
+  const handleQuickAddSave = async (formData: { nickname: string; tags: string[]; collections: string[] }) => {
+    if (!currentWallet) return;
+    try {
+      await fetcher('/users/me/favorites', {
+        method: 'POST',
+        body: JSON.stringify({
+          walletAddress: currentWallet.address,
+          nickname: formData.nickname.trim() || undefined,
+          tags: formData.tags,
+          collections: formData.collections,
+        }),
+      });
+      await mutateFavorites();
+      toast.success("Added to favorites", {
+        description: `${formData.nickname || 'Wallet'} added to your favorites.`,
+      });
+      // Close modal and clear state
+      setShowQuickAddModal(false);
+      setCurrentWallet(null);
+    } catch (err: any) {
+      toast.error("Failed to add favorite", {
+        description: err.message || "An unexpected error occurred.",
+      });
+    }
+  };
+
+  // Confirm remove handler
+  const confirmRemoveFavorite = async () => {
+    if (!currentWallet) return;
+    try {
+      await fetcher(`/users/me/favorites/${currentWallet.address}`, { method: 'DELETE' });
+      await mutateFavorites();
+      toast.success("Removed from favorites", {
+        description: `${currentWallet.nickname || 'Wallet'} removed from favorites.`,
+      });
+      // Close dialog and clear state
+      setShowDeleteConfirm(false);
+      setCurrentWallet(null);
+    } catch (err: any) {
+      toast.error("Failed to remove favorite", {
+        description: err.message || "An unexpected error occurred.",
+      });
+    }
+  };
 
   const applyPreset = (preset: 'hyper-flipper' | 'balanced-fast' | 'patient-holder') => {
     setActivePreset(preset);
@@ -438,14 +523,27 @@ export default function DiscoverPage() {
         )}
 
         {!loading && wallets.length > 0 && (
-          <div className="border rounded-lg bg-card overflow-hidden">
+          <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="border-b bg-muted/50">
+                <thead className="border-b bg-gradient-to-r from-muted/60 to-muted/40">
                   <tr className="align-bottom">
-                    <th className="text-left p-3 font-medium text-sm">Wallet</th>
-                    <th className="text-left p-3 font-medium text-sm">Recency</th>
-                    <th className="text-left p-3 font-medium text-sm">
+                    <th className="text-left px-3 py-2 font-medium text-sm">
+                      <div className="inline-flex items-center gap-1">
+                        Wallet
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              Shows wallet address with key metrics: trades (buy↑/sell↓), win rate and last activity.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    </th>
+                    <th className="text-left px-3 py-2 font-medium text-sm">
                       <div className="inline-flex items-center gap-1">
                         Behavior tag
                         <TooltipProvider>
@@ -460,7 +558,7 @@ export default function DiscoverPage() {
                         </TooltipProvider>
                       </div>
                     </th>
-                    <th className="text-left p-3 font-medium text-sm">
+                    <th className="text-left px-3 py-2 font-medium text-sm">
                       <div className="inline-flex items-center gap-1">
                         Trading style
                         <TooltipProvider>
@@ -473,8 +571,7 @@ export default function DiscoverPage() {
                         </TooltipProvider>
                       </div>
                     </th>
-                    <th className="text-right p-3 font-medium text-sm">Trades</th>
-                    <th className="text-right p-3 font-medium text-sm">
+                    <th className="text-right px-3 py-2 font-medium text-sm">
                       <div className="inline-flex items-center gap-1 justify-end">
                         Tokens
                         <TooltipProvider>
@@ -487,15 +584,31 @@ export default function DiscoverPage() {
                         </TooltipProvider>
                       </div>
                     </th>
-                    <th className="text-right p-3 font-medium text-sm">Hold</th>
-                    <th className="text-right p-3 font-medium text-sm">PnL</th>
-                    <th className="text-right p-3 font-medium text-sm">Win</th>
-                    <th className="text-right p-3 font-medium text-sm"></th>
+                    <th className="text-right px-3 py-2 font-medium text-sm">
+                      <div className="inline-flex items-center gap-1 justify-end">
+                        PnL
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>Total PnL with breakdown (R = realized, U = unrealized)</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {wallets.map((wallet) => (
-                    <WalletRow key={wallet.walletAddress} wallet={wallet} />
+                    <WalletRow
+                      key={wallet.walletAddress}
+                      wallet={wallet}
+                      isFavorite={favoriteAddresses.has(wallet.walletAddress)}
+                      favoriteData={favoritesMap.get(wallet.walletAddress)}
+                      onFavoriteAdd={handleAddFavorite}
+                      onFavoriteRemove={handleRemoveFavorite}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -549,80 +662,116 @@ export default function DiscoverPage() {
           </div>
         )}
       </div>
+
+      {/* Quick Add Modal */}
+      {currentWallet && (
+        <QuickAddForm
+          isOpen={showQuickAddModal}
+          onClose={() => setShowQuickAddModal(false)}
+          onSave={handleQuickAddSave}
+          walletAddress={currentWallet.address}
+          title="Add to Favorites"
+        />
+      )}
+
+      {/* Remove Confirmation Dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove from Favorites?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove{' '}
+              <span className="font-medium">{currentWallet?.nickname || 'this wallet'}</span>{' '}
+              from your favorites? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmRemoveFavorite}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }
 
-function WalletRow({ wallet }: { wallet: DiscoverWallet }) {
+function WalletRow({
+  wallet,
+  isFavorite,
+  favoriteData,
+  onFavoriteAdd,
+  onFavoriteRemove
+}: {
+  wallet: DiscoverWallet;
+  isFavorite: boolean;
+  favoriteData?: FavoriteWallet;
+  onFavoriteAdd: (address: string) => void;
+  onFavoriteRemove: (address: string, nickname?: string) => void;
+}) {
   const reasonMeta = getBehaviorPresentation(wallet);
   const reasonColor = reasonColorMap[wallet.reasonCode] || reasonColorMap.INTERESTING;
-  const lastActive = formatLastActive(wallet.metrics.lastActiveAt);
-  const updatedAgo = formatUpdatedAgo(wallet);
-
-  // Trades with buy/sell breakdown
-  const trades = wallet.metrics.totalTrades ?? wallet.metrics.totalExecutedSwaps;
-  const buys = wallet.metrics.totalBuys ?? null;
-  const sells = wallet.metrics.totalSells ?? null;
-  const tradesDisplay = trades === null || trades === undefined ? "—" : trades.toLocaleString();
-  const hasBuySellData = buys !== null && sells !== null;
-
-  // PnL - prioritize unrealized for holders
-  const unrealizedPnl = wallet.metrics.unrealizedPnl;
-  const realizedPnl = wallet.metrics.realizedPnl;
-  const hasUnrealizedPnl = unrealizedPnl !== null && unrealizedPnl !== undefined;
-
-  const pnlValue = hasUnrealizedPnl ? unrealizedPnl : realizedPnl;
-  const pnlLabel = hasUnrealizedPnl ? "unrealized" : "realized";
-  const pnlDisplay =
-    pnlValue === null || pnlValue === undefined
-      ? "—"
-      : `${formatPnLValue(pnlValue)} SOL`;
-  const pnlClass =
-    pnlValue !== null && pnlValue !== undefined && pnlValue > 0
-      ? "text-green-600"
-      : pnlValue !== null && pnlValue !== undefined && pnlValue < 0
-        ? "text-red-600"
-        : "";
-
-  const winRateDisplay =
-    wallet.metrics.winRatePercent !== null && wallet.metrics.winRatePercent !== undefined
-      ? `${Math.round(wallet.metrics.winRatePercent)}%`
-      : "—";
   const holdDisplay = formatHours(wallet.metrics.medianHoldHours ?? wallet.metrics.averageHoldHours);
 
+  // PnL - show BOTH realized and unrealized
+  const realizedPnl = wallet.metrics.realizedPnl;
+  const unrealizedPnl = wallet.metrics.unrealizedPnl;
+
+  const hasRealized = realizedPnl !== null && realizedPnl !== undefined;
+  const hasUnrealized = unrealizedPnl !== null && unrealizedPnl !== undefined;
+
+  // Calculate total
+  const totalPnl = (hasRealized ? realizedPnl : 0) + (hasUnrealized ? unrealizedPnl : 0);
+  const hasPnl = hasRealized || hasUnrealized;
+
+  const totalPnlClass = hasPnl && totalPnl > 0
+    ? "text-green-600 dark:text-green-500"
+    : hasPnl && totalPnl < 0
+      ? "text-red-600 dark:text-red-500"
+      : "";
+
+  const totalPnlBgClass = hasPnl && totalPnl > 0
+    ? "bg-green-50 dark:bg-green-950/20"
+    : hasPnl && totalPnl < 0
+      ? "bg-red-50 dark:bg-red-950/20"
+      : "";
+
+  // Handle favorite toggle - call appropriate handler based on current state
+  const handleFavoriteToggle = () => {
+    if (isFavorite) {
+      onFavoriteRemove(wallet.walletAddress, favoriteData?.nickname);
+    } else {
+      onFavoriteAdd(wallet.walletAddress);
+    }
+  };
+
   return (
-    <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors align-top">
-      <td className="p-3">
-        <div className="space-y-2">
-          <WalletBadge address={wallet.walletAddress} className="text-xs px-2 py-1 bg-muted/80 hover:bg-muted" />
-        </div>
+    <tr className="border-b last:border-0 hover:bg-accent/30 transition-all duration-150 align-top group">
+      <td className="px-3 py-2.5">
+        <WalletBadge
+          address={wallet.walletAddress}
+          variant="inline"
+          size="s"
+          isFavorite={isFavorite}
+          favoriteData={favoriteData}
+          onFavoriteToggle={handleFavoriteToggle}
+          metrics={{
+            totalBuys: wallet.metrics.totalBuys,
+            totalSells: wallet.metrics.totalSells,
+            winRatePercent: wallet.metrics.winRatePercent,
+            lastActiveAt: wallet.metrics.lastActiveAt,
+          }}
+        />
       </td>
-      <td className="p-3">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Calendar className="h-3 w-3 flex-shrink-0" />
-            <span>{lastActive.text}</span>
-          </div>
-          <div
-            className={cn(
-              "flex items-center gap-1.5 text-xs font-medium",
-              updatedAgo.status === "fresh"
-                ? "text-emerald-600"
-                : updatedAgo.status === "stale"
-                  ? "text-amber-600"
-                  : "text-muted-foreground"
-            )}
-          >
-            <RefreshCcw className="h-3 w-3 flex-shrink-0" />
-            <span>upd. {updatedAgo.label}</span>
-          </div>
-        </div>
-      </td>
-      <td className="p-3">
+      <td className="px-3 py-2.5">
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Badge variant="outline" className={`text-[11px] font-medium ${reasonColor}`}>
+              <Badge variant="outline" className={`text-[11px] font-medium ${reasonColor} transition-all group-hover:shadow-sm`}>
                 {reasonMeta.label}
               </Badge>
             </TooltipTrigger>
@@ -633,49 +782,36 @@ function WalletRow({ wallet }: { wallet: DiscoverWallet }) {
           </Tooltip>
         </TooltipProvider>
       </td>
-      <td className="p-3 align-top">
+      <td className="px-3 py-2.5 align-top">
         <div className="space-y-0.5">
-          <div className="text-sm font-medium">{wallet.metrics.tradingStyle || "Unknown"}</div>
+          <div className="text-sm font-semibold text-foreground">{wallet.metrics.tradingStyle || "Unknown"}</div>
           <div className="text-xs text-muted-foreground">
             {holdDisplay} avg hold
           </div>
         </div>
       </td>
-      <td className="p-3 text-right align-top">
-        <div className="flex flex-col items-end">
-          <div className="text-sm font-medium">{tradesDisplay}</div>
-          {hasBuySellData && (
-            <div className="text-xs text-muted-foreground">
-              <span className="text-green-600">{buys}↑</span>
-              {" / "}
-              <span className="text-red-600">{sells}↓</span>
-            </div>
-          )}
-        </div>
-      </td>
-      <td className="p-3 text-right text-sm align-top">
+      <td className="px-3 py-2.5 text-right text-sm align-top font-medium">
         {wallet.metrics.uniqueTokensTraded ?? "—"}
       </td>
-      <td className="p-3 text-right text-sm">
-        {holdDisplay}
-      </td>
-      <td className="p-3 text-right align-top">
-        <div className="flex flex-col items-end">
-          <div className={cn("text-sm font-medium", pnlClass)}>{pnlDisplay}</div>
-          {pnlValue !== null && pnlValue !== undefined && (
-            <div className="text-xs text-muted-foreground">{pnlLabel}</div>
-          )}
-        </div>
-      </td>
-      <td className="p-3 text-right text-sm">
-        {winRateDisplay}
-      </td>
-      <td className="p-3 text-right">
-        <Button asChild variant="ghost" size="sm">
-          <Link href={`/wallets/${wallet.walletAddress}`}>
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </Button>
+      <td className="px-3 py-2.5 text-right align-top">
+        {hasPnl ? (
+          <div className={cn("inline-flex flex-col items-end gap-0.5 px-2.5 py-1 rounded-md transition-all", totalPnlBgClass)}>
+            <div className={cn("text-sm font-bold tabular-nums", totalPnlClass)}>
+              {formatSOL(totalPnl)} SOL
+            </div>
+            <div className="text-xs text-muted-foreground tabular-nums">
+              {hasRealized && hasUnrealized ? (
+                <>{formatPnLValue(realizedPnl)}R / {formatPnLValue(unrealizedPnl)}U</>
+              ) : hasRealized ? (
+                <>realized</>
+              ) : (
+                <>unrealized</>
+              )}
+            </div>
+          </div>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
       </td>
     </tr>
   );
