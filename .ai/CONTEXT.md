@@ -92,7 +92,11 @@
 
 ## Next Session Quick Start
 
-**Current Priority**: Test WebSocket refactor + centralized architecture (see testing section above)
+**Current Priority**: Fix several issues: 
+
+1. CuPrb8rBk8UBpz8vQ4iDiGivjgKG1VGLc5Lvidx6HMwj - this address shows he lost 100% but onchain I see always at around break-even - investigate
+2. fix absurdly large amounts of sol txs - 20k sol, we currently have cap for some reason - important to fix - we skip analysis of super whales. 
+3. Mapper is missing plain txs where it's not swap - if it's wallet to wallet. 
 
 **Recent Changes (2025-12-18)**:
 - ✅ Fully centralized job event architecture through bridge
