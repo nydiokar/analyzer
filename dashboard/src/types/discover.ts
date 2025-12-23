@@ -1,7 +1,10 @@
 export interface DiscoverWalletMetrics {
   realizedPnl?: number | null;
+  unrealizedPnl?: number | null;
   winRatePercent?: number | null;
   totalTrades?: number | null;
+  totalBuys?: number | null;
+  totalSells?: number | null;
   totalExecutedSwaps?: number | null;
   averageHoldHours?: number | null;
   medianHoldHours?: number | null;

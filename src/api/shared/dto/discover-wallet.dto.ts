@@ -86,10 +86,19 @@ export class DiscoverWalletMetricsDto {
   realizedPnl?: number | null;
 
   @ApiProperty({ required: false, nullable: true })
+  unrealizedPnl?: number | null;
+
+  @ApiProperty({ required: false, nullable: true })
   winRatePercent?: number | null;
 
   @ApiProperty({ required: false, nullable: true })
   totalTrades?: number | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  totalBuys?: number | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  totalSells?: number | null;
 
   @ApiProperty({ required: false, nullable: true })
   totalExecutedSwaps?: number | null;

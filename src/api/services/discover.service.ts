@@ -57,11 +57,11 @@ export class DiscoverService {
     }
 
     if (style) {
-      const normalizedStyle = style.toLowerCase();
+      const normalizedStyle = style.toUpperCase();
       where.behaviorProfile = {
         is: {
           ...(where.behaviorProfile?.is || {}),
-          tradingStyle: { equals: normalizedStyle, mode: 'insensitive' },
+          tradingStyle: { contains: normalizedStyle, mode: 'insensitive' },
         },
       };
     }
@@ -177,8 +177,11 @@ export class DiscoverService {
 
     const reason = this.deriveReason({
       realizedPnl: pnl?.realizedPnl ?? null,
+      unrealizedPnl: pnl?.unrealizedPnl ?? null,
       winRate: advanced?.tokenWinRatePercent ?? null,
       totalTrades: behavior?.totalTradeCount ?? pnl?.totalExecutedSwapsCount ?? null,
+      totalBuys: behavior?.totalBuyCount ?? null,
+      totalSells: behavior?.totalSellCount ?? null,
       medianHoldHours: behavior?.medianHoldTime ?? null,
       lastActiveAt,
       flipperScore: behavior?.flipperScore ?? null,
@@ -193,8 +196,11 @@ export class DiscoverService {
       lastUpdatedAt,
       metrics: {
         realizedPnl: pnl?.realizedPnl ?? null,
+        unrealizedPnl: pnl?.unrealizedPnl ?? null,
         winRatePercent: advanced?.tokenWinRatePercent ?? null,
         totalTrades: behavior?.totalTradeCount ?? pnl?.totalExecutedSwapsCount ?? null,
+        totalBuys: behavior?.totalBuyCount ?? null,
+        totalSells: behavior?.totalSellCount ?? null,
         totalExecutedSwaps: pnl?.totalExecutedSwapsCount ?? null,
         averageHoldHours: behavior?.averageFlipDurationHours ?? null,
         medianHoldHours: behavior?.medianHoldTime ?? null,
@@ -210,8 +216,11 @@ export class DiscoverService {
 
   private deriveReason(params: {
     realizedPnl: number | null;
+    unrealizedPnl: number | null;
     winRate: number | null;
     totalTrades: number | null;
+    totalBuys: number | null;
+    totalSells: number | null;
     medianHoldHours: number | null;
     lastActiveAt: Date | null;
     flipperScore: number | null;
@@ -220,8 +229,11 @@ export class DiscoverService {
   }): { text: string; code: string } {
     const {
       realizedPnl,
+      unrealizedPnl,
       winRate,
       totalTrades,
+      totalBuys,
+      totalSells,
       medianHoldHours,
       lastActiveAt,
       flipperScore,
@@ -230,36 +242,62 @@ export class DiscoverService {
     } = params;
     const now = Date.now();
 
+    // Holder-specific tags (high priority)
+    const buys = totalBuys ?? 0;
+    const sells = totalSells ?? 0;
+
+    // Pure accumulator (only buys, no sells)
+    if (buys > 10 && sells === 0 && unrealizedPnl !== null) {
+      const pnlText = unrealizedPnl >= 0 ? `+${unrealizedPnl.toFixed(1)}` : unrealizedPnl.toFixed(1);
+      return { code: 'ACCUMULATOR', text: `Heavy accumulator · ${buys} buys / 0 sells · ${pnlText} SOL unrealized` };
+    }
+
+    // Mostly holder (very few sells compared to buys)
+    if (buys > 5 && sells > 0 && sells < 3 && unrealizedPnl !== null) {
+      return { code: 'PARTIAL_HOLDER', text: `Profit taker · ${sells} exits · still holding positions` };
+    }
+
+    // Trading style based tags
     if (tradingStyle) {
       const normalized = tradingStyle.toUpperCase();
+
+      // Fast traders
       if (['FLIPPER', 'SCALPER', 'SNIPER'].includes(normalized) && flipperScore && flipperScore >= 60) {
-        return { code: 'FLIPPER', text: `Patterned flipper · score ${Math.round(flipperScore)}` };
+        return { code: 'FLIPPER', text: `Fast trader · ${Math.round(flipperScore)} flipper score · ${buys ?? 0}↑/${sells ?? 0}↓` };
       }
+
+      // Holders with completed cycles
       if (['POSITION', 'HOLDER'].includes(normalized) && medianHoldHours && medianHoldHours >= 72) {
-        return { code: 'HOLDER', text: `Patient holder · ~${Math.round(medianHoldHours)}h median hold` };
+        return { code: 'HOLDER', text: `Patient holder · ~${Math.round(medianHoldHours / 24)}d median hold` };
       }
+
+      // Swing/position traders
       if (['SWING', 'POSITION'].includes(normalized) && medianHoldHours && medianHoldHours >= 24) {
-        return { code: 'HOLDER', text: `Swing/position bias · ~${Math.round(medianHoldHours)}h holds` };
+        return { code: 'SWING', text: `Swing trader · ~${Math.round(medianHoldHours)}h holds` };
       }
     }
 
+    // Flipper score based
     if (flipperScore !== null && flipperScore >= 60 && (totalTrades ?? 0) >= 20) {
-      return { code: 'FLIPPER', text: `Consistent timing · flipper score ${Math.round(flipperScore)}` };
+      return { code: 'FLIPPER', text: `Quick rotations · score ${Math.round(flipperScore)}` };
     }
 
+    // Token explorer
     if (uniqueTokensTraded !== null && uniqueTokensTraded >= 25) {
-      return { code: 'EXPLORER', text: `Token explorer · ${uniqueTokensTraded} tokens traded` };
+      return { code: 'EXPLORER', text: `Token explorer · ${uniqueTokensTraded} tokens sampled` };
     }
 
+    // Recent activity
     if (lastActiveAt && now - lastActiveAt.getTime() <= 1000 * 60 * 60 * 48) {
-      return { code: 'RECENT', text: 'Recent surge · active in last 48h' };
+      return { code: 'RECENT', text: 'Warming up · active in last 48h' };
     }
 
+    // Positive PnL
     if (realizedPnl !== null && realizedPnl > 0) {
-      return { code: 'PNL', text: `Positive PnL · ${realizedPnl.toFixed(1)} SOL realized` };
+      return { code: 'PNL', text: `Profitable · ${realizedPnl.toFixed(1)} SOL realized` };
     }
 
-    return { code: 'INTERESTING', text: 'Interesting mix of activity and recency' };
+    return { code: 'INTERESTING', text: 'Curated pick · interesting activity pattern' };
   }
 
   private buildHoldBiasCondition(
