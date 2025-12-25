@@ -44,6 +44,15 @@
 2. **Holder Classification** – Edge case: better heuristics for holders without exits (needs partner input on logic)
 
 ### ✅ Recently Completed
+- **Classification Refactor - LOW LAYER Complete** (2025-12-25) – Days 1-4 finished:
+  - Schema migration: Added 5 new classification fields (speedCategory, flowPattern, strategyType, velocityScore, medianActiveHoldingHours)
+  - New type system: 3 enums (SpeedCategory, FlowPattern, StrategyType) with 8, 6, and 9 categories respectively
+  - Centralized thresholds: All classification logic uses single source of truth in constants.ts
+  - Analyzer refactor: 4 new helper functions compute classification fields with holder bypass logic
+  - Holder bypass implemented: Wallets with 3+ tokens held 24h+ OR 50+ SOL position bypass "Low Activity" gate
+  - Backward compatible: Old fields (tradingStyle, flipperScore) still populated
+  - Build verified: TypeScript compiles without errors
+  - Implementation docs: `.ai/context/classification/` (4 reference files)
 - **WalletBadge Component Complete** (2025-12-23) – Fully synchronized favorite system:
   - Added nickname/tags display in both inline and card variants
   - Integrated Edit button for favorites management
@@ -71,6 +80,7 @@
 **Goal**: Centralize classification logic in `analyzer.ts`, store explicit enums in DB, expose via API
 
 **Sprint Plan** (5-7 days, bottom-up: LOW → MID → HIGH layers)
+**Progress**: ✅ Day 1-4 Complete | 🔄 Day 5 Next
 
 **Reference docs**: See `.ai/context/classification/` folder (6 files):
 - `classification_target_state.md` - What we're building (the contract)
@@ -80,47 +90,58 @@
 
 ---
 
-**Day 1-2: LOW LAYER (Data & Schema)** - 6 files, blocking
+**✅ Day 1-2: LOW LAYER (Data & Schema)** - COMPLETED 2025-12-25
 
 Guide: `component_impact_map.md` lines 73-85
 
-1. **Schema** (`prisma/schema.prisma`):
-   - Add: `speedCategory String?`, `flowPattern String?`, `strategyType String`
-   - Add: `tokensWithOnlyBuys Int`, `medianActiveHoldingHours Float?`
-   - Add indexes on strategyType, speedCategory
-   - Run migration
+1. ✅ **Schema** (`prisma/schema.prisma`):
+   - Added: `speedCategory String?`, `flowPattern String?`, `strategyType String?`
+   - Added: `velocityScore Int?`, `tokensWithOnlyBuys Int`, `medianActiveHoldingHours Float?`
+   - Added indexes on strategyType, speedCategory
+   - Migration applied: `20251225144120_add_classification_fields`
 
-2. **Types** (`src/types/behavior.ts` - 41 usages):
-   - Keep: `HolderBehaviorType` enum (SNIPER...HOLDER) - this is speedCategory
-   - Rename: `BehavioralPattern.HOLDER` → `BUY_ONLY` (avoid collision)
-   - Add: `FlowPattern` enum, `StrategyType` enum
-   - Export all from one place
+2. ✅ **Types** (`src/types/behavior.ts` - 41 usages):
+   - Added: `SpeedCategory` type (SNIPER...HOLDER)
+   - Added: `FlowPattern` type (BUY_ONLY, SELL_ONLY, ACCUMULATOR, DISTRIBUTOR, BALANCED, MIXED)
+   - Added: `StrategyType` type (9 categories: FAST_TRADER, DAY_TRADER, ..., LOW_ACTIVITY)
+   - Updated BehavioralMetrics interface with new optional fields
 
-3. **Constants** (`src/core/analysis/behavior/constants.ts` - 68 usages):
-   - Centralize thresholds: SPEED_THRESHOLDS, FLOW_THRESHOLDS, HOLDER_BYPASS
-   - Reference: `classification_target_state.md` lines 70-109
+3. ✅ **Constants** (`src/core/analysis/behavior/constants.ts` - 68 usages):
+   - Added: SPEED_THRESHOLDS (8 levels: SNIPER to HOLDER)
+   - Added: FLOW_THRESHOLDS (STRONG_BUY_RATIO: 2.0, STRONG_SELL_RATIO: 0.5)
+   - Added: MINIMUM_DATA (trades: 5, tokensWithCompletedCycles: 2)
+   - Added: HOLDER_BYPASS (multiToken: 3 tokens + 24h, singleToken: 50 SOL)
+   - Added: VELOCITY_SCORE parameters
 
 ---
 
-**Day 3-4: LOW LAYER (Computation)** - 2 files, critical path
+**✅ Day 3-4: LOW LAYER (Computation)** - COMPLETED 2025-12-25
 
 Guide: `component_impact_map.md` lines 44-48 + `classification_target_state.md` lines 116-202
 
-4. **Analyzer** (`src/core/analysis/behavior/analyzer.ts` - 88 usages, most critical):
-   - Fix line 1552: Add holder bypass (multi-token OR significant position)
-   - Compute: `tokensWithOnlyBuys`, `medianActiveHoldingHours`
-   - Compute: `speedCategory` (from completed cycles, null if no exits)
-   - Compute: `flowPattern` (BUY_ONLY, ACCUMULATOR, etc.)
-   - Derive: `strategyType` (algorithm in target_state.md lines 152-202)
-   - Return all fields in metrics object
+4. ✅ **Analyzer** (`src/core/analysis/behavior/analyzer.ts` - 88 usages, most critical):
+   - Added helper functions:
+     - `computeSpeedCategory()` - Classifies exit timing from completed cycles
+     - `computeFlowPattern()` - Classifies buy/sell directional bias
+     - `deriveStrategyType()` - Canonical filter with holder bypass logic
+     - `computeVelocityScore()` - 0-100 logarithmic scale
+   - Modified `calculateBehavioralMetrics()`:
+     - Now computes `medianActiveHoldingHours` (from current holdings)
+     - Now computes `largestActivePositionSol` (for holder bypass)
+   - Modified `classifyTradingStyle()`:
+     - Populates all new fields (speedCategory, flowPattern, strategyType, velocityScore)
+     - **Implements holder bypass**: 3+ tokens held 24h+ OR 50+ SOL position
+     - Maintains backward compatibility (tradingStyle, flipperScore still populated)
 
-5. **Bot Detector** (`src/core/analysis/bot-detector.ts` - 10 usages):
-   - Verify no breaks (uses behaviorType field)
-   - May need small update if field renamed
+5. ✅ **Bot Detector** (`src/core/analysis/bot-detector.ts` - 10 usages):
+   - Verified compatible (uses flipperScore and tradingStyle, both still exist)
+   - No changes required
+
+**Build Status**: ✅ TypeScript compiles without errors
 
 ---
 
-**Day 5: MID LAYER (API & Transport)** - 8 files
+**🔄 Day 5: MID LAYER (API & Transport)** - NEXT (8 files)
 
 Guide: `component_impact_map.md` lines 88-101
 

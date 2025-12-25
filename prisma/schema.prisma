@@ -149,8 +149,10 @@ model WalletBehaviorProfile {
   medianHoldTime                Float
   sequenceConsistency           Float
   flipperScore                  Float
+  velocityScore                 Int?
   uniqueTokensTraded            Int
   tokensWithBothBuyAndSell      Int
+  tokensWithOnlyBuys            Int      @default(0)
   totalTradeCount               Int
   totalBuyCount                 Int
   totalSellCount                Int
@@ -160,6 +162,10 @@ model WalletBehaviorProfile {
   percentTradesUnder1Hour       Float
   percentTradesUnder4Hours      Float
   tradingStyle                  String
+  speedCategory                 String?
+  flowPattern                   String?
+  strategyType                  String?
+  medianActiveHoldingHours      Float?
   confidenceScore               Float
   tradingFrequency              Json
   tokenPreferences              Json
@@ -179,6 +185,8 @@ model WalletBehaviorProfile {
   wallet                        Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])
+  @@index([strategyType])
+  @@index([speedCategory])
 }
 
 model HolderProfileSnapshot {

@@ -282,3 +282,62 @@ export function calculateClassificationConfidence(
   return Math.min(1, confidence);
 }
 
+// ============================================================================
+// NEW: Centralized Classification Thresholds (Refactor 2025-12-25)
+// ============================================================================
+
+/**
+ * Speed Category Thresholds (from completed cycles only)
+ * These are the canonical thresholds for speedCategory classification
+ */
+export const SPEED_THRESHOLDS = {
+  SNIPER: 1 / 60,      // < 1 min (0.0167 hours)
+  SCALPER: 5 / 60,     // 1-5 min (0.0833 hours)
+  MOMENTUM: 0.5,       // 5-30 min
+  INTRADAY: 4,         // 30min-4h
+  DAY_TRADER: 24,      // 4-24h
+  SWING: 168,          // 1-7 days (168 hours)
+  POSITION: 720,       // 7-30 days (720 hours)
+  // 30+ days = HOLDER
+} as const;
+
+/**
+ * Flow Pattern Thresholds (buy/sell ratio analysis)
+ */
+export const FLOW_THRESHOLDS = {
+  STRONG_BUY_RATIO: 2.0,     // ratio >= 2.0 → ACCUMULATOR
+  STRONG_SELL_RATIO: 0.5,    // ratio <= 0.5 → DISTRIBUTOR
+  // Between 0.5 and 2.0 = BALANCED (if symmetric)
+} as const;
+
+/**
+ * Minimum Data Requirements (activity gate)
+ */
+export const MINIMUM_DATA = {
+  trades: 5,                          // Minimum total trades
+  tokensWithCompletedCycles: 2,       // Minimum tokens with both buy+sell
+} as const;
+
+/**
+ * Holder Bypass Criteria (for wallets without completed cycles)
+ * Allows pure holders to bypass the minimum data gate
+ */
+export const HOLDER_BYPASS = {
+  multiToken: {
+    minTokens: 3,           // Minimum active holdings
+    minHoldHours: 24,       // Minimum median hold duration (1 day)
+  },
+  singleToken: {
+    minPositionSol: 50,     // Significant position threshold in SOL
+  },
+} as const;
+
+/**
+ * Velocity Score Formula Parameters
+ * Maps median hold time to 0-100 score (logarithmic scale)
+ */
+export const VELOCITY_SCORE = {
+  MAX_HOLD_HOURS: 720,  // 30 days = 0 velocity
+  LOG_BASE: 10,
+} as const;
+
