@@ -30,7 +30,11 @@ export interface WalletSummaryData {
   unrealizedPnl?: number | null; // Unrealized PNL (current holdings value)
   netPnl?: number | null; // Total portfolio value (realized + unrealized)
   tokenWinRate?: number | null; // Trade-level win rate
-  behaviorClassification: string | null; // High-level classification from BehaviorService
+  behaviorClassification: string | null; // DEPRECATED: Legacy field, use strategyType instead
+  // NEW: Classification system fields (2025-12-25)
+  strategyType?: StrategyType | null; // Primary strategy: FAST_TRADER, DAY_TRADER, SWING_TRADER, etc.
+  speedCategory?: SpeedCategory | null; // Speed classification: SNIPER, SCALPER, MOMENTUM, etc.
+  flowPattern?: FlowPattern | null; // Flow pattern: ACCUMULATOR, DISTRIBUTOR, BALANCED, etc.
   classification?: string | null; // Wallet classification: 'normal', 'high_frequency', 'unknown'
   rawAdvancedStats?: AdvancedStatsResult; // Full raw object for more detail if needed by client
   rawBehaviorMetrics?: BehaviorMetrics; // Full raw object for more detail if needed by client
@@ -89,7 +93,55 @@ export interface RiskMetrics {
   largestTransactionValueSol?: number | null;
 }
 
-// NEW: Trading interpretation system (2025-11-17)
+// ============================================================================
+// NEW CLASSIFICATION SYSTEM (2025-12-25)
+// Matches backend enums from src/types/behavior.ts
+// ============================================================================
+
+/**
+ * Speed Category - How fast does this wallet exit positions?
+ * Based on median hold time of COMPLETED cycles only.
+ * Null if wallet has no completed exit cycles.
+ */
+export type SpeedCategory =
+  | 'SNIPER'      // < 1 min
+  | 'SCALPER'     // 1-5 min
+  | 'MOMENTUM'    // 5-30 min
+  | 'INTRADAY'    // 30min-4h
+  | 'DAY_TRADER'  // 4-24h
+  | 'SWING'       // 1-7 days
+  | 'POSITION'    // 7-30 days
+  | 'HOLDER';     // 30+ days
+
+/**
+ * Flow Pattern - What's the directional flow of trading activity?
+ * Based on buy/sell ratio and counts.
+ */
+export type FlowPattern =
+  | 'BUY_ONLY'      // No sells, only buys (pure accumulation)
+  | 'SELL_ONLY'     // No buys, only sells (pure distribution)
+  | 'ACCUMULATOR'   // Heavy buy bias (ratio > 2.0)
+  | 'DISTRIBUTOR'   // Heavy sell bias (ratio < 0.5)
+  | 'BALANCED'      // Symmetric buy/sell (0.5 < ratio < 2.0)
+  | 'MIXED';        // No clear pattern
+
+/**
+ * Strategy Type - Canonical filter for UI/API
+ * Combines speed + flow + holder signals into single enum.
+ * This is THE field to filter on in Discover page.
+ */
+export type StrategyType =
+  | 'FAST_TRADER'       // SNIPER, SCALPER, or MOMENTUM speed
+  | 'DAY_TRADER'        // INTRADAY or DAY_TRADER speed
+  | 'SWING_TRADER'      // SWING speed
+  | 'POSITION_TRADER'   // POSITION or HOLDER speed (with exits)
+  | 'PURE_HOLDER'       // BUY_ONLY flow (no exits yet)
+  | 'ACCUMULATOR'       // ACCUMULATOR flow (any speed)
+  | 'DISTRIBUTOR'       // DISTRIBUTOR or SELL_ONLY flow
+  | 'BALANCED_TRADER'   // BALANCED flow
+  | 'LOW_ACTIVITY';     // Insufficient data (< 5 trades, < 2 tokens)
+
+// Legacy trading interpretation system (2025-11-17) - kept for backward compatibility
 export interface TradingInterpretation {
   // Speed classification (based on median - outlier robust)
   speedCategory: 'ULTRA_FLIPPER' | 'FLIPPER' | 'FAST_TRADER' | 'DAY_TRADER' | 'SWING_TRADER' | 'POSITION_TRADER';
@@ -131,6 +183,14 @@ export interface HistoricalPattern {
 export interface BehaviorAnalysisResponseDto {
   walletAddress: string;
   tradingStyle?: string | null;
+
+  // NEW: Classification system fields (2025-12-25)
+  speedCategory?: SpeedCategory | null;      // Speed from completed cycles
+  flowPattern?: FlowPattern | null;          // Buy/sell directional flow
+  strategyType?: StrategyType;               // Canonical filter (use this!)
+  velocityScore?: number;                     // 0-100 velocity score
+  medianActiveHoldingHours?: number;          // Median of current holdings
+
   confidenceScore?: number | null;
   primaryBehavior?: string | null;
   secondaryBehavior?: string | null;

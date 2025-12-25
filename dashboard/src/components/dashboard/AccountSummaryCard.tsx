@@ -68,19 +68,25 @@ export default function AccountSummaryCard({
     return data.latestPnl >= 0 ? "success" : "error";
   }, [data?.latestPnl]);
 
-  // Get behavioral classification description
-  const getClassificationDescription = (classification: string): string => {
+  // Get strategy type description
+  const getStrategyDescription = (strategy: string): string => {
     const descriptions: Record<string, string> = {
+      'FAST_TRADER': 'High-speed trading: sniper, scalper, or momentum trader (exits within 30 minutes)',
+      'DAY_TRADER': 'Intraday positions: opens and closes within 30 minutes to 24 hours',
+      'SWING_TRADER': 'Medium-term holds: capitalizes on 1-7 day price movements',
+      'POSITION_TRADER': 'Long-term positions: holds for 7-30+ days with conviction',
+      'PURE_HOLDER': 'Buy-only strategy: accumulates without selling (30+ day holds)',
+      'ACCUMULATOR': 'Heavy buy bias: buys 2x+ more than sells, building positions',
+      'DISTRIBUTOR': 'Heavy sell bias: sells 2x+ more than buys, liquidating positions',
+      'BALANCED_TRADER': 'Symmetric activity: balanced buy/sell ratio across timeframes',
+      'LOW_ACTIVITY': 'Insufficient data: minimal trading or incomplete cycles',
+      // Legacy fallbacks
       'swing_trader': 'Holds positions for days to weeks, capitalizing on medium-term price movements',
       'day_trader': 'Opens and closes positions within the same day, avoiding overnight exposure',
       'scalper': 'Makes numerous quick trades for small profits, holding positions for minutes',
       'holder': 'Long-term investor who holds positions for extended periods',
-      'high_frequency': 'Executes large volumes of trades at very high speeds (likely bot activity)',
-      'momentum_trader': 'Follows strong price trends and rides market momentum',
-      'contrarian': 'Takes positions against prevailing market trends',
-      'passive': 'Minimal trading activity, buy-and-hold strategy',
     };
-    return descriptions[classification.toLowerCase()] || 'Trading behavior pattern identified by analysis';
+    return descriptions[strategy] || 'Trading behavior pattern identified by analysis';
   };
 
   if (!walletAddress) {
@@ -335,17 +341,33 @@ export default function AccountSummaryCard({
               </Tooltip>
             </TooltipProvider>
 
-            {data.behaviorClassification && (
+            {(data.strategyType || data.behaviorClassification) && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Badge variant="outline" className="uppercase tracking-wide text-[10px] py-0.5 px-2 cursor-help">
-                      {data.behaviorClassification}
+                      {(data.strategyType || data.behaviorClassification)?.replace(/_/g, ' ')}
                     </Badge>
                   </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="font-semibold mb-1">{data.behaviorClassification.replace(/_/g, ' ').toUpperCase()}</p>
-                    <p className="text-xs">{getClassificationDescription(data.behaviorClassification)}</p>
+                  <TooltipContent className="max-w-md">
+                    <div className="space-y-2">
+                      <p className="font-semibold">{(data.strategyType || data.behaviorClassification)?.replace(/_/g, ' ')}</p>
+                      <p className="text-xs text-muted-foreground">{getStrategyDescription(data.strategyType || data.behaviorClassification || '')}</p>
+                      <div className="border-t border-border pt-2 mt-2">
+                        <p className="font-medium text-xs mb-1">Strategy Types Explained:</p>
+                        <ul className="space-y-0.5 text-[10px] text-muted-foreground">
+                          <li><span className="font-medium">FAST_TRADER:</span> Sniper/scalper/momentum (&lt;30min exits)</li>
+                          <li><span className="font-medium">DAY_TRADER:</span> Intraday positions (30min-24h)</li>
+                          <li><span className="font-medium">SWING_TRADER:</span> Multi-day swings (1-7 days)</li>
+                          <li><span className="font-medium">POSITION_TRADER:</span> Long-term holds (7-30+ days)</li>
+                          <li><span className="font-medium">PURE_HOLDER:</span> Only buys, never sells</li>
+                          <li><span className="font-medium">ACCUMULATOR:</span> Buys 2x+ more than sells</li>
+                          <li><span className="font-medium">DISTRIBUTOR:</span> Sells 2x+ more than buys</li>
+                          <li><span className="font-medium">BALANCED_TRADER:</span> Even buy/sell activity</li>
+                          <li><span className="font-medium">LOW_ACTIVITY:</span> Insufficient data to classify</li>
+                        </ul>
+                      </div>
+                    </div>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

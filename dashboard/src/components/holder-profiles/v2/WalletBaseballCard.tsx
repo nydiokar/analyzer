@@ -401,15 +401,32 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                       ?? 'Unclassified'}
                   </span>
                 </TooltipTrigger>
-                <TooltipContent className="max-w-xs text-xs">
-                  <p className="font-semibold">
+                <TooltipContent className="max-w-sm text-xs">
+                  <p className="font-semibold mb-2">
                     {getBehaviorMeta(profile.behaviorType)?.label
                       ?? (heldTokens > 0 ? 'Holder (no exits yet)' : profile.behaviorType)
-                      ?? 'Unclassified'} · Hold times: {getBehaviorMeta(profile.behaviorType)?.timeframe ?? (heldTokens > 0 ? 'Not enough exits' : 'n/a')}
+                      ?? 'Unclassified'}
                   </p>
-                  <p className="text-muted-foreground">
-                    Classification derived from typical exited hold time. Still-held positions do not affect this tag; if only holdings exist, we mark as holders until exits are observed.
+                  <p className="text-muted-foreground mb-2">
+                    {getBehaviorMeta(profile.behaviorType)?.timeframe
+                      ? `Typical hold time: ${getBehaviorMeta(profile.behaviorType)?.timeframe}`
+                      : heldTokens > 0
+                        ? 'Not enough completed exits to classify speed'
+                        : 'No exit data available'}
                   </p>
+                  <div className="text-xs text-muted-foreground border-t border-border pt-2 mt-2">
+                    <p className="font-medium mb-1">Speed Categories:</p>
+                    <ul className="space-y-0.5 text-[10px]">
+                      <li>• SNIPER: &lt;1 min exits</li>
+                      <li>• SCALPER: 1-5 min exits</li>
+                      <li>• MOMENTUM: 5-30 min exits</li>
+                      <li>• INTRADAY: 30min-4h exits</li>
+                      <li>• DAY_TRADER: 4-24h exits</li>
+                      <li>• SWING: 1-7 day holds</li>
+                      <li>• POSITION: 7-30 day holds</li>
+                      <li>• HOLDER: 30+ day holds</li>
+                    </ul>
+                  </div>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

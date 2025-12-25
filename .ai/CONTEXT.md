@@ -2,8 +2,8 @@
 
 **Project**: Sova Intel - Wallet Analysis System
 **Branch**: `discover` (design system + auth polish) ✅ SHIPPED
-**Status**: Classification system refactor - Days 1-5 complete, Day 6 in progress
-**Last Updated**: 2025-12-25 (evening session)
+**Status**: Classification system refactor - Days 1-6 COMPLETE ✅ (backend + frontend + tooltips), ready for Day 7 testing
+**Last Updated**: 2025-12-25 (late evening session)
 
 ---
 
@@ -44,7 +44,7 @@
 2. **Holder Classification** – Edge case: better heuristics for holders without exits (needs partner input on logic)
 
 ### ✅ Recently Completed
-- **Classification Refactor - LOW + MID LAYERS Complete** (2025-12-25) – Days 1-5 finished:
+- **Classification Refactor - Days 1-6 COMPLETE** (2025-12-25) – Full stack implementation:
   - **LOW LAYER (Data & Computation)**:
     - Schema migration: Added 6 new fields (speedCategory, flowPattern, strategyType, velocityScore, tokensWithOnlyBuys, medianActiveHoldingHours)
     - Migration applied: `20251225144120_add_classification_fields`
@@ -68,8 +68,20 @@
     - Deleted duplicate BEHAVIOR_ANALYSIS_CONFIG from global config/constants.ts
     - All imports verified: Only analyzer.ts imports from behavior/constants.ts
     - Threshold alignment: ACCUMULATOR_RATIO_MIN updated from 2.5 → 2.0 to match FLOW_THRESHOLDS
-  - **BUILD STATUS**: ✅ TypeScript compiles without errors
-  - Backward compatible: Old fields (tradingStyle, flipperScore) still populated
+  - **HIGH LAYER (Frontend Display)**:
+    - Frontend types updated: dashboard/src/types/api.ts with 3 new enums (SpeedCategory, FlowPattern, StrategyType)
+    - WalletSummaryData interface: Added strategyType, speedCategory, flowPattern fields (lines 35-37)
+    - Discover page filters: Updated to new StrategyType enum values with descriptions (page.tsx:56-66)
+    - BehavioralPatternsTab.tsx: Displays strategyType, speedCategory, flowPattern with comprehensive tooltips
+    - AccountSummaryCard.tsx: Shows strategyType badge with full classification descriptions
+    - WalletBaseballCard.tsx: Enhanced tooltip with all 8 speed categories explained
+    - MinimalHoldersTable.tsx: Added detailed speed category reference in tooltips
+    - **TOOLTIPS**: All classification fields now have user-friendly explanations:
+      - Strategy Type: 9 strategies explained (FAST_TRADER, DAY_TRADER, SWING_TRADER, etc.)
+      - Speed Category: 8 levels from SNIPER (<1min) to HOLDER (30+d)
+      - Flow Pattern: 6 patterns (BUY_ONLY, ACCUMULATOR, DISTRIBUTOR, etc.)
+  - **BUILD STATUS**: ✅ Next.js builds successfully (no errors, only linting warnings)
+  - Backward compatible: Old fields (tradingStyle, flipperScore, behaviorClassification) still populated for 6 months
   - Implementation docs: `.ai/context/classification/` (4 reference files)
 - **WalletBadge Component Complete** (2025-12-23) – Fully synchronized favorite system:
   - Added nickname/tags display in both inline and card variants
@@ -98,7 +110,7 @@
 **Goal**: Centralize classification logic in `analyzer.ts`, store explicit enums in DB, expose via API
 
 **Sprint Plan** (5-7 days, bottom-up: LOW → MID → HIGH layers)
-**Progress**: ✅ Days 1-5 Complete | 🔄 Day 6 Next (Frontend)
+**Progress**: ✅ Days 1-6 Complete | 🔄 Day 7 Next (Testing & Integration)
 
 **Reference docs**: See `.ai/context/classification/` folder (6 files):
 - `classification_target_state.md` - What we're building (the contract)
@@ -192,25 +204,30 @@ Guide: `component_impact_map.md` lines 88-101
 
 ---
 
-**🔄 Day 6: HIGH LAYER (Frontend)** - NEXT - 3 files (discover focus only)
+**✅ Day 6: HIGH LAYER (Frontend)** - COMPLETED 2025-12-25
 
 Guide: `component_impact_map.md` lines 105-117
 
-10. ⏸️ **API Types** (`dashboard/src/types/api.ts` - NOT `lib/api.ts`):
-    - Add: SpeedCategory, FlowPattern, StrategyType enums to frontend types
-    - Update: BehaviorAnalysisResponseDto with new optional fields
-    - Update: DiscoverWalletMetricsDto with speedCategory, flowPattern, strategyType
+10. ✅ **API Types** (`dashboard/src/types/api.ts` + `dashboard/src/types/discover.ts`):
+    - ✅ Added: SpeedCategory, FlowPattern, StrategyType enums (lines 102-138)
+    - ✅ Updated: BehaviorAnalysisResponseDto with 5 new optional fields (lines 183-188)
+    - ✅ Updated: DiscoverWalletMetrics with speedCategory, flowPattern, strategyType (discover.ts lines 17-19)
+    - ✅ Added comprehensive JSDoc comments explaining each enum
 
-11. ⏸️ **Discover Page** (`dashboard/src/app/(app)/discover/page.tsx` - 43 usages):
-    - Replace filter: Text input → Dropdown with StrategyType enum values
-    - Add enum options: FAST_TRADER, DAY_TRADER, SWING_TRADER, POSITION_TRADER, PURE_HOLDER, ACCUMULATOR, DISTRIBUTOR, BALANCED_TRADER, LOW_ACTIVITY
-    - Update table: Show speedCategory + flowPattern in separate columns (optional - can defer)
-    - Add tooltips explaining categories (optional - can defer)
+11. ✅ **Discover Page** (`dashboard/src/app/discover/page.tsx`):
+    - ✅ Replaced styleOptions: Old values (sniper, scalper, flipper, etc.) → NEW StrategyType enum (lines 56-66)
+    - ✅ Added 8 enum options: FAST_TRADER, DAY_TRADER, SWING_TRADER, POSITION_TRADER, PURE_HOLDER, ACCUMULATOR, DISTRIBUTOR, BALANCED_TRADER
+    - ✅ Added hints for each option (e.g., "Sniper/scalper/momentum" for FAST_TRADER)
+    - ✅ Updated presets: hyper-flipper → FAST_TRADER, balanced-fast → SWING_TRADER, patient-holder → PURE_HOLDER (lines 354, 359, 364)
+    - ⏸️ Table columns: Showing speedCategory + flowPattern (deferred - can add later if needed)
 
-12. ⏸️ **Baseball Card** (`dashboard/src/components/holder-profiles/v2/WalletBaseballCard.tsx` - 55 usages):
-    - Use speedCategory + flowPattern instead of parsing tradingStyle string
-    - Fallback already exists (line 326): `profile.behaviorType ?? 'HOLDER'`
-    - Minor update to use new fields (optional - can defer if discover works)
+12. ⏸️ **Baseball Card** (`dashboard/src/components/holder-profiles/v2/WalletBaseballCard.tsx`):
+    - ⏸️ Deferred: Can use new fields later (not critical for Discover page functionality)
+
+**Build Status**: ✅ Frontend compiles successfully (Next.js 15.5.9)
+- No TypeScript errors related to new classification fields
+- Only minor linting warnings (unused imports)
+- Ready for runtime testing
 
 ---
 

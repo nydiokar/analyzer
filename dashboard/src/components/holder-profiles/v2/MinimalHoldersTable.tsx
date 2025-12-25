@@ -116,17 +116,30 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                           {behaviorMeta?.label ?? profile.behaviorType ?? 'Unclassified'}
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent className="max-w-xs text-xs">
+                      <TooltipContent className="max-w-sm text-xs">
                         {(() => {
                           const info = getBehaviorDescription(profile.behaviorType) || behaviorMeta;
                           if (!info) {
                             return <p className="text-muted-foreground">No behavior classification yet.</p>;
                           }
                           return (
-                            <div className="space-y-1">
+                            <div className="space-y-2">
                               <p className="font-semibold">{'title' in info ? info.title : info.label}</p>
                               <p className="text-muted-foreground">{info.description}</p>
                               <p className="text-primary font-medium">{info.timeframe}</p>
+                              <div className="border-t border-border pt-2 mt-2">
+                                <p className="font-medium mb-1">All Speed Categories:</p>
+                                <ul className="space-y-0.5 text-[10px] text-muted-foreground">
+                                  <li>• SNIPER: &lt;1 min exits (ultra-fast bot trading)</li>
+                                  <li>• SCALPER: 1-5 min exits (quick momentum captures)</li>
+                                  <li>• MOMENTUM: 5-30 min exits (short-term trend following)</li>
+                                  <li>• INTRADAY: 30min-4h exits (session-based trading)</li>
+                                  <li>• DAY_TRADER: 4-24h exits (daily position closes)</li>
+                                  <li>• SWING: 1-7 day holds (multi-day swings)</li>
+                                  <li>• POSITION: 7-30 day holds (patient positioning)</li>
+                                  <li>• HOLDER: 30+ day holds (long-term conviction)</li>
+                                </ul>
+                              </div>
                             </div>
                           );
                         })()}

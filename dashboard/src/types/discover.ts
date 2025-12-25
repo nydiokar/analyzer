@@ -1,3 +1,5 @@
+import { SpeedCategory, FlowPattern, StrategyType } from './api';
+
 export interface DiscoverWalletMetrics {
   realizedPnl?: number | null;
   unrealizedPnl?: number | null;
@@ -10,6 +12,12 @@ export interface DiscoverWalletMetrics {
   medianHoldHours?: number | null;
   uniqueTokensTraded?: number | null;
   tradingStyle?: string | null;
+
+  // NEW: Classification system fields (2025-12-25)
+  speedCategory?: SpeedCategory | null;
+  flowPattern?: FlowPattern | null;
+  strategyType?: StrategyType | null;
+
   lastActiveAt?: string | null;
   pnlUpdatedAt?: string | null;
   behaviorUpdatedAt?: string | null;

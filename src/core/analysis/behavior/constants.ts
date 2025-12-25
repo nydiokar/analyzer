@@ -324,11 +324,11 @@ export const MINIMUM_DATA = {
  */
 export const HOLDER_BYPASS = {
   multiToken: {
-    minTokens: 3,           // Minimum active holdings
-    minHoldHours: 24,       // Minimum median hold duration (1 day)
+    minTokens: 2,           // Minimum active holdings (2+ tokens = meaningful portfolio start)
+    minHoldHours: 24,       // Minimum median hold duration (1 day shows intent, not dust)
   },
   singleToken: {
-    minPositionSol: 50,     // Significant position threshold in SOL
+    minPositionSol: 5,     // Significant position threshold in SOL (~$500-1000 USD, adjustable)
   },
 } as const;
 

@@ -52,14 +52,17 @@ const sortOptions = [
   { value: 'recently_updated', label: 'Recently updated', hint: 'Fresh data' },
 ] as const;
 
+// NEW: StrategyType enum values (2025-12-25) - matches backend classification system
 const styleOptions = [
-  { value: 'any', label: 'Any style' },
-  { value: 'sniper', label: 'Sniper' },
-  { value: 'scalper', label: 'Scalper' },
-  { value: 'flipper', label: 'Flipper' },
-  { value: 'swing', label: 'Swing' },
-  { value: 'position', label: 'Position' },
-  { value: 'holder', label: 'Holder' },
+  { value: 'any', label: 'Any strategy' },
+  { value: 'FAST_TRADER', label: 'Fast Trader', hint: 'Sniper/scalper/momentum' },
+  { value: 'DAY_TRADER', label: 'Day Trader', hint: 'Intraday positions' },
+  { value: 'SWING_TRADER', label: 'Swing Trader', hint: '1-7 day holds' },
+  { value: 'POSITION_TRADER', label: 'Position Trader', hint: '7-30+ day holds' },
+  { value: 'PURE_HOLDER', label: 'Pure Holder', hint: 'Only buys, no exits' },
+  { value: 'ACCUMULATOR', label: 'Accumulator', hint: 'Heavy buy bias' },
+  { value: 'DISTRIBUTOR', label: 'Distributor', hint: 'Heavy sell bias' },
+  { value: 'BALANCED_TRADER', label: 'Balanced Trader', hint: 'Symmetric buys/sells' },
 ] as const;
 
 const holdBiasOptions = [
@@ -348,17 +351,17 @@ export default function DiscoverPage() {
   const applyPreset = (preset: 'hyper-flipper' | 'balanced-fast' | 'patient-holder') => {
     setActivePreset(preset);
     if (preset === 'hyper-flipper') {
-      setStyle('flipper');
+      setStyle('FAST_TRADER'); // NEW: StrategyType enum
       setHoldBias('short');
       setMinTradeCount(20);
       setMinUniqueTokens(5);
     } else if (preset === 'balanced-fast') {
-      setStyle('swing');
+      setStyle('SWING_TRADER'); // NEW: StrategyType enum
       setHoldBias('medium');
       setMinTradeCount(30);
       setMinUniqueTokens(8);
     } else if (preset === 'patient-holder') {
-      setStyle('holder');
+      setStyle('PURE_HOLDER'); // NEW: StrategyType enum (pure holders, no exits)
       setHoldBias('long');
       setMinTradeCount(10);
       setMinUniqueTokens(3);
