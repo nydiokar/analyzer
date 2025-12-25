@@ -1,9 +1,9 @@
 # Current State
 
 **Project**: Sova Intel - Wallet Analysis System
-**Branch**: `discover` (design system + auth polish) ✅ SHIPPED 
-**Status**: Classification system refactor sprint (MVP scope: 5-7 days)
-**Last Updated**: 2025-12-25
+**Branch**: `discover` (design system + auth polish) ✅ SHIPPED
+**Status**: Classification system refactor - Days 1-5 complete, Day 6 in progress
+**Last Updated**: 2025-12-25 (evening session)
 
 ---
 
@@ -44,14 +44,32 @@
 2. **Holder Classification** – Edge case: better heuristics for holders without exits (needs partner input on logic)
 
 ### ✅ Recently Completed
-- **Classification Refactor - LOW LAYER Complete** (2025-12-25) – Days 1-4 finished:
-  - Schema migration: Added 5 new classification fields (speedCategory, flowPattern, strategyType, velocityScore, medianActiveHoldingHours)
-  - New type system: 3 enums (SpeedCategory, FlowPattern, StrategyType) with 8, 6, and 9 categories respectively
-  - Centralized thresholds: All classification logic uses single source of truth in constants.ts
-  - Analyzer refactor: 4 new helper functions compute classification fields with holder bypass logic
-  - Holder bypass implemented: Wallets with 3+ tokens held 24h+ OR 50+ SOL position bypass "Low Activity" gate
+- **Classification Refactor - LOW + MID LAYERS Complete** (2025-12-25) – Days 1-5 finished:
+  - **LOW LAYER (Data & Computation)**:
+    - Schema migration: Added 6 new fields (speedCategory, flowPattern, strategyType, velocityScore, tokensWithOnlyBuys, medianActiveHoldingHours)
+    - Migration applied: `20251225144120_add_classification_fields`
+    - Indexes added: strategyType, speedCategory
+    - New type system: 3 enums (SpeedCategory, FlowPattern, StrategyType) with 8, 6, and 9 categories respectively
+    - Analyzer refactor: 4 new helper functions compute classification fields with holder bypass logic
+      - `computeSpeedCategory()` - Exit timing from completed cycles (analyzer.ts:1555)
+      - `computeFlowPattern()` - Buy/sell directional bias (analyzer.ts:1575)
+      - `deriveStrategyType()` - Canonical filter with holder bypass (analyzer.ts:1603)
+      - `computeVelocityScore()` - 0-100 logarithmic scale (analyzer.ts:1668)
+    - Holder bypass implemented: Wallets with 3+ tokens held 24h+ OR 50+ SOL position bypass "Low Activity" gate
+    - Field population verified: classifyTradingStyle() sets all new fields (analyzer.ts:1712-1731)
+  - **MID LAYER (API & Persistence)**:
+    - behavior-service.ts: All 6 new fields destructured and saved to database (lines 90-93, 130, 145-147)
+    - Deleted broken extractBehaviorType() method - no more string parsing
+    - discover.service.ts: Uses strategyType enum filter (EQUALS, not CONTAINS) (line 100)
+    - DTOs updated: behavior-response.dto.ts and discover-wallet.dto.ts expose new fields with proper TypeScript types
+    - Discover service: Maps speedCategory, flowPattern, strategyType to API response (lines 245-247)
+  - **CONSOLIDATION (Single Source of Truth)**:
+    - ALL behavior constants moved to `src/core/analysis/behavior/constants.ts`
+    - Deleted duplicate BEHAVIOR_ANALYSIS_CONFIG from global config/constants.ts
+    - All imports verified: Only analyzer.ts imports from behavior/constants.ts
+    - Threshold alignment: ACCUMULATOR_RATIO_MIN updated from 2.5 → 2.0 to match FLOW_THRESHOLDS
+  - **BUILD STATUS**: ✅ TypeScript compiles without errors
   - Backward compatible: Old fields (tradingStyle, flipperScore) still populated
-  - Build verified: TypeScript compiles without errors
   - Implementation docs: `.ai/context/classification/` (4 reference files)
 - **WalletBadge Component Complete** (2025-12-23) – Fully synchronized favorite system:
   - Added nickname/tags display in both inline and card variants
@@ -80,7 +98,7 @@
 **Goal**: Centralize classification logic in `analyzer.ts`, store explicit enums in DB, expose via API
 
 **Sprint Plan** (5-7 days, bottom-up: LOW → MID → HIGH layers)
-**Progress**: ✅ Day 1-4 Complete | 🔄 Day 5 Next
+**Progress**: ✅ Days 1-5 Complete | 🔄 Day 6 Next (Frontend)
 
 **Reference docs**: See `.ai/context/classification/` folder (6 files):
 - `classification_target_state.md` - What we're building (the contract)
@@ -141,47 +159,58 @@ Guide: `component_impact_map.md` lines 44-48 + `classification_target_state.md` 
 
 ---
 
-**🔄 Day 5: MID LAYER (API & Transport)** - NEXT (8 files)
+**✅ Day 5: MID LAYER (API & Transport)** - COMPLETED 2025-12-25
 
 Guide: `component_impact_map.md` lines 88-101
 
-6. **Behavior Service** (`src/api/services/behavior.service.ts` - 27 usages):
-   - **CRITICAL**: Delete broken `extractBehaviorType()` method (lines 143-155)
-   - Read speedCategory, flowPattern, strategyType directly from DB
-   - Update cache reconstruction logic
+6. ✅ **Behavior Service** (`src/api/services/behavior.service.ts` - 27 usages):
+   - ✅ Deleted broken `extractBehaviorType()` method
+   - ✅ Reads speedCategory directly from DB (line 89: `behaviorType = profile.speedCategory || 'HOLDER'`)
+   - ✅ All 6 new fields destructured (lines 90-93: speedCategory, flowPattern, strategyType, velocityScore, medianActiveHoldingHours)
+   - ✅ All 6 new fields saved to profileDataToSave (lines 130, 145-148)
+   - ✅ Added tokensWithOnlyBuys to cache (line 120)
 
-7. **Discover Service** (`src/api/services/discover.service.ts` - 29 usages):
-   - Replace: `tradingStyle: { contains: ... }` → `strategyType: { equals: ... }`
-   - Add enum filters for speedCategory, flowPattern
-   - Reference: `classification_scientific_assessment.md` for filter design
+7. ✅ **Discover Service** (`src/api/services/discover.service.ts` - 29 usages):
+   - ✅ Replaced CONTAINS with EQUALS (line 100: `strategyType: { equals: normalizedStyle }`)
+   - ✅ Maps new fields to DTO response (lines 245-247)
 
-8. **DTOs** (behavior-response.dto.ts, discover-wallet.dto.ts):
-   - Add fields: speedCategory, flowPattern, strategyType
-   - Keep tradingStyleLabel as deprecated (display only)
+8. ✅ **DTOs** (behavior-response.dto.ts, discover-wallet.dto.ts):
+   - ✅ behavior-response.dto.ts: Added 5 new fields with proper TypeScript types (lines 183-192)
+   - ✅ discover-wallet.dto.ts: Updated query enum (lines 55-62), added 3 new response fields (lines 118-125)
+   - ✅ Imports SpeedCategory, FlowPattern, StrategyType types from behavior.ts
 
-9. **Controllers** (wallets.controller.ts, analyses.controller.ts):
-   - Verify DTOs map correctly
-   - No logic changes
+9. ✅ **Controllers** (wallets.controller.ts, analyses.controller.ts):
+   - ✅ No changes needed - DTOs map correctly via service layer
+
+**✅ BONUS: Single Source of Truth Consolidation** - COMPLETED 2025-12-25
+
+- ✅ Moved ALL `BEHAVIOR_ANALYSIS_CONFIG` from `config/constants.ts` → `behavior/constants.ts`
+- ✅ Deleted duplicate from global config (was 2.5/0.4, now unified at 2.0/0.5)
+- ✅ Updated analyzer.ts import: `from '../../../config/constants'` → `from './constants'`
+- ✅ Verified: ONLY analyzer.ts imports behavior constants (no orphaned imports)
+- ✅ Build verified: TypeScript compiles after consolidation
 
 ---
 
-**Day 6: HIGH LAYER (Frontend)** - 3 files (discover focus only)
+**🔄 Day 6: HIGH LAYER (Frontend)** - NEXT - 3 files (discover focus only)
 
 Guide: `component_impact_map.md` lines 105-117
 
-10. **API Types** (`dashboard/src/lib/api.ts` - 27 usages):
-    - Add frontend types matching backend DTOs
-    - Export: SpeedCategory, FlowPattern, StrategyType enums
+10. ⏸️ **API Types** (`dashboard/src/types/api.ts` - NOT `lib/api.ts`):
+    - Add: SpeedCategory, FlowPattern, StrategyType enums to frontend types
+    - Update: BehaviorAnalysisResponseDto with new optional fields
+    - Update: DiscoverWalletMetricsDto with speedCategory, flowPattern, strategyType
 
-11. **Discover Page** (`dashboard/src/app/(app)/discover/page.tsx` - 43 usages):
+11. ⏸️ **Discover Page** (`dashboard/src/app/(app)/discover/page.tsx` - 43 usages):
     - Replace filter: Text input → Dropdown with StrategyType enum values
-    - Update table: Show speedCategory + flowPattern in separate columns
-    - Add tooltips explaining categories
+    - Add enum options: FAST_TRADER, DAY_TRADER, SWING_TRADER, POSITION_TRADER, PURE_HOLDER, ACCUMULATOR, DISTRIBUTOR, BALANCED_TRADER, LOW_ACTIVITY
+    - Update table: Show speedCategory + flowPattern in separate columns (optional - can defer)
+    - Add tooltips explaining categories (optional - can defer)
 
-12. **Baseball Card** (`dashboard/src/components/holder-profiles/v2/WalletBaseballCard.tsx` - 55 usages):
+12. ⏸️ **Baseball Card** (`dashboard/src/components/holder-profiles/v2/WalletBaseballCard.tsx` - 55 usages):
     - Use speedCategory + flowPattern instead of parsing tradingStyle string
     - Fallback already exists (line 326): `profile.behaviorType ?? 'HOLDER'`
-    - Minor update to use new fields
+    - Minor update to use new fields (optional - can defer if discover works)
 
 ---
 

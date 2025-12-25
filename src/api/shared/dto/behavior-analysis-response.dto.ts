@@ -2,7 +2,14 @@ import { ApiProperty } from '@nestjs/swagger';
 // Assuming BehavioralMetrics, IdentifiedTradingWindow, TokenMetrics, ActiveTradingPeriods are correctly exported from a path like below
 // and that this path is resolvable from the new DTO file's location.
 // The exact path might need adjustment based on the project structure.
-import { BehavioralMetrics, IdentifiedTradingWindow as IIdentifiedTradingWindow, ActiveTradingPeriods as IActiveTradingPeriods } from '../../../types/behavior';
+import {
+  BehavioralMetrics,
+  IdentifiedTradingWindow as IIdentifiedTradingWindow,
+  ActiveTradingPeriods as IActiveTradingPeriods,
+  SpeedCategory,
+  FlowPattern,
+  StrategyType
+} from '../../../types/behavior';
 import { TokenMetrics as ITokenMetrics } from '../../../types/analysis';
 
 // Sub-DTOs for nested structures
@@ -180,6 +187,16 @@ export class BehaviorAnalysisResponseDto implements BehavioralMetrics {
   percentTradesUnder4Hours: number;
   @ApiProperty()
   tradingStyle: string;
+  @ApiProperty({ required: false, nullable: true, enum: ['SNIPER', 'SCALPER', 'MOMENTUM', 'INTRADAY', 'DAY_TRADER', 'SWING', 'POSITION', 'HOLDER'], description: 'Speed category from completed cycles (null if no exits)' })
+  speedCategory?: SpeedCategory | null;
+  @ApiProperty({ required: false, nullable: true, enum: ['BUY_ONLY', 'SELL_ONLY', 'ACCUMULATOR', 'DISTRIBUTOR', 'BALANCED', 'MIXED'], description: 'Buy/sell directional flow pattern' })
+  flowPattern?: FlowPattern | null;
+  @ApiProperty({ required: false, enum: ['FAST_TRADER', 'DAY_TRADER', 'SWING_TRADER', 'POSITION_TRADER', 'PURE_HOLDER', 'ACCUMULATOR', 'DISTRIBUTOR', 'BALANCED_TRADER', 'LOW_ACTIVITY'], description: 'Canonical strategy type (use this for filtering)' })
+  strategyType?: StrategyType;
+  @ApiProperty({ required: false, description: 'Median duration of current active holdings (hours)' })
+  medianActiveHoldingHours?: number;
+  @ApiProperty({ required: false, description: 'Trading velocity score (0-100, replaces flipperScore)' })
+  velocityScore?: number;
   @ApiProperty()
   confidenceScore: number;
   @ApiProperty({ type: TradingFrequencyDto })

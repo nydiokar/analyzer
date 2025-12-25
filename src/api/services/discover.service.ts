@@ -92,11 +92,12 @@ export class DiscoverService {
     }
 
     if (style) {
+      // NEW: Use strategyType enum for exact matching (not substring search)
       const normalizedStyle = style.toUpperCase();
       where.behaviorProfile = {
         is: {
           ...(where.behaviorProfile?.is || {}),
-          tradingStyle: { contains: normalizedStyle, mode: 'insensitive' },
+          strategyType: { equals: normalizedStyle },
         },
       };
     }
@@ -241,6 +242,9 @@ export class DiscoverService {
         medianHoldHours: behavior?.medianHoldTime ?? null,
         uniqueTokensTraded: behavior?.uniqueTokensTraded ?? null,
         tradingStyle: behavior?.tradingStyle ?? null,
+        speedCategory: behavior?.speedCategory ?? null, // NEW: Explicit speed classification
+        flowPattern: behavior?.flowPattern ?? null, // NEW: Buy/sell flow pattern
+        strategyType: behavior?.strategyType ?? null, // NEW: Canonical strategy type
         lastActiveAt: lastActiveAt ? lastActiveAt.toISOString() : null,
         pnlUpdatedAt: pnl?.updatedAt ?? null,
         behaviorUpdatedAt: behavior?.updatedAt ?? null,

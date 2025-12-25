@@ -2,8 +2,7 @@ import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { BehavioralMetrics, ActiveTradingPeriods, IdentifiedTradingWindow, WalletHistoricalPattern, TokenPositionLifecycle, WalletTokenPrediction, EnrichedHoldTimeDistribution, EnrichedHoldTimeBucket } from '@/types/behavior';
 import { SwapAnalysisInput } from '@prisma/client';
 import { createLogger } from 'core/utils/logger';
-import { classifyHolderBehavior, classifyTradingSpeed } from './constants';
-import { BEHAVIOR_ANALYSIS_CONFIG } from '../../../config/constants';
+import { classifyHolderBehavior, classifyTradingSpeed, BEHAVIOR_ANALYSIS_CONFIG } from './constants'; // ✅ SINGLE SOURCE OF TRUTH
 
 // List of common utility token mints to exclude from behavioral analysis
 const EXCLUDED_TOKEN_MINTS: string[] = [

@@ -54,11 +54,11 @@ export class DiscoverWalletsQueryDto {
 
   @ApiProperty({
     required: false,
-    enum: ['flipper', 'swing', 'position', 'holder', 'scalper', 'sniper'],
-    description: 'Filter by cached tradingStyle classification.',
+    enum: ['FAST_TRADER', 'DAY_TRADER', 'SWING_TRADER', 'POSITION_TRADER', 'PURE_HOLDER', 'ACCUMULATOR', 'DISTRIBUTOR', 'BALANCED_TRADER', 'LOW_ACTIVITY'],
+    description: 'Filter by strategy type (exact enum match on strategyType field).',
   })
   @IsOptional()
-  @IsIn(['flipper', 'swing', 'position', 'holder', 'scalper', 'sniper'])
+  @IsIn(['FAST_TRADER', 'DAY_TRADER', 'SWING_TRADER', 'POSITION_TRADER', 'PURE_HOLDER', 'ACCUMULATOR', 'DISTRIBUTOR', 'BALANCED_TRADER', 'LOW_ACTIVITY'])
   style?: string;
 
   @ApiProperty({
@@ -114,6 +114,15 @@ export class DiscoverWalletMetricsDto {
 
   @ApiProperty({ required: false, nullable: true })
   tradingStyle?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Speed category (SNIPER, SCALPER, etc. or null if no exits)' })
+  speedCategory?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Flow pattern (BUY_ONLY, ACCUMULATOR, etc.)' })
+  flowPattern?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Strategy type (canonical filter)' })
+  strategyType?: string | null;
 
   @ApiProperty({ required: false, nullable: true })
   lastActiveAt?: string | null;

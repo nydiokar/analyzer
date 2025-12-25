@@ -84,13 +84,17 @@ export class BehaviorService {
    * Some fields are not cached and will be null/undefined - consuming code handles this
    */
   private convertProfileToMetrics(profile: any): BehavioralMetrics {
+    // Determine behaviorType from speedCategory (for historicalPattern backward compat)
+    // speedCategory is the new explicit field, no more string parsing!
+    const behaviorType = profile.speedCategory || 'HOLDER'; // Fallback to HOLDER if null
+
     // Reconstruct historicalPattern from cached pieces
     const historicalPattern = {
       walletAddress: profile.walletAddress,
       historicalAverageHoldTimeHours: profile.averageFlipDurationHours,
       completedCycleCount: profile.completePairsCount,
       medianCompletedHoldTimeHours: profile.medianHoldTime,
-      behaviorType: this.extractBehaviorType(profile.tradingStyle),
+      behaviorType: behaviorType as any,
       exitPattern: 'GRADUAL' as const, // Not cached, use default
       dataQuality: profile.confidenceScore,
       observationPeriodDays: this.calculateObservationPeriodDays(profile),
@@ -110,9 +114,10 @@ export class BehaviorService {
       percentOfValueInCurrentHoldings: null as any, // Not cached
       sequenceConsistency: profile.sequenceConsistency,
       flipperScore: profile.flipperScore,
+      velocityScore: profile.velocityScore ?? undefined, // NEW: Read from DB
       uniqueTokensTraded: profile.uniqueTokensTraded,
       tokensWithBothBuyAndSell: profile.tokensWithBothBuyAndSell,
-      tokensWithOnlyBuys: null as any, // Not cached
+      tokensWithOnlyBuys: profile.tokensWithOnlyBuys ?? 0, // NEW: Now cached in DB
       tokensWithOnlySells: null as any, // Not cached
       totalTradeCount: profile.totalTradeCount,
       totalBuyCount: profile.totalBuyCount,
@@ -123,6 +128,10 @@ export class BehaviorService {
       percentTradesUnder1Hour: profile.percentTradesUnder1Hour,
       percentTradesUnder4Hours: profile.percentTradesUnder4Hours,
       tradingStyle: profile.tradingStyle,
+      speedCategory: profile.speedCategory ?? null, // NEW: Explicit enum from DB
+      flowPattern: profile.flowPattern ?? null, // NEW: Explicit enum from DB
+      strategyType: profile.strategyType ?? undefined, // NEW: Canonical filter field
+      medianActiveHoldingHours: profile.medianActiveHoldingHours ?? undefined, // NEW: For holder bypass
       confidenceScore: profile.confidenceScore,
       tradingFrequency: profile.tradingFrequency as any,
       tokenPreferences: profile.tokenPreferences as any,
@@ -138,20 +147,6 @@ export class BehaviorService {
       lastTransactionTimestamp: profile.lastTransactionTimestamp,
       historicalPattern, // Reconstructed from cached pieces
     };
-  }
-
-  private extractBehaviorType(tradingStyle: string): any {
-    // Extract behavior type from trading style string
-    // tradingStyle format is like "FLIPPER (ACCUMULATOR): ..."
-    if (tradingStyle.includes('SNIPER')) return 'SNIPER';
-    if (tradingStyle.includes('SCALPER')) return 'SCALPER';
-    if (tradingStyle.includes('MOMENTUM')) return 'MOMENTUM';
-    if (tradingStyle.includes('INTRADAY')) return 'INTRADAY';
-    if (tradingStyle.includes('DAY_TRADER')) return 'DAY_TRADER';
-    if (tradingStyle.includes('SWING')) return 'SWING';
-    if (tradingStyle.includes('POSITION')) return 'POSITION';
-    if (tradingStyle.includes('HOLDER')) return 'HOLDER';
-    return 'DAY_TRADER'; // Default
   }
 
   private calculateObservationPeriodDays(profile: any): number {
