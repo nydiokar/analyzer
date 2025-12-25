@@ -1,9 +1,9 @@
 # Current State
 
 **Project**: Sova Intel - Wallet Analysis System
-**Branch**: `pretty` (design system + auth polish)
-**Status**: TokenBadge refactor complete. UI polish and tooltips added.
-**Last Updated**: 2025-12-20
+**Branch**: `discover` (design system + auth polish) ✅ SHIPPED 
+**Status**: Classification system refactor sprint (MVP scope: 5-7 days)
+**Last Updated**: 2025-12-25
 
 ---
 
@@ -66,14 +66,127 @@
 - **Time Unit Disambiguation** – VERIFIED: All time formatting uses unambiguous suffixes (min, mo, h, d, s)
 - **WebSocket Refactor** – User-scoped rooms, merged to `pretty` branch
 
-### 📋 Current Priority (IN PROGRESS)
-**Wallet Classification System Overhaul** – Fix confusing/contradictory classifications:
-   - Current mess: "DAY_TRADER (ACCUMULATOR)", "SWING_TRADER (DISTRIBUTOR)", "POSITION_TRADER (DISTRIBUTOR)"
-   - Holder profiles show wrong "exited timings" for pure holders (never exited)
-   - Need proper holder types: 1-2 token snipers, multi-token holders, large unrealized PnL
-   - Investigate all classification sources (BehaviorService, frontend, discover.service.ts)
-   - Define clear, non-contradictory categories
-   - Special focus: Holders with 1 token, 21+ days, waiting for pump (currently "unknown" - should be classified!)
+### 📋 Current Priority (IN PROGRESS) - Classification Refactor MVP
+
+**Goal**: Centralize classification logic in `analyzer.ts`, store explicit enums in DB, expose via API
+
+**Sprint Plan** (5-7 days, bottom-up: LOW → MID → HIGH layers)
+
+**Reference docs**: See `.ai/context/classification/` folder (6 files):
+- `classification_target_state.md` - What we're building (the contract)
+- `component_impact_map.md` - 35 files to touch, ranked by impact
+- `classification_taxonomy_map.md` - Category definitions & thresholds
+- `classification_scientific_assessment.md` - Design decisions & edge cases
+
+---
+
+**Day 1-2: LOW LAYER (Data & Schema)** - 6 files, blocking
+
+Guide: `component_impact_map.md` lines 73-85
+
+1. **Schema** (`prisma/schema.prisma`):
+   - Add: `speedCategory String?`, `flowPattern String?`, `strategyType String`
+   - Add: `tokensWithOnlyBuys Int`, `medianActiveHoldingHours Float?`
+   - Add indexes on strategyType, speedCategory
+   - Run migration
+
+2. **Types** (`src/types/behavior.ts` - 41 usages):
+   - Keep: `HolderBehaviorType` enum (SNIPER...HOLDER) - this is speedCategory
+   - Rename: `BehavioralPattern.HOLDER` → `BUY_ONLY` (avoid collision)
+   - Add: `FlowPattern` enum, `StrategyType` enum
+   - Export all from one place
+
+3. **Constants** (`src/core/analysis/behavior/constants.ts` - 68 usages):
+   - Centralize thresholds: SPEED_THRESHOLDS, FLOW_THRESHOLDS, HOLDER_BYPASS
+   - Reference: `classification_target_state.md` lines 70-109
+
+---
+
+**Day 3-4: LOW LAYER (Computation)** - 2 files, critical path
+
+Guide: `component_impact_map.md` lines 44-48 + `classification_target_state.md` lines 116-202
+
+4. **Analyzer** (`src/core/analysis/behavior/analyzer.ts` - 88 usages, most critical):
+   - Fix line 1552: Add holder bypass (multi-token OR significant position)
+   - Compute: `tokensWithOnlyBuys`, `medianActiveHoldingHours`
+   - Compute: `speedCategory` (from completed cycles, null if no exits)
+   - Compute: `flowPattern` (BUY_ONLY, ACCUMULATOR, etc.)
+   - Derive: `strategyType` (algorithm in target_state.md lines 152-202)
+   - Return all fields in metrics object
+
+5. **Bot Detector** (`src/core/analysis/bot-detector.ts` - 10 usages):
+   - Verify no breaks (uses behaviorType field)
+   - May need small update if field renamed
+
+---
+
+**Day 5: MID LAYER (API & Transport)** - 8 files
+
+Guide: `component_impact_map.md` lines 88-101
+
+6. **Behavior Service** (`src/api/services/behavior.service.ts` - 27 usages):
+   - **CRITICAL**: Delete broken `extractBehaviorType()` method (lines 143-155)
+   - Read speedCategory, flowPattern, strategyType directly from DB
+   - Update cache reconstruction logic
+
+7. **Discover Service** (`src/api/services/discover.service.ts` - 29 usages):
+   - Replace: `tradingStyle: { contains: ... }` → `strategyType: { equals: ... }`
+   - Add enum filters for speedCategory, flowPattern
+   - Reference: `classification_scientific_assessment.md` for filter design
+
+8. **DTOs** (behavior-response.dto.ts, discover-wallet.dto.ts):
+   - Add fields: speedCategory, flowPattern, strategyType
+   - Keep tradingStyleLabel as deprecated (display only)
+
+9. **Controllers** (wallets.controller.ts, analyses.controller.ts):
+   - Verify DTOs map correctly
+   - No logic changes
+
+---
+
+**Day 6: HIGH LAYER (Frontend)** - 3 files (discover focus only)
+
+Guide: `component_impact_map.md` lines 105-117
+
+10. **API Types** (`dashboard/src/lib/api.ts` - 27 usages):
+    - Add frontend types matching backend DTOs
+    - Export: SpeedCategory, FlowPattern, StrategyType enums
+
+11. **Discover Page** (`dashboard/src/app/(app)/discover/page.tsx` - 43 usages):
+    - Replace filter: Text input → Dropdown with StrategyType enum values
+    - Update table: Show speedCategory + flowPattern in separate columns
+    - Add tooltips explaining categories
+
+12. **Baseball Card** (`dashboard/src/components/holder-profiles/v2/WalletBaseballCard.tsx` - 55 usages):
+    - Use speedCategory + flowPattern instead of parsing tradingStyle string
+    - Fallback already exists (line 326): `profile.behaviorType ?? 'HOLDER'`
+    - Minor update to use new fields
+
+---
+
+**Day 7: Testing & Integration**
+
+13. **Manual testing**:
+    - Test Case 1a: 1 buy, 700 SOL position, 45 days → PURE_HOLDER ✓
+    - Test Case 1b: 1 buy, 5 SOL position, 2 days → LOW_ACTIVITY ✓
+    - Test Case 1c: 5 tokens, no exits, 48h avg → PURE_HOLDER ✓
+    - Reference: `classification_scientific_assessment.md` lines 268-301
+
+14. **Discover page validation**:
+    - Filter by PURE_HOLDER → shows holders
+    - Filter by FAST_TRADER → shows snipers/scalpers
+    - No "LOW_ACTIVITY" wallets with significant positions
+
+15. **Ship to discover branch**
+
+---
+
+**Deferred to V2** (post-launch):
+- Backfill 10k existing wallets (BullMQ background job)
+- Migrate 14 internal scripts (low priority, they're internal tools)
+- Add confidence/sample size metrics
+- Temporal windows (30d, 90d, all-time classifications)
+- BehavioralPatternsTab.tsx updates (33 usages, not needed for discover)
 
 ### 📋 Ready to Start (3 tasks)
 4. **Fast Exit Metric Clarification** – Show median + avg (not redundant), add tooltip
