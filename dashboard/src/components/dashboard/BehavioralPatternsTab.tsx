@@ -18,6 +18,7 @@ import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { formatStrategyType, formatSpeedCategory, formatFlowPattern } from "@/lib/format-classification";
 
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
@@ -414,21 +415,21 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
             <div className="col-span-2 md:col-span-1">
               <MetricDisplay
                 label="Strategy Type"
-                value={behaviorData.strategyType || behaviorData.tradingStyle}
+                value={formatStrategyType(behaviorData.strategyType) || behaviorData.tradingStyle}
                 tooltipText="🎯 Primary trading strategy derived from speed + flow pattern. FAST_TRADER = high-speed exits (<30min), DAY_TRADER = intraday (30min-24h), SWING_TRADER = multi-day (1-7d), POSITION_TRADER = long-term (7-30+d), PURE_HOLDER = buy-only never sells, ACCUMULATOR = buys 2x+ more than sells, DISTRIBUTOR = sells 2x+ more than buys, BALANCED_TRADER = symmetric activity, LOW_ACTIVITY = insufficient data to classify trading pattern."
               />
             </div>
             {behaviorData.speedCategory && (
               <MetricDisplay
                 label="Speed Category"
-                value={behaviorData.speedCategory}
+                value={formatSpeedCategory(behaviorData.speedCategory)}
                 tooltipText="⚡ Trading speed based on median completed hold time (outlier-resistant): SNIPER (<1min ultra-fast bot), SCALPER (1-5min quick flips), MOMENTUM (5-30min trend riding), INTRADAY (30min-4h session-based), DAY_TRADER (4-24h daily closes), SWING (1-7d multi-day swings), POSITION (7-30d patient holds), HOLDER (30+d long-term conviction)."
               />
             )}
             {behaviorData.flowPattern && (
               <MetricDisplay
                 label="Flow Pattern"
-                value={behaviorData.flowPattern}
+                value={formatFlowPattern(behaviorData.flowPattern)}
                 tooltipText="📊 Buy/sell activity balance by transaction count: BUY_ONLY (only buys, no exits yet), SELL_ONLY (only sells, likely airdrop dumps), ACCUMULATOR (buys 2x+ more than sells, building positions), DISTRIBUTOR (sells 2x+ more than buys, liquidating), BALANCED (near 1:1 ratio, symmetric trading), MIXED (other irregular patterns)."
               />
             )}

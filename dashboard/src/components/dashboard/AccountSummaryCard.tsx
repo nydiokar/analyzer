@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { WalletSummaryData } from "@/types/api";
 import { useApiKeyStore } from "@/store/api-key-store";
+import { formatStrategyType } from "@/lib/format-classification";
 import {
   Tooltip,
   TooltipContent,
@@ -346,12 +347,12 @@ export default function AccountSummaryCard({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Badge variant="outline" className="uppercase tracking-wide text-[10px] py-0.5 px-2 cursor-help">
-                      {(data.strategyType || data.behaviorClassification)?.replace(/_/g, ' ')}
+                      {formatStrategyType(data.strategyType || data.behaviorClassification)}
                     </Badge>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-md">
                     <div className="space-y-2">
-                      <p className="font-semibold">{(data.strategyType || data.behaviorClassification)?.replace(/_/g, ' ')}</p>
+                      <p className="font-semibold">{formatStrategyType(data.strategyType || data.behaviorClassification)}</p>
                       <p className="text-xs text-muted-foreground">{getStrategyDescription(data.strategyType || data.behaviorClassification || '')}</p>
                       <div className="border-t border-border pt-2 mt-2">
                         <p className="font-medium text-xs mb-1">Strategy Types Explained:</p>
