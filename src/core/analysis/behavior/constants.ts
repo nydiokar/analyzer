@@ -40,7 +40,7 @@ export const HOLDER_BEHAVIOR_THRESHOLDS_MINUTES = {
   DAY_TRADER: 1440, // 4-24h: Day trading (24h * 60)
   SWING: 10080,     // 1-7 days: Swing trading (7d * 24 * 60)
   POSITION: 43200,  // 7-30 days: Position trading (30d * 24 * 60)
-  // 30+ days = HOLDER
+  // 30+ days = HODLER
 } as const;
 
 export const HOLDER_BEHAVIOR_THRESHOLDS_HOURS = {
@@ -51,7 +51,7 @@ export const HOLDER_BEHAVIOR_THRESHOLDS_HOURS = {
   DAY_TRADER: 24,   // 24 hours
   SWING: 168,       // 7 days
   POSITION: 720,    // 30 days
-  // 30+ days = HOLDER
+  // 30+ days = HODLER
 } as const;
 
 /**
@@ -77,7 +77,7 @@ export type HolderBehaviorType =
   | 'DAY_TRADER'
   | 'SWING'
   | 'POSITION'
-  | 'HOLDER';
+  | 'HODLER';
 
 /**
  * Behavioral patterns based on buy/sell characteristics
@@ -167,7 +167,7 @@ export function classifyHolderBehavior(medianCompletedHoldTimeHours: number): Ho
   } else if (medianCompletedHoldTimeHours < HOLDER_BEHAVIOR_THRESHOLDS_HOURS.POSITION) {
     return 'POSITION';
   } else {
-    return 'HOLDER';
+    return 'HODLER';  // 30+ days - crypto spelling for long-term exits
   }
 }
 
@@ -298,7 +298,7 @@ export const SPEED_THRESHOLDS = {
   DAY_TRADER: 24,      // 4-24h
   SWING: 168,          // 1-7 days (168 hours)
   POSITION: 720,       // 7-30 days (720 hours)
-  // 30+ days = HOLDER
+  // 30+ days = HODLER
 } as const;
 
 /**

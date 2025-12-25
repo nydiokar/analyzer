@@ -1565,7 +1565,7 @@ export class BehaviorAnalyzer {
     if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.DAY_TRADER) return 'DAY_TRADER';
     if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.SWING) return 'SWING';
     if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.POSITION) return 'POSITION';
-    return 'HOLDER';
+    return 'HODLER';  // 30+ days - crypto spelling
   }
 
   /**
@@ -1653,7 +1653,7 @@ export class BehaviorAnalyzer {
       return 'DAY_TRADER';
     }
     if (speedCategory === 'SWING') return 'SWING_TRADER';
-    if (speedCategory === 'POSITION' || speedCategory === 'HOLDER') return 'POSITION_TRADER';
+    if (speedCategory === 'POSITION' || speedCategory === 'HODLER') return 'POSITION_TRADER';
 
     // Step 5: Fallback
     if (flowPattern === 'BALANCED') return 'BALANCED_TRADER';

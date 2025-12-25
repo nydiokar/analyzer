@@ -135,7 +135,7 @@ export class HistoricalPatternDto {
   medianCompletedHoldTimeHours: number;
 
   @ApiProperty({ description: 'Behavior classification' })
-  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HODLER';
 
   @ApiProperty({ description: 'Exit pattern' })
   exitPattern: 'GRADUAL' | 'ALL AT ONCE';
@@ -187,7 +187,7 @@ export class BehaviorAnalysisResponseDto implements BehavioralMetrics {
   percentTradesUnder4Hours: number;
   @ApiProperty()
   tradingStyle: string;
-  @ApiProperty({ required: false, nullable: true, enum: ['SNIPER', 'SCALPER', 'MOMENTUM', 'INTRADAY', 'DAY_TRADER', 'SWING', 'POSITION', 'HOLDER'], description: 'Speed category from completed cycles (null if no exits)' })
+  @ApiProperty({ required: false, nullable: true, enum: ['SNIPER', 'SCALPER', 'MOMENTUM', 'INTRADAY', 'DAY_TRADER', 'SWING', 'POSITION', 'HODLER'], description: 'Speed category from completed cycles (null if no exits)' })
   speedCategory?: SpeedCategory | null;
   @ApiProperty({ required: false, nullable: true, enum: ['BUY_ONLY', 'SELL_ONLY', 'ACCUMULATOR', 'DISTRIBUTOR', 'BALANCED', 'MIXED'], description: 'Buy/sell directional flow pattern' })
   flowPattern?: FlowPattern | null;

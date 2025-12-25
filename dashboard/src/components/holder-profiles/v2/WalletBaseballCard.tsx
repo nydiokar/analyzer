@@ -424,7 +424,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                       <li>• DAY_TRADER: 4-24h exits</li>
                       <li>• SWING: 1-7 day holds</li>
                       <li>• POSITION: 7-30 day holds</li>
-                      <li>• HOLDER: 30+ day holds</li>
+                      <li>• HODLER: 30+ day holds (crypto spelling)</li>
                     </ul>
                   </div>
                 </TooltipContent>

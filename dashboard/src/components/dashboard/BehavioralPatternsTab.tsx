@@ -423,7 +423,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
               <MetricDisplay
                 label="Speed Category"
                 value={formatSpeedCategory(behaviorData.speedCategory)}
-                tooltipText="⚡ Trading speed based on median completed hold time (outlier-resistant): SNIPER (<1min ultra-fast bot), SCALPER (1-5min quick flips), MOMENTUM (5-30min trend riding), INTRADAY (30min-4h session-based), DAY_TRADER (4-24h daily closes), SWING (1-7d multi-day swings), POSITION (7-30d patient holds), HOLDER (30+d long-term conviction)."
+                tooltipText="⚡ Trading speed based on median completed hold time (outlier-resistant): SNIPER (<1min ultra-fast bot), SCALPER (1-5min quick flips), MOMENTUM (5-30min trend riding), INTRADAY (30min-4h session-based), DAY_TRADER (4-24h daily closes), SWING (1-7d multi-day swings), POSITION (7-30d patient holds), HODLER (30+d long-term conviction, crypto spelling)."
               />
             )}
             {behaviorData.flowPattern && (

@@ -53,7 +53,7 @@ export interface WalletHistoricalPattern {
   medianCompletedHoldTimeHours: number;    // Median of completed cycles
 
   // Behavioral classification (granular memecoin trading patterns)
-  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HODLER';
   exitPattern: 'GRADUAL' | 'ALL AT ONCE';  // Based on sell distribution
 
   // Confidence metrics
@@ -126,7 +126,7 @@ export interface WalletTokenPrediction {
   // Historical context (from OTHER completed tokens)
   historicalMedianHoldHours: number;        // Wallet's typical median hold time
   historicalSampleSize: number;             // Number of completed cycles
-  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HODLER';
   exitPattern: 'GRADUAL' | 'ALL AT ONCE';
 
   // Current position (for THIS specific token)
@@ -266,7 +266,7 @@ export type SpeedCategory =
   | 'DAY_TRADER'  // 4-24h
   | 'SWING'       // 1-7 days
   | 'POSITION'    // 7-30 days
-  | 'HOLDER';     // 30+ days
+  | 'HODLER';     // 30+ days (crypto spelling for long-term exited positions)
 
 /**
  * Flow Pattern - What's the directional flow of trading activity?
@@ -289,7 +289,7 @@ export type StrategyType =
   | 'FAST_TRADER'       // SNIPER, SCALPER, or MOMENTUM speed
   | 'DAY_TRADER'        // INTRADAY or DAY_TRADER speed
   | 'SWING_TRADER'      // SWING speed
-  | 'POSITION_TRADER'   // POSITION or HOLDER speed (with exits)
+  | 'POSITION_TRADER'   // POSITION or HODLER speed (with exits)
   | 'PURE_HOLDER'       // BUY_ONLY flow (no exits yet)
   | 'ACCUMULATOR'       // ACCUMULATOR flow (any speed)
   | 'DISTRIBUTOR'       // DISTRIBUTOR or SELL_ONLY flow

@@ -111,7 +111,7 @@ export type SpeedCategory =
   | 'DAY_TRADER'  // 4-24h
   | 'SWING'       // 1-7 days
   | 'POSITION'    // 7-30 days
-  | 'HOLDER';     // 30+ days
+  | 'HODLER';     // 30+ days (crypto spelling for long-term exited positions)
 
 /**
  * Flow Pattern - What's the directional flow of trading activity?
@@ -134,7 +134,7 @@ export type StrategyType =
   | 'FAST_TRADER'       // SNIPER, SCALPER, or MOMENTUM speed
   | 'DAY_TRADER'        // INTRADAY or DAY_TRADER speed
   | 'SWING_TRADER'      // SWING speed
-  | 'POSITION_TRADER'   // POSITION or HOLDER speed (with exits)
+  | 'POSITION_TRADER'   // POSITION or HODLER speed (with exits)
   | 'PURE_HOLDER'       // BUY_ONLY flow (no exits yet)
   | 'ACCUMULATOR'       // ACCUMULATOR flow (any speed)
   | 'DISTRIBUTOR'       // DISTRIBUTOR or SELL_ONLY flow
@@ -163,7 +163,7 @@ export interface HistoricalPattern {
   medianCompletedHoldTimeHours: number;        // Median (outlier-robust)
   historicalAverageHoldTimeHours: number;      // Weighted average (economic impact)
   completedCycleCount: number;                 // Sample size
-  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HODLER';
   exitPattern: 'GRADUAL' | 'ALL AT ONCE';
   dataQuality: number;                         // 0-1 confidence score
   observationPeriodDays: number;

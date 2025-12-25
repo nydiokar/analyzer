@@ -137,7 +137,7 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                                   <li>• DAY_TRADER: 4-24h exits (daily position closes)</li>
                                   <li>• SWING: 1-7 day holds (multi-day swings)</li>
                                   <li>• POSITION: 7-30 day holds (patient positioning)</li>
-                                  <li>• HOLDER: 30+ day holds (long-term conviction)</li>
+                                  <li>• HODLER: 30+ day holds (long-term conviction, crypto spelling)</li>
                                 </ul>
                               </div>
                             </div>
