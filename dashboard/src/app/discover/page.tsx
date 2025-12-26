@@ -51,15 +51,15 @@ const sortOptions = [
 
 // NEW: StrategyType enum values (2025-12-25) - matches backend classification system
 const styleOptions = [
-  { value: 'any', label: 'Any strategy' },
-  { value: 'FAST_TRADER', label: 'Fast Trader', hint: 'Sniper/scalper/momentum' },
-  { value: 'DAY_TRADER', label: 'Day Trader', hint: 'Intraday positions' },
-  { value: 'SWING_TRADER', label: 'Swing Trader', hint: '1-7 day holds' },
-  { value: 'POSITION_TRADER', label: 'Position Trader', hint: '7-30+ day holds' },
-  { value: 'PURE_HOLDER', label: 'Pure Holder', hint: 'Only buys, no exits' },
-  { value: 'ACCUMULATOR', label: 'Accumulator', hint: 'Heavy buy bias' },
-  { value: 'DISTRIBUTOR', label: 'Distributor', hint: 'Heavy sell bias' },
-  { value: 'BALANCED_TRADER', label: 'Balanced Trader', hint: 'Symmetric buys/sells' },
+  { value: 'any', label: 'Any strategy', hint: '' },
+  { value: 'FAST_TRADER', label: 'Fast Trader', hint: 'Exits in < 30 minutes (sniper/scalper/momentum speed)' },
+  { value: 'DAY_TRADER', label: 'Day Trader', hint: 'Exits within same day (< 24 hours)' },
+  { value: 'SWING_TRADER', label: 'Swing Trader', hint: 'Holds for days (1-7 day positions)' },
+  { value: 'POSITION_TRADER', label: 'Position Trader', hint: 'Long-term holds (7+ days, eventual exits)' },
+  { value: 'PURE_HOLDER', label: 'Pure Holder', hint: 'Never exits, only accumulates (buy-only pattern)' },
+  { value: 'ACCUMULATOR', label: 'Accumulator', hint: 'Heavy buy bias (buys >> sells, any speed)' },
+  { value: 'DISTRIBUTOR', label: 'Distributor', hint: 'Heavy sell bias (sells >> buys, any speed)' },
+  { value: 'BALANCED_TRADER', label: 'Balanced Trader', hint: 'Equal buy/sell activity (balanced flow pattern)' },
 ] as const;
 
 const holdBiasOptions = [
@@ -68,47 +68,6 @@ const holdBiasOptions = [
   { value: 'medium', label: 'Medium (12–72h)' },
   { value: 'long', label: 'Long (>72h)' },
 ] as const;
-
-const behaviorTagCopy: Record<
-  string,
-  { label: string; fallbackDetail: string }
-> = {
-  FLIPPER: { label: "Fast rotations", fallbackDetail: "Short holds and timing-focused moves." },
-  HOLDER: { label: "Patient moves", fallbackDetail: "Longer holds and selective entries." },
-  EXPLORER: { label: "Token scout", fallbackDetail: "Sampling many tokens to find momentum." },
-  RECENT: { label: "Warming up", fallbackDetail: "Fresh on-chain activity to watch." },
-  PNL: { label: "Profitable streak", fallbackDetail: "Realized gains worth a look." },
-  WINNER: { label: "High win rate", fallbackDetail: "Converting trades efficiently." },
-  INTERESTING: { label: "Curated pick", fallbackDetail: "Signals that merit a closer look." },
-};
-
-const formatHours = (val?: number | null) => {
-  if (!val) return "—";
-  if (val < 1) return `${Math.round(val * 60)}m`;
-  if (val < 24) return `${Math.round(val)}h`;
-  return `${Math.round(val / 24)}d`;
-};
-
-// NOTE: formatSpeedCategory and formatFlowPattern removed - now using behavior-narratives.tsx templates
-
-const formatLastActive = (isoString?: string | null) => {
-  if (!isoString) return { text: "No activity yet", tooltip: null };
-  const date = new Date(isoString);
-  if (Number.isNaN(date.getTime())) return { text: "No activity yet", tooltip: null };
-  const distance = new Date().getTime() - date.getTime();
-  const seconds = Math.floor(distance / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  let text = "No activity yet";
-  if (days > 0) text = `${days}d ago`;
-  else if (hours > 0) text = `${hours}h ago`;
-  else if (minutes > 0) text = `${minutes}m ago`;
-  else text = "just now";
-
-  return { text, tooltip: null };
-};
 
 const formatSOL = (val: number): string => {
   const absVal = Math.abs(val);
@@ -128,43 +87,6 @@ const formatSOL = (val: number): string => {
 const formatPnLValue = (val?: number | null) => {
   if (val === null || val === undefined) return "—";
   return formatSOL(val);
-};
-
-const getBehaviorPresentation = (wallet: DiscoverWallet) => {
-  const map = behaviorTagCopy[wallet.reasonCode] || behaviorTagCopy.INTERESTING;
-  const hold = wallet.metrics.medianHoldHours ?? wallet.metrics.averageHoldHours;
-  const trades = wallet.metrics.totalTrades ?? wallet.metrics.totalExecutedSwaps;
-  const tokens = wallet.metrics.uniqueTokensTraded;
-
-  let detail = map.fallbackDetail;
-  if (trades !== null && trades !== undefined && trades < 3) {
-    return {
-      label: "New data",
-      detail: `${trades} trade${trades === 1 ? "" : "s"} so far · rerun analysis for depth`,
-      rawReason: wallet.reason,
-    };
-  }
-
-  if (wallet.reasonCode === "FLIPPER" && hold) {
-    detail = `Quick exits (~${formatHours(hold)}) across ${trades ?? "many"} trades`;
-  } else if (wallet.reasonCode === "HOLDER" && hold) {
-    detail = `Prefers longer holds (~${formatHours(hold)})`;
-  } else if (wallet.reasonCode === "EXPLORER" && wallet.metrics.uniqueTokensTraded) {
-    detail = `${wallet.metrics.uniqueTokensTraded} unique tokens explored`;
-  } else if (wallet.reasonCode === "RECENT") {
-    const lastActive = formatLastActive(wallet.metrics.lastActiveAt);
-    detail = `Active ${lastActive.text}`;
-  } else if (wallet.reasonCode === "PNL" && wallet.metrics.realizedPnl !== null && wallet.metrics.realizedPnl !== undefined) {
-    detail = `Realized ${formatPnLValue(wallet.metrics.realizedPnl)} SOL recently`;
-  } else if (wallet.metrics.tradingStyle) {
-    detail = wallet.metrics.tradingStyle;
-  }
-
-  return {
-    label: map.label,
-    detail: tokens === 0 && (trades ?? 0) > 0 ? `${detail} · token details pending` : detail,
-    rawReason: wallet.reason,
-  };
 };
 
 type CacheShape = { timestamp: number; data: DiscoverWalletsResponse };
@@ -190,19 +112,6 @@ const writeCache = (key: string, data: DiscoverWalletsResponse) => {
   } catch {
     // Ignore
   }
-};
-
-const reasonColorMap: Record<string, string> = {
-  FLIPPER: 'bg-pink-100 text-pink-800 border-pink-200',
-  HOLDER: 'bg-amber-100 text-amber-800 border-amber-200',
-  ACCUMULATOR: 'bg-blue-100 text-blue-800 border-blue-200',
-  PARTIAL_HOLDER: 'bg-teal-100 text-teal-800 border-teal-200',
-  SWING: 'bg-orange-100 text-orange-800 border-orange-200',
-  EXPLORER: 'bg-indigo-100 text-indigo-800 border-indigo-200',
-  RECENT: 'bg-purple-100 text-purple-800 border-purple-200',
-  PNL: 'bg-cyan-100 text-cyan-800 border-cyan-200',
-  WINNER: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  INTERESTING: 'bg-slate-100 text-slate-800 border-slate-200',
 };
 
 export default function DiscoverPage() {
@@ -417,37 +326,94 @@ export default function DiscoverPage() {
 
           {/* Inline filters */}
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Sort:</span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                    Sort: <Info className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Order results by different criteria</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <Select value={sort} onValueChange={(v) => { setSort(v); setPage(1); setActivePreset(null); }}>
               <SelectTrigger className="w-[140px] h-7 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {sortOptions.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
+                <TooltipProvider>
+                  {sortOptions.map((o) => (
+                    <Tooltip key={o.value}>
+                      <TooltipTrigger asChild>
+                        <SelectItem value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        <p className="text-xs font-semibold">{o.label}</p>
+                        <p className="text-xs text-muted-foreground">{o.hint}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </TooltipProvider>
               </SelectContent>
             </Select>
           </div>
 
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Style:</span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                    Style: <Info className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Filter by trading strategy type</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <Select value={style} onValueChange={(v) => { setStyle(v); setPage(1); setActivePreset(null); }}>
               <SelectTrigger className="w-[110px] h-7 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {styleOptions.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                ))}
+                <TooltipProvider>
+                  {styleOptions.map((o) => (
+                    <Tooltip key={o.value}>
+                      <TooltipTrigger asChild>
+                        <SelectItem value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      </TooltipTrigger>
+                      {o.hint && (
+                        <TooltipContent side="right" className="max-w-xs">
+                          <p className="text-xs font-semibold">{o.label}</p>
+                          <p className="text-xs text-muted-foreground">{o.hint}</p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  ))}
+                </TooltipProvider>
               </SelectContent>
             </Select>
           </div>
 
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Hold:</span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                    Hold: <Info className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Filter by median hold time duration</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <Select value={holdBias} onValueChange={(v) => { setHoldBias(v); setPage(1); setActivePreset(null); }}>
               <SelectTrigger className="w-[110px] h-7 text-xs">
                 <SelectValue />
@@ -769,6 +735,7 @@ function WalletRow({
     unrealizedPnl,
     reasonCode: wallet.reasonCode,
     uniqueTokensTraded: wallet.metrics.uniqueTokensTraded,
+    velocityScore: wallet.metrics.velocityScore, // 0-100 trading velocity
   });
 
   // FLOW NARRATIVE: Use template-based storytelling with emphasized numbers
@@ -786,24 +753,45 @@ function WalletRow({
   const unpairedPct = wallet.metrics.percentageOfUnpairedTokens?.toFixed(0) ?? null;
   const isHighUnpaired = wallet.metrics.percentageOfUnpairedTokens && wallet.metrics.percentageOfUnpairedTokens > 50;
 
+  // Staleness indicator
+  const stalenessMinutes = wallet.metrics.stalenessMinutes;
+  const isStale = stalenessMinutes && stalenessMinutes > 1440; // > 24 hours
+  const stalenessHours = stalenessMinutes ? Math.floor(stalenessMinutes / 60) : null;
+
   return (
     <tr className="border-b last:border-0 hover:bg-accent/30 transition-all duration-150 align-top group">
       {/* Column 1: Wallet */}
       <td className="px-3 py-2.5">
-        <WalletBadge
-          address={wallet.walletAddress}
-          variant="inline"
-          size="s"
-          isFavorite={isFavorite}
-          favoriteData={favoriteData}
-          onFavoriteToggle={handleFavoriteToggle}
-          metrics={{
-            totalBuys: wallet.metrics.totalBuys,
-            totalSells: wallet.metrics.totalSells,
-            winRatePercent: wallet.metrics.winRatePercent,
-            lastActiveAt: wallet.metrics.lastActiveAt,
-          }}
-        />
+        <div className="flex flex-col gap-0.5">
+          <WalletBadge
+            address={wallet.walletAddress}
+            variant="inline"
+            size="s"
+            isFavorite={isFavorite}
+            favoriteData={favoriteData}
+            onFavoriteToggle={handleFavoriteToggle}
+            metrics={{
+              totalBuys: wallet.metrics.totalBuys,
+              totalSells: wallet.metrics.totalSells,
+              winRatePercent: wallet.metrics.winRatePercent,
+              lastActiveAt: wallet.metrics.lastActiveAt,
+            }}
+          />
+          {isStale && stalenessHours !== null && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-[0.65rem] text-amber-600 dark:text-amber-500 cursor-help inline-flex items-center gap-0.5">
+                    ⚠️ Data {stalenessHours}h old
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>Analysis was last updated {stalenessHours} hours ago. Metrics may not reflect recent activity.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       </td>
 
       {/* Column 2: PnL (left-aligned, close to wallet) */}

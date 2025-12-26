@@ -124,6 +124,9 @@ export class DiscoverWalletMetricsDto {
   @ApiProperty({ required: false, nullable: true, description: 'Strategy type (canonical filter)' })
   strategyType?: string | null;
 
+  @ApiProperty({ required: false, nullable: true, description: 'Trading velocity score (0-100, higher = faster rotation)' })
+  velocityScore?: number | null;
+
   // NEW: Behavioral detail metrics for data-driven storytelling (2025-12-26)
   @ApiProperty({ required: false, nullable: true, description: 'Buy/sell ratio (buys/sells count)' })
   buySellRatio?: number | null;

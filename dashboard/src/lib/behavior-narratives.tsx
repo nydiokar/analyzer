@@ -31,6 +31,7 @@ interface SpeedNarrative {
     avgHoldHours?: number | null;
     currentHoldHours?: number | null;
     valueHeldPct?: number | null;
+    velocityScore?: number | null; // 0-100 velocity score
   }) => React.ReactNode;
 }
 
@@ -38,11 +39,15 @@ const speedNarratives: Record<SpeedCategory, SpeedNarrative> = {
   SNIPER: {
     label: 'Sniper',
     range: '<1min',
-    buildStory: ({ medianHoldHours, avgHoldHours, currentHoldHours, valueHeldPct }) => (
+    buildStory: ({ medianHoldHours, avgHoldHours, currentHoldHours, valueHeldPct, velocityScore }) => (
       <>
         Lightning-fast exits within seconds (median: <Num>{formatHours(medianHoldHours)}</Num>
         {avgHoldHours && avgHoldHours !== medianHoldHours && <>, avg: <Num>{formatHours(avgHoldHours)}</Num></>}).
-        This is pure bot/MEV speed.
+        {velocityScore && velocityScore >= 80 ? (
+          <> Extreme velocity (<Num>{Math.round(velocityScore)}</Num>) - pure bot/MEV speed.</>
+        ) : (
+          <> This is pure bot/MEV speed.</>
+        )}
         {currentHoldHours && valueHeldPct ? (
           <> Currently holds <Num>{valueHeldPct}%</Num> of value (<Num>{formatHours(currentHoldHours)}</Num> old).</>
         ) : (
@@ -54,10 +59,11 @@ const speedNarratives: Record<SpeedCategory, SpeedNarrative> = {
   SCALPER: {
     label: 'Scalper',
     range: '1-5min',
-    buildStory: ({ medianHoldHours, avgHoldHours, currentHoldHours, valueHeldPct }) => (
+    buildStory: ({ medianHoldHours, avgHoldHours, currentHoldHours, valueHeldPct, velocityScore }) => (
       <>
         Ultra-fast scalping - exits within minutes (median: <Num>{formatHours(medianHoldHours)}</Num>
         {avgHoldHours && avgHoldHours !== medianHoldHours && <>, avg: <Num>{formatHours(avgHoldHours)}</Num></>}).
+        {velocityScore && velocityScore >= 75 && <> High velocity (<Num>{Math.round(velocityScore)}</Num>).</>}
         {currentHoldHours && valueHeldPct ? (
           <> Currently sitting on <Num>{valueHeldPct}%</Num> of portfolio (<Num>{formatHours(currentHoldHours)}</Num> old).</>
         ) : (
@@ -69,10 +75,11 @@ const speedNarratives: Record<SpeedCategory, SpeedNarrative> = {
   MOMENTUM: {
     label: 'Momentum',
     range: '5-30min',
-    buildStory: ({ medianHoldHours, avgHoldHours, currentHoldHours, valueHeldPct }) => (
+    buildStory: ({ medianHoldHours, avgHoldHours, currentHoldHours, valueHeldPct, velocityScore }) => (
       <>
         Momentum trading - rides short-term moves (median: <Num>{formatHours(medianHoldHours)}</Num>
         {avgHoldHours && avgHoldHours !== medianHoldHours && <>, avg: <Num>{formatHours(avgHoldHours)}</Num></>}).
+        {velocityScore && velocityScore >= 65 && <> Strong velocity (<Num>{Math.round(velocityScore)}</Num>).</>}
         {currentHoldHours && valueHeldPct ? (
           <> Currently holds <Num>{valueHeldPct}%</Num> of value (<Num>{formatHours(currentHoldHours)}</Num> old).</>
         ) : (
@@ -169,7 +176,7 @@ interface FlowNarrative {
 const flowNarratives: Record<FlowPattern, FlowNarrative> = {
   BUY_ONLY: {
     label: 'Buy-Only',
-    buildStory: ({ totalBuys, unrealizedPnl, uniqueTokensTraded }) => (
+    buildStory: ({ totalBuys, unrealizedPnl, uniqueTokensTraded, exitPattern }) => (
       <>
         Only buying, never selling - <Num>{totalBuys}↑</Num> entry transaction{totalBuys !== 1 ? 's' : ''} recorded.
         {unrealizedPnl !== null && unrealizedPnl !== undefined ? (
@@ -193,7 +200,7 @@ const flowNarratives: Record<FlowPattern, FlowNarrative> = {
   },
   ACCUMULATOR: {
     label: 'Accumulator',
-    buildStory: ({ totalBuys, totalSells, buySellRatio, buySellSymmetry, uniqueTokensTraded }) => {
+    buildStory: ({ totalBuys, totalSells, buySellRatio, buySellSymmetry, sequenceConsistency, exitPattern, uniqueTokensTraded }) => {
       // Don't repeat the buy/sell counts - focus on the MEANING
       return (
         <>
@@ -210,38 +217,48 @@ const flowNarratives: Record<FlowPattern, FlowNarrative> = {
           ) : (
             <> Net accumulation pattern observed.</>
           )}
+          {sequenceConsistency !== null && sequenceConsistency !== undefined && sequenceConsistency >= 0.9 && (
+            <> Very systematic approach.</>
+          )}
+          {exitPattern && <> Exits are <Num>{exitPattern.toLowerCase().replace('_', ' ')}</Num>.</>}
         </>
       );
     },
   },
   DISTRIBUTOR: {
     label: 'Distributor',
-    buildStory: ({ totalBuys, totalSells, buySellRatio, uniqueTokensTraded }) => {
+    buildStory: ({ totalBuys, totalSells, buySellRatio, exitPattern, uniqueTokensTraded }) => {
       const sellRatio = buySellRatio ? (1 / buySellRatio).toFixed(1) : '—';
 
       return (
         <>
           Strong distribution phase - <Num>{sellRatio}×</Num> more exits than entries
           {uniqueTokensTraded ? <> across <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : null}.
-          Likely taking profits or unwinding accumulated positions.
+          {exitPattern && <> Exits are <Num>{exitPattern.toLowerCase().replace('_', ' ')}</Num>.</>}
+          {!exitPattern && <> Likely taking profits or unwinding accumulated positions.</>}
         </>
       );
     },
   },
   BALANCED: {
     label: 'Balanced Trader',
-    buildStory: ({ totalBuys, totalSells, buySellSymmetry, exitPattern, uniqueTokensTraded }) => {
+    buildStory: ({ totalBuys, totalSells, buySellSymmetry, sequenceConsistency, exitPattern, uniqueTokensTraded }) => {
       return (
         <>
           Equal buy/sell activity - balanced in/out flow
           {uniqueTokensTraded ? <> across <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : null}.
           {buySellSymmetry !== null && buySellSymmetry !== undefined && buySellSymmetry >= 0.7 ? (
-            <> High symmetry (<Num>{buySellSymmetry.toFixed(2)}</Num>) indicates disciplined, systematic trading.</>
+            <>
+              {' '}High symmetry (<Num>{buySellSymmetry.toFixed(2)}</Num>) indicates disciplined trading.
+              {sequenceConsistency !== null && sequenceConsistency !== undefined && sequenceConsistency >= 0.9 && (
+                <> Very systematic execution.</>
+              )}
+            </>
           ) : buySellSymmetry !== null && buySellSymmetry !== undefined ? (
             <> Moderate symmetry (<Num>{buySellSymmetry.toFixed(2)}</Num>) - some irregularity in trade patterns.</>
           ) : null}
           {exitPattern && (
-            <> Exits are typically <Num>{exitPattern.toLowerCase()}</Num>.</>
+            <> Exits are <Num>{exitPattern.toLowerCase().replace('_', ' ')}</Num>.</>
           )}
         </>
       );
@@ -249,14 +266,18 @@ const flowNarratives: Record<FlowPattern, FlowNarrative> = {
   },
   MIXED: {
     label: 'Mixed Activity',
-    buildStory: ({ totalBuys, totalSells, buySellRatio, buySellSymmetry, uniqueTokensTraded }) => (
+    buildStory: ({ totalBuys, totalSells, buySellRatio, buySellSymmetry, sequenceConsistency, uniqueTokensTraded }) => (
       <>
         Chaotic pattern - balanced counts (<Num>{totalBuys}↑/{totalSells}↓</Num>
         {uniqueTokensTraded ? <> across <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : null}, ratio: <Num>{buySellRatio?.toFixed(2) || '—'}</Num>)
         {buySellSymmetry !== null && buySellSymmetry !== undefined && (
           <> but low symmetry (<Num>{buySellSymmetry.toFixed(2)}</Num>)</>
         )}.
-        Suggests reactive trading rather than systematic strategy.
+        {sequenceConsistency !== null && sequenceConsistency !== undefined && sequenceConsistency < 0.4 ? (
+          <> Erratic pattern suggests reactive, not systematic approach.</>
+        ) : (
+          <> Suggests reactive trading rather than systematic strategy.</>
+        )}
       </>
     ),
   },
@@ -286,9 +307,9 @@ export function buildNoExitsNarrative(data: {
       {currentHoldHours !== null && currentHoldHours !== undefined ? (
         <>
           Holding
-          {uniqueTokensTraded ? <> <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : <> positions</>} for <Num>{formatHours(currentHoldHours)}</Num> (median age)
+          {uniqueTokensTraded ? <> <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : <> positions</>} for <Num>{formatHours(currentHoldHours)}</Num> (median hold time)
           {valueHeldPct ? <>, representing <Num>{valueHeldPct}%</Num> of portfolio value</> : null}.
-          No exits recorded yet - pure accumulation phase.
+          No exits recorded yet.
         </>
       ) : (
         <>
@@ -343,6 +364,7 @@ export function buildSpeedNarrative(
     unrealizedPnl?: number | null;
     reasonCode?: string;
     uniqueTokensTraded?: number | null;
+    velocityScore?: number | null; // 0-100 velocity score
   }
 ): { label: string; range: string; story: React.ReactNode } {
   if (!speedCategory) {

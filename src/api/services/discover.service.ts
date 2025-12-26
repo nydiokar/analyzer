@@ -224,6 +224,7 @@ export class DiscoverService {
         speedCategory: behavior?.speedCategory ?? null, // NEW: Explicit speed classification
         flowPattern: behavior?.flowPattern ?? null, // NEW: Buy/sell flow pattern
         strategyType: behavior?.strategyType ?? null, // NEW: Canonical strategy type
+        velocityScore: behavior?.velocityScore ?? behavior?.flipperScore ?? null, // 0-100 trading velocity
         // NEW: Behavioral detail metrics for data-driven storytelling (2025-12-26)
         buySellRatio: behavior?.buySellRatio ?? null,
         percentageOfUnpairedTokens: behavior?.percentageOfUnpairedTokens ?? null,

@@ -17,6 +17,7 @@ export interface DiscoverWalletMetrics {
   speedCategory?: SpeedCategory | null;
   flowPattern?: FlowPattern | null;
   strategyType?: StrategyType | null;
+  velocityScore?: number | null; // 0-100 trading velocity score
 
   // NEW: Behavioral detail metrics for data-driven storytelling (2025-12-26)
   buySellRatio?: number | null;
