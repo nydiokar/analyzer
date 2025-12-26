@@ -129,7 +129,8 @@ export class BehaviorService {
             buySellRatio: sanitizeNumber(buySellRatio),
             buySellSymmetry: sanitizeNumber(buySellSymmetry),
             averageFlipDurationHours: sanitizeNumber(averageFlipDurationHours),
-            medianHoldTime: sanitizeNumber(medianHoldTime),
+            medianHoldTime: sanitizeNumber(medianHoldTime), // DEPRECATED: trade-level median
+            medianCompletedHoldTimeHours: historicalPattern?.medianCompletedHoldTimeHours ?? null, // Token-level median (used for speedCategory)
             sequenceConsistency: sanitizeNumber(sequenceConsistency),
             flipperScore: sanitizeNumber(flipperScore),
             velocityScore: velocityScore ?? null, // NEW: Store velocity score

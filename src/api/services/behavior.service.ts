@@ -93,7 +93,7 @@ export class BehaviorService {
       walletAddress: profile.walletAddress,
       historicalAverageHoldTimeHours: profile.averageFlipDurationHours,
       completedCycleCount: profile.completePairsCount,
-      medianCompletedHoldTimeHours: profile.medianHoldTime,
+      medianCompletedHoldTimeHours: profile.medianCompletedHoldTimeHours ?? profile.medianHoldTime, // Use new field, fallback to deprecated for old data
       behaviorType: behaviorType as any,
       exitPattern: (profile.exitPattern as 'GRADUAL' | 'ALL AT ONCE') ?? ('GRADUAL' as const), // Read from DB
       dataQuality: profile.confidenceScore,

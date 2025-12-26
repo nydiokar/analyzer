@@ -2,8 +2,8 @@
 
 **Project**: Sova Intel - Wallet Analysis System
 **Branch**: `discover` (design system + auth polish) ✅ SHIPPED
-**Status**: Classification system refactor - Days 1-6 COMPLETE ✅ (backend + frontend + tooltips), ready for Day 7 testing
-**Last Updated**: 2025-12-25 (late evening session)
+**Status**: Discover page storytelling enhancement - Metrics integration + Speed/Flow filters COMPLETE ✅
+**Last Updated**: 2025-12-26 (metrics storytelling + filter redesign)
 
 ---
 

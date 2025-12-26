@@ -170,24 +170,33 @@ interface FlowNarrative {
     exitPattern?: string | null;
     unrealizedPnl?: number | null;
     uniqueTokensTraded?: number | null;
+    valueHeldPct?: number | null; // NEW: % of value in current holdings
+    currentHoldHours?: number | null; // NEW: Median current holding duration
+    avgCurrentHoldHours?: number | null; // NEW: Average current holding duration
   }) => React.ReactNode;
 }
 
 const flowNarratives: Record<FlowPattern, FlowNarrative> = {
   BUY_ONLY: {
     label: 'Buy-Only',
-    buildStory: ({ totalBuys, unrealizedPnl, uniqueTokensTraded, exitPattern }) => (
-      <>
-        Only buying, never selling - <Num>{totalBuys}↑</Num> entry transaction{totalBuys !== 1 ? 's' : ''} recorded.
-        {unrealizedPnl !== null && unrealizedPnl !== undefined ? (
-          <> Currently sitting on <Num className={unrealizedPnl >= 0 ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}>
-            {unrealizedPnl >= 0 ? '+' : ''}{unrealizedPnl.toFixed(1)} SOL
-          </Num> unrealized ({unrealizedPnl >= 0 ? 'profit' : 'loss'}). High conviction accumulation strategy.</>
-        ) : (
-          <> Pure accumulation mode - no exit strategy observed yet.</>
-        )}
-      </>
-    ),
+    buildStory: ({ totalBuys, unrealizedPnl, uniqueTokensTraded, valueHeldPct }) => {
+      // Only show % of portfolio if it's < 100% (otherwise it's obvious for buy-only)
+      const showPortfolioPct = valueHeldPct && valueHeldPct < 100;
+
+      return (
+        <>
+          Only buying, never selling - <Num>{totalBuys}↑</Num> entry transaction{totalBuys !== 1 ? 's' : ''} recorded.
+          {showPortfolioPct && <> <Num>{valueHeldPct}%</Num> of portfolio still held (some tokens may have been transferred out).</>}
+          {unrealizedPnl !== null && unrealizedPnl !== undefined ? (
+            <> Currently sitting on <Num className={unrealizedPnl >= 0 ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}>
+              {unrealizedPnl >= 0 ? '+' : ''}{unrealizedPnl.toFixed(1)} SOL
+            </Num> unrealized ({unrealizedPnl >= 0 ? 'profit' : 'loss'}). High conviction accumulation strategy.</>
+          ) : (
+            <> Pure accumulation mode - no exit strategy observed yet.</>
+          )}
+        </>
+      );
+    },
   },
   SELL_ONLY: {
     label: 'Sell-Only',
@@ -200,12 +209,15 @@ const flowNarratives: Record<FlowPattern, FlowNarrative> = {
   },
   ACCUMULATOR: {
     label: 'Accumulator',
-    buildStory: ({ totalBuys, totalSells, buySellRatio, buySellSymmetry, sequenceConsistency, exitPattern, uniqueTokensTraded }) => {
-      // Don't repeat the buy/sell counts - focus on the MEANING
+    buildStory: ({ totalBuys, totalSells, buySellRatio, buySellSymmetry, sequenceConsistency, exitPattern, uniqueTokensTraded, valueHeldPct }) => {
+      // Only show % of portfolio if meaningful (not 100%, or if low symmetry suggesting exits)
+      const showPortfolioPct = valueHeldPct && (valueHeldPct < 95 || (buySellSymmetry !== null && buySellSymmetry !== undefined && buySellSymmetry > 0.3));
+
       return (
         <>
           Strong buying pressure - <Num>{buySellRatio?.toFixed(1)}×</Num> more entries than exits
           {uniqueTokensTraded ? <> across <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : null}.
+          {showPortfolioPct && <> <Num>{valueHeldPct}%</Num> of value still in wallet.</>}
           {buySellSymmetry !== null && buySellSymmetry !== undefined ? (
             buySellSymmetry < 0.3 ? (
               <> Rarely sells (symmetry: <Num>{buySellSymmetry.toFixed(2)}</Num>) - classic accumulation behavior.</>
@@ -307,15 +319,19 @@ export function buildNoExitsNarrative(data: {
       {currentHoldHours !== null && currentHoldHours !== undefined ? (
         <>
           Holding
-          {uniqueTokensTraded ? <> <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : <> positions</>} for <Num>{formatHours(currentHoldHours)}</Num> (median hold time)
+          {uniqueTokensTraded ? <> <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : <> positions</>} for <Num>{formatHours(currentHoldHours)}</Num> (median)
           {valueHeldPct ? <>, representing <Num>{valueHeldPct}%</Num> of portfolio value</> : null}.
           No exits recorded yet.
         </>
       ) : (
         <>
-          No exits recorded
-          {uniqueTokensTraded ? <> across <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : null}.
-          {totalBuys ? <> <Num>{totalBuys}↑</Num> buy transactions</> : <> Buy activity</>} observed, no selling yet.
+          {uniqueTokensTraded ? (
+            <>Holding <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</>
+          ) : (
+            <>Holding positions</>
+          )}
+          {valueHeldPct ? <> representing <Num>{valueHeldPct}%</Num> of portfolio value</> : null}.
+          {totalBuys ? <> <Num>{totalBuys}↑</Num> buy transaction{totalBuys !== 1 ? 's' : ''} observed</> : <> Buy activity observed</>}, no exits yet.
         </>
       )}
     </>
@@ -390,6 +406,10 @@ export function buildFlowNarrative(
     exitPattern?: string | null;
     unrealizedPnl?: number | null;
     uniqueTokensTraded?: number | null;
+    // NEW: Current holdings context (for accumulation/distribution patterns)
+    valueHeldPct?: number | null;
+    currentHoldHours?: number | null;
+    avgCurrentHoldHours?: number | null;
   }
 ): { label: string; story: React.ReactNode } | null {
   if (!flowPattern) return null;

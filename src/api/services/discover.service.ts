@@ -31,6 +31,8 @@ export class DiscoverService {
     const minFreshnessHours = query.minFreshnessHours;
     const minUniqueTokens = query.minUniqueTokens;
     const style = query.style;
+    const speedCategory = query.speedCategory;
+    const flowPattern = query.flowPattern;
     const holdBias = query.holdBias;
 
     const updatedSince = minFreshnessHours
@@ -66,12 +68,51 @@ export class DiscoverService {
     }
 
     if (style) {
-      // NEW: Use strategyType enum for exact matching (not substring search)
       const normalizedStyle = style.toUpperCase();
+
+      // Flow-dominant filters: Filter by flowPattern instead of strategyType
+      // This shows ALL wallets with that flow, regardless of speed
+      if (['BALANCED_TRADER', 'ACCUMULATOR', 'DISTRIBUTOR'].includes(normalizedStyle)) {
+        const flowPatternMap: Record<string, string> = {
+          'BALANCED_TRADER': 'BALANCED',
+          'ACCUMULATOR': 'ACCUMULATOR',
+          'DISTRIBUTOR': 'DISTRIBUTOR',
+        };
+        where.behaviorProfile = {
+          is: {
+            ...(where.behaviorProfile?.is || {}),
+            flowPattern: { equals: flowPatternMap[normalizedStyle] },
+          },
+        };
+      } else {
+        // Speed-dominant filters: Use strategyType as before
+        where.behaviorProfile = {
+          is: {
+            ...(where.behaviorProfile?.is || {}),
+            strategyType: { equals: normalizedStyle },
+          },
+        };
+      }
+    }
+
+    // NEW: Direct speed category filter (overrides style if both provided)
+    if (speedCategory) {
+      const normalizedSpeed = speedCategory.toUpperCase();
       where.behaviorProfile = {
         is: {
           ...(where.behaviorProfile?.is || {}),
-          strategyType: { equals: normalizedStyle },
+          speedCategory: { equals: normalizedSpeed },
+        },
+      };
+    }
+
+    // NEW: Direct flow pattern filter (overrides style if both provided)
+    if (flowPattern) {
+      const normalizedFlow = flowPattern.toUpperCase();
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          flowPattern: { equals: normalizedFlow },
         },
       };
     }
@@ -82,7 +123,8 @@ export class DiscoverService {
         where.behaviorProfile = {
           is: {
             ...(where.behaviorProfile?.is || {}),
-            medianHoldTime: holdConditions,
+            // Use medianCompletedHoldTimeHours if available, otherwise fall back to deprecated medianHoldTime
+            medianCompletedHoldTimeHours: holdConditions,
           },
         };
       }
@@ -145,7 +187,7 @@ export class DiscoverService {
         ];
       case 'longest_holders':
         return [
-          { behaviorProfile: { medianHoldTime: 'desc' } },
+          { behaviorProfile: { medianCompletedHoldTimeHours: { sort: 'desc', nulls: 'last' } } },
           { behaviorProfile: { averageFlipDurationHours: 'desc' } },
           tieBreaker,
         ];
@@ -160,7 +202,7 @@ export class DiscoverService {
         return [
           // NEW: Use velocityScore (professional terminology, replaces flipperScore)
           { behaviorProfile: { velocityScore: { sort: 'desc', nulls: 'last' } } },
-          { behaviorProfile: { medianHoldTime: 'desc' } },
+          { behaviorProfile: { medianCompletedHoldTimeHours: { sort: 'desc', nulls: 'last' } } },
           { behaviorProfile: { tradingStyle: 'asc' } },
           { behaviorProfile: { uniqueTokensTraded: 'desc' } },
           { behaviorProfile: { totalTradeCount: 'desc' } },
@@ -193,7 +235,7 @@ export class DiscoverService {
       totalTrades: behavior?.totalTradeCount ?? pnl?.totalExecutedSwapsCount ?? null,
       totalBuys: behavior?.totalBuyCount ?? null,
       totalSells: behavior?.totalSellCount ?? null,
-      medianHoldHours: behavior?.medianHoldTime ?? null,
+      medianHoldHours: behavior?.medianCompletedHoldTimeHours ?? behavior?.medianHoldTime ?? null, // Use correct field, fallback for old data
       lastActiveAt,
       // NEW: Use new classification system fields
       velocityScore: behavior?.velocityScore ?? behavior?.flipperScore ?? null,
@@ -218,7 +260,7 @@ export class DiscoverService {
         totalSells: behavior?.totalSellCount ?? null,
         totalExecutedSwaps: pnl?.totalExecutedSwapsCount ?? null,
         averageHoldHours: behavior?.averageFlipDurationHours ?? null,
-        medianHoldHours: behavior?.medianHoldTime ?? null,
+        medianHoldHours: behavior?.medianCompletedHoldTimeHours ?? behavior?.medianHoldTime ?? null, // Use correct token-level median
         uniqueTokensTraded: behavior?.uniqueTokensTraded ?? null,
         tradingStyle: behavior?.tradingStyle ?? null,
         speedCategory: behavior?.speedCategory ?? null, // NEW: Explicit speed classification

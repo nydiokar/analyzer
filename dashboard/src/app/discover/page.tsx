@@ -37,6 +37,7 @@ import { buildSpeedNarrative, buildFlowNarrative } from "@/lib/behavior-narrativ
 import { DiscoverWallet, DiscoverWalletsResponse } from "@/types/discover";
 import { FavoriteWallet } from "@/types/api";
 import QuickAddForm from "@/components/layout/QuickAddForm";
+import { getSpeedColor, getFlowColor } from "@/lib/strategy-colors";
 
 const PAGE_SIZE = 24;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -49,7 +50,30 @@ const sortOptions = [
   { value: 'recently_updated', label: 'Recently updated', hint: 'Fresh data' },
 ] as const;
 
-// NEW: StrategyType enum values (2025-12-25) - matches backend classification system
+// NEW: Separate Speed and Flow filters (2025-12-26)
+const speedOptions = [
+  { value: 'any', label: 'Any Speed', hint: '' },
+  { value: 'SNIPER', label: 'Sniper', hint: '< 5 min exits' },
+  { value: 'SCALPER', label: 'Scalper', hint: '5-30 min exits' },
+  { value: 'MOMENTUM', label: 'Momentum', hint: '30min-6h exits' },
+  { value: 'INTRADAY', label: 'Intraday', hint: '6-12h exits' },
+  { value: 'DAY_TRADER', label: 'Day Trader', hint: '12-24h exits' },
+  { value: 'SWING', label: 'Swing', hint: '1-7 day holds' },
+  { value: 'POSITION', label: 'Position', hint: '7-30 day holds' },
+  { value: 'HODLER', label: 'Hodler', hint: '30+ day holds' },
+] as const;
+
+const flowOptions = [
+  { value: 'any', label: 'Any Flow', hint: '' },
+  { value: 'BUY_ONLY', label: 'Buy-Only', hint: 'Never sells, pure accumulation' },
+  { value: 'ACCUMULATOR', label: 'Accumulator', hint: 'Heavy buy bias (buys >> sells)' },
+  { value: 'BALANCED', label: 'Balanced', hint: 'Equal buy/sell activity' },
+  { value: 'DISTRIBUTOR', label: 'Distributor', hint: 'Heavy sell bias (sells >> buys)' },
+  { value: 'SELL_ONLY', label: 'Sell-Only', hint: 'Only sells, no buys' },
+  { value: 'MIXED', label: 'Mixed', hint: 'Chaotic, no clear pattern' },
+] as const;
+
+// Legacy: StrategyType filter (combines speed + flow)
 const styleOptions = [
   { value: 'any', label: 'Any strategy', hint: '' },
   { value: 'FAST_TRADER', label: 'Fast Trader', hint: 'Exits in < 30 minutes (sniper/scalper/momentum speed)' },
@@ -120,6 +144,8 @@ export default function DiscoverPage() {
   const [minTradeCount, setMinTradeCount] = useState<number | ''>('');
   const [minUniqueTokens, setMinUniqueTokens] = useState<number | ''>('');
   const [style, setStyle] = useState<string>('any');
+  const [speedCategory, setSpeedCategory] = useState<string>('any'); // NEW: Speed filter
+  const [flowPattern, setFlowPattern] = useState<string>('any'); // NEW: Flow filter
   const [holdBias, setHoldBias] = useState<string>('any');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -144,8 +170,8 @@ export default function DiscoverPage() {
 
   const cacheKey = useMemo(
     () =>
-      `discover:${sort}:${page}:${minTradeCount || 'any'}:${style !== 'any' ? style : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${PAGE_SIZE}`,
-    [sort, page, minTradeCount, style, minUniqueTokens, holdBias],
+      `discover:${sort}:${page}:${minTradeCount || 'any'}:${style !== 'any' ? style : 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${PAGE_SIZE}`,
+    [sort, page, minTradeCount, style, speedCategory, flowPattern, minUniqueTokens, holdBias],
   );
 
   const pageCount = useMemo(
@@ -167,6 +193,8 @@ export default function DiscoverPage() {
       if (minTradeCount !== '' && minTradeCount > 0) params.set('minTradeCount', String(minTradeCount));
       if (minUniqueTokens !== '' && minUniqueTokens > 0) params.set('minUniqueTokens', String(minUniqueTokens));
       if (style && style !== 'any') params.set('style', style);
+      if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory); // NEW
+      if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern); // NEW
       if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
 
       const data = (await fetcher(`/discover/wallets?${params.toString()}`)) as DiscoverWalletsResponse;
@@ -184,7 +212,7 @@ export default function DiscoverPage() {
       setLoading(false);
       setIsUpdating(false);
     }
-  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, style]);
+  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, style, speedCategory, flowPattern]);
 
   useEffect(() => {
     const cached = readCache(cacheKey);
@@ -362,26 +390,67 @@ export default function DiscoverPage() {
             </Select>
           </div>
 
+          {/* NEW: Speed filter */}
           <div className="flex items-center gap-2 text-sm">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
-                    Style: <Info className="h-3 w-3" />
+                    Speed: <Info className="h-3 w-3" />
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p className="text-xs">Filter by trading strategy type</p>
+                  <p className="text-xs">Filter by exit timing (how fast they exit positions)</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <Select value={style} onValueChange={(v) => { setStyle(v); setPage(1); setActivePreset(null); }}>
+            <Select value={speedCategory} onValueChange={(v) => { setSpeedCategory(v); setPage(1); setActivePreset(null); }}>
               <SelectTrigger className="w-[110px] h-7 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <TooltipProvider>
-                  {styleOptions.map((o) => (
+                  {speedOptions.map((o) => (
+                    <Tooltip key={o.value}>
+                      <TooltipTrigger asChild>
+                        <SelectItem value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      </TooltipTrigger>
+                      {o.hint && (
+                        <TooltipContent side="right" className="max-w-xs">
+                          <p className="text-xs font-semibold">{o.label}</p>
+                          <p className="text-xs text-muted-foreground">{o.hint}</p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  ))}
+                </TooltipProvider>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* NEW: Flow filter */}
+          <div className="flex items-center gap-2 text-sm">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                    Flow: <Info className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Filter by buy/sell behavior (trading flow pattern)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Select value={flowPattern} onValueChange={(v) => { setFlowPattern(v); setPage(1); setActivePreset(null); }}>
+              <SelectTrigger className="w-[110px] h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <TooltipProvider>
+                  {flowOptions.map((o) => (
                     <Tooltip key={o.value}>
                       <TooltipTrigger asChild>
                         <SelectItem value={o.value}>
@@ -430,7 +499,7 @@ export default function DiscoverPage() {
             type="number"
             inputMode="numeric"
             placeholder="Min trades"
-            className="w-[90px] h-7 text-xs"
+            className="w-[85px] h-7 text-xs"
             value={minTradeCount === '' ? '' : String(minTradeCount)}
             onChange={(e) => {
               setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
@@ -443,7 +512,7 @@ export default function DiscoverPage() {
             type="number"
             inputMode="numeric"
             placeholder="Min tokens"
-            className="w-[90px] h-7 text-xs"
+            className="w-[85px] h-7 text-xs"
             value={minUniqueTokens === '' ? '' : String(minUniqueTokens)}
             onChange={(e) => {
               setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
@@ -456,14 +525,6 @@ export default function DiscoverPage() {
           <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating} className="h-7">
             {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
           </Button>
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Results count */}
-          <div className="text-sm text-muted-foreground">
-            {total.toLocaleString()} wallets
-          </div>
         </div>
 
         {error && (
@@ -729,7 +790,6 @@ function WalletRow({
     medianHoldHours: wallet.metrics.medianHoldHours,
     avgHoldHours: wallet.metrics.averageHoldHours,
     currentHoldHours: wallet.metrics.medianCurrentHoldingDurationHours,
-    valueHeldPct: valueHeldPct ? parseFloat(valueHeldPct) : null,
     totalBuys,
     totalSells,
     unrealizedPnl,
@@ -739,6 +799,7 @@ function WalletRow({
   });
 
   // FLOW NARRATIVE: Use template-based storytelling with emphasized numbers
+  // NEW: Include current holdings data (% value held, duration) - belongs in FLOW not SPEED!
   const flowNarrative = buildFlowNarrative(wallet.metrics.flowPattern, {
     totalBuys,
     totalSells,
@@ -748,6 +809,10 @@ function WalletRow({
     exitPattern: wallet.metrics.exitPattern,
     unrealizedPnl,
     uniqueTokensTraded: wallet.metrics.uniqueTokensTraded,
+    // NEW: Current holdings context (accumulation/distribution indicator)
+    valueHeldPct: valueHeldPct ? parseFloat(valueHeldPct) : null,
+    currentHoldHours: wallet.metrics.medianCurrentHoldingDurationHours,
+    avgCurrentHoldHours: wallet.metrics.averageHoldHours, // Show both if available
   });
 
   const unpairedPct = wallet.metrics.percentageOfUnpairedTokens?.toFixed(0) ?? null;
@@ -795,7 +860,7 @@ function WalletRow({
       </td>
 
       {/* Column 2: PnL (left-aligned, close to wallet) */}
-      <td className="px-3 py-2.5 align-top">
+      <td className="px-3 py-2.5 align-top min-w-[140px]">
         {hasPnl ? (
           <div className={cn("inline-flex flex-col gap-0.5 px-2.5 py-1 rounded-md transition-all", totalPnlBgClass)}>
             <div className={cn("text-sm font-bold tabular-nums", totalPnlClass)}>
@@ -817,10 +882,12 @@ function WalletRow({
       </td>
 
       {/* Column 3: Speed (narrative with range) */}
-      <td className="px-3 py-2.5 align-top">
+      <td className="px-3 py-2.5 align-top max-w-[380px]">
         <div className="space-y-1">
-          <div className="text-sm font-semibold text-foreground">
-            {speedNarrative.label}
+          <div className="text-sm font-semibold">
+            <span className={getSpeedColor(wallet.metrics.speedCategory)}>
+              {speedNarrative.label}
+            </span>
             <span className="ml-1.5 text-xs font-normal text-muted-foreground">({speedNarrative.range})</span>
           </div>
           <div className="text-xs text-muted-foreground leading-relaxed">
@@ -830,10 +897,14 @@ function WalletRow({
       </td>
 
       {/* Column 4: Flow (narrative) */}
-      <td className="px-3 py-2.5 align-top">
+      <td className="px-3 py-2.5 align-top max-w-[480px]">
         {flowNarrative ? (
           <div className="space-y-1">
-            <div className="text-sm font-semibold text-foreground">{flowNarrative.label}</div>
+            <div className="text-sm font-semibold">
+              <span className={getFlowColor(wallet.metrics.flowPattern)}>
+                {flowNarrative.label}
+              </span>
+            </div>
             <div className="text-xs text-muted-foreground leading-relaxed">
               {flowNarrative.story}
             </div>

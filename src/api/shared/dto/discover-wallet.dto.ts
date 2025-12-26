@@ -63,6 +63,24 @@ export class DiscoverWalletsQueryDto {
 
   @ApiProperty({
     required: false,
+    enum: ['SNIPER', 'SCALPER', 'MOMENTUM', 'INTRADAY', 'DAY_TRADER', 'SWING', 'POSITION', 'HODLER'],
+    description: 'Filter by speed category (exit timing).',
+  })
+  @IsOptional()
+  @IsIn(['SNIPER', 'SCALPER', 'MOMENTUM', 'INTRADAY', 'DAY_TRADER', 'SWING', 'POSITION', 'HODLER'])
+  speedCategory?: string;
+
+  @ApiProperty({
+    required: false,
+    enum: ['BUY_ONLY', 'SELL_ONLY', 'ACCUMULATOR', 'DISTRIBUTOR', 'BALANCED', 'MIXED'],
+    description: 'Filter by flow pattern (buy/sell behavior).',
+  })
+  @IsOptional()
+  @IsIn(['BUY_ONLY', 'SELL_ONLY', 'ACCUMULATOR', 'DISTRIBUTOR', 'BALANCED', 'MIXED'])
+  flowPattern?: string;
+
+  @ApiProperty({
+    required: false,
     enum: ['short', 'medium', 'long'],
     description: 'Hold-bias based on medianHoldTime (short <12h, medium 12-72h, long >72h).',
   })
