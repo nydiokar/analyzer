@@ -1457,7 +1457,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // Fallback classification for holders with no exits
       const behaviorType =
         historicalPattern?.behaviorType ??
-        ((currentHoldingsCount ?? 0) > 0 ? 'HOLDER' : null);
+        ((currentHoldingsCount ?? 0) > 0 ? 'HODLER' : null);
 
       return {
         walletAddress,

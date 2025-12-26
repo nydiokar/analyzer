@@ -444,7 +444,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                 <MetricDisplay
                   label="Typical Hold Time"
                   value={formatHoldTime(behaviorData.tradingInterpretation.typicalHoldTimeHours)}
-                  tooltipText={`Median hold time from completed/exited positions (outlier-robust). Category: ${behaviorData.tradingInterpretation.speedCategory}. Ranges: ULTRA_FLIPPER (<3min), FLIPPER (3-10min), FAST_TRADER (10-60min), DAY_TRADER (1-24h), SWING_TRADER (1-7d), POSITION_TRADER (7+d)`}
+                  tooltipText="Median hold time from completed exits - shows typical behavior (50th percentile, outlier-resistant). Less affected by extreme outliers than average hold time."
                 />
                 <MetricDisplay
                   label="Economic Hold Time"
@@ -476,7 +476,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
               <AccordionContent className="pt-2 pb-3 space-y-3 pl-1">
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Trader Profile</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
-                  <MetricDisplay label="Flipper Score" value={formatNumber(behaviorData.flipperScore, 3)} tooltipText="Indicates how quickly tokens are bought and sold. Higher scores suggest more frequent flipping activity." />
+                  <MetricDisplay label="Velocity Score" value={formatNumber(behaviorData.velocityScore ?? behaviorData.flipperScore, 3)} tooltipText="Trading speed score (0-100). Higher = faster exits. Based on logarithmic time scale where 100 = instant exits, 0 = 30+ day holds." />
                 </div>
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Trading Consistency</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
@@ -545,7 +545,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                       <MetricDisplay
                         label="Median Exit Time"
                         value={formatHoldTime(behaviorData.historicalPattern.medianCompletedHoldTimeHours)}
-                        tooltipText={`Median hold time from completed positions only. Category: ${behaviorData.historicalPattern.behaviorType}. Ranges: SNIPER (<1min), SCALPER (1-5min), MOMENTUM (5-30min), INTRADAY (30min-4h), DAY_TRADER (4-24h), SWING (1-7d), POSITION (7-30d), HOLDER (30+d). Used for exit prediction.`}
+                        tooltipText={`Median hold time from completed positions only. Category: ${behaviorData.historicalPattern.behaviorType}. Ranges: SNIPER (<1min), SCALPER (1-5min), MOMENTUM (5-30min), INTRADAY (30min-4h), DAY_TRADER (4-24h), SWING (1-7d), POSITION (7-30d), HODLER (30+d). Used for exit prediction.`}
                       />
                       <MetricDisplay
                         label="Exit Pattern"

@@ -86,7 +86,7 @@ export class BehaviorService {
   private convertProfileToMetrics(profile: any): BehavioralMetrics {
     // Determine behaviorType from speedCategory (for historicalPattern backward compat)
     // speedCategory is the new explicit field, no more string parsing!
-    const behaviorType = profile.speedCategory || 'HOLDER'; // Fallback to HOLDER if null
+    const behaviorType = profile.speedCategory || 'HODLER'; // Fallback to HODLER if null
 
     // Reconstruct historicalPattern from cached pieces
     const historicalPattern = {

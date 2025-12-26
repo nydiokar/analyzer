@@ -94,7 +94,7 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                   timeframe: 'Not enough exits',
                 }
               : null);
-            const behaviorDisplayType = profile.behaviorType ?? (isHolderOnly ? 'HOLDER' : null);
+            const behaviorDisplayType = profile.behaviorType ?? (isHolderOnly ? 'HODLER' : null);
             const typicalHold = getTypicalHoldTimeHours(profile);
             const exitedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours;
             const exitedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours;

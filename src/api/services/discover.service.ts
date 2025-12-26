@@ -305,9 +305,9 @@ export class DiscoverService {
         return { code: 'FLIPPER', text: `Fast trader · ${Math.round(flipperScore)} flipper score · ${buys ?? 0}↑/${sells ?? 0}↓` };
       }
 
-      // Holders with completed cycles
-      if (['POSITION', 'HOLDER'].includes(normalized) && medianHoldHours && medianHoldHours >= 72) {
-        return { code: 'HOLDER', text: `Patient holder · ~${Math.round(medianHoldHours / 24)}d median hold` };
+      // Hodlers with completed cycles (30+ day exits)
+      if (['POSITION', 'HODLER'].includes(normalized) && medianHoldHours && medianHoldHours >= 72) {
+        return { code: 'HODLER', text: `Patient hodler · ~${Math.round(medianHoldHours / 24)}d median hold` };
       }
 
       // Swing/position traders

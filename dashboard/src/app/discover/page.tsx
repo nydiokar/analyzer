@@ -348,9 +348,9 @@ export default function DiscoverPage() {
     }
   };
 
-  const applyPreset = (preset: 'hyper-flipper' | 'balanced-fast' | 'patient-holder') => {
+  const applyPreset = (preset: 'fast-traders' | 'balanced-fast' | 'patient-holder') => {
     setActivePreset(preset);
-    if (preset === 'hyper-flipper') {
+    if (preset === 'fast-traders') {
       setStyle('FAST_TRADER'); // NEW: StrategyType enum
       setHoldBias('short');
       setMinTradeCount(20);
@@ -380,14 +380,14 @@ export default function DiscoverPage() {
           <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-accent/50 border border-border/50">
             <Button
               size="sm"
-              variant={activePreset === 'hyper-flipper' ? 'default' : 'ghost'}
-              onClick={() => applyPreset('hyper-flipper')}
+              variant={activePreset === 'fast-traders' ? 'default' : 'ghost'}
+              onClick={() => applyPreset('fast-traders')}
               className={cn(
                 "h-7 text-xs font-medium transition-all",
-                activePreset === 'hyper-flipper' && "bg-primary text-primary-foreground shadow-sm"
+                activePreset === 'fast-traders' && "bg-primary text-primary-foreground shadow-sm"
               )}
             >
-              Hyper Flipper
+              Fast Traders
             </Button>
             <Button
               size="sm"
@@ -641,8 +641,8 @@ export default function DiscoverPage() {
               <Button size="sm" variant="secondary" onClick={() => applyPreset('balanced-fast')}>
                 Try Balanced Fast
               </Button>
-              <Button size="sm" variant="secondary" onClick={() => applyPreset('hyper-flipper')}>
-                Try Hyper Flipper
+              <Button size="sm" variant="secondary" onClick={() => applyPreset('fast-traders')}>
+                Try Fast Traders
               </Button>
             </div>
           </div>

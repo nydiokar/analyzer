@@ -323,7 +323,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const heldTokens = profile.currentHoldingsCount ?? 0;
   const exitedTokens = profile.completedCycleCount ?? 0;
   const percentHeldValue = profile.percentValueInCurrentHoldings ?? 0;
-  const behaviorDisplayType = profile.behaviorType ?? (heldTokens > 0 ? 'HOLDER' : null);
+  const behaviorDisplayType = profile.behaviorType ?? (heldTokens > 0 ? 'HODLER' : null);
   const currentHoldingsList = useMemo(
     () => (profile.currentHoldings || [])
       .filter((holding) => (holding.uiBalance ?? 0) > 0)
