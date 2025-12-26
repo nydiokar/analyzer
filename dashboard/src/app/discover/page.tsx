@@ -1,10 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
-  ArrowRight,
-  ExternalLink,
   Info,
   Loader2,
   RefreshCcw,
@@ -12,7 +9,6 @@ import {
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { WalletBadge } from "@/components/shared/WalletBadge";
-import { Badge } from "@/components/ui/badge";
 import { useFavorites } from "@/hooks/useFavorites";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +33,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { fetcher } from "@/lib/fetcher";
 import { cn } from "@/lib/utils";
+import { buildSpeedNarrative, buildFlowNarrative } from "@/lib/behavior-narratives";
 import { DiscoverWallet, DiscoverWalletsResponse } from "@/types/discover";
 import { FavoriteWallet } from "@/types/api";
 import QuickAddForm from "@/components/layout/QuickAddForm";
@@ -92,35 +89,7 @@ const formatHours = (val?: number | null) => {
   return `${Math.round(val / 24)}d`;
 };
 
-// NEW: Format speed category to human-readable label
-const formatSpeedCategory = (speed?: string | null) => {
-  if (!speed) return "Unknown";
-  const labels: Record<string, string> = {
-    SNIPER: "Sniper",
-    SCALPER: "Scalper",
-    MOMENTUM: "Momentum",
-    INTRADAY: "Intraday",
-    DAY_TRADER: "Day Trader",
-    SWING: "Swing",
-    POSITION: "Position",
-    HODLER: "Holder",
-  };
-  return labels[speed] || speed;
-};
-
-// NEW: Format flow pattern to human-readable label
-const formatFlowPattern = (flow?: string | null) => {
-  if (!flow) return "Unknown";
-  const labels: Record<string, string> = {
-    BUY_ONLY: "Buy Only",
-    SELL_ONLY: "Sell Only",
-    ACCUMULATOR: "Accumulator",
-    DISTRIBUTOR: "Distributor",
-    BALANCED: "Balanced",
-    MIXED: "Mixed",
-  };
-  return labels[flow] || flow;
-};
+// NOTE: formatSpeedCategory and formatFlowPattern removed - now using behavior-narratives.tsx templates
 
 const formatLastActive = (isoString?: string | null) => {
   if (!isoString) return { text: "No activity yet", tooltip: null };
@@ -576,8 +545,8 @@ export default function DiscoverPage() {
                         </TooltipProvider>
                       </div>
                     </th>
-                    <th className="text-right px-3 py-2 font-medium text-sm whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1 justify-end">
+                    <th className="text-left px-3 py-2 font-medium text-sm whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1">
                         PnL
                         <TooltipProvider>
                           <Tooltip>
@@ -585,7 +554,7 @@ export default function DiscoverPage() {
                               <Info className="h-3.5 w-3.5 text-muted-foreground" />
                             </TooltipTrigger>
                             <TooltipContent className="max-w-xs">
-                              Realized and unrealized profit/loss in SOL.
+                              Total PNL, broken down to realized and unrealized profit/loss in SOL.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -600,7 +569,7 @@ export default function DiscoverPage() {
                               <Info className="h-3.5 w-3.5 text-muted-foreground" />
                             </TooltipTrigger>
                             <TooltipContent className="max-w-xs">
-                              Narrative description of exit timing patterns and current holdings.
+                              Narrative description of exit timing patterns and current holdings. Checkout Holder profiles for details on this wallet
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -752,10 +721,6 @@ function WalletRow({
   onFavoriteAdd: (address: string) => void;
   onFavoriteRemove: (address: string, nickname?: string) => void;
 }) {
-  const reasonMeta = getBehaviorPresentation(wallet);
-  const reasonColor = reasonColorMap[wallet.reasonCode] || reasonColorMap.INTERESTING;
-  const holdDisplay = formatHours(wallet.metrics.medianHoldHours ?? wallet.metrics.averageHoldHours);
-
   // PnL - show BOTH realized and unrealized
   const realizedPnl = wallet.metrics.realizedPnl;
   const unrealizedPnl = wallet.metrics.unrealizedPnl;
@@ -788,48 +753,35 @@ function WalletRow({
     }
   };
 
-  // Build narrative sentences for Speed and Flow
-  const medianHold = formatHours(wallet.metrics.medianHoldHours);
-  const avgHold = formatHours(wallet.metrics.averageHoldHours);
-  const currentHold = formatHours(wallet.metrics.medianCurrentHoldingDurationHours);
+  // Build DATA-DRIVEN narratives from backend classifications + metrics using templates
+  const totalBuys = wallet.metrics.totalBuys ?? 0;
+  const totalSells = wallet.metrics.totalSells ?? 0;
   const valueHeldPct = wallet.metrics.percentOfValueInCurrentHoldings?.toFixed(0) ?? null;
 
-  const speedLabel = formatSpeedCategory(wallet.metrics.speedCategory);
-  const flowLabel = formatFlowPattern(wallet.metrics.flowPattern);
+  // SPEED NARRATIVE: Use template-based storytelling with emphasized numbers
+  const speedNarrative = buildSpeedNarrative(wallet.metrics.speedCategory, {
+    medianHoldHours: wallet.metrics.medianHoldHours,
+    avgHoldHours: wallet.metrics.averageHoldHours,
+    currentHoldHours: wallet.metrics.medianCurrentHoldingDurationHours,
+    valueHeldPct: valueHeldPct ? parseFloat(valueHeldPct) : null,
+    totalBuys,
+    totalSells,
+    unrealizedPnl,
+    reasonCode: wallet.reasonCode,
+    uniqueTokensTraded: wallet.metrics.uniqueTokensTraded,
+  });
 
-  // Speed narrative
-  let speedStory = "";
-  if (wallet.metrics.speedCategory) {
-    speedStory = `Typical hold time (median) is ${medianHold}`;
-    if (avgHold !== medianHold && avgHold !== "—") {
-      speedStory += ` with average ${avgHold}`;
-    }
-    speedStory += ".";
-    if (currentHold !== "—" && valueHeldPct) {
-      speedStory += ` Currently holding ${valueHeldPct}% of value, position age ${currentHold}.`;
-    }
-  } else {
-    speedStory = "No exits yet - pure accumulation or early entry.";
-  }
-
-  // Flow narrative
-  let flowStory = "";
-  const buySelRatio = wallet.metrics.buySellRatio?.toFixed(2) ?? null;
-  if (buySelRatio) {
-    const ratio = wallet.metrics.buySellRatio!;
-    if (ratio >= 2) {
-      flowStory = `Buy/sell ratio ${buySelRatio} (${ratio.toFixed(1)}× more buys than sells)`;
-    } else if (ratio <= 0.5) {
-      flowStory = `Buy/sell ratio ${buySelRatio} (${(1/ratio).toFixed(1)}× more sells than buys)`;
-    } else {
-      flowStory = `Buy/sell ratio ${buySelRatio} (roughly balanced trading)`;
-    }
-    if (wallet.metrics.exitPattern) {
-      flowStory += `. Exit pattern: ${wallet.metrics.exitPattern}.`;
-    } else {
-      flowStory += ".";
-    }
-  }
+  // FLOW NARRATIVE: Use template-based storytelling with emphasized numbers
+  const flowNarrative = buildFlowNarrative(wallet.metrics.flowPattern, {
+    totalBuys,
+    totalSells,
+    buySellRatio: wallet.metrics.buySellRatio,
+    buySellSymmetry: wallet.metrics.buySellSymmetry,
+    sequenceConsistency: wallet.metrics.sequenceConsistency,
+    exitPattern: wallet.metrics.exitPattern,
+    unrealizedPnl,
+    uniqueTokensTraded: wallet.metrics.uniqueTokensTraded,
+  });
 
   const unpairedPct = wallet.metrics.percentageOfUnpairedTokens?.toFixed(0) ?? null;
   const isHighUnpaired = wallet.metrics.percentageOfUnpairedTokens && wallet.metrics.percentageOfUnpairedTokens > 50;
@@ -854,10 +806,10 @@ function WalletRow({
         />
       </td>
 
-      {/* Column 2: PnL (moved from column 5) */}
-      <td className="px-3 py-2.5 text-right align-top">
+      {/* Column 2: PnL (left-aligned, close to wallet) */}
+      <td className="px-3 py-2.5 align-top">
         {hasPnl ? (
-          <div className={cn("inline-flex flex-col items-end gap-0.5 px-2.5 py-1 rounded-md transition-all", totalPnlBgClass)}>
+          <div className={cn("inline-flex flex-col gap-0.5 px-2.5 py-1 rounded-md transition-all", totalPnlBgClass)}>
             <div className={cn("text-sm font-bold tabular-nums", totalPnlClass)}>
               {formatSOL(totalPnl)} SOL
             </div>
@@ -876,26 +828,31 @@ function WalletRow({
         )}
       </td>
 
-      {/* Column 3: Speed (narrative) */}
+      {/* Column 3: Speed (narrative with range) */}
       <td className="px-3 py-2.5 align-top">
         <div className="space-y-1">
-          <div className="text-sm font-semibold text-foreground">{speedLabel}</div>
+          <div className="text-sm font-semibold text-foreground">
+            {speedNarrative.label}
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">({speedNarrative.range})</span>
+          </div>
           <div className="text-xs text-muted-foreground leading-relaxed">
-            {speedStory}
+            {speedNarrative.story}
           </div>
         </div>
       </td>
 
       {/* Column 4: Flow (narrative) */}
       <td className="px-3 py-2.5 align-top">
-        <div className="space-y-1">
-          <div className="text-sm font-semibold text-foreground">{flowLabel}</div>
-          {flowStory && (
+        {flowNarrative ? (
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-foreground">{flowNarrative.label}</div>
             <div className="text-xs text-muted-foreground leading-relaxed">
-              {flowStory}
+              {flowNarrative.story}
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">Limited data - flow pattern developing.</div>
+        )}
       </td>
 
       {/* Column 5: Unpaired % (spam/dust indicator) */}

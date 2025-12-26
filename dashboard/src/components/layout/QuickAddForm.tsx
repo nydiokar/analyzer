@@ -132,7 +132,7 @@ const QuickAddForm = React.memo(({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Add wallet {truncateWalletAddress(walletAddress)} to your favorites with optional nickname, tags, and collections.
+            Add wallet {truncateWalletAddress(walletAddress)} to your tracked with optional nickname, tags, and collections.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">

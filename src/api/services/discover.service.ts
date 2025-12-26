@@ -229,7 +229,7 @@ export class DiscoverService {
         percentageOfUnpairedTokens: behavior?.percentageOfUnpairedTokens ?? null,
         buySellSymmetry: behavior?.buySellSymmetry ?? null,
         sequenceConsistency: behavior?.sequenceConsistency ?? null,
-        exitPattern: behavior?.historicalPattern?.exitPattern ?? null,
+        exitPattern: behavior?.exitPattern ?? null, // Now stored directly in DB
         percentOfValueInCurrentHoldings: behavior?.percentOfValueInCurrentHoldings ?? null,
         medianCurrentHoldingDurationHours: behavior?.medianCurrentHoldingDurationHours ?? null,
         lastActiveAt: lastActiveAt ? lastActiveAt.toISOString() : null,

@@ -92,6 +92,10 @@ export class BehaviorService {
           strategyType, // NEW: Canonical strategy type
           velocityScore, // NEW: 0-100 velocity score
           medianActiveHoldingHours, // NEW: For holder bypass
+          // NEW: Storytelling metrics (2025-12-26)
+          percentOfValueInCurrentHoldings,
+          medianCurrentHoldingDurationHours,
+          averageCurrentHoldingDurationHours,
           confidenceScore,
           // New/Refined metrics from plan
           tradingFrequency,
@@ -106,6 +110,7 @@ export class BehaviorService {
           averageSessionDurationMinutes,
           firstTransactionTimestamp,
           lastTransactionTimestamp,
+          historicalPattern, // Need exitPattern from this
         } = metrics;
 
         // Only save the profile if NO specific timeRange was provided for this analysis run.
@@ -146,6 +151,11 @@ export class BehaviorService {
             flowPattern: flowPattern ?? null, // NEW: Buy/sell flow pattern
             strategyType: strategyType ?? null, // NEW: Canonical strategy type
             medianActiveHoldingHours: medianActiveHoldingHours ?? null, // NEW: For holder bypass
+            // NEW: Storytelling metrics for discover page (2025-12-26)
+            exitPattern: historicalPattern?.exitPattern ?? null,
+            percentOfValueInCurrentHoldings: sanitizeNumber(percentOfValueInCurrentHoldings ?? 0),
+            medianCurrentHoldingDurationHours: sanitizeNumber(medianCurrentHoldingDurationHours ?? 0),
+            averageCurrentHoldingDurationHours: sanitizeNumber(averageCurrentHoldingDurationHours ?? 0),
             confidenceScore: sanitizeNumber(confidenceScore),
             tradingFrequency: tradingFrequency as unknown as Prisma.InputJsonValue,
             tokenPreferences: tokenPreferences as unknown as Prisma.InputJsonValue,

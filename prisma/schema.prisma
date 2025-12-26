@@ -166,6 +166,11 @@ model WalletBehaviorProfile {
   flowPattern                   String?
   strategyType                  String?
   medianActiveHoldingHours      Float?
+  // NEW: Storytelling metrics for discover page (2025-12-26)
+  exitPattern                      String?
+  percentOfValueInCurrentHoldings  Float?
+  medianCurrentHoldingDurationHours Float?
+  averageCurrentHoldingDurationHours Float?
   confidenceScore               Float
   tradingFrequency              Json
   tokenPreferences              Json

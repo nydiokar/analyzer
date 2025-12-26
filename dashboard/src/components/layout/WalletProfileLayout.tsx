@@ -1322,7 +1322,7 @@ export default function WalletProfileLayout({
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <div>
-                  Removing <span className="font-medium">{currentFavoriteData?.nickname || 'this wallet'}</span> from favorites will delete it&apos;s metadata.
+                  Removing <span className="font-medium">{currentFavoriteData?.nickname || 'this wallet'}</span> from tracked will delete it&apos;s metadata.
                 </div>
                 
                 {/* Show what will be lost */}

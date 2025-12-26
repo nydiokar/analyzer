@@ -247,7 +247,7 @@ const WalletBadge = memo(({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{isFavorite ? "Remove from favorites" : "Add to favorites"}</p>
+                  <p>{isFavorite ? "Remove from tracked" : "Add to tracked"}</p>
                 </TooltipContent>
               </Tooltip>
 

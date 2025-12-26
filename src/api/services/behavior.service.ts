@@ -95,7 +95,7 @@ export class BehaviorService {
       completedCycleCount: profile.completePairsCount,
       medianCompletedHoldTimeHours: profile.medianHoldTime,
       behaviorType: behaviorType as any,
-      exitPattern: 'GRADUAL' as const, // Not cached, use default
+      exitPattern: (profile.exitPattern as 'GRADUAL' | 'ALL AT ONCE') ?? ('GRADUAL' as const), // Read from DB
       dataQuality: profile.confidenceScore,
       observationPeriodDays: this.calculateObservationPeriodDays(profile),
       holdTimeDistribution: undefined, // Not cached as structured object
@@ -108,10 +108,10 @@ export class BehaviorService {
       buySellSymmetry: profile.buySellSymmetry,
       averageFlipDurationHours: profile.averageFlipDurationHours,
       medianHoldTime: profile.medianHoldTime,
-      averageCurrentHoldingDurationHours: null as any, // Not cached
-      medianCurrentHoldingDurationHours: null as any, // Not cached
+      averageCurrentHoldingDurationHours: profile.averageCurrentHoldingDurationHours ?? null,
+      medianCurrentHoldingDurationHours: profile.medianCurrentHoldingDurationHours ?? null,
       weightedAverageHoldingDurationHours: profile.averageFlipDurationHours, // Best approximation
-      percentOfValueInCurrentHoldings: null as any, // Not cached
+      percentOfValueInCurrentHoldings: profile.percentOfValueInCurrentHoldings ?? null,
       sequenceConsistency: profile.sequenceConsistency,
       flipperScore: profile.flipperScore,
       velocityScore: profile.velocityScore ?? undefined, // NEW: Read from DB
