@@ -107,7 +107,7 @@ const MetricDisplay: React.FC<{
   unit?: string;
   tooltipText?: string;
   valueClassName?: string;
-  labelClassName?: string; // Added for more control over label style if needed
+  labelClassName?: string;
 }> = ({ label, value, unit, tooltipText, valueClassName, labelClassName }) => {
   const labelContent = (
     <Text className={`text-xs uppercase tracking-wide text-muted-foreground ${labelClassName || ''}`}>
@@ -121,11 +121,12 @@ const MetricDisplay: React.FC<{
         <TooltipProvider delayDuration={100}>
           <Tooltip>
             <TooltipTrigger asChild>
-              {/* Wrap label in a span to ensure it can be a trigger */} 
               <span className="inline-flex items-center cursor-help">{labelContent}</span>
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs">
-              <p>{tooltipText}</p>
+            <TooltipContent className="max-w-sm">
+              <div className="space-y-1">
+                <p className="text-xs leading-relaxed whitespace-pre-line">{tooltipText}</p>
+              </div>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -137,6 +138,48 @@ const MetricDisplay: React.FC<{
       </Text>
     </div>
   );
+};
+
+// Helper to generate context-aware tooltips based on actual values
+const getStrategyTooltip = (strategyType: string | null | undefined): string => {
+  const tooltips: Record<string, string> = {
+    'FAST_TRADER': 'Exits positions in under 30 minutes.\nIncludes snipers, scalpers, and momentum traders.',
+    'DAY_TRADER': 'Holds positions for 30 minutes to 24 hours.\nIntraday trading strategy.',
+    'SWING_TRADER': 'Holds for 1-7 days.\nCapitalizes on multi-day price movements.',
+    'POSITION_TRADER': 'Holds for 7-30+ days.\nLong-term conviction trades.',
+    'PURE_HOLDER': 'Only buys, never sells.\nAccumulates without exiting positions.',
+    'ACCUMULATOR': 'Buys 2x+ more than sells.\nActively building positions.',
+    'DISTRIBUTOR': 'Sells 2x+ more than buys.\nActively liquidating positions.',
+    'BALANCED_TRADER': 'Even buy/sell ratio.\nBalanced activity across timeframes.',
+    'LOW_ACTIVITY': 'Insufficient trading data.\nCannot classify with confidence.',
+  };
+  return tooltips[strategyType || ''] || 'Primary trading strategy classification.';
+};
+
+const getSpeedTooltip = (speedCategory: string | null | undefined): string => {
+  const tooltips: Record<string, string> = {
+    'SNIPER': 'Ultra-fast exits under 1 minute.\nLikely bot-automated trading.',
+    'SCALPER': 'Quick exits in 1-5 minutes.\nHigh-frequency scalping strategy.',
+    'MOMENTUM': 'Exits in 5-30 minutes.\nRides short-term price momentum.',
+    'INTRADAY': 'Exits in 30min to 4 hours.\nSession-based trading.',
+    'DAY_TRADER': 'Exits in 4-24 hours.\nDaily trading cycles.',
+    'SWING': 'Exits in 1-7 days.\nMulti-day swing positions.',
+    'POSITION': 'Exits in 7-30 days.\nPatient position trading.',
+    'HODLER': 'Holds for 30+ days.\nLong-term conviction (crypto terminology).',
+  };
+  return tooltips[speedCategory || ''] || 'Exit timing based on median completed hold time.';
+};
+
+const getFlowTooltip = (flowPattern: string | null | undefined): string => {
+  const tooltips: Record<string, string> = {
+    'BUY_ONLY': 'Only buys, no exits yet.\nAccumulating positions.',
+    'SELL_ONLY': 'Only sells, no buys.\nLikely airdrop dumps or liquidation.',
+    'ACCUMULATOR': 'Buys 2x+ more than sells.\nBuilding positions over time.',
+    'DISTRIBUTOR': 'Sells 2x+ more than buys.\nLiquidating positions over time.',
+    'BALANCED': 'Near 1:1 buy/sell ratio.\nSymmetric trading activity.',
+    'MIXED': 'Irregular trading pattern.\nNo clear directional bias.',
+  };
+  return tooltips[flowPattern || ''] || 'Buy vs sell activity balance.';
 };
 
 // Values from API are ratios (0-1), so multiply by 100 for display.
@@ -410,54 +453,27 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
         </TabsList>
 
         <TabsContent value="summary" className="flex-1 overflow-auto min-h-0">
-          <Title className="mb-4 text-lg font-semibold">Behavioral Summary & Metrics</Title>
+          <Title className="mb-4 text-lg font-semibold">Behavioral Summary</Title>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4 mb-6 text-sm">
             <div className="col-span-2 md:col-span-1">
               <MetricDisplay
                 label="Strategy Type"
                 value={formatStrategyType(behaviorData.strategyType) || behaviorData.tradingStyle}
-                tooltipText="🎯 Primary trading strategy derived from speed + flow pattern. FAST_TRADER = high-speed exits (<30min), DAY_TRADER = intraday (30min-24h), SWING_TRADER = multi-day (1-7d), POSITION_TRADER = long-term (7-30+d), PURE_HOLDER = buy-only never sells, ACCUMULATOR = buys 2x+ more than sells, DISTRIBUTOR = sells 2x+ more than buys, BALANCED_TRADER = symmetric activity, LOW_ACTIVITY = insufficient data to classify trading pattern."
+                tooltipText={getStrategyTooltip(behaviorData.strategyType)}
               />
             </div>
-            {behaviorData.speedCategory && (
-              <MetricDisplay
-                label="Speed Category"
-                value={formatSpeedCategory(behaviorData.speedCategory)}
-                tooltipText="⚡ Trading speed based on median completed hold time (outlier-resistant): SNIPER (<1min ultra-fast bot), SCALPER (1-5min quick flips), MOMENTUM (5-30min trend riding), INTRADAY (30min-4h session-based), DAY_TRADER (4-24h daily closes), SWING (1-7d multi-day swings), POSITION (7-30d patient holds), HODLER (30+d long-term conviction, crypto spelling)."
-              />
-            )}
-            {behaviorData.flowPattern && (
-              <MetricDisplay
-                label="Flow Pattern"
-                value={formatFlowPattern(behaviorData.flowPattern)}
-                tooltipText="📊 Buy/sell activity balance by transaction count: BUY_ONLY (only buys, no exits yet), SELL_ONLY (only sells, likely airdrop dumps), ACCUMULATOR (buys 2x+ more than sells, building positions), DISTRIBUTOR (sells 2x+ more than buys, liquidating), BALANCED (near 1:1 ratio, symmetric trading), MIXED (other irregular patterns)."
-              />
-            )}
+            <MetricDisplay
+              label="Velocity Score"
+              value={formatNumber(behaviorData.velocityScore ?? behaviorData.flipperScore, 0)}
+              unit="/100"
+              tooltipText="Trading speed intensity (0-100).\nHigher = faster exits.\n100 = instant, 0 = 30+ day holds."
+            />
             <MetricDisplay
               label="Confidence"
-              value={typeof behaviorData.confidenceScore === 'number' ? `${(behaviorData.confidenceScore * 100).toFixed(1)}` : undefined}
+              value={typeof behaviorData.confidenceScore === 'number' ? `${(behaviorData.confidenceScore * 100).toFixed(0)}` : undefined}
               unit="%"
-              tooltipText="Likelihood (0-100%) that the assigned Trading Style accurately reflects the wallet's dominant behavior."
+              tooltipText="Classification reliability.\nBased on sample size and data quality."
             />
-            {behaviorData.tradingInterpretation && (
-              <>
-                <MetricDisplay
-                  label="Typical Hold Time"
-                  value={formatHoldTime(behaviorData.tradingInterpretation.typicalHoldTimeHours)}
-                  tooltipText="Median hold time from completed exits - shows typical behavior (50th percentile, outlier-resistant). Less affected by extreme outliers than average hold time."
-                />
-                <MetricDisplay
-                  label="Economic Hold Time"
-                  value={formatHoldTime(behaviorData.tradingInterpretation.economicHoldTimeHours)}
-                  tooltipText={`Weighted average from completed/exited positions (position size matters). Risk: ${behaviorData.tradingInterpretation.economicRisk}. Shows where the MONEY goes vs what they USUALLY do (typical hold time).`}
-                />
-                <MetricDisplay
-                  label="Behavioral Pattern"
-                  value={behaviorData.tradingInterpretation.behavioralPattern}
-                  tooltipText="Buy/sell activity pattern (ACCUMULATOR = more buys, DISTRIBUTOR = more sells, BALANCED = even split)"
-                />
-              </>
-            )}
           </div>
 
           <hr className="my-6 border-muted" />
@@ -474,15 +490,28 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                 </Flex>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-3 space-y-3 pl-1">
-                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Trader Profile</Text>
+                <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mb-2">Classification Breakdown</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
-                  <MetricDisplay label="Velocity Score" value={formatNumber(behaviorData.velocityScore ?? behaviorData.flipperScore, 3)} tooltipText="Trading speed score (0-100). Higher = faster exits. Based on logarithmic time scale where 100 = instant exits, 0 = 30+ day holds." />
+                  {behaviorData.speedCategory && (
+                    <MetricDisplay
+                      label="Speed Category"
+                      value={formatSpeedCategory(behaviorData.speedCategory)}
+                      tooltipText={getSpeedTooltip(behaviorData.speedCategory)}
+                    />
+                  )}
+                  {behaviorData.flowPattern && (
+                    <MetricDisplay
+                      label="Flow Pattern"
+                      value={formatFlowPattern(behaviorData.flowPattern)}
+                      tooltipText={getFlowTooltip(behaviorData.flowPattern)}
+                    />
+                  )}
                 </div>
                 <Text className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong mt-3 mb-2">Trading Consistency</Text>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
-                  <MetricDisplay label="Buy/Sell Ratio" value={formatNumber(behaviorData.buySellRatio, 2)} tooltipText="Ratio of buy transactions to sell transactions by count. >1 means more buys, <1 means more sells." />
-                  <MetricDisplay label="Buy/Sell Symmetry" value={formatNumber(behaviorData.buySellSymmetry, 2)} tooltipText="Compares total value/volume of buys to sells. ~1 indicates balanced capital flow." />
-                  <MetricDisplay label="Sequence Consistency" value={formatNumber(behaviorData.sequenceConsistency, 3)} tooltipText="Measures consistency of buy-then-sell patterns. Higher scores indicate more orderly trading." />
+                  <MetricDisplay label="Buy/Sell Ratio" value={formatNumber(behaviorData.buySellRatio, 2)} tooltipText="Number of buys divided by number of sells.\n>1 = more buys, <1 = more sells." />
+                  <MetricDisplay label="Buy/Sell Symmetry" value={formatNumber(behaviorData.buySellSymmetry, 2)} tooltipText="Capital flow balance.\nCompares total value of buys vs sells.\n~1 = balanced flow." />
+                  <MetricDisplay label="Sequence Consistency" value={formatNumber(behaviorData.sequenceConsistency, 3)} tooltipText="Pattern consistency score.\nHigher = more orderly buy-then-sell sequences." />
                 </div>
               </AccordionContent>
             </AccordionItem>

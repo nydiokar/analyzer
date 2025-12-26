@@ -197,7 +197,7 @@ export default function HolderProfilesPage() {
         body: JSON.stringify({ tokenMint, topN }),
       });
       tokenJobIdRef.current = response.jobId;
-      toast.success('Token analysis queued', { description: `Job ${response.jobId}` });
+      toast.success('Token analysis queued');
       subscribeToJob(response.jobId);
     } catch (error: any) {
       setTokenStatus('failed');

@@ -18,6 +18,15 @@ export interface DiscoverWalletMetrics {
   flowPattern?: FlowPattern | null;
   strategyType?: StrategyType | null;
 
+  // NEW: Behavioral detail metrics for data-driven storytelling (2025-12-26)
+  buySellRatio?: number | null;
+  percentageOfUnpairedTokens?: number | null;
+  buySellSymmetry?: number | null;
+  sequenceConsistency?: number | null;
+  exitPattern?: string | null;
+  percentOfValueInCurrentHoldings?: number | null;
+  medianCurrentHoldingDurationHours?: number | null;
+
   lastActiveAt?: string | null;
   pnlUpdatedAt?: string | null;
   behaviorUpdatedAt?: string | null;

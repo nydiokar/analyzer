@@ -192,9 +192,34 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
     <div className="w-full h-full p-2 sm:p-3 border rounded-lg bg-card flex flex-col overflow-y-auto">
       <Title className="text-sm sm:text-base">{title}</Title>
       {data?.dataFrom ? (
-        <Subtitle className="text-muted-foreground mt-0.5 mb-2 text-[10px] sm:text-xs">
-          Data from: {data.dataFrom.replace(" UTC", "")}
-        </Subtitle>
+        <TooltipProvider>
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <div className="w-fit">
+                <Subtitle className="text-muted-foreground mt-0.5 mb-2 text-[10px] sm:text-xs cursor-help">
+                  <span className="font-medium">Period: </span>
+                  {(() => {
+                    // Parse the date range from "YYYY-MM-DD HH:mm:ss to YYYY-MM-DD HH:mm:ss UTC"
+                    const match = data.dataFrom.match(/(\d{4}-\d{2}-\d{2}).*?to (\d{4}-\d{2}-\d{2})/);
+                    if (match) {
+                      const [_, startDate, endDate] = match;
+                      const formatShortDate = (dateStr: string) => {
+                        const [year, month, day] = dateStr.split('-');
+                        const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+                        return `${parseInt(day)} ${monthNames[parseInt(month) - 1]} ${year}`;
+                      };
+                      return `${formatShortDate(startDate)} - ${formatShortDate(endDate)}`;
+                    }
+                    return data.dataFrom.replace(" UTC", "");
+                  })()}
+                </Subtitle>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="text-xs font-mono">{data.dataFrom}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       ) : (
         <span className="inline-block mt-0.5 mb-2 h-[0.5rem] w-px" />
       )}
@@ -259,7 +284,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
       </div>
 
       {/* Section 3: Advanced Token Analytics */}
-      <div className="flex-1 p-1.5 rounded-md bg-muted/30 overflow-y-auto flex flex-col min-h-0">
+      <div className="flex-1 p-1.5 rounded-md bg-muted/30 flex flex-col min-h-0">
         <Text className="text-[10px] sm:text-xs font-semibold text-foreground flex items-center mb-1">
           <span>Advanced Token Analytics</span>
           <TooltipProvider>
@@ -274,7 +299,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
           </TooltipProvider>
         </Text>
 
-        <Accordion type="single" collapsible className="w-full flex-1 overflow-y-auto flex flex-col min-h-0" defaultValue="item-advanced-metrics">
+        <Accordion type="single" collapsible className="w-full flex-1 flex flex-col min-h-0" defaultValue="item-advanced-metrics">
           <AccordionItem value="item-advanced-metrics" className="border-none rounded-md data-[state=open]:bg-muted px-1 sm:px-1.5 flex-1 flex flex-col">
             <AccordionTrigger className="py-0.5 hover:no-underline">
               <Flex alignItems="center">
@@ -282,7 +307,7 @@ const AccountStatsPnlDisplay: React.FC<AccountStatsPnlDisplayProps> = ({ data, t
                 <Text className="text-[9px] sm:text-[10px] font-medium text-foreground">Detailed Token Metrics</Text>
               </Flex>
             </AccordionTrigger>
-            <AccordionContent className="pt-1 pb-1 overflow-y-auto">
+            <AccordionContent className="pt-1 pb-1">
               <Grid numItemsSm={1} numItemsMd={2} numItemsLg={2} className="gap-1.5">
                 <Card className="p-1.5 sm:p-2 text-left">
                   <Text className="text-[10px] sm:text-xs font-medium mb-0.5 text-muted-foreground flex items-center flex-wrap">
@@ -418,7 +443,6 @@ const PnlDisplaySkeleton: React.FC<{ title: string }> = ({ title }) => (
 
 export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, lastAnalysisTimestamp }: AccountStatsPnlTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
-  const [displayMode, setDisplayMode] = useState<number>(2);
 
   const pnlOverviewApiUrlBase = walletAddress ? `/wallets/${walletAddress}/pnl-overview` : null;
   let swrKeyPnl: (string | null)[] | null = null;
@@ -479,36 +503,16 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   // }
   
   if (isLoading && !isAnalyzingGlobal) {
-    // Preserve the existing displayMode state for skeleton rendering
     return (
-      <div className="h-full flex flex-col p-4">
-        <div className="flex justify-center mb-4">
-          {/* Skeleton for the TabGroup */}
-          <div className="max-w-xs flex space-x-1 p-1 bg-muted rounded-lg">
-            <Skeleton className="h-8 w-20" />
-            <Skeleton className="h-8 w-20" />
-            <Skeleton className="h-8 w-20" />
-          </div>
-        </div>
-
-        {displayMode === 2 ? (
-          <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="min-h-0">
-              <PnlDisplaySkeleton title="Period Specific PNL & Stats" />
-            </div>
-            <div className="min-h-0 border-l border-slate-700 pl-4">
-              <PnlDisplaySkeleton title="All-Time PNL & Stats" />
-            </div>
-          </div>
-        ) : displayMode === 0 ? (
-          <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="h-full flex flex-col p-2 sm:p-3 md:p-4">
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+          <div className="min-h-0">
             <PnlDisplaySkeleton title="Period Specific PNL & Stats" />
           </div>
-        ) : (
-          <div className="flex-1 min-h-0 overflow-hidden">
+          <div className="min-h-0 lg:border-l border-slate-700 lg:pl-3 xl:pl-4">
             <PnlDisplaySkeleton title="All-Time PNL & Stats" />
           </div>
-        )}
+        </div>
       </div>
     );
   }
@@ -639,32 +643,11 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
 
   return (
     <div className="h-full flex flex-col p-2 sm:p-3 md:p-4">
-      <div className="flex justify-center mb-2 sm:mb-3 md:mb-4">
-        <TabGroup index={displayMode} onIndexChange={setDisplayMode} className="max-w-xs">
-          <TabList>
-            <Tab value={0}>Period</Tab>
-            <Tab value={1}>All-Time</Tab>
-            <Tab value={2}>Both</Tab>
-          </TabList>
-        </TabGroup>
+      {/* Show both period and all-time side by side */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+        <div className="min-h-0">{periodCardContent}</div>
+        <div className="min-h-0 lg:border-l border-slate-700 lg:pl-3 xl:pl-4">{allTimeCardContent}</div>
       </div>
-
-      {displayMode === 0 && (
-        <div className="flex-1 min-h-0 overflow-hidden">
-          {periodCardContent}
-        </div>
-      )}
-      {displayMode === 1 && (
-        <div className="flex-1 min-h-0 overflow-hidden">
-          {allTimeCardContent}
-        </div>
-      )}
-      {displayMode === 2 && (
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-          <div className="min-h-0">{periodCardContent}</div>
-          <div className="min-h-0 lg:border-l border-slate-700 lg:pl-3 xl:pl-4">{allTimeCardContent}</div>
-        </div>
-      )}
     </div>
   );
 } 

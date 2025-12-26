@@ -124,6 +124,28 @@ export class DiscoverWalletMetricsDto {
   @ApiProperty({ required: false, nullable: true, description: 'Strategy type (canonical filter)' })
   strategyType?: string | null;
 
+  // NEW: Behavioral detail metrics for data-driven storytelling (2025-12-26)
+  @ApiProperty({ required: false, nullable: true, description: 'Buy/sell ratio (buys/sells count)' })
+  buySellRatio?: number | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Percentage of tokens with incomplete buy/sell cycles (spam/dust indicator)' })
+  percentageOfUnpairedTokens?: number | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Buy/sell symmetry score (0-1, balance indicator)' })
+  buySellSymmetry?: number | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Sequence consistency score (0-1, pattern indicator)' })
+  sequenceConsistency?: number | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Exit pattern type (GRADUAL or ALL_AT_ONCE)' })
+  exitPattern?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Percentage of value still held in current positions' })
+  percentOfValueInCurrentHoldings?: number | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Median current holding duration in hours' })
+  medianCurrentHoldingDurationHours?: number | null;
+
   @ApiProperty({ required: false, nullable: true })
   lastActiveAt?: string | null;
 

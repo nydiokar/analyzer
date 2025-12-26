@@ -1287,6 +1287,20 @@ export class BehaviorAnalyzer {
     const avgDuration = sumDurations / totalFlips;
     const medianDuration = this.calculateMedian(allDurations);
 
+    // Distribution logging for threshold validation (only for sufficient sample sizes)
+    if (allDurations.length >= 10) {
+      const sorted = [...allDurations].sort((a, b) => a - b);
+      const distribution = {
+        p10: sorted[Math.floor(sorted.length * 0.1)],
+        p25: sorted[Math.floor(sorted.length * 0.25)],
+        p50: sorted[Math.floor(sorted.length * 0.5)],
+        p75: sorted[Math.floor(sorted.length * 0.75)],
+        p90: sorted[Math.floor(sorted.length * 0.9)],
+        count: sorted.length,
+      };
+      this.logger.debug('Hold time distribution (hours):', distribution);
+    }
+
     return { durations: allDurations, distribution, percentUnder1Hour, percentUnder4Hours, avgDuration, medianDuration };
   }
 

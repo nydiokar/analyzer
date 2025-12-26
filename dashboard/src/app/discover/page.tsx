@@ -92,6 +92,36 @@ const formatHours = (val?: number | null) => {
   return `${Math.round(val / 24)}d`;
 };
 
+// NEW: Format speed category to human-readable label
+const formatSpeedCategory = (speed?: string | null) => {
+  if (!speed) return "Unknown";
+  const labels: Record<string, string> = {
+    SNIPER: "Sniper",
+    SCALPER: "Scalper",
+    MOMENTUM: "Momentum",
+    INTRADAY: "Intraday",
+    DAY_TRADER: "Day Trader",
+    SWING: "Swing",
+    POSITION: "Position",
+    HODLER: "Holder",
+  };
+  return labels[speed] || speed;
+};
+
+// NEW: Format flow pattern to human-readable label
+const formatFlowPattern = (flow?: string | null) => {
+  if (!flow) return "Unknown";
+  const labels: Record<string, string> = {
+    BUY_ONLY: "Buy Only",
+    SELL_ONLY: "Sell Only",
+    ACCUMULATOR: "Accumulator",
+    DISTRIBUTOR: "Distributor",
+    BALANCED: "Balanced",
+    MIXED: "Mixed",
+  };
+  return labels[flow] || flow;
+};
+
 const formatLastActive = (isoString?: string | null) => {
   if (!isoString) return { text: "No activity yet", tooltip: null };
   const date = new Date(isoString);
@@ -531,7 +561,7 @@ export default function DiscoverPage() {
               <table className="w-full">
                 <thead className="border-b bg-gradient-to-r from-muted/60 to-muted/40">
                   <tr className="align-bottom">
-                    <th className="text-left px-3 py-2 font-medium text-sm">
+                    <th className="text-left px-3 py-2 font-medium text-sm whitespace-nowrap">
                       <div className="inline-flex items-center gap-1">
                         Wallet
                         <TooltipProvider>
@@ -546,48 +576,7 @@ export default function DiscoverPage() {
                         </TooltipProvider>
                       </div>
                     </th>
-                    <th className="text-left px-3 py-2 font-medium text-sm">
-                      <div className="inline-flex items-center gap-1">
-                        Behavior tag
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs">
-                              Signal we think makes this wallet worth a look (flipping speed, explorer behavior, profitability, or recent activity).
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                    </th>
-                    <th className="text-left px-3 py-2 font-medium text-sm">
-                      <div className="inline-flex items-center gap-1">
-                        Trading style
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent>Classification from behavior analysis.</TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                    </th>
-                    <th className="text-right px-3 py-2 font-medium text-sm">
-                      <div className="inline-flex items-center gap-1 justify-end">
-                        Tokens
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent>Unique tokens traded (0 can mean token metadata not captured yet).</TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                    </th>
-                    <th className="text-right px-3 py-2 font-medium text-sm">
+                    <th className="text-right px-3 py-2 font-medium text-sm whitespace-nowrap">
                       <div className="inline-flex items-center gap-1 justify-end">
                         PnL
                         <TooltipProvider>
@@ -595,7 +584,54 @@ export default function DiscoverPage() {
                             <TooltipTrigger asChild>
                               <Info className="h-3.5 w-3.5 text-muted-foreground" />
                             </TooltipTrigger>
-                            <TooltipContent>Total PnL with breakdown (R = realized, U = unrealized)</TooltipContent>
+                            <TooltipContent className="max-w-xs">
+                              Realized and unrealized profit/loss in SOL.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    </th>
+                    <th className="text-left px-3 py-2 font-medium text-sm">
+                      <div className="inline-flex items-center gap-1">
+                        Speed
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              Narrative description of exit timing patterns and current holdings.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    </th>
+                    <th className="text-left px-3 py-2 font-medium text-sm">
+                      <div className="inline-flex items-center gap-1">
+                        Flow
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              Narrative description of buy/sell behavior and exit patterns.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    </th>
+                    <th className="text-right px-3 py-2 font-medium text-sm whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1 justify-end">
+                        Unpaired
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              Percentage of tokens with incomplete buy/sell cycles. High values may indicate spam/dust.
+                            </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                       </div>
@@ -752,8 +788,55 @@ function WalletRow({
     }
   };
 
+  // Build narrative sentences for Speed and Flow
+  const medianHold = formatHours(wallet.metrics.medianHoldHours);
+  const avgHold = formatHours(wallet.metrics.averageHoldHours);
+  const currentHold = formatHours(wallet.metrics.medianCurrentHoldingDurationHours);
+  const valueHeldPct = wallet.metrics.percentOfValueInCurrentHoldings?.toFixed(0) ?? null;
+
+  const speedLabel = formatSpeedCategory(wallet.metrics.speedCategory);
+  const flowLabel = formatFlowPattern(wallet.metrics.flowPattern);
+
+  // Speed narrative
+  let speedStory = "";
+  if (wallet.metrics.speedCategory) {
+    speedStory = `Typical hold time (median) is ${medianHold}`;
+    if (avgHold !== medianHold && avgHold !== "—") {
+      speedStory += ` with average ${avgHold}`;
+    }
+    speedStory += ".";
+    if (currentHold !== "—" && valueHeldPct) {
+      speedStory += ` Currently holding ${valueHeldPct}% of value, position age ${currentHold}.`;
+    }
+  } else {
+    speedStory = "No exits yet - pure accumulation or early entry.";
+  }
+
+  // Flow narrative
+  let flowStory = "";
+  const buySelRatio = wallet.metrics.buySellRatio?.toFixed(2) ?? null;
+  if (buySelRatio) {
+    const ratio = wallet.metrics.buySellRatio!;
+    if (ratio >= 2) {
+      flowStory = `Buy/sell ratio ${buySelRatio} (${ratio.toFixed(1)}× more buys than sells)`;
+    } else if (ratio <= 0.5) {
+      flowStory = `Buy/sell ratio ${buySelRatio} (${(1/ratio).toFixed(1)}× more sells than buys)`;
+    } else {
+      flowStory = `Buy/sell ratio ${buySelRatio} (roughly balanced trading)`;
+    }
+    if (wallet.metrics.exitPattern) {
+      flowStory += `. Exit pattern: ${wallet.metrics.exitPattern}.`;
+    } else {
+      flowStory += ".";
+    }
+  }
+
+  const unpairedPct = wallet.metrics.percentageOfUnpairedTokens?.toFixed(0) ?? null;
+  const isHighUnpaired = wallet.metrics.percentageOfUnpairedTokens && wallet.metrics.percentageOfUnpairedTokens > 50;
+
   return (
     <tr className="border-b last:border-0 hover:bg-accent/30 transition-all duration-150 align-top group">
+      {/* Column 1: Wallet */}
       <td className="px-3 py-2.5">
         <WalletBadge
           address={wallet.walletAddress}
@@ -770,32 +853,8 @@ function WalletRow({
           }}
         />
       </td>
-      <td className="px-3 py-2.5">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge variant="outline" className={`text-[11px] font-medium ${reasonColor} transition-all group-hover:shadow-sm`}>
-                {reasonMeta.label}
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-sm">
-              <p className="font-medium mb-1">{reasonMeta.label}</p>
-              <p className="text-xs text-muted-foreground">{reasonMeta.detail}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </td>
-      <td className="px-3 py-2.5 align-top">
-        <div className="space-y-0.5">
-          <div className="text-sm font-semibold text-foreground">{wallet.metrics.tradingStyle || "Unknown"}</div>
-          <div className="text-xs text-muted-foreground">
-            {holdDisplay} avg hold
-          </div>
-        </div>
-      </td>
-      <td className="px-3 py-2.5 text-right text-sm align-top font-medium">
-        {wallet.metrics.uniqueTokensTraded ?? "—"}
-      </td>
+
+      {/* Column 2: PnL (moved from column 5) */}
       <td className="px-3 py-2.5 text-right align-top">
         {hasPnl ? (
           <div className={cn("inline-flex flex-col items-end gap-0.5 px-2.5 py-1 rounded-md transition-all", totalPnlBgClass)}>
@@ -811,6 +870,44 @@ function WalletRow({
                 <>unrealized</>
               )}
             </div>
+          </div>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+      </td>
+
+      {/* Column 3: Speed (narrative) */}
+      <td className="px-3 py-2.5 align-top">
+        <div className="space-y-1">
+          <div className="text-sm font-semibold text-foreground">{speedLabel}</div>
+          <div className="text-xs text-muted-foreground leading-relaxed">
+            {speedStory}
+          </div>
+        </div>
+      </td>
+
+      {/* Column 4: Flow (narrative) */}
+      <td className="px-3 py-2.5 align-top">
+        <div className="space-y-1">
+          <div className="text-sm font-semibold text-foreground">{flowLabel}</div>
+          {flowStory && (
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              {flowStory}
+            </div>
+          )}
+        </div>
+      </td>
+
+      {/* Column 5: Unpaired % (spam/dust indicator) */}
+      <td className="px-3 py-2.5 text-right align-top">
+        {unpairedPct !== null ? (
+          <div className="inline-flex flex-col items-end gap-0.5">
+            <div className={cn("text-sm font-medium tabular-nums", isHighUnpaired ? "text-amber-600 dark:text-amber-500" : "")}>
+              {unpairedPct}%{isHighUnpaired ? " ⚠️" : ""}
+            </div>
+            {isHighUnpaired && (
+              <div className="text-xs text-muted-foreground">spam risk</div>
+            )}
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">—</span>

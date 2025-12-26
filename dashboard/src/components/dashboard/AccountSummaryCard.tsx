@@ -69,25 +69,25 @@ export default function AccountSummaryCard({
     return data.latestPnl >= 0 ? "success" : "error";
   }, [data?.latestPnl]);
 
-  // Get strategy type description
+  // Get strategy type description - cleaner and more concise
   const getStrategyDescription = (strategy: string): string => {
     const descriptions: Record<string, string> = {
-      'FAST_TRADER': 'High-speed trading: sniper, scalper, or momentum trader (exits within 30 minutes)',
-      'DAY_TRADER': 'Intraday positions: opens and closes within 30 minutes to 24 hours',
-      'SWING_TRADER': 'Medium-term holds: capitalizes on 1-7 day price movements',
-      'POSITION_TRADER': 'Long-term positions: holds for 7-30+ days with conviction',
-      'PURE_HOLDER': 'Buy-only strategy: accumulates without selling (30+ day holds)',
-      'ACCUMULATOR': 'Heavy buy bias: buys 2x+ more than sells, building positions',
-      'DISTRIBUTOR': 'Heavy sell bias: sells 2x+ more than buys, liquidating positions',
-      'BALANCED_TRADER': 'Symmetric activity: balanced buy/sell ratio across timeframes',
-      'LOW_ACTIVITY': 'Insufficient data: minimal trading or incomplete cycles',
+      'FAST_TRADER': 'Exits positions quickly (under 30 minutes). Includes snipers, scalpers, and momentum traders.',
+      'DAY_TRADER': 'Intraday trader (30min to 24hr holds). Opens and closes within the same day.',
+      'SWING_TRADER': 'Holds for multiple days (1-7 days). Capitalizes on medium-term price movements.',
+      'POSITION_TRADER': 'Long-term conviction (7-30+ days). Patient position trader.',
+      'PURE_HOLDER': 'Only buys, never sells. Accumulates positions without exiting.',
+      'ACCUMULATOR': 'Strong buy bias (2x+ more buys than sells). Actively building positions.',
+      'DISTRIBUTOR': 'Strong sell bias (2x+ more sells than buys). Actively liquidating positions.',
+      'BALANCED_TRADER': 'Even buy/sell ratio across all timeframes. Balanced trading activity.',
+      'LOW_ACTIVITY': 'Insufficient data to classify. Minimal trading history or incomplete cycles.',
       // Legacy fallbacks
-      'swing_trader': 'Holds positions for days to weeks, capitalizing on medium-term price movements',
-      'day_trader': 'Opens and closes positions within the same day, avoiding overnight exposure',
-      'scalper': 'Makes numerous quick trades for small profits, holding positions for minutes',
-      'holder': 'Long-term investor who holds positions for extended periods',
+      'swing_trader': 'Medium-term holds (days to weeks)',
+      'day_trader': 'Intraday positions (same-day exits)',
+      'scalper': 'Quick flips for small profits',
+      'holder': 'Long-term accumulation',
     };
-    return descriptions[strategy] || 'Trading behavior pattern identified by analysis';
+    return descriptions[strategy] || 'Trading pattern identified';
   };
 
   if (!walletAddress) {
@@ -350,24 +350,29 @@ export default function AccountSummaryCard({
                       {formatStrategyType(data.strategyType || data.behaviorClassification)}
                     </Badge>
                   </TooltipTrigger>
-                  <TooltipContent className="max-w-md">
+                  <TooltipContent className="max-w-sm">
                     <div className="space-y-2">
-                      <p className="font-semibold">{formatStrategyType(data.strategyType || data.behaviorClassification)}</p>
-                      <p className="text-xs text-muted-foreground">{getStrategyDescription(data.strategyType || data.behaviorClassification || '')}</p>
-                      <div className="border-t border-border pt-2 mt-2">
-                        <p className="font-medium text-xs mb-1">Strategy Types Explained:</p>
-                        <ul className="space-y-0.5 text-[10px] text-muted-foreground">
-                          <li><span className="font-medium">FAST_TRADER:</span> Sniper/scalper/momentum (&lt;30min exits)</li>
-                          <li><span className="font-medium">DAY_TRADER:</span> Intraday positions (30min-24h)</li>
-                          <li><span className="font-medium">SWING_TRADER:</span> Multi-day swings (1-7 days)</li>
-                          <li><span className="font-medium">POSITION_TRADER:</span> Long-term holds (7-30+ days)</li>
-                          <li><span className="font-medium">PURE_HOLDER:</span> Only buys, never sells</li>
-                          <li><span className="font-medium">ACCUMULATOR:</span> Buys 2x+ more than sells</li>
-                          <li><span className="font-medium">DISTRIBUTOR:</span> Sells 2x+ more than buys</li>
-                          <li><span className="font-medium">BALANCED_TRADER:</span> Even buy/sell activity</li>
-                          <li><span className="font-medium">LOW_ACTIVITY:</span> Insufficient data to classify</li>
-                        </ul>
-                      </div>
+                      <p className="font-semibold text-sm">{formatStrategyType(data.strategyType || data.behaviorClassification)}</p>
+                      <p className="text-xs leading-relaxed">{getStrategyDescription(data.strategyType || data.behaviorClassification || '')}</p>
+
+                      {/* Show underlying dimensions if available */}
+                      {(data.speedCategory || data.flowPattern) && (
+                        <div className="border-t border-border pt-2 mt-2 space-y-1.5">
+                          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Classification Breakdown:</p>
+                          {data.speedCategory && (
+                            <div className="text-xs">
+                              <span className="font-semibold">Speed:</span> {formatStrategyType(data.speedCategory)}
+                              <p className="text-[10px] text-muted-foreground mt-0.5">How fast they exit positions</p>
+                            </div>
+                          )}
+                          {data.flowPattern && (
+                            <div className="text-xs">
+                              <span className="font-semibold">Flow:</span> {formatStrategyType(data.flowPattern)}
+                              <p className="text-[10px] text-muted-foreground mt-0.5">Buy vs sell activity balance</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </TooltipContent>
                 </Tooltip>

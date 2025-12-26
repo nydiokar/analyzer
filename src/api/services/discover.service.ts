@@ -48,34 +48,8 @@ export class DiscoverService {
     if (behaviorSorts.includes(sort)) {
       andFilters.push({ behaviorProfile: { isNot: null } });
 
-      // For specific sorts, ensure key fields are not null
-      if (sort === 'longest_holders') {
-        andFilters.push({
-          behaviorProfile: {
-            is: {
-              medianHoldTime: { not: null },
-            },
-          },
-        });
-      }
-      if (sort === 'interesting') {
-        andFilters.push({
-          behaviorProfile: {
-            is: {
-              flipperScore: { not: null },
-            },
-          },
-        });
-      }
-      if (sort === 'most_active') {
-        andFilters.push({
-          behaviorProfile: {
-            is: {
-              totalTradeCount: { not: null },
-            },
-          },
-        });
-      }
+      // No additional null checks needed - fields are non-nullable when behaviorProfile exists
+      // The schema guarantees these fields have values (medianHoldTime, totalTradeCount, flipperScore are all non-nullable)
     }
 
     if (typeof minTradeCount === 'number' && minTradeCount > 0) {
@@ -184,7 +158,8 @@ export class DiscoverService {
       case 'interesting':
       default:
         return [
-          { behaviorProfile: { flipperScore: 'desc' } },
+          // NEW: Use velocityScore (professional terminology, replaces flipperScore)
+          { behaviorProfile: { velocityScore: { sort: 'desc', nulls: 'last' } } },
           { behaviorProfile: { medianHoldTime: 'desc' } },
           { behaviorProfile: { tradingStyle: 'asc' } },
           { behaviorProfile: { uniqueTokensTraded: 'desc' } },
@@ -220,9 +195,13 @@ export class DiscoverService {
       totalSells: behavior?.totalSellCount ?? null,
       medianHoldHours: behavior?.medianHoldTime ?? null,
       lastActiveAt,
-      flipperScore: behavior?.flipperScore ?? null,
+      // NEW: Use new classification system fields
+      velocityScore: behavior?.velocityScore ?? behavior?.flipperScore ?? null,
+      strategyType: behavior?.strategyType ?? null,
+      speedCategory: behavior?.speedCategory ?? null,
+      flowPattern: behavior?.flowPattern ?? null,
       uniqueTokensTraded: behavior?.uniqueTokensTraded ?? null,
-      tradingStyle: behavior?.tradingStyle ?? null,
+      tradingStyle: behavior?.tradingStyle ?? null, // Keep for backward compat
     });
 
     return {
@@ -245,6 +224,14 @@ export class DiscoverService {
         speedCategory: behavior?.speedCategory ?? null, // NEW: Explicit speed classification
         flowPattern: behavior?.flowPattern ?? null, // NEW: Buy/sell flow pattern
         strategyType: behavior?.strategyType ?? null, // NEW: Canonical strategy type
+        // NEW: Behavioral detail metrics for data-driven storytelling (2025-12-26)
+        buySellRatio: behavior?.buySellRatio ?? null,
+        percentageOfUnpairedTokens: behavior?.percentageOfUnpairedTokens ?? null,
+        buySellSymmetry: behavior?.buySellSymmetry ?? null,
+        sequenceConsistency: behavior?.sequenceConsistency ?? null,
+        exitPattern: behavior?.historicalPattern?.exitPattern ?? null,
+        percentOfValueInCurrentHoldings: behavior?.percentOfValueInCurrentHoldings ?? null,
+        medianCurrentHoldingDurationHours: behavior?.medianCurrentHoldingDurationHours ?? null,
         lastActiveAt: lastActiveAt ? lastActiveAt.toISOString() : null,
         pnlUpdatedAt: pnl?.updatedAt ?? null,
         behaviorUpdatedAt: behavior?.updatedAt ?? null,
@@ -262,9 +249,13 @@ export class DiscoverService {
     totalSells: number | null;
     medianHoldHours: number | null;
     lastActiveAt: Date | null;
-    flipperScore: number | null;
+    // NEW: Use new classification system fields
+    velocityScore: number | null;
+    strategyType: string | null;
+    speedCategory: string | null;
+    flowPattern: string | null;
     uniqueTokensTraded: number | null;
-    tradingStyle: string | null;
+    tradingStyle: string | null; // Deprecated, keep for backward compat
   }): { text: string; code: string } {
     const {
       realizedPnl,
@@ -275,9 +266,12 @@ export class DiscoverService {
       totalSells,
       medianHoldHours,
       lastActiveAt,
-      flipperScore,
+      velocityScore,
+      strategyType,
+      speedCategory,
+      flowPattern,
       uniqueTokensTraded,
-      tradingStyle,
+      tradingStyle, // Deprecated
     } = params;
     const now = Date.now();
 
@@ -296,29 +290,46 @@ export class DiscoverService {
       return { code: 'PARTIAL_HOLDER', text: `Profit taker · ${sells} exits · still holding positions` };
     }
 
-    // Trading style based tags
-    if (tradingStyle) {
+    // NEW: Use strategyType from classification system
+    if (strategyType === 'FAST_TRADER' && velocityScore && velocityScore >= 60) {
+      return { code: 'FAST_TRADER', text: `Fast trader · velocity ${Math.round(velocityScore)} · ${buys ?? 0}↑/${sells ?? 0}↓` };
+    }
+
+    if (strategyType === 'PURE_HOLDER' && medianHoldHours && medianHoldHours >= 72) {
+      return { code: 'HODLER', text: `Patient hodler · ~${Math.round(medianHoldHours / 24)}d median hold` };
+    }
+
+    if (strategyType === 'SWING_TRADER' && medianHoldHours && medianHoldHours >= 24) {
+      return { code: 'SWING', text: `Swing trader · ~${Math.round(medianHoldHours)}h holds` };
+    }
+
+    if (strategyType === 'POSITION_TRADER' && medianHoldHours && medianHoldHours >= 72) {
+      return { code: 'POSITION', text: `Position trader · ~${Math.round(medianHoldHours / 24)}d holds` };
+    }
+
+    // FALLBACK: Use old tradingStyle if new fields not yet populated (backward compat)
+    if (!strategyType && tradingStyle) {
       const normalized = tradingStyle.toUpperCase();
 
-      // Fast traders
-      if (['FLIPPER', 'SCALPER', 'SNIPER'].includes(normalized) && flipperScore && flipperScore >= 60) {
-        return { code: 'FLIPPER', text: `Fast trader · ${Math.round(flipperScore)} flipper score · ${buys ?? 0}↑/${sells ?? 0}↓` };
+      // Fast traders (legacy)
+      if (['FLIPPER', 'SCALPER', 'SNIPER'].includes(normalized) && velocityScore && velocityScore >= 60) {
+        return { code: 'FAST_TRADER', text: `Fast trader · velocity ${Math.round(velocityScore)} · ${buys ?? 0}↑/${sells ?? 0}↓` };
       }
 
-      // Hodlers with completed cycles (30+ day exits)
+      // Hodlers with completed cycles (legacy)
       if (['POSITION', 'HODLER'].includes(normalized) && medianHoldHours && medianHoldHours >= 72) {
         return { code: 'HODLER', text: `Patient hodler · ~${Math.round(medianHoldHours / 24)}d median hold` };
       }
 
-      // Swing/position traders
+      // Swing/position traders (legacy)
       if (['SWING', 'POSITION'].includes(normalized) && medianHoldHours && medianHoldHours >= 24) {
         return { code: 'SWING', text: `Swing trader · ~${Math.round(medianHoldHours)}h holds` };
       }
     }
 
-    // Flipper score based
-    if (flipperScore !== null && flipperScore >= 60 && (totalTrades ?? 0) >= 20) {
-      return { code: 'FLIPPER', text: `Quick rotations · score ${Math.round(flipperScore)}` };
+    // Velocity score based (when strategy not classified yet)
+    if (velocityScore !== null && velocityScore >= 60 && (totalTrades ?? 0) >= 20) {
+      return { code: 'FAST_TRADER', text: `Quick rotations · velocity ${Math.round(velocityScore)}` };
     }
 
     // Token explorer
