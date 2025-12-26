@@ -6,6 +6,17 @@
 
 ---
 
+## ✅ Plan Updates (Post-Review)
+
+**Key decisions**:
+- **New endpoints**: avoid `/jobs/*` collisions by introducing `/users/me/jobs` + `/admin/job-history`.
+- **All job states**: include `waiting`, `active`, `delayed`, `completed`, `failed`, `paused` with explicit UI labels.
+- **Job types (initial)**: **include** `similarity-analysis-flow`, `analyze-holder-profiles`; **exclude** `dashboard-wallet-analysis` (high-frequency).
+- **Pagination required**: both user and admin endpoints support `limit` + `offset`.
+- **BullMQ range fix**: always use inclusive range `start..end` where `end = offset + limit - 1`.
+
+---
+
 ## 🎯 Vision & Goals
 
 ### Problem Statement
@@ -17,8 +28,8 @@ Users run holder profile analyses but lose access if they:
 
 ### Solution
 Persistent job history accessible from profile dropdown showing:
-- Recent holder profile jobs
-- Job status (completed/failed/active)
+- Recent holder profile + similarity jobs
+- Job status (waiting/active/delayed/completed/failed/paused)
 - Token context (if token mode)
 - Ability to rerun jobs
 - Admin view for monitoring
@@ -33,10 +44,11 @@ Persistent job history accessible from profile dropdown showing:
 **Status**: Planning Complete
 
 **Deliverables**:
-- ✅ User sees their own jobs in modal (max 20 recent)
-- ✅ Admin endpoint to see all jobs (for debugging)
+- ✅ User sees their own jobs in modal (paginated, default 20)
+- ✅ Admin endpoint to see all jobs with pagination
 - ✅ Simple table UI with job details
 - ✅ Rerun button (calls existing API)
+- ✅ Initial job types: holder profiles + similarity (dashboard excluded)
 
 ### 🔮 Sprint 2: Public Sharing (FUTURE)
 **Scope**: Share job results publicly
@@ -56,7 +68,6 @@ Persistent job history accessible from profile dropdown showing:
 **Potential Features**:
 - Result preview modal (full holder profiles data)
 - Filter/search jobs
-- Pagination (beyond 20 jobs)
 - Job favoriting/tagging
 - Team/org sharing (way future)
 
@@ -72,21 +83,21 @@ Persistent job history accessible from profile dropdown showing:
 3. Dropdown shows:
    ├─ Account
    ├─ Settings
-   ├─ My Jobs ← NEW
+   ├─ Job History ← NEW
    ├─ Help & About
    └─ Logout
 
-4. Clicks "My Jobs"
+4. Clicks "Job History"
 5. Modal opens showing table:
 
-   ┌─ My Jobs ──────────────────────────────────────────┐
+   ┌─ Job History ──────────────────────────────────────┐
    │                                                     │
    │ Job                    Token     Status    Time    │
    │ ───────────────────── ───────── ──────── ───────── │
    │ Holder Profiles: EPj  [SOL]     Done     2m ago   │
    │   • 50 holders                           [Rerun]   │
    │                                                     │
-   │ Holder Profiles: 7Qh  [USDC]    Active   5m ago   │
+   │ Holder Profiles: 7Qh  [USDC]    Queued   5m ago   │
    │   • 10 holders                           [...]     │
    │                                                     │
    │ Holder Profile: 4nv   -         Failed   1h ago   │
@@ -95,10 +106,10 @@ Persistent job history accessible from profile dropdown showing:
 
 6. User clicks "Rerun" → New job queued
 7. Modal stays open, list auto-refreshes (SWR)
-8. User sees new job appear at top as "Active"
+8. User sees new job appear at top as "Queued"
 ```
 
-**Security**: Only sees jobs where `job.data.userId === user.id`
+**Security**: Only sees jobs where `job.data.userId === user.id` (filter out `dashboard-wallet-analysis` by name)
 
 ---
 
@@ -128,14 +139,14 @@ Persistent job history accessible from profile dropdown showing:
    - Monitor system health
 ```
 
-**Security**: Only accessible with `@UseGuards(AdminGuard)`
+**Security**: Only accessible with `@UseGuards(CompositeAuthGuard)` + `assertAdmin`
 
 ---
 
 ### Flow 3: Sharing Job Results (Sprint 2 - FUTURE)
 
 ```
-1. User opens "My Jobs" modal
+1. User opens "Job History" modal
 2. Clicks "Share" button on completed job
 3. System generates: https://app.com/shared/HP-abc123
 4. User copies link and shares on Twitter/Discord
@@ -168,7 +179,7 @@ Persistent job history accessible from profile dropdown showing:
 │   Browser   │
 │ (JWT Token) │
 └──────┬──────┘
-       │ GET /jobs/my-jobs
+       │ GET /users/me/jobs?limit=20&offset=0
        │ Authorization: Bearer <jwt>
        ▼
 ┌─────────────────────┐
@@ -180,10 +191,12 @@ Persistent job history accessible from profile dropdown showing:
        ▼
 ┌─────────────────────┐
 │   Jobs Service      │
-│  getUserJobs()      │
-│  - Query BullMQ     │ ← Filter by userId
-│  - Filter by name   │
+│  getUserJobHistory()│
+│  - Query BullMQ     │ ← All states
+│  - Filter by userId │
+│  - Filter by name   │ (exclude dashboard)
 │  - Sort by time     │
+│  - Paginate         │
 └──────┬──────────────┘
        │
        ▼
@@ -214,7 +227,7 @@ Persistent job history accessible from profile dropdown showing:
   },
 
   // Job state
-  status: "completed",
+  status: "completed", // waiting | active | delayed | completed | failed | paused
   progress: 100,
   timestamp: 1703260800000,
   processedOn: 1703260850000,
@@ -252,119 +265,107 @@ Persistent job history accessible from profile dropdown showing:
 
 ```typescript
 /**
- * Get jobs for a specific user
+ * Get job history for a specific user
  * Used by: User job history modal
  */
-async getUserJobs(
+async getUserJobHistory(
   userId: string,
   options: {
-    jobName?: string;
     limit?: number;
+    offset?: number;
     status?: string[];
+    jobNames?: string[]; // allowlist
+    queueName?: string;
   } = {}
 ): Promise<JobStatusResponseDto[]> {
-  const queue = this.analysisOperationsQueue.getQueue();
-  const limit = options.limit || 20;
-
-  // Query BullMQ for jobs (completed, failed, active)
-  const [completed, failed, active] = await Promise.all([
-    queue.getCompleted(0, limit),
-    queue.getFailed(0, limit),
-    queue.getActive(0, limit),
-  ]);
-
-  // Filter by userId and optionally by job name
-  const allJobs = [...completed, ...failed, ...active]
-    .filter(job =>
-      job.data?.userId === userId &&
-      (!options.jobName || job.name === options.jobName)
-    )
-    .sort((a, b) => b.timestamp - a.timestamp) // Newest first
-    .slice(0, limit);
-
-  return allJobs.map(job =>
-    this.formatJobResponse(job, 'analysis-operations')
-  );
-}
-
-/**
- * Get all jobs (admin only)
- * Used by: Admin monitoring dashboard
- */
-async getAdminJobs(filters: {
-  userId?: string;
-  status?: string;
-  queue?: string;
-  limit?: number;
-}): Promise<JobStatusResponseDto[]> {
-  const limit = Math.min(filters.limit || 50, 100);
-  const queueName = filters.queue || 'analysis-operations';
+  const limit = Math.min(options.limit || 20, 100);
+  const offset = options.offset || 0;
+  const queueName = options.queueName || 'analysis-operations';
   const queue = this.getQueueByName(queueName)?.getQueue();
-
   if (!queue) {
     throw new BadRequestException('Invalid queue');
   }
 
-  // Get jobs by status or all
-  let jobs: Job[] = [];
-  if (filters.status === 'completed') {
-    jobs = await queue.getCompleted(0, limit);
-  } else if (filters.status === 'failed') {
-    jobs = await queue.getFailed(0, limit);
-  } else if (filters.status === 'active') {
-    jobs = await queue.getActive(0, limit);
-  } else {
-    // Get mixed (no status filter)
-    const [c, f, a] = await Promise.all([
-      queue.getCompleted(0, limit / 3),
-      queue.getFailed(0, limit / 3),
-      queue.getActive(0, limit / 3),
-    ]);
-    jobs = [...c, ...f, ...a];
-  }
+  const states = options.status?.length
+    ? options.status
+    : ['waiting', 'active', 'delayed', 'completed', 'failed', 'paused'];
 
-  // Optional: Filter by userId
-  if (filters.userId) {
-    jobs = jobs.filter(j => j.data?.userId === filters.userId);
-  }
+  // BullMQ range is inclusive -> end = offset + limit - 1
+  const jobs = await queue.getJobs(states as JobState[], offset, offset + limit - 1);
 
   return jobs
+    .filter(job => job.data?.userId === userId)
+    .filter(job => !options.jobNames || options.jobNames.includes(job.name))
     .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, limit)
+    .map(job => this.formatJobResponse(job, queueName));
+}
+
+/**
+ * Get job history across queues (admin only)
+ * Used by: Admin monitoring dashboard (paginated)
+ */
+async getAdminJobHistory(filters: {
+  userId?: string;
+  status?: string;
+  queue?: string;
+  limit?: number;
+  offset?: number;
+  jobNames?: string[];
+}): Promise<JobStatusResponseDto[]> {
+  const limit = Math.min(filters.limit || 50, 100);
+  const offset = filters.offset || 0;
+  const queueName = filters.queue || 'analysis-operations';
+  const queue = this.getQueueByName(queueName)?.getQueue();
+  if (!queue) {
+    throw new BadRequestException('Invalid queue');
+  }
+
+  const states = filters.status
+    ? [filters.status]
+    : ['waiting', 'active', 'delayed', 'completed', 'failed', 'paused'];
+
+  const jobs = await queue.getJobs(states as JobState[], offset, offset + limit - 1);
+
+  return jobs
+    .filter(job => !filters.userId || job.data?.userId === filters.userId)
+    .filter(job => !filters.jobNames || filters.jobNames.includes(job.name))
+    .sort((a, b) => b.timestamp - a.timestamp)
     .map(job => this.formatJobResponse(job, queueName));
 }
 ```
 
-**File 2**: `src/api/controllers/jobs.controller.ts` (or create new)
+**File 2**: `src/api/controllers/users.controller.ts` (ADD endpoint)
 
 ```typescript
 import { Controller, Get, UseGuards, Req, Query } from '@nestjs/common';
-import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
-import { AdminGuard } from '../shared/guards/admin.guard';
+import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { JobsService } from '../services/jobs.service';
 
-@Controller('jobs')
-export class JobsController {
+@Controller('users')
+export class UsersController {
   constructor(private readonly jobsService: JobsService) {}
 
   /**
-   * GET /api/v1/jobs/my-jobs
+   * GET /api/v1/users/me/jobs
    * Returns current user's recent jobs
    */
-  @Get('my-jobs')
-  @UseGuards(JwtAuthGuard)
+  @Get('me/jobs')
+  @UseGuards(CompositeAuthGuard)
   async getMyJobs(@Req() request: any) {
     const userId = request.user.id; // From JWT token
 
-    const jobs = await this.jobsService.getUserJobs(userId, {
-      jobName: 'analyze-holder-profiles', // Only holder profiles for now
+    const jobs = await this.jobsService.getUserJobHistory(userId, {
+      jobNames: ['analyze-holder-profiles', 'similarity-analysis-flow'], // exclude dashboard
       limit: 20,
+      offset: 0,
     });
 
     // Simplify response for frontend
     return jobs.map(job => ({
       id: job.id,
-      status: job.status,
+      name: job.name,
+      queue: job.queue,
+      status: job.status, // waiting | active | delayed | completed | failed | paused
       createdAt: job.createdAt,
       finishedAt: job.finishedAt,
       processingTime: job.finishedAt && job.processedAt
@@ -375,42 +376,65 @@ export class JobsController {
       mode: job.data?.mode,
       tokenMint: job.data?.tokenMint,
       walletAddress: job.data?.walletAddress,
+      walletAddresses: job.data?.walletAddresses,
+      topN: job.data?.topN,
+      requestId: job.data?.requestId,
+      similarityConfig: job.data?.similarityConfig,
+      timeoutMinutes: job.data?.timeoutMinutes,
+      failureThreshold: job.data?.failureThreshold,
+      enrichMetadata: job.data?.enrichMetadata,
 
       // Result summary
       totalHolders: job.result?.metadata?.totalHoldersAnalyzed || 0,
     }));
   }
 
+}
+```
+
+**File 3**: `src/api/controllers/admin-job-history.controller.ts` (NEW)
+
+```typescript
+import { Controller, Get, Query } from '@nestjs/common';
+import { AdminOnly } from '../shared/decorators/admin-only.decorator';
+import { JobsService } from '../services/jobs.service';
+
+@Controller('admin/job-history')
+@AdminOnly()
+export class AdminJobHistoryController {
+  constructor(private readonly jobsService: JobsService) {}
+
   /**
-   * GET /api/v1/jobs/admin/all-jobs
-   * Returns all jobs (admin only)
+   * GET /api/v1/admin/job-history
+   * Returns job history for admin (paginated)
    */
-  @Get('admin/all-jobs')
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  async getAdminJobs(
+  @Get()
+  async getAdminJobHistory(
     @Query('userId') userId?: string,
     @Query('status') status?: string,
     @Query('queue') queue?: string,
     @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
-    return this.jobsService.getAdminJobs({
+    return this.jobsService.getAdminJobHistory({
       userId,
       status,
       queue,
       limit: limit ? parseInt(limit) : 50,
+      offset: offset ? parseInt(offset) : 0,
     });
   }
 }
 ```
 
-**File 3**: Register controller in module
+**File 4**: Register controller in module
 
 ```typescript
-// src/api.module.ts or src/api/modules/jobs.module.ts
-import { JobsController } from './controllers/jobs.controller';
+// src/api.module.ts or src/api/modules/admin.module.ts
+import { AdminJobHistoryController } from './controllers/admin-job-history.controller';
 
 @Module({
-  controllers: [JobsController], // Add this
+  controllers: [AdminJobHistoryController], // Add this
   // ...
 })
 ```
@@ -443,7 +467,7 @@ export function UserMenu({ className }: UserMenuProps) {
             className="cursor-pointer"
           >
             <History className="w-4 h-4 mr-2" />
-            My Jobs
+            Job History
           </DropdownMenuItem>
 
           {/* ... rest of items ... */}
@@ -498,19 +522,32 @@ interface JobHistoryModalProps {
 
 interface UserJob {
   id: string;
-  status: 'completed' | 'failed' | 'active';
+  name: string;
+  queue: string;
+  status: 'waiting' | 'active' | 'delayed' | 'completed' | 'failed' | 'paused';
   createdAt: string;
   finishedAt?: string;
   processingTime: number;
   mode: 'token' | 'wallet';
   tokenMint?: string;
   walletAddress?: string;
+  walletAddresses?: string[];
+  topN?: number;
+  requestId?: string;
+  similarityConfig?: Record<string, unknown>;
+  timeoutMinutes?: number;
+  failureThreshold?: number;
+  enrichMetadata?: boolean;
   totalHolders: number;
 }
 
 export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
+  const limit = 20;
+  const [page, setPage] = useState(0);
+  const offset = page * limit;
+
   const { data: jobs, error, isLoading, mutate } = useSWR<UserJob[]>(
-    open ? '/jobs/my-jobs' : null,
+    open ? `/users/me/jobs?limit=${limit}&offset=${offset}` : null,
     fetcher,
     {
       refreshInterval: open ? 5000 : 0, // Auto-refresh every 5s when open
@@ -521,9 +558,12 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
 
   const getStatusBadge = (status: string) => {
     const config = {
+      waiting: { variant: 'secondary' as const, label: 'Queued' },
+      active: { variant: 'secondary' as const, label: 'Running' },
+      delayed: { variant: 'secondary' as const, label: 'Delayed' },
       completed: { variant: 'default' as const, label: 'Done' },
       failed: { variant: 'destructive' as const, label: 'Failed' },
-      active: { variant: 'secondary' as const, label: 'Running' },
+      paused: { variant: 'outline' as const, label: 'Paused' },
     };
     const { variant, label } = config[status as keyof typeof config];
     return <Badge variant={variant}>{label}</Badge>;
@@ -536,26 +576,38 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
     if (job.mode === 'wallet' && job.walletAddress) {
       return `Holder Profile: ${job.walletAddress.slice(0, 8)}...`;
     }
+    if (job.name === 'similarity-analysis-flow' && job.walletAddresses?.length) {
+      return `Similarity: ${job.walletAddresses.length} wallets`;
+    }
     return 'Holder Profile Analysis';
   };
 
   const handleRerun = async (job: UserJob) => {
     setRerunningJobId(job.id);
     try {
-      // Determine endpoint based on mode
-      const endpoint =
-        job.mode === 'token'
+      const isSimilarity = job.name === 'similarity-analysis-flow';
+      const endpoint = isSimilarity
+        ? '/analyses/similarity/queue'
+        : job.mode === 'token'
           ? '/analyses/holder-profiles/token'
           : '/analyses/holder-profiles/wallet';
+
+      const body = isSimilarity
+        ? {
+            walletAddresses: job.walletAddresses,
+            similarityConfig: job.similarityConfig,
+            timeoutMinutes: job.timeoutMinutes,
+            failureThreshold: job.failureThreshold,
+            enrichMetadata: job.enrichMetadata,
+          }
+        : job.mode === 'token'
+          ? { tokenMint: job.tokenMint, topN: job.topN }
+          : { walletAddress: job.walletAddress };
 
       // Submit new job with same params
       await fetcher(endpoint, {
         method: 'POST',
-        body: JSON.stringify(
-          job.mode === 'token'
-            ? { tokenMint: job.tokenMint, topN: 50 }
-            : { walletAddress: job.walletAddress }
-        ),
+        body: JSON.stringify(body),
       });
 
       toast.success('Job queued successfully!');
@@ -572,7 +624,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>My Jobs</DialogTitle>
+          <DialogTitle>Job History</DialogTitle>
         </DialogHeader>
 
         {isLoading && (
@@ -630,6 +682,11 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
                         <TokenBadge mint={job.tokenMint} layout="inline" />
                       )}
                       {job.mode === 'wallet' && <span className="text-muted-foreground">-</span>}
+                      {job.name === 'similarity-analysis-flow' && (
+                        <span className="text-muted-foreground">
+                          {job.walletAddresses?.length ?? 0} wallets
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {job.totalHolders > 0 ? (
@@ -678,6 +735,27 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
             </Table>
           </div>
         )}
+
+        {jobs && jobs.length > 0 && (
+          <div className="flex justify-end gap-2 pt-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((current) => Math.max(0, current - 1))}
+              disabled={page === 0}
+            >
+              Prev
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((current) => current + 1)}
+              disabled={jobs.length < limit}
+            >
+              Next
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -689,33 +767,36 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
 ## 📋 Sprint 1 Checklist
 
 ### Backend Tasks
-- [ ] Add `getUserJobs()` method to `JobsService`
-- [ ] Add `getAdminJobs()` method to `JobsService`
-- [ ] Create `JobsController` with endpoints:
-  - [ ] `GET /jobs/my-jobs` (user)
-  - [ ] `GET /jobs/admin/all-jobs` (admin)
-- [ ] Register controller in module
+- [x] Add `getUserJobHistory()` method to `JobsService` (all states + pagination)
+- [x] Add `getAdminJobHistory()` method to `JobsService` (all states + pagination)
+- [x] Add `GET /users/me/jobs` to `UsersController`
+- [x] Create `AdminJobHistoryController` with endpoint:
+  - [x] `GET /admin/job-history` (admin)
+- [x] Register admin controller in module
 - [ ] Test with Postman/curl
 
 ### Frontend Tasks
-- [ ] Add "My Jobs" menu item to `UserMenu.tsx`
-- [ ] Create `JobHistoryModal.tsx` component
-- [ ] Add state management for modal open/close
+- [x] Add "Job History" menu item to `UserMenu.tsx`
+- [x] Create `JobHistoryModal.tsx` component
+- [x] Add state management for modal open/close
 - [ ] Test modal opening from dropdown
 - [ ] Test job list loading
 - [ ] Test rerun functionality
 - [ ] Test auto-refresh (5s interval)
+- [x] Add pagination controls (next/prev or load-more)
 
 ### Testing
 - [ ] User can see only their jobs
-- [ ] Admin can see all jobs
+- [ ] Admin can see all jobs with pagination
 - [ ] Rerun button queues new job
 - [ ] Modal auto-refreshes when open
-- [ ] Status badges show correct colors
+- [ ] Status badges show correct labels/colors for all states
 - [ ] Token badges render correctly
 - [ ] Time displays "X minutes ago" format
 - [ ] Empty state shows when no jobs
 - [ ] Error state shows on API failure
+- [ ] Similarity + holder profile jobs appear; dashboard jobs do not
+- [ ] Pagination returns stable ordering
 
 ---
 
@@ -748,7 +829,6 @@ CREATE TABLE job_shares (
 
 ### Advanced Features (Sprint 3+)
 - Result preview modal (show full holder profiles)
-- Pagination beyond 20 jobs
 - Filter by status, date range
 - Search by wallet/token address
 - Job favoriting/pinning
@@ -772,7 +852,15 @@ CREATE TABLE job_shares (
 
 - **Filtering**: Server-side by userId
   - Reason: Security (can't fake userId from JWT)
-  - Tradeoff: None
+  - Tradeoff: Requires job data to carry `userId`
+
+- **Job selection**: Allowlist by job name (exclude `dashboard-wallet-analysis`)
+  - Reason: Avoid noise from high-frequency single-wallet jobs
+  - Tradeoff: Some jobs won't appear until added to allowlist
+
+- **Endpoints**: `/users/me/jobs` + `/admin/job-history` (separate from `/jobs/*`)
+  - Reason: Avoid collisions with existing job status endpoints
+  - Tradeoff: New controller + route to document
 
 - **Real-time updates**: SWR with 5s polling
   - Reason: Simple, no new WS subscriptions
@@ -780,7 +868,7 @@ CREATE TABLE job_shares (
 
 ### Security Model
 - User endpoint: Filters by `request.user.id` from JWT
-- Admin endpoint: Protected by `AdminGuard`
+- Admin endpoint: Protected by `CompositeAuthGuard` + `assertAdmin`
 - Share endpoint (future): Public but read-only
 
 ---
@@ -790,9 +878,11 @@ CREATE TABLE job_shares (
 1. **Don't over-engineer**: Keep Sprint 1 simple (just list + rerun)
 2. **Reuse existing code**: HolderProfilesCacheService, TokenBadge, etc.
 3. **Security first**: Always filter by userId from JWT, never from request params
-4. **Mobile-friendly**: Table should be responsive (consider Card view on mobile)
-5. **Performance**: 20 jobs limit is intentional (fast queries)
-6. **Future-proof**: Structure allows easy addition of sharing, filters, etc.
+4. **Routing**: Use `/users/me/jobs` + `/admin/job-history`, keep `/jobs/*` for job status
+5. **Statuses**: Always include waiting/active/delayed/completed/failed/paused
+6. **Filtering**: Exclude `dashboard-wallet-analysis` unless explicitly enabled
+7. **Pagination**: Use `limit` + `offset`, BullMQ end index is inclusive
+8. **Mobile-friendly**: Table should be responsive (consider Card view on mobile)
 
 ---
 
@@ -807,5 +897,5 @@ CREATE TABLE job_shares (
 ---
 
 **Current Status**: Ready for Sprint 1 implementation
-**Next Action**: Implement backend `getUserJobs()` method
+**Next Action**: Smoke-test `/users/me/jobs` + `/admin/job-history` and verify modal behavior
 **Estimated Completion**: 4.5 hours from start

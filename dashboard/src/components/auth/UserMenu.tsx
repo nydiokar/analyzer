@@ -5,9 +5,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
-import { User, Settings, LogOut, Sparkles, HelpCircle } from 'lucide-react';
+import { User, Settings, LogOut, Sparkles, HelpCircle, History } from 'lucide-react';
 import { AccountModal } from './AccountModal';
 import { SettingsModal } from './SettingsModal';
+import { JobHistoryModal } from './JobHistoryModal';
 import Link from 'next/link';
 
 interface UserMenuProps {
@@ -18,6 +19,7 @@ export function UserMenu({ className }: UserMenuProps) {
   const { user, isAuthenticated, logout } = useAuth();
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showJobHistoryModal, setShowJobHistoryModal] = useState(false);
 
   if (!isAuthenticated || !user) {
     return null;
@@ -69,6 +71,11 @@ export function UserMenu({ className }: UserMenuProps) {
             Settings
           </DropdownMenuItem>
 
+          <DropdownMenuItem onClick={() => setShowJobHistoryModal(true)} className="cursor-pointer">
+            <History className="w-4 h-4 mr-2" />
+            Job History
+          </DropdownMenuItem>
+
           <DropdownMenuItem asChild className="cursor-pointer">
             <Link href="/help">
               <HelpCircle className="w-4 h-4 mr-2" />
@@ -96,6 +103,7 @@ export function UserMenu({ className }: UserMenuProps) {
       {/* Modals */}
       <AccountModal open={showAccountModal} onOpenChange={setShowAccountModal} />
       <SettingsModal open={showSettingsModal} onOpenChange={setShowSettingsModal} />
+      <JobHistoryModal open={showJobHistoryModal} onOpenChange={setShowJobHistoryModal} />
     </>
   );
 }

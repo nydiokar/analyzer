@@ -5,10 +5,12 @@ import { ApiKeyDatabaseService } from '../shared/services/api-key-database.servi
 import { JwtDatabaseService } from '../shared/services/jwt-database.service';
 import { DatabaseModule } from './database.module';
 import { ConfigModule } from '@nestjs/config';
+import { JobsModule } from './jobs.module';
+import { AdminJobHistoryController } from '../controllers/admin-job-history.controller';
 
 @Module({
-  imports: [DatabaseModule, ConfigModule],
-  controllers: [AdminController],
+  imports: [DatabaseModule, ConfigModule, JobsModule],
+  controllers: [AdminController, AdminJobHistoryController],
   providers: [
     ApiKeyService,
     ApiKeyDatabaseService,  // Pure API key data access

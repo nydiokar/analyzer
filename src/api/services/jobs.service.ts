@@ -3,7 +3,7 @@ import { WalletOperationsQueue } from '../../queues/queues/wallet-operations.que
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
 import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operations.queue';
-import { Job, JobState } from 'bullmq';
+import { Job, JobState, Queue } from 'bullmq';
 import { 
   JobStatusResponseDto, 
   QueueStatsResponseDto, 
@@ -452,6 +452,99 @@ export class JobsService {
   }
 
   /**
+   * Get job history for a specific user across queues.
+   * Includes all states and applies global pagination after merge.
+   */
+  async getUserJobHistory(
+    userId: string,
+    options: {
+      limit?: number;
+      offset?: number;
+      status?: JobState[];
+      jobNames?: string[];
+      queueNames?: string[];
+    } = {}
+  ): Promise<JobStatusResponseDto[]> {
+    const limit = Math.min(options.limit || 20, 100);
+    const offset = Math.max(options.offset || 0, 0);
+    if (limit <= 0) {
+      return [];
+    }
+
+    const queueNames = options.queueNames?.length
+      ? options.queueNames
+      : ['analysis-operations', 'similarity-operations'];
+
+    const states: JobState[] = options.status?.length
+      ? options.status
+      : ['waiting', 'active', 'delayed', 'completed', 'failed', 'paused'];
+
+    const end = offset + limit - 1;
+
+    const jobsByQueue = await Promise.all(
+      queueNames.map(async (queueName) => {
+        const queueProvider = this.getQueueByName(queueName);
+        if (!queueProvider) {
+          return [] as Array<{ job: Job; state: JobState; queueName: string }>;
+        }
+        const queue = queueProvider.getQueue();
+        const jobsWithState = await this.collectJobsByStates(queue, states, 0, end);
+        return jobsWithState.map(item => ({ ...item, queueName }));
+      })
+    );
+
+    const merged = jobsByQueue
+      .flat()
+      .filter(item => item.job.data?.userId === userId)
+      .filter(item => !options.jobNames || options.jobNames.includes(item.job.name))
+      .sort((a, b) => b.job.timestamp - a.job.timestamp);
+
+    return merged
+      .slice(offset, offset + limit)
+      .map(item => this.formatJobResponse(item.job, item.queueName, item.state));
+  }
+
+  /**
+   * Get job history for admins in a single queue (paginated).
+   * Fetches enough records to allow global ordering across states.
+   */
+  async getAdminJobHistory(filters: {
+    userId?: string;
+    status?: JobState;
+    queue?: string;
+    limit?: number;
+    offset?: number;
+    jobNames?: string[];
+  }): Promise<JobStatusResponseDto[]> {
+    const limit = Math.min(filters.limit || 50, 100);
+    const offset = Math.max(filters.offset || 0, 0);
+    if (limit <= 0) {
+      return [];
+    }
+
+    const queueName = filters.queue || 'analysis-operations';
+    const queueProvider = this.getQueueByName(queueName);
+    if (!queueProvider) {
+      throw new BadRequestException('Invalid queue');
+    }
+    const queue = queueProvider.getQueue();
+
+    const states: JobState[] = filters.status
+      ? [filters.status]
+      : ['waiting', 'active', 'delayed', 'completed', 'failed', 'paused'];
+
+    const end = offset + limit - 1;
+    const jobsWithState = await this.collectJobsByStates(queue, states, 0, end);
+
+    return jobsWithState
+      .filter(item => !filters.userId || item.job.data?.userId === filters.userId)
+      .filter(item => !filters.jobNames || filters.jobNames.includes(item.job.name))
+      .sort((a, b) => b.job.timestamp - a.job.timestamp)
+      .slice(offset, offset + limit)
+      .map(item => this.formatJobResponse(item.job, queueName, item.state));
+  }
+
+  /**
    * Get job progress by ID (C1 task requirement)
    */
   async getJobProgress(jobId: string): Promise<{ jobId: string; status: string; progress: number | object }> {
@@ -565,9 +658,11 @@ export class JobsService {
     }
   }
 
-  private formatJobResponse(job: Job, queueName: string): JobStatusResponseDto {
-    const state = job.finishedOn ? (job.failedReason ? 'failed' : 'completed') : 
-                  job.processedOn ? 'active' : 'waiting';
+  private formatJobResponse(job: Job, queueName: string, stateOverride?: JobState): JobStatusResponseDto {
+    const state = stateOverride
+      ? stateOverride
+      : job.finishedOn ? (job.failedReason ? 'failed' : 'completed') :
+        job.processedOn ? 'active' : 'waiting';
 
     // Handle progress type - BullMQ can return string, number, or object
     let progress: number | object = 0;
@@ -598,4 +693,24 @@ export class JobsService {
       remainingTime: job.delay ? Math.max(0, job.delay - (Date.now() - job.timestamp)) : undefined,
     };
   }
-} 
+
+  private async collectJobsByStates(
+    queue: Queue,
+    states: JobState[],
+    start: number,
+    end: number,
+  ): Promise<Array<{ job: Job; state: JobState }>> {
+    if (end < start) {
+      return [];
+    }
+
+    const jobsByState = await Promise.all(
+      states.map(async (state) => {
+        const jobs = await queue.getJobs([state], start, end);
+        return jobs.map(job => ({ job, state }));
+      })
+    );
+
+    return jobsByState.flat();
+  }
+}
