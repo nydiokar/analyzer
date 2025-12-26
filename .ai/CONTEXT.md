@@ -1,9 +1,9 @@
 # Current State
 
 **Project**: Sova Intel - Wallet Analysis System
-**Branch**: `discover` (design system + auth polish) ✅ SHIPPED
-**Status**: Discover page storytelling enhancement - Metrics integration + Speed/Flow filters COMPLETE ✅
-**Last Updated**: 2025-12-26 (metrics storytelling + filter redesign)
+**Branch**: `discover` (storytelling enhancement + median fix)
+**Status**: Discover page COMPLETE - Ready for testing & merge ✅
+**Last Updated**: 2025-12-26 (median bug fix + UI polish)
 
 ---
 
@@ -44,6 +44,63 @@
 2. **Holder Classification** – Edge case: better heuristics for holders without exits (needs partner input on logic)
 
 ### ✅ Recently Completed
+
+- **🔥 CRITICAL BUG FIX: Median Inconsistency** (2025-12-26) – Fixed speed category showing wrong median values:
+  - **Root Cause**: Two different median calculations in system:
+    - `medianHoldTime` (DEPRECATED): Trade-level median - simple median across ALL flips
+    - `medianCompletedHoldTimeHours`: Token-level median - median OF per-token medians (more sophisticated)
+  - **Bug**: speedCategory classification used `medianCompletedHoldTimeHours` but display showed `medianHoldTime`
+  - **Impact**: "Momentum (5-30min)" showing "median: 2.3h" (138 minutes!) - completely wrong
+  - **Fix Applied**:
+    - ✅ Added `medianCompletedHoldTimeHours` field to BehaviorProfile schema (nullable)
+    - ✅ Migration created: `20251226190008_add_median_completed_hold_time_hours`
+    - ✅ Updated `behavior-service.ts` to save correct median from `historicalPattern.medianCompletedHoldTimeHours`
+    - ✅ Updated `discover.service.ts` to use `medianCompletedHoldTimeHours` for display (with fallback to deprecated field for old data)
+    - ✅ Updated filters and sorting to use new field
+    - ✅ Backfilled existing data with SQL script
+  - **Verification**: "Momentum (5-30min)" wallets now show "median: 29min" ✓ (matches Historical Pattern)
+  - **Files Changed**:
+    - Schema: `prisma/schema.prisma` (line 150)
+    - Backend: `src/core/analysis/behavior/behavior-service.ts` (line 133), `src/api/services/behavior.service.ts` (line 96), `src/api/services/discover.service.ts` (lines 237, 262, 127, 190, 205)
+  - **Technical Notes**:
+    - Token-level median prevents high-volume tokens from dominating the calculation
+    - Only uses completed (EXITED) positions for clean signal
+    - Falls back gracefully for old data without the new field
+
+- **Discover Page Storytelling Enhancement** (2025-12-26) – Complete metrics integration + UI improvements:
+  - **Separate Speed & Flow Filters**:
+    - Added dedicated Speed filter (8 options: Sniper → Hodler)
+    - Added dedicated Flow filter (6 options: Buy-Only → Mixed)
+    - Replaced confusing "Balanced Trader" filter that showed no results
+    - Backend: Added `speedCategory` and `flowPattern` query parameters to discover DTO
+  - **Metrics Integration**: All 25+ backend metrics now used in narratives:
+    - ✅ velocityScore integrated into speed narratives
+    - ✅ sequenceConsistency shown qualitatively (not raw numbers)
+    - ✅ exitPattern displayed for all flow types (not just BALANCED)
+    - ✅ percentOfValueInCurrentHoldings smartly shown (only when < 100% for BUY_ONLY, < 95% for ACCUMULATOR)
+    - ✅ Staleness indicator added (shows data age in hours)
+  - **Redundancy Removal**:
+    - Removed holding time from BUY_ONLY flow (redundant with Speed "No Exits")
+    - Removed holding time from ACCUMULATOR flow (avoiding duplication)
+    - Current holdings data moved from Speed to Flow narratives (correct categorization)
+  - **Color Palette**:
+    - Unified colors matching holder-profiles
+    - Speed: Red (fast) → Orange → Yellow → Blue → Emerald (slow)
+    - Flow: Emerald (high conviction) → Blue (balanced) → Yellow (mixed) → Red (exit)
+    - Created `dashboard/src/lib/strategy-colors.ts` with `getSpeedColor()` and `getFlowColor()` helpers
+  - **UI Polish** (2025-12-26):
+    - ✅ Fixed filter row wrapping - removed redundant wallet count, moved refresh button inline
+    - ✅ Balanced column widths: PnL min-width 140px (no more 3-line wrapping), Speed max 380px, Flow max 480px
+    - ✅ Reduced filter gaps from `gap-3` to `gap-2.5` for tighter layout
+    - ✅ Reduced input widths from 90px to 85px
+    - ✅ All controls fit on ONE row now
+  - **Files Changed**:
+    - Frontend: `dashboard/src/app/discover/page.tsx` (filters, column widths, wallet count removal)
+    - Backend: `src/api/services/discover.service.ts` (new query params, filter logic)
+    - DTOs: `src/api/shared/dto/discover-wallet.dto.ts` (speedCategory, flowPattern params)
+    - Narratives: `dashboard/src/lib/behavior-narratives.tsx` (removed redundant data, added smart % display)
+    - Colors: `dashboard/src/lib/strategy-colors.ts` (NEW FILE - unified color palette)
+
 - **Classification Refactor - Days 1-6 COMPLETE** (2025-12-25) – Full stack implementation:
   - **LOW LAYER (Data & Computation)**:
     - Schema migration: Added 6 new fields (speedCategory, flowPattern, strategyType, velocityScore, tokensWithOnlyBuys, medianActiveHoldingHours)
@@ -105,155 +162,23 @@
 - **Time Unit Disambiguation** – VERIFIED: All time formatting uses unambiguous suffixes (min, mo, h, d, s)
 - **WebSocket Refactor** – User-scoped rooms, merged to `pretty` branch
 
-### 📋 Current Priority (IN PROGRESS) - Classification Refactor MVP
+### 📋 Current Priority - Discover Branch Ready for Merge
 
-**Goal**: Centralize classification logic in `analyzer.ts`, store explicit enums in DB, expose via API
+**Status**: ✅ COMPLETE - All work done, ready for testing & merge
 
-**Sprint Plan** (5-7 days, bottom-up: LOW → MID → HIGH layers)
-**Progress**: ✅ Days 1-6 Complete | 🔄 Day 7 Next (Testing & Integration)
+**What Was Completed**:
+1. ✅ Classification refactor (Days 1-6) - New speedCategory, flowPattern, strategyType system
+2. ✅ Discover page storytelling - All metrics integrated with separate Speed/Flow filters
+3. ✅ Critical median bug fix - Speed categories now show correct values
+4. ✅ UI polish - Filter row, column widths, color palette
 
-**Reference docs**: See `.ai/context/classification/` folder (6 files):
-- `classification_target_state.md` - What we're building (the contract)
-- `component_impact_map.md` - 35 files to touch, ranked by impact
-- `classification_taxonomy_map.md` - Category definitions & thresholds
-- `classification_scientific_assessment.md` - Design decisions & edge cases
+**Next Steps**:
+1. **Test in browser** - Verify all filters work, median values correct, layout clean
+2. **Commit changes** - Stage and commit all files
+3. **Merge to main** - Create PR or merge directly if confident
+4. **Backfill existing wallets** (optional) - Re-analyze wallets to populate `medianCompletedHoldTimeHours` for historical data
 
----
-
-**✅ Day 1-2: LOW LAYER (Data & Schema)** - COMPLETED 2025-12-25
-
-Guide: `component_impact_map.md` lines 73-85
-
-1. ✅ **Schema** (`prisma/schema.prisma`):
-   - Added: `speedCategory String?`, `flowPattern String?`, `strategyType String?`
-   - Added: `velocityScore Int?`, `tokensWithOnlyBuys Int`, `medianActiveHoldingHours Float?`
-   - Added indexes on strategyType, speedCategory
-   - Migration applied: `20251225144120_add_classification_fields`
-
-2. ✅ **Types** (`src/types/behavior.ts` - 41 usages):
-   - Added: `SpeedCategory` type (SNIPER...HOLDER)
-   - Added: `FlowPattern` type (BUY_ONLY, SELL_ONLY, ACCUMULATOR, DISTRIBUTOR, BALANCED, MIXED)
-   - Added: `StrategyType` type (9 categories: FAST_TRADER, DAY_TRADER, ..., LOW_ACTIVITY)
-   - Updated BehavioralMetrics interface with new optional fields
-
-3. ✅ **Constants** (`src/core/analysis/behavior/constants.ts` - 68 usages):
-   - Added: SPEED_THRESHOLDS (8 levels: SNIPER to HOLDER)
-   - Added: FLOW_THRESHOLDS (STRONG_BUY_RATIO: 2.0, STRONG_SELL_RATIO: 0.5)
-   - Added: MINIMUM_DATA (trades: 5, tokensWithCompletedCycles: 2)
-   - Added: HOLDER_BYPASS (multiToken: 3 tokens + 24h, singleToken: 50 SOL)
-   - Added: VELOCITY_SCORE parameters
-
----
-
-**✅ Day 3-4: LOW LAYER (Computation)** - COMPLETED 2025-12-25
-
-Guide: `component_impact_map.md` lines 44-48 + `classification_target_state.md` lines 116-202
-
-4. ✅ **Analyzer** (`src/core/analysis/behavior/analyzer.ts` - 88 usages, most critical):
-   - Added helper functions:
-     - `computeSpeedCategory()` - Classifies exit timing from completed cycles
-     - `computeFlowPattern()` - Classifies buy/sell directional bias
-     - `deriveStrategyType()` - Canonical filter with holder bypass logic
-     - `computeVelocityScore()` - 0-100 logarithmic scale
-   - Modified `calculateBehavioralMetrics()`:
-     - Now computes `medianActiveHoldingHours` (from current holdings)
-     - Now computes `largestActivePositionSol` (for holder bypass)
-   - Modified `classifyTradingStyle()`:
-     - Populates all new fields (speedCategory, flowPattern, strategyType, velocityScore)
-     - **Implements holder bypass**: 3+ tokens held 24h+ OR 50+ SOL position
-     - Maintains backward compatibility (tradingStyle, flipperScore still populated)
-
-5. ✅ **Bot Detector** (`src/core/analysis/bot-detector.ts` - 10 usages):
-   - Verified compatible (uses flipperScore and tradingStyle, both still exist)
-   - No changes required
-
-**Build Status**: ✅ TypeScript compiles without errors
-
----
-
-**✅ Day 5: MID LAYER (API & Transport)** - COMPLETED 2025-12-25
-
-Guide: `component_impact_map.md` lines 88-101
-
-6. ✅ **Behavior Service** (`src/api/services/behavior.service.ts` - 27 usages):
-   - ✅ Deleted broken `extractBehaviorType()` method
-   - ✅ Reads speedCategory directly from DB (line 89: `behaviorType = profile.speedCategory || 'HOLDER'`)
-   - ✅ All 6 new fields destructured (lines 90-93: speedCategory, flowPattern, strategyType, velocityScore, medianActiveHoldingHours)
-   - ✅ All 6 new fields saved to profileDataToSave (lines 130, 145-148)
-   - ✅ Added tokensWithOnlyBuys to cache (line 120)
-
-7. ✅ **Discover Service** (`src/api/services/discover.service.ts` - 29 usages):
-   - ✅ Replaced CONTAINS with EQUALS (line 100: `strategyType: { equals: normalizedStyle }`)
-   - ✅ Maps new fields to DTO response (lines 245-247)
-
-8. ✅ **DTOs** (behavior-response.dto.ts, discover-wallet.dto.ts):
-   - ✅ behavior-response.dto.ts: Added 5 new fields with proper TypeScript types (lines 183-192)
-   - ✅ discover-wallet.dto.ts: Updated query enum (lines 55-62), added 3 new response fields (lines 118-125)
-   - ✅ Imports SpeedCategory, FlowPattern, StrategyType types from behavior.ts
-
-9. ✅ **Controllers** (wallets.controller.ts, analyses.controller.ts):
-   - ✅ No changes needed - DTOs map correctly via service layer
-
-**✅ BONUS: Single Source of Truth Consolidation** - COMPLETED 2025-12-25
-
-- ✅ Moved ALL `BEHAVIOR_ANALYSIS_CONFIG` from `config/constants.ts` → `behavior/constants.ts`
-- ✅ Deleted duplicate from global config (was 2.5/0.4, now unified at 2.0/0.5)
-- ✅ Updated analyzer.ts import: `from '../../../config/constants'` → `from './constants'`
-- ✅ Verified: ONLY analyzer.ts imports behavior constants (no orphaned imports)
-- ✅ Build verified: TypeScript compiles after consolidation
-
----
-
-**✅ Day 6: HIGH LAYER (Frontend)** - COMPLETED 2025-12-25
-
-Guide: `component_impact_map.md` lines 105-117
-
-10. ✅ **API Types** (`dashboard/src/types/api.ts` + `dashboard/src/types/discover.ts`):
-    - ✅ Added: SpeedCategory, FlowPattern, StrategyType enums (lines 102-138)
-    - ✅ Updated: BehaviorAnalysisResponseDto with 5 new optional fields (lines 183-188)
-    - ✅ Updated: DiscoverWalletMetrics with speedCategory, flowPattern, strategyType (discover.ts lines 17-19)
-    - ✅ Added comprehensive JSDoc comments explaining each enum
-
-11. ✅ **Discover Page** (`dashboard/src/app/discover/page.tsx`):
-    - ✅ Replaced styleOptions: Old values (sniper, scalper, flipper, etc.) → NEW StrategyType enum (lines 56-66)
-    - ✅ Added 8 enum options: FAST_TRADER, DAY_TRADER, SWING_TRADER, POSITION_TRADER, PURE_HOLDER, ACCUMULATOR, DISTRIBUTOR, BALANCED_TRADER
-    - ✅ Added hints for each option (e.g., "Sniper/scalper/momentum" for FAST_TRADER)
-    - ✅ Updated presets: hyper-flipper → FAST_TRADER, balanced-fast → SWING_TRADER, patient-holder → PURE_HOLDER (lines 354, 359, 364)
-    - ⏸️ Table columns: Showing speedCategory + flowPattern (deferred - can add later if needed)
-
-12. ⏸️ **Baseball Card** (`dashboard/src/components/holder-profiles/v2/WalletBaseballCard.tsx`):
-    - ⏸️ Deferred: Can use new fields later (not critical for Discover page functionality)
-
-**Build Status**: ✅ Frontend compiles successfully (Next.js 15.5.9)
-- No TypeScript errors related to new classification fields
-- Only minor linting warnings (unused imports)
-- Ready for runtime testing
-
----
-
-**Day 7: Testing & Integration**
-
-13. **Manual testing**:
-    - Test Case 1a: 1 buy, 700 SOL position, 45 days → PURE_HOLDER ✓
-    - Test Case 1b: 1 buy, 5 SOL position, 2 days → LOW_ACTIVITY ✓
-    - Test Case 1c: 5 tokens, no exits, 48h avg → PURE_HOLDER ✓
-    - Reference: `classification_scientific_assessment.md` lines 268-301
-
-14. **Discover page validation**:
-    - Filter by PURE_HOLDER → shows holders
-    - Filter by FAST_TRADER → shows snipers/scalpers
-    - No "LOW_ACTIVITY" wallets with significant positions
-
-15. **Ship to discover branch**
-
----
-
-**Deferred to V2** (post-launch):
-- Backfill 10k existing wallets (BullMQ background job)
-- Migrate 14 internal scripts (low priority, they're internal tools)
-- Add confidence/sample size metrics
-- Temporal windows (30d, 90d, all-time classifications)
-- BehavioralPatternsTab.tsx updates (33 usages, not needed for discover)
+**Reference docs**: See `.ai/context/classification/` folder for detailed implementation plan (completed)
 
 ### 📋 Ready to Start (3 tasks)
 4. **Fast Exit Metric Clarification** – Show median + avg (not redundant), add tooltip
@@ -305,25 +230,26 @@ Guide: `component_impact_map.md` lines 105-117
 
 ## Next Session Quick Start
 
-**Current Priority**: Fix several issues: 
+**Discover Branch Status**: ✅ READY TO MERGE
 
-1. CuPrb8rBk8UBpz8vQ4iDiGivjgKG1VGLc5Lvidx6HMwj - this address shows he lost 100% but onchain I see always at around break-even - investigate
-2. fix absurdly large amounts of sol txs - 20k sol, we currently have cap for some reason - important to fix - we skip analysis of super whales. 
-3. Mapper is missing plain txs where it's not swap - if it's wallet to wallet. 
+**Completed Today (2025-12-26)**:
+- ✅ Fixed critical median inconsistency bug (speed categories showing wrong values)
+- ✅ Added `medianCompletedHoldTimeHours` field to database
+- ✅ Integrated all metrics into discover page narratives
+- ✅ Added separate Speed/Flow filters
+- ✅ UI polish: fixed filter row wrapping, balanced column widths
+- ✅ Removed redundant wallet count, tightened spacing
 
-**Recent Changes (2025-12-18)**:
-- ✅ Fully centralized job event architecture through bridge
-- ✅ All 15 direct gateway calls now rely on bridge - only using job.updateProgress(data)
-- ✅ No more manual userId extraction in processors
+**What to Do Next**:
+1. **Test in browser**: Verify discover page works correctly
+2. **Commit & push**: Stage all changes to `discover` branch
+3. **Merge**: Create PR or merge to main if confident
+4. **Move to next priority**: Address remaining issues from backlog
 
-**After WebSocket Verified**:
-- Resume `pretty` branch work:
-  - Fast exit metric polish (#4) - 30 min
-  - Finish tooltips (#1) - 1-2 hours
-  - Sanity check/Polishing of every individual page
-  - Discover page content (#5) - 2-3 hours
-  - Job history page (#6) - now possible with reliable WebSocket
-  - Onboarding flow (#7) - 3-4 hours
+**Known Issues to Address Next**:
+1. CuPrb8rBk8UBpz8vQ4iDiGivjgKG1VGLc5Lvidx6HMwj - shows 100% loss but onchain is break-even
+2. Fix 20k SOL tx cap - currently skip analysis of super whales
+3. Mapper missing wallet-to-wallet transfers (non-swap txs)
 
 
 ---

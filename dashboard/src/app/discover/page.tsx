@@ -309,7 +309,7 @@ export default function DiscoverPage() {
     <AppShell>
       <div className="w-full px-6 py-4 space-y-3">
         {/* Compact header + filters in one line */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <h1 className="text-xl font-semibold">Discover</h1>
 
           {/* Preset filters as distinct pills */}
