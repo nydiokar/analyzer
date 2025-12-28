@@ -73,18 +73,6 @@ const flowOptions = [
   { value: 'MIXED', label: 'Mixed', hint: 'Chaotic, no clear pattern' },
 ] as const;
 
-// Legacy: StrategyType filter (combines speed + flow)
-const styleOptions = [
-  { value: 'any', label: 'Any strategy', hint: '' },
-  { value: 'FAST_TRADER', label: 'Fast Trader', hint: 'Exits in < 30 minutes (sniper/scalper/momentum speed)' },
-  { value: 'DAY_TRADER', label: 'Day Trader', hint: 'Exits within same day (< 24 hours)' },
-  { value: 'SWING_TRADER', label: 'Swing Trader', hint: 'Holds for days (1-7 day positions)' },
-  { value: 'POSITION_TRADER', label: 'Position Trader', hint: 'Long-term holds (7+ days, eventual exits)' },
-  { value: 'PURE_HOLDER', label: 'Pure Holder', hint: 'Never exits, only accumulates (buy-only pattern)' },
-  { value: 'ACCUMULATOR', label: 'Accumulator', hint: 'Heavy buy bias (buys >> sells, any speed)' },
-  { value: 'DISTRIBUTOR', label: 'Distributor', hint: 'Heavy sell bias (sells >> buys, any speed)' },
-  { value: 'BALANCED_TRADER', label: 'Balanced Trader', hint: 'Equal buy/sell activity (balanced flow pattern)' },
-] as const;
 
 const holdBiasOptions = [
   { value: 'any', label: 'Any' },
@@ -143,9 +131,8 @@ export default function DiscoverPage() {
   const [sort, setSort] = useState<string>('interesting');
   const [minTradeCount, setMinTradeCount] = useState<number | ''>('');
   const [minUniqueTokens, setMinUniqueTokens] = useState<number | ''>('');
-  const [style, setStyle] = useState<string>('any');
-  const [speedCategory, setSpeedCategory] = useState<string>('any'); // NEW: Speed filter
-  const [flowPattern, setFlowPattern] = useState<string>('any'); // NEW: Flow filter
+  const [speedCategory, setSpeedCategory] = useState<string>('any');
+  const [flowPattern, setFlowPattern] = useState<string>('any');
   const [holdBias, setHoldBias] = useState<string>('any');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -170,8 +157,8 @@ export default function DiscoverPage() {
 
   const cacheKey = useMemo(
     () =>
-      `discover:${sort}:${page}:${minTradeCount || 'any'}:${style !== 'any' ? style : 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${PAGE_SIZE}`,
-    [sort, page, minTradeCount, style, speedCategory, flowPattern, minUniqueTokens, holdBias],
+      `discover:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${PAGE_SIZE}`,
+    [sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias],
   );
 
   const pageCount = useMemo(
@@ -192,9 +179,8 @@ export default function DiscoverPage() {
 
       if (minTradeCount !== '' && minTradeCount > 0) params.set('minTradeCount', String(minTradeCount));
       if (minUniqueTokens !== '' && minUniqueTokens > 0) params.set('minUniqueTokens', String(minUniqueTokens));
-      if (style && style !== 'any') params.set('style', style);
-      if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory); // NEW
-      if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern); // NEW
+      if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
+      if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern);
       if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
 
       const data = (await fetcher(`/discover/wallets?${params.toString()}`)) as DiscoverWalletsResponse;
@@ -212,7 +198,7 @@ export default function DiscoverPage() {
       setLoading(false);
       setIsUpdating(false);
     }
-  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, style, speedCategory, flowPattern]);
+  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern]);
 
   useEffect(() => {
     const cached = readCache(cacheKey);
@@ -284,20 +270,37 @@ export default function DiscoverPage() {
     }
   };
 
+  const resetFilters = () => {
+    setSort('interesting');
+    setSpeedCategory('any');
+    setFlowPattern('any');
+    setHoldBias('any');
+    setMinTradeCount('');
+    setMinUniqueTokens('');
+    setPage(1);
+    setActivePreset(null);
+  };
+
   const applyPreset = (preset: 'fast-traders' | 'balanced-fast' | 'patient-holder') => {
     setActivePreset(preset);
     if (preset === 'fast-traders') {
-      setStyle('FAST_TRADER'); // NEW: StrategyType enum
+      // Fast traders: Sniper/Scalper/Momentum speed + any flow pattern
+      setSpeedCategory('SNIPER'); // Could also be SCALPER or MOMENTUM
+      setFlowPattern('any'); // Fast traders can have any flow pattern
       setHoldBias('short');
       setMinTradeCount(20);
       setMinUniqueTokens(5);
     } else if (preset === 'balanced-fast') {
-      setStyle('SWING_TRADER'); // NEW: StrategyType enum
+      // Balanced fast: Swing/Day trader speed + balanced flow
+      setSpeedCategory('SWING'); // 1-7 day holds
+      setFlowPattern('BALANCED'); // Equal buy/sell activity
       setHoldBias('medium');
       setMinTradeCount(30);
       setMinUniqueTokens(8);
     } else if (preset === 'patient-holder') {
-      setStyle('PURE_HOLDER'); // NEW: StrategyType enum (pure holders, no exits)
+      // Patient holders: Long holds + buy-only/accumulator flow
+      setSpeedCategory('HODLER'); // 30+ day holds
+      setFlowPattern('BUY_ONLY'); // Pure accumulation
       setHoldBias('long');
       setMinTradeCount(10);
       setMinUniqueTokens(3);
@@ -309,11 +312,11 @@ export default function DiscoverPage() {
     <AppShell>
       <div className="w-full px-6 py-4 space-y-3">
         {/* Compact header + filters in one line */}
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <h1 className="text-xl font-semibold">Discover</h1>
 
           {/* Preset filters as distinct pills */}
-          <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-accent/50 border border-border/50">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent/50 border border-border/50">
             <Button
               size="sm"
               variant={activePreset === 'fast-traders' ? 'default' : 'ghost'}
@@ -367,7 +370,7 @@ export default function DiscoverPage() {
               </Tooltip>
             </TooltipProvider>
             <Select value={sort} onValueChange={(v) => { setSort(v); setPage(1); setActivePreset(null); }}>
-              <SelectTrigger className="w-[140px] h-7 text-xs">
+              <SelectTrigger className="w-[130px] h-7 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -405,7 +408,7 @@ export default function DiscoverPage() {
               </Tooltip>
             </TooltipProvider>
             <Select value={speedCategory} onValueChange={(v) => { setSpeedCategory(v); setPage(1); setActivePreset(null); }}>
-              <SelectTrigger className="w-[110px] h-7 text-xs">
+              <SelectTrigger className="w-[100px] h-7 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -445,7 +448,7 @@ export default function DiscoverPage() {
               </Tooltip>
             </TooltipProvider>
             <Select value={flowPattern} onValueChange={(v) => { setFlowPattern(v); setPage(1); setActivePreset(null); }}>
-              <SelectTrigger className="w-[110px] h-7 text-xs">
+              <SelectTrigger className="w-[100px] h-7 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -484,7 +487,7 @@ export default function DiscoverPage() {
               </Tooltip>
             </TooltipProvider>
             <Select value={holdBias} onValueChange={(v) => { setHoldBias(v); setPage(1); setActivePreset(null); }}>
-              <SelectTrigger className="w-[110px] h-7 text-xs">
+              <SelectTrigger className="w-[100px] h-7 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -495,36 +498,76 @@ export default function DiscoverPage() {
             </Select>
           </div>
 
-          <Input
-            type="number"
-            inputMode="numeric"
-            placeholder="Min trades"
-            className="w-[85px] h-7 text-xs"
-            value={minTradeCount === '' ? '' : String(minTradeCount)}
-            onChange={(e) => {
-              setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
-              setPage(1);
-              setActivePreset(null);
-            }}
-          />
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Min trades"
+                  className="w-[80px] h-7 text-xs"
+                  value={minTradeCount === '' ? '' : String(minTradeCount)}
+                  onChange={(e) => {
+                    setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
+                    setPage(1);
+                    setActivePreset(null);
+                  }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Filter by minimum total trades (buys + sells)</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
-          <Input
-            type="number"
-            inputMode="numeric"
-            placeholder="Min tokens"
-            className="w-[85px] h-7 text-xs"
-            value={minUniqueTokens === '' ? '' : String(minUniqueTokens)}
-            onChange={(e) => {
-              setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
-              setPage(1);
-              setActivePreset(null);
-            }}
-          />
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Min tokens"
+                  className="w-[80px] h-7 text-xs"
+                  value={minUniqueTokens === '' ? '' : String(minUniqueTokens)}
+                  onChange={(e) => {
+                    setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
+                    setPage(1);
+                    setActivePreset(null);
+                  }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Filter by minimum unique tokens traded</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
-          {/* Refresh */}
-          <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating} className="h-7">
-            {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-          </Button>
+          {/* Reset + Refresh combined */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={resetFilters} className="h-7 px-2 text-xs">
+                  Reset
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Reset all filters to default</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating} className="h-7 px-2">
+                  {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Refresh results</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
 
         {error && (
@@ -654,22 +697,8 @@ export default function DiscoverPage() {
         {!loading && wallets.length === 0 && (
           <div className="border rounded-lg bg-card p-12 text-center space-y-3">
             <p className="text-muted-foreground">No wallets match these filters yet.</p>
+            <p className="text-sm text-muted-foreground">Try adjusting your filters or use one of the presets:</p>
             <div className="flex items-center justify-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSort('interesting');
-                  setStyle('any');
-                  setHoldBias('any');
-                  setMinTradeCount('');
-                  setMinUniqueTokens('');
-                  setPage(1);
-                  setActivePreset(null);
-                }}
-              >
-                Reset filters
-              </Button>
               <Button size="sm" variant="secondary" onClick={() => applyPreset('balanced-fast')}>
                 Try Balanced Fast
               </Button>
