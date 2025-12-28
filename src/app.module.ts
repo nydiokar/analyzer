@@ -11,9 +11,13 @@ import { QueueModule } from './queues/queue.module'; // Add BullMQ queue integra
 import { APP_GUARD } from '@nestjs/core';
 import { CompositeAuthGuard } from './api/shared/guards/composite-auth.guard';
 import { AdminGuard } from './api/shared/guards/admin.guard';
+import { SentryModule } from '@sentry/nestjs/setup';
+import { MetricsModule } from './api/modules/metrics.module';
 
 @Module({
   imports: [
+    SentryModule.forRoot(), // Add Sentry monitoring
+    MetricsModule, // Add Prometheus metrics
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{
       ttl: 60000, // 1 minute in milliseconds

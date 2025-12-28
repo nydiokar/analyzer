@@ -544,7 +544,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }`,
       );
 
-      // BullMQ automatically fires 'completed' event when job returns
+      // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
+      // No need to manually publish here to avoid duplicate events
+      // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
+
       return result;
     } catch (error) {
       this.logger.error(`Dashboard analysis for ${walletAddress} [scope=${scope}] failed:`, error);
@@ -1007,11 +1010,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await this.holderProfilesCacheService.cacheTokenResult(tokenMint, topN, result);
       await job.updateProgress(100);
 
+      // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
+      // No need to manually publish here to avoid duplicate events
+      // await this.jobProgressGateway.publishCompletedEvent(job.id!, job.queueName, result, processingTimeMs);
       this.logger.log(
         `Token holder orchestration for ${tokenMint} completed: ${analyzedCount}/${walletAddresses.length} profiles in ${processingTimeMs}ms`,
       );
 
-      // BullMQ automatically fires 'completed' event when job returns
       return result;
     } catch (error) {
       this.logger.error(`Holder profiles analysis failed for ${tokenMint}:`, error);
@@ -1142,9 +1147,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(100);
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
 
+    // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
+    // No need to manually publish here to avoid duplicate events
+    // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
+
     this.logger.log(`Holder profile analysis for wallet ${walletAddress} completed in ${processingTimeMs}ms`);
 
-    // BullMQ automatically fires 'completed' event when job returns
     return result;
   }
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {

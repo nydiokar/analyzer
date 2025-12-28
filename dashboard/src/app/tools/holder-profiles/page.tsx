@@ -60,6 +60,9 @@ export default function HolderProfilesPage() {
 
   const parsedWallets = useMemo(() => parseWalletList(walletInput), [walletInput]);
 
+  // Use a ref to store unsubscribeFromJob so we can call it from callbacks
+  const unsubscribeFromJobRef = useRef<((jobId: string) => void) | null>(null);
+
   const updateWalletEntryByJob = useCallback((jobId: string, updater: (entry: WalletClassifierEntry) => WalletClassifierEntry) => {
     setWalletEntries((prev) => prev.map((entry) => (entry.jobId === jobId ? updater(entry) : entry)));
   }, []);
@@ -71,7 +74,7 @@ export default function HolderProfilesPage() {
     []
   );
 
-  const { subscribeToJob } = useJobProgress({
+  const { subscribeToJob, unsubscribeFromJob } = useJobProgress({
     onJobProgress: useCallback(
       (data: JobProgressData) => {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
@@ -84,14 +87,6 @@ export default function HolderProfilesPage() {
             const total = payload.totalHoldersRequested ?? payload.profiles?.length ?? 0;
             const analyzed = payload.analyzedCount ?? payload.profiles?.length ?? 0;
             const percent = total > 0 ? Math.min(100, Math.round((analyzed / total) * 100)) : 0;
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[Token holder progress payload]', {
-                holders: analyzed,
-                total,
-                profilesLen: payload.profiles?.length ?? 0,
-                sampleProfile: payload.profiles?.[0]?.walletAddress,
-              });
-            }
             setTokenProgress(percent);
             setTokenPartialResult({
               mode: 'token',
@@ -105,9 +100,6 @@ export default function HolderProfilesPage() {
               },
             });
           } else if (typeof data.progress === 'number') {
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[Token holder numeric progress]', data.progress);
-            }
             setTokenProgress(data.progress);
           }
           return;
@@ -132,6 +124,10 @@ export default function HolderProfilesPage() {
             setTokenStatus('completed');
             setTokenProgress(100);
             setTokenMessage('Analysis complete');
+            // Unsubscribe from the completed job
+            if (unsubscribeFromJobRef.current) {
+              unsubscribeFromJobRef.current(tokenJobIdRef.current);
+            }
             tokenJobIdRef.current = null;
             toast.success('Holder profiles ready', {
               description: `Analyzed ${resultData.metadata.totalHoldersAnalyzed} holders`,
@@ -156,6 +152,10 @@ export default function HolderProfilesPage() {
           setTokenStatus('failed');
           setTokenProgress(0);
           setTokenMessage('Analysis failed');
+          // Unsubscribe from the failed job
+          if (unsubscribeFromJobRef.current) {
+            unsubscribeFromJobRef.current(tokenJobIdRef.current);
+          }
           tokenJobIdRef.current = null;
           toast.error('Token analysis failed', { description: data.error });
           return;
@@ -173,6 +173,9 @@ export default function HolderProfilesPage() {
     onEnrichmentComplete: () => {},
     onConnectionChange: () => {},
   });
+
+  // Store the unsubscribe function in the ref so callbacks can use it
+  unsubscribeFromJobRef.current = unsubscribeFromJob;
 
   const handleTokenAnalyze = async () => {
     if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
@@ -355,6 +358,4 @@ export default function HolderProfilesPage() {
     </AppShell>
   );
 }
-
-
 

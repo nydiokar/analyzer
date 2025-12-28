@@ -1,3 +1,6 @@
+// IMPORTANT: Import Sentry instrumentation FIRST, before any other imports
+import './instrument';
+
 import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ForbiddenExceptionFilter } from './api/shared/forbidden-exception.filter';
@@ -39,13 +42,15 @@ async function bootstrap() {
   // Secure CORS setup for production
   const frontendUrl = process.env.FRONTEND_URL;
   if (frontendUrl) {
+    // Support comma-separated URLs for multiple domains (e.g., with and without www)
+    const allowedOrigins = frontendUrl.split(',').map(url => url.trim());
     app.enableCors({
-      origin: [frontendUrl], // Allow both configured and Vercel
+      origin: allowedOrigins,
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
       credentials: true,
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'X-CSRF-Token'],
     });
-    Logger.log(`CORS enabled for origins: ${frontendUrl}`, 'Bootstrap');
+    Logger.log(`CORS enabled for origins: ${allowedOrigins.join(', ')}`, 'Bootstrap');
   } else {
     // Fallback for local development
     app.enableCors({
@@ -85,5 +90,11 @@ async function bootstrap() {
   if (host !== '::' && host !== 'localhost' && host !== '127.0.0.1') {
     Logger.log(`🌐 Server bound to specific address: ${host}`, 'Bootstrap');
   }
+
+  // Heartbeat logging to detect event loop blocking / system freezes
+  // Logs every 30 seconds to help diagnose issues like database checkpoint hangs
+  setInterval(() => {
+    Logger.log('[Heartbeat] Backend responsive', 'HealthCheck');
+  }, 30000); // 30 seconds
 }
 bootstrap();

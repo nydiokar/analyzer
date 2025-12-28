@@ -51,21 +51,21 @@ async function main() {
         try {
           const users = await dbService.getAllUsers();
           if (users && users.length > 0) {
-            console.log('-----------------------------------------------------------------------------------------------------------------');
+            console.log('----------------------------------------------------------------------------------------------------------------------------------------');
             console.log('🔑 All Users:');
-            console.log('-----------------------------------------------------------------------------------------------------------------');
-            console.log('ID                                    | Active | Is Demo | Description                               | Created At                | Last Seen');
-            console.log('---------------------------------------|--------|---------|-------------------------------------------|---------------------------|---------------------------');
+            console.log('----------------------------------------------------------------------------------------------------------------------------------------');
+            console.log('ID                                    | Email                              | Active | Is Demo | Description            | Created At');
+            console.log('---------------------------------------|---------------------------------------|--------|---------|------------------------|---------------------------');
             users.forEach(user => {
               const id = user.id.padEnd(36);
+              const email = (user.email || 'N/A').padEnd(35);
               const active = user.isActive ? '✅ Yes' : '❌ No ';
               const isDemo = user.isDemo ? '✅ Yes' : 'No    ';
-              const description = (user.description || 'N/A').padEnd(41);
-              const createdAt = new Date(user.createdAt).toISOString().padEnd(25);
-              const lastSeen = user.lastSeenAt ? new Date(user.lastSeenAt).toISOString().padEnd(25) : 'Never'.padEnd(25);
-              console.log(`${id} | ${active} | ${isDemo} | ${description} | ${createdAt} | ${lastSeen}`);
+              const description = (user.description || 'N/A').padEnd(22);
+              const createdAt = new Date(user.createdAt).toISOString().substring(0, 10);
+              console.log(`${id} | ${email} | ${active} | ${isDemo} | ${description} | ${createdAt}`);
             });
-            console.log('-----------------------------------------------------------------------------------------------------------------');
+            console.log('----------------------------------------------------------------------------------------------------------------------------------------');
           } else {
             console.log('ℹ️ No users found in the database.');
           }

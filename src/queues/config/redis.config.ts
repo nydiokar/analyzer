@@ -28,8 +28,9 @@ export const redisConfig: ConnectionOptions = {
   connectTimeout: 10000, // 10 seconds
   // Keep connection alive
   keepAlive: 30000, // 30 seconds
-  // Fail fast if Redis is down (big players approach)
-  enableOfflineQueue: false,
+  // Enable offline queue for BullMQ workers to survive brief disconnections
+  // Workers need persistent connections; buffering prevents crashes during transient network issues
+  enableOfflineQueue: true,
 };
 
 export const redisConnection = redisConfig; 

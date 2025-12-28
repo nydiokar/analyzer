@@ -31,8 +31,21 @@ import type { DashboardAnalysisScope } from '../../shared/dashboard-analysis.typ
 /**
  * PrismaClient instance for database interactions.
  * Exported for potential direct use, though the DatabaseService is the preferred interface.
+ *
+ * Configuration:
+ * - statement_timeout=120000ms (120s/2min) - Prevents queries from hanging indefinitely
+ *   while allowing heavy operations like holder profile analysis and batch upserts
  */
-export const prisma = new PrismaClient(); 
+export const prisma = new PrismaClient({
+  log: ['error', 'warn'],
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+        ? `${process.env.DATABASE_URL}&statement_timeout=120000`
+        : undefined,
+    },
+  },
+}); 
 
 const logger = createLogger('DatabaseService');
 
