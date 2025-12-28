@@ -255,24 +255,18 @@ export class TokenPerformanceService {
         // We have current holdings AND price data - can calculate full P&L
         currentHoldingsValueUsd = currentUiBalance * priceUsd;
         currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
-        
-        // ✅ FILTER UNREALISTIC SOL VALUES AND USE CENTRALIZED EXCLUDED MINTS
-        const maxReasonableSolValue = 10000; // Max 10k SOL value for any single token holding
-        const maxReasonablePriceRatio = 1000; // Token price shouldn't be more than 1000x SOL price
-        
-        if (currentHoldingsValueSol > maxReasonableSolValue || 
-            priceUsd > estimatedSolPriceUsd * maxReasonablePriceRatio ||
-            DEFAULT_EXCLUDED_MINTS.includes(ar.tokenAddress)) {
-          // Reset to null for unrealistic values or excluded tokens
+
+        // Exclude stablecoins and wrapped tokens from PnL display
+        if (DEFAULT_EXCLUDED_MINTS.includes(ar.tokenAddress)) {
           currentHoldingsValueUsd = null;
           currentHoldingsValueSol = null;
         }
-        
+
         // Realized P&L: Only from tokens that were actually sold
         const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
         realizedPnlSol = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
-        
-        // ✅ Only calculate unrealized PnL if we have valid SOL values
+
+        // Calculate unrealized PnL from current holdings
         if (currentHoldingsValueSol !== null && currentHoldingsValueUsd !== null) {
           // Unrealized P&L: Current value vs cost basis of remaining holdings
           const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;

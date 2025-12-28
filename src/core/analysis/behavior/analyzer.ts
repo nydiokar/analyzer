@@ -1482,9 +1482,9 @@ export class BehaviorAnalyzer {
     let scamTokensFiltered = 0;
     let totalTokensProcessed = 0;
 
-    // Check if scam filtering is enabled (default to true if not specified)
-    const scamFilteringEnabled = this.config.scamFiltering?.enabled !== false;
-    const logFilteredTokens = this.config.scamFiltering?.logFilteredTokens === true;
+    // Check if scam filtering is enabled (use constant as default, config can override)
+    const scamFilteringEnabled = this.config.scamFiltering?.enabled ?? BEHAVIOR_ANALYSIS_CONFIG.SCAM_FILTERING.ENABLED;
+    const logFilteredTokens = this.config.scamFiltering?.logFilteredTokens ?? BEHAVIOR_ANALYSIS_CONFIG.SCAM_FILTERING.LOG_FILTERED_TOKENS;
 
     for (const [mint, data] of Object.entries(tokenDataForMostTraded)) {
       totalTokensProcessed++;
