@@ -97,14 +97,18 @@ export function WalletSearch() {
       });
 
       toast.success(`Analysis queued for ${walletAddress.substring(0, 6)}...`);
-      setOpen(false);
-      setQuery('');
 
-      // Navigate to wallet page with job ID
+      // Navigate FIRST, then clean up modal state
       router.push(`/wallets/${walletAddress}?jobId=${result.jobId}`);
+
+      // Small delay to ensure navigation starts before closing modal
+      setTimeout(() => {
+        setOpen(false);
+        setQuery('');
+        setIsAnalyzing(false);
+      }, 100);
     } catch (err: any) {
       toast.error(`Analysis error: ${err.message || 'Failed to queue analysis'}`);
-    } finally {
       setIsAnalyzing(false);
     }
   };
