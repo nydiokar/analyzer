@@ -64,7 +64,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     
     // Cache with 30-second TTL
     await this.redis.set(cacheKey, price.toString(), 'EX', 30);
-    this.logger.log(`[SOL Price] Fetched and cached: $${price} (TTL: 30s)`);
+    // this.logger.log(`[SOL Price] Fetched and cached: $${price} (TTL: 30s)`);
     
     return price;
   }

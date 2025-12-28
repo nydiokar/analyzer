@@ -323,15 +323,8 @@ export class PnlAnalysisService {
 
                             if (estimatedSolPriceUsd > 0) {
                                 const candidateSolValue = currentHoldingsValueUsd / estimatedSolPriceUsd;
-                                // ✅ FILTER UNREALISTIC SOL VALUES
-                                const maxReasonableSolValue = 10000; // Max 10k SOL value for any single token holding
-                                const maxReasonablePriceRatio = 1000; // Token price shouldn't be more than 1000x SOL price
 
-                                if (candidateSolValue > maxReasonableSolValue) {
-                                    logger.warn(`[PnlAnalysis] Skipping unrealistic token ${tokenBalance.mint}: ${candidateSolValue.toFixed(2)} SOL value (${currentUiBalance.toLocaleString()} tokens @ $${priceUsd})`);
-                                } else if (priceUsd > estimatedSolPriceUsd * maxReasonablePriceRatio) {
-                                    logger.warn(`[PnlAnalysis] Skipping token with suspicious price ${tokenBalance.mint}: $${priceUsd} vs SOL $${estimatedSolPriceUsd}`);
-                                } else if (!DEFAULT_EXCLUDED_MINTS.includes(tokenBalance.mint)) {
+                                if (!DEFAULT_EXCLUDED_MINTS.includes(tokenBalance.mint)) {
                                     currentHoldingsValueSol = candidateSolValue;
                                 }
                             }
@@ -353,11 +346,7 @@ export class PnlAnalysisService {
                                     const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
                                     const unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
 
-                                    if (Math.abs(unrealizedPnlSol) < 10000) {
-                                        unrealizedPnl += unrealizedPnlSol;
-                                    } else {
-                                        logger.warn(`[PnlAnalysis] Skipping unrealistic unrealized PnL for ${tokenBalance.mint}: ${unrealizedPnlSol.toFixed(2)} SOL`);
-                                    }
+                                    unrealizedPnl += unrealizedPnlSol;
                                 }
                             }
                         }
