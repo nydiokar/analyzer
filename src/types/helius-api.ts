@@ -344,14 +344,43 @@ export interface GetTokenLargestAccountsResult {
   value: TokenLargestAccount[];
 }
 
-// Optional: V2 pagination response types (internal usage in client)
+/**
+ * Helius V2 API Response Types (Corrected Structure - 2024)
+ *
+ * IMPORTANT: The Helius documentation examples are misleading/outdated.
+ * The actual API response has paginationKey nested inside 'value', not at top level.
+ *
+ * Actual Response Structure:
+ * {
+ *   context: { slot: number, apiVersion: string },
+ *   value: {
+ *     accounts: [...],
+ *     paginationKey: string,  // ← Note: Inside 'value', not at root
+ *     count: number
+ *   }
+ * }
+ *
+ * Documentation showed:
+ * {
+ *   context: {...},
+ *   value: [...],           // ← Wrong: shown as array
+ *   paginationKey: string   // ← Wrong: shown at top level
+ * }
+ *
+ * This was verified via direct API testing with a wallet containing 30k+ tokens.
+ */
 export interface GetTokenAccountsByOwnerV2ResultContext {
   slot: number;
   apiVersion?: string;
 }
 
-export interface GetTokenAccountsByOwnerV2Result {
+export interface GetTokenAccountsByOwnerV2ResultValue {
   accounts: TokenAccount[];
-  paginationKey?: string;
+  paginationKey?: string; // Present when more pages available
+  count?: number;        // Number of accounts in this page
+}
+
+export interface GetTokenAccountsByOwnerV2Result {
   context: GetTokenAccountsByOwnerV2ResultContext;
+  value: GetTokenAccountsByOwnerV2ResultValue;
 }

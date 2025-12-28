@@ -57,7 +57,7 @@ export const TRANSACTION_MAPPING_CONFIG = {
   // Dust filtering thresholds
   NATIVE_SOL_LAMPORT_THRESHOLD: 100000, // 0.0001 SOL
   SOL_DUST_TRANSFER_THRESHOLD: 0.001, // 0.001 SOL
-  
+
   // Bot activity thresholds
   HIGH_FREQUENCY_THRESHOLD: 10, // transactions
   MICRO_TRANSACTION_SOL_THRESHOLD: 0.1, // SOL value
@@ -159,9 +159,17 @@ const numFromEnv = (key: string, fallback: number): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+/**
+ * Helius V2 API Configuration
+ *
+ * V2 Pagination Changes (2024):
+ * - pageLimit increased from 5,000 → 10,000 (Helius V2 maximum)
+ * - Reduces pagination rounds for wallets with many tokens (e.g., 30k tokens: 3 pages vs 6)
+ * - Combined with pagination fix, now properly handles wallets with 10k+ token accounts
+ */
 export const HELIUS_V2_CONFIG = {
   enablePagination: boolFromEnv('ENABLE_HELIUS_V2_PAGINATION', true),
-  pageLimit: Math.max(1000, Math.min(10000, numFromEnv('HELIUS_V2_PAGE_LIMIT', 5000))),
+  pageLimit: Math.max(1000, Math.min(10000, numFromEnv('HELIUS_V2_PAGE_LIMIT', 10000))), // Helius V2 max: 10,000 accounts per request
   enableIncremental: boolFromEnv('ENABLE_HELIUS_V2_INCREMENTAL', false),
   // Phase 1 migration: getTransactionsForAddress (signatures mode)
   enableTransactionsForAddressSignatures: boolFromEnv('ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES', false),

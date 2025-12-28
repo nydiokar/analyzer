@@ -5,7 +5,7 @@ import { createLogger } from 'core/utils/logger';
 import { SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '../../config/constants';
 import { formatLargeNumber } from 'core/utils/number-formatting';
 import { TokenInfoService } from '../../api/services/token-info.service';
-import { TokenInfo } from '@prisma/client'; 
+import { TokenInfo } from '@prisma/client';
 import { DatabaseService } from './database-service';
 
 const logger = createLogger('WalletBalanceService');
@@ -157,23 +157,57 @@ export class WalletBalanceService {
 
         const tokenBalances: TokenBalanceDetails[] = [];
         if (currentTokenAccounts.length > 0) {
+          const totalFetched = currentTokenAccounts.length;
+          let filteredCount = 0;
+
+          /**
+           * BALANCE FILTERING STRATEGY (2024):
+           *
+           * We filter tokens during balance fetch to reduce noise and memory usage.
+           * This filtering ONLY affects CURRENT balance storage, NOT historical data.
+           *
+           * What Gets Filtered:
+           * - Tokens with uiAmount === null or uiAmount === 0 (zero balance)
+           * - Tokens with uiAmount < 200 (dust - incomplete sells, tiny airdrops)
+           *
+           * What Gets Kept:
+           * - ALL tokens with balance ≥ 200 (including scam airdrops, sent tokens, etc.)
+           *
+           * Important Notes:
+           * - This does NOT filter transaction history (already in DB)
+           * - Past traded tokens still exist in AnalysisResult table
+           * - Tokens traded but now have balance < 200 will show as currentUiBalance = null
+           * - Future enhancement: Store non-traded tokens with balance ≥ 200 as "HOLD_ONLY"
+           */
           currentTokenAccounts.forEach((tokenAccount: TokenAccount) => {
-            // Type guard to ensure data is parsed as expected
             const accountData = tokenAccount.account.data;
             if (typeof accountData !== 'string' && !Array.isArray(accountData) && accountData.parsed) {
                 const parsedInfo = accountData.parsed.info;
                 if (parsedInfo && parsedInfo.tokenAmount) {
+                    const uiAmount = parsedInfo.tokenAmount.uiAmount;
+
+                    // Skip tokens with zero, null, or dust balance (< 200 tokens)
+                    // This filters out: zero balances, incomplete sells (1-100 tokens left), dust airdrops
+                    if (uiAmount === null || uiAmount < 200) {
+                      filteredCount++;
+                      return;
+                    }
+
                     tokenBalances.push({
-                    mint: parsedInfo.mint,
-                    tokenAccountAddress: tokenAccount.pubkey,
-                    balance: parsedInfo.tokenAmount.amount,
-                    decimals: parsedInfo.tokenAmount.decimals,
-                    uiBalance: parsedInfo.tokenAmount.uiAmount,
-                    uiBalanceString: formatLargeNumber(parsedInfo.tokenAmount.uiAmount),
+                      mint: parsedInfo.mint,
+                      tokenAccountAddress: tokenAccount.pubkey,
+                      balance: parsedInfo.tokenAmount.amount,
+                      decimals: parsedInfo.tokenAmount.decimals,
+                      uiBalance: uiAmount,
+                      uiBalanceString: formatLargeNumber(uiAmount),
                     });
                 }
             }
           });
+
+          if (filteredCount > 0) {
+            logger.debug(`Address ${address}: Filtered ${filteredCount} tokens (zero/dust), kept ${tokenBalances.length} from ${totalFetched} fetched.`);
+          }
         }
 
         // 3. FALLBACK: Check for missing tokens that should have balances

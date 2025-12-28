@@ -163,7 +163,7 @@ export class PnlAnalysisService {
                     currentWalletBalance = walletBalancesMap.get(walletAddress);
                     if (currentWalletBalance) {
                         balancesFetchedAt = currentWalletBalance.fetchedAt;
-                        logger.info(`[PnlAnalysis] Successfully fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, FetchedAt: ${balancesFetchedAt}`);
+                        logger.info(`[PnlAnalysis] Successfully fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, Tokens: ${currentWalletBalance.tokenBalances.length}, FetchedAt: ${balancesFetchedAt}`);
                     }
                 } catch (balanceError: any) {
                     logger.warn(`[PnlAnalysis] Failed to fetch wallet state for ${walletAddress}. Proceeding without live balances. Error: ${balanceError.message || balanceError}`);
@@ -240,6 +240,7 @@ export class PnlAnalysisService {
             // Attach wallet balances to the results if available.
             const enrichedSwapAnalysisResults = swapAnalysisResultsFromAnalyzer.map(result => {
                 const tokenBalance = currentWalletBalance?.tokenBalances.find(b => b.mint === result.tokenAddress);
+
                 return {
                     ...result,
                     currentRawBalance: tokenBalance?.balance,

@@ -1228,7 +1228,21 @@ export class HeliusApiClient {
     }
   }
 
-  // Internal V2 cursor-based fetch loop with legacy shape adaptation
+  /**
+   * Internal V2 cursor-based pagination fetch for token accounts.
+   *
+   * IMPORTANT: Helius V2 API response structure (corrected 2024):
+   * - Pagination key is at `result.value.paginationKey` (NOT at top level)
+   * - Response: { context: {...}, value: { accounts: [...], paginationKey: string, count: number } }
+   * - Max limit per request: 10,000 accounts
+   * - Will paginate through ALL token accounts for wallets with 10k+ holdings
+   *
+   * Bug Fix History:
+   * - Previous implementation looked for paginationKey at wrong path (result.paginationKey)
+   * - Caused pagination to stop after first page (5k-10k tokens)
+   * - Fixed: Now correctly reads result.value.paginationKey
+   * - Result: Can now fetch wallets with 30k+ token accounts
+   */
   private async fetchAllTokenAccountsByOwnerV2(
     ownerPubkey: string,
     args: {
@@ -1254,7 +1268,9 @@ export class HeliusApiClient {
     if (Number.isFinite(args.changedSinceSlot)) base.changedSinceSlot = args.changedSinceSlot;
     if (args.commitment) base.commitment = args.commitment;
 
+    let pageNum = 0;
     do {
+      pageNum++;
       // Separate filter and options for V2 API (3 params instead of V1's 2 params)
       const filter = args.mintPubkey ? { mint: args.mintPubkey } : { programId: args.programId || 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' };
       const options: any = {
@@ -1265,7 +1281,7 @@ export class HeliusApiClient {
       if (Number.isFinite(args.changedSinceSlot)) options.changedSinceSlot = args.changedSinceSlot;
       if (args.commitment) options.commitment = args.commitment;
       if (paginationKey) options.paginationKey = paginationKey;
-      
+
       const { result, error } = await this.postRpcRaw('getTokenAccountsByOwnerV2', [ownerPubkey, filter, options]);
       if (error) {
         // Hard-fail on method not found or invalid params
@@ -1277,17 +1293,34 @@ export class HeliusApiClient {
         if (isHard) err.hardFail = true;
         throw err;
       }
-      // V2 API returns: { context, value: { accounts: [...] }, paginationKey, totalResults }
-      const page = result as { 
-        value?: { accounts?: any[] }; 
-        paginationKey?: string; 
-        context?: { slot?: number }; 
-        totalResults?: number 
+      // V2 API actual response structure (verified via testing 2024):
+      // {
+      //   context: { slot: number, apiVersion: string },
+      //   value: {
+      //     accounts: [...],
+      //     paginationKey: string,  // ← KEY LOCATION (was incorrectly assumed at top level)
+      //     count: number
+      //   }
+      // }
+      const page = result as {
+        value?: {
+          accounts?: any[];
+          paginationKey?: string;
+          count?: number;
+        };
+        context?: { slot?: number; apiVersion?: string };
       };
-      
+
+      const fetchedCount = page?.value?.accounts?.length || 0;
       if (page?.value?.accounts?.length) aggregated.push(...page.value.accounts);
-      paginationKey = page?.paginationKey; // This should now work correctly
+      paginationKey = page?.value?.paginationKey; // CRITICAL FIX: paginationKey is nested in value, not at result level
       contextSlot = page?.context?.slot ?? contextSlot;
+
+      // Log pagination progress for large wallets
+      if (pageNum === 1 || paginationKey) {
+        logger.debug(`V2 pagination page ${pageNum}: ${fetchedCount} accounts, total ${aggregated.length}${paginationKey ? ', continuing...' : ''}`);
+      }
+
       // yield to event loop lightly to avoid starvation
       await delay(0);
     } while (paginationKey);
