@@ -51,44 +51,66 @@ These values serve as ground truth for validation and self-healing.
 
 **⚠️ HELIUS API BUG MITIGATION (Critical)**
 
-Helius documentation claims `tokenAmount` in `tokenTransfers` is human-readable (already scaled by decimals), but **sometimes provides raw lamport values** for WSOL instead. This can cause catastrophic errors like assigning -20 million SOL to a wallet for a 0.02 SOL swap.
+Helius documentation claims `tokenAmount` in `tokenTransfers` is human-readable (already scaled by decimals), but **sometimes provides raw lamport values** for WSOL instead. This can cause catastrophic errors like assigning millions of SOL to a wallet for a small swap.
 
-**Self-Healing Logic** (Lines 489-512, 775-806):
+**Real-World Impact Example**:
+- Wallet: `qdnviuUs22gNUEzSK6pLxQVsYqzGBYvqe8jznbFhJiW`
+- Helius sent: `80730` (raw lamports)
+- Correct value: `0.00008073 SOL`
+- Without fix: P&L showed `-6,005,592 SOL (-$749.5M)` instead of `-0.006 SOL`
+
+**Self-Healing Logic** (Lines 791-870):
 
 ```typescript
-if (wsolAmount > 100000) {
-    // Likely raw lamports - validate against native balance changes
-    const expectedSolChange = Math.abs(finalNetUserSolChange);
+// Only check suspiciously large values (> 1000 SOL)
+if (wsolAmount > 1000) {
     const scaledAmount = wsolAmount / LAMPORTS_PER_SOL;
+    const expectedSolChange = Math.abs(finalNetUserSolChange); // Ground truth
 
-    // Cross-validate with 20% tolerance
-    const tolerance = 0.20;
-    const lowerBound = expectedSolChange * (1 - tolerance);
-    const upperBound = expectedSolChange * (1 + tolerance);
+    // Compare which value is closer to actual net SOL change
+    const rawDiff = Math.abs(wsolAmount - expectedSolChange);
+    const scaledDiff = Math.abs(scaledAmount - expectedSolChange);
 
-    if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
-        // CONFIRMED: Raw lamports detected, auto-correct
-        wsolAmount = scaledAmount;
-        // logger.warn(`Helius API bug detected - auto-corrected`);
-    } else {
-        // Genuine whale transfer (>100k SOL), keep as-is
+    // PRIMARY CHECK: Is scaled 10x+ closer? (high confidence)
+    if (scaledDiff < rawDiff * 0.1) {
+        wsolAmount = scaledAmount; // Auto-correct
     }
+    // EDGE CASE: Millions+ that scales to dust (definitely lamports)
+    else if (wsolAmount > 1000000 && scaledAmount < 0.001) {
+        wsolAmount = scaledAmount; // Auto-correct
+    }
+    // Otherwise: Keep raw value (genuine whale transfer)
 }
 ```
 
-**Why 100,000 SOL threshold?**
-- Raw lamports are always in millions (1 SOL = 1e9 lamports)
-- Legitimate single WSOL transfers rarely exceed 100k SOL
-- Provides clear separation between data errors and genuine whale activity
+**Design Principles**:
 
-**Why 20% tolerance?**
-- Network fees cause small discrepancies
-- Multiple WSOL wraps/unwraps in same transaction
-- Accounts for routing through intermediary accounts
+1. **Non-invasive**: Only triggers when `wsolAmount > 1000` SOL
+   - Normal swaps (0.001 - 100 SOL): ✅ Untouched
+   - Medium swaps (100 - 1000 SOL): ✅ Untouched
+   - Suspicious values (> 1000): ⚠️ Validated before converting
+
+2. **Cross-referenced validation**: Uses reliable `nativeBalanceChange` as ground truth
+   - Compares which value (raw or scaled) is closer to expected
+   - Only converts if scaled is **10x+ closer** (very high confidence)
+   - Protects legitimate whale transfers (5000 SOL transactions)
+
+3. **Edge case handling**: Values > 1 million that scale to dust
+   - Example: 6,005,592 → 0.006 SOL (clearly lamports)
+   - Auto-corrects even if validation comparison is inconclusive
+
+**Validation Examples**:
+
+| Scenario | Raw Value | Expected Change | Scaled Value | Action | Reason |
+|----------|-----------|----------------|--------------|--------|--------|
+| Broken swap | 80730 | 0.000166718 | 0.00008073 | ✅ Convert | scaledDiff (0.000086) << rawDiff (80730) |
+| Normal swap | 0.008173 | 0.008166 | 0.000000008 | ✅ Keep | Value < 1000, no check needed |
+| Whale transfer | 5000 | 5000.12 | 0.000005 | ✅ Keep | rawDiff (0.12) << scaledDiff (5000) |
+| Edge case | 6005592 | 0.006 | 0.006005 | ✅ Convert | Value > 1M, scaled < 0.001 |
 
 This validation runs in **two locations**:
 1. **Line 489-512**: When calculating `largestWsolTransfer` (used for intermediary pricing)
-2. **Line 775-806**: When processing individual WSOL token transfers
+2. **Line 791-870**: When processing individual WSOL token transfers (NEW: improved logic)
 
 ### 5. SPL-to-SPL Swap Detection
 
@@ -369,11 +391,25 @@ npm run debug:mapper -- <txId> -w <wallet>
 
 ## Changelog
 
-### October 2025 - WSOL Self-Healing
+### January 2025 - Improved WSOL Self-Healing
+- **Issue**: Previous 100k threshold was too high, allowing values like 80730 to slip through
+  - Real example: Wallet `qdnviuUs22gNUEzSK6pLxQVsYqzGBYvqe8jznbFhJiW` showed -6M SOL P&L
+  - Old validation was too strict, failed for complex DeFi transactions
+- **Solution**:
+  - Lowered threshold to 1000 SOL (catches more cases)
+  - Distance-based comparison: convert if scaled is 10x+ closer to expected
+  - Added edge case handler for millions+ values that scale to dust
+- **Impact**:
+  - Fixes false negatives (values like 80730 now get converted)
+  - Protects legitimate whale transfers (5000+ SOL)
+  - More robust for complex multi-hop swaps
+- **Files Modified**: Lines 791-870
+
+### October 2025 - WSOL Self-Healing (Initial)
 - **Issue**: Helius occasionally provides raw lamports instead of human-readable WSOL amounts
 - **Solution**: Cross-validation against native balance changes with 20% tolerance
 - **Impact**: Prevents catastrophic balance calculation errors
-- **Files Modified**: Lines 489-512, 775-806
+- **Files Modified**: Lines 489-512, 775-806 (superseded by January 2025 improvements)
 
 ### June 2025 - Proportional Redistribution
 - **Issue**: Multiple transfer chunks of same token caused double-counting

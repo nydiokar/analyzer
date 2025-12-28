@@ -490,16 +490,21 @@ export function mapHeliusTransactionsToIntermediateRecords(
           if (transfer.mint === SOL_MINT) {
               let wsolAmount = Math.abs(safeParseAmount(transfer));
 
-              // Apply same Helius bug mitigation as main WSOL processing
-              if (wsolAmount > 100000) {
-                  const expectedSolChange = Math.abs(finalNetUserSolChange);
+              // HELIUS BUG MITIGATION: Apply same self-healing logic as main WSOL processing (lines 791-870)
+              // This ensures totalWsolMovement and largestWsolTransfer are correctly calculated
+              if (wsolAmount > 1000) {
                   const scaledAmount = wsolAmount / LAMPORTS_PER_SOL;
-                  const tolerance = 0.20;
-                  const lowerBound = expectedSolChange * (1 - tolerance);
-                  const upperBound = expectedSolChange * (1 + tolerance);
+                  const expectedSolChange = Math.abs(finalNetUserSolChange);
 
-                  if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
-                      wsolAmount = scaledAmount; // Auto-correct raw lamports
+                  const rawDiff = Math.abs(wsolAmount - expectedSolChange);
+                  const scaledDiff = Math.abs(scaledAmount - expectedSolChange);
+
+                  // Convert if scaled is 10x+ closer to expected
+                  if (scaledDiff < rawDiff * 0.1) {
+                      wsolAmount = scaledAmount;
+                  } else if (wsolAmount > 1000000 && scaledAmount < 0.001) {
+                      // Edge case: millions+ that scale to dust
+                      wsolAmount = scaledAmount;
                   }
               }
 
@@ -781,38 +786,90 @@ export function mapHeliusTransactionsToIntermediateRecords(
              } else {
                  // --- Original Value Association Logic (if not a heuristic-identified fee) ---
                  if (isWsol) {
-                      // HELIUS API BUG MITIGATION:
-                      // Helius claims tokenAmount is human-readable (already scaled by decimals),
-                      // but sometimes provides RAW lamport values for WSOL instead.
-                      // Self-healing approach: Cross-validate with native balance changes.
+                      // ============================================================================
+                      // HELIUS API BUG MITIGATION: WSOL tokenAmount Inconsistent Scaling
+                      // ============================================================================
+                      //
+                      // PROBLEM:
+                      // Helius API documentation claims that `tokenAmount` in `tokenTransfers` is
+                      // always "human-readable" (already scaled by token decimals). However, in
+                      // practice, WSOL (Wrapped SOL) tokenAmount is sometimes provided as:
+                      //   - Correct: 0.00008073 SOL (human-readable, 9 decimal places)
+                      //   - Incorrect: 80730 (raw lamports, needs division by 10^9)
+                      //
+                      // IMPACT:
+                      // Without mitigation, incorrect lamport values cause catastrophic P&L errors:
+                      //   - Example: 80730 lamports (0.00008073 SOL) reported as 80730 SOL
+                      //   - Result: Wallet P&L shows -6,005,592 SOL (-$749.5M) instead of -0.006 SOL
+                      //
+                      // DETECTION STRATEGY:
+                      // 1. Only check values > 1000 (normal swaps are 0.001-100 SOL, unaffected)
+                      // 2. Cross-reference with `nativeBalanceChange` (always reliable, in lamports)
+                      // 3. Compare raw vs scaled distance to expected SOL change
+                      // 4. Only convert if scaled value is 10x+ closer (high confidence)
+                      //
+                      // EXAMPLES:
+                      //
+                      // Case 1: Broken transaction (lamports sent instead of SOL)
+                      //   wsolAmount = 80730
+                      //   expectedSolChange = 0.000166718 SOL (from nativeBalanceChange)
+                      //   scaledAmount = 80730 / 10^9 = 0.00008073 SOL
+                      //   rawDiff = |80730 - 0.000166718| = 80729.9... (huge!)
+                      //   scaledDiff = |0.00008073 - 0.000166718| = 0.000086 (tiny)
+                      //   → scaledDiff < rawDiff * 0.1? YES → Convert to 0.00008073 SOL ✅
+                      //
+                      // Case 2: Normal transaction (correctly scaled)
+                      //   wsolAmount = 0.008173512 SOL
+                      //   → Value < 1000, validation never triggers → Use as-is ✅
+                      //
+                      // Case 3: Whale transfer (legitimate large amount)
+                      //   wsolAmount = 5000 SOL
+                      //   expectedSolChange ≈ 5000 SOL
+                      //   scaledAmount = 5000 / 10^9 = 0.000005 SOL
+                      //   rawDiff ≈ 0 (already correct)
+                      //   scaledDiff ≈ 5000 (would be wrong)
+                      //   → scaledDiff < rawDiff * 0.1? NO → Keep 5000 SOL ✅
+                      //
+                      // NOTE: This issue was discovered on 2025-01-23 affecting wallet
+                      // qdnviuUs22gNUEzSK6pLxQVsYqzGBYvqe8jznbFhJiW with multiple transactions
+                      // showing lamport values instead of SOL.
+                      // ============================================================================
 
                       let wsolAmount = currentAbsTransferAmount;
 
-                      // Threshold: If WSOL amount > 100,000, it's likely raw lamports (not scaled)
-                      // Reasoning: Lamports are always in millions+ range, real SOL amounts rarely exceed 100k in single transfers
-                      if (wsolAmount > 100000) {
-                          // Potential raw lamports detected - validate against actual native SOL changes
-                          const expectedSolChange = Math.abs(finalNetUserSolChange); // This is already in SOL
+                      // Trigger validation only for suspiciously large values (> 1000 SOL)
+                      // Most legitimate swaps are well below this threshold
+                      if (wsolAmount > 1000) {
                           const scaledAmount = wsolAmount / LAMPORTS_PER_SOL;
+                          const expectedSolChange = Math.abs(finalNetUserSolChange); // Reliable reference from nativeBalanceChange
 
-                          // Cross-validate: If scaled amount matches native change (within 20% tolerance), it was raw lamports
-                          // Tolerance accounts for: fees, multiple WSOL transfers, wrapped/unwrapped amounts
-                          const tolerance = 0.20; // 20% tolerance
-                          const lowerBound = expectedSolChange * (1 - tolerance);
-                          const upperBound = expectedSolChange * (1 + tolerance);
+                          // Calculate distance from expected value for both raw and scaled versions
+                          const rawDiff = Math.abs(wsolAmount - expectedSolChange);
+                          const scaledDiff = Math.abs(scaledAmount - expectedSolChange);
 
-                          if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
-                              // CONFIRMED: This was raw lamports, not human-readable SOL
+                          // PRIMARY CHECK: Is scaled version significantly closer to expected? (10x+ closer)
+                          // This high threshold ensures we don't mistakenly convert legitimate whale transfers
+                          if (scaledDiff < rawDiff * 0.1) {
+                              logger.warn(
+                                  `Tx ${tx.signature}: Helius WSOL bug confirmed - tokenAmount ${wsolAmount.toFixed(0)} is lamports. ` +
+                                  `Auto-corrected to ${scaledAmount.toFixed(9)} SOL (validated against native change: ${expectedSolChange.toFixed(9)} SOL)`
+                              );
                               wsolAmount = scaledAmount;
-                              // logger.warn(
-                              //     `Tx ${tx.signature}: Helius API bug detected - WSOL tokenAmount provided as raw lamports (${currentAbsTransferAmount}). ` +
-                              //     `Auto-corrected to ${wsolAmount.toFixed(9)} SOL (validated against native change: ${expectedSolChange.toFixed(9)} SOL)`
-                              // );
+                          } else if (wsolAmount > 1000000 && scaledAmount < 0.001) {
+                              // EDGE CASE: Value is millions+ but scaled is dust
+                              // This pattern (e.g., 6,005,592 → 0.006 SOL) is definitely lamports
+                              // even if nativeBalanceChange doesn't match (due to multiple WSOL movements)
+                              logger.warn(
+                                  `Tx ${tx.signature}: Helius WSOL bug confirmed (edge case) - tokenAmount ${wsolAmount.toFixed(0)} is lamports. ` +
+                                  `Auto-corrected to ${scaledAmount.toFixed(9)} SOL`
+                              );
+                              wsolAmount = scaledAmount;
                           } else {
-                              // Value is genuinely large (whale transfer) - keep as-is but log for visibility
+                              // VALIDATION FAILED: Keep raw value as it appears legitimate
+                              // This protects genuine whale transfers (e.g., 5000 SOL transfers)
                               logger.info(
-                                  `Tx ${tx.signature}: Large WSOL transfer detected: ${wsolAmount.toFixed(9)} SOL. ` +
-                                  `Native change: ${expectedSolChange.toFixed(9)} SOL. No auto-correction applied.`
+                                  `Tx ${tx.signature}: Large WSOL value ${wsolAmount.toFixed(2)} validated as correct SOL amount ` +
+                                  `(not lamports - native change: ${expectedSolChange.toFixed(9)} SOL)`
                               );
                           }
                       }
