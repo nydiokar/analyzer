@@ -922,7 +922,7 @@ function WalletRow({
               {unpairedPct}%{isHighUnpaired ? " ⚠️" : ""}
             </div>
             {isHighUnpaired && (
-              <div className="text-xs text-muted-foreground">spam risk</div>
+              <div className="text-xs text-muted-foreground">airdrop scam</div>
             )}
           </div>
         ) : (
