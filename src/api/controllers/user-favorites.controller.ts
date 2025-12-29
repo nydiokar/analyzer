@@ -107,19 +107,6 @@ export class UserFavoritesController {
     return this.userFavoritesService.getFavorites(userId);
   }
 
-  @Get('tags')
-  @ApiOperation({ summary: "Get all unique tags used by the authenticated user" })
-  @ApiResponse({ status: HttpStatus.OK, description: 'List of unique tags.', type: [String] })
-  async getUserTags(
-    @Req() req: AuthenticatedRequest,
-  ): Promise<string[]> {
-    const userId = req.user?.id;
-    if (!userId) {
-      throw new ForbiddenException('User not authenticated');
-    }
-    return this.userFavoritesService.getUserTags(userId);
-  }
-
   @Get('collections')
   @ApiOperation({ summary: "Get all unique collections used by the authenticated user" })
   @ApiResponse({ status: HttpStatus.OK, description: 'List of unique collections.', type: [String] })

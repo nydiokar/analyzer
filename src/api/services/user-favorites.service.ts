@@ -10,12 +10,11 @@ export class UserFavoritesService {
   async addFavorite(userId: string, addFavoriteDto: AddFavoriteWalletDto): Promise<void> {
     // All validation (user exists, wallet exists, conflict) is now handled by databaseService.addFavoriteWallet
     await this.databaseService.addFavoriteWallet(userId, addFavoriteDto.walletAddress);
-    
+
     // If additional data is provided, update it immediately
-    if (addFavoriteDto.nickname || addFavoriteDto.tags || addFavoriteDto.collections) {
+    if (addFavoriteDto.nickname || addFavoriteDto.collections) {
       await this.updateFavorite(userId, addFavoriteDto.walletAddress, {
         nickname: addFavoriteDto.nickname,
-        tags: addFavoriteDto.tags,
         collections: addFavoriteDto.collections,
       });
     }
@@ -30,7 +29,6 @@ export class UserFavoritesService {
     // We'll add this method to DatabaseService
     await this.databaseService.updateFavoriteWallet(userId, walletAddress, {
       nickname: updateFavoriteWalletDto.nickname,
-      tags: updateFavoriteWalletDto.tags ? JSON.stringify(updateFavoriteWalletDto.tags) : null,
       collections: updateFavoriteWalletDto.collections ? JSON.stringify(updateFavoriteWalletDto.collections) : null,
       metadata: updateFavoriteWalletDto.metadata,
     });
@@ -48,29 +46,27 @@ export class UserFavoritesService {
     return favoritesWithWalletData.map(fav => {
       let pnl: number | undefined = undefined;
       let winRate: number | undefined = undefined;
+      let currentSolBalance: number | undefined = undefined;
+      let lastActiveTimestamp: number | undefined = undefined;
 
       if (fav.wallet) {
         if (fav.wallet.pnlSummary) {
           pnl = fav.wallet.pnlSummary.realizedPnl ?? undefined;
+          currentSolBalance = fav.wallet.pnlSummary.currentSolBalance ?? undefined;
+          lastActiveTimestamp = fav.wallet.pnlSummary.overallLastTimestamp ?? undefined;
         }
         if (fav.wallet.behaviorProfile) {
           winRate = fav.wallet.behaviorProfile.flipperScore ?? undefined;
+          // Fallback to behaviorProfile's lastTransactionTimestamp if pnlSummary doesn't have it
+          if (!lastActiveTimestamp && fav.wallet.behaviorProfile.lastTransactionTimestamp) {
+            lastActiveTimestamp = fav.wallet.behaviorProfile.lastTransactionTimestamp;
+          }
         }
       }
 
       // Parse JSON fields safely
-      let tags: string[] = [];
       let collections: string[] = [];
-      
-      try {
-        if (fav.tags) {
-          tags = JSON.parse(fav.tags);
-        }
-      } catch (e) {
-        // If parsing fails, treat as empty array
-        tags = [];
-      }
-      
+
       try {
         if (fav.collections) {
           collections = JSON.parse(fav.collections);
@@ -83,21 +79,16 @@ export class UserFavoritesService {
       return {
         walletAddress: fav.walletAddress,
         nickname: fav.nickname,
-        tags: tags,
         collections: collections,
         metadata: fav.metadata,
         favoritedAt: fav.createdAt,
         lastViewedAt: fav.lastViewedAt,
-        pnl: pnl, 
+        pnl: pnl,
         winRate: winRate,
+        currentSolBalance: currentSolBalance,
+        lastActiveTimestamp: lastActiveTimestamp,
       };
     });
-  }
-
-  // Helper method to get all unique tags used by a user
-  async getUserTags(userId: string): Promise<string[]> {
-    const favorites = await this.databaseService.getUserFavoriteTags(userId);
-    return favorites;
   }
 
   // Helper method to get all unique collections used by a user

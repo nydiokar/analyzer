@@ -1072,9 +1072,9 @@ export class DatabaseService {
      * @throws InternalServerErrorException for other database errors.
      */
     async updateFavoriteWallet(
-        userId: string, 
-        walletAddress: string, 
-        updateData: { nickname?: string; tags?: string | null; collections?: string | null; metadata?: any }
+        userId: string,
+        walletAddress: string,
+        updateData: { nickname?: string; collections?: string | null; metadata?: any }
     ): Promise<void> {
         this.logger.debug(`Updating favorite wallet ${walletAddress} for user ${userId}`);
         try {
@@ -1110,41 +1110,6 @@ export class DatabaseService {
             if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025')) {
                 this.logger.error(`Error updating last viewed for wallet ${walletAddress} for user ${userId}:`, { error });
             }
-        }
-    }
-
-    /**
-     * Gets all unique tags used by a user across their favorite wallets.
-     *
-     * @param userId The ID of the user.
-     * @returns Array of unique tag strings.
-     */
-    async getUserFavoriteTags(userId: string): Promise<string[]> {
-        this.logger.debug(`Fetching favorite tags for user ${userId}`);
-        try {
-            const favorites = await this.prismaClient.userFavoriteWallet.findMany({
-                where: { userId },
-                select: { tags: true },
-            });
-
-            const tagSet = new Set<string>();
-            favorites.forEach(fav => {
-                if (fav.tags) {
-                    try {
-                        const tags = JSON.parse(fav.tags);
-                        if (Array.isArray(tags)) {
-                            tags.forEach((tag: string) => tagSet.add(tag));
-                        }
-                    } catch (e) {
-                        // Skip invalid JSON
-                    }
-                }
-            });
-
-            return Array.from(tagSet).sort();
-        } catch (error) {
-            this.logger.error(`Error fetching favorite tags for user ${userId}:`, { error });
-            return [];
         }
     }
 

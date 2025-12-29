@@ -359,7 +359,6 @@ export interface PnlOverviewResponse {
 export interface FavoriteWallet {
   walletAddress: string;
   nickname?: string;
-  tags?: string[];
   collections?: string[];
   metadata?: any;
   createdAt: string;
@@ -367,20 +366,20 @@ export interface FavoriteWallet {
   // Performance metrics (optional)
   pnl?: number;
   winRate?: number;
+  currentSolBalance?: number;
+  lastActiveTimestamp?: number;
 }
 
 // DTOs for creating favorite wallets
 export interface AddFavoriteWalletRequest {
   walletAddress: string;
   nickname?: string;
-  tags?: string[];
   collections?: string[];
 }
 
 // DTOs for updating favorite wallets
 export interface UpdateFavoriteWalletRequest {
   nickname?: string;
-  tags?: string[];
   collections?: string[];
   metadata?: any;
 }

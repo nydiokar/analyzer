@@ -2,8 +2,8 @@
 
 **Project**: Sova Intel - Wallet Analysis System
 **Branch**: `discover`
-**Status**: Ready for merge to main ✅
-**Last Updated**: 2025-12-28
+**Status**: Testing tracked wallets overhaul 🧪
+**Last Updated**: 2025-12-29
 
 ---
 
@@ -32,24 +32,32 @@ See `documentation/01. ARCHITECTURE_DECISIONS.md` for all major decisions
 
 ## Current Priority Tasks
 
-### 1. **Tracked Wallets Page Redesign** 🎯 NEXT
+### 1. **Tracked Wallets Page Redesign** ✅ COMPLETED (2025-12-29)
 **Goal**: Make favorites/tracked wallets page pretty and useful
 
-**Current State**:
-- Basic CRUD functionality works
-- Collections system exists
-- Needs better UX and visual design
+**What was done**:
+- ✅ Complete UI overhaul with flat table layout (3/4 main + 1/4 sidebar)
+- ✅ Enhanced API: Added `lastActiveTimestamp` and `currentSolBalance` fields
+- ✅ Removed tags from UI (kept in database for future LLM features)
+- ✅ Sleek, compact forms (QuickAddForm, WalletEditForm)
+- ✅ Table columns: Tracked, Address/Name, Collection badge, Last Active, Balance, Actions
+- ✅ Sidebar: Portfolio stats (Total P&L, Total Balance, Analyzed %) + Collection filters
+- ✅ Smart collection display: Colored badges, primary collection shown inline
+- ✅ Time-ago format for better readability (11h, 2d, 19d)
+- ✅ Type-safe: All components use `{ nickname, collections }` (no tags)
 
-**Todo**:
-- [ ] Improve layout and visual hierarchy
-- [ ] Add quick stats/metrics for each tracked wallet
-- [ ] Better collection management UI
-- [ ] Add wallet comparison features
-- [ ] Bulk operations (add multiple, export, etc.)
+**Files Changed**:
+- Backend: `user-favorites.service.ts`, `favorite-wallet-detail.dto.ts`, `user-favorites.controller.ts`
+- Frontend: `trackers/page.tsx`, `QuickAddForm.tsx`, `WalletEditForm.tsx`, `WalletProfileLayout.tsx`, `discover/page.tsx`
+- Types: `dashboard/src/types/api.ts` (FavoriteWallet interface)
+
+**Architecture Note**:
+- Tags field remains in database (`UserFavoriteWallet.tags`) for future LLM-based auto-tagging
+- Collections are the primary organization method
 
 ---
 
-### 2. **Job History Page** 🎯 UPCOMING
+### 2. **Job History Page** 🎯 NEXT
 **Goal**: Timeline with re-run capability, hyperlinks to results
 
 **Current State**:

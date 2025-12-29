@@ -20,7 +20,6 @@ import {
   FileText,        // Notes
   RefreshCw,       // Refresh button
   Star,            // Favorites icon
-  Tags,
   FolderOpen,
   Edit2,
   Bot,             // Edit icon for wallet data
@@ -53,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { getTagColor, getCollectionColor } from '@/lib/color-utils';
+import { getCollectionColor } from '@/lib/color-utils';
 import { useSearchParams } from 'next/navigation';
 import { useTimeRangeStore } from '@/store/time-range-store';
 
@@ -933,14 +932,13 @@ export default function WalletProfileLayout({
   };
 
   // Quick add modal function
-  const handleQuickAddSave = async (formData: { nickname: string; tags: string[]; collections: string[] }) => {
+  const handleQuickAddSave = async (formData: { nickname: string; collections: string[] }) => {
     try {
       await fetcher('/users/me/favorites', {
         method: 'POST',
         body: JSON.stringify({
           walletAddress,
           nickname: formData.nickname.trim() || undefined,
-          tags: formData.tags,
           collections: formData.collections,
         }),
       });
@@ -964,15 +962,14 @@ export default function WalletProfileLayout({
     }
   }, [currentFavoriteData]);
 
-  const handleEditSave = useCallback(async (formData: { nickname: string; tags: string[]; collections: string[] }) => {
+  const handleEditSave = useCallback(async (formData: { nickname: string; collections: string[] }) => {
     if (!currentFavoriteData) return;
-    
+
     try {
       await fetcher(`/users/me/favorites/${walletAddress}`, {
         method: 'PUT',
         body: JSON.stringify({
           nickname: formData.nickname.trim() || undefined,
-          tags: formData.tags,
           collections: formData.collections,
         }),
       });
@@ -1092,22 +1089,12 @@ export default function WalletProfileLayout({
                     )}
                   </div>
                   
-                  {/* Tags and Collections Display */}
-                  {currentFavoriteData && ((currentFavoriteData.tags && currentFavoriteData.tags.length > 0) || (currentFavoriteData.collections && currentFavoriteData.collections.length > 0)) && (
+                  {/* Collections Display */}
+                  {currentFavoriteData && currentFavoriteData.collections && currentFavoriteData.collections.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 items-center">
-                      {currentFavoriteData.tags?.map((tag: string) => (
-                        <Badge 
-                          key={tag} 
-                          variant="secondary" 
-                          className={`text-xs px-2 py-0.5 border ${getTagColor(tag)}`}
-                        >
-                          <Tags className="h-3 w-3 mr-1" />
-                          {tag}
-                        </Badge>
-                      ))}
-                      {currentFavoriteData.collections?.map((collection: string) => (
-                        <Badge 
-                          key={collection} 
+                      {currentFavoriteData.collections.map((collection: string) => (
+                        <Badge
+                          key={collection}
                           className={`text-xs px-2 py-0.5 ${getCollectionColor(collection)}`}
                         >
                           <FolderOpen className="h-3 w-3 mr-1" />
@@ -1308,7 +1295,6 @@ export default function WalletProfileLayout({
         onSave={handleEditSave}
         initialData={{
           nickname: currentFavoriteData?.nickname || '',
-          tags: currentFavoriteData?.tags || [],
           collections: currentFavoriteData?.collections || [],
         }}
         title="Edit Wallet Data"
@@ -1326,7 +1312,7 @@ export default function WalletProfileLayout({
                 </div>
                 
                 {/* Show what will be lost */}
-                {(currentFavoriteData?.nickname || (currentFavoriteData?.tags && currentFavoriteData.tags.length > 0) || (currentFavoriteData?.collections && currentFavoriteData.collections.length > 0)) && (
+                {(currentFavoriteData?.nickname || (currentFavoriteData?.collections && currentFavoriteData.collections.length > 0)) && (
                   <div className="p-3 bg-muted/50 border rounded-md">
                     <div className="text-sm font-medium mb-2">This will also remove:</div>
                     <div className="space-y-2">
@@ -1338,25 +1324,7 @@ export default function WalletProfileLayout({
                           </div>
                         </div>
                       )}
-                      
-                      {currentFavoriteData?.tags && currentFavoriteData.tags.length > 0 && (
-                        <div>
-                          <span className="text-xs text-muted-foreground font-medium">Tags ({currentFavoriteData.tags.length}):</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {currentFavoriteData.tags.slice(0, 3).map((tag: string) => (
-                              <Badge key={tag} variant="secondary" className={`text-xs ${getTagColor(tag)}`}>
-                                {tag}
-                              </Badge>
-                            ))}
-                            {currentFavoriteData.tags.length > 3 && (
-                              <Badge variant="secondary" className="text-xs">
-                                +{currentFavoriteData.tags.length - 3} more
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      
+
                       {currentFavoriteData?.collections && currentFavoriteData.collections.length > 0 && (
                         <div>
                           <span className="text-xs text-muted-foreground font-medium">Collections ({currentFavoriteData.collections.length}):</span>

@@ -4,7 +4,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Bookmark, Trash2, Star, Loader2, Info, Edit2, Tags, FolderOpen, ChevronDown, ChevronRight, Filter, Plus, TrendingUp, Wallet } from 'lucide-react';
+import { Bookmark, Trash2, Loader2, Info, Edit2, FolderOpen, Wallet, TrendingUp, X } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
 import { useState, useMemo, useCallback } from 'react';
@@ -13,12 +13,7 @@ import { toast } from 'sonner';
 import Link from 'next/link';
 import { FavoriteWallet } from '@/types/api';
 import { cn } from '@/lib/utils';
-import { getTagColor, getCollectionColor } from '@/lib/color-utils';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { getCollectionColor } from '@/lib/color-utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,29 +30,53 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+// Helper function to format time ago
+function timeAgo(timestamp: number | string | undefined): string {
+  if (!timestamp) return 'Never';
+
+  const date = typeof timestamp === 'number'
+    ? new Date(timestamp * 1000) // Unix timestamp in seconds
+    : new Date(timestamp); // ISO string
+
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  const weeks = Math.floor(days / 7);
+  const months = Math.floor(days / 30);
+  const years = Math.floor(days / 365);
+
+  if (years > 0) return `${years}y`;
+  if (months > 0) return `${months}mo`;
+  if (weeks > 0) return `${weeks}w`;
+  if (days > 0) return `${days}d`;
+  if (hours > 0) return `${hours}h`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
 
 export default function TrackersPage() {
   const { favorites: favoriteWallets, error, mutate: mutateFavorites } = useFavorites();
 
   // Filter state
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
-  const [showFilters, setShowFilters] = useState(false);
 
   // Edit/delete state
   const [editingWallet, setEditingWallet] = useState<FavoriteWallet | null>(null);
   const [deletingWallet, setDeletingWallet] = useState<FavoriteWallet | null>(null);
 
-  // Extract unique tags and collections
-  const allTags = useMemo(() => {
-    if (!favoriteWallets) return [];
-    const tags = new Set<string>();
-    favoriteWallets.forEach((wallet: FavoriteWallet) => {
-      wallet.tags?.forEach((tag: string) => tags.add(tag));
-    });
-    return Array.from(tags).sort();
-  }, [favoriteWallets]);
-
+  // Extract unique collections
   const allCollections = useMemo(() => {
     if (!favoriteWallets) return [];
     const collections = new Set<string>();
@@ -72,59 +91,27 @@ export default function TrackersPage() {
     if (!favoriteWallets?.length) return null;
 
     const totalPnl = favoriteWallets.reduce((sum: number, wallet: FavoriteWallet) => sum + (wallet.pnl || 0), 0);
+    const totalBalance = favoriteWallets.reduce((sum: number, wallet: FavoriteWallet) => sum + (wallet.currentSolBalance || 0), 0);
     const totalWallets = favoriteWallets.length;
-    const walletsWithPnl = favoriteWallets.filter((w: FavoriteWallet) => w.pnl !== undefined).length;
+    const analyzedWallets = favoriteWallets.filter((w: FavoriteWallet) => w.pnl !== undefined).length;
 
     return {
       totalPnl,
+      totalBalance,
       totalWallets,
-      walletsWithPnl,
+      analyzedWallets,
     };
   }, [favoriteWallets]);
 
   // Filter wallets
   const filteredWallets = useMemo(() => {
     if (!favoriteWallets) return [];
+    if (selectedCollections.length === 0) return favoriteWallets;
+
     return favoriteWallets.filter((wallet: FavoriteWallet) => {
-      if (selectedTags.length > 0 && !selectedTags.some(tag => wallet.tags?.includes(tag))) {
-        return false;
-      }
-      if (selectedCollections.length > 0 && !wallet.collections?.some(c => selectedCollections.includes(c))) {
-        return false;
-      }
-      return true;
+      return wallet.collections?.some(c => selectedCollections.includes(c));
     });
-  }, [favoriteWallets, selectedTags, selectedCollections]);
-
-  // Group by collection
-  const groupedWallets = useMemo(() => {
-    const groups: Record<string, FavoriteWallet[]> = {};
-    filteredWallets.forEach((wallet: FavoriteWallet) => {
-      const walletCollections = wallet.collections && wallet.collections.length > 0
-        ? wallet.collections
-        : ['Uncategorized'];
-
-      walletCollections.forEach((collection: string) => {
-        if (!groups[collection]) groups[collection] = [];
-        groups[collection].push(wallet);
-      });
-    });
-    return groups;
-  }, [filteredWallets]);
-
-  const [collapsedCollections, setCollapsedCollections] = useState<Set<string>>(new Set());
-
-  const toggleCollection = (collection: string) => {
-    setCollapsedCollections(prev => {
-      const next = new Set(prev);
-      if (next.has(collection)) {
-        next.delete(collection);
-      } else {
-        next.add(collection);
-      }
-      return next;
-    });
-  };
+  }, [favoriteWallets, selectedCollections]);
 
   const handleDeleteWallet = useCallback(async (walletAddress: string) => {
     try {
@@ -138,7 +125,7 @@ export default function TrackersPage() {
     }
   }, [mutateFavorites]);
 
-  const handleUpdateWallet = useCallback(async (walletAddress: string, updates: { nickname: string; tags: string[]; collections: string[] }) => {
+  const handleUpdateWallet = useCallback(async (walletAddress: string, updates: { nickname: string; collections: string[] }) => {
     try {
       await fetcher(`/users/me/favorites/${walletAddress}`, {
         method: 'PATCH',
@@ -152,12 +139,6 @@ export default function TrackersPage() {
     }
   }, [mutateFavorites]);
 
-  const toggleTag = (tag: string) => {
-    setSelectedTags(prev =>
-      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
-    );
-  };
-
   const toggleCollectionFilter = (collection: string) => {
     setSelectedCollections(prev =>
       prev.includes(collection) ? prev.filter(c => c !== collection) : [...prev, collection]
@@ -165,17 +146,14 @@ export default function TrackersPage() {
   };
 
   const clearFilters = () => {
-    setSelectedTags([]);
     setSelectedCollections([]);
   };
-
-  const activeFilterCount = selectedTags.length + selectedCollections.length;
 
   // Loading state
   if (!favoriteWallets && !error) {
     return (
       <AppShell>
-        <div className="container max-w-6xl mx-auto px-6 py-12">
+        <div className="container max-w-7xl mx-auto px-6 py-12">
           <div className="flex items-center justify-center h-64">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
@@ -188,7 +166,7 @@ export default function TrackersPage() {
   if (error) {
     return (
       <AppShell>
-        <div className="container max-w-6xl mx-auto px-6 py-12">
+        <div className="container max-w-7xl mx-auto px-6 py-12">
           <Card className="p-12 rounded-xl border-dashed text-center">
             <div className="max-w-md mx-auto">
               <Info className="h-12 w-12 text-red-500 mx-auto mb-4" />
@@ -210,7 +188,7 @@ export default function TrackersPage() {
   if (favoriteWallets.length === 0) {
     return (
       <AppShell>
-        <div className="container max-w-6xl mx-auto px-6 py-12">
+        <div className="container max-w-7xl mx-auto px-6 py-12">
           <div className="mb-12">
             <div className="flex items-center gap-3 mb-4">
               <Bookmark className="h-8 w-8 text-purple-500" />
@@ -223,7 +201,7 @@ export default function TrackersPage() {
 
           <Card className="p-12 rounded-xl border-dashed text-center">
             <div className="max-w-md mx-auto">
-              <Star className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <Bookmark className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-xl font-semibold mb-2">No tracked wallets yet</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 Start tracking wallets by clicking the star icon on any wallet profile page.
@@ -241,122 +219,193 @@ export default function TrackersPage() {
   return (
     <AppShell>
       <TooltipProvider>
-        <div className="container max-w-7xl mx-auto px-6 py-12">
+        <div className="container max-w-7xl mx-auto px-6 py-8">
           {/* Header */}
           <div className="mb-8">
-            <div className="flex items-center gap-3 mb-6">
-              <Bookmark className="h-8 w-8 text-purple-500" />
-              <h1 className="text-4xl font-bold">Tracked Wallets</h1>
+            <div className="flex items-center gap-3 mb-2">
+              <Bookmark className="h-7 w-7 text-purple-500" />
+              <h1 className="text-3xl font-bold">Tracked Wallets</h1>
             </div>
+            <p className="text-sm text-muted-foreground">
+              {filteredWallets.length} of {favoriteWallets.length} wallets
+            </p>
+          </div>
 
-            {/* Portfolio Stats */}
-            {portfolioStats && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Wallets</p>
-                        <p className="text-2xl font-bold">{portfolioStats.totalWallets}</p>
-                      </div>
-                      <Wallet className="h-8 w-8 text-muted-foreground" />
-                    </div>
-                  </CardContent>
-                </Card>
+          <div className="flex gap-6">
+            {/* Main Content - 3/4 width */}
+            <div className="flex-1">
+              {/* Wallets Table */}
+              <Card>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-24">Tracked</TableHead>
+                      <TableHead>Wallet</TableHead>
+                      <TableHead className="w-28">Last Active</TableHead>
+                      <TableHead className="w-36 text-right">Balance</TableHead>
+                      <TableHead className="w-24 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredWallets.map((wallet: FavoriteWallet) => {
+                      const primaryCollection = wallet.collections?.[0];
 
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Portfolio P&L</p>
-                        <p className={`text-2xl font-bold ${portfolioStats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                          {portfolioStats.totalPnl >= 0 ? '+' : ''}{portfolioStats.totalPnl.toFixed(2)} SOL
-                        </p>
-                      </div>
-                      <TrendingUp className={`h-8 w-8 ${portfolioStats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`} />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-muted-foreground">With P&L Data</p>
-                        <p className="text-2xl font-bold">{portfolioStats.walletsWithPnl}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {((portfolioStats.walletsWithPnl / portfolioStats.totalWallets) * 100).toFixed(0)}% analyzed
-                        </p>
-                      </div>
-                      <Star className="h-8 w-8 text-muted-foreground" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                {/* Filter Toggle */}
-                <Button
-                  variant={activeFilterCount > 0 ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setShowFilters(!showFilters)}
-                  className="relative"
-                >
-                  <Filter className="h-4 w-4 mr-2" />
-                  Filters
-                  {activeFilterCount > 0 && (
-                    <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">
-                      {activeFilterCount}
-                    </Badge>
-                  )}
-                </Button>
-                <div className="text-sm text-muted-foreground">
-                  {filteredWallets.length} of {favoriteWallets.length} wallets
-                </div>
-              </div>
-            </div>
-
-            {/* Filter Panel */}
-            {showFilters && (
-              <Card className="p-4 mb-4">
-                <div className="space-y-4">
-                  {/* Tags Filter */}
-                  {allTags.length > 0 && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium flex items-center gap-2">
-                          <Tags className="h-4 w-4" />
-                          Tags
-                        </label>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {allTags.map((tag) => (
-                          <Badge
-                            key={tag}
-                            variant={selectedTags.includes(tag) ? 'default' : 'outline'}
-                            className={cn(
-                              'cursor-pointer',
-                              selectedTags.includes(tag) && getTagColor(tag)
+                      return (
+                        <TableRow key={wallet.walletAddress} className="hover:bg-accent/30">
+                          <TableCell className="font-medium text-muted-foreground">
+                            {timeAgo(wallet.createdAt)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Link
+                                href={`/wallets/${wallet.walletAddress}`}
+                                className="font-medium hover:text-primary transition-colors"
+                              >
+                                {wallet.nickname || `${wallet.walletAddress.slice(0, 4)}...${wallet.walletAddress.slice(-4)}`}
+                              </Link>
+                              {primaryCollection && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant="outline"
+                                      className={cn('text-xs', getCollectionColor(primaryCollection))}
+                                    >
+                                      {primaryCollection}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    Collection: {primaryCollection}
+                                    {wallet.collections && wallet.collections.length > 1 && (
+                                      <> (+{wallet.collections.length - 1} more)</>
+                                    )}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                            <code className="text-xs text-muted-foreground block mt-1">
+                              {wallet.walletAddress}
+                            </code>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {wallet.lastActiveTimestamp ? timeAgo(wallet.lastActiveTimestamp) : 'Unknown'}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {wallet.currentSolBalance !== undefined ? (
+                              <span>{wallet.currentSolBalance.toFixed(2)} SOL</span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
                             )}
-                            onClick={() => toggleTag(tag)}
-                          >
-                            {tag}
-                          </Badge>
-                        ))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setEditingWallet(wallet)}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <Edit2 className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit wallet</TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setDeletingWallet(wallet)}
+                                    className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Remove wallet</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </Card>
+            </div>
+
+            {/* Sidebar - 1/4 width */}
+            <div className="w-80 flex-shrink-0 space-y-4">
+              {/* Portfolio Stats */}
+              {portfolioStats && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Portfolio Overview</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Total Wallets</span>
+                      </div>
+                      <span className="font-bold">{portfolioStats.totalWallets}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className={`h-4 w-4 ${portfolioStats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`} />
+                        <span className="text-sm text-muted-foreground">Total P&L</span>
+                      </div>
+                      <span className={`font-bold ${portfolioStats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {portfolioStats.totalPnl >= 0 ? '+' : ''}{portfolioStats.totalPnl.toFixed(2)} SOL
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Total Balance</span>
+                      </div>
+                      <span className="font-bold">{portfolioStats.totalBalance.toFixed(2)} SOL</span>
+                    </div>
+
+                    <div className="pt-3 border-t">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Analyzed</span>
+                        <span className="text-muted-foreground">
+                          {portfolioStats.analyzedWallets} / {portfolioStats.totalWallets} ({((portfolioStats.analyzedWallets / portfolioStats.totalWallets) * 100).toFixed(0)}%)
+                        </span>
                       </div>
                     </div>
-                  )}
+                  </CardContent>
+                </Card>
+              )}
 
+              {/* Filters */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Filters</CardTitle>
+                    {selectedCollections.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearFilters}
+                        className="h-7 text-xs"
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
                   {/* Collections Filter */}
                   {allCollections.length > 0 && (
                     <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium flex items-center gap-2">
-                          <FolderOpen className="h-4 w-4" />
-                          Collections
-                        </label>
+                      <div className="flex items-center gap-2 mb-3">
+                        <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                        <label className="text-sm font-medium">Collections</label>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {allCollections.map((collection) => (
@@ -364,125 +413,29 @@ export default function TrackersPage() {
                             key={collection}
                             variant={selectedCollections.includes(collection) ? 'default' : 'outline'}
                             className={cn(
-                              'cursor-pointer',
+                              'cursor-pointer transition-all',
                               selectedCollections.includes(collection) && getCollectionColor(collection)
                             )}
                             onClick={() => toggleCollectionFilter(collection)}
                           >
                             {collection}
+                            {selectedCollections.includes(collection) && (
+                              <X className="ml-1 h-3 w-3" />
+                            )}
                           </Badge>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {/* Clear Filters */}
-                  {activeFilterCount > 0 && (
-                    <Button variant="ghost" size="sm" onClick={clearFilters}>
-                      Clear all filters
-                    </Button>
+                  {allCollections.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No collections yet. Add collections when editing wallets.
+                    </p>
                   )}
-                </div>
+                </CardContent>
               </Card>
-            )}
-          </div>
-
-          {/* Wallets List - Grouped by Collection */}
-          <div className="space-y-6">
-            {Object.entries(groupedWallets).map(([collection, wallets]) => {
-              const isCollapsed = collapsedCollections.has(collection);
-              return (
-                <Card key={collection} className="overflow-hidden">
-                  <CardHeader
-                    className="cursor-pointer hover:bg-accent/50 transition-colors"
-                    onClick={() => toggleCollection(collection)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        {isCollapsed ? (
-                          <ChevronRight className="h-5 w-5" />
-                        ) : (
-                          <ChevronDown className="h-5 w-5" />
-                        )}
-                        <FolderOpen className="h-5 w-5 text-muted-foreground" />
-                        <CardTitle className="text-xl">{collection}</CardTitle>
-                        <Badge variant="secondary">{wallets.length}</Badge>
-                      </div>
-                    </div>
-                  </CardHeader>
-
-                  {!isCollapsed && (
-                    <CardContent className="p-0">
-                      <div className="divide-y">
-                        {wallets.map((wallet: FavoriteWallet) => (
-                          <div
-                            key={wallet.walletAddress}
-                            className="p-4 hover:bg-accent/30 transition-colors"
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-3 mb-2">
-                                  <Link
-                                    href={`/wallets/${wallet.walletAddress}`}
-                                    className="font-medium text-lg hover:text-primary transition-colors truncate"
-                                  >
-                                    {wallet.nickname || wallet.walletAddress}
-                                  </Link>
-                                  {wallet.tags && wallet.tags.length > 0 && (
-                                    <div className="flex flex-wrap gap-1">
-                                      {wallet.tags.map((tag) => (
-                                        <Badge
-                                          key={tag}
-                                          variant="outline"
-                                          className={cn('text-xs', getTagColor(tag))}
-                                        >
-                                          {tag}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                                <code className="text-xs text-muted-foreground block truncate">
-                                  {wallet.walletAddress}
-                                </code>
-                              </div>
-
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => setEditingWallet(wallet)}
-                                    >
-                                      <Edit2 className="h-4 w-4" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Edit wallet</TooltipContent>
-                                </Tooltip>
-
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => setDeletingWallet(wallet)}
-                                    >
-                                      <Trash2 className="h-4 w-4 text-red-500" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Remove wallet</TooltipContent>
-                                </Tooltip>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  )}
-                </Card>
-              );
-            })}
+            </div>
           </div>
 
           {/* Edit Modal */}
@@ -493,7 +446,6 @@ export default function TrackersPage() {
               onSave={(updates) => handleUpdateWallet(editingWallet.walletAddress, updates)}
               initialData={{
                 nickname: editingWallet.nickname || '',
-                tags: editingWallet.tags || [],
                 collections: editingWallet.collections || [],
               }}
               title="Edit Wallet"

@@ -225,7 +225,7 @@ export default function DiscoverPage() {
   };
 
   // Quick add save handler
-  const handleQuickAddSave = async (formData: { nickname: string; tags: string[]; collections: string[] }) => {
+  const handleQuickAddSave = async (formData: { nickname: string; collections: string[] }) => {
     if (!currentWallet) return;
     try {
       await fetcher('/users/me/favorites', {
@@ -233,7 +233,6 @@ export default function DiscoverPage() {
         body: JSON.stringify({
           walletAddress: currentWallet.address,
           nickname: formData.nickname.trim() || undefined,
-          tags: formData.tags,
           collections: formData.collections,
         }),
       });
