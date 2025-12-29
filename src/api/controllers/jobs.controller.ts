@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete, UseGuards, ForbiddenException, Req } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody, ApiBearerAuth, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { JobsService } from '../services/jobs.service';
 import { JobState } from 'bullmq';
 import { 
@@ -39,6 +39,19 @@ export class JobsController {
     this.adminEmails = new Set(emails);
   }
 
+  private isAdminUser(user?: User): boolean {
+    if (!user) {
+      return false;
+    }
+
+    if (this.adminUserIds.has(user.id)) {
+      return true;
+    }
+
+    const email = user.email?.toLowerCase();
+    return email ? this.adminEmails.has(email) : false;
+  }
+
   // === DIRECT JOB SUBMISSION ENDPOINTS ===
   // 
   // ⚠️  NOTE: These endpoints are NOT currently used by the frontend!
@@ -58,6 +71,7 @@ export class JobsController {
 
   @Post('wallets/sync')
   @HttpCode(202)
+  @ApiExcludeEndpoint()
   @ApiOperation({ 
     summary: '[UNUSED] Submit wallet sync job',
     description: 'Direct access to wallet sync queue. Not used by frontend - use /analyses/wallets/{id}/trigger-analysis instead.'
@@ -76,6 +90,7 @@ export class JobsController {
 
   @Post('wallets/analyze')
   @HttpCode(202)
+  @ApiExcludeEndpoint()
   @ApiOperation({ 
     summary: '[UNUSED] Submit wallet analysis job',
     description: 'Direct access to analysis queue. Not used by frontend - use /analyses/wallets/{id}/trigger-analysis instead.'
@@ -97,6 +112,7 @@ export class JobsController {
    */
   @Post('similarity/analyze')
   @HttpCode(202)
+  @ApiExcludeEndpoint()
   @ApiOperation({ 
     summary: '[UNUSED] Submit similarity analysis job',
     description: 'Direct access to similarity queue. Not used by frontend - use /analyses/similarity/queue instead.'
@@ -115,6 +131,7 @@ export class JobsController {
 
   @Post('wallets/dashboard-analysis')
   @HttpCode(202)
+  @ApiExcludeEndpoint()
   @ApiOperation({ 
     summary: 'Submit dashboard wallet analysis job',
     description: 'Direct access to dashboard analysis queue. Provides comprehensive wallet analysis for external integrations and scaling scenarios.'
@@ -146,8 +163,13 @@ export class JobsController {
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
   async getJobStatus(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<JobStatusResponseDto> {
-    // Read-only endpoint - no admin check needed (TODO: add userId validation when job history feature is built)
-    return this.jobsService.getJobStatus(jobId);
+    // Read-only endpoint; enforce ownership for non-admin users.
+    const user = req.user;
+    if (!user) {
+      throw new ForbiddenException('User not authenticated');
+    }
+
+    return this.jobsService.getJobStatus(jobId, { userId: user.id, isAdmin: this.isAdminUser(user) });
   }
 
   @Get(':jobId/progress')
@@ -170,8 +192,13 @@ export class JobsController {
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
   async getJobProgress(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<{ jobId: string; status: string; progress: number | object }> {
-    // Read-only endpoint - no admin check needed
-    return this.jobsService.getJobProgress(jobId);
+    // Read-only endpoint; enforce ownership for non-admin users.
+    const user = req.user;
+    if (!user) {
+      throw new ForbiddenException('User not authenticated');
+    }
+
+    return this.jobsService.getJobProgress(jobId, { userId: user.id, isAdmin: this.isAdminUser(user) });
   }
 
   @Get(':jobId/result')
@@ -195,8 +222,13 @@ export class JobsController {
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
   async getJobResult(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<{ jobId: string; status: string; result?: any; error?: string }> {
-    // Read-only endpoint - no admin check needed
-    return this.jobsService.getJobResult(jobId);
+    // Read-only endpoint; enforce ownership for non-admin users.
+    const user = req.user;
+    if (!user) {
+      throw new ForbiddenException('User not authenticated');
+    }
+
+    return this.jobsService.getJobResult(jobId, { userId: user.id, isAdmin: this.isAdminUser(user) });
   }
 
   @Delete(':jobId')

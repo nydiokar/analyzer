@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { WalletOperationsQueue } from '../../queues/queues/wallet-operations.queue';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
@@ -272,29 +272,12 @@ export class JobsService {
     };
   }
 
-  async getJobStatus(jobId: string): Promise<JobStatusResponseDto> {
+  async getJobStatus(jobId: string, access?: { userId?: string; isAdmin?: boolean }): Promise<JobStatusResponseDto> {
     this.logger.log(`Fetching status for job: ${jobId}`);
 
-    // Search across all queues for the job
-    const queues = [
-      { name: 'wallet-operations', queue: this.walletOperationsQueue },
-      { name: 'analysis-operations', queue: this.analysisOperationsQueue },
-      { name: 'similarity-operations', queue: this.similarityOperationsQueue },
-      { name: 'enrichment-operations', queue: this.enrichmentOperationsQueue },
-    ];
-
-    for (const { name, queue } of queues) {
-      try {
-        const job = await queue.getJob(jobId);
-        if (job) {
-          return this.formatJobResponse(job, name);
-        }
-      } catch (error) {
-        this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, error);
-      }
-    }
-
-    throw new NotFoundException(`Job with ID ${jobId} not found in any queue`);
+    const { job, queueName } = await this.findJobAcrossQueues(jobId);
+    await this.assertJobAccess(job, jobId, access);
+    return this.formatJobResponse(job, queueName);
   }
 
   async cancelJob(jobId: string): Promise<{ success: boolean; message: string }> {
@@ -547,39 +530,87 @@ export class JobsService {
   /**
    * Get job progress by ID (C1 task requirement)
    */
-  async getJobProgress(jobId: string): Promise<{ jobId: string; status: string; progress: number | object }> {
+  async getJobProgress(jobId: string, access?: { userId?: string; isAdmin?: boolean }): Promise<{ jobId: string; status: string; progress: number | object }> {
     this.logger.log(`Fetching progress for job: ${jobId}`);
 
-    const queues = [
+    const { job } = await this.findJobAcrossQueues(jobId);
+    await this.assertJobAccess(job, jobId, access);
+
+    const state = job.finishedOn ? (job.failedReason ? 'failed' : 'completed') : 
+                  job.processedOn ? 'active' : 'waiting';
+
+    // Handle progress type - BullMQ can return string, number, or object
+    let progress: number | object = 0;
+    if (typeof job.progress === 'number') {
+      progress = job.progress;
+    } else if (typeof job.progress === 'object' && job.progress !== null) {
+      progress = job.progress;
+    } else if (typeof job.progress === 'string') {
+      const numProgress = parseInt(job.progress, 10);
+      progress = isNaN(numProgress) ? { message: job.progress } : numProgress;
+    }
+
+    return {
+      jobId: job.id!,
+      status: state,
+      progress,
+    };
+  }
+
+  /**
+   * Get job result by ID (C1 task requirement)
+   */
+  async getJobResult(jobId: string, access?: { userId?: string; isAdmin?: boolean }): Promise<{ jobId: string; status: string; result?: any; error?: string }> {
+    this.logger.log(`Fetching result for job: ${jobId}`);
+
+    const { job, queueName } = await this.findJobAcrossQueues(jobId);
+    await this.assertJobAccess(job, jobId, access);
+
+    const state = job.finishedOn ? (job.failedReason ? 'failed' : 'completed') : 
+                  job.processedOn ? 'active' : 'waiting';
+
+    let result = job.returnvalue;
+    // For similarity jobs we store large payloads in Redis; fetch if key provided
+    if (queueName === 'similarity-operations' && result && typeof result === 'object' && 'data' in result) {
+      const data: any = (result as any).data;
+      const resultKey = data?.resultKey;
+      if (resultKey) {
+        try {
+          const cached = await this.redisClient.get(resultKey);
+          if (cached) {
+            result = JSON.parse(cached);
+          } else {
+            this.logger.warn(`Similarity result key ${resultKey} not found in Redis for job ${jobId}`);
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to read similarity result from Redis (${resultKey}) for job ${jobId}`, error as Error);
+        }
+      }
+    }
+
+    return {
+      jobId: job.id!,
+      status: state,
+      result,
+      error: job.failedReason,
+    };
+  }
+
+  private getQueuesForLookup() {
+    return [
       { name: 'wallet-operations', queue: this.walletOperationsQueue },
       { name: 'analysis-operations', queue: this.analysisOperationsQueue },
       { name: 'similarity-operations', queue: this.similarityOperationsQueue },
       { name: 'enrichment-operations', queue: this.enrichmentOperationsQueue },
     ];
+  }
 
-    for (const { name, queue } of queues) {
+  private async findJobAcrossQueues(jobId: string): Promise<{ job: Job; queueName: string }> {
+    for (const { name, queue } of this.getQueuesForLookup()) {
       try {
         const job = await queue.getJob(jobId);
         if (job) {
-          const state = job.finishedOn ? (job.failedReason ? 'failed' : 'completed') : 
-                        job.processedOn ? 'active' : 'waiting';
-
-          // Handle progress type - BullMQ can return string, number, or object
-          let progress: number | object = 0;
-          if (typeof job.progress === 'number') {
-            progress = job.progress;
-          } else if (typeof job.progress === 'object' && job.progress !== null) {
-            progress = job.progress;
-          } else if (typeof job.progress === 'string') {
-            const numProgress = parseInt(job.progress, 10);
-            progress = isNaN(numProgress) ? { message: job.progress } : numProgress;
-          }
-
-          return {
-            jobId: job.id!,
-            status: state,
-            progress,
-          };
+          return { job, queueName: name };
         }
       } catch (error) {
         this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, error);
@@ -589,58 +620,30 @@ export class JobsService {
     throw new NotFoundException(`Job with ID ${jobId} not found in any queue`);
   }
 
-  /**
-   * Get job result by ID (C1 task requirement)
-   */
-  async getJobResult(jobId: string): Promise<{ jobId: string; status: string; result?: any; error?: string }> {
-    this.logger.log(`Fetching result for job: ${jobId}`);
-
-    const queues = [
-      { name: 'wallet-operations', queue: this.walletOperationsQueue },
-      { name: 'analysis-operations', queue: this.analysisOperationsQueue },
-      { name: 'similarity-operations', queue: this.similarityOperationsQueue },
-      { name: 'enrichment-operations', queue: this.enrichmentOperationsQueue },
-    ];
-
-    for (const { name, queue } of queues) {
-      try {
-        const job = await queue.getJob(jobId);
-        if (job) {
-          const state = job.finishedOn ? (job.failedReason ? 'failed' : 'completed') : 
-                        job.processedOn ? 'active' : 'waiting';
-
-          let result = job.returnvalue;
-          // For similarity jobs we store large payloads in Redis; fetch if key provided
-          if (name === 'similarity-operations' && result && typeof result === 'object' && 'data' in result) {
-            const data: any = (result as any).data;
-            const resultKey = data?.resultKey;
-            if (resultKey) {
-              try {
-                const cached = await this.redisClient.get(resultKey);
-                if (cached) {
-                  result = JSON.parse(cached);
-                } else {
-                  this.logger.warn(`Similarity result key ${resultKey} not found in Redis for job ${jobId}`);
-                }
-              } catch (error) {
-                this.logger.warn(`Failed to read similarity result from Redis (${resultKey}) for job ${jobId}`, error as Error);
-              }
-            }
-          }
-
-          return {
-            jobId: job.id!,
-            status: state,
-            result,
-            error: job.failedReason,
-          };
-        }
-      } catch (error) {
-        this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, error);
-      }
+  private async resolveJobUserId(job: Job, jobId: string): Promise<string | undefined> {
+    const fromData = (job?.data as any)?.userId;
+    if (fromData) {
+      return fromData;
     }
 
-    throw new NotFoundException(`Job with ID ${jobId} not found in any queue`);
+    try {
+      const cached = await this.redisClient.get(`job:user:${jobId}`);
+      return cached || undefined;
+    } catch (error) {
+      this.logger.warn(`Failed to resolve userId for job ${jobId}:`, error as Error);
+      return undefined;
+    }
+  }
+
+  private async assertJobAccess(job: Job, jobId: string, access?: { userId?: string; isAdmin?: boolean }) {
+    if (!access || access.isAdmin) {
+      return;
+    }
+
+    const ownerId = await this.resolveJobUserId(job, jobId);
+    if (!ownerId || ownerId !== access.userId) {
+      throw new ForbiddenException('You do not have access to this job');
+    }
   }
 
   private getQueueByName(queueName: string) {
