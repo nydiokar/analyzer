@@ -13,15 +13,32 @@ const TAG_COLORS = {
   'default': 'bg-purple-600 text-white border-purple-500'
 } as const;
 
-// Collection colors - distinct from tags, using complementary colors
-const COLLECTION_COLORS = {
-  'main-portfolio': 'bg-emerald-600 text-white',
-  'watchlist': 'bg-amber-600 text-white',
-  'research': 'bg-violet-600 text-white',
-  'trading': 'bg-rose-600 text-white',
-  'archive': 'bg-slate-600 text-white',
-  'default': 'bg-blue-600 text-white'
-} as const;
+// Collection color palette - diverse colors for dynamic collections
+const COLLECTION_COLOR_PALETTE = [
+  { bg: 'bg-emerald-500', text: 'text-emerald-700', border: 'border-emerald-500', name: 'emerald' },
+  { bg: 'bg-amber-500', text: 'text-amber-700', border: 'border-amber-500', name: 'amber' },
+  { bg: 'bg-violet-500', text: 'text-violet-700', border: 'border-violet-500', name: 'violet' },
+  { bg: 'bg-rose-500', text: 'text-rose-700', border: 'border-rose-500', name: 'rose' },
+  { bg: 'bg-cyan-500', text: 'text-cyan-700', border: 'border-cyan-500', name: 'cyan' },
+  { bg: 'bg-orange-500', text: 'text-orange-700', border: 'border-orange-500', name: 'orange' },
+  { bg: 'bg-indigo-500', text: 'text-indigo-700', border: 'border-indigo-500', name: 'indigo' },
+  { bg: 'bg-pink-500', text: 'text-pink-700', border: 'border-pink-500', name: 'pink' },
+  { bg: 'bg-teal-500', text: 'text-teal-700', border: 'border-teal-500', name: 'teal' },
+  { bg: 'bg-fuchsia-500', text: 'text-fuchsia-700', border: 'border-fuchsia-500', name: 'fuchsia' },
+  { bg: 'bg-lime-500', text: 'text-lime-700', border: 'border-lime-500', name: 'lime' },
+  { bg: 'bg-sky-500', text: 'text-sky-700', border: 'border-sky-500', name: 'sky' },
+];
+
+// Simple hash function for consistent color assignment
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash);
+}
 
 export function getTagColor(tag: string): string {
   const normalizedTag = tag.toLowerCase().replace(/\s+/g, '-');
@@ -29,6 +46,16 @@ export function getTagColor(tag: string): string {
 }
 
 export function getCollectionColor(collection: string): string {
-  const normalizedCollection = collection.toLowerCase().replace(/\s+/g, '-');
-  return COLLECTION_COLORS[normalizedCollection as keyof typeof COLLECTION_COLORS] || COLLECTION_COLORS.default;
+  const hash = hashString(collection);
+  const colorIndex = hash % COLLECTION_COLOR_PALETTE.length;
+  const color = COLLECTION_COLOR_PALETTE[colorIndex];
+  return `${color.border} ${color.text}`;
+}
+
+// Get full collection color classes including background for filled badges
+export function getCollectionColorFilled(collection: string): string {
+  const hash = hashString(collection);
+  const colorIndex = hash % COLLECTION_COLOR_PALETTE.length;
+  const color = COLLECTION_COLOR_PALETTE[colorIndex];
+  return `${color.bg} ${color.border} text-white`;
 } 

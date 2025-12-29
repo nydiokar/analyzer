@@ -741,7 +741,7 @@ export default function DiscoverPage() {
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove from Favorites?</AlertDialogTitle>
+            <AlertDialogTitle>Remove from Tracked?</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to remove{' '}
               <span className="font-medium">{currentWallet?.nickname || 'this wallet'}</span>{' '}

@@ -1,4 +1,4 @@
-import { Controller, Post, Delete, Put, Get, Body, Param, Req, HttpCode, HttpStatus, Res, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Delete, Patch, Get, Body, Param, Req, HttpCode, HttpStatus, Res, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { User } from '@prisma/client';
@@ -54,7 +54,7 @@ export class UserFavoritesController {
     res.status(HttpStatus.NO_CONTENT).end();
   }
 
-  @Put(':walletAddress')
+  @Patch(':walletAddress')
   @ApiOperation({ summary: "Update a favorite wallet's metadata" })
   @ApiParam({ name: 'walletAddress', description: 'The wallet address to update', type: String })
   @ApiBody({ type: UpdateFavoriteWalletDto })

@@ -40,11 +40,13 @@ See `documentation/01. ARCHITECTURE_DECISIONS.md` for all major decisions
 - ✅ Enhanced API: Added `lastActiveTimestamp` and `currentSolBalance` fields
 - ✅ Removed tags from UI (kept in database for future LLM features)
 - ✅ Sleek, compact forms (QuickAddForm, WalletEditForm)
-- ✅ Table columns: Tracked, Address/Name, Collection badge, Last Active, Balance, Actions
-- ✅ Sidebar: Portfolio stats (Total P&L, Total Balance, Analyzed %) + Collection filters
+- ✅ Table columns: Added, Address/Name, Collection badge, Last Active, Balance
+- ✅ Sidebar: Portfolio stats (Total P&L, Total Balance, Analyzed %)
 - ✅ Smart collection display: Colored badges, primary collection shown inline
 - ✅ Time-ago format for better readability (11h, 2d, 19d)
 - ✅ Type-safe: All components use `{ nickname, collections }` (no tags)
+- ✅ Filters in header: Active (24h) auto-filter + collection filters (consistent with Discover page)
+- ✅ Shows all wallets by default (no filters active on load)
 
 **Files Changed**:
 - Backend: `user-favorites.service.ts`, `favorite-wallet-detail.dto.ts`, `user-favorites.controller.ts`
@@ -54,6 +56,7 @@ See `documentation/01. ARCHITECTURE_DECISIONS.md` for all major decisions
 **Architecture Note**:
 - Tags field remains in database (`UserFavoriteWallet.tags`) for future LLM-based auto-tagging
 - Collections are the primary organization method
+- Filters positioned in header for consistency with Discover page
 
 ---
 

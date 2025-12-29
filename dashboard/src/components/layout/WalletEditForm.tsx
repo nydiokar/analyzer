@@ -2,9 +2,10 @@ import React, { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Plus, X, FolderOpen } from 'lucide-react';
-import { getCollectionColor } from '@/lib/color-utils';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Plus, X, AlertCircle, ArrowRight } from 'lucide-react';
+import { getCollectionColorFilled } from '@/lib/color-utils';
 
 interface WalletEditFormProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
   });
 
   const [isSaving, setIsSaving] = useState(false);
+  const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
 
   // Reset form when dialog opens/closes or initialData changes
   React.useEffect(() => {
@@ -51,15 +53,25 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
     setFormData(prev => ({ ...prev, newCollection: e.target.value }));
   }, []);
 
+  const [duplicateWarning, setDuplicateWarning] = useState(false);
+
   const addCollection = useCallback(() => {
     const trimmed = formData.newCollection.trim();
-    if (trimmed && !formData.collections.includes(trimmed)) {
-      setFormData(prev => ({
-        ...prev,
-        collections: [...prev.collections, trimmed],
-        newCollection: ''
-      }));
+    if (!trimmed) return;
+
+    if (formData.collections.includes(trimmed)) {
+      // Show duplicate warning
+      setDuplicateWarning(true);
+      setTimeout(() => setDuplicateWarning(false), 2500);
+      return;
     }
+
+    setFormData(prev => ({
+      ...prev,
+      collections: [...prev.collections, trimmed],
+      newCollection: ''
+    }));
+    setDuplicateWarning(false);
   }, [formData.newCollection, formData.collections]);
 
   const removeCollection = useCallback((collectionToRemove: string) => {
@@ -72,7 +84,19 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
   const handleSave = useCallback(async () => {
     if (isSaving) return;
 
+    // Show warning if there's unsaved collection text
+    if (formData.newCollection.trim()) {
+      setShowUnsavedWarning(true);
+      return;
+    }
+
+    // Proceed with save
+    await performSave();
+  }, [formData, isSaving]);
+
+  const performSave = useCallback(async () => {
     setIsSaving(true);
+    setShowUnsavedWarning(false);
     try {
       await onSave({
         nickname: formData.nickname.trim(),
@@ -82,7 +106,7 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
     } finally {
       setIsSaving(false);
     }
-  }, [formData, onSave, onClose, isSaving]);
+  }, [formData, onSave, onClose]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -93,57 +117,116 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            Edit wallet information including nickname and collections for better organization.
-          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          {/* Nickname */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Nickname</label>
-            <Input
-              placeholder="Enter a memorable name..."
-              value={formData.nickname}
-              onChange={handleNicknameChange}
-            />
+          {/* Nickname - Compact Row */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium w-24 flex-shrink-0">Nickname</label>
+            <div className="flex-1 relative">
+              <Input
+                placeholder="Enter a memorable name..."
+                value={formData.nickname}
+                onChange={handleNicknameChange}
+                maxLength={20}
+                className="flex-1"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50">
+                {formData.nickname.length}/20
+              </span>
+            </div>
           </div>
 
-          {/* Collections */}
+          {/* Collections - Compact Layout with Visual Guide */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Collections</label>
-            <p className="text-xs text-muted-foreground">
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium w-24 flex-shrink-0">Collections</label>
+              <div className="flex items-center gap-2 flex-1">
+                <div className="flex-1 relative">
+                  <Input
+                    placeholder="Type collection name..."
+                    value={formData.newCollection}
+                    onChange={handleNewCollectionChange}
+                    onKeyDown={handleKeyDown}
+                    maxLength={20}
+                    className="flex-1 pr-12"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50">
+                    {formData.newCollection.length}/20
+                  </span>
+                </div>
+                <div className="flex flex-col items-center -mt-1">
+                  <span className="text-[10px] text-muted-foreground/60 font-medium mb-0.5">add</span>
+                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+                <Button onClick={addCollection} size="sm" className="bg-purple-600 hover:bg-purple-700 h-9 px-3">
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Duplicate Warning */}
+            {duplicateWarning && (
+              <div className="pl-[112px]">
+                <p className="text-xs text-amber-600 dark:text-amber-500 animate-in fade-in duration-200">
+                  Collection "{formData.newCollection.trim()}" already exists
+                </p>
+              </div>
+            )}
+
+            {/* Collection Tags Below */}
+            {formData.collections.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pl-[112px]">
+                {formData.collections.map((collection) => (
+                  <Badge
+                    key={collection}
+                    className={`text-xs px-2 py-1 cursor-pointer ${getCollectionColorFilled(collection)}`}
+                    onClick={() => removeCollection(collection)}
+                  >
+                    {collection}
+                    <X className="h-3 w-3 ml-1.5" />
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {/* Hint Text */}
+            <p className="text-xs text-muted-foreground pl-[112px]">
               Organize your tracked wallets into collections (e.g., "Main Portfolio", "Watchlist", "Research")
             </p>
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {formData.collections.map((collection) => (
-                <Badge
-                  key={collection}
-                  className={`text-xs px-2 py-1 cursor-pointer ${getCollectionColor(collection)}`}
-                  onClick={() => removeCollection(collection)}
-                >
-                  <FolderOpen className="h-3 w-3 mr-1" />
-                  {collection}
-                  <X className="h-3 w-3 ml-1" />
-                </Badge>
-              ))}
-            </div>
-            <div className="flex gap-1">
-              <Input
-                placeholder="Add collection..."
-                value={formData.newCollection}
-                onChange={handleNewCollectionChange}
-                onKeyDown={handleKeyDown}
-              />
-              <Button onClick={addCollection} size="sm" variant="outline">
-                <Plus className="h-3 w-3" />
-              </Button>
-            </div>
           </div>
         </div>
+
+        {/* Unsaved Collection Warning */}
+        {showUnsavedWarning && (
+          <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+            <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
+            <AlertDescription className="text-sm text-amber-800 dark:text-amber-300">
+              <p className="font-medium mb-2">You have unsaved collection text: "{formData.newCollection.trim()}"</p>
+              <p className="text-xs mb-3">Did you forget to click the Add button?</p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowUnsavedWarning(false)}
+                  className="h-7 text-xs"
+                >
+                  Go Back
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={performSave}
+                  className="h-7 text-xs bg-amber-600 hover:bg-amber-700"
+                >
+                  Save Without It
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose} disabled={isSaving}>

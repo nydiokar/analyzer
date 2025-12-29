@@ -12,8 +12,13 @@ export function useFavorites() {
     {
       // Remove loading state completely - just return empty array if no data
       fallbackData: [],
-      revalidateOnFocus: false,
+      revalidateOnFocus: true, // Auto-refresh when window gains focus
       revalidateOnMount: true,
+      revalidateOnReconnect: true, // Auto-refresh when reconnecting
+      revalidateIfStale: true, // Only revalidate if data is stale
+      refreshInterval: 0, // No polling (rely on mutations)
+      dedupingInterval: 10000, // Prevent duplicate requests within 10s
+      focusThrottleInterval: 10000, // Throttle focus revalidation to max once per 10s
       errorRetryCount: 0, // Don't retry on error
     }
   );

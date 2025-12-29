@@ -3,8 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X, FolderOpen } from 'lucide-react';
-import { getCollectionColor } from '@/lib/color-utils';
+import { Plus, X, ArrowRight } from 'lucide-react';
+import { getCollectionColorFilled } from '@/lib/color-utils';
 
 interface QuickAddFormProps {
   isOpen: boolean;
@@ -29,6 +29,7 @@ const QuickAddForm = React.memo(({
   });
 
   const [isSaving, setIsSaving] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState(false);
 
   // Reset form when dialog opens
   React.useEffect(() => {
@@ -38,6 +39,7 @@ const QuickAddForm = React.memo(({
         collections: [],
         newCollection: ''
       });
+      setDuplicateWarning(false);
     }
   }, [isOpen]);
 
@@ -58,13 +60,20 @@ const QuickAddForm = React.memo(({
 
   const addCollection = useCallback(() => {
     const trimmed = formData.newCollection.trim();
-    if (trimmed && !formData.collections.includes(trimmed)) {
-      setFormData(prev => ({
-        ...prev,
-        collections: [...prev.collections, trimmed],
-        newCollection: ''
-      }));
+    if (!trimmed) return;
+
+    if (formData.collections.includes(trimmed)) {
+      setDuplicateWarning(true);
+      setTimeout(() => setDuplicateWarning(false), 2500);
+      return;
     }
+
+    setFormData(prev => ({
+      ...prev,
+      collections: [...prev.collections, trimmed],
+      newCollection: ''
+    }));
+    setDuplicateWarning(false);
   }, [formData.newCollection, formData.collections]);
 
   const removeCollection = useCallback((collectionToRemove: string) => {
@@ -112,13 +121,19 @@ const QuickAddForm = React.memo(({
           {/* Nickname */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Nickname</label>
-            <Input
-              placeholder="e.g., Main Whale, Research Wallet..."
-              value={formData.nickname}
-              onChange={handleNicknameChange}
-              onKeyDown={(e) => handleKeyDown(e, 'save')}
-              className="h-9"
-            />
+            <div className="relative">
+              <Input
+                placeholder="e.g., Main Whale, Research Wallet..."
+                value={formData.nickname}
+                onChange={handleNicknameChange}
+                onKeyDown={(e) => handleKeyDown(e, 'save')}
+                maxLength={20}
+                className="h-9"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50">
+                {formData.nickname.length}/20
+              </span>
+            </div>
           </div>
 
           {/* Collections */}
@@ -129,33 +144,46 @@ const QuickAddForm = React.memo(({
                 {formData.collections.map((collection) => (
                   <Badge
                     key={collection}
-                    className={`text-xs px-2 py-0.5 cursor-pointer ${getCollectionColor(collection)}`}
+                    className={`text-xs px-2 py-0.5 cursor-pointer font-medium ${getCollectionColorFilled(collection)}`}
                     onClick={() => removeCollection(collection)}
                   >
-                    <FolderOpen className="h-3 w-3 mr-1" />
                     {collection}
-                    <X className="h-3 w-3 ml-1" />
+                    <X className="h-3 w-3 ml-1.5" />
                   </Badge>
                 ))}
               </div>
             )}
-            <div className="flex gap-1.5">
-              <Input
-                placeholder="Add collection..."
-                value={formData.newCollection}
-                onChange={handleNewCollectionChange}
-                onKeyDown={(e) => handleKeyDown(e, 'collection')}
-                className="h-9"
-              />
+            <div className="flex items-center gap-1.5">
+              <div className="flex-1 relative">
+                <Input
+                  placeholder="Type collection name..."
+                  value={formData.newCollection}
+                  onChange={handleNewCollectionChange}
+                  onKeyDown={(e) => handleKeyDown(e, 'collection')}
+                  maxLength={20}
+                  className="h-9 pr-12"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50">
+                  {formData.newCollection.length}/20
+                </span>
+              </div>
+              <div className="flex flex-col items-center -mt-1">
+                <span className="text-[10px] text-muted-foreground/60 font-medium mb-0.5">add</span>
+                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
               <Button
                 onClick={addCollection}
                 size="sm"
-                variant="outline"
-                className="h-9 px-3"
+                className="h-9 px-3 bg-purple-600 hover:bg-purple-700"
               >
-                <Plus className="h-3.5 w-3.5" />
+                <Plus className="h-4 w-4" />
               </Button>
             </div>
+            {duplicateWarning && (
+              <p className="text-xs text-amber-600 dark:text-amber-500 animate-in fade-in duration-200">
+                Collection "{formData.newCollection.trim()}" already exists
+              </p>
+            )}
           </div>
         </div>
 

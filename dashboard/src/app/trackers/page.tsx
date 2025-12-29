@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Bookmark, Loader2, Info, FolderOpen, Wallet, TrendingUp, X, Search, Plus, Upload, Download } from 'lucide-react';
+import { Bookmark, Loader2, Info, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Check } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
 import { useState, useMemo, useCallback } from 'react';
@@ -13,7 +13,7 @@ import { WalletEditForm } from '@/components/layout/WalletEditForm';
 import { toast } from 'sonner';
 import { FavoriteWallet } from '@/types/api';
 import { cn } from '@/lib/utils';
-import { getCollectionColor } from '@/lib/color-utils';
+import { getCollectionColor, getCollectionColorFilled } from '@/lib/color-utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +30,14 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -73,12 +81,13 @@ export default function TrackersPage() {
   // Filter and search state
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showActiveOnly, setShowActiveOnly] = useState(false);
 
   // Edit/delete state
   const [editingWallet, setEditingWallet] = useState<FavoriteWallet | null>(null);
   const [deletingWallet, setDeletingWallet] = useState<FavoriteWallet | null>(null);
 
-  // Extract unique collections
+  // Extract unique collections and count wallets per collection
   const allCollections = useMemo(() => {
     if (!favoriteWallets) return [];
     const collections = new Set<string>();
@@ -86,6 +95,18 @@ export default function TrackersPage() {
       wallet.collections?.forEach((c: string) => collections.add(c));
     });
     return Array.from(collections).sort();
+  }, [favoriteWallets]);
+
+  // Count wallets per collection
+  const collectionCounts = useMemo(() => {
+    if (!favoriteWallets) return new Map<string, number>();
+    const counts = new Map<string, number>();
+    favoriteWallets.forEach((wallet: FavoriteWallet) => {
+      wallet.collections?.forEach((c: string) => {
+        counts.set(c, (counts.get(c) || 0) + 1);
+      });
+    });
+    return counts;
   }, [favoriteWallets]);
 
   // Portfolio stats
@@ -105,11 +126,30 @@ export default function TrackersPage() {
     };
   }, [favoriteWallets]);
 
+  // Calculate active wallets (last 24h)
+  const activeWalletCount = useMemo(() => {
+    if (!favoriteWallets) return 0;
+    return favoriteWallets.filter((wallet: FavoriteWallet) => {
+      if (!wallet.lastActiveTimestamp) return false;
+      const hoursSinceActive = (Date.now() - wallet.lastActiveTimestamp * 1000) / (1000 * 60 * 60);
+      return hoursSinceActive < 24;
+    }).length;
+  }, [favoriteWallets]);
+
   // Filter and search wallets
   const filteredWallets = useMemo(() => {
     if (!favoriteWallets) return [];
 
     let filtered = favoriteWallets;
+
+    // Apply active filter (last 24h)
+    if (showActiveOnly) {
+      filtered = filtered.filter((wallet: FavoriteWallet) => {
+        if (!wallet.lastActiveTimestamp) return false;
+        const hoursSinceActive = (Date.now() - wallet.lastActiveTimestamp * 1000) / (1000 * 60 * 60);
+        return hoursSinceActive < 24;
+      });
+    }
 
     // Apply collection filter
     if (selectedCollections.length > 0) {
@@ -131,7 +171,7 @@ export default function TrackersPage() {
     }
 
     return filtered;
-  }, [favoriteWallets, selectedCollections, searchQuery]);
+  }, [favoriteWallets, selectedCollections, searchQuery, showActiveOnly]);
 
   const handleRemoveWallet = useCallback(async (walletAddress: string) => {
     try {
@@ -168,6 +208,7 @@ export default function TrackersPage() {
   const clearFilters = () => {
     setSelectedCollections([]);
     setSearchQuery('');
+    setShowActiveOnly(false);
   };
 
   // Loading state
@@ -238,11 +279,88 @@ export default function TrackersPage() {
     <AppShell>
       <TooltipProvider>
         <div className="w-full px-6 py-4 space-y-3">
-          {/* Header Row - Title + Controls on Same Line (Like Discover) */}
+          {/* Header Row - Title + Filters + Controls (Like Discover) */}
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <Bookmark className="h-6 w-6 text-purple-500" />
               <h1 className="text-2xl font-bold">Tracked Wallets</h1>
+
+              {/* Filters - Priority to Active */}
+              <div className="flex items-center gap-2 ml-4">
+                {/* Active Filter (24h) - Priority Position with Visual Flair */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'cursor-pointer transition-all h-8 px-3 text-sm font-medium',
+                        showActiveOnly
+                          ? 'bg-green-50 dark:bg-green-950/30 border-green-500 text-green-700 dark:text-green-400 shadow-sm shadow-green-500/20'
+                          : 'border-green-300 dark:border-green-800 text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-green-950/20 hover:border-green-400'
+                      )}
+                      onClick={() => setShowActiveOnly(!showActiveOnly)}
+                    >
+                      Active (24h)
+                      {showActiveOnly && <X className="ml-1.5 h-3.5 w-3.5" />}
+                      <span className="ml-2 opacity-70">({activeWalletCount})</span>
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Show wallets active in the last 24 hours
+                  </TooltipContent>
+                </Tooltip>
+
+                {/* Collections Dropdown Filter */}
+                {allCollections.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-7 px-2.5 gap-1.5">
+                        <Filter className="h-3.5 w-3.5" />
+                        Collections
+                        {selectedCollections.length > 0 && (
+                          <Badge variant="outline" className="h-5 px-1.5 text-xs ml-1 bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-400">
+                            {selectedCollections.length}
+                          </Badge>
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56">
+                      <DropdownMenuLabel>Filter by collection</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {allCollections.map((collection) => {
+                        const walletCount = collectionCounts.get(collection) || 0;
+
+                        return (
+                          <DropdownMenuCheckboxItem
+                            key={collection}
+                            checked={selectedCollections.includes(collection)}
+                            onCheckedChange={() => toggleCollectionFilter(collection)}
+                            className={cn(
+                              'border-b border-purple-200 dark:border-purple-800',
+                              selectedCollections.includes(collection) && 'font-medium bg-purple-50 dark:bg-purple-950/20'
+                            )}
+                          >
+                            <span className="flex-1">{collection}</span>
+                            <span className="text-xs opacity-60 ml-2">({walletCount})</span>
+                          </DropdownMenuCheckboxItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* Clear Filters Button */}
+                {(selectedCollections.length > 0 || showActiveOnly) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearFilters}
+                    className="h-7 text-xs px-2"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -250,7 +368,7 @@ export default function TrackersPage() {
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search wallets..."
+                  placeholder="Search tracked wallets..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-8 h-9 w-64"
@@ -326,7 +444,7 @@ export default function TrackersPage() {
                               showMetrics={false}
                               showActions={true}
                               isFavorite={true}
-                              onFavoriteToggle={() => handleRemoveWallet(wallet.walletAddress)}
+                              onFavoriteToggle={() => setDeletingWallet(wallet)}
                               onEdit={() => setEditingWallet(wallet)}
                               favoriteData={wallet}
                             />
@@ -334,10 +452,15 @@ export default function TrackersPage() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Badge
-                                    variant="outline"
-                                    className={cn('text-xs', getCollectionColor(wallet.collections[0]))}
+                                    className={cn(
+                                      'text-xs font-medium',
+                                      getCollectionColorFilled(wallet.collections[0])
+                                    )}
                                   >
                                     {wallet.collections[0]}
+                                    {wallet.collections.length > 1 && (
+                                      <span className="ml-1 opacity-80">({wallet.collections.length})</span>
+                                    )}
                                   </Badge>
                                 </TooltipTrigger>
                                 <TooltipContent>
@@ -417,59 +540,6 @@ export default function TrackersPage() {
                 </Card>
               )}
 
-              {/* Filters */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">Filters</CardTitle>
-                    {(selectedCollections.length > 0 || searchQuery) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={clearFilters}
-                        className="h-7 text-xs"
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Collections Filter */}
-                  {allCollections.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                        <label className="text-sm font-medium">Collections</label>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {allCollections.map((collection) => (
-                          <Badge
-                            key={collection}
-                            variant={selectedCollections.includes(collection) ? 'default' : 'outline'}
-                            className={cn(
-                              'cursor-pointer transition-all',
-                              selectedCollections.includes(collection) && getCollectionColor(collection)
-                            )}
-                            onClick={() => toggleCollectionFilter(collection)}
-                          >
-                            {collection}
-                            {selectedCollections.includes(collection) && (
-                              <X className="ml-1 h-3 w-3" />
-                            )}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {allCollections.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No collections yet. Add collections when editing wallets.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
             </div>
           </div>
 
@@ -491,11 +561,48 @@ export default function TrackersPage() {
           <AlertDialog open={!!deletingWallet} onOpenChange={(open) => !open && setDeletingWallet(null)}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Remove tracked wallet?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to remove{' '}
-                  <span className="font-medium">{deletingWallet?.nickname || deletingWallet?.walletAddress}</span>{' '}
-                  from your tracked wallets? This action cannot be undone.
+                <AlertDialogTitle>Remove from Tracked?</AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-3">
+                    <div>
+                      Removing <span className="font-medium">{deletingWallet?.nickname || 'this wallet'}</span> from tracked will delete its metadata.
+                    </div>
+
+                    {/* Show what will be lost */}
+                    {(deletingWallet?.nickname || (deletingWallet?.collections && deletingWallet.collections.length > 0)) && (
+                      <div className="p-3 bg-muted/50 border rounded-md">
+                        <div className="text-sm font-medium mb-2">This will also remove:</div>
+                        <div className="space-y-2">
+                          {deletingWallet?.nickname && (
+                            <div>
+                              <span className="text-xs text-muted-foreground font-medium">Nickname:</span>
+                              <div className="mt-0.5">
+                                <Badge variant="outline" className="text-xs">{deletingWallet.nickname}</Badge>
+                              </div>
+                            </div>
+                          )}
+
+                          {deletingWallet?.collections && deletingWallet.collections.length > 0 && (
+                            <div>
+                              <span className="text-xs text-muted-foreground font-medium">Collections ({deletingWallet.collections.length}):</span>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {deletingWallet.collections.slice(0, 3).map((collection: string) => (
+                                  <Badge key={collection} className={`text-xs font-medium ${getCollectionColorFilled(collection)}`}>
+                                    {collection}
+                                  </Badge>
+                                ))}
+                                {deletingWallet.collections.length > 3 && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    +{deletingWallet.collections.length - 3} more
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

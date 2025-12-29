@@ -52,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { getCollectionColor } from '@/lib/color-utils';
+import { getCollectionColorFilled } from '@/lib/color-utils';
 import { useSearchParams } from 'next/navigation';
 import { useTimeRangeStore } from '@/store/time-range-store';
 
@@ -967,7 +967,7 @@ export default function WalletProfileLayout({
 
     try {
       await fetcher(`/users/me/favorites/${walletAddress}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify({
           nickname: formData.nickname.trim() || undefined,
           collections: formData.collections,
@@ -1095,9 +1095,8 @@ export default function WalletProfileLayout({
                       {currentFavoriteData.collections.map((collection: string) => (
                         <Badge
                           key={collection}
-                          className={`text-xs px-2 py-0.5 ${getCollectionColor(collection)}`}
+                          className={`text-xs px-2 py-0.5 font-medium ${getCollectionColorFilled(collection)}`}
                         >
-                          <FolderOpen className="h-3 w-3 mr-1" />
                           {collection}
                         </Badge>
                       ))}
@@ -1304,7 +1303,7 @@ export default function WalletProfileLayout({
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove from Favorites?</AlertDialogTitle>
+            <AlertDialogTitle>Remove from Tracked?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <div>
@@ -1330,7 +1329,7 @@ export default function WalletProfileLayout({
                           <span className="text-xs text-muted-foreground font-medium">Collections ({currentFavoriteData.collections.length}):</span>
                           <div className="flex flex-wrap gap-1 mt-1">
                             {currentFavoriteData.collections.slice(0, 3).map((collection: string) => (
-                              <Badge key={collection} className={`text-xs ${getCollectionColor(collection)}`}>
+                              <Badge key={collection} className={`text-xs font-medium ${getCollectionColorFilled(collection)}`}>
                                 {collection}
                               </Badge>
                             ))}
