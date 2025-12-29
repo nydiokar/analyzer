@@ -4,13 +4,13 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Bookmark, Trash2, Loader2, Info, Edit2, FolderOpen, Wallet, TrendingUp, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Bookmark, Loader2, Info, FolderOpen, Wallet, TrendingUp, X, Search, Plus, Upload, Download } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
 import { useState, useMemo, useCallback } from 'react';
 import { WalletEditForm } from '@/components/layout/WalletEditForm';
 import { toast } from 'sonner';
-import Link from 'next/link';
 import { FavoriteWallet } from '@/types/api';
 import { cn } from '@/lib/utils';
 import { getCollectionColor } from '@/lib/color-utils';
@@ -38,6 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { WalletBadge } from '@/components/shared/WalletBadge';
 
 // Helper function to format time ago
 function timeAgo(timestamp: number | string | undefined): string {
@@ -69,8 +70,9 @@ function timeAgo(timestamp: number | string | undefined): string {
 export default function TrackersPage() {
   const { favorites: favoriteWallets, error, mutate: mutateFavorites } = useFavorites();
 
-  // Filter state
+  // Filter and search state
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Edit/delete state
   const [editingWallet, setEditingWallet] = useState<FavoriteWallet | null>(null);
@@ -103,17 +105,35 @@ export default function TrackersPage() {
     };
   }, [favoriteWallets]);
 
-  // Filter wallets
+  // Filter and search wallets
   const filteredWallets = useMemo(() => {
     if (!favoriteWallets) return [];
-    if (selectedCollections.length === 0) return favoriteWallets;
 
-    return favoriteWallets.filter((wallet: FavoriteWallet) => {
-      return wallet.collections?.some(c => selectedCollections.includes(c));
-    });
-  }, [favoriteWallets, selectedCollections]);
+    let filtered = favoriteWallets;
 
-  const handleDeleteWallet = useCallback(async (walletAddress: string) => {
+    // Apply collection filter
+    if (selectedCollections.length > 0) {
+      filtered = filtered.filter((wallet: FavoriteWallet) => {
+        return wallet.collections?.some(c => selectedCollections.includes(c));
+      });
+    }
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((wallet: FavoriteWallet) => {
+        return (
+          wallet.walletAddress.toLowerCase().includes(query) ||
+          wallet.nickname?.toLowerCase().includes(query) ||
+          wallet.collections?.some(c => c.toLowerCase().includes(query))
+        );
+      });
+    }
+
+    return filtered;
+  }, [favoriteWallets, selectedCollections, searchQuery]);
+
+  const handleRemoveWallet = useCallback(async (walletAddress: string) => {
     try {
       await fetcher(`/users/me/favorites/${walletAddress}`, {
         method: 'DELETE',
@@ -147,13 +167,14 @@ export default function TrackersPage() {
 
   const clearFilters = () => {
     setSelectedCollections([]);
+    setSearchQuery('');
   };
 
   // Loading state
   if (!favoriteWallets && !error) {
     return (
       <AppShell>
-        <div className="container max-w-7xl mx-auto px-6 py-12">
+        <div className="w-full px-6 py-12">
           <div className="flex items-center justify-center h-64">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
@@ -166,7 +187,7 @@ export default function TrackersPage() {
   if (error) {
     return (
       <AppShell>
-        <div className="container max-w-7xl mx-auto px-6 py-12">
+        <div className="w-full px-6 py-12">
           <Card className="p-12 rounded-xl border-dashed text-center">
             <div className="max-w-md mx-auto">
               <Info className="h-12 w-12 text-red-500 mx-auto mb-4" />
@@ -188,7 +209,7 @@ export default function TrackersPage() {
   if (favoriteWallets.length === 0) {
     return (
       <AppShell>
-        <div className="container max-w-7xl mx-auto px-6 py-12">
+        <div className="w-full px-6 py-12">
           <div className="mb-12">
             <div className="flex items-center gap-3 mb-4">
               <Bookmark className="h-8 w-8 text-purple-500" />
@@ -204,10 +225,7 @@ export default function TrackersPage() {
               <Bookmark className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-xl font-semibold mb-2">No tracked wallets yet</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Start tracking wallets by clicking the star icon on any wallet profile page.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Use the search bar to find and analyze wallets.
+                Start tracking wallets by clicking the star icon on any wallet profile page or in the Discover section.
               </p>
             </div>
           </Card>
@@ -219,16 +237,55 @@ export default function TrackersPage() {
   return (
     <AppShell>
       <TooltipProvider>
-        <div className="container max-w-7xl mx-auto px-6 py-8">
-          {/* Header */}
-          <div className="mb-8">
-            <div className="flex items-center gap-3 mb-2">
-              <Bookmark className="h-7 w-7 text-purple-500" />
-              <h1 className="text-3xl font-bold">Tracked Wallets</h1>
+        <div className="w-full px-6 py-4 space-y-3">
+          {/* Header Row - Title + Controls on Same Line (Like Discover) */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Bookmark className="h-6 w-6 text-purple-500" />
+              <h1 className="text-2xl font-bold">Tracked Wallets</h1>
             </div>
-            <p className="text-sm text-muted-foreground">
-              {filteredWallets.length} of {favoriteWallets.length} wallets
-            </p>
+
+            <div className="flex items-center gap-2">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search wallets..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 h-9 w-64"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9">
+                    <Upload className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Import wallets (coming soon)</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9">
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Export wallets (coming soon)</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" className="h-9 bg-purple-600 hover:bg-purple-700">
+                    <Plus className="h-4 w-4 mr-1.5" />
+                    Add Wallet
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Add wallet by address (coming soon)</TooltipContent>
+              </Tooltip>
+            </div>
           </div>
 
           <div className="flex gap-6">
@@ -239,97 +296,75 @@ export default function TrackersPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-24">Tracked</TableHead>
+                      <TableHead className="w-32">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help">Added</span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            The time this wallet was added to tracked wallets
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableHead>
                       <TableHead>Wallet</TableHead>
-                      <TableHead className="w-28">Last Active</TableHead>
-                      <TableHead className="w-36 text-right">Balance</TableHead>
-                      <TableHead className="w-24 text-right">Actions</TableHead>
+                      <TableHead className="w-32">Last Active</TableHead>
+                      <TableHead className="w-40 text-right">Balance</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredWallets.map((wallet: FavoriteWallet) => {
-                      const primaryCollection = wallet.collections?.[0];
-
-                      return (
-                        <TableRow key={wallet.walletAddress} className="hover:bg-accent/30">
-                          <TableCell className="font-medium text-muted-foreground">
-                            {timeAgo(wallet.createdAt)}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Link
-                                href={`/wallets/${wallet.walletAddress}`}
-                                className="font-medium hover:text-primary transition-colors"
-                              >
-                                {wallet.nickname || `${wallet.walletAddress.slice(0, 4)}...${wallet.walletAddress.slice(-4)}`}
-                              </Link>
-                              {primaryCollection && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge
-                                      variant="outline"
-                                      className={cn('text-xs', getCollectionColor(primaryCollection))}
-                                    >
-                                      {primaryCollection}
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    Collection: {primaryCollection}
-                                    {wallet.collections && wallet.collections.length > 1 && (
-                                      <> (+{wallet.collections.length - 1} more)</>
-                                    )}
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                            </div>
-                            <code className="text-xs text-muted-foreground block mt-1">
-                              {wallet.walletAddress}
-                            </code>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {wallet.lastActiveTimestamp ? timeAgo(wallet.lastActiveTimestamp) : 'Unknown'}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {wallet.currentSolBalance !== undefined ? (
-                              <span>{wallet.currentSolBalance.toFixed(2)} SOL</span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
+                    {filteredWallets.map((wallet: FavoriteWallet) => (
+                      <TableRow key={wallet.walletAddress} className="hover:bg-accent/30">
+                        <TableCell className="font-medium text-muted-foreground text-sm">
+                          {timeAgo(wallet.favoritedAt)} ago
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <WalletBadge
+                              address={wallet.walletAddress}
+                              size="m"
+                              variant="inline"
+                              showMetrics={false}
+                              showActions={true}
+                              isFavorite={true}
+                              onFavoriteToggle={() => handleRemoveWallet(wallet.walletAddress)}
+                              onEdit={() => setEditingWallet(wallet)}
+                              favoriteData={wallet}
+                            />
+                            {wallet.collections && wallet.collections.length > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn('text-xs', getCollectionColor(wallet.collections[0]))}
+                                  >
+                                    {wallet.collections[0]}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {wallet.collections.length > 1 ? (
+                                    <>
+                                      Collections: {wallet.collections.join(', ')}
+                                    </>
+                                  ) : (
+                                    `Collection: ${wallet.collections[0]}`
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
                             )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setEditingWallet(wallet)}
-                                    className="h-8 w-8 p-0"
-                                  >
-                                    <Edit2 className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Edit wallet</TooltipContent>
-                              </Tooltip>
-
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setDeletingWallet(wallet)}
-                                    className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Remove wallet</TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {wallet.lastActiveTimestamp ? timeAgo(wallet.lastActiveTimestamp) + ' ago' : 'Unknown'}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm">
+                          {wallet.currentSolBalance !== undefined ? (
+                            <span>{wallet.currentSolBalance.toFixed(2)} SOL</span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </Card>
@@ -367,7 +402,7 @@ export default function TrackersPage() {
                         <Wallet className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">Total Balance</span>
                       </div>
-                      <span className="font-bold">{portfolioStats.totalBalance.toFixed(2)} SOL</span>
+                      <span className="font-bold font-mono">{portfolioStats.totalBalance.toFixed(2)} SOL</span>
                     </div>
 
                     <div className="pt-3 border-t">
@@ -387,7 +422,7 @@ export default function TrackersPage() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">Filters</CardTitle>
-                    {selectedCollections.length > 0 && (
+                    {(selectedCollections.length > 0 || searchQuery) && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -468,7 +503,7 @@ export default function TrackersPage() {
                 <AlertDialogAction
                   onClick={() => {
                     if (deletingWallet) {
-                      handleDeleteWallet(deletingWallet.walletAddress);
+                      handleRemoveWallet(deletingWallet.walletAddress);
                       setDeletingWallet(null);
                     }
                   }}

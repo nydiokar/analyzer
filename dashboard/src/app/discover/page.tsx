@@ -733,7 +733,7 @@ export default function DiscoverPage() {
           onClose={() => setShowQuickAddModal(false)}
           onSave={handleQuickAddSave}
           walletAddress={currentWallet.address}
-          title="Add to Favorites"
+          title="Add to Tracked"
         />
       )}
 

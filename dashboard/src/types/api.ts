@@ -361,7 +361,7 @@ export interface FavoriteWallet {
   nickname?: string;
   collections?: string[];
   metadata?: any;
-  createdAt: string;
+  favoritedAt: string; // When wallet was added to favorites
   lastViewedAt?: string;
   // Performance metrics (optional)
   pnl?: number;
