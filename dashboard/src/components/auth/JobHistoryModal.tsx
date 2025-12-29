@@ -223,7 +223,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
                     </TableCell>
                     <TableCell>
                       {job.mode === 'token' && job.tokenMint && (
-                        <TokenBadge mint={job.tokenMint} layout="inline" />
+                        <TokenBadge mint={job.tokenMint} variant="inline" />
                       )}
                       {job.name === 'similarity-analysis-flow' && (
                         <span className="text-muted-foreground">
