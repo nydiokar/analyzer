@@ -342,11 +342,22 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
       const inCount = row.original.transferCountIn || 0;
       const outCount = row.original.transferCountOut || 0;
       return (
-        <span className="text-xs text-left block font-mono">
-          <span className="text-emerald-600 dark:text-emerald-400">{inCount}</span>
-          <span className="text-slate-400 dark:text-slate-500">/</span>
-          <span className="text-red-600 dark:text-red-400">{outCount}</span>
-        </span>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-xs text-left block font-mono cursor-help">
+                <span className="text-emerald-600 dark:text-emerald-400">{inCount}</span>
+                <span className="text-slate-400 dark:text-slate-500">/</span>
+                <span className="text-red-600 dark:text-red-400">{outCount}</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              <p className="font-semibold mb-1">Trade Count</p>
+              <p><span className="text-emerald-600">Buys</span> / <span className="text-red-600">Sells</span></p>
+              <p className="text-muted-foreground mt-1">Number of buy and sell transactions</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       );
     },
     meta: { className: 'text-left px-1 w-[50px] max-w-[50px]' },
@@ -375,6 +386,9 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const [allTokens, setAllTokens] = useState<TokenPerformanceDataDto[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Reset counter to force effect re-run even with cached (304) responses
+  const [resetCounter, setResetCounter] = useState(0);
 
   // Intersection observer for loading more
   const { ref: loadMoreRef, inView } = useInView({
@@ -496,24 +510,10 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
     if (page === 1) {
       // First page - reset accumulated data
-      // CRITICAL FIX: Check if allTokens needs updating
-      // This handles the case where SWR returns cached data (same reference)
-      // but the reset effect already cleared allTokens (e.g., when toggling sort A→B→A)
-      const needsUpdate = (
-        // If allTokens is empty but we have data, populate it
-        (allTokens.length === 0 && data.data.length > 0) ||
-        // If lengths don't match, data has changed
-        allTokens.length !== data.data.length ||
-        // If first token is different, data has changed (sort/filter changed)
-        (allTokens.length > 0 && data.data.length > 0 &&
-         allTokens[0]?.tokenAddress !== data.data[0]?.tokenAddress)
-      );
-
-      if (needsUpdate) {
-        setAllTokens(data.data);
-        setHasMore(data.page < data.totalPages);
-        setIsLoadingMore(false);
-      }
+      // Always update on page 1 to ensure fresh data after sort/filter changes
+      setAllTokens(data.data);
+      setHasMore(data.page < data.totalPages);
+      setIsLoadingMore(false);
     } else if (page > 1) {
       // Subsequent pages - append data
       setAllTokens(prev => {
@@ -526,7 +526,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       setHasMore(data.page < data.totalPages);
       setIsLoadingMore(false);
     }
-  }, [data, page, allTokens]);
+  }, [data, page, resetCounter]);
 
   // INFINITE SCROLL: Load more when sentinel becomes visible (simple and clean)
   useEffect(() => {
@@ -543,6 +543,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     setAllTokens([]);
     setHasMore(true);
     setIsLoadingMore(false);
+    setResetCounter(c => c + 1); // Force accumulation effect to re-run
   }, [
     showHoldingsOnly,
     deferredSearchTerm,
