@@ -58,15 +58,15 @@ export interface TokenPerformanceTabProps {
   onMutateReady?: (mutate: () => Promise<void>) => void; // NEW: Expose mutate to parent
 }
 
-// Define PNL filter options
-const PNL_FILTER_OPTIONS = [  
-  { value: 'any', label: 'Any PNL' },
-  { value: '>0', label: 'PNL > 0 SOL' },
-  { value: '<0', label: 'PNL < 0 SOL' },
-  { value: '>10', label: 'PNL > 10 SOL' },
-  { value: '<-10', label: 'PNL < -10 SOL' },
-  { value: '>100', label: 'PNL > 100 SOL' },
-  { value: '<-100', label: 'PNL < -100 SOL' },
+// Define Profit filter options
+const PROFIT_FILTER_OPTIONS = [
+  { value: 'any', label: 'Any Profit' },
+  { value: '>0', label: 'Profit > 0' },
+  { value: '<0', label: 'Loss < 0' },
+  { value: '>10', label: 'Profit > 10' },
+  { value: '<-10', label: 'Loss < -10' },
+  { value: '>100', label: 'Profit > 100' },
+  { value: '<-100', label: 'Loss < -100' },
 ];
 
 // Define spam filter options
@@ -94,25 +94,22 @@ const BACKEND_SORTABLE_IDS = [
 ];
 
 // This definition should be outside the component to prevent re-creation on every render.
-// TanStack Table Column Definitions
+// TanStack Table Column Definitions - REDESIGNED for better UX
 const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   {
-    accessorKey: 'tokenAddress',
+    accessorKey: 'lastTransferTimestamp',
     header: 'Token',
     cell: ({ row }) => {
       const item = row.original;
       const riskLevel = item.spamRiskLevel ?? 'safe';
       const riskScore = item.spamRiskScore ?? 0;
       const primaryReason = item.spamPrimaryReason ?? (riskLevel === 'safe' ? 'Low risk indicators detected' : 'Flagged for review');
-      const totalPnl = item.totalPnlSol ?? 0;
-      const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (totalPnl / item.totalSolSpent) * 100 : (totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0);
-      
+
       return (
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <TokenBadge
             mint={item.tokenAddress}
             metadata={{
-              // Pass ALL fields - inline variant (2-row compact) handles it gracefully
               name: item.name || undefined,
               symbol: item.symbol || undefined,
               imageUrl: item.imageUrl || undefined,
@@ -131,13 +128,13 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
             size="s"
             className="flex-1 min-w-0 overflow-hidden"
           />
-          <div className="flex items-center gap-1 flex-shrink-0">
+          <div className="flex items-center gap-0.5 flex-shrink-0">
             {riskLevel === 'high-risk' ? (
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
-                      <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    <div className="flex items-center justify-center w-4 h-4 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
+                      <AlertTriangle className="h-2.5 w-2.5 text-red-600 dark:text-red-400" />
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
@@ -152,8 +149,8 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
-                      <HelpCircleIcon className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                    <div className="flex items-center justify-center w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
+                      <HelpCircleIcon className="h-2.5 w-2.5 text-blue-600 dark:text-blue-400" />
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
@@ -163,12 +160,8 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
               </TooltipProvider>
             ) : null}
             {(() => {
-                // Optimize holding status calculation - use backend-calculated values
                 const currentBalance = item.currentUiBalance ?? 0;
                 const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
-                
-                // Must have token balance AND USD value >= $1.44 (equivalent to 0.01 SOL at ~$144)
-                // Using USD threshold avoids need for real-time SOL price conversion on frontend
                 const isHeld = currentBalance > 0 && currentValueUsd >= 1.44;
                 const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
                 const isExited = !isHeld && hadTrades;
@@ -177,8 +170,8 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
-                            <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                          <div className="flex items-center justify-center w-4 h-4 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
+                            <Lock className="h-2.5 w-2.5 text-slate-400 dark:text-slate-500" />
                           </div>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
@@ -193,8 +186,8 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <div className="flex items-center justify-center w-5 h-5 rounded bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
-                            <LogOut className="h-3 w-3 text-slate-500 dark:text-slate-400" />
+                          <div className="flex items-center justify-center w-4 h-4 rounded bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+                            <LogOut className="h-2.5 w-2.5 text-slate-500 dark:text-slate-400" />
                           </div>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
@@ -204,120 +197,39 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
                     </TooltipProvider>
                   );
                 }
-                return null; // No icon when no trades and no balance
+                return null;
             })()}
           </div>
         </div>
       );
     },
-    meta: { className: 'sticky left-0 z-10 w-[240px] md:w-[280px] text-left pl-4 pr-3' },
+    meta: { className: 'sticky left-0 z-10 w-[200px] md:w-[220px] text-left pl-3 pr-2' },
   },
   {
     accessorKey: 'totalPnlSol',
-    header: 'Total PNL (SOL)',
-    cell: ({ row }) => formatPnl(row.original.totalPnlSol),
-    meta: { className: 'text-right px-2 min-w-[120px]' },
-  },
-  {
-    accessorFn: (row) => {
-      const totalPnl = row.totalPnlSol ?? 0;
-      const totalSpent = row.totalSolSpent ?? 0;
-      // Match backend sorting logic: when no investment was made, use specific values for proper sorting
-      if (totalSpent === 0) {
-        return totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0;
-      }
-      return (totalPnl / totalSpent) * 100;
-    },
-    id: 'roi',
-    header: 'ROI (%)',
+    header: 'Total Profit',
     cell: ({ row }) => {
       const item = row.original;
       const totalPnl = item.totalPnlSol ?? 0;
       const totalSpent = item.totalSolSpent ?? 0;
-      
-      // No investment made - show N/A instead of confusing 0%
-      if (totalSpent === 0) {
-        return <span className="text-slate-400 dark:text-slate-500 text-sm">N/A</span>;
-      }
-      
-      const roi = (totalPnl / totalSpent) * 100;
-      return roi === Infinity ? <span className="text-emerald-600 dark:text-emerald-400 font-semibold">∞</span> : roi === -Infinity ? <span className="text-red-500 dark:text-red-400 font-semibold">-∞</span> : formatPercentage(roi);
-    },
-    meta: { className: 'text-right px-2 min-w-[90px]' },
-  },
-  {
-    accessorKey: 'totalSolSpent',
-    header: 'SOL Spent',
-    cell: ({ row }) => (
-      <span
-        className={cn(
-          "text-sm font-mono font-medium",
-          (row.original.totalSolSpent ?? 0) > 0
-            ? "text-red-500 dark:text-red-400"
-            : "text-slate-400 dark:text-slate-500"
-        )}
-      >
-        {formatSolAmount(row.original.totalSolSpent)}
-      </span>
-    ),
-    meta: { className: 'text-right px-2 min-w-[100px]' },
-  },
-  {
-    accessorKey: 'totalSolReceived',
-    header: 'SOL Received',
-    cell: ({ row }) => (
-      <span
-        className={cn(
-          "text-sm font-mono font-medium",
-          (row.original.totalSolReceived ?? 0) > 0
-            ? "text-emerald-600 dark:text-emerald-400"
-            : "text-slate-400 dark:text-slate-500"
-        )}
-      >
-        {formatSolAmount(row.original.totalSolReceived)}
-      </span>
-    ),
-    meta: { className: 'text-right px-2 min-w-[110px]' },
-  },
-  {
-    accessorKey: 'currentBalanceDisplay',
-    header: 'Current Balance',
-    cell: ({ row }) => {
-      const item = row.original;
-      if (item.currentUiBalance === 0) {
-        return <span className="text-sm text-slate-400 dark:text-slate-500 font-medium">-</span>;
-      }
+      const roi = totalSpent !== 0 ? (totalPnl / totalSpent) * 100 : null;
+
       return (
-        <div className="text-right">
-          <div className="flex flex-col items-end space-y-0.5">
-            {item.currentHoldingsValueSol ? (
-              <span
-                className={cn(
-                  "text-sm font-mono font-semibold",
-                  item.currentHoldingsValueSol >= 1
-                    ? "text-orange-600 dark:text-orange-400" // Significant position
-                    : item.currentHoldingsValueSol >= 0.1
-                      ? "text-slate-700 dark:text-slate-300" // Medium position
-                      : "text-slate-500 dark:text-slate-400" // Small position
-                )}
-              >
-                {formatSolAmount(item.currentHoldingsValueSol)} SOL
-              </span>
-            ) : (
-              <span className="text-sm text-slate-400 dark:text-slate-500 font-medium">? SOL</span>
-            )}
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              {item.currentUiBalance ? formatTokenDisplayValue(item.currentUiBalance, null) : 'N/A tokens'}
-            </span>
-          </div>
+        <div className="flex flex-col items-end space-y-0.5">
+          {formatPnl(totalPnl)}
+          {roi !== null && isFinite(roi) && (
+            <div className="flex justify-end">
+              {formatPercentage(roi)}
+            </div>
+          )}
         </div>
       );
     },
-    meta: { className: 'text-right px-2 min-w-[130px]' },
+    meta: { className: 'text-right px-1.5 min-w-[100px]' },
   },
   {
     accessorKey: 'netSolProfitLoss',
-    header: 'Realized PNL (SOL)',
+    header: 'Realized',
     cell: ({ row }) => {
       const item = row.original;
       return (
@@ -334,30 +246,26 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
               </div>
             </TooltipTrigger>
             <TooltipContent side="left" className="max-w-xs">
-              <div className="text-sm">
-                <p className="font-semibold mb-1">Realized P&L Explanation:</p>
-                <p>• <strong>Amount:</strong> SOL received from sales - Cost basis of sold tokens - Fees</p>
-                <p>• <strong>Percentage:</strong> Based on total SOL invested</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  This is your actual profit/loss from completed trades
-                </p>
+              <div className="text-xs">
+                <p className="font-semibold mb-1">Realized Profit</p>
+                <p>Profit from completed trades (sold positions)</p>
               </div>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       );
     },
-    meta: { className: 'text-right px-2 min-w-[140px]' },
+    meta: { className: 'text-right px-1.5 min-w-[100px]' },
   },
   {
     accessorKey: 'unrealizedPnlSol',
-    header: 'Unrealized PNL (SOL)',
+    header: 'Unrealized',
     cell: ({ row }) => {
       const item = row.original;
       const hasCurrentHoldings = (item.currentUiBalance ?? 0) > 0;
       const unrealizedPnl = item.unrealizedPnlSol ?? 0;
       const unrealizedPercentage = item.unrealizedPnlPercentage ?? 0;
-      
+
       return (
         <TooltipProvider>
           <Tooltip>
@@ -372,18 +280,12 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
               </div>
             </TooltipTrigger>
             <TooltipContent side="left" className="max-w-xs">
-              <div className="text-sm">
-                <p className="font-semibold mb-1">Unrealized P&L Explanation:</p>
+              <div className="text-xs">
+                <p className="font-semibold mb-1">Unrealized Profit</p>
                 {hasCurrentHoldings ? (
-                  <>
-                    <p>• <strong>Amount:</strong> Current value - Cost basis of remaining holdings</p>
-                    <p>• <strong>Percentage:</strong> Based on cost basis of current holdings only</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Small holdings can show large % changes on tiny amounts
-                    </p>
-                  </>
+                  <p>Profit from current holdings (not sold yet)</p>
                 ) : (
-                  <p>No current holdings - all P&L is realized</p>
+                  <p>No current holdings</p>
                 )}
               </div>
             </TooltipContent>
@@ -391,36 +293,105 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         </TooltipProvider>
       );
     },
-    meta: { className: 'text-right px-2 min-w-[150px]' },
+    meta: { className: 'text-right px-1.5 min-w-[100px]' },
   },
-  // Market Cap column REMOVED - now shown inside TokenBadge inline variant
+  {
+    accessorKey: 'totalSolSpent',
+    header: 'Bought',
+    cell: ({ row }) => (
+      <span
+        className={cn(
+          "text-xs font-mono font-medium",
+          (row.original.totalSolSpent ?? 0) > 0
+            ? "text-red-500 dark:text-red-400"
+            : "text-slate-400 dark:text-slate-500"
+        )}
+      >
+        {formatSolAmount(row.original.totalSolSpent)}
+      </span>
+    ),
+    meta: { className: 'text-right px-1.5 min-w-[80px]' },
+  },
+  {
+    accessorKey: 'totalSolReceived',
+    header: 'Sold',
+    cell: ({ row }) => (
+      <span
+        className={cn(
+          "text-xs font-mono font-medium",
+          (row.original.totalSolReceived ?? 0) > 0
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-slate-400 dark:text-slate-500"
+        )}
+      >
+        {formatSolAmount(row.original.totalSolReceived)}
+      </span>
+    ),
+    meta: { className: 'text-right px-1.5 min-w-[80px]' },
+  },
+  {
+    accessorKey: 'currentBalanceDisplay',
+    header: 'Balance',
+    cell: ({ row }) => {
+      const item = row.original;
+      if (item.currentUiBalance === 0) {
+        return <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">-</span>;
+      }
+      return (
+        <div className="text-right">
+          <div className="flex flex-col items-end space-y-0.5">
+            {item.currentHoldingsValueSol ? (
+              <span
+                className={cn(
+                  "text-xs font-mono font-semibold",
+                  item.currentHoldingsValueSol >= 1
+                    ? "text-orange-600 dark:text-orange-400"
+                    : item.currentHoldingsValueSol >= 0.1
+                      ? "text-slate-700 dark:text-slate-300"
+                      : "text-slate-500 dark:text-slate-400"
+                )}
+              >
+                {formatSolAmount(item.currentHoldingsValueSol)}
+              </span>
+            ) : (
+              <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">?</span>
+            )}
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+              {item.currentUiBalance ? formatTokenDisplayValue(item.currentUiBalance, null) : 'N/A'}
+            </span>
+          </div>
+        </div>
+      );
+    },
+    meta: { className: 'text-right px-1.5 min-w-[90px]' },
+  },
   {
     accessorKey: 'transferCountIn',
     header: 'In',
-    cell: ({ row }) => <span className="text-sm text-center block">{row.original.transferCountIn || 0}</span>,
-    meta: { className: 'text-center px-2 min-w-[50px]' },
+    cell: ({ row }) => <span className="text-xs text-center block">{row.original.transferCountIn || 0}</span>,
+    meta: { className: 'text-center px-1 min-w-[40px]' },
   },
   {
     accessorKey: 'transferCountOut',
     header: 'Out',
-    cell: ({ row }) => <span className="text-sm text-center block">{row.original.transferCountOut || 0}</span>,
-    meta: { className: 'text-center px-2 min-w-[50px]' },
+    cell: ({ row }) => <span className="text-xs text-center block">{row.original.transferCountOut || 0}</span>,
+    meta: { className: 'text-center px-1 min-w-[40px]' },
   },
   {
     accessorKey: 'firstTransferTimestamp',
-    header: 'First Trade',
-    cell: ({ row }) => <span className="text-sm text-center block">{formatDate(row.original.firstTransferTimestamp)}</span>,
-    meta: { className: 'text-center px-2 min-w-[100px]' },
+    header: 'First',
+    cell: ({ row }) => <span className="text-xs text-center block">{formatDate(row.original.firstTransferTimestamp)}</span>,
+    meta: { className: 'text-center px-1.5 min-w-[85px]' },
   },
   {
     accessorKey: 'lastTransferTimestamp',
-    header: 'Last Trade',
-    cell: ({ row }) => <span className="text-sm text-center block">{formatDate(row.original.lastTransferTimestamp)}</span>,
-    meta: { className: 'text-center px-2 min-w-[100px]' },
+    header: 'Last',
+    cell: ({ row }) => <span className="text-xs text-center block">{formatDate(row.original.lastTransferTimestamp)}</span>,
+    meta: { className: 'text-center px-1.5 min-w-[85px]' },
   },
 ];
 
-const ESTIMATED_ROW_HEIGHT = 64;
+const ESTIMATED_ROW_HEIGHT = 42; // Reduced from 64px for denser layout
 
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
   // TIME FILTER DETACHMENT: This tab shows all-time portfolio data (not period-specific)
@@ -488,8 +459,8 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     };
   }, []);
 
-  // TanStack Table state - RESTORED BACKEND SORTING
-  const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
+  // TanStack Table state - Default sort by Last Active (most recent first)
+  const [sortBy, setSortBy] = useState('lastTransferTimestamp');
   const [sortOrder, setSortOrder] = useState('DESC');
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
@@ -814,11 +785,11 @@ const handleSort = useCallback((columnId: string) => {
 
   // PERFORMANCE FIX: Memoize skeleton rendering to prevent unnecessary re-creation
   const renderSkeletonTableRows = useCallback(() => {
-    return Array.from({ length: 3 }).map((_, rowIndex) => (
+    return Array.from({ length: 5 }).map((_, rowIndex) => (
       <TableRow key={`skeleton-row-${rowIndex}`} style={{ height: `${ESTIMATED_ROW_HEIGHT}px` }}>
         {table.getAllColumns().map((column, colIndex) => (
-          <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn((column.columnDef.meta as any)?.className, column.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
-            <Skeleton className={cn("h-5", column.id === 'tokenAddress' ? "w-3/4" : "w-full")} />
+          <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn((column.columnDef.meta as any)?.className, column.id === 'lastTransferTimestamp' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
+            <Skeleton className={cn("h-4", column.id === 'lastTransferTimestamp' ? "w-3/4" : "w-full")} />
           </TableCell>
         ))}
       </TableRow>
@@ -921,8 +892,8 @@ const handleSort = useCallback((columnId: string) => {
               {error && <p className="text-red-500 text-xs mt-1">{error.message}</p>}
             </div>
             <Select value={pnlFilter} onValueChange={handlePnlFilterChange}>
-              <SelectTrigger className="w-[180px] h-9"><SelectValue placeholder="Filter PNL" /></SelectTrigger>
-              <SelectContent>{PNL_FILTER_OPTIONS.map(option => (<SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>))}</SelectContent>
+              <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Filter Profit" /></SelectTrigger>
+              <SelectContent>{PROFIT_FILTER_OPTIONS.map(option => (<SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>))}</SelectContent>
             </Select>
             <Select value={spamFilter} onValueChange={handleSpamFilterChange}>
               <SelectTrigger className="w-[160px] h-9"><SelectValue placeholder="Risk Level" /></SelectTrigger>
@@ -977,12 +948,12 @@ const handleSort = useCallback((columnId: string) => {
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="border-b border-slate-200 dark:border-slate-700">
                 {headerGroup.headers.map((header) => (
-                  <TableHead 
-                    key={header.id} 
+                  <TableHead
+                    key={header.id}
                     className={cn(
-                      "font-semibold text-slate-700 dark:text-slate-300 text-sm h-10",
+                      "font-semibold text-slate-700 dark:text-slate-300 text-xs h-8 py-2",
                       (header.column.columnDef.meta as any)?.className,
-                      header.column.id === 'tokenAddress' && 'sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-sm',
+                      header.column.id === 'lastTransferTimestamp' && 'sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-sm',
                       (() => {
                         const columnId = header.column.id;
                         const fieldMapping: Record<string, string> = {
@@ -1089,14 +1060,14 @@ const formatTokenDisplayValue = (value: number | null | undefined, uiString?: st
 };
 
 const formatPnl = (pnl: number | null | undefined) => {
-  if (pnl === null || pnl === undefined) return <span className="text-sm text-slate-400 dark:text-slate-500">N/A</span>;
+  if (pnl === null || pnl === undefined) return <span className="text-xs text-slate-400 dark:text-slate-500">N/A</span>;
   const value = pnl;
   const textColor = value > 0 ? 'text-emerald-600 dark:text-emerald-400' : value < 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-500 dark:text-slate-400';
   const sign = value > 0 ? '+' : value < 0 ? '-' : '';
   return (
-    <span className={`font-mono ${textColor} text-sm font-semibold`}>
-      <span className="text-sm mr-1 align-middle">{sign}</span>
-      {Math.abs(value).toFixed(2)} SOL
+    <span className={`font-mono ${textColor} text-xs font-semibold`}>
+      <span className="text-xs mr-0.5 align-middle">{sign}</span>
+      {Math.abs(value).toFixed(2)}
     </span>
   );
 };
@@ -1108,11 +1079,11 @@ const formatPnl = (pnl: number | null | undefined) => {
     const bgColor = isPositive ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30';
     const textColor = isPositive ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300';
     const sign = isPositive ? '+' : '-';
-    
+
     // Format large percentages: 1000+ becomes 1k%, etc.
     const absValue = Math.abs(value);
     let formattedValue: string;
-    
+
     if (absValue >= 1000000) {
       formattedValue = (absValue / 1000000).toFixed(1) + 'M';
     } else if (absValue >= 1000) {
@@ -1120,10 +1091,10 @@ const formatPnl = (pnl: number | null | undefined) => {
     } else {
       formattedValue = absValue.toFixed(1);
     }
-    
-    // Return as a small, compact badge/chip
+
+    // Return as a tiny, compact badge/chip
     return (
-      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${bgColor} ${textColor} border border-current/20`}>
+      <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium ${bgColor} ${textColor} border border-current/20`}>
         {sign}{formattedValue}%
       </span>
     );
