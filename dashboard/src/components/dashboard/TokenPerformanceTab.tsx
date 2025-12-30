@@ -25,12 +25,13 @@ import {
   ColumnFiltersState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { 
+import {
   InfoIcon,
   ArrowUpRight,
   ArrowDownRight,
   HelpCircle as HelpCircleIcon,
-
+  ChevronUp,
+  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   Loader2,
@@ -103,10 +104,14 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
       const item = row.original;
       const riskLevel = item.spamRiskLevel ?? 'safe';
       const riskScore = item.spamRiskScore ?? 0;
-      const primaryReason = item.spamPrimaryReason ?? (riskLevel === 'safe' ? 'Low risk indicators detected' : 'Flagged for review');
+      const currentBalance = item.currentUiBalance ?? 0;
+      const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
+      const isHeld = currentBalance > 0 && currentValueUsd >= 1.44;
+      const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
+      const isExited = !isHeld && hadTrades;
 
       return (
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1 min-w-0">
           <TokenBadge
             mint={item.tokenAddress}
             metadata={{
@@ -129,81 +134,54 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
             className="flex-1 min-w-0 overflow-hidden"
           />
           <div className="flex items-center gap-0.5 flex-shrink-0">
-            {riskLevel === 'high-risk' ? (
+            {riskLevel === 'high-risk' && (
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="flex items-center justify-center w-4 h-4 rounded-full bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
-                      <AlertTriangle className="h-2.5 w-2.5 text-red-600 dark:text-red-400" />
+                    <div className="flex items-center justify-center w-3 h-3 rounded-full bg-red-100 dark:bg-red-900/40">
+                      <AlertTriangle className="h-2 w-2 text-red-600 dark:text-red-400" />
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-48 bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                    <div className="space-y-1">
-                      <p className="text-red-400 dark:text-red-600 font-semibold">Risk ({riskScore}%)</p>
-                      <p>{primaryReason}</p>
-                    </div>
+                  <TooltipContent side="top" className="text-xs">
+                    <p className="text-red-400 font-semibold">Risk {riskScore}%</p>
+                    <p>{item.spamPrimaryReason || 'High risk token'}</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-            ) : (!item.name || !item.symbol || item.name === 'Unknown Token') && riskLevel === 'safe' ? (
+            )}
+            {isHeld && (
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="flex items-center justify-center w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800">
-                      <HelpCircleIcon className="h-2.5 w-2.5 text-blue-600 dark:text-blue-400" />
+                    <div className="flex items-center justify-center w-3 h-3 rounded bg-slate-200 dark:bg-slate-700">
+                      <Lock className="h-1.5 w-1.5 text-slate-600 dark:text-slate-400" />
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                    <p>Unknown token</p>
+                  <TooltipContent side="top" className="text-xs">
+                    <p>Currently held</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-            ) : null}
-            {(() => {
-                const currentBalance = item.currentUiBalance ?? 0;
-                const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
-                const isHeld = currentBalance > 0 && currentValueUsd >= 1.44;
-                const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
-                const isExited = !isHeld && hadTrades;
-                if (isHeld) {
-                  return (
-                    <TooltipProvider delayDuration={300}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex items-center justify-center w-4 h-4 rounded bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50">
-                            <Lock className="h-2.5 w-2.5 text-slate-400 dark:text-slate-500" />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                          <p>Currently held</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  );
-                }
-                if (isExited) {
-                  return (
-                    <TooltipProvider delayDuration={300}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex items-center justify-center w-4 h-4 rounded bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
-                            <LogOut className="h-2.5 w-2.5 text-slate-500 dark:text-slate-400" />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="bg-slate-900 dark:bg-slate-100 border border-slate-700 dark:border-slate-300 text-white dark:text-slate-900 text-xs font-medium">
-                          <p>Position exited</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  );
-                }
-                return null;
-            })()}
+            )}
+            {isExited && (
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center justify-center w-3 h-3 rounded bg-slate-200 dark:bg-slate-700">
+                      <LogOut className="h-1.5 w-1.5 text-slate-600 dark:text-slate-400" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    <p>Position exited</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </div>
         </div>
       );
     },
-    meta: { className: 'sticky left-0 z-10 w-[200px] md:w-[220px] text-left pl-3 pr-2' },
+    meta: { className: 'sticky left-0 z-10 w-[180px] text-left pl-2 pr-1' },
   },
   {
     accessorKey: 'totalPnlSol',
@@ -215,17 +193,17 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
       const roi = totalSpent !== 0 ? (totalPnl / totalSpent) * 100 : null;
 
       return (
-        <div className="flex flex-col items-end space-y-0.5">
+        <div className="flex flex-col items-start space-y-0">
           {formatPnl(totalPnl)}
           {roi !== null && isFinite(roi) && (
-            <div className="flex justify-end">
+            <div className="flex justify-start">
               {formatPercentage(roi)}
             </div>
           )}
         </div>
       );
     },
-    meta: { className: 'text-right px-1.5 min-w-[100px]' },
+    meta: { className: 'text-left px-1 min-w-[70px]' },
   },
   {
     accessorKey: 'netSolProfitLoss',
@@ -236,26 +214,30 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex flex-col items-end space-y-0.5 cursor-help">
+              <div className="flex flex-col items-start space-y-0 cursor-help">
                 {formatPnl(item.netSolProfitLoss)}
                 {item.realizedPnlPercentage !== null && item.realizedPnlPercentage !== undefined && (
-                  <div className="flex justify-end">
+                  <div className="flex justify-start">
                     {formatPercentage(item.realizedPnlPercentage)}
                   </div>
                 )}
               </div>
             </TooltipTrigger>
             <TooltipContent side="left" className="max-w-xs">
-              <div className="text-xs">
-                <p className="font-semibold mb-1">Realized Profit</p>
-                <p>Profit from completed trades (sold positions)</p>
+              <div className="text-sm">
+                <p className="font-semibold mb-1">Realized P&L Explanation:</p>
+                <p>• <strong>Amount:</strong> SOL received from sales - Cost basis of sold tokens - Fees</p>
+                <p>• <strong>Percentage:</strong> Based on total SOL invested</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  This is your actual profit/loss from completed trades
+                </p>
               </div>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       );
     },
-    meta: { className: 'text-right px-1.5 min-w-[100px]' },
+    meta: { className: 'text-left px-1 min-w-[65px]' },
   },
   {
     accessorKey: 'unrealizedPnlSol',
@@ -263,29 +245,33 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
     cell: ({ row }) => {
       const item = row.original;
       const hasCurrentHoldings = (item.currentUiBalance ?? 0) > 0;
-      const unrealizedPnl = item.unrealizedPnlSol ?? 0;
-      const unrealizedPercentage = item.unrealizedPnlPercentage ?? 0;
 
       return (
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex flex-col items-end space-y-0.5 cursor-help">
-                {formatPnl(unrealizedPnl)}
+              <div className="flex flex-col items-start space-y-0 cursor-help">
+                {formatPnl(item.unrealizedPnlSol ?? 0)}
                 {item.unrealizedPnlPercentage !== null && item.unrealizedPnlPercentage !== undefined && (
-                  <div className="flex justify-end">
-                    {formatPercentage(unrealizedPercentage)}
+                  <div className="flex justify-start">
+                    {formatPercentage(item.unrealizedPnlPercentage)}
                   </div>
                 )}
               </div>
             </TooltipTrigger>
             <TooltipContent side="left" className="max-w-xs">
-              <div className="text-xs">
-                <p className="font-semibold mb-1">Unrealized Profit</p>
+              <div className="text-sm">
+                <p className="font-semibold mb-1">Unrealized P&L Explanation:</p>
                 {hasCurrentHoldings ? (
-                  <p>Profit from current holdings (not sold yet)</p>
+                  <>
+                    <p>• <strong>Amount:</strong> Current value - Cost basis of remaining holdings</p>
+                    <p>• <strong>Percentage:</strong> Based on cost basis of current holdings only</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Small holdings can show large % changes on tiny amounts
+                    </p>
+                  </>
                 ) : (
-                  <p>No current holdings</p>
+                  <p>No current holdings - all P&L is realized</p>
                 )}
               </div>
             </TooltipContent>
@@ -293,41 +279,27 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         </TooltipProvider>
       );
     },
-    meta: { className: 'text-right px-1.5 min-w-[100px]' },
+    meta: { className: 'text-left px-1 min-w-[75px]' },
   },
   {
     accessorKey: 'totalSolSpent',
     header: 'Bought',
     cell: ({ row }) => (
-      <span
-        className={cn(
-          "text-xs font-mono font-medium",
-          (row.original.totalSolSpent ?? 0) > 0
-            ? "text-red-500 dark:text-red-400"
-            : "text-slate-400 dark:text-slate-500"
-        )}
-      >
-        {formatSolAmount(row.original.totalSolSpent)}
+      <span className="text-xs font-mono text-slate-700 dark:text-slate-300">
+        {formatSolAmount(row.original.totalSolSpent)} SOL
       </span>
     ),
-    meta: { className: 'text-right px-1.5 min-w-[80px]' },
+    meta: { className: 'text-left px-1 min-w-[60px]' },
   },
   {
     accessorKey: 'totalSolReceived',
     header: 'Sold',
     cell: ({ row }) => (
-      <span
-        className={cn(
-          "text-xs font-mono font-medium",
-          (row.original.totalSolReceived ?? 0) > 0
-            ? "text-emerald-600 dark:text-emerald-400"
-            : "text-slate-400 dark:text-slate-500"
-        )}
-      >
-        {formatSolAmount(row.original.totalSolReceived)}
+      <span className="text-xs font-mono text-slate-700 dark:text-slate-300">
+        {formatSolAmount(row.original.totalSolReceived)} SOL
       </span>
     ),
-    meta: { className: 'text-right px-1.5 min-w-[80px]' },
+    meta: { className: 'text-left px-1 min-w-[60px]' },
   },
   {
     accessorKey: 'currentBalanceDisplay',
@@ -335,57 +307,59 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
     cell: ({ row }) => {
       const item = row.original;
       if (item.currentUiBalance === 0) {
-        return <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">-</span>;
+        return <span className="text-xs text-slate-400 dark:text-slate-500">-</span>;
       }
       return (
-        <div className="text-right">
-          <div className="flex flex-col items-end space-y-0.5">
-            {item.currentHoldingsValueSol ? (
-              <span
-                className={cn(
-                  "text-xs font-mono font-semibold",
-                  item.currentHoldingsValueSol >= 1
-                    ? "text-orange-600 dark:text-orange-400"
-                    : item.currentHoldingsValueSol >= 0.1
-                      ? "text-slate-700 dark:text-slate-300"
-                      : "text-slate-500 dark:text-slate-400"
-                )}
-              >
-                {formatSolAmount(item.currentHoldingsValueSol)}
-              </span>
-            ) : (
-              <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">?</span>
-            )}
-            <span className="text-[10px] text-slate-500 dark:text-slate-400">
-              {item.currentUiBalance ? formatTokenDisplayValue(item.currentUiBalance, null) : 'N/A'}
+        <div className="flex flex-col items-start space-y-0">
+          {item.currentHoldingsValueSol ? (
+            <span
+              className={cn(
+                "text-xs font-mono font-semibold",
+                item.currentHoldingsValueSol >= 1
+                  ? "text-orange-600 dark:text-orange-400" // Significant position
+                  : item.currentHoldingsValueSol >= 0.1
+                    ? "text-slate-700 dark:text-slate-300" // Medium position
+                    : "text-slate-500 dark:text-slate-400" // Small position
+              )}
+            >
+              {formatSolAmount(item.currentHoldingsValueSol)} SOL
             </span>
-          </div>
+          ) : (
+            <span className="text-xs text-slate-400 dark:text-slate-500">?</span>
+          )}
+          <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[60px]">
+            {item.currentUiBalance ? formatTokenDisplayValue(item.currentUiBalance, null) : 'N/A'}
+          </span>
         </div>
       );
     },
-    meta: { className: 'text-right px-1.5 min-w-[90px]' },
+    meta: { className: 'text-left px-1 min-w-[60px]' },
   },
   {
     accessorKey: 'transferCountIn',
-    header: 'In',
-    cell: ({ row }) => <span className="text-xs text-center block">{row.original.transferCountIn || 0}</span>,
-    meta: { className: 'text-center px-1 min-w-[40px]' },
-  },
-  {
-    accessorKey: 'transferCountOut',
-    header: 'Out',
-    cell: ({ row }) => <span className="text-xs text-center block">{row.original.transferCountOut || 0}</span>,
-    meta: { className: 'text-center px-1 min-w-[40px]' },
+    header: 'Trades',
+    cell: ({ row }) => {
+      const inCount = row.original.transferCountIn || 0;
+      const outCount = row.original.transferCountOut || 0;
+      return (
+        <span className="text-xs text-left block font-mono">
+          <span className="text-emerald-600 dark:text-emerald-400">{inCount}</span>
+          <span className="text-slate-400 dark:text-slate-500">/</span>
+          <span className="text-red-600 dark:text-red-400">{outCount}</span>
+        </span>
+      );
+    },
+    meta: { className: 'text-left px-1 min-w-[42px]' },
   },
   {
     accessorKey: 'firstTransferTimestamp',
     header: 'First Seen',
     cell: ({ row }) => <span className="text-xs text-center block">{formatDate(row.original.firstTransferTimestamp)}</span>,
-    meta: { className: 'text-center px-1.5 min-w-[90px]' },
+    meta: { className: 'text-center px-1 min-w-[75px]' },
   },
 ];
 
-const ESTIMATED_ROW_HEIGHT = 42; // Reduced from 64px for denser layout
+const ESTIMATED_ROW_HEIGHT = 36; // Ultra-compact for maximum density
 
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
   // TIME FILTER DETACHMENT: This tab shows all-time portfolio data (not period-specific)
@@ -990,13 +964,29 @@ const handleSort = useCallback((columnId: string) => {
                         const backendField = fieldMapping[columnId] || columnId;
                         if (!BACKEND_SORTABLE_IDS.includes(backendField)) return null;
 
-                          return (
-                            <span>
-                              {sortBy === backendField && sortOrder === 'ASC' ? <ArrowUpRight className="h-3.5 w-3.5" /> :
-                               sortBy === backendField && sortOrder === 'DESC' ? <ArrowDownRight className="h-3.5 w-3.5" /> : null}
-                            </span>
-                          );
-                        })()}
+                        const isActiveSortColumn = sortBy === backendField;
+
+                        return (
+                          <div className="flex flex-col items-center">
+                            <ChevronUp
+                              className={cn(
+                                "h-3 w-3",
+                                isActiveSortColumn && sortOrder === 'ASC'
+                                  ? "text-slate-900 dark:text-slate-100"
+                                  : "text-slate-500 dark:text-slate-400"
+                              )}
+                            />
+                            <ChevronDown
+                              className={cn(
+                                "h-3 w-3 -mt-1.5",
+                                isActiveSortColumn && sortOrder === 'DESC'
+                                  ? "text-slate-900 dark:text-slate-100"
+                                  : "text-slate-500 dark:text-slate-400"
+                              )}
+                            />
+                          </div>
+                        );
+                      })()}
                     </div>
                   </TableHead>
                 ))}
@@ -1056,12 +1046,12 @@ const formatTokenDisplayValue = (value: number | null | undefined, uiString?: st
 const formatPnl = (pnl: number | null | undefined) => {
   if (pnl === null || pnl === undefined) return <span className="text-xs text-slate-400 dark:text-slate-500">N/A</span>;
   const value = pnl;
-  const textColor = value > 0 ? 'text-emerald-600 dark:text-emerald-400' : value < 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-500 dark:text-slate-400';
+  const textColor = value > 0 ? 'text-emerald-600 dark:text-emerald-400' : value < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400';
   const sign = value > 0 ? '+' : value < 0 ? '-' : '';
   return (
     <span className={`font-mono ${textColor} text-xs font-semibold`}>
       <span className="text-xs mr-0.5 align-middle">{sign}</span>
-      {Math.abs(value).toFixed(2)}
+      {Math.abs(value).toFixed(2)} SOL
     </span>
   );
 };
@@ -1086,9 +1076,9 @@ const formatPnl = (pnl: number | null | undefined) => {
       formattedValue = absValue.toFixed(1);
     }
 
-    // Return as a tiny, compact badge/chip
+    // Return as tiny colored badge
     return (
-      <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium ${bgColor} ${textColor} border border-current/20`}>
+      <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium ${bgColor} ${textColor}`}>
         {sign}{formattedValue}%
       </span>
     );
