@@ -315,6 +315,9 @@ export interface TokenPerformanceDataDto {
   spamRiskScore?: number | null;
   spamRiskReasons?: string[] | null;
   spamPrimaryReason?: string | null;
+
+  // Activity in filtered time period
+  hasActivityInPeriod?: boolean | null;
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts

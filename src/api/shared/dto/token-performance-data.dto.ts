@@ -175,5 +175,13 @@ export class TokenPerformanceDataDto {
   })
   spamPrimaryReason?: string | null;
 
+  @ApiProperty({
+    description: 'Whether this token had any trading activity (buy/sell) in the filtered time period. If no time filter is applied, this will be true for all tokens with transactions.',
+    type: Boolean,
+    nullable: true,
+    required: false,
+  })
+  hasActivityInPeriod?: boolean | null;
+
   // Note: The 'id' field from AnalysisResult is typically not exposed in API responses unless specifically needed.
 }
