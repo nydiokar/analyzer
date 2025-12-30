@@ -8,8 +8,10 @@ import { Input } from '@/components/ui/input';
 import { Bookmark, Loader2, Info, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Check } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { WalletEditForm } from '@/components/layout/WalletEditForm';
+import QuickAddForm from '@/components/layout/QuickAddForm';
 import { toast } from 'sonner';
 import { FavoriteWallet } from '@/types/api';
 import { cn } from '@/lib/utils';
@@ -77,15 +79,18 @@ function timeAgo(timestamp: number | string | undefined): string {
 
 export default function TrackersPage() {
   const { favorites: favoriteWallets, error, mutate: mutateFavorites } = useFavorites();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter and search state
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showActiveOnly, setShowActiveOnly] = useState(false);
 
-  // Edit/delete state
+  // Edit/delete/add state
   const [editingWallet, setEditingWallet] = useState<FavoriteWallet | null>(null);
   const [deletingWallet, setDeletingWallet] = useState<FavoriteWallet | null>(null);
+  const [showAddWalletModal, setShowAddWalletModal] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   // Extract unique collections and count wallets per collection
   const allCollections = useMemo(() => {
@@ -199,6 +204,26 @@ export default function TrackersPage() {
     }
   }, [mutateFavorites]);
 
+  const handleAddWallet = useCallback(async (formData: { walletAddress: string; nickname: string; collections: string[] }) => {
+    try {
+      await fetcher('/users/me/favorites', {
+        method: 'POST',
+        body: JSON.stringify({
+          walletAddress: formData.walletAddress,
+          nickname: formData.nickname.trim() || undefined,
+          collections: formData.collections,
+        }),
+      });
+      mutateFavorites();
+      toast.success('Wallet added', {
+        description: `${formData.nickname || 'Wallet'} added to tracked wallets.`,
+      });
+      setShowAddWalletModal(false);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to add wallet');
+    }
+  }, [mutateFavorites]);
+
   const toggleCollectionFilter = (collection: string) => {
     setSelectedCollections(prev =>
       prev.includes(collection) ? prev.filter(c => c !== collection) : [...prev, collection]
@@ -210,6 +235,151 @@ export default function TrackersPage() {
     setSearchQuery('');
     setShowActiveOnly(false);
   };
+
+  const handleExportWallets = useCallback(() => {
+    if (!favoriteWallets || favoriteWallets.length === 0) {
+      toast.error('No wallets to export');
+      return;
+    }
+
+    // Prepare CSV data
+    const csvHeader = 'walletAddress,nickname,collections\n';
+    const csvRows = favoriteWallets.map((wallet: FavoriteWallet) => {
+      const address = wallet.walletAddress;
+      const nickname = wallet.nickname || '';
+      const collections = (wallet.collections || []).join(';');
+      // Escape fields that contain commas or quotes
+      const escapedNickname = nickname.includes(',') || nickname.includes('"') ? `"${nickname.replace(/"/g, '""')}"` : nickname;
+      return `${address},${escapedNickname},${collections}`;
+    }).join('\n');
+
+    const csvContent = csvHeader + csvRows;
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `tracked-wallets-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success('Wallets exported', {
+      description: `${favoriteWallets.length} wallets exported to CSV.`,
+    });
+  }, [favoriteWallets]);
+
+  const handleImportWallets = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+
+    setIsImporting(true);
+
+    try {
+      const text = await file.text();
+      const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+
+      // Skip header
+      const dataLines = lines.slice(1);
+
+      if (dataLines.length === 0) {
+        toast.error('No wallets found in CSV file');
+        return;
+      }
+
+      // Parse CSV rows
+      const walletsToImport: { walletAddress: string; nickname: string; collections: string[] }[] = [];
+      const errors: string[] = [];
+
+      for (let i = 0; i < dataLines.length; i++) {
+        const line = dataLines[i];
+        // Simple CSV parsing (handles basic cases)
+        const parts = line.split(',');
+
+        if (parts.length < 1) {
+          errors.push(`Row ${i + 2}: Invalid format`);
+          continue;
+        }
+
+        const walletAddress = parts[0].trim();
+        const nickname = parts[1]?.trim().replace(/^"|"$/g, '') || ''; // Remove quotes if present
+        const collectionsStr = parts.slice(2).join(',').trim(); // Handle collections that might have commas
+        const collections = collectionsStr ? collectionsStr.split(';').map(c => c.trim()).filter(c => c) : [];
+
+        // Validate wallet address
+        if (!isValidSolanaAddress(walletAddress)) {
+          errors.push(`Row ${i + 2}: Invalid wallet address "${walletAddress}"`);
+          continue;
+        }
+
+        // Check for duplicates in current tracked wallets
+        const isDuplicate = favoriteWallets?.some((w: FavoriteWallet) => w.walletAddress === walletAddress);
+        if (isDuplicate) {
+          continue; // Skip duplicates silently
+        }
+
+        walletsToImport.push({ walletAddress, nickname, collections });
+      }
+
+      if (walletsToImport.length === 0) {
+        if (errors.length > 0) {
+          toast.error('Import failed', {
+            description: `No valid wallets to import. ${errors.length} errors found.`,
+          });
+        } else {
+          toast.info('All wallets already tracked', {
+            description: 'No new wallets to import.',
+          });
+        }
+        return;
+      }
+
+      // Batch import wallets
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const wallet of walletsToImport) {
+        try {
+          await fetcher('/users/me/favorites', {
+            method: 'POST',
+            body: JSON.stringify(wallet),
+          });
+          successCount++;
+        } catch (error: any) {
+          failCount++;
+          errors.push(`Failed to add ${wallet.walletAddress}: ${error.message}`);
+        }
+      }
+
+      // Refresh favorites list
+      await mutateFavorites();
+
+      // Show result toast
+      if (successCount > 0) {
+        toast.success('Wallets imported', {
+          description: `${successCount} wallets imported successfully${failCount > 0 ? `, ${failCount} failed` : ''}.`,
+        });
+      } else {
+        toast.error('Import failed', {
+          description: `Failed to import wallets. ${errors.length} errors found.`,
+        });
+      }
+
+    } catch (error: any) {
+      toast.error('Import failed', {
+        description: error.message || 'Failed to parse CSV file.',
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  }, [favoriteWallets, mutateFavorites]);
 
   // Loading state
   if (!favoriteWallets && !error) {
@@ -378,31 +548,51 @@ export default function TrackersPage() {
               {/* Action Buttons */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isImporting}
+                  >
                     <Upload className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Import wallets (coming soon)</TooltipContent>
+                <TooltipContent>Import wallets from CSV</TooltipContent>
               </Tooltip>
+
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleImportWallets}
+                className="hidden"
+              />
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={handleExportWallets}
+                    disabled={!favoriteWallets || favoriteWallets.length === 0}
+                  >
                     <Download className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Export wallets (coming soon)</TooltipContent>
+                <TooltipContent>Export tracked wallets to CSV</TooltipContent>
               </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button size="sm" className="h-9 bg-purple-600 hover:bg-purple-700">
-                    <Plus className="h-4 w-4 mr-1.5" />
-                    Add Wallet
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Add wallet by address (coming soon)</TooltipContent>
-              </Tooltip>
+              <Button
+                size="sm"
+                className="h-9 bg-purple-600 hover:bg-purple-700"
+                onClick={() => setShowAddWalletModal(true)}
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Add Wallet
+              </Button>
             </div>
           </div>
 
@@ -542,6 +732,14 @@ export default function TrackersPage() {
 
             </div>
           </div>
+
+          {/* Add Wallet Modal */}
+          <QuickAddForm
+            isOpen={showAddWalletModal}
+            onClose={() => setShowAddWalletModal(false)}
+            onSave={handleAddWallet}
+            title="Add Wallet to Tracked"
+          />
 
           {/* Edit Modal */}
           {editingWallet && (

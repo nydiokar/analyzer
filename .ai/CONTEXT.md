@@ -48,6 +48,12 @@ See `documentation/01. ARCHITECTURE_DECISIONS.md` for all major decisions
 - ✅ Filters in header: Active (24h) auto-filter + collection filters (consistent with Discover page)
 - ✅ Shows all wallets by default (no filters active on load)
 
+**Completed (2025-12-30)**:
+1. ✅ Add wallet button wired with modal (address input + nickname + collections)
+2. ✅ Import/Export functionality using CSV format
+   - Export: Downloads CSV with walletAddress, nickname, collections (semicolon-separated)
+   - Import: Validates addresses, skips duplicates, batch imports with success toast 
+
 **Files Changed**:
 - Backend: `user-favorites.service.ts`, `favorite-wallet-detail.dto.ts`, `user-favorites.controller.ts`
 - Frontend: `trackers/page.tsx`, `QuickAddForm.tsx`, `WalletEditForm.tsx`, `WalletProfileLayout.tsx`, `discover/page.tsx`

@@ -3,14 +3,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X, ArrowRight } from 'lucide-react';
+import { Plus, X, ArrowRight, AlertCircle } from 'lucide-react';
 import { getCollectionColorFilled } from '@/lib/color-utils';
+import { isValidSolanaAddress } from '@/lib/solana-utils';
 
 interface QuickAddFormProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (formData: { nickname: string; collections: string[] }) => Promise<void>;
-  walletAddress: string;
+  onSave: (formData: { walletAddress: string; nickname: string; collections: string[] }) => Promise<void>;
+  walletAddress?: string; // Optional - if not provided, user inputs it
   title: string;
 }
 
@@ -23,6 +24,7 @@ const QuickAddForm = React.memo(({
   title
 }: QuickAddFormProps) => {
   const [formData, setFormData] = useState({
+    walletAddress: walletAddress || '',
     nickname: '',
     collections: [] as string[],
     newCollection: ''
@@ -30,23 +32,43 @@ const QuickAddForm = React.memo(({
 
   const [isSaving, setIsSaving] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
+
+  // Whether wallet address should be editable (when not provided as prop)
+  const isAddressEditable = !walletAddress;
 
   // Reset form when dialog opens
   React.useEffect(() => {
     if (isOpen) {
       setFormData({
+        walletAddress: walletAddress || '',
         nickname: '',
         collections: [],
         newCollection: ''
       });
       setDuplicateWarning(false);
+      setAddressError(null);
     }
-  }, [isOpen]);
+  }, [isOpen, walletAddress]);
 
   const handleSave = useCallback(async () => {
+    // Validate wallet address if editable
+    if (isAddressEditable) {
+      const trimmedAddress = formData.walletAddress.trim();
+      if (!trimmedAddress) {
+        setAddressError('Wallet address is required');
+        return;
+      }
+      if (!isValidSolanaAddress(trimmedAddress)) {
+        setAddressError('Invalid Solana address format');
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
       await onSave({
+        walletAddress: formData.walletAddress.trim(),
         nickname: formData.nickname,
         collections: formData.collections
       });
@@ -56,7 +78,7 @@ const QuickAddForm = React.memo(({
     } finally {
       setIsSaving(false);
     }
-  }, [formData, onSave, onClose]);
+  }, [formData, onSave, onClose, isAddressEditable]);
 
   const addCollection = useCallback(() => {
     const trimmed = formData.newCollection.trim();
@@ -82,6 +104,12 @@ const QuickAddForm = React.memo(({
       collections: prev.collections.filter(collection => collection !== collectionToRemove)
     }));
   }, []);
+
+  const handleWalletAddressChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData(prev => ({ ...prev, walletAddress: e.target.value }));
+    // Clear error when user types
+    if (addressError) setAddressError(null);
+  }, [addressError]);
 
   const handleNicknameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({ ...prev, nickname: e.target.value }));
@@ -110,12 +138,29 @@ const QuickAddForm = React.memo(({
         </DialogHeader>
 
         <div className="space-y-3 py-2">
-          {/* Wallet Address (read-only display) */}
+          {/* Wallet Address - Input or Read-only */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Wallet Address</label>
-            <code className="block text-xs bg-muted px-3 py-2 rounded-md truncate">
-              {walletAddress}
-            </code>
+            {isAddressEditable ? (
+              <div className="space-y-1">
+                <Input
+                  placeholder="Enter Solana wallet address..."
+                  value={formData.walletAddress}
+                  onChange={handleWalletAddressChange}
+                  className={`h-9 font-mono text-xs ${addressError ? 'border-red-500' : ''}`}
+                />
+                {addressError && (
+                  <div className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-500">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    <span>{addressError}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <code className="block text-xs bg-muted px-3 py-2 rounded-md truncate">
+                {walletAddress}
+              </code>
+            )}
           </div>
 
           {/* Nickname */}
