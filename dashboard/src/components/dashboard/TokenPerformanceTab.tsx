@@ -2,11 +2,11 @@
 
 import React, { useState, useMemo, useCallback, useEffect, memo, startTransition, useDeferredValue, useRef } from 'react';
 import useSWR from 'swr';
-import { useTimeRangeStore } from '@/store/time-range-store'; 
+import { useTimeRangeStore } from '@/store/time-range-store';
 import { Card } from "@/components/ui/card";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
-import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationLink, PaginationNext } from "../../components/ui/pagination"; 
 import { Input } from "@/components/ui/input";
+import { useInView } from 'react-intersection-observer';
 import { 
   Select,
   SelectContent,
@@ -425,10 +425,20 @@ const ESTIMATED_ROW_HEIGHT = 64;
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const [page, setPage] = useState(1);
-  // Default to a smaller page size to reduce initial render cost and improve interactivity
-  const [pageSize, setPageSize] = useState(10);
+  // CHANGED: Increased page size for infinite scroll (load 20 at a time)
+  const [pageSize] = useState(20);
   const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  // Infinite scroll: accumulate all loaded data
+  const [allTokens, setAllTokens] = useState<TokenPerformanceDataDto[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+
+  // Intersection observer for loading more
+  const { ref: loadMoreRef, inView } = useInView({
+    threshold: 0,
+    rootMargin: '200px',
+  });
 
   const [pnlFilter, setPnlFilter] = useState<string>('any');
   const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false);
@@ -543,6 +553,48 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     }
   );
 
+  // INFINITE SCROLL: Accumulate data when new pages load
+  useEffect(() => {
+    if (data && page === 1) {
+      // First page - reset accumulated data
+      setAllTokens(data.data);
+      setHasMore(data.page < data.totalPages);
+    } else if (data && page > 1) {
+      // Subsequent pages - append data
+      setAllTokens(prev => {
+        // Deduplicate by tokenAddress
+        const existing = new Set(prev.map(t => t.tokenAddress));
+        const newTokens = data.data.filter(t => !existing.has(t.tokenAddress));
+        return [...prev, ...newTokens];
+      });
+      setHasMore(data.page < data.totalPages);
+    }
+  }, [data, page]);
+
+  // INFINITE SCROLL: Load more when sentinel becomes visible
+  useEffect(() => {
+    if (inView && hasMore && !isLoadingData && !isAnalyzingGlobal) {
+      setPage(prev => prev + 1);
+    }
+  }, [inView, hasMore, isLoadingData, isAnalyzingGlobal]);
+
+  // INFINITE SCROLL: Reset when filters/sorting changes
+  useEffect(() => {
+    setPage(1);
+    setAllTokens([]);
+    setHasMore(true);
+  }, [
+    startDate,
+    endDate,
+    showHoldingsOnly,
+    deferredSearchTerm,
+    deferredSpamFilter,
+    deferredPnlFilter,
+    minTradesToggle,
+    sortBy,
+    sortOrder
+  ]);
+
   useEffect(() => {
     if (!swrKey) {
       if (!isAnalyzingGlobal) {
@@ -592,7 +644,8 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     return data ?? null;
   }, [data, fallbackResponse, isUsingFallback]);
 
-  const tableData = useMemo(() => effectiveResponse?.data || [], [effectiveResponse]);
+  // INFINITE SCROLL: Use accumulated tokens instead of paged data
+  const tableData = useMemo(() => allTokens, [allTokens]);
   const hasTableData = tableData.length > 0;
   const totalItems = effectiveResponse?.total ?? 0;
   const totalPages = effectiveResponse?.totalPages ?? 0;
@@ -737,12 +790,7 @@ const handleSort = useCallback((columnId: string) => {
     });
   }, []);
 
-  const handlePageChange = useCallback((newPage: number) => {
-    const maxPage = totalPages || Math.ceil(totalItems / pageSize) || 1;
-    if (newPage > 0 && newPage <= maxPage) {
-      setPage(newPage);
-    }
-  }, [totalPages, totalItems, pageSize]);
+  // REMOVED: handlePageChange - no longer needed with infinite scroll
 
   const handleRefresh = useCallback(async () => {
     if (isLoadingData) return;
@@ -855,18 +903,7 @@ const handleSort = useCallback((columnId: string) => {
     );
   };
   
-  const renderPaginationItems = () => {
-    if (!totalPages) return null;
-    const items = [];
-    const maxPagesToShow = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
-    let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
-    if (endPage - startPage + 1 < maxPagesToShow) { startPage = Math.max(1, endPage - maxPagesToShow + 1); }
-    if (startPage > 1) { items.push(<PaginationItem key="start-ellipsis"><PaginationLink onClick={() => handlePageChange(startPage - 1)} className="h-7 w-7 p-0 text-xs">...</PaginationLink></PaginationItem>); }
-    for (let i = startPage; i <= endPage; i++) { items.push(<PaginationItem key={i}><PaginationLink onClick={() => handlePageChange(i)} isActive={currentPage === i} className="h-7 min-w-7 px-1 text-xs">{i}</PaginationLink></PaginationItem>); }
-    if (endPage < totalPages) { items.push(<PaginationItem key="end-ellipsis"><PaginationLink onClick={() => handlePageChange(endPage + 1)} className="h-7 w-7 p-0 text-xs">...</PaginationLink></PaginationItem>); }
-    return items;
-  };
+  // REMOVED: Pagination UI - replaced with infinite scroll
 
   if (!walletAddress) {
     return (
@@ -1010,34 +1047,23 @@ const handleSort = useCallback((columnId: string) => {
         </Table>
       </div>
 
-      {totalPages > 0 && tableData.length > 0 && (
-        <div className="px-4 py-3 border-t flex-shrink-0">
-          <div className="flex items-center justify-between gap-2 w-full">
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">Per Page:</span>
-              <Select value={pageSize.toString()} onValueChange={(value) => startTransition(() => { setPageSize(Number(value)); setPage(1); })}>
-                <SelectTrigger className="w-16 h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="10">10</SelectItem>
-                  <SelectItem value="20">20</SelectItem>
-                  <SelectItem value="50">50</SelectItem>
-                  <SelectItem value="100">100</SelectItem>
-                </SelectContent>
-              </Select>
+      {/* INFINITE SCROLL: Loading indicator and sentinel */}
+      {tableData.length > 0 && (
+        <div className="px-4 py-4 border-t flex-shrink-0">
+          {hasMore ? (
+            <div ref={loadMoreRef} className="flex items-center justify-center py-4">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading more tokens...</span>
             </div>
-            <div className="flex-1 flex justify-center">
-              <Pagination>
-                <PaginationContent className="gap-1">
-                  <PaginationItem><UiButton variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handlePageChange(1)} disabled={currentPage === 1} aria-label="Go to first page"><ChevronsLeft className="h-3 w-3" /></UiButton></PaginationItem>
-                  <PaginationItem><PaginationPrevious onClick={() => handlePageChange(currentPage - 1)} className={cn("h-7 px-2 text-xs", currentPage === 1 && "pointer-events-none opacity-50")} /></PaginationItem>
-                  {renderPaginationItems()}
-                  <PaginationItem><PaginationNext onClick={() => handlePageChange(currentPage + 1)} className={cn("h-7 px-2 text-xs", (totalPages === 0 || currentPage === totalPages) && "pointer-events-none opacity-50")} /></PaginationItem>
-                  <PaginationItem><UiButton variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handlePageChange(totalPages)} disabled={totalPages === 0 || currentPage === totalPages} aria-label="Go to last page"><ChevronsRight className="h-3 w-3" /></UiButton></PaginationItem>
-                </PaginationContent>
-              </Pagination>
+          ) : (
+            <div className="flex items-center justify-center py-2">
+              <span className="text-sm text-muted-foreground">
+                {tableData.length === totalItems
+                  ? `All ${totalItems} tokens loaded`
+                  : `Showing ${tableData.length} tokens`}
+              </span>
             </div>
-            <div className="flex-shrink-0 w-16"></div>
-          </div>
+          )}
         </div>
       )}
     </Card>
