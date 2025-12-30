@@ -24,7 +24,6 @@ import {
   ColumnDef,
   ColumnFiltersState,
 } from '@tanstack/react-table';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   InfoIcon,
   ArrowUpRight,
@@ -370,8 +369,6 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   },
 ];
 
-const ESTIMATED_ROW_HEIGHT = 36; // Ultra-compact for maximum density
-
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
   // TIME FILTER DETACHMENT: This tab shows all-time portfolio data (not period-specific)
   // Time filter is only used in PnL/Stats tabs for period analysis
@@ -409,7 +406,6 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const [fallbackResponse, setFallbackResponse] = useState<PaginatedTokenPerformanceResponse | null>(null);
   const [isUsingFallback, setIsUsingFallback] = useState(false);
   const initialLoadNotifiedRef = useRef(false);
-  const tableRef = useRef<HTMLTableElement | null>(null);
 
   // Reset ALL state when wallet changes
   useEffect(() => {
@@ -425,21 +421,6 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     setHasMore(true);
     setIsLoadingMore(false);
   }, [walletAddress]);
-
-  // Set up container for virtualization
-  useEffect(() => {
-    const wrapper = tableRef.current?.parentElement as HTMLDivElement | null;
-    if (!wrapper) {
-      return;
-    }
-    
-    // Set styles for proper virtualization
-    wrapper.style.overflow = 'auto';
-    
-    return () => {
-      // Cleanup if needed
-    };
-  }, []);
 
   // TanStack Table state - Default sort by Last Active (most recent first)
   const [sortBy, setSortBy] = useState('lastTransferTimestamp');
@@ -649,23 +630,11 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   // TanStack Table instance - SYNCED WITH BACKEND SORTING
   const table = useReactTable(tableConfig);
   const tableRows = table.getRowModel().rows;
-  const rowVirtualizer = useVirtualizer({
-    count: tableRows.length,
-    getScrollElement: () => tableRef.current?.parentElement ?? null,
-    estimateSize: () => ESTIMATED_ROW_HEIGHT,
-    overscan: 10,
-    scrollPaddingStart: 8,
-    scrollPaddingEnd: 8,
-  });
 
-  // INFINITE SCROLL: Only reset scroll position when page resets to 1 (filter/wallet changes)
-  // Do NOT reset on every page increment - that breaks infinite scroll
+  // INFINITE SCROLL: Scroll to top when page resets to 1 (filter/wallet changes)
   useEffect(() => {
     if (page === 1) {
-      const wrapper = tableRef.current?.parentElement;
-      if (wrapper) {
-        wrapper.scrollTop = 0;
-      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [page]);
 
@@ -770,7 +739,7 @@ const handleSort = useCallback((columnId: string) => {
   // PERFORMANCE FIX: Memoize skeleton rendering to prevent unnecessary re-creation
   const renderSkeletonTableRows = useCallback(() => {
     return Array.from({ length: 5 }).map((_, rowIndex) => (
-      <TableRow key={`skeleton-row-${rowIndex}`} style={{ height: `${ESTIMATED_ROW_HEIGHT}px` }}>
+      <TableRow key={`skeleton-row-${rowIndex}`}>
         {table.getAllColumns().map((column, colIndex) => (
           <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn("overflow-hidden", (column.columnDef.meta as any)?.className, column.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
             <Skeleton className={cn("h-4", column.id === 'tokenAddress' ? "w-3/4" : "w-full")} />
@@ -807,48 +776,27 @@ const handleSort = useCallback((columnId: string) => {
       return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data?" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
     }
 
-    const virtualRows = rowVirtualizer.getVirtualItems();
-    const totalColumns = table.getAllColumns().length;
-    const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
-    const paddingBottom =
-      virtualRows.length > 0
-        ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
-        : 0;
-
+    // Simple rendering without virtualization - page scroll handles everything
     return (
       <TableBody>
-        {paddingTop > 0 && (
-          <TableRow style={{ height: `${paddingTop}px` }} aria-hidden="true">
-            <TableCell colSpan={totalColumns} />
+        {tableRows.map((row) => (
+          <TableRow
+            key={row.id}
+            className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
+          >
+            {row.getVisibleCells().map((cell) => (
+              <TableCell
+                key={cell.id}
+                className={cn(
+                  "overflow-hidden",
+                  (cell.column.columnDef.meta as any)?.className
+                )}
+              >
+                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              </TableCell>
+            ))}
           </TableRow>
-        )}
-        {virtualRows.map((virtualRow) => {
-          const row = tableRows[virtualRow.index];
-          return (
-            <TableRow
-              key={virtualRow.key}
-              data-index={virtualRow.index}
-              className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
-            >
-              {row.getVisibleCells().map((cell) => (
-                <TableCell
-                  key={cell.id}
-                  className={cn(
-                    "overflow-hidden",
-                    (cell.column.columnDef.meta as any)?.className
-                  )}
-                >
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </TableCell>
-              ))}
-            </TableRow>
-          );
-        })}
-        {paddingBottom > 0 && (
-          <TableRow style={{ height: `${paddingBottom}px` }} aria-hidden="true">
-            <TableCell colSpan={totalColumns} />
-          </TableRow>
-        )}
+        ))}
       </TableBody>
     );
   };
@@ -927,10 +875,10 @@ const handleSort = useCallback((columnId: string) => {
           </div>
         </div>
       </div>
-      
-      {/* Table - INFINITE SCROLL: Sentinel MUST be inside this scrollable container */}
-      <div className="overflow-auto bg-white dark:bg-slate-900 flex-1 min-h-0 max-h-[600px] scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        <Table ref={tableRef} className="min-w-full table-fixed">
+
+      {/* Table - flows naturally with page scroll, no max-height */}
+      <div className="bg-white dark:bg-slate-900">
+        <Table className="min-w-full table-fixed">
           <TableHeader className="bg-slate-50 dark:bg-slate-800">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="border-b border-slate-200 dark:border-slate-700">
