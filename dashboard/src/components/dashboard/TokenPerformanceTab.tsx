@@ -108,7 +108,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
       const roi = item.totalSolSpent && item.totalSolSpent !== 0 ? (totalPnl / item.totalSolSpent) * 100 : (totalPnl > 0 ? Infinity : totalPnl < 0 ? -Infinity : 0);
       
       return (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <TokenBadge
             mint={item.tokenAddress}
             metadata={{
@@ -129,7 +129,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
             }}
             variant="inline"
             size="s"
-            className="flex-1 min-w-0"
+            className="flex-1 min-w-0 overflow-hidden"
           />
           <div className="flex items-center gap-1 flex-shrink-0">
             {riskLevel === 'high-risk' ? (
@@ -423,7 +423,9 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
 const ESTIMATED_ROW_HEIGHT = 64;
 
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
-  const { startDate, endDate } = useTimeRangeStore();
+  // TIME FILTER DETACHMENT: This tab shows all-time portfolio data (not period-specific)
+  // Time filter is only used in PnL/Stats tabs for period analysis
+  // const { startDate, endDate } = useTimeRangeStore(); // REMOVED
   const [page, setPage] = useState(1);
   // CHANGED: Increased page size for infinite scroll (load 20 at a time)
   const [pageSize] = useState(20);
@@ -433,11 +435,12 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   // Infinite scroll: accumulate all loaded data
   const [allTokens, setAllTokens] = useState<TokenPerformanceDataDto[]>([]);
   const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // Intersection observer for loading more
   const { ref: loadMoreRef, inView } = useInView({
     threshold: 0,
-    rootMargin: '200px',
+    rootMargin: '200px', // Start loading 200px before reaching the sentinel
   });
 
   const [pnlFilter, setPnlFilter] = useState<string>('any');
@@ -455,12 +458,19 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const initialLoadNotifiedRef = useRef(false);
   const tableRef = useRef<HTMLTableElement | null>(null);
 
+  // Reset ALL state when wallet changes
   useEffect(() => {
     fallbackCacheRef.current.clear();
     setFallbackResponse(null);
     setIsUsingFallback(false);
     setEnrichmentMessage(null);
     initialLoadNotifiedRef.current = false;
+
+    // CRITICAL: Reset infinite scroll state on wallet change
+    setPage(1);
+    setAllTokens([]);
+    setHasMore(true);
+    setIsLoadingMore(false);
   }, [walletAddress]);
 
   // Set up container for virtualization
@@ -499,12 +509,13 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
         params.append('sortBy', sortBy);
         params.append('sortOrder', sortOrder);
     }
-    if (startDate) params.append('startDate', startDate.toISOString());
-    if (endDate) params.append('endDate', endDate.toISOString());
+    // TIME FILTER DETACHMENT: Don't include in cache key to prevent refetch on time change
+    // Time filter is only used by backend for hasActivityInPeriod field
+    // User must manually refresh to apply new time filter
     if (showHoldingsOnly) params.append('showOnlyHoldings', 'true');
     if (deferredSearchTerm) params.append('searchTerm', deferredSearchTerm);
     if (deferredSpamFilter !== 'all') params.append('spamFilter', deferredSpamFilter);
-    
+
     if (deferredPnlFilter !== 'any') {
       const operatorMatch = deferredPnlFilter.match(/^([><])/);
       const valueMatch = deferredPnlFilter.match(/-?[\d.]+$/);
@@ -523,43 +534,33 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   }
 
   const { data, error, isLoading: isLoadingData, mutate: localMutate } = useSWR<PaginatedTokenPerformanceResponse, Error>(
-    // Do not fetch data while enrichment is happening.
     swrKey ? [swrKey] : null,
-    ([url]: [string]) => {
-      // console.log(`[TokenPerformance] 🔄 Fetching data:`, {
-      //   url,
-      //   startDate: startDate?.toISOString(),
-      //   endDate: endDate?.toISOString(),
-      //   timestamp: new Date().toISOString()
-      // });
-      return fetcher(url);
-    },
+    ([url]: [string]) => fetcher(url),
     {
       revalidateOnFocus: false,
-      keepPreviousData: false, // CHANGED: Don't show stale data - prevents showing old images
-      dedupingInterval: 3000, // CHANGED: 3 seconds - faster cache updates after enrichment
-      revalidateOnReconnect: false, // Prevent revalidation on network reconnect
-      revalidateIfStale: true, // CHANGED: Allow revalidation when cache is stale
-      onSuccess: (data) => {
-        // console.log(`[TokenPerformance] ✅ Data received:`, {
-        //   tokenCount: data?.data?.length || 0,
-        //   hasImages: data?.data?.filter(t => t.onchainImageUrl || t.imageUrl).length || 0,
-        //   timestamp: new Date().toISOString()
-        // });
-      },
+      keepPreviousData: false,
+      dedupingInterval: 3000,
+      revalidateOnReconnect: false,
+      revalidateIfStale: true,
       onError: (err) => {
         console.error(`[TokenPerformance] ❌ Fetch error:`, err);
+        // CRITICAL: Reset loading state on error
+        setIsLoadingMore(false);
       }
     }
   );
 
   // INFINITE SCROLL: Accumulate data when new pages load
+  // Virtualization handles rendering performance, so we can keep more tokens
   useEffect(() => {
-    if (data && page === 1) {
+    if (!data) return;
+
+    if (page === 1) {
       // First page - reset accumulated data
       setAllTokens(data.data);
       setHasMore(data.page < data.totalPages);
-    } else if (data && page > 1) {
+      setIsLoadingMore(false);
+    } else if (page > 1) {
       // Subsequent pages - append data
       setAllTokens(prev => {
         // Deduplicate by tokenAddress
@@ -567,25 +568,28 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
         const newTokens = data.data.filter(t => !existing.has(t.tokenAddress));
         return [...prev, ...newTokens];
       });
+      // Stop if no more pages
       setHasMore(data.page < data.totalPages);
+      setIsLoadingMore(false);
     }
   }, [data, page]);
 
-  // INFINITE SCROLL: Load more when sentinel becomes visible
+  // INFINITE SCROLL: Load more when sentinel becomes visible (simple and clean)
   useEffect(() => {
-    if (inView && hasMore && !isLoadingData && !isAnalyzingGlobal) {
+    if (inView && hasMore && !isLoadingMore && !isLoadingData) {
+      setIsLoadingMore(true);
       setPage(prev => prev + 1);
     }
-  }, [inView, hasMore, isLoadingData, isAnalyzingGlobal]);
+  }, [inView, hasMore, isLoadingMore, isLoadingData]);
 
   // INFINITE SCROLL: Reset when filters/sorting changes
+  // TIME FILTER DETACHMENT: Removed startDate/endDate - only refresh button reloads data
   useEffect(() => {
     setPage(1);
     setAllTokens([]);
     setHasMore(true);
+    setIsLoadingMore(false);
   }, [
-    startDate,
-    endDate,
     showHoldingsOnly,
     deferredSearchTerm,
     deferredSpamFilter,
@@ -699,12 +703,16 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     scrollPaddingEnd: 8,
   });
 
+  // INFINITE SCROLL: Only reset scroll position when page resets to 1 (filter/wallet changes)
+  // Do NOT reset on every page increment - that breaks infinite scroll
   useEffect(() => {
-    const wrapper = tableRef.current?.parentElement;
-    if (wrapper) {
-      wrapper.scrollTop = 0;
+    if (page === 1) {
+      const wrapper = tableRef.current?.parentElement;
+      if (wrapper) {
+        wrapper.scrollTop = 0;
+      }
     }
-  }, [currentPage, tableRows.length]);
+  }, [page]);
 
   // Effect for initial load and wallet change - REMOVED automatic enrichment trigger
   // Enrichment should only be triggered manually or by the dashboard analysis job
@@ -731,28 +739,18 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   }, [isAnalyzingGlobal, swrKey, localMutate]);
 
   // PERFORMANCE FIX: Memoize handlers to prevent unnecessary re-renders
+  // Just set state - the reset effect handles page reset and data clearing
   const handlePnlFilterChange = useCallback((newValue: string) => {
-    startTransition(() => {
-      setPnlFilter(newValue);
-      setPage(1);
-    });
+    setPnlFilter(newValue);
   }, []);
 
   const handleMinTradesToggleChange = useCallback((checked: boolean) => {
-    startTransition(() => {
-      setMinTradesToggle(checked);
-      setPage(1);
-    });
+    setMinTradesToggle(checked);
   }, []);
 
   const handleShowHoldingsToggleChange = useCallback((checked: boolean) => {
-    startTransition(() => {
-      setShowHoldingsOnly(checked);
-      setPage(1);
-      // Force refresh when toggling holdings filter to ensure fresh data
-      localMutate();
-    });
-  }, [localMutate]);
+    setShowHoldingsOnly(checked);
+  }, []);
 
   // RESTORED: handleSort function to sync TanStack Table with backend sorting
 const handleSort = useCallback((columnId: string) => {
@@ -775,19 +773,11 @@ const handleSort = useCallback((columnId: string) => {
   }, [sortBy, sortOrder]);
   
   const handleSearchTermChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // Immediate update for responsive typing experience
     setSearchTerm(e.target.value);
-    // Page reset in transition to avoid blocking
-    startTransition(() => {
-      setPage(1);
-    });
   }, []);
 
   const handleSpamFilterChange = useCallback((newValue: string) => {
-    startTransition(() => {
-      setSpamFilter(newValue);
-      setPage(1);
-    });
+    setSpamFilter(newValue);
   }, []);
 
   // REMOVED: handlePageChange - no longer needed with infinite scroll
@@ -796,10 +786,14 @@ const handleSort = useCallback((columnId: string) => {
     if (isLoadingData) return;
     setIsRefreshing(true);
     try {
-      // console.log('[TokenPerformance] 🔄 Manual refresh triggered');
+      // CRITICAL: Reset to page 1, but keep showing old data until new data arrives
+      setPage(1);
+      setHasMore(true);
+      setIsLoadingMore(false);
+      // Don't clear allTokens - let the data effect update it when new data arrives
+
       // Refresh the main data only
       await localMutate();
-      // console.log('[TokenPerformance] ✅ Manual refresh complete');
       // Enrichment is now handled by the dashboard analysis job or manual trigger
     } finally {
       setIsRefreshing(false);
@@ -852,10 +846,8 @@ const handleSort = useCallback((columnId: string) => {
       if (isAnalyzingGlobal) {
         return <TableBody>{renderSkeletonTableRows()}</TableBody>;
       }
-      const hasDateFilter = startDate || endDate;
-      const emptyMessage = hasDateFilter
-        ? "No token activity or missing token data. Try expanding the date range, selecting 'All' or hit Refresh."
-        : "No token activity detected for the selected filters.";
+      // TIME FILTER DETACHMENT: Simplified message - no time filter in this tab
+      const emptyMessage = "No token activity detected for this wallet. Try adjusting filters or hit Refresh.";
 
       return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data?" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
     }
@@ -924,15 +916,9 @@ const handleSort = useCallback((columnId: string) => {
       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-shrink-0 rounded-t-xl">
         <div className="flex flex-row items-center justify-between gap-3 flex-wrap">
           <div className="flex flex-row items-center gap-3 flex-wrap">
-            <div className="space-y-4">
+            <div>
               <Input id="token-search" name="token-search" placeholder="Search address..." value={searchTerm} onChange={handleSearchTermChange} className="max-w-xs h-9" />
-              {error && <p className="text-red-500">{error.message}</p>}
-              {isLoadingData && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>{enrichmentMessage}</span>
-                </div>
-              )}
+              {error && <p className="text-red-500 text-xs mt-1">{error.message}</p>}
             </div>
             <Select value={pnlFilter} onValueChange={handlePnlFilterChange}>
               <SelectTrigger className="w-[180px] h-9"><SelectValue placeholder="Filter PNL" /></SelectTrigger>
@@ -968,15 +954,24 @@ const handleSort = useCallback((columnId: string) => {
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <UiButton variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
-              <RefreshCwIcon className={cn("mr-2 h-4 w-4", isRefreshing && "animate-spin")} />Refresh
-            </UiButton>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <UiButton variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+                    <RefreshCwIcon className={cn("mr-2 h-4 w-4", isRefreshing && "animate-spin")} />Refresh
+                  </UiButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Reload token performance data from the server</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
       </div>
       
-      {/* Table */}
-      <div className="overflow-auto bg-white dark:bg-slate-900 flex-1 min-h-0">
+      {/* Table - INFINITE SCROLL: Sentinel MUST be inside this scrollable container */}
+      <div className="overflow-auto bg-white dark:bg-slate-900 flex-1 min-h-0 max-h-[600px] scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <Table ref={tableRef} className="min-w-full">
           <TableHeader className="bg-slate-50 dark:bg-slate-800">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -1045,27 +1040,27 @@ const handleSort = useCallback((columnId: string) => {
           </TableHeader>
           {renderTableContent()}
         </Table>
-      </div>
 
-      {/* INFINITE SCROLL: Loading indicator and sentinel */}
-      {tableData.length > 0 && (
-        <div className="px-4 py-4 border-t flex-shrink-0">
-          {hasMore ? (
-            <div ref={loadMoreRef} className="flex items-center justify-center py-4">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-sm text-muted-foreground">Loading more tokens...</span>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-2">
-              <span className="text-sm text-muted-foreground">
-                {tableData.length === totalItems
-                  ? `All ${totalItems} tokens loaded`
-                  : `Showing ${tableData.length} tokens`}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
+        {/* INFINITE SCROLL: Subtle load more indicator */}
+        {hasMore && tableData.length > 0 && (
+          <div
+            ref={loadMoreRef}
+            className="flex items-center justify-center py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30"
+          >
+            {isLoadingMore ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Loading more tokens...</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+                <span>Scroll for more</span>
+                <span className="animate-pulse">•••</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </Card>
     </div>
   );
