@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
+import { IsIn, IsInt, IsNumber, IsOptional, Max, Min } from 'class-validator';
 
 export class DiscoverWalletsQueryDto {
   @ApiProperty({
@@ -97,6 +97,28 @@ export class DiscoverWalletsQueryDto {
   @IsNumber()
   @Min(0)
   minFreshnessHours?: number;
+
+  @ApiProperty({
+    required: false,
+    description: 'Minimum trading velocity score (0-100).',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  minVelocity?: number;
+
+  @ApiProperty({
+    required: false,
+    description: 'Maximum trading velocity score (0-100).',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  maxVelocity?: number;
 }
 
 export class DiscoverWalletMetricsDto {

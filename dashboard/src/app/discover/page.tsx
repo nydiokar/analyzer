@@ -41,6 +41,8 @@ import QuickAddForm from "@/components/layout/QuickAddForm";
 import { getSpeedColor, getFlowColor } from "@/lib/strategy-colors";
 import EmptyState from "@/components/shared/EmptyState";
 import { ErrorMessage, getErrorMessage } from "@/lib/error-messages";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 const PAGE_SIZE = 24;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -83,6 +85,9 @@ const holdBiasOptions = [
   { value: 'medium', label: 'Medium (12–72h)' },
   { value: 'long', label: 'Long (>72h)' },
 ] as const;
+
+const speedLegend = speedOptions.filter((option) => option.value !== "any");
+const flowLegend = flowOptions.filter((option) => option.value !== "any");
 
 const formatSOL = (val: number): string => {
   const absVal = Math.abs(val);
@@ -143,6 +148,7 @@ export default function DiscoverPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [velocityRange, setVelocityRange] = useState<[number, number]>([0, 100]);
 
   // Get user's favorite wallets
   const { favorites, mutate: mutateFavorites } = useFavorites();
@@ -160,8 +166,8 @@ export default function DiscoverPage() {
 
   const cacheKey = useMemo(
     () =>
-      `discover:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${PAGE_SIZE}`,
-    [sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias],
+      `discover:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${velocityRange[0]}-${velocityRange[1]}:${PAGE_SIZE}`,
+    [sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias, velocityRange],
   );
 
   const pageCount = useMemo(
@@ -185,6 +191,8 @@ export default function DiscoverPage() {
       if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
       if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern);
       if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
+      if (velocityRange[0] > 0) params.set('minVelocity', String(velocityRange[0]));
+      if (velocityRange[1] < 100) params.set('maxVelocity', String(velocityRange[1]));
 
       const data = (await fetcher(`/discover/wallets?${params.toString()}`)) as DiscoverWalletsResponse;
       setWallets(data.items || []);
@@ -196,7 +204,7 @@ export default function DiscoverPage() {
       setLoading(false);
       setIsUpdating(false);
     }
-  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern]);
+  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern, velocityRange]);
 
   useEffect(() => {
     const cached = readCache(cacheKey);
@@ -275,6 +283,7 @@ export default function DiscoverPage() {
     setHoldBias('any');
     setMinTradeCount('');
     setMinUniqueTokens('');
+    setVelocityRange([0, 100]);
     setPage(1);
     setActivePreset(null);
   };
@@ -306,7 +315,50 @@ export default function DiscoverPage() {
     setPage(1);
   };
 
+  const speedDistribution = useMemo(() => {
+    if (!wallets.length) return [];
+    const totalWallets = wallets.length;
+    const counts = new Map<string, number>();
+    wallets.forEach((wallet) => {
+      const category = wallet.metrics.speedCategory || "UNCLASSIFIED";
+      counts.set(category, (counts.get(category) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([category, count]) => ({
+      category,
+      count,
+      percentage: totalWallets > 0 ? (count / totalWallets) * 100 : 0,
+    }));
+  }, [wallets]);
+
+  const flowDistribution = useMemo(() => {
+    if (!wallets.length) return [];
+    const totalWallets = wallets.length;
+    const counts = new Map<string, number>();
+    wallets.forEach((wallet) => {
+      const pattern = wallet.metrics.flowPattern || "UNCLASSIFIED";
+      counts.set(pattern, (counts.get(pattern) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([pattern, count]) => ({
+      pattern,
+      count,
+      percentage: totalWallets > 0 ? (count / totalWallets) * 100 : 0,
+    }));
+  }, [wallets]);
+
+  const getCategoryStat = (category: string) =>
+    speedDistribution.find((item) => item.category === category) || { count: 0, percentage: 0 };
+
+  const getFlowStat = (pattern: string) =>
+    flowDistribution.find((item) => item.pattern === pattern) || { count: 0, percentage: 0 };
+
+  const velocityMin = velocityRange[0];
+  const velocityMax = velocityRange[1];
+  const velocityFillLeft = `${velocityMin}%`;
+  const velocityFillRight = `${100 - velocityMax}%`;
+  const toBgClass = (colorClass: string) => colorClass.replace("text-", "bg-");
+
   const showTableSkeleton = (loading || isUpdating) && !error;
+  const showSidebarSkeleton = showTableSkeleton && wallets.length === 0;
 
   const tableHeader = (
     <thead className="border-b bg-gradient-to-r from-muted/60 to-muted/40">
@@ -652,115 +704,283 @@ export default function DiscoverPage() {
           </TooltipProvider>
         </div>
 
-        {error && (
-          <Alert variant="destructive">
-            <AlertTitle>{error.title}</AlertTitle>
-            <AlertDescription className="flex flex-wrap items-center gap-2">
-              <span className="text-sm">{error.description}</span>
-              <Button size="sm" variant="secondary" onClick={fetchWallets} disabled={isUpdating}>
-                {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                <span className="ml-2">Retry</span>
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
+        <div className="flex gap-6">
+          <div className="flex-1 space-y-3">
+            {error && (
+              <Alert variant="destructive">
+                <AlertTitle>{error.title}</AlertTitle>
+                <AlertDescription className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm">{error.description}</span>
+                  <Button size="sm" variant="secondary" onClick={fetchWallets} disabled={isUpdating}>
+                    {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                    <span className="ml-2">Retry</span>
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
 
-        {/* Table */}
-        {showTableSkeleton && (
-          <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                {tableHeader}
-                <tbody>
-                  {Array.from({ length: 8 }).map((_, index) => (
-                    <tr key={`skeleton-row-${index}`} className="border-b last:border-0">
-                      <td className="px-3 py-2.5">
-                        <Skeleton className="h-5 w-40" />
-                        <Skeleton className="h-3 w-24 mt-2" />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Skeleton className="h-5 w-24" />
-                        <Skeleton className="h-3 w-20 mt-2" />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-3 w-56 mt-2" />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Skeleton className="h-4 w-28" />
-                        <Skeleton className="h-3 w-56 mt-2" />
-                      </td>
-                      <td className="px-3 py-2.5 text-right">
-                        <Skeleton className="h-4 w-14 ml-auto" />
-                        <Skeleton className="h-3 w-16 mt-2 ml-auto" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+            {showTableSkeleton && (
+              <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    {tableHeader}
+                    <tbody>
+                      {Array.from({ length: 8 }).map((_, index) => (
+                        <tr key={`skeleton-row-${index}`} className="border-b last:border-0">
+                          <td className="px-3 py-2.5">
+                            <Skeleton className="h-5 w-40" />
+                            <Skeleton className="h-3 w-24 mt-2" />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Skeleton className="h-5 w-24" />
+                            <Skeleton className="h-3 w-20 mt-2" />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Skeleton className="h-4 w-32" />
+                            <Skeleton className="h-3 w-56 mt-2" />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Skeleton className="h-4 w-28" />
+                            <Skeleton className="h-3 w-56 mt-2" />
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <Skeleton className="h-4 w-14 ml-auto" />
+                            <Skeleton className="h-3 w-16 mt-2 ml-auto" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
-        {!showTableSkeleton && wallets.length > 0 && (
-          <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                {tableHeader}
-                <tbody>
-                  {wallets.map((wallet) => (
-                    <WalletRow
-                      key={wallet.walletAddress}
-                      wallet={wallet}
-                      isFavorite={favoriteAddresses.has(wallet.walletAddress)}
-                      favoriteData={favoritesMap.get(wallet.walletAddress)}
-                      onFavoriteAdd={handleAddFavorite}
-                      onFavoriteRemove={handleRemoveFavorite}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+            {!showTableSkeleton && wallets.length > 0 && (
+              <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    {tableHeader}
+                    <tbody>
+                      {wallets.map((wallet) => (
+                        <WalletRow
+                          key={wallet.walletAddress}
+                          wallet={wallet}
+                          isFavorite={favoriteAddresses.has(wallet.walletAddress)}
+                          favoriteData={favoritesMap.get(wallet.walletAddress)}
+                          onFavoriteAdd={handleAddFavorite}
+                          onFavoriteRemove={handleRemoveFavorite}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
-        {!showTableSkeleton && !error && wallets.length === 0 && (
-          <div className="space-y-4">
-            <EmptyState
-              variant="info"
-              icon={SearchX}
-              title="No wallets found"
-              description="No wallets match your current filters. Try widening the criteria or reset filters to start fresh."
-              actionText="Reset filters"
-              onActionClick={resetFilters}
-            />
-            <div className="flex items-center justify-center gap-2">
-              <Button size="sm" variant="secondary" onClick={() => applyPreset('balanced-fast')}>
-                Try Balanced Fast
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => applyPreset('fast-traders')}>
-                Try Fast Traders
-              </Button>
-            </div>
-          </div>
-        )}
+            {!showTableSkeleton && !error && wallets.length === 0 && (
+              <div className="space-y-4">
+                <EmptyState
+                  variant="info"
+                  icon={SearchX}
+                  title="No wallets found"
+                  description="No wallets match your current filters. Try widening the criteria or reset filters to start fresh."
+                  actionText="Reset filters"
+                  onActionClick={resetFilters}
+                />
+                <div className="flex items-center justify-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => applyPreset('balanced-fast')}>
+                    Try Balanced Fast
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => applyPreset('fast-traders')}>
+                    Try Fast Traders
+                  </Button>
+                </div>
+              </div>
+            )}
 
-        {/* Pagination */}
-        {!showTableSkeleton && wallets.length > 0 && (
-          <div className="flex justify-between items-center">
-            <div className="text-sm text-muted-foreground">
-              Page {page} of {pageCount} · {total} wallets
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
-                Previous
-              </Button>
-              <Button variant="outline" size="sm" disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}>
-                Next
-              </Button>
-            </div>
+            {!showTableSkeleton && wallets.length > 0 && (
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-muted-foreground">
+                  Page {page} of {pageCount} · {total} wallets
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                    Previous
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}>
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+
+          <div className="w-80 flex-shrink-0 space-y-4">
+            {showSidebarSkeleton ? (
+              <>
+                <Card>
+                  <CardHeader>
+                    <Skeleton className="h-5 w-32" />
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Skeleton className="h-2 w-full" />
+                    <Skeleton className="h-2 w-5/6" />
+                    <Skeleton className="h-2 w-2/3" />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <Skeleton className="h-5 w-36" />
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Velocity Filter</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>0</span>
+                      <span>100</span>
+                    </div>
+                    <div className="relative h-2 rounded-full bg-muted">
+                      <div
+                        className="absolute inset-y-0 rounded-full bg-primary/60"
+                        style={{ left: velocityFillLeft, right: velocityFillRight }}
+                      />
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={velocityMin}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setVelocityRange(([_, max]) => [Math.min(value, max - 1), max]);
+                          setPage(1);
+                          setActivePreset(null);
+                        }}
+                        className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto z-20 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-primary/60 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0"
+                        aria-label="Minimum velocity"
+                      />
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={velocityMax}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setVelocityRange(([min]) => [min, Math.max(value, min + 1)]);
+                          setPage(1);
+                          setActivePreset(null);
+                        }}
+                        className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto z-10 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-primary/60 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0"
+                        aria-label="Maximum velocity"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>
+                        Min <span className="font-semibold text-foreground">{velocityMin}</span>
+                      </span>
+                      <span>
+                        Max <span className="font-semibold text-foreground">{velocityMax}</span>
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Trading velocity scores measure rotation speed. Higher values = faster exits.
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Speed Categories</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {speedLegend.map((option) => {
+                      const stat = getCategoryStat(option.value);
+                      const textClass = getSpeedColor(option.value);
+                      const barClass = toBgClass(textClass);
+                      return (
+                        <div key={option.value} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Badge className={cn("border border-current/30 bg-transparent text-xs", textClass)}>
+                              {option.label}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {stat.count} · {stat.percentage.toFixed(0)}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 flex-1 rounded-full bg-muted">
+                              <div
+                                className={cn("h-1.5 rounded-full", barClass)}
+                                style={{ width: `${stat.percentage}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground">{option.hint}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!!getCategoryStat("UNCLASSIFIED").count && (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Unclassified</span>
+                        <span>{getCategoryStat("UNCLASSIFIED").count}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Flow Patterns</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {flowLegend.map((option) => {
+                      const stat = getFlowStat(option.value);
+                      const textClass = getFlowColor(option.value);
+                      const barClass = toBgClass(textClass);
+                      return (
+                        <div key={option.value} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Badge className={cn("border border-current/30 bg-transparent text-xs", textClass)}>
+                              {option.label}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {stat.count} · {stat.percentage.toFixed(0)}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 flex-1 rounded-full bg-muted">
+                              <div
+                                className={cn("h-1.5 rounded-full", barClass)}
+                                style={{ width: `${stat.percentage}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground">{option.hint}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!!getFlowStat("UNCLASSIFIED").count && (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Unclassified</span>
+                        <span>{getFlowStat("UNCLASSIFIED").count}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Quick Add Modal */}

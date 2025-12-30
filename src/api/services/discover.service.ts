@@ -34,6 +34,8 @@ export class DiscoverService {
     const speedCategory = query.speedCategory;
     const flowPattern = query.flowPattern;
     const holdBias = query.holdBias;
+    const minVelocity = query.minVelocity;
+    const maxVelocity = query.maxVelocity;
 
     const updatedSince = minFreshnessHours
       ? new Date(Date.now() - minFreshnessHours * 60 * 60 * 1000)
@@ -128,6 +130,18 @@ export class DiscoverService {
           },
         };
       }
+    }
+
+    if (typeof minVelocity === 'number' || typeof maxVelocity === 'number') {
+      const velocityFilter: Prisma.IntNullableFilter = {};
+      if (typeof minVelocity === 'number') velocityFilter.gte = minVelocity;
+      if (typeof maxVelocity === 'number') velocityFilter.lte = maxVelocity;
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          velocityScore: velocityFilter,
+        },
+      };
     }
 
     if (updatedSince) {
