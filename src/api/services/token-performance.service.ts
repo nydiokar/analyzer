@@ -243,14 +243,12 @@ export class TokenPerformanceService {
           currentHoldingsValueSol = null;
         }
 
-        // Realized P&L: Only from tokens that were actually sold
-        const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
-
-        // Calculate realized PnL with fees (for absolute SOL profit/loss)
-        realizedPnlSol = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
+        // Realized P&L: Use pre-calculated value from database (more accurate)
+        // The database netSolProfitLoss is calculated by swap analyzer with proper cost basis tracking
+        realizedPnlSol = netSolProfitLoss;
 
         // Calculate realized PnL excluding fees (for ROI % - measures trading performance, not transaction costs)
-        const realizedPnlExcludingFees = solReceivedFromSales - costBasisForSoldTokens;
+        const realizedPnlExcludingFees = realizedPnlSol + feesPaid;
 
         // Calculate unrealized PnL from current holdings
         if (currentHoldingsValueSol !== null && currentHoldingsValueUsd !== null) {
@@ -277,13 +275,12 @@ export class TokenPerformanceService {
              } else if (hasCurrentHoldings) {
          // We have holdings but no price data - can't calculate unrealized P&L
          // Show realized P&L only and mark total as incomplete
-         const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
 
-         // Calculate realized PnL with fees (for absolute SOL profit/loss)
-         realizedPnlSol = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
+         // Use pre-calculated netSolProfitLoss from database (more accurate)
+         realizedPnlSol = netSolProfitLoss;
 
          // Calculate realized PnL excluding fees (for ROI %)
-         const realizedPnlExcludingFees = solReceivedFromSales - costBasisForSoldTokens;
+         const realizedPnlExcludingFees = realizedPnlSol + feesPaid;
 
         // Calculate realized PNL percentage (exclude fees to show trading performance)
         realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlExcludingFees / totalSolSpent) * 100 : null;

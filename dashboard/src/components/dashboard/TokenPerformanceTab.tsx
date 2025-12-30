@@ -37,9 +37,6 @@ import {
   RefreshCwIcon,
   BarChartBig,
   AlertTriangle,
-  Lock,
-  LogOut,
-
 } from 'lucide-react';
 import { PaginatedTokenPerformanceResponse, TokenPerformanceDataDto } from '@/types/api'; 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -103,11 +100,8 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
       const item = row.original;
       const riskLevel = item.spamRiskLevel ?? 'safe';
       const riskScore = item.spamRiskScore ?? 0;
-      const currentBalance = item.currentUiBalance ?? 0;
-      const currentValueUsd = item.currentHoldingsValueUsd ?? 0;
-      const isHeld = currentBalance > 0 && currentValueUsd >= 1.44;
-      const hadTrades = ((item.transferCountIn ?? 0) + (item.transferCountOut ?? 0)) > 0;
-      const isExited = !isHeld && hadTrades;
+      const lastActive = item.lastTransferTimestamp;
+      const lastActiveFormatted = formatRelativeTimeCompact(lastActive);
 
       return (
         <div className="flex items-center gap-1 min-w-0">
@@ -132,6 +126,21 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
             size="s"
             className="flex-1 min-w-0 overflow-hidden"
           />
+          {lastActive && (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-[10px] text-muted-foreground/70 font-mono whitespace-nowrap cursor-help">
+                    {lastActiveFormatted}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  <p className="font-semibold mb-1">Last Active</p>
+                  <p>{new Date(lastActive * 1000).toLocaleString()}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <div className="flex items-center gap-0.5 flex-shrink-0">
             {riskLevel === 'high-risk' && (
               <TooltipProvider delayDuration={300}>
@@ -148,34 +157,6 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
                 </Tooltip>
               </TooltipProvider>
             )}
-            {isHeld && (
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center justify-center w-3 h-3 rounded bg-slate-200 dark:bg-slate-700">
-                      <Lock className="h-1.5 w-1.5 text-slate-600 dark:text-slate-400" />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">
-                    <p>Currently held</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            {isExited && (
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center justify-center w-3 h-3 rounded bg-slate-200 dark:bg-slate-700">
-                      <LogOut className="h-1.5 w-1.5 text-slate-600 dark:text-slate-400" />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">
-                    <p>Position exited</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
           </div>
         </div>
       );
@@ -187,13 +168,26 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
     header: 'Total Profit',
     cell: ({ row }) => {
       const item = row.original;
-      const totalPnl = item.totalPnlSol ?? 0;
       const totalSpent = item.totalSolSpent ?? 0;
-      const roi = totalSpent !== 0 ? (totalPnl / totalSpent) * 100 : null;
+      const totalReceived = item.totalSolReceived ?? 0;
+      const currentHoldingsValue = item.currentHoldingsValueSol ?? 0;
+
+      // CORRECTED TOTAL PROFIT: (Sold + Current Value) - Bought
+      // This is accurate without FIFO tracking
+      const totalProfit = (totalReceived + currentHoldingsValue) - totalSpent;
+
+      // ROI FIX: Don't show ROI for dust trades (< 0.01 SOL spent)
+      const DUST_THRESHOLD = 0.01;
+      const isDustTrade = totalSpent < DUST_THRESHOLD;
+
+      // Calculate ROI based on corrected total profit
+      const roi = !isDustTrade && totalSpent !== 0
+        ? (totalProfit / totalSpent) * 100
+        : null;
 
       return (
         <div className="flex flex-col items-start space-y-0">
-          {formatPnl(totalPnl)}
+          {formatPnl(totalProfit)}
           {roi !== null && isFinite(roi) && (
             <div className="flex justify-start">
               {formatPercentage(roi)}
@@ -222,15 +216,10 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
                 )}
               </div>
             </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-xs">
-              <div className="text-sm">
-                <p className="font-semibold mb-1">Realized P&L Explanation:</p>
-                <p>• <strong>Amount:</strong> SOL received from sales - Cost basis of sold tokens - Fees</p>
-                <p>• <strong>Percentage:</strong> Based on total SOL invested</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  This is your actual profit/loss from completed trades
-                </p>
-              </div>
+            <TooltipContent side="top" className="text-xs">
+              <p className="font-semibold mb-1">Realized P&L</p>
+              <p>Profit/loss from <span className="text-emerald-600 dark:text-emerald-400">completed</span> trades</p>
+              <p className="text-muted-foreground mt-1">Actual SOL received minus cost & fees</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -258,21 +247,16 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
                 )}
               </div>
             </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-xs">
-              <div className="text-sm">
-                <p className="font-semibold mb-1">Unrealized P&L Explanation:</p>
-                {hasCurrentHoldings ? (
-                  <>
-                    <p>• <strong>Amount:</strong> Current value - Cost basis of remaining holdings</p>
-                    <p>• <strong>Percentage:</strong> Based on cost basis of current holdings only</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Small holdings can show large % changes on tiny amounts
-                    </p>
-                  </>
-                ) : (
-                  <p>No current holdings - all P&L is realized</p>
-                )}
-              </div>
+            <TooltipContent side="top" className="text-xs">
+              <p className="font-semibold mb-1">Unrealized P&L</p>
+              {hasCurrentHoldings ? (
+                <>
+                  <p>Profit/loss from <span className="text-orange-600 dark:text-orange-400">current</span> holdings</p>
+                  <p className="text-muted-foreground mt-1">Current value minus cost basis</p>
+                </>
+              ) : (
+                <p className="text-muted-foreground">No current holdings</p>
+              )}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -364,15 +348,30 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   {
     accessorKey: 'firstTransferTimestamp',
     header: 'First Seen',
-    cell: ({ row }) => <span className="text-xs text-center block">{formatDate(row.original.firstTransferTimestamp)}</span>,
+    cell: ({ row }) => {
+      const timestamp = row.original.firstTransferTimestamp;
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-xs text-center block cursor-help">{formatDate(timestamp)}</span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              <p className="font-semibold mb-1">First Activity</p>
+              <p>First time this token appeared in wallet</p>
+              <p className="text-muted-foreground mt-1">Based on transaction history</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    },
     meta: { className: 'text-center px-1 w-[85px] max-w-[85px]' },
   },
 ];
 
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
-  // TIME FILTER DETACHMENT: This tab shows all-time portfolio data (not period-specific)
-  // Time filter is only used in PnL/Stats tabs for period analysis
-  // const { startDate, endDate } = useTimeRangeStore(); // REMOVED
+  // TIME FILTER: Pass to backend for hasActivityInPeriod calculation, but don't cache on it
+  const { startDate, endDate } = useTimeRangeStore();
   const [page, setPage] = useState(1);
   // CHANGED: Increased page size for infinite scroll (load 20 at a time)
   const [pageSize] = useState(20);
@@ -433,43 +432,63 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
   const apiUrlBase = walletAddress ? `/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
+  let fetchUrl: string | null = null;
 
   if (apiUrlBase) {
-    const params = new URLSearchParams();
-    params.append('page', page.toString());
-    params.append('pageSize', pageSize.toString());
-    // RESTORED: Backend sorting for global accuracy
+    // Build params for ACTUAL API call (includes time filter)
+    const fetchParams = new URLSearchParams();
+    fetchParams.append('page', page.toString());
+    fetchParams.append('pageSize', pageSize.toString());
+
+    // IMPORTANT: Include time filter for backend's hasActivityInPeriod calculation
+    if (startDate) fetchParams.append('startDate', startDate.toISOString());
+    if (endDate) fetchParams.append('endDate', endDate.toISOString());
+
     if (BACKEND_SORTABLE_IDS.includes(sortBy)) {
-        params.append('sortBy', sortBy);
-        params.append('sortOrder', sortOrder);
+      fetchParams.append('sortBy', sortBy);
+      fetchParams.append('sortOrder', sortOrder);
     }
-    // TIME FILTER DETACHMENT: Don't include in cache key to prevent refetch on time change
-    // Time filter is only used by backend for hasActivityInPeriod field
-    // User must manually refresh to apply new time filter
-    if (showHoldingsOnly) params.append('showOnlyHoldings', 'true');
-    if (deferredSearchTerm) params.append('searchTerm', deferredSearchTerm);
-    if (deferredSpamFilter !== 'all') params.append('spamFilter', deferredSpamFilter);
+    if (showHoldingsOnly) fetchParams.append('showOnlyHoldings', 'true');
+    if (deferredSearchTerm) fetchParams.append('searchTerm', deferredSearchTerm);
+    if (deferredSpamFilter !== 'all') fetchParams.append('spamFilter', deferredSpamFilter);
 
     if (deferredPnlFilter !== 'any') {
       const operatorMatch = deferredPnlFilter.match(/^([><])/);
       const valueMatch = deferredPnlFilter.match(/-?[\d.]+$/);
       if (operatorMatch && valueMatch) {
         const opMap: { [key: string]: string } = { '>': 'gt', '<': 'lt' };
-        params.append('pnlConditionOperator', opMap[operatorMatch[1]]);
-        params.append('pnlConditionValue', valueMatch[0]);
+        fetchParams.append('pnlConditionOperator', opMap[operatorMatch[1]]);
+        fetchParams.append('pnlConditionValue', valueMatch[0]);
       }
     }
 
     if (minTradesToggle) {
-      params.append('minTrades', '2');
+      fetchParams.append('minTrades', '2');
     }
 
-    swrKey = `${apiUrlBase}?${params.toString()}`;
+    fetchUrl = `${apiUrlBase}?${fetchParams.toString()}`;
+
+    // Build SWR cache key WITHOUT time filter (prevents refetch on time change)
+    const cacheParams = new URLSearchParams();
+    cacheParams.append('page', page.toString());
+    cacheParams.append('pageSize', pageSize.toString());
+    if (BACKEND_SORTABLE_IDS.includes(sortBy)) {
+      cacheParams.append('sortBy', sortBy);
+      cacheParams.append('sortOrder', sortOrder);
+    }
+    if (showHoldingsOnly) cacheParams.append('showOnlyHoldings', 'true');
+    if (deferredSearchTerm) cacheParams.append('searchTerm', deferredSearchTerm);
+    if (deferredSpamFilter !== 'all') cacheParams.append('spamFilter', deferredSpamFilter);
+    if (deferredPnlFilter !== 'any') cacheParams.append('pnlFilter', deferredPnlFilter);
+    if (minTradesToggle) cacheParams.append('minTrades', '2');
+
+    swrKey = `${apiUrlBase}?${cacheParams.toString()}`;
   }
 
   const { data, error, isLoading: isLoadingData, mutate: localMutate } = useSWR<PaginatedTokenPerformanceResponse, Error>(
     swrKey ? [swrKey] : null,
-    ([url]: [string]) => fetcher(url),
+    // Use fetchUrl (with time filter) instead of cache key for actual API call
+    () => fetchUrl ? fetcher(fetchUrl) : Promise.reject(new Error('No fetch URL')),
     {
       revalidateOnFocus: false,
       keepPreviousData: false,
@@ -991,6 +1010,31 @@ const handleSort = useCallback((columnId: string) => {
 const formatDate = (timestamp: number | null | undefined) => {
   if (!timestamp) return 'N/A';
   return new Date(timestamp * 1000).toLocaleDateString();
+};
+
+// Helper to format relative time for "Last Active" - compact format
+const formatRelativeTimeCompact = (timestamp: number | null | undefined): string => {
+  if (!timestamp) return '';
+
+  const now = Date.now();
+  const date = new Date(timestamp * 1000);
+  const diffMs = now - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  const diffWeeks = Math.floor(diffMs / 604800000);
+  const diffMonths = Math.floor(diffMs / 2592000000);
+
+  // Super compact format - just number + unit
+  if (diffMins < 1) return 'now';
+  if (diffMins < 60) return `${diffMins}m`;
+  if (diffHours < 24) return `${diffHours}h`;
+  if (diffDays < 7) return `${diffDays}d`;
+  if (diffWeeks < 4) return `${diffWeeks}w`;
+  if (diffMonths < 12) return `${diffMonths}mo`;
+
+  const years = Math.floor(diffMonths / 12);
+  return `${years}y`;
 };
 
 const formatTokenDisplayValue = (value: number | null | undefined, uiString?: string | null) => {
