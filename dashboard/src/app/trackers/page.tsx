@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Bookmark, Loader2, Info, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Check } from 'lucide-react';
+import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
 import { useState, useMemo, useCallback, useRef } from 'react';
@@ -15,7 +15,10 @@ import QuickAddForm from '@/components/layout/QuickAddForm';
 import { toast } from 'sonner';
 import { FavoriteWallet } from '@/types/api';
 import { cn } from '@/lib/utils';
-import { getCollectionColor, getCollectionColorFilled } from '@/lib/color-utils';
+import { getCollectionColorFilled } from '@/lib/color-utils';
+import EmptyState from '@/components/shared/EmptyState';
+import { Skeleton } from '@/components/ui/skeleton';
+import { getErrorMessage } from '@/lib/error-messages';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,6 +52,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { WalletBadge } from '@/components/shared/WalletBadge';
+import { CollectionAnalytics, CollectionStat } from '@/components/trackers/CollectionAnalytics';
 
 // Helper function to format time ago
 function timeAgo(timestamp: number | string | undefined): string {
@@ -131,6 +135,31 @@ export default function TrackersPage() {
     };
   }, [favoriteWallets]);
 
+  const collectionStats = useMemo<CollectionStat[]>(() => {
+    if (!favoriteWallets?.length) return [];
+    const stats = new Map<string, { walletCount: number; totalPnl: number; totalBalance: number }>();
+
+    favoriteWallets.forEach((wallet: FavoriteWallet) => {
+      wallet.collections?.forEach((collection: string) => {
+        const existing = stats.get(collection) || { walletCount: 0, totalPnl: 0, totalBalance: 0 };
+        stats.set(collection, {
+          walletCount: existing.walletCount + 1,
+          totalPnl: existing.totalPnl + (wallet.pnl || 0),
+          totalBalance: existing.totalBalance + (wallet.currentSolBalance || 0),
+        });
+      });
+    });
+
+    return Array.from(stats.entries())
+      .map(([collection, data]) => ({
+        collection,
+        ...data,
+        avgPnl: data.walletCount > 0 ? data.totalPnl / data.walletCount : 0,
+        avgBalance: data.walletCount > 0 ? data.totalBalance / data.walletCount : 0,
+      }))
+      .sort((a, b) => b.totalPnl - a.totalPnl);
+  }, [favoriteWallets]);
+
   // Calculate active wallets (last 24h)
   const activeWalletCount = useMemo(() => {
     if (!favoriteWallets) return 0;
@@ -185,8 +214,9 @@ export default function TrackersPage() {
       });
       toast.success('Wallet removed from tracked list');
       mutateFavorites();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to remove wallet');
+    } catch (error: unknown) {
+      const message = getErrorMessage('trackers-remove', error);
+      toast.error(message.title, { description: message.description });
     }
   }, [mutateFavorites]);
 
@@ -199,8 +229,9 @@ export default function TrackersPage() {
       toast.success('Wallet updated');
       mutateFavorites();
       setEditingWallet(null);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to update wallet');
+    } catch (error: unknown) {
+      const message = getErrorMessage('trackers-update', error);
+      toast.error(message.title, { description: message.description });
     }
   }, [mutateFavorites]);
 
@@ -219,8 +250,9 @@ export default function TrackersPage() {
         description: `${formData.nickname || 'Wallet'} added to tracked wallets.`,
       });
       setShowAddWalletModal(false);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to add wallet');
+    } catch (error: unknown) {
+      const message = getErrorMessage('trackers-add', error);
+      toast.error(message.title, { description: message.description });
     }
   }, [mutateFavorites]);
 
@@ -234,6 +266,13 @@ export default function TrackersPage() {
     setSelectedCollections([]);
     setSearchQuery('');
     setShowActiveOnly(false);
+  };
+
+  const handleCollectionSelect = (collection: string) => {
+    setSelectedCollections((prev) => {
+      if (prev.length === 1 && prev[0] === collection) return [];
+      return [collection];
+    });
   };
 
   const handleExportWallets = useCallback(() => {
@@ -330,7 +369,8 @@ export default function TrackersPage() {
 
       if (walletsToImport.length === 0) {
         if (errors.length > 0) {
-          toast.error('Import failed', {
+          const message = getErrorMessage('trackers-import');
+          toast.error(message.title, {
             description: `No valid wallets to import. ${errors.length} errors found.`,
           });
         } else {
@@ -352,9 +392,9 @@ export default function TrackersPage() {
             body: JSON.stringify(wallet),
           });
           successCount++;
-        } catch (error: any) {
+        } catch (error: unknown) {
           failCount++;
-          errors.push(`Failed to add ${wallet.walletAddress}: ${error.message}`);
+          errors.push(`Failed to add ${wallet.walletAddress}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
       }
 
@@ -367,14 +407,16 @@ export default function TrackersPage() {
           description: `${successCount} wallets imported successfully${failCount > 0 ? `, ${failCount} failed` : ''}.`,
         });
       } else {
-        toast.error('Import failed', {
+        const message = getErrorMessage('trackers-import');
+        toast.error(message.title, {
           description: `Failed to import wallets. ${errors.length} errors found.`,
         });
       }
 
-    } catch (error: any) {
-      toast.error('Import failed', {
-        description: error.message || 'Failed to parse CSV file.',
+    } catch (error: unknown) {
+      const message = getErrorMessage('trackers-import', error);
+      toast.error(message.title, {
+        description: message.description,
       });
     } finally {
       setIsImporting(false);
@@ -385,9 +427,94 @@ export default function TrackersPage() {
   if (!favoriteWallets && !error) {
     return (
       <AppShell>
-        <div className="w-full px-6 py-12">
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="w-full px-6 py-4 space-y-4">
+          <div className="flex items-center gap-3">
+            <Bookmark className="h-6 w-6 text-purple-500" />
+            <h1 className="text-2xl font-bold">Tracked Wallets</h1>
+            <Skeleton className="h-6 w-24" />
+          </div>
+
+          <div className="flex gap-6">
+            <div className="flex-1">
+              <Card>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-32">Added</TableHead>
+                      <TableHead>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help">Wallet</span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            The wallet address and its primary collection badge.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableHead>
+                      <TableHead className="w-32">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help">Last Active</span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Last observed activity based on analyzed transactions.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableHead>
+                      <TableHead className="w-40 text-right">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help">Balance</span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Current SOL balance captured during the last analysis.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <TableRow key={`tracker-skeleton-${index}`}>
+                        <TableCell>
+                          <Skeleton className="h-4 w-20" />
+                        </TableCell>
+                        <TableCell>
+                          <Skeleton className="h-5 w-56" />
+                        </TableCell>
+                        <TableCell>
+                          <Skeleton className="h-4 w-16" />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Skeleton className="h-4 w-20 ml-auto" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            </div>
+            <div className="w-80 flex-shrink-0 space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Portfolio Overview</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-16" />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       </AppShell>
@@ -396,21 +523,17 @@ export default function TrackersPage() {
 
   // Error state
   if (error) {
+    const message = getErrorMessage('trackers-load', error);
     return (
       <AppShell>
         <div className="w-full px-6 py-12">
-          <Card className="p-12 rounded-xl border-dashed text-center">
-            <div className="max-w-md mx-auto">
-              <Info className="h-12 w-12 text-red-500 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold mb-2">Failed to load tracked wallets</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                {error.message || 'An error occurred while fetching your tracked wallets.'}
-              </p>
-              <Button onClick={() => mutateFavorites()}>
-                Retry
-              </Button>
-            </div>
-          </Card>
+          <EmptyState
+            variant="error"
+            title={message.title}
+            description={message.description}
+            actionText="Retry"
+            onActionClick={() => mutateFavorites()}
+          />
         </div>
       </AppShell>
     );
@@ -729,6 +852,13 @@ export default function TrackersPage() {
                   </CardContent>
                 </Card>
               )}
+
+              <CollectionAnalytics
+                stats={collectionStats}
+                activeCollections={selectedCollections}
+                onSelectCollection={handleCollectionSelect}
+                onClearFilters={clearFilters}
+              />
 
             </div>
           </div>

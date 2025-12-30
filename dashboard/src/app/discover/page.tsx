@@ -5,6 +5,7 @@ import {
   Info,
   Loader2,
   RefreshCcw,
+  SearchX,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
@@ -38,6 +39,8 @@ import { DiscoverWallet, DiscoverWalletsResponse } from "@/types/discover";
 import { FavoriteWallet } from "@/types/api";
 import QuickAddForm from "@/components/layout/QuickAddForm";
 import { getSpeedColor, getFlowColor } from "@/lib/strategy-colors";
+import EmptyState from "@/components/shared/EmptyState";
+import { ErrorMessage, getErrorMessage } from "@/lib/error-messages";
 
 const PAGE_SIZE = 24;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -138,7 +141,7 @@ export default function DiscoverPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorMessage | null>(null);
   const [activePreset, setActivePreset] = useState<string | null>(null);
 
   // Get user's favorite wallets
@@ -188,12 +191,7 @@ export default function DiscoverPage() {
       setTotal(data.total || 0);
       writeCache(cacheKey, data);
     } catch (err: unknown) {
-      const fallback = 'Failed to load wallets';
-      const errorMessage =
-        (err as { payload?: { message?: string } })?.payload?.message ||
-        (err as Error).message ||
-        fallback;
-      setError(errorMessage || fallback);
+      setError(getErrorMessage("discover-wallets", err));
     } finally {
       setLoading(false);
       setIsUpdating(false);
@@ -242,9 +240,10 @@ export default function DiscoverPage() {
       // Close modal and clear state
       setShowQuickAddModal(false);
       setCurrentWallet(null);
-    } catch (err: any) {
-      toast.error("Failed to add favorite", {
-        description: err.message || "An unexpected error occurred.",
+    } catch (err: unknown) {
+      const message = getErrorMessage("discover-add-favorite", err);
+      toast.error(message.title, {
+        description: message.description,
       });
     }
   };
@@ -261,9 +260,10 @@ export default function DiscoverPage() {
       // Close dialog and clear state
       setShowDeleteConfirm(false);
       setCurrentWallet(null);
-    } catch (err: any) {
-      toast.error("Failed to remove favorite", {
-        description: err.message || "An unexpected error occurred.",
+    } catch (err: unknown) {
+      const message = getErrorMessage("discover-remove-favorite", err);
+      toast.error(message.title, {
+        description: message.description,
       });
     }
   };
@@ -305,6 +305,90 @@ export default function DiscoverPage() {
     }
     setPage(1);
   };
+
+  const showTableSkeleton = (loading || isUpdating) && !error;
+
+  const tableHeader = (
+    <thead className="border-b bg-gradient-to-r from-muted/60 to-muted/40">
+      <tr className="align-bottom">
+        <th className="text-left px-3 py-2 font-medium text-sm whitespace-nowrap">
+          <div className="inline-flex items-center gap-1">
+            Wallet
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Shows wallet address with key metrics: trades (buy↑/sell↓), win rate and last activity.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-left px-3 py-2 font-medium text-sm whitespace-nowrap">
+          <div className="inline-flex items-center gap-1">
+            PnL
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Total PNL, broken down to realized and unrealized profit/loss in SOL.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-left px-3 py-2 font-medium text-sm">
+          <div className="inline-flex items-center gap-1">
+            Speed
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Narrative description of exit timing patterns and current holdings. Checkout Holder profiles for details on this wallet
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-left px-3 py-2 font-medium text-sm">
+          <div className="inline-flex items-center gap-1">
+            Flow
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Narrative description of buy/sell behavior and exit patterns.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-right px-3 py-2 font-medium text-sm whitespace-nowrap">
+          <div className="inline-flex items-center gap-1 justify-end">
+            Unpaired
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Percentage of tokens with incomplete buy/sell cycles. High values may indicate spam/dust.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+      </tr>
+    </thead>
+  );
 
   return (
     <AppShell>
@@ -570,9 +654,9 @@ export default function DiscoverPage() {
 
         {error && (
           <Alert variant="destructive">
-            <AlertTitle>Couldn&apos;t load wallets</AlertTitle>
+            <AlertTitle>{error.title}</AlertTitle>
             <AlertDescription className="flex flex-wrap items-center gap-2">
-              <span className="text-sm">{error}</span>
+              <span className="text-sm">{error.description}</span>
               <Button size="sm" variant="secondary" onClick={fetchWallets} disabled={isUpdating}>
                 {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
                 <span className="ml-2">Retry</span>
@@ -582,99 +666,47 @@ export default function DiscoverPage() {
         )}
 
         {/* Table */}
-        {loading && (
-          <div className="border rounded-lg bg-card">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
-              <div key={i} className="border-b last:border-0 p-3">
-                <Skeleton className="h-14 w-full" />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!loading && wallets.length > 0 && (
+        {showTableSkeleton && (
           <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="border-b bg-gradient-to-r from-muted/60 to-muted/40">
-                  <tr className="align-bottom">
-                    <th className="text-left px-3 py-2 font-medium text-sm whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1">
-                        Wallet
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs">
-                              Shows wallet address with key metrics: trades (buy↑/sell↓), win rate and last activity.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                    </th>
-                    <th className="text-left px-3 py-2 font-medium text-sm whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1">
-                        PnL
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs">
-                              Total PNL, broken down to realized and unrealized profit/loss in SOL.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                    </th>
-                    <th className="text-left px-3 py-2 font-medium text-sm">
-                      <div className="inline-flex items-center gap-1">
-                        Speed
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs">
-                              Narrative description of exit timing patterns and current holdings. Checkout Holder profiles for details on this wallet
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                    </th>
-                    <th className="text-left px-3 py-2 font-medium text-sm">
-                      <div className="inline-flex items-center gap-1">
-                        Flow
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs">
-                              Narrative description of buy/sell behavior and exit patterns.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                    </th>
-                    <th className="text-right px-3 py-2 font-medium text-sm whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1 justify-end">
-                        Unpaired
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs">
-                              Percentage of tokens with incomplete buy/sell cycles. High values may indicate spam/dust.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                    </th>
-                  </tr>
-                </thead>
+                {tableHeader}
+                <tbody>
+                  {Array.from({ length: 8 }).map((_, index) => (
+                    <tr key={`skeleton-row-${index}`} className="border-b last:border-0">
+                      <td className="px-3 py-2.5">
+                        <Skeleton className="h-5 w-40" />
+                        <Skeleton className="h-3 w-24 mt-2" />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Skeleton className="h-5 w-24" />
+                        <Skeleton className="h-3 w-20 mt-2" />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-3 w-56 mt-2" />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Skeleton className="h-4 w-28" />
+                        <Skeleton className="h-3 w-56 mt-2" />
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <Skeleton className="h-4 w-14 ml-auto" />
+                        <Skeleton className="h-3 w-16 mt-2 ml-auto" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {!showTableSkeleton && wallets.length > 0 && (
+          <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                {tableHeader}
                 <tbody>
                   {wallets.map((wallet) => (
                     <WalletRow
@@ -692,10 +724,16 @@ export default function DiscoverPage() {
           </div>
         )}
 
-        {!loading && wallets.length === 0 && (
-          <div className="border rounded-lg bg-card p-12 text-center space-y-3">
-            <p className="text-muted-foreground">No wallets match these filters yet.</p>
-            <p className="text-sm text-muted-foreground">Try adjusting your filters or use one of the presets:</p>
+        {!showTableSkeleton && !error && wallets.length === 0 && (
+          <div className="space-y-4">
+            <EmptyState
+              variant="info"
+              icon={SearchX}
+              title="No wallets found"
+              description="No wallets match your current filters. Try widening the criteria or reset filters to start fresh."
+              actionText="Reset filters"
+              onActionClick={resetFilters}
+            />
             <div className="flex items-center justify-center gap-2">
               <Button size="sm" variant="secondary" onClick={() => applyPreset('balanced-fast')}>
                 Try Balanced Fast
@@ -708,7 +746,7 @@ export default function DiscoverPage() {
         )}
 
         {/* Pagination */}
-        {!loading && wallets.length > 0 && (
+        {!showTableSkeleton && wallets.length > 0 && (
           <div className="flex justify-between items-center">
             <div className="text-sm text-muted-foreground">
               Page {page} of {pageCount} · {total} wallets

@@ -805,11 +805,12 @@ const handleSort = useCallback((columnId: string) => {
         return <TableBody>{renderSkeletonTableRows()}</TableBody>;
       }
       const hasDateFilter = startDate || endDate;
+      const emptyTitle = hasDateFilter ? "No tokens traded in this period" : "No token data available";
       const emptyMessage = hasDateFilter
-        ? "No token activity or missing token data. Try expanding the date range, selecting 'All' or hit Refresh."
+        ? "Try expanding the date range or switch to All-time to see historical trades."
         : "No token activity detected for the selected filters.";
 
-      return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data?" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
+      return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title={emptyTitle} description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
     }
 
     const virtualRows = rowVirtualizer.getVirtualItems();
