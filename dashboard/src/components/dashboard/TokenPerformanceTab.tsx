@@ -99,7 +99,7 @@ const BACKEND_SORTABLE_IDS = [
 const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   {
     accessorKey: 'tokenAddress',
-    header: 'Token',
+    header: 'Token / Last Active',
     cell: ({ row }) => {
       const item = row.original;
       const riskLevel = item.spamRiskLevel ?? 'safe';
@@ -181,7 +181,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         </div>
       );
     },
-    meta: { className: 'sticky left-0 z-10 w-[180px] text-left pl-2 pr-1' },
+    meta: { className: 'sticky left-0 z-10 w-[180px] max-w-[180px] text-left pl-2 pr-1' },
   },
   {
     accessorKey: 'totalPnlSol',
@@ -203,7 +203,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         </div>
       );
     },
-    meta: { className: 'text-left px-1 min-w-[70px]' },
+    meta: { className: 'text-left px-1 w-[90px] max-w-[90px]' },
   },
   {
     accessorKey: 'netSolProfitLoss',
@@ -237,7 +237,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         </TooltipProvider>
       );
     },
-    meta: { className: 'text-left px-1 min-w-[65px]' },
+    meta: { className: 'text-left px-1 w-[90px] max-w-[90px]' },
   },
   {
     accessorKey: 'unrealizedPnlSol',
@@ -279,7 +279,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         </TooltipProvider>
       );
     },
-    meta: { className: 'text-left px-1 min-w-[75px]' },
+    meta: { className: 'text-left px-1 w-[95px] max-w-[95px]' },
   },
   {
     accessorKey: 'totalSolSpent',
@@ -289,7 +289,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         {formatSolAmount(row.original.totalSolSpent)} SOL
       </span>
     ),
-    meta: { className: 'text-left px-1 min-w-[60px]' },
+    meta: { className: 'text-left px-1 w-[75px] max-w-[75px]' },
   },
   {
     accessorKey: 'totalSolReceived',
@@ -299,7 +299,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         {formatSolAmount(row.original.totalSolReceived)} SOL
       </span>
     ),
-    meta: { className: 'text-left px-1 min-w-[60px]' },
+    meta: { className: 'text-left px-1 w-[75px] max-w-[75px]' },
   },
   {
     accessorKey: 'currentBalanceDisplay',
@@ -333,7 +333,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         </div>
       );
     },
-    meta: { className: 'text-left px-1 min-w-[60px]' },
+    meta: { className: 'text-left px-1 w-[85px] max-w-[85px]' },
   },
   {
     accessorKey: 'transferCountIn',
@@ -349,13 +349,13 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
         </span>
       );
     },
-    meta: { className: 'text-left px-1 min-w-[42px]' },
+    meta: { className: 'text-left px-1 w-[50px] max-w-[50px]' },
   },
   {
     accessorKey: 'firstTransferTimestamp',
     header: 'First Seen',
     cell: ({ row }) => <span className="text-xs text-center block">{formatDate(row.original.firstTransferTimestamp)}</span>,
-    meta: { className: 'text-center px-1 min-w-[75px]' },
+    meta: { className: 'text-center px-1 w-[85px] max-w-[85px]' },
   },
 ];
 
@@ -496,9 +496,24 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
     if (page === 1) {
       // First page - reset accumulated data
-      setAllTokens(data.data);
-      setHasMore(data.page < data.totalPages);
-      setIsLoadingMore(false);
+      // CRITICAL FIX: Check if allTokens needs updating
+      // This handles the case where SWR returns cached data (same reference)
+      // but the reset effect already cleared allTokens (e.g., when toggling sort A→B→A)
+      const needsUpdate = (
+        // If allTokens is empty but we have data, populate it
+        (allTokens.length === 0 && data.data.length > 0) ||
+        // If lengths don't match, data has changed
+        allTokens.length !== data.data.length ||
+        // If first token is different, data has changed (sort/filter changed)
+        (allTokens.length > 0 && data.data.length > 0 &&
+         allTokens[0]?.tokenAddress !== data.data[0]?.tokenAddress)
+      );
+
+      if (needsUpdate) {
+        setAllTokens(data.data);
+        setHasMore(data.page < data.totalPages);
+        setIsLoadingMore(false);
+      }
     } else if (page > 1) {
       // Subsequent pages - append data
       setAllTokens(prev => {
@@ -511,7 +526,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       setHasMore(data.page < data.totalPages);
       setIsLoadingMore(false);
     }
-  }, [data, page]);
+  }, [data, page, allTokens]);
 
   // INFINITE SCROLL: Load more when sentinel becomes visible (simple and clean)
   useEffect(() => {
@@ -708,7 +723,7 @@ const handleSort = useCallback((columnId: string) => {
       setSortBy(backendField);
       setSortOrder('DESC');
     }
-    setPage(1);
+    // Note: setPage(1) is handled by the reset effect below, no need to call it here
   }, [sortBy, sortOrder]);
   
   const handleSearchTermChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -756,7 +771,7 @@ const handleSort = useCallback((columnId: string) => {
     return Array.from({ length: 5 }).map((_, rowIndex) => (
       <TableRow key={`skeleton-row-${rowIndex}`} style={{ height: `${ESTIMATED_ROW_HEIGHT}px` }}>
         {table.getAllColumns().map((column, colIndex) => (
-          <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn((column.columnDef.meta as any)?.className, column.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
+          <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn("overflow-hidden", (column.columnDef.meta as any)?.className, column.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
             <Skeleton className={cn("h-4", column.id === 'tokenAddress' ? "w-3/4" : "w-full")} />
           </TableCell>
         ))}
@@ -817,7 +832,10 @@ const handleSort = useCallback((columnId: string) => {
               {row.getVisibleCells().map((cell) => (
                 <TableCell
                   key={cell.id}
-                  className={(cell.column.columnDef.meta as any)?.className}
+                  className={cn(
+                    "overflow-hidden",
+                    (cell.column.columnDef.meta as any)?.className
+                  )}
                 >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </TableCell>
@@ -911,7 +929,7 @@ const handleSort = useCallback((columnId: string) => {
       
       {/* Table - INFINITE SCROLL: Sentinel MUST be inside this scrollable container */}
       <div className="overflow-auto bg-white dark:bg-slate-900 flex-1 min-h-0 max-h-[600px] scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        <Table ref={tableRef} className="min-w-full">
+        <Table ref={tableRef} className="min-w-full table-fixed">
           <TableHeader className="bg-slate-50 dark:bg-slate-800">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="border-b border-slate-200 dark:border-slate-700">
@@ -919,7 +937,7 @@ const handleSort = useCallback((columnId: string) => {
                   <TableHead
                     key={header.id}
                     className={cn(
-                      "font-semibold text-slate-700 dark:text-slate-300 text-xs h-8 py-2",
+                      "font-semibold text-slate-700 dark:text-slate-300 text-xs h-8 py-2 overflow-hidden",
                       (header.column.columnDef.meta as any)?.className,
                       header.column.id === 'tokenAddress' && 'sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-sm',
                       (() => {
