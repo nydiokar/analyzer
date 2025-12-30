@@ -97,7 +97,7 @@ const BACKEND_SORTABLE_IDS = [
 // TanStack Table Column Definitions - REDESIGNED for better UX
 const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   {
-    accessorKey: 'lastTransferTimestamp',
+    accessorKey: 'tokenAddress',
     header: 'Token',
     cell: ({ row }) => {
       const item = row.original;
@@ -379,15 +379,9 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   },
   {
     accessorKey: 'firstTransferTimestamp',
-    header: 'First',
+    header: 'First Seen',
     cell: ({ row }) => <span className="text-xs text-center block">{formatDate(row.original.firstTransferTimestamp)}</span>,
-    meta: { className: 'text-center px-1.5 min-w-[85px]' },
-  },
-  {
-    accessorKey: 'lastTransferTimestamp',
-    header: 'Last',
-    cell: ({ row }) => <span className="text-xs text-center block">{formatDate(row.original.lastTransferTimestamp)}</span>,
-    meta: { className: 'text-center px-1.5 min-w-[85px]' },
+    meta: { className: 'text-center px-1.5 min-w-[90px]' },
   },
 ];
 
@@ -727,12 +721,12 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 const handleSort = useCallback((columnId: string) => {
     // Map frontend column IDs to backend field names
     const fieldMapping: Record<string, string> = {
-      'currentBalanceDisplay': 'currentSolValue'  // Sort by SOL value, not token amount
-      // REMOVED: 'marketCapDisplay': 'marketCapUsd' - not supported by backend
+      'currentBalanceDisplay': 'currentSolValue',  // Sort by SOL value, not token amount
+      'tokenAddress': 'lastTransferTimestamp'  // Token column sorts by Last Active
     };
-    
+
     const backendField = fieldMapping[columnId] || columnId;
-    
+
     if (!BACKEND_SORTABLE_IDS.includes(backendField)) return;
     if (sortBy === backendField) {
       setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
@@ -788,8 +782,8 @@ const handleSort = useCallback((columnId: string) => {
     return Array.from({ length: 5 }).map((_, rowIndex) => (
       <TableRow key={`skeleton-row-${rowIndex}`} style={{ height: `${ESTIMATED_ROW_HEIGHT}px` }}>
         {table.getAllColumns().map((column, colIndex) => (
-          <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn((column.columnDef.meta as any)?.className, column.id === 'lastTransferTimestamp' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
-            <Skeleton className={cn("h-4", column.id === 'lastTransferTimestamp' ? "w-3/4" : "w-full")} />
+          <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className={cn((column.columnDef.meta as any)?.className, column.id === 'tokenAddress' && 'sticky left-0 z-10 bg-card dark:bg-dark-tremor-background-default')}>
+            <Skeleton className={cn("h-4", column.id === 'tokenAddress' ? "w-3/4" : "w-full")} />
           </TableCell>
         ))}
       </TableRow>
@@ -953,12 +947,12 @@ const handleSort = useCallback((columnId: string) => {
                     className={cn(
                       "font-semibold text-slate-700 dark:text-slate-300 text-xs h-8 py-2",
                       (header.column.columnDef.meta as any)?.className,
-                      header.column.id === 'lastTransferTimestamp' && 'sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-sm',
+                      header.column.id === 'tokenAddress' && 'sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-sm',
                       (() => {
                         const columnId = header.column.id;
                         const fieldMapping: Record<string, string> = {
-                          'currentBalanceDisplay': 'currentSolValue'
-                          // REMOVED: 'marketCapDisplay': 'marketCapUsd' - not supported by backend
+                          'currentBalanceDisplay': 'currentSolValue',
+                          'tokenAddress': 'lastTransferTimestamp'
                         };
                         const backendField = fieldMapping[columnId] || columnId;
                         return BACKEND_SORTABLE_IDS.includes(backendField) && 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors';
@@ -967,8 +961,8 @@ const handleSort = useCallback((columnId: string) => {
                     onClick={() => {
                       const columnId = header.column.id;
                       const fieldMapping: Record<string, string> = {
-                        'currentBalanceDisplay': 'currentSolValue'
-                        // REMOVED: 'marketCapDisplay': 'marketCapUsd' - not supported by backend
+                        'currentBalanceDisplay': 'currentSolValue',
+                        'tokenAddress': 'lastTransferTimestamp'
                       };
                       const backendField = fieldMapping[columnId] || columnId;
                       if (BACKEND_SORTABLE_IDS.includes(backendField)) {
@@ -990,16 +984,16 @@ const handleSort = useCallback((columnId: string) => {
                       {(() => {
                         const columnId = header.column.id;
                         const fieldMapping: Record<string, string> = {
-                          'currentBalanceDisplay': 'currentSolValue'
-                          // REMOVED: 'marketCapDisplay': 'marketCapUsd' - not supported by backend
+                          'currentBalanceDisplay': 'currentSolValue',
+                          'tokenAddress': 'lastTransferTimestamp'
                         };
                         const backendField = fieldMapping[columnId] || columnId;
                         if (!BACKEND_SORTABLE_IDS.includes(backendField)) return null;
-                        
+
                           return (
                             <span>
-                              {sortBy === backendField && sortOrder === 'ASC' ? <ArrowUpRight className="h-4 w-4" /> : 
-                               sortBy === backendField && sortOrder === 'DESC' ? <ArrowDownRight className="h-4 w-4" /> : null}
+                              {sortBy === backendField && sortOrder === 'ASC' ? <ArrowUpRight className="h-3.5 w-3.5" /> :
+                               sortBy === backendField && sortOrder === 'DESC' ? <ArrowDownRight className="h-3.5 w-3.5" /> : null}
                             </span>
                           );
                         })()}
