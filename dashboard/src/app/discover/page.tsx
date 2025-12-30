@@ -88,6 +88,11 @@ const holdBiasOptions = [
 
 const speedLegend = speedOptions.filter((option) => option.value !== "any");
 const flowLegend = flowOptions.filter((option) => option.value !== "any");
+const velocityBands = [
+  { label: "Slow", range: "0-30" },
+  { label: "Active", range: "31-70" },
+  { label: "Rapid", range: "71-100" },
+];
 
 const formatSOL = (val: number): string => {
   const absVal = Math.abs(val);
@@ -841,6 +846,50 @@ export default function DiscoverPage() {
               </>
             ) : (
               <>
+                <div className="sticky top-4 z-10">
+                  <Card className="bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        Classification Legend
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              Speed shows exit timing. Flow shows buy/sell bias. Together they explain how a wallet behaves at a glance.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>Speed range (exit timing)</span>
+                          <span>Fast → Long</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gradient-to-r from-red-500 via-yellow-400 to-emerald-500" />
+                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                          <span>Minutes</span>
+                          <span>Days+</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>Flow range (buy/sell)</span>
+                          <span>Buy → Sell</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gradient-to-r from-emerald-500 via-blue-400 to-red-500" />
+                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                          <span>Accumulation</span>
+                          <span>Distribution</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Velocity Filter</CardTitle>
@@ -891,6 +940,14 @@ export default function DiscoverPage() {
                       <span>
                         Max <span className="font-semibold text-foreground">{velocityMax}</span>
                       </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                      {velocityBands.map((band) => (
+                        <div key={band.label} className="text-center">
+                          <div className="font-semibold text-foreground">{band.label}</div>
+                          <div>{band.range}</div>
+                        </div>
+                      ))}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       Trading velocity scores measure rotation speed. Higher values = faster exits.
