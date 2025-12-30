@@ -35,34 +35,36 @@
 
 #### Task 1: Polish & UX Improvements ✨
 **Goal**: Unified error handling, better loading states, consistent UX
-- Add loading skeletons to Discover/Trackers pages
-- Standardize error message formats across app
-- Improve empty states (no data scenarios)
-- Better tooltips and help text
+- Add loading skeletons to Discover/Trackers pages (completed)
+- Standardize error message formats across app (completed)
+- Improve empty states (no data scenarios) (completed)
+- Better tooltips and help text (completed)
 - **Files**: Various components across dashboard
 - **Priority**: High - Quality of life improvements
+- **Status**: Complete
 
 #### Task 2: Collection-Based Analytics 📊
 **Goal**: Show which collections perform best in Tracked Wallets page
 **Location**: `dashboard/src/app/trackers/page.tsx` sidebar
 **Features**:
-- Pie chart or bar chart showing collection distribution
-- Performance metrics per collection (avg PnL, avg balance, wallet count)
-- Click collection to filter main table
+- Performance metrics per collection (avg PnL, avg balance, wallet count) (completed)
+- Click collection to filter main table (completed)
 - Visual breakdown: "Portfolio: 5 wallets, 45 SOL PnL"
 **Data**: Already available in `favoriteWallets` - aggregate by collections
 **Priority**: Medium - New feature, high value
+**Status**: Complete
 
 #### Task 3: Speed/Flow Analytics in Discover 📈
 **Goal**: Add analytics sidebar to Discover page (like Tracked Wallets overview)
 **Location**: `dashboard/src/app/discover/page.tsx`
 **Features**:
-- Overview card showing distribution of wallets by Speed Category
-- Overview card showing distribution by Flow Pattern
-- Visual breakdown with colored badges
-- Shows filtered vs total counts
+- Overview card showing distribution of wallets by Speed Category (completed)
+- Overview card showing distribution by Flow Pattern (completed)
+- Velocity filter slider (0-100) with backend filtering (completed)
+- Visual legend for speed/flow ranges (completed)
 **Data**: Available from discover API response
 **Priority**: Medium - Fills empty space, useful context
+**Status**: Complete
 
 #### Task 4: Exit Timing Drilldown Redesign 🎭
 **Goal**: Redesign the drilldown panel and hold metrics structure in wallet profiles
