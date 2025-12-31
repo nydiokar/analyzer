@@ -238,3 +238,31 @@ export class DiscoverWalletsResponseDto {
   @ApiProperty({ required: false })
   timeframe?: string;
 }
+
+export class DiscoverAggregationDistributionDto {
+  @ApiProperty()
+  category?: string;
+
+  @ApiProperty()
+  pattern?: string;
+
+  @ApiProperty()
+  count!: number;
+
+  @ApiProperty()
+  totalPnl!: number;
+
+  @ApiProperty()
+  percentage!: number;
+}
+
+export class DiscoverAggregationResponseDto {
+  @ApiProperty({ type: [DiscoverAggregationDistributionDto] })
+  speedDistribution!: Array<{ category: string; count: number; totalPnl: number; percentage: number }>;
+
+  @ApiProperty({ type: [DiscoverAggregationDistributionDto] })
+  flowDistribution!: Array<{ pattern: string; count: number; totalPnl: number; percentage: number }>;
+
+  @ApiProperty()
+  total!: number;
+}

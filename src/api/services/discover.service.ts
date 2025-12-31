@@ -178,6 +178,132 @@ export class DiscoverService {
     };
   }
 
+  /**
+   * Get aggregated distribution stats for the filtered dataset
+   * Returns counts and percentages for speedCategory and flowPattern
+   */
+  async getDiscoverAggregation(query: DiscoverWalletsQueryDto): Promise<{
+    speedDistribution: { category: string; count: number; totalPnl: number; percentage: number }[];
+    flowDistribution: { pattern: string; count: number; totalPnl: number; percentage: number }[];
+    total: number;
+  }> {
+    // Build the same where clause as getDiscoverWallets, but we need ALL results (no pagination)
+    const minTradeCount = query.minTradeCount;
+    const minUniqueTokens = query.minUniqueTokens;
+    const speedCategory = query.speedCategory;
+    const flowPattern = query.flowPattern;
+    const holdBias = query.holdBias;
+    const minVelocity = query.minVelocity;
+    const maxVelocity = query.maxVelocity;
+
+    const where: Prisma.WalletWhereInput = {
+      pnlSummary: { isNot: null },
+      behaviorProfile: { isNot: null },
+    };
+
+    if (typeof minTradeCount === 'number' && minTradeCount > 0) {
+      where.behaviorProfile = { is: { totalTradeCount: { gte: minTradeCount } } };
+    }
+
+    if (typeof minUniqueTokens === 'number' && minUniqueTokens > 0) {
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          uniqueTokensTraded: { gte: minUniqueTokens },
+        },
+      };
+    }
+
+    if (speedCategory) {
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          speedCategory: { equals: speedCategory.toUpperCase() },
+        },
+      };
+    }
+
+    if (flowPattern) {
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          flowPattern: { equals: flowPattern.toUpperCase() },
+        },
+      };
+    }
+
+    if (holdBias) {
+      const holdConditions = this.buildHoldBiasCondition(holdBias);
+      if (holdConditions) {
+        where.behaviorProfile = {
+          is: {
+            ...(where.behaviorProfile?.is || {}),
+            medianCompletedHoldTimeHours: holdConditions,
+          },
+        };
+      }
+    }
+
+    if (typeof minVelocity === 'number' || typeof maxVelocity === 'number') {
+      const velocityFilter: Prisma.IntNullableFilter = {};
+      if (typeof minVelocity === 'number') velocityFilter.gte = minVelocity;
+      if (typeof maxVelocity === 'number') velocityFilter.lte = maxVelocity;
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          velocityScore: velocityFilter,
+        },
+      };
+    }
+
+    // Fetch speedCategory, flowPattern, and PnL fields (efficient)
+    const wallets = await this.databaseService.getDiscoverAggregationData({ where });
+
+    const total = wallets.length;
+    const speedStats = new Map<string, { count: number; totalPnl: number }>();
+    const flowStats = new Map<string, { count: number; totalPnl: number }>();
+
+    wallets.forEach((wallet) => {
+      const speed = wallet.speedCategory || 'UNCLASSIFIED';
+      const flow = wallet.flowPattern || 'UNCLASSIFIED';
+      const pnl = wallet.pnl || 0;
+
+      // Update speed stats
+      const speedStat = speedStats.get(speed) || { count: 0, totalPnl: 0 };
+      speedStats.set(speed, {
+        count: speedStat.count + 1,
+        totalPnl: speedStat.totalPnl + pnl,
+      });
+
+      // Update flow stats
+      const flowStat = flowStats.get(flow) || { count: 0, totalPnl: 0 };
+      flowStats.set(flow, {
+        count: flowStat.count + 1,
+        totalPnl: flowStat.totalPnl + pnl,
+      });
+    });
+
+    const speedDistribution = Array.from(speedStats.entries()).map(([category, stats]) => ({
+      category,
+      count: stats.count,
+      totalPnl: stats.totalPnl,
+      percentage: total > 0 ? (stats.count / total) * 100 : 0,
+    }));
+
+    const flowDistribution = Array.from(flowStats.entries()).map(([pattern, stats]) => ({
+      pattern,
+      count: stats.count,
+      totalPnl: stats.totalPnl,
+      percentage: total > 0 ? (stats.count / total) * 100 : 0,
+    }));
+
+    return {
+      speedDistribution,
+      flowDistribution,
+      total,
+    };
+  }
+
   private normalizePageSize(requested?: number): number {
     if (!requested) return this.DEFAULT_PAGE_SIZE;
     return Math.max(this.MIN_PAGE_SIZE, Math.min(this.MAX_PAGE_SIZE, requested));

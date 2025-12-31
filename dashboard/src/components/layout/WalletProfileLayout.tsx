@@ -409,6 +409,9 @@ export default function WalletProfileLayout({
       }
 
       try {
+        // Small delay to ensure backend has finished writing updated data
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         // Refresh wallet summary for all time ranges (invalidate all summary cache keys)
         await globalMutate(
           (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/summary`),
@@ -419,6 +422,9 @@ export default function WalletProfileLayout({
         );
         await globalMutate(
           (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/pnl-overview`),
+        );
+        await globalMutate(
+          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/behavioral-patterns`),
         );
       } catch (error) {
         console.error('Error refreshing wallet summary after completion', error);

@@ -56,7 +56,6 @@ export default function HolderProfilesPage() {
   const tokenJobIdRef = useRef<string | null>(null);
   const [tokenStatus, setTokenStatus] = useState<JobStatus>('idle');
   const [tokenProgress, setTokenProgress] = useState(0);
-  const [tokenMessage, setTokenMessage] = useState('');
 
   const parsedWallets = useMemo(() => parseWalletList(walletInput), [walletInput]);
 
@@ -79,7 +78,6 @@ export default function HolderProfilesPage() {
       (data: JobProgressData) => {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
           setTokenStatus('running');
-          setTokenMessage(data.status || 'Analyzing holders...');
 
           // Handle incremental holder profiles via progress payload
           if (typeof data.progress === 'object' && data.progress !== null && (data.progress as any).mode === 'token') {
@@ -123,7 +121,6 @@ export default function HolderProfilesPage() {
             setTokenPartialResult(null);
             setTokenStatus('completed');
             setTokenProgress(100);
-            setTokenMessage('Analysis complete');
             // Unsubscribe from the completed job
             if (unsubscribeFromJobRef.current) {
               unsubscribeFromJobRef.current(tokenJobIdRef.current);
@@ -151,7 +148,6 @@ export default function HolderProfilesPage() {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
           setTokenStatus('failed');
           setTokenProgress(0);
-          setTokenMessage('Analysis failed');
           // Unsubscribe from the failed job
           if (unsubscribeFromJobRef.current) {
             unsubscribeFromJobRef.current(tokenJobIdRef.current);
@@ -191,7 +187,6 @@ export default function HolderProfilesPage() {
     try {
       setTokenStatus('running');
           setTokenProgress(0);
-          setTokenMessage('Queued');
           setTokenResult(null);
           setTokenPartialResult(null);
           const response = await fetcher('/analyses/holder-profiles', {
@@ -345,9 +340,6 @@ export default function HolderProfilesPage() {
         )}
       </Card>
 
-      {analysisMode === 'token' && isTokenRunning && tokenMessage && (
-        <p className="text-xs text-muted-foreground px-3">{tokenMessage}</p>
-      )}
 
       {analysisMode === 'token' && (tokenResult || tokenPartialResult) && (
         <TokenPulse result={(tokenResult ?? tokenPartialResult)!} />

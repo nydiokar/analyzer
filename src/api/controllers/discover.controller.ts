@@ -4,6 +4,7 @@ import { DiscoverService } from '../services/discover.service';
 import {
   DiscoverWalletsQueryDto,
   DiscoverWalletsResponseDto,
+  DiscoverAggregationResponseDto,
 } from '../shared/dto/discover-wallet.dto';
 
 @ApiTags('Discover')
@@ -24,5 +25,18 @@ export class DiscoverController {
     @Query() query: DiscoverWalletsQueryDto,
   ): Promise<DiscoverWalletsResponseDto> {
     return this.discoverService.getDiscoverWallets(query);
+  }
+
+  @Get('aggregation')
+  @Header('Cache-Control', 'public, max-age=120')
+  @ApiOperation({
+    summary: 'Get aggregated distribution stats for filtered discover wallets.',
+    description:
+      'Returns speed category and flow pattern distribution with PnL data for the entire filtered dataset (not paginated).',
+  })
+  @ApiResponse({ status: 200, type: DiscoverAggregationResponseDto })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  async getDiscoverAggregation(@Query() query: DiscoverWalletsQueryDto): Promise<DiscoverAggregationResponseDto> {
+    return this.discoverService.getDiscoverAggregation(query);
   }
 }

@@ -137,15 +137,22 @@ export default function TrackersPage() {
 
   const collectionStats = useMemo<CollectionStat[]>(() => {
     if (!favoriteWallets?.length) return [];
-    const stats = new Map<string, { walletCount: number; totalPnl: number; totalBalance: number }>();
+    const stats = new Map<string, { walletCount: number; totalPnl: number; totalBalance: number; pnlCount: number; balanceCount: number }>();
 
     favoriteWallets.forEach((wallet: FavoriteWallet) => {
-      wallet.collections?.forEach((collection: string) => {
-        const existing = stats.get(collection) || { walletCount: 0, totalPnl: 0, totalBalance: 0 };
+      // Add "Main" collection for wallets without any collections
+      const collections = wallet.collections?.length ? wallet.collections : ['Main'];
+
+      collections.forEach((collection: string) => {
+        const existing = stats.get(collection) || { walletCount: 0, totalPnl: 0, totalBalance: 0, pnlCount: 0, balanceCount: 0 };
         stats.set(collection, {
           walletCount: existing.walletCount + 1,
-          totalPnl: existing.totalPnl + (wallet.pnl || 0),
-          totalBalance: existing.totalBalance + (wallet.currentSolBalance || 0),
+          // Only add to total if the value exists (not null/undefined)
+          totalPnl: existing.totalPnl + (wallet.pnl ?? 0),
+          totalBalance: existing.totalBalance + (wallet.currentSolBalance ?? 0),
+          // Track how many wallets actually have data
+          pnlCount: existing.pnlCount + (wallet.pnl != null ? 1 : 0),
+          balanceCount: existing.balanceCount + (wallet.currentSolBalance != null ? 1 : 0),
         });
       });
     });
@@ -153,9 +160,12 @@ export default function TrackersPage() {
     return Array.from(stats.entries())
       .map(([collection, data]) => ({
         collection,
-        ...data,
-        avgPnl: data.walletCount > 0 ? data.totalPnl / data.walletCount : 0,
-        avgBalance: data.walletCount > 0 ? data.totalBalance / data.walletCount : 0,
+        walletCount: data.walletCount,
+        totalPnl: data.totalPnl,
+        totalBalance: data.totalBalance,
+        // Calculate average only from wallets that have data
+        avgPnl: data.pnlCount > 0 ? data.totalPnl / data.pnlCount : 0,
+        avgBalance: data.balanceCount > 0 ? data.totalBalance / data.balanceCount : 0,
       }))
       .sort((a, b) => b.totalPnl - a.totalPnl);
   }, [favoriteWallets]);
@@ -333,23 +343,50 @@ export default function TrackersPage() {
         return;
       }
 
-      // Parse CSV rows
+      // Parse CSV rows with proper quote handling
       const walletsToImport: { walletAddress: string; nickname: string; collections: string[] }[] = [];
       const errors: string[] = [];
 
       for (let i = 0; i < dataLines.length; i++) {
         const line = dataLines[i];
-        // Simple CSV parsing (handles basic cases)
-        const parts = line.split(',');
+
+        // Proper CSV parsing that handles quoted fields
+        const parts: string[] = [];
+        let currentField = '';
+        let insideQuotes = false;
+
+        for (let j = 0; j < line.length; j++) {
+          const char = line[j];
+          const nextChar = line[j + 1];
+
+          if (char === '"') {
+            if (insideQuotes && nextChar === '"') {
+              // Escaped quote (e.g., "" inside quoted field)
+              currentField += '"';
+              j++; // Skip next quote
+            } else {
+              // Toggle quote state
+              insideQuotes = !insideQuotes;
+            }
+          } else if (char === ',' && !insideQuotes) {
+            // Field delimiter
+            parts.push(currentField.trim());
+            currentField = '';
+          } else {
+            currentField += char;
+          }
+        }
+        // Push last field
+        parts.push(currentField.trim());
 
         if (parts.length < 1) {
           errors.push(`Row ${i + 2}: Invalid format`);
           continue;
         }
 
-        const walletAddress = parts[0].trim();
-        const nickname = parts[1]?.trim().replace(/^"|"$/g, '') || ''; // Remove quotes if present
-        const collectionsStr = parts.slice(2).join(',').trim(); // Handle collections that might have commas
+        const walletAddress = parts[0];
+        const nickname = parts[1] || '';
+        const collectionsStr = parts[2] || '';
         const collections = collectionsStr ? collectionsStr.split(';').map(c => c.trim()).filter(c => c) : [];
 
         // Validate wallet address

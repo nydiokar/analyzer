@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Info,
   Loader2,
@@ -43,6 +43,7 @@ import EmptyState from "@/components/shared/EmptyState";
 import { ErrorMessage, getErrorMessage } from "@/lib/error-messages";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import ReactECharts from 'echarts-for-react';
 
 const PAGE_SIZE = 24;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -154,6 +155,10 @@ export default function DiscoverPage() {
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [velocityRange, setVelocityRange] = useState<[number, number]>([0, 100]);
+
+  // Refs for chart instances
+  const speedChartRef = useRef<any>(null);
+  const flowChartRef = useRef<any>(null);
 
   // Get user's favorite wallets
   const { favorites, mutate: mutateFavorites } = useFavorites();
@@ -320,35 +325,39 @@ export default function DiscoverPage() {
     setPage(1);
   };
 
-  const speedDistribution = useMemo(() => {
-    if (!wallets.length) return [];
-    const totalWallets = wallets.length;
-    const counts = new Map<string, number>();
-    wallets.forEach((wallet) => {
-      const category = wallet.metrics.speedCategory || "UNCLASSIFIED";
-      counts.set(category, (counts.get(category) || 0) + 1);
-    });
-    return Array.from(counts.entries()).map(([category, count]) => ({
-      category,
-      count,
-      percentage: totalWallets > 0 ? (count / totalWallets) * 100 : 0,
-    }));
-  }, [wallets]);
+  // Fetch aggregated distribution stats for the entire filtered dataset
+  const [speedDistribution, setSpeedDistribution] = useState<{ category: string; count: number; percentage: number; totalPnl: number }[]>([]);
+  const [flowDistribution, setFlowDistribution] = useState<{ pattern: string; count: number; percentage: number; totalPnl: number }[]>([]);
+  const [aggregationTotal, setAggregationTotal] = useState<number>(0);
 
-  const flowDistribution = useMemo(() => {
-    if (!wallets.length) return [];
-    const totalWallets = wallets.length;
-    const counts = new Map<string, number>();
-    wallets.forEach((wallet) => {
-      const pattern = wallet.metrics.flowPattern || "UNCLASSIFIED";
-      counts.set(pattern, (counts.get(pattern) || 0) + 1);
-    });
-    return Array.from(counts.entries()).map(([pattern, count]) => ({
-      pattern,
-      count,
-      percentage: totalWallets > 0 ? (count / totalWallets) * 100 : 0,
-    }));
-  }, [wallets]);
+  const fetchAggregation = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({
+        sort,
+        timeframe: 'all',
+      });
+
+      if (minTradeCount !== '' && minTradeCount > 0) params.set('minTradeCount', String(minTradeCount));
+      if (minUniqueTokens !== '' && minUniqueTokens > 0) params.set('minUniqueTokens', String(minUniqueTokens));
+      if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
+      if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern);
+      if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
+      if (velocityRange[0] > 0) params.set('minVelocity', String(velocityRange[0]));
+      if (velocityRange[1] < 100) params.set('maxVelocity', String(velocityRange[1]));
+
+      const data = await fetcher(`/discover/aggregation?${params.toString()}`);
+      setSpeedDistribution(data.speedDistribution || []);
+      setFlowDistribution(data.flowDistribution || []);
+      setAggregationTotal(data.total || 0);
+    } catch (err) {
+      console.error('Failed to fetch aggregation stats:', err);
+      // Non-critical, just log it
+    }
+  }, [minTradeCount, minUniqueTokens, speedCategory, flowPattern, holdBias, velocityRange, sort]);
+
+  useEffect(() => {
+    fetchAggregation();
+  }, [fetchAggregation]);
 
   const getCategoryStat = (category: string) =>
     speedDistribution.find((item) => item.category === category) || { count: 0, percentage: 0 };
@@ -681,6 +690,13 @@ export default function DiscoverPage() {
             </Tooltip>
           </TooltipProvider>
 
+          {/* Velocity filter indicator */}
+          {(velocityRange[0] > 0 || velocityRange[1] < 100) && (
+            <Badge variant="secondary" className="h-7 px-2 text-xs">
+              Velocity: {velocityRange[0]}-{velocityRange[1]}
+            </Badge>
+          )}
+
           {/* Reset + Refresh combined */}
           <TooltipProvider>
             <Tooltip>
@@ -709,8 +725,8 @@ export default function DiscoverPage() {
           </TooltipProvider>
         </div>
 
-        <div className="flex gap-6">
-          <div className="flex-1 space-y-3">
+        <div className="flex gap-4">
+          <div className="flex-1 max-w-[calc(100%-400px)] space-y-3">
             {error && (
               <Alert variant="destructive">
                 <AlertTitle>{error.title}</AlertTitle>
@@ -820,7 +836,7 @@ export default function DiscoverPage() {
             )}
           </div>
 
-          <div className="w-80 flex-shrink-0 space-y-4">
+          <div className="w-96 flex-shrink-0 space-y-4">
             {showSidebarSkeleton ? (
               <>
                 <Card>
@@ -846,59 +862,27 @@ export default function DiscoverPage() {
               </>
             ) : (
               <>
-                <div className="sticky top-4 z-10">
-                  <Card className="bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        Classification Legend
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs">
-                              Speed shows exit timing. Flow shows buy/sell bias. Together they explain how a wallet behaves at a glance.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>Speed range (exit timing)</span>
-                          <span>Fast → Long</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-gradient-to-r from-red-500 via-yellow-400 to-emerald-500" />
-                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                          <span>Minutes</span>
-                          <span>Days+</span>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>Flow range (buy/sell)</span>
-                          <span>Buy → Sell</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-gradient-to-r from-emerald-500 via-blue-400 to-red-500" />
-                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                          <span>Accumulation</span>
-                          <span>Distribution</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
+                {/* Compact Velocity Filter */}
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Velocity Filter</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>0</span>
-                      <span>100</span>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <CardTitle className="text-sm cursor-help flex items-center gap-1">
+                              Velocity Filter
+                              <Info className="h-3 w-3 text-muted-foreground" />
+                            </CardTitle>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p className="text-xs">Trading velocity measures rotation speed. Higher values = faster exits.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <span className="text-xs text-muted-foreground">{velocityMin}–{velocityMax}</span>
                     </div>
+                  </CardHeader>
+                  <CardContent className="pb-3">
                     <div className="relative h-2 rounded-full bg-muted">
                       <div
                         className="absolute inset-y-0 rounded-full bg-primary/60"
@@ -915,7 +899,7 @@ export default function DiscoverPage() {
                           setPage(1);
                           setActivePreset(null);
                         }}
-                        className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto z-20 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-primary/60 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0"
+                        className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto z-20 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-primary/60 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0"
                         aria-label="Minimum velocity"
                       />
                       <input
@@ -929,109 +913,376 @@ export default function DiscoverPage() {
                           setPage(1);
                           setActivePreset(null);
                         }}
-                        className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto z-10 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-primary/60 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0"
+                        className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto z-10 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-primary/60 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0"
                         aria-label="Maximum velocity"
                       />
                     </div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>
-                        Min <span className="font-semibold text-foreground">{velocityMin}</span>
-                      </span>
-                      <span>
-                        Max <span className="font-semibold text-foreground">{velocityMax}</span>
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                      {velocityBands.map((band) => (
-                        <div key={band.label} className="text-center">
-                          <div className="font-semibold text-foreground">{band.label}</div>
-                          <div>{band.range}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Trading velocity scores measure rotation speed. Higher values = faster exits.
-                    </p>
                   </CardContent>
                 </Card>
 
+                {/* Speed Distribution - Visual Donut Chart */}
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Speed Categories</CardTitle>
+                  <CardHeader className="pb-2">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <CardTitle className="text-sm cursor-help flex items-center gap-1">
+                            Speed Distribution
+                            <Info className="h-3 w-3 text-muted-foreground" />
+                          </CardTitle>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          Exit timing distribution for {aggregationTotal.toLocaleString()} wallets matching your filters
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    {speedLegend.map((option) => {
-                      const stat = getCategoryStat(option.value);
-                      const textClass = getSpeedColor(option.value);
-                      const barClass = toBgClass(textClass);
-                      return (
-                        <div key={option.value} className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Badge className={cn("border border-current/30 bg-transparent text-xs", textClass)}>
-                              {option.label}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              {stat.count} · {stat.percentage.toFixed(0)}%
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 flex-1 rounded-full bg-muted">
-                              <div
-                                className={cn("h-1.5 rounded-full", barClass)}
-                                style={{ width: `${stat.percentage}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] text-muted-foreground">{option.hint}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {!!getCategoryStat("UNCLASSIFIED").count && (
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Unclassified</span>
-                        <span>{getCategoryStat("UNCLASSIFIED").count}</span>
-                      </div>
-                    )}
+                  <CardContent className="pb-4">
+                    <ReactECharts
+                      ref={speedChartRef}
+                      option={{
+                        tooltip: {
+                          show: false,
+                        },
+                        graphic: {
+                          type: 'text',
+                          left: 'center',
+                          top: 'middle',
+                          z: 100,
+                          style: {
+                            text: 'Hover to view\ndetails',
+                            textAlign: 'center',
+                            fill: 'hsl(var(--muted-foreground))',
+                            fontSize: 13,
+                            lineHeight: 18,
+                          },
+                        },
+                        series: [{
+                          type: 'pie',
+                          radius: ['55%', '85%'],
+                          center: ['50%', '50%'],
+                          label: {
+                            show: true,
+                            position: 'inside',
+                            formatter: '{d}%',
+                            fontSize: 12,
+                            color: '#fff',
+                            fontWeight: 'bold',
+                          },
+                          emphasis: {
+                            label: {
+                              show: false,
+                            },
+                          },
+                          data: speedDistribution.filter(d => d.count > 0).map(entry => {
+                            const colorMap: Record<string, string> = {
+                              'SNIPER': '#fca5a5',      // Soft red
+                              'SCALPER': '#fdba74',     // Soft orange
+                              'MOMENTUM': '#fde68a',    // Soft yellow
+                              'INTRADAY': '#bef264',    // Soft lime
+                              'DAY_TRADER': '#86efac',  // Soft green
+                              'SWING': '#6ee7b7',       // Soft emerald
+                              'POSITION': '#5eead4',    // Soft teal
+                              'HODLER': '#7dd3fc',      // Soft sky blue
+                              'UNCLASSIFIED': '#cbd5e1', // Soft gray
+                            };
+                            return {
+                              name: entry.category,
+                              value: entry.count,
+                              itemStyle: {
+                                color: colorMap[entry.category] || '#cbd5e1',
+                                borderRadius: 4,
+                                borderColor: 'transparent',
+                                borderWidth: 2,
+                              },
+                            };
+                          }),
+                        }],
+                      }}
+                      style={{ height: '320px' }}
+                      opts={{ renderer: 'svg' }}
+                      onEvents={{
+                        mouseover: (params: any) => {
+                          if (params.componentType === 'series' && speedChartRef.current) {
+                            const labelMap: Record<string, string> = {
+                              'SNIPER': 'Sniper (<1m)',
+                              'SCALPER': 'Scalper (1-5m)',
+                              'MOMENTUM': 'Momentum (5-30m)',
+                              'INTRADAY': 'Intraday (30m-4h)',
+                              'DAY_TRADER': 'Day (4-24h)',
+                              'SWING': 'Swing (1-7d)',
+                              'POSITION': 'Position (7-30d)',
+                              'HODLER': 'Hodler (30d+)',
+                              'UNCLASSIFIED': 'No Exits',
+                            };
+
+                            const colorMap: Record<string, string> = {
+                              'SNIPER': '#fca5a5',      // Soft red
+                              'SCALPER': '#fdba74',     // Soft orange
+                              'MOMENTUM': '#fde68a',    // Soft yellow
+                              'INTRADAY': '#bef264',    // Soft lime
+                              'DAY_TRADER': '#86efac',  // Soft green
+                              'SWING': '#6ee7b7',       // Soft emerald
+                              'POSITION': '#5eead4',    // Soft teal
+                              'HODLER': '#7dd3fc',      // Soft sky blue
+                              'UNCLASSIFIED': '#cbd5e1', // Soft gray
+                            };
+
+                            // Find the matching distribution entry to get totalPnl
+                            const categoryData = speedDistribution.find(d => d.category === params.name);
+                            const pnl = categoryData?.totalPnl || 0;
+                            const pnlFormatted = formatSOL(pnl);
+                            const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
+                            const categoryColor = colorMap[params.name] || '#6b7280';
+
+                            const echarts = speedChartRef.current.getEchartsInstance();
+                            echarts.setOption({
+                              graphic: [
+                                {
+                                  type: 'text',
+                                  left: 'center',
+                                  top: 'middle',
+                                  z: 100,
+                                  style: {
+                                    text: labelMap[params.name] || params.name,
+                                    textAlign: 'center',
+                                    fill: categoryColor,
+                                    fontSize: 15,
+                                    fontWeight: 'bold',
+                                  },
+                                },
+                                {
+                                  type: 'text',
+                                  left: 'center',
+                                  top: '52%',
+                                  z: 100,
+                                  style: {
+                                    text: `${params.value} wallets (${params.percent.toFixed(1)}%)`,
+                                    textAlign: 'center',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 12,
+                                    fontWeight: 'normal',
+                                  },
+                                },
+                                {
+                                  type: 'text',
+                                  left: 'center',
+                                  top: '60%',
+                                  z: 100,
+                                  style: {
+                                    text: `${pnlFormatted} SOL`,
+                                    textAlign: 'center',
+                                    fill: pnlColor,
+                                    fontSize: 16,
+                                    fontWeight: 'bold',
+                                  },
+                                },
+                              ],
+                            });
+                          }
+                        },
+                        mouseout: () => {
+                          if (speedChartRef.current) {
+                            const echarts = speedChartRef.current.getEchartsInstance();
+                            echarts.setOption({
+                              graphic: {
+                                type: 'text',
+                                left: 'center',
+                                top: 'middle',
+                                z: 100,
+                                style: {
+                                  text: 'Hover to view\ndetails',
+                                  textAlign: 'center',
+                                  fill: 'hsl(var(--muted-foreground))',
+                                  fontSize: 13,
+                                  lineHeight: 18,
+                                },
+                              },
+                            });
+                          }
+                        },
+                      }}
+                    />
                   </CardContent>
                 </Card>
 
+                {/* Flow Distribution - Visual Donut Chart */}
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Flow Patterns</CardTitle>
+                  <CardHeader className="pb-2">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <CardTitle className="text-sm cursor-help flex items-center gap-1">
+                            Flow Distribution
+                            <Info className="h-3 w-3 text-muted-foreground" />
+                          </CardTitle>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          Buy/sell pattern distribution for {aggregationTotal.toLocaleString()} wallets matching your filters
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    {flowLegend.map((option) => {
-                      const stat = getFlowStat(option.value);
-                      const textClass = getFlowColor(option.value);
-                      const barClass = toBgClass(textClass);
-                      return (
-                        <div key={option.value} className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Badge className={cn("border border-current/30 bg-transparent text-xs", textClass)}>
-                              {option.label}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              {stat.count} · {stat.percentage.toFixed(0)}%
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 flex-1 rounded-full bg-muted">
-                              <div
-                                className={cn("h-1.5 rounded-full", barClass)}
-                                style={{ width: `${stat.percentage}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] text-muted-foreground">{option.hint}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {!!getFlowStat("UNCLASSIFIED").count && (
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Unclassified</span>
-                        <span>{getFlowStat("UNCLASSIFIED").count}</span>
-                      </div>
-                    )}
+                  <CardContent className="pb-4">
+                    <ReactECharts
+                      ref={flowChartRef}
+                      option={{
+                        tooltip: {
+                          show: false,
+                        },
+                        graphic: {
+                          type: 'text',
+                          left: 'center',
+                          top: 'middle',
+                          z: 100,
+                          style: {
+                            text: 'Hover to view\ndetails',
+                            textAlign: 'center',
+                            fill: 'hsl(var(--muted-foreground))',
+                            fontSize: 13,
+                            lineHeight: 18,
+                          },
+                        },
+                        series: [{
+                          type: 'pie',
+                          radius: ['55%', '85%'],
+                          center: ['50%', '50%'],
+                          label: {
+                            show: true,
+                            position: 'inside',
+                            formatter: '{d}%',
+                            fontSize: 12,
+                            color: '#fff',
+                            fontWeight: 'bold',
+                          },
+                          emphasis: {
+                            label: {
+                              show: false,
+                            },
+                          },
+                          data: flowDistribution.filter(d => d.count > 0).map(entry => {
+                            const colorMap: Record<string, string> = {
+                              'BUY_ONLY': '#6ee7b7',     // Soft emerald
+                              'ACCUMULATOR': '#86efac',  // Soft green
+                              'BALANCED': '#93c5fd',     // Soft blue
+                              'DISTRIBUTOR': '#fdba74',  // Soft orange
+                              'SELL_ONLY': '#fca5a5',    // Soft red
+                              'MIXED': '#c4b5fd',        // Soft purple
+                              'UNCLASSIFIED': '#cbd5e1', // Soft gray
+                            };
+                            return {
+                              name: entry.pattern,
+                              value: entry.count,
+                              itemStyle: {
+                                color: colorMap[entry.pattern] || '#cbd5e1',
+                                borderRadius: 4,
+                                borderColor: 'transparent',
+                                borderWidth: 2,
+                              },
+                            };
+                          }),
+                        }],
+                      }}
+                      style={{ height: '320px' }}
+                      opts={{ renderer: 'svg' }}
+                      onEvents={{
+                        mouseover: (params: any) => {
+                          if (params.componentType === 'series' && flowChartRef.current) {
+                            const labelMap: Record<string, string> = {
+                              'BUY_ONLY': 'Buy Only',
+                              'ACCUMULATOR': 'Accumulator',
+                              'BALANCED': 'Balanced',
+                              'DISTRIBUTOR': 'Distributor',
+                              'SELL_ONLY': 'Sell Only',
+                              'MIXED': 'Mixed',
+                              'UNCLASSIFIED': 'Unclassified',
+                            };
+
+                            const colorMap: Record<string, string> = {
+                              'BUY_ONLY': '#6ee7b7',     // Soft emerald
+                              'ACCUMULATOR': '#86efac',  // Soft green
+                              'BALANCED': '#93c5fd',     // Soft blue
+                              'DISTRIBUTOR': '#fdba74',  // Soft orange
+                              'SELL_ONLY': '#fca5a5',    // Soft red
+                              'MIXED': '#c4b5fd',        // Soft purple
+                              'UNCLASSIFIED': '#cbd5e1', // Soft gray
+                            };
+
+                            // Find the matching distribution entry to get totalPnl
+                            const patternData = flowDistribution.find(d => d.pattern === params.name);
+                            const pnl = patternData?.totalPnl || 0;
+                            const pnlFormatted = formatSOL(pnl);
+                            const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
+                            const categoryColor = colorMap[params.name] || '#6b7280';
+
+                            const echarts = flowChartRef.current.getEchartsInstance();
+                            echarts.setOption({
+                              graphic: [
+                                {
+                                  type: 'text',
+                                  left: 'center',
+                                  top: 'middle',
+                                  z: 100,
+                                  style: {
+                                    text: labelMap[params.name] || params.name,
+                                    textAlign: 'center',
+                                    fill: categoryColor,
+                                    fontSize: 15,
+                                    fontWeight: 'bold',
+                                  },
+                                },
+                                {
+                                  type: 'text',
+                                  left: 'center',
+                                  top: '52%',
+                                  z: 100,
+                                  style: {
+                                    text: `${params.value} wallets (${params.percent.toFixed(1)}%)`,
+                                    textAlign: 'center',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 12,
+                                    fontWeight: 'normal',
+                                  },
+                                },
+                                {
+                                  type: 'text',
+                                  left: 'center',
+                                  top: '60%',
+                                  z: 100,
+                                  style: {
+                                    text: `${pnlFormatted} SOL`,
+                                    textAlign: 'center',
+                                    fill: pnlColor,
+                                    fontSize: 16,
+                                    fontWeight: 'bold',
+                                  },
+                                },
+                              ],
+                            });
+                          }
+                        },
+                        mouseout: () => {
+                          if (flowChartRef.current) {
+                            const echarts = flowChartRef.current.getEchartsInstance();
+                            echarts.setOption({
+                              graphic: {
+                                type: 'text',
+                                left: 'center',
+                                top: 'middle',
+                                z: 100,
+                                style: {
+                                  text: 'Hover to view\ndetails',
+                                  textAlign: 'center',
+                                  fill: 'hsl(var(--muted-foreground))',
+                                  fontSize: 13,
+                                  lineHeight: 18,
+                                },
+                              },
+                            });
+                          }
+                        },
+                      }}
+                    />
                   </CardContent>
                 </Card>
               </>

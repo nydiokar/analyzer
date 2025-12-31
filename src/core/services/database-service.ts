@@ -2479,6 +2479,40 @@ export class DatabaseService {
         });
     }
 
+    /**
+     * Get speedCategory, flowPattern, and PnL for aggregation statistics
+     * Efficient query that only selects the fields needed for distribution calculation
+     */
+    async getDiscoverAggregationData(params: {
+        where: Prisma.WalletWhereInput;
+    }): Promise<Array<{ speedCategory: string | null; flowPattern: string | null; pnl: number | null }>> {
+        return this.executeWithRetry('getDiscoverAggregationData', async () => {
+            const wallets = await this.prismaClient.wallet.findMany({
+                where: params.where,
+                select: {
+                    behaviorProfile: {
+                        select: {
+                            speedCategory: true,
+                            flowPattern: true,
+                        },
+                    },
+                    pnlSummary: {
+                        select: {
+                            netPnl: true,
+                        },
+                    },
+                },
+            });
+
+            // Flatten the structure for easier processing
+            return wallets.map(w => ({
+                speedCategory: w.behaviorProfile?.speedCategory || null,
+                flowPattern: w.behaviorProfile?.flowPattern || null,
+                pnl: w.pnlSummary?.netPnl || null,
+            }));
+        });
+    }
+
     // --- TokenInfo Methods ---
     async findManyTokenInfo(tokenAddresses: string[]): Promise<TokenInfo[]> {
         if (tokenAddresses.length === 0) return [];
