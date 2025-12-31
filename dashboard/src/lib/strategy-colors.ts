@@ -101,39 +101,143 @@ export function getStrategyColors(strategyType: StrategyType | null | undefined)
 }
 
 /**
- * Speed Category Colors (based on exit timing)
- * Matches holder-profiles cognitive primitives color scheme
+ * Speed Category Color Definitions (based on exit timing)
+ * Dark pastel color palette for consistent use across charts, tables, and badges
  */
-export const SPEED_COLORS: Record<string, string> = {
-  'SNIPER': 'text-red-500',      // Ultra-fast (< 5 min)
-  'SCALPER': 'text-red-500',     // Ultra-fast (< 5 min)
-  'MOMENTUM': 'text-orange-500', // Fast (< 30 min)
-  'INTRADAY': 'text-yellow-500', // Intraday (< 6h)
-  'DAY_TRADER': 'text-yellow-500', // Intraday (< 24h)
-  'SWING': 'text-blue-500',      // Multi-day (1-7 days)
-  'POSITION': 'text-emerald-500', // Long-term (7+ days)
-  'HODLER': 'text-emerald-500',  // Long-term (never exits)
+export const SPEED_CATEGORY_COLORS: Record<string, { hex: string; text: string; label: string }> = {
+  'SNIPER': {
+    hex: '#dc8787',
+    text: 'text-[#dc8787]',
+    label: 'Sniper (<1m)'
+  },
+  'SCALPER': {
+    hex: '#e39d65',
+    text: 'text-[#e39d65]',
+    label: 'Scalper (1-5m)'
+  },
+  'MOMENTUM': {
+    hex: '#d4b86a',
+    text: 'text-[#d4b86a]',
+    label: 'Momentum (5-30m)'
+  },
+  'INTRADAY': {
+    hex: '#a5c663',
+    text: 'text-[#a5c663]',
+    label: 'Intraday (30m-4h)'
+  },
+  'DAY_TRADER': {
+    hex: '#6cb076',
+    text: 'text-[#6cb076]',
+    label: 'Day (4-24h)'
+  },
+  'SWING': {
+    hex: '#5daa9b',
+    text: 'text-[#5daa9b]',
+    label: 'Swing (1-7d)'
+  },
+  'POSITION': {
+    hex: '#5ca5ad',
+    text: 'text-[#5ca5ad]',
+    label: 'Position (7-30d)'
+  },
+  'HODLER': {
+    hex: '#6ba5d1',
+    text: 'text-[#6ba5d1]',
+    label: 'Hodler (30d+)'
+  },
+  'UNCLASSIFIED': {
+    hex: '#9ca3af',
+    text: 'text-[#9ca3af]',
+    label: 'No Exits'
+  },
 };
 
 /**
- * Flow Pattern Colors (based on buy/sell behavior - conviction theme)
- * Matches holder-profiles conviction: High (green), Mixed (yellow), Low/Chaotic (red)
+ * Flow Pattern Color Definitions (based on buy/sell behavior)
+ * Dark pastel color palette for consistent use across charts, tables, and badges
  */
-export const FLOW_COLORS: Record<string, string> = {
-  'BUY_ONLY': 'text-emerald-500',      // High conviction - pure accumulation
-  'ACCUMULATOR': 'text-emerald-500',   // High conviction - buy-heavy
-  'BALANCED': 'text-blue-500',         // Neutral - disciplined trading
-  'MIXED': 'text-yellow-500',          // Mixed - chaotic pattern
-  'DISTRIBUTOR': 'text-orange-500',    // Distribution phase
-  'SELL_ONLY': 'text-red-500',         // Exit phase
+export const FLOW_PATTERN_COLORS: Record<string, { hex: string; text: string; label: string }> = {
+  'BUY_ONLY': {
+    hex: '#5daa9b',
+    text: 'text-[#5daa9b]',
+    label: 'Buy Only'
+  },
+  'ACCUMULATOR': {
+    hex: '#6cb076',
+    text: 'text-[#6cb076]',
+    label: 'Accumulator'
+  },
+  'BALANCED': {
+    hex: '#6b9dd1',
+    text: 'text-[#6b9dd1]',
+    label: 'Balanced'
+  },
+  'MIXED': {
+    hex: '#a591c9',
+    text: 'text-[#a591c9]',
+    label: 'Mixed'
+  },
+  'DISTRIBUTOR': {
+    hex: '#e39d65',
+    text: 'text-[#e39d65]',
+    label: 'Distributor'
+  },
+  'SELL_ONLY': {
+    hex: '#dc8787',
+    text: 'text-[#dc8787]',
+    label: 'Sell Only'
+  },
+  'UNCLASSIFIED': {
+    hex: '#9ca3af',
+    text: 'text-[#9ca3af]',
+    label: 'Unclassified'
+  },
 };
+
+/**
+ * Legacy exports for backward compatibility
+ * @deprecated Use SPEED_CATEGORY_COLORS instead
+ */
+export const SPEED_COLORS: Record<string, string> = Object.entries(SPEED_CATEGORY_COLORS).reduce((acc, [key, val]) => {
+  acc[key] = val.text;
+  return acc;
+}, {} as Record<string, string>);
+
+/**
+ * Legacy exports for backward compatibility
+ * @deprecated Use FLOW_PATTERN_COLORS instead
+ */
+export const FLOW_COLORS: Record<string, string> = Object.entries(FLOW_PATTERN_COLORS).reduce((acc, [key, val]) => {
+  acc[key] = val.text;
+  return acc;
+}, {} as Record<string, string>);
 
 export function getSpeedColor(speedCategory: string | null | undefined): string {
   if (!speedCategory) return 'text-foreground';
-  return SPEED_COLORS[speedCategory] || 'text-foreground';
+  return SPEED_CATEGORY_COLORS[speedCategory]?.text || 'text-foreground';
 }
 
 export function getFlowColor(flowPattern: string | null | undefined): string {
   if (!flowPattern) return 'text-foreground';
-  return FLOW_COLORS[flowPattern] || 'text-foreground';
+  return FLOW_PATTERN_COLORS[flowPattern]?.text || 'text-foreground';
+}
+
+export function getSpeedColorHex(speedCategory: string | null | undefined): string {
+  if (!speedCategory) return '#6b7280'; // Default gray
+  return SPEED_CATEGORY_COLORS[speedCategory]?.hex || '#6b7280';
+}
+
+export function getFlowColorHex(flowPattern: string | null | undefined): string {
+  if (!flowPattern) return '#6b7280'; // Default gray
+  return FLOW_PATTERN_COLORS[flowPattern]?.hex || '#6b7280';
+}
+
+export function getSpeedLabel(speedCategory: string | null | undefined): string {
+  if (!speedCategory) return 'Unknown';
+  return SPEED_CATEGORY_COLORS[speedCategory]?.label || speedCategory;
+}
+
+export function getFlowLabel(flowPattern: string | null | undefined): string {
+  if (!flowPattern) return 'Unknown';
+  return FLOW_PATTERN_COLORS[flowPattern]?.label || flowPattern;
 }

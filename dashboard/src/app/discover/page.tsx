@@ -38,7 +38,7 @@ import { buildSpeedNarrative, buildFlowNarrative } from "@/lib/behavior-narrativ
 import { DiscoverWallet, DiscoverWalletsResponse } from "@/types/discover";
 import { FavoriteWallet } from "@/types/api";
 import QuickAddForm from "@/components/layout/QuickAddForm";
-import { getSpeedColor, getFlowColor } from "@/lib/strategy-colors";
+import { getSpeedColor, getFlowColor, getSpeedColorHex, getFlowColorHex, getSpeedLabel, getFlowLabel, SPEED_CATEGORY_COLORS, FLOW_PATTERN_COLORS } from "@/lib/strategy-colors";
 import EmptyState from "@/components/shared/EmptyState";
 import { ErrorMessage, getErrorMessage } from "@/lib/error-messages";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1017,22 +1017,11 @@ export default function DiscoverPage() {
                             },
                           },
                           data: speedDistribution.filter(d => d.count > 0).map(entry => {
-                            const colorMap: Record<string, string> = {
-                              'SNIPER': '#dc8787',      // Muted red
-                              'SCALPER': '#e39d65',     // Muted orange
-                              'MOMENTUM': '#d4b86a',    // Muted yellow
-                              'INTRADAY': '#a5c663',    // Muted lime
-                              'DAY_TRADER': '#6cb076',  // Muted green
-                              'SWING': '#5daa9b',       // Muted emerald
-                              'POSITION': '#5ca5ad',    // Muted teal
-                              'HODLER': '#6ba5d1',      // Muted sky blue
-                              'UNCLASSIFIED': '#9ca3af', // Muted gray
-                            };
                             return {
                               name: entry.category,
                               value: entry.count,
                               itemStyle: {
-                                color: colorMap[entry.category] || '#cbd5e1',
+                                color: getSpeedColorHex(entry.category),
                                 borderRadius: 4,
                                 borderColor: 'rgba(255, 255, 255, 0.15)',
                                 borderWidth: 2,
@@ -1046,36 +1035,13 @@ export default function DiscoverPage() {
                       onEvents={{
                         mouseover: (params: any) => {
                           if (params.componentType === 'series' && params.seriesType === 'pie' && speedChartRef.current) {
-                            const labelMap: Record<string, string> = {
-                              'SNIPER': 'Sniper (<1m)',
-                              'SCALPER': 'Scalper (1-5m)',
-                              'MOMENTUM': 'Momentum (5-30m)',
-                              'INTRADAY': 'Intraday (30m-4h)',
-                              'DAY_TRADER': 'Day (4-24h)',
-                              'SWING': 'Swing (1-7d)',
-                              'POSITION': 'Position (7-30d)',
-                              'HODLER': 'Hodler (30d+)',
-                              'UNCLASSIFIED': 'No Exits',
-                            };
-
-                            const colorMap: Record<string, string> = {
-                              'SNIPER': '#dc8787',      // Muted red
-                              'SCALPER': '#e39d65',     // Muted orange
-                              'MOMENTUM': '#d4b86a',    // Muted yellow
-                              'INTRADAY': '#a5c663',    // Muted lime
-                              'DAY_TRADER': '#6cb076',  // Muted green
-                              'SWING': '#5daa9b',       // Muted emerald
-                              'POSITION': '#5ca5ad',    // Muted teal
-                              'HODLER': '#6ba5d1',      // Muted sky blue
-                              'UNCLASSIFIED': '#9ca3af', // Muted gray
-                            };
-
                             // Find the matching distribution entry to get totalPnl
                             const categoryData = speedDistribution.find(d => d.category === params.name);
                             const pnl = categoryData?.totalPnl || 0;
                             const pnlFormatted = formatSOL(pnl);
                             const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
-                            const categoryColor = colorMap[params.name] || '#6b7280';
+                            const categoryColor = getSpeedColorHex(params.name);
+                            const categoryLabel = getSpeedLabel(params.name);
 
                             const echarts = speedChartRef.current.getEchartsInstance();
                             echarts.setOption({
@@ -1089,7 +1055,7 @@ export default function DiscoverPage() {
                                 {
                                   id: 'centerText2',
                                   style: {
-                                    text: labelMap[params.name] || params.name,
+                                    text: categoryLabel,
                                     fill: categoryColor,
                                     fontSize: 13,
                                     fontWeight: 'bold',
@@ -1244,20 +1210,11 @@ export default function DiscoverPage() {
                             },
                           },
                           data: flowDistribution.filter(d => d.count > 0).map(entry => {
-                            const colorMap: Record<string, string> = {
-                              'BUY_ONLY': '#5daa9b',     // Muted emerald
-                              'ACCUMULATOR': '#6cb076',  // Muted green
-                              'BALANCED': '#6b9dd1',     // Muted blue
-                              'DISTRIBUTOR': '#e39d65',  // Muted orange
-                              'SELL_ONLY': '#dc8787',    // Muted red
-                              'MIXED': '#a591c9',        // Muted purple
-                              'UNCLASSIFIED': '#9ca3af', // Muted gray
-                            };
                             return {
                               name: entry.pattern,
                               value: entry.count,
                               itemStyle: {
-                                color: colorMap[entry.pattern] || '#cbd5e1',
+                                color: getFlowColorHex(entry.pattern),
                                 borderRadius: 4,
                                 borderColor: 'rgba(255, 255, 255, 0.15)',
                                 borderWidth: 2,
@@ -1271,32 +1228,13 @@ export default function DiscoverPage() {
                       onEvents={{
                         mouseover: (params: any) => {
                           if (params.componentType === 'series' && params.seriesType === 'pie' && flowChartRef.current) {
-                            const labelMap: Record<string, string> = {
-                              'BUY_ONLY': 'Buy Only',
-                              'ACCUMULATOR': 'Accumulator',
-                              'BALANCED': 'Balanced',
-                              'DISTRIBUTOR': 'Distributor',
-                              'SELL_ONLY': 'Sell Only',
-                              'MIXED': 'Mixed',
-                              'UNCLASSIFIED': 'Unclassified',
-                            };
-
-                            const colorMap: Record<string, string> = {
-                              'BUY_ONLY': '#5daa9b',     // Muted emerald
-                              'ACCUMULATOR': '#6cb076',  // Muted green
-                              'BALANCED': '#6b9dd1',     // Muted blue
-                              'DISTRIBUTOR': '#e39d65',  // Muted orange
-                              'SELL_ONLY': '#dc8787',    // Muted red
-                              'MIXED': '#a591c9',        // Muted purple
-                              'UNCLASSIFIED': '#9ca3af', // Muted gray
-                            };
-
                             // Find the matching distribution entry to get totalPnl
                             const patternData = flowDistribution.find(d => d.pattern === params.name);
                             const pnl = patternData?.totalPnl || 0;
                             const pnlFormatted = formatSOL(pnl);
                             const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
-                            const categoryColor = colorMap[params.name] || '#6b7280';
+                            const categoryColor = getFlowColorHex(params.name);
+                            const categoryLabel = getFlowLabel(params.name);
 
                             const echarts = flowChartRef.current.getEchartsInstance();
                             echarts.setOption({
@@ -1310,7 +1248,7 @@ export default function DiscoverPage() {
                                 {
                                   id: 'flowCenterText2',
                                   style: {
-                                    text: labelMap[params.name] || params.name,
+                                    text: categoryLabel,
                                     fill: categoryColor,
                                     fontSize: 13,
                                     fontWeight: 'bold',
