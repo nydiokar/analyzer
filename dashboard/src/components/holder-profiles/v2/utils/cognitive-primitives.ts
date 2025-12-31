@@ -1,5 +1,6 @@
 import type { HolderProfile } from '../../../holder-profiles/types';
 import { formatHoldTime, getTypicalHoldTimeHours } from './formatters';
+import { SPEED_CATEGORY_COLORS } from '@/lib/strategy-colors';
 
 export interface CognitivePrimitive {
   id: 'speed' | 'conviction' | 'consistency';
@@ -10,12 +11,13 @@ export interface CognitivePrimitive {
   color: string;
 }
 
+// Speed buckets now use centralized color palette
 const SPEED_BUCKETS = [
-  { threshold: 1 / 60, label: 'Instant', color: 'text-red-500' },      // < 1 min
-  { threshold: 5 / 60, label: 'Ultra-fast', color: 'text-red-500' },    // < 5 min
-  { threshold: 0.5, label: 'Fast', color: 'text-orange-500' },          // < 30 min
-  { threshold: 6, label: 'Intraday', color: 'text-yellow-500' },        // < 6 h
-  { threshold: 24, label: 'Multi-day', color: 'text-blue-500' },        // < 1 d
+  { threshold: 1 / 60, label: 'Instant', color: SPEED_CATEGORY_COLORS.SNIPER.text },      // < 1 min
+  { threshold: 5 / 60, label: 'Ultra-fast', color: SPEED_CATEGORY_COLORS.SCALPER.text },  // < 5 min
+  { threshold: 0.5, label: 'Fast', color: SPEED_CATEGORY_COLORS.MOMENTUM.text },           // < 30 min
+  { threshold: 6, label: 'Intraday', color: SPEED_CATEGORY_COLORS.INTRADAY.text },         // < 6 h
+  { threshold: 24, label: 'Multi-day', color: SPEED_CATEGORY_COLORS.SWING.text },          // < 1 d
 ];
 
 function calculateMedian(values: number[]) {
@@ -35,7 +37,7 @@ export function getSpeedPrimitive(profiles: HolderProfile[]): CognitivePrimitive
   const median = holds.length ? calculateMedian(holds) : 0;
   const bucket = SPEED_BUCKETS.find((b) => median <= b.threshold);
   const category = bucket ? bucket.label : 'Long-term';
-  const color = bucket ? bucket.color : 'text-emerald-500';
+  const color = bucket ? bucket.color : SPEED_CATEGORY_COLORS.HODLER.text;
 
   return {
     id: 'speed',

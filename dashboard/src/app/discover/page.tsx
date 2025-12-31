@@ -38,7 +38,7 @@ import { buildSpeedNarrative, buildFlowNarrative } from "@/lib/behavior-narrativ
 import { DiscoverWallet, DiscoverWalletsResponse } from "@/types/discover";
 import { FavoriteWallet } from "@/types/api";
 import QuickAddForm from "@/components/layout/QuickAddForm";
-import { getSpeedColor, getFlowColor, getSpeedColorHex, getFlowColorHex, getSpeedLabel, getFlowLabel, SPEED_CATEGORY_COLORS, FLOW_PATTERN_COLORS } from "@/lib/strategy-colors";
+import { getSpeedColor, getFlowColor, getSpeedColorHex, getFlowColorHex, getSpeedLabel, getFlowLabel } from "@/lib/strategy-colors";
 import EmptyState from "@/components/shared/EmptyState";
 import { ErrorMessage, getErrorMessage } from "@/lib/error-messages";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
