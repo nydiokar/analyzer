@@ -937,54 +937,96 @@ export default function DiscoverPage() {
                       </Tooltip>
                     </TooltipProvider>
                   </CardHeader>
-                  <CardContent className="pb-4">
+                  <CardContent className="pb-4 px-0 min-h-[360px]">
                     <ReactECharts
                       ref={speedChartRef}
                       option={{
                         tooltip: {
                           show: false,
                         },
-                        graphic: {
-                          type: 'text',
-                          left: 'center',
-                          top: 'middle',
-                          z: 100,
-                          style: {
-                            text: 'Hover to view\ndetails',
-                            textAlign: 'center',
-                            fill: 'hsl(var(--muted-foreground))',
-                            fontSize: 13,
-                            lineHeight: 18,
+                        graphic: [
+                          {
+                            id: 'centerText1',
+                            type: 'text',
+                            left: 'center',
+                            top: '42%',
+                            z: 100,
+                            style: {
+                              text: `${aggregationTotal.toLocaleString()} wallets`,
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 11,
+                              fontWeight: 'normal',
+                            },
                           },
-                        },
+                          {
+                            id: 'centerText2',
+                            type: 'text',
+                            left: 'center',
+                            top: '50%',
+                            z: 100,
+                            style: {
+                              text: 'Hover a slice for details',
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 12,
+                              fontWeight: '500',
+                            },
+                          },
+                          {
+                            id: 'centerText3',
+                            type: 'text',
+                            left: 'center',
+                            top: '58%',
+                            z: 100,
+                            style: {
+                              text: '',
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 11,
+                              fontWeight: 'normal',
+                            },
+                          },
+                        ],
                         series: [{
                           type: 'pie',
-                          radius: ['55%', '85%'],
+                          radius: ['50%', '75%'],
                           center: ['50%', '50%'],
                           label: {
                             show: true,
-                            position: 'inside',
+                            position: 'outside',
                             formatter: '{d}%',
-                            fontSize: 12,
-                            color: '#fff',
-                            fontWeight: 'bold',
+                            fontSize: 11,
+                            color: 'hsl(var(--foreground))',
+                            fontWeight: '600',
+                            alignTo: 'edge',
+                            margin: 8,
+                          },
+                          labelLine: {
+                            show: true,
+                            length: 10,
+                            length2: 10,
+                            lineStyle: {
+                              color: 'hsl(var(--border))',
+                              width: 1,
+                            },
                           },
                           emphasis: {
                             label: {
-                              show: false,
+                              show: true,
                             },
                           },
                           data: speedDistribution.filter(d => d.count > 0).map(entry => {
                             const colorMap: Record<string, string> = {
-                              'SNIPER': '#fca5a5',      // Soft red
-                              'SCALPER': '#fdba74',     // Soft orange
-                              'MOMENTUM': '#fde68a',    // Soft yellow
-                              'INTRADAY': '#bef264',    // Soft lime
-                              'DAY_TRADER': '#86efac',  // Soft green
-                              'SWING': '#6ee7b7',       // Soft emerald
-                              'POSITION': '#5eead4',    // Soft teal
-                              'HODLER': '#7dd3fc',      // Soft sky blue
-                              'UNCLASSIFIED': '#cbd5e1', // Soft gray
+                              'SNIPER': '#dc8787',      // Muted red
+                              'SCALPER': '#e39d65',     // Muted orange
+                              'MOMENTUM': '#d4b86a',    // Muted yellow
+                              'INTRADAY': '#a5c663',    // Muted lime
+                              'DAY_TRADER': '#6cb076',  // Muted green
+                              'SWING': '#5daa9b',       // Muted emerald
+                              'POSITION': '#5ca5ad',    // Muted teal
+                              'HODLER': '#6ba5d1',      // Muted sky blue
+                              'UNCLASSIFIED': '#9ca3af', // Muted gray
                             };
                             return {
                               name: entry.category,
@@ -992,18 +1034,18 @@ export default function DiscoverPage() {
                               itemStyle: {
                                 color: colorMap[entry.category] || '#cbd5e1',
                                 borderRadius: 4,
-                                borderColor: 'transparent',
+                                borderColor: 'rgba(255, 255, 255, 0.15)',
                                 borderWidth: 2,
                               },
                             };
                           }),
                         }],
                       }}
-                      style={{ height: '320px' }}
+                      style={{ height: '340px', width: '100%' }}
                       opts={{ renderer: 'svg' }}
                       onEvents={{
                         mouseover: (params: any) => {
-                          if (params.componentType === 'series' && speedChartRef.current) {
+                          if (params.componentType === 'series' && params.seriesType === 'pie' && speedChartRef.current) {
                             const labelMap: Record<string, string> = {
                               'SNIPER': 'Sniper (<1m)',
                               'SCALPER': 'Scalper (1-5m)',
@@ -1017,15 +1059,15 @@ export default function DiscoverPage() {
                             };
 
                             const colorMap: Record<string, string> = {
-                              'SNIPER': '#fca5a5',      // Soft red
-                              'SCALPER': '#fdba74',     // Soft orange
-                              'MOMENTUM': '#fde68a',    // Soft yellow
-                              'INTRADAY': '#bef264',    // Soft lime
-                              'DAY_TRADER': '#86efac',  // Soft green
-                              'SWING': '#6ee7b7',       // Soft emerald
-                              'POSITION': '#5eead4',    // Soft teal
-                              'HODLER': '#7dd3fc',      // Soft sky blue
-                              'UNCLASSIFIED': '#cbd5e1', // Soft gray
+                              'SNIPER': '#dc8787',      // Muted red
+                              'SCALPER': '#e39d65',     // Muted orange
+                              'MOMENTUM': '#d4b86a',    // Muted yellow
+                              'INTRADAY': '#a5c663',    // Muted lime
+                              'DAY_TRADER': '#6cb076',  // Muted green
+                              'SWING': '#5daa9b',       // Muted emerald
+                              'POSITION': '#5ca5ad',    // Muted teal
+                              'HODLER': '#6ba5d1',      // Muted sky blue
+                              'UNCLASSIFIED': '#9ca3af', // Muted gray
                             };
 
                             // Find the matching distribution entry to get totalPnl
@@ -1039,41 +1081,26 @@ export default function DiscoverPage() {
                             echarts.setOption({
                               graphic: [
                                 {
-                                  type: 'text',
-                                  left: 'center',
-                                  top: 'middle',
-                                  z: 100,
+                                  id: 'centerText1',
+                                  style: {
+                                    text: `${params.value} wallets (${params.percent.toFixed(1)}%)`,
+                                  },
+                                },
+                                {
+                                  id: 'centerText2',
                                   style: {
                                     text: labelMap[params.name] || params.name,
-                                    textAlign: 'center',
                                     fill: categoryColor,
-                                    fontSize: 15,
+                                    fontSize: 13,
                                     fontWeight: 'bold',
                                   },
                                 },
                                 {
-                                  type: 'text',
-                                  left: 'center',
-                                  top: '52%',
-                                  z: 100,
-                                  style: {
-                                    text: `${params.value} wallets (${params.percent.toFixed(1)}%)`,
-                                    textAlign: 'center',
-                                    fill: 'hsl(var(--muted-foreground))',
-                                    fontSize: 12,
-                                    fontWeight: 'normal',
-                                  },
-                                },
-                                {
-                                  type: 'text',
-                                  left: 'center',
-                                  top: '60%',
-                                  z: 100,
+                                  id: 'centerText3',
                                   style: {
                                     text: `${pnlFormatted} SOL`,
-                                    textAlign: 'center',
                                     fill: pnlColor,
-                                    fontSize: 16,
+                                    fontSize: 14,
                                     fontWeight: 'bold',
                                   },
                                 },
@@ -1085,19 +1112,33 @@ export default function DiscoverPage() {
                           if (speedChartRef.current) {
                             const echarts = speedChartRef.current.getEchartsInstance();
                             echarts.setOption({
-                              graphic: {
-                                type: 'text',
-                                left: 'center',
-                                top: 'middle',
-                                z: 100,
-                                style: {
-                                  text: 'Hover to view\ndetails',
-                                  textAlign: 'center',
-                                  fill: 'hsl(var(--muted-foreground))',
-                                  fontSize: 13,
-                                  lineHeight: 18,
+                              graphic: [
+                                {
+                                  id: 'centerText1',
+                                  style: {
+                                    text: `${aggregationTotal.toLocaleString()} wallets`,
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 11,
+                                    fontWeight: 'normal',
+                                  },
                                 },
-                              },
+                                {
+                                  id: 'centerText2',
+                                  style: {
+                                    text: 'Hover a slice for details',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 12,
+                                    fontWeight: '500',
+                                  },
+                                },
+                                {
+                                  id: 'centerText3',
+                                  style: {
+                                    text: '',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                  },
+                                },
+                              ],
                             });
                           }
                         },
@@ -1123,52 +1164,94 @@ export default function DiscoverPage() {
                       </Tooltip>
                     </TooltipProvider>
                   </CardHeader>
-                  <CardContent className="pb-4">
+                  <CardContent className="pb-4 px-0">
                     <ReactECharts
                       ref={flowChartRef}
                       option={{
                         tooltip: {
                           show: false,
                         },
-                        graphic: {
-                          type: 'text',
-                          left: 'center',
-                          top: 'middle',
-                          z: 100,
-                          style: {
-                            text: 'Hover to view\ndetails',
-                            textAlign: 'center',
-                            fill: 'hsl(var(--muted-foreground))',
-                            fontSize: 13,
-                            lineHeight: 18,
+                        graphic: [
+                          {
+                            id: 'flowCenterText1',
+                            type: 'text',
+                            left: 'center',
+                            top: '42%',
+                            z: 100,
+                            style: {
+                              text: `${aggregationTotal.toLocaleString()} wallets`,
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 11,
+                              fontWeight: 'normal',
+                            },
                           },
-                        },
+                          {
+                            id: 'flowCenterText2',
+                            type: 'text',
+                            left: 'center',
+                            top: '50%',
+                            z: 100,
+                            style: {
+                              text: 'Hover a slice for details',
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 12,
+                              fontWeight: '500',
+                            },
+                          },
+                          {
+                            id: 'flowCenterText3',
+                            type: 'text',
+                            left: 'center',
+                            top: '58%',
+                            z: 100,
+                            style: {
+                              text: '',
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 11,
+                              fontWeight: 'normal',
+                            },
+                          },
+                        ],
                         series: [{
                           type: 'pie',
-                          radius: ['55%', '85%'],
+                          radius: ['50%', '75%'],
                           center: ['50%', '50%'],
                           label: {
                             show: true,
-                            position: 'inside',
+                            position: 'outside',
                             formatter: '{d}%',
-                            fontSize: 12,
-                            color: '#fff',
-                            fontWeight: 'bold',
+                            fontSize: 11,
+                            color: 'hsl(var(--foreground))',
+                            fontWeight: '600',
+                            alignTo: 'edge',
+                            margin: 8,
+                          },
+                          labelLine: {
+                            show: true,
+                            length: 10,
+                            length2: 10,
+                            lineStyle: {
+                              color: 'hsl(var(--border))',
+                              width: 1,
+                            },
                           },
                           emphasis: {
                             label: {
-                              show: false,
+                              show: true,
                             },
                           },
                           data: flowDistribution.filter(d => d.count > 0).map(entry => {
                             const colorMap: Record<string, string> = {
-                              'BUY_ONLY': '#6ee7b7',     // Soft emerald
-                              'ACCUMULATOR': '#86efac',  // Soft green
-                              'BALANCED': '#93c5fd',     // Soft blue
-                              'DISTRIBUTOR': '#fdba74',  // Soft orange
-                              'SELL_ONLY': '#fca5a5',    // Soft red
-                              'MIXED': '#c4b5fd',        // Soft purple
-                              'UNCLASSIFIED': '#cbd5e1', // Soft gray
+                              'BUY_ONLY': '#5daa9b',     // Muted emerald
+                              'ACCUMULATOR': '#6cb076',  // Muted green
+                              'BALANCED': '#6b9dd1',     // Muted blue
+                              'DISTRIBUTOR': '#e39d65',  // Muted orange
+                              'SELL_ONLY': '#dc8787',    // Muted red
+                              'MIXED': '#a591c9',        // Muted purple
+                              'UNCLASSIFIED': '#9ca3af', // Muted gray
                             };
                             return {
                               name: entry.pattern,
@@ -1176,18 +1259,18 @@ export default function DiscoverPage() {
                               itemStyle: {
                                 color: colorMap[entry.pattern] || '#cbd5e1',
                                 borderRadius: 4,
-                                borderColor: 'transparent',
+                                borderColor: 'rgba(255, 255, 255, 0.15)',
                                 borderWidth: 2,
                               },
                             };
                           }),
                         }],
                       }}
-                      style={{ height: '320px' }}
+                      style={{ height: '340px', width: '100%' }}
                       opts={{ renderer: 'svg' }}
                       onEvents={{
                         mouseover: (params: any) => {
-                          if (params.componentType === 'series' && flowChartRef.current) {
+                          if (params.componentType === 'series' && params.seriesType === 'pie' && flowChartRef.current) {
                             const labelMap: Record<string, string> = {
                               'BUY_ONLY': 'Buy Only',
                               'ACCUMULATOR': 'Accumulator',
@@ -1199,13 +1282,13 @@ export default function DiscoverPage() {
                             };
 
                             const colorMap: Record<string, string> = {
-                              'BUY_ONLY': '#6ee7b7',     // Soft emerald
-                              'ACCUMULATOR': '#86efac',  // Soft green
-                              'BALANCED': '#93c5fd',     // Soft blue
-                              'DISTRIBUTOR': '#fdba74',  // Soft orange
-                              'SELL_ONLY': '#fca5a5',    // Soft red
-                              'MIXED': '#c4b5fd',        // Soft purple
-                              'UNCLASSIFIED': '#cbd5e1', // Soft gray
+                              'BUY_ONLY': '#5daa9b',     // Muted emerald
+                              'ACCUMULATOR': '#6cb076',  // Muted green
+                              'BALANCED': '#6b9dd1',     // Muted blue
+                              'DISTRIBUTOR': '#e39d65',  // Muted orange
+                              'SELL_ONLY': '#dc8787',    // Muted red
+                              'MIXED': '#a591c9',        // Muted purple
+                              'UNCLASSIFIED': '#9ca3af', // Muted gray
                             };
 
                             // Find the matching distribution entry to get totalPnl
@@ -1219,41 +1302,26 @@ export default function DiscoverPage() {
                             echarts.setOption({
                               graphic: [
                                 {
-                                  type: 'text',
-                                  left: 'center',
-                                  top: 'middle',
-                                  z: 100,
+                                  id: 'flowCenterText1',
+                                  style: {
+                                    text: `${params.value} wallets (${params.percent.toFixed(1)}%)`,
+                                  },
+                                },
+                                {
+                                  id: 'flowCenterText2',
                                   style: {
                                     text: labelMap[params.name] || params.name,
-                                    textAlign: 'center',
                                     fill: categoryColor,
-                                    fontSize: 15,
+                                    fontSize: 13,
                                     fontWeight: 'bold',
                                   },
                                 },
                                 {
-                                  type: 'text',
-                                  left: 'center',
-                                  top: '52%',
-                                  z: 100,
-                                  style: {
-                                    text: `${params.value} wallets (${params.percent.toFixed(1)}%)`,
-                                    textAlign: 'center',
-                                    fill: 'hsl(var(--muted-foreground))',
-                                    fontSize: 12,
-                                    fontWeight: 'normal',
-                                  },
-                                },
-                                {
-                                  type: 'text',
-                                  left: 'center',
-                                  top: '60%',
-                                  z: 100,
+                                  id: 'flowCenterText3',
                                   style: {
                                     text: `${pnlFormatted} SOL`,
-                                    textAlign: 'center',
                                     fill: pnlColor,
-                                    fontSize: 16,
+                                    fontSize: 14,
                                     fontWeight: 'bold',
                                   },
                                 },
@@ -1265,19 +1333,33 @@ export default function DiscoverPage() {
                           if (flowChartRef.current) {
                             const echarts = flowChartRef.current.getEchartsInstance();
                             echarts.setOption({
-                              graphic: {
-                                type: 'text',
-                                left: 'center',
-                                top: 'middle',
-                                z: 100,
-                                style: {
-                                  text: 'Hover to view\ndetails',
-                                  textAlign: 'center',
-                                  fill: 'hsl(var(--muted-foreground))',
-                                  fontSize: 13,
-                                  lineHeight: 18,
+                              graphic: [
+                                {
+                                  id: 'flowCenterText1',
+                                  style: {
+                                    text: `${aggregationTotal.toLocaleString()} wallets`,
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 11,
+                                    fontWeight: 'normal',
+                                  },
                                 },
-                              },
+                                {
+                                  id: 'flowCenterText2',
+                                  style: {
+                                    text: 'Hover a slice for details',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 12,
+                                    fontWeight: '500',
+                                  },
+                                },
+                                {
+                                  id: 'flowCenterText3',
+                                  style: {
+                                    text: '',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                  },
+                                },
+                              ],
                             });
                           }
                         },

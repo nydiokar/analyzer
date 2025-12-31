@@ -63,17 +63,20 @@
 **Location**: `dashboard/src/app/discover/page.tsx`
 **Features**:
 - Replaced list-based distribution with professional donut charts using Apache ECharts ✅
-- Interactive hover states showing category name (color-coded), wallet count, percentage ✅
-- Center display shows aggregated PnL per category on hover ✅
-- Backend aggregation endpoint `/discover/aggregation` with PnL data ✅
-- Pastel color palette for better visual hierarchy and distinction ✅
+- Muted pastel color palette for better readability and visual comfort ✅
+- Percentages displayed outside pie slices with leader lines for clarity ✅
+- Interactive hover states showing category name (color-coded) in center ✅
+- Three-line center display: total wallet count (default) / specific count+% (hover), category name (hover), PnL (hover) ✅
+- Hover only triggers on pie slices, not labels/lines ✅
+- Backend aggregation endpoint `/discover/aggregation` with netPnl aggregation per category ✅
 - Velocity filter slider (0-100) with backend filtering ✅
+- Charts sized at 340px with proper container spacing (no clipping) ✅
 **Backend Changes**:
-- Added `getDiscoverAggregation()` in `DiscoverService` with PnL aggregation
-- Updated `getDiscoverAggregationData()` in `DatabaseService` to include `netPnl`
-- Added `DiscoverAggregationResponseDto` with proper types
-**Data**: Full dataset aggregation (not just current page)
-**Priority**: Medium - Fills empty space, useful context
+- Added `getDiscoverAggregation()` in `DiscoverService` with netPnl aggregation per category
+- Updated `getDiscoverAggregationData()` in `DatabaseService` to fetch and map `netPnl`
+- Added `DiscoverAggregationResponseDto` with `totalPnl` field (aggregated from netPnl)
+**Data**: Full dataset aggregation (not just current page), uses netPnl from pnlSummary
+**Priority**: Medium - Fills empty space, provides qualitative insights
 **Status**: ✅ Complete (Dec 31, 2025)
 
 #### Task 4: Exit Timing Drilldown Redesign 🎭 [TODO]
