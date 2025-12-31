@@ -19,6 +19,10 @@
 - **Caching**: Two-tier (Redis + PostgreSQL) for holder profiles
 
 ### ✅ Recent Completions
+- **Discover Analytics UX** (2025-12-31): Professional ECharts visualizations with PnL aggregation
+- **Holder Profile Cache Fix** (2025-12-31): Fixed stale data issue with `analyzedTimestampEnd` check
+- **Staleness Config Centralization** (2025-12-31): Unified `WALLET_STALENESS_CONFIG` constant
+- **Cache Invalidation Enhancement** (2025-12-31): Added 500ms delay + behavioral patterns invalidation
 - **Tracked Wallets Overhaul** (2025-12-29): Complete UI redesign with portfolio stats
 - **Import/Export** (2025-12-30): CSV-based wallet import/export with validation
 - **Memory Leak Fixes** (Dec 2025): HeliusSyncService, Redis clients, BullMQ cleanup
@@ -54,19 +58,25 @@
 **Priority**: Medium - New feature, high value
 **Status**: Complete
 
-#### Task 3: Speed/Flow Analytics in Discover 📈
-**Goal**: Add analytics sidebar to Discover page (like Tracked Wallets overview)
+#### Task 3: Speed/Flow Analytics in Discover 📈✅
+**Goal**: Add analytics sidebar to Discover page with visual charts
 **Location**: `dashboard/src/app/discover/page.tsx`
 **Features**:
-- Overview card showing distribution of wallets by Speed Category (completed)
-- Overview card showing distribution by Flow Pattern (completed)
-- Velocity filter slider (0-100) with backend filtering (completed)
-- Visual legend for speed/flow ranges (completed)
-**Data**: Available from discover API response
+- Replaced list-based distribution with professional donut charts using Apache ECharts ✅
+- Interactive hover states showing category name (color-coded), wallet count, percentage ✅
+- Center display shows aggregated PnL per category on hover ✅
+- Backend aggregation endpoint `/discover/aggregation` with PnL data ✅
+- Pastel color palette for better visual hierarchy and distinction ✅
+- Velocity filter slider (0-100) with backend filtering ✅
+**Backend Changes**:
+- Added `getDiscoverAggregation()` in `DiscoverService` with PnL aggregation
+- Updated `getDiscoverAggregationData()` in `DatabaseService` to include `netPnl`
+- Added `DiscoverAggregationResponseDto` with proper types
+**Data**: Full dataset aggregation (not just current page)
 **Priority**: Medium - Fills empty space, useful context
-**Status**: Complete
+**Status**: ✅ Complete (Dec 31, 2025)
 
-#### Task 4: Exit Timing Drilldown Redesign 🎭
+#### Task 4: Exit Timing Drilldown Redesign 🎭 [TODO]
 **Goal**: Redesign the drilldown panel and hold metrics structure in wallet profiles
 **Problem**: Panel that opens when clicking exit timing buckets is "complete garbage" - unintuitive, cramped, no sorting. Hold metrics (median/avg/holding) are confusing mesh.
 **Location**:
@@ -74,8 +84,34 @@
 - `dashboard/src/components/holder-profiles/v2/WalletBaseballCard.tsx`
 **Challenge**: Design a way to review tokens from time buckets that feels professional, plus clarify hold metrics structure
 **Priority**: High - User pain point, "thorn in eye"
+**Status**: Not started
 
 **Tech Stack**: React, Recharts/Tremor for charts, existing UI components
+
+---
+
+## Bug Fixes & Infrastructure Improvements (Dec 31, 2025)
+
+### Holder Profile Stale Cache Bug 🐛✅
+**Problem**: Holder profiles showing outdated data (Dec 11) when viewed on Dec 31
+**Root Cause**: `isSnapshotFresh()` only checked if snapshot was newer than wallet's last fetch, but didn't verify if the wallet analysis itself was stale
+**Solution**:
+- Added `analyzedTimestampEnd` staleness check in `holder-profiles-cache.service.ts`
+- Centralized 24-hour threshold in `WALLET_STALENESS_CONFIG` constant
+- Now properly triggers re-analysis when wallet data is >24 hours old
+**Files Changed**:
+- `src/api/services/holder-profiles-cache.service.ts` (added staleness check)
+- `src/config/constants.ts` (added `WALLET_STALENESS_CONFIG`)
+- `src/core/services/database-service.ts` (use centralized constant)
+
+### Cache Invalidation Improvements 🔄✅
+**Problem**: After job completion, frontend sometimes showed stale data
+**Solution**:
+- Added 500ms delay before cache invalidation to ensure backend finishes writing
+- Added `behavioral-patterns` cache invalidation on job completion
+**Files Changed**:
+- `dashboard/src/components/layout/WalletProfileLayout.tsx`
+**Note**: Event-driven approach would be better, but delay is pragmatic solution for now
 
 ---
 

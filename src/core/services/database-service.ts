@@ -482,7 +482,8 @@ export class DatabaseService {
 
             const latestRunMap = new Map(latestRuns.map(run => [run.walletAddress, run]));
             const walletMap = new Map(foundWallets.map(w => [w.address, w]));
-            const stalenessThreshold = Date.now() / 1000 - (24 * 60 * 60); // 24 hours ago in seconds
+            const { WALLET_STALENESS_CONFIG } = await import('../../config/constants');
+            const stalenessThreshold = Date.now() / 1000 - WALLET_STALENESS_CONFIG.ANALYSIS_STALENESS_SECONDS;
 
             const statuses: WalletStatus[] = walletAddresses.map(addr => {
                 const latestRun = latestRunMap.get(addr);

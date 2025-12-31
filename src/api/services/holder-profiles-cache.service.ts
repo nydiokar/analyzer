@@ -4,6 +4,7 @@ import { HolderProfilesResult, HolderProfile } from '../../queues/jobs/types';
 import { DatabaseService } from './database.service';
 import type { HolderProfileSnapshot, Wallet as PrismaWallet } from '@prisma/client';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import { WALLET_STALENESS_CONFIG } from '../../config/constants';
 
 /**
  * TWO-TIER CACHE SERVICE: Manages both Redis (Tier 1) and PostgreSQL (Tier 2) caching
@@ -277,6 +278,16 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
 
     if (Number.isNaN(computedAt)) {
       return false;
+    }
+
+    // Check if wallet's analyzed data itself is stale (uses centralized threshold)
+    const stalenessThresholdMs = Date.now() - WALLET_STALENESS_CONFIG.ANALYSIS_STALENESS_MS;
+    if (walletRecord?.analyzedTimestampEnd) {
+      const analyzedEndMs = walletRecord.analyzedTimestampEnd * 1000; // Convert seconds to ms
+      if (analyzedEndMs < stalenessThresholdMs) {
+        // Wallet's analysis is stale, regardless of snapshot age
+        return false;
+      }
     }
 
     // PRIMARY: Check if snapshot is fresher than wallet's last sync

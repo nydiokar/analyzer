@@ -306,3 +306,17 @@ export const WALLET_CLASSIFICATIONS = {
   INVALID: 'INVALID',         // Invalid/empty wallet
   LARGE: 'LARGE',             // Large wallet (>10k tokens) but not system
 } as const;
+
+// Wallet data staleness configuration
+export const WALLET_STALENESS_CONFIG = {
+  // How old can wallet analysis data be before it's considered stale
+  ANALYSIS_STALENESS_HOURS: 24,
+  // Convenience getter for milliseconds
+  get ANALYSIS_STALENESS_MS() {
+    return this.ANALYSIS_STALENESS_HOURS * 60 * 60 * 1000;
+  },
+  // Convenience getter for seconds
+  get ANALYSIS_STALENESS_SECONDS() {
+    return this.ANALYSIS_STALENESS_HOURS * 60 * 60;
+  },
+} as const;
