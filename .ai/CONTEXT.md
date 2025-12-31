@@ -1,9 +1,44 @@
 # Current State
 
 **Project**: Sova Intel - Wallet Analysis System
-**Branch**: `discover`
-**Status**: Ready for parallel development 🚀
+**Branch**: `discover-token-performance` (currently working on P0 issue)
+**Status**: 🔴 **P0 BLOCKER - P&L Contamination Discovered**
 **Last Updated**: 2025-12-30
+
+---
+
+## 🔴 P0 CRITICAL ISSUE - BLOCKS ALL OTHER WORK
+
+### P&L Calculations Are Fundamentally Broken
+
+**Discovered**: 2025-12-30 during `discover-token-performance` branch work
+
+**Problem**: The entire platform shows **WRONG P&L** for any wallet with partial sells. Wallets that are **winning show as losing** and vice versa.
+
+**Example**:
+- Token: The Official 67 Coin
+- Bought: 70 SOL, Sold: 555 SOL, Holdings: 236 SOL worth
+- **Expected Total**: (555 + 236) - 70 = **+721 SOL profit** ✅
+- **Shown Total**: **-80 SOL loss** ❌
+- **Error magnitude**: 801 SOL (off by 1000%+)
+
+**Root Cause**: No FIFO (First In, First Out) cost basis tracking. We use simple average cost which fails catastrophically for partial sells.
+
+**Blast Radius**:
+- ❌ Token Performance Tab (Realized column)
+- ❌ Account Summary Card
+- ❌ Discover Page (all wallet P&L metrics)
+- ❌ Trackers Page (portfolio overview)
+- ❌ Holder Profiles (win rate & ROI by exit timing)
+- ✅ Token Performance Total Profit (patched with correct formula)
+
+**Impact**: Users make trading decisions based on backwards P&L data. This is a **trading intelligence tool** - showing wrong profit/loss is catastrophic.
+
+**Required Fix**: Implement proper FIFO lot-based cost tracking (~2-3 days work)
+
+**Documentation**: See `.ai/context/P0_PNL_CONTAMINATION.md` for full details, contamination map, and implementation plan.
+
+**Status**: User plans to work on this as top priority. All other feature work is BLOCKED until this is fixed.
 
 ---
 
@@ -79,42 +114,35 @@
 
 ### 🎯 Branch 2: `discover-token-performance` (LLM 2)
 **Focus**: Token Performance Fixes & Enhancements
+**Status**: ⚠️ **PAUSED** - Discovered P0 blocker during work
 
-#### Task 4: ROI Calculation Fix 🐛
-**Problem**: ROI showing -300% when it should be ~0% because fees/taxes are almost equal to buy amount (e.g., 0.001 SOL bought, 0.002 SOL fees)
-**Location**:
-- Backend: `src/core/services/pnl-analysis-service.ts`
-- Backend: `src/api/services/token-performance.service.ts`
-- Frontend: `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx`
-**Solution**:
-- Adjust ROI formula to handle edge case where `totalSolSpent ≈ 0`
-- Option A: Show "N/A" or "—" when spent amount < threshold (e.g., 0.01 SOL)
-- Option B: Calculate ROI excluding fees: `(received - spent) / (spent - fees) * 100`
-- Add validation: if `spent < fees * 0.5`, mark as dust trade
-**Priority**: High - Data accuracy bug
+#### ✅ Task 4: ROI Calculation Fix (COMPLETED)
+**Problem**: ROI showing -300% for dust trades
+**Solution**: Added dust trade detection (< 0.01 SOL threshold), hide ROI pill for these cases
+**Status**: ✅ Fixed in `TokenPerformanceTab.tsx:174-186`
 
-#### Task 5: Time Filter Detachment 🔧
-**Problem**: Token Performance tab shows NO tokens when wallet has no transactions in filtered time period, even though wallet holds tokens
-**Location**:
-- Backend: `src/api/services/token-performance.service.ts`
-- Frontend: `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx`
-**Solution**:
-- Decouple token list from transaction history filter
-- Always show current holdings
-- Apply time filter only to PnL calculations and transaction counts
-- Show: "Holding 5 tokens (2 traded in last 30d, 3 held only)"
-**Priority**: High - UX bug, confusing behavior
+#### ✅ Task 5: Time Filter Detachment (COMPLETED)
+**Problem**: Token Performance tab hid tokens when no activity in time period
+**Solution**: Separated fetch URL (with time filter) from cache key (without time filter)
+**Status**: ✅ Fixed in `TokenPerformanceTab.tsx:425-473`
 
-#### Task 6: Infinite Scroll Pagination ♾️
-**Goal**: Replace horizontal pagination (1, 2, 3...) with vertical infinite scroll
-**Location**: `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx`
-**Implementation**:
-- Load initial 20 tokens
-- On scroll to bottom, load next 20
-- Show loading indicator at bottom
-- Keep existing filters/sorting
-**Library**: `react-intersection-observer` or `react-infinite-scroll-component`
-**Priority**: Medium - Better UX for large token lists
+#### ✅ Task 6: Infinite Scroll Pagination (COMPLETED)
+**Goal**: Replace horizontal pagination with vertical infinite scroll
+**Status**: ✅ Already implemented before this branch started
+
+#### 🔴 P0 DISCOVERED: Fundamental P&L Calculation Error
+**What Happened**: While testing fixes, discovered Total Profit showing -80 SOL when should be +721 SOL
+**Investigation**: Led to discovery that ALL P&L calculations are wrong for partial sells
+**Root Cause**: No FIFO cost basis tracking - simple averaging fails catastrophically
+**Scope**: Affects 6 major areas across entire platform (see P0 section above)
+**Action**: Created `.ai/context/P0_PNL_CONTAMINATION.md` with full analysis
+**Next Steps**: Block all feature work, implement proper FIFO lot tracking (~2-3 days)
+
+#### Additional Changes Made This Branch:
+1. ✅ Wallet page layout - natural scrolling with sticky tabs
+2. ✅ Last Active timestamp - inline with token badge
+3. ✅ Sleek tooltips - consistent styling across table
+4. ✅ Total Profit formula - PATCHED with correct calculation (frontend band-aid)
 
 **Tech Stack**: NestJS backend, Prisma ORM, React frontend
 
@@ -122,18 +150,29 @@
 
 ## Branch Strategy
 
-### Workflow:
-1. **LLM 1** works on `discover-analytics-ux` (tasks 1, 2, 3)
+### ⚠️ ORIGINAL PLAN (NOW BLOCKED BY P0)
+
+**Original Workflow**:
+1. **LLM 1** works on `discover-analytics-ux` (tasks 1, 2, 3, 4)
 2. **LLM 2** works on `discover-token-performance` (tasks 4, 5, 6)
 3. Both branches based on `discover` (current state)
 4. When done, merge both back into `discover`
-5. Resolve any conflicts (should be minimal)
-6. Then `discover` → `main` for deployment
+5. Then `discover` → `main` for deployment
 
-### Why This Split:
+**Why This Split**:
 - **Minimal overlap**: Different pages/components
 - **Independent work**: No blocking dependencies
-- **Low conflict risk**: Tasks 4-5-6 touch same area but sequential
+- **Low conflict risk**: Different areas of codebase
+
+### 🔴 CURRENT REALITY (P0 BLOCKING)
+
+**Branch 2 Status**: Tasks 4-5-6 completed, but discovered P0 issue
+**P0 Blocker**: Fundamental P&L calculation error affecting entire platform
+**All Feature Work**: PAUSED until P0 is resolved
+**Next Steps**:
+1. Fix FIFO cost basis tracking (~2-3 days)
+2. Verify all infected areas show correct data
+3. THEN resume parallel branch work if still desired
 
 ---
 

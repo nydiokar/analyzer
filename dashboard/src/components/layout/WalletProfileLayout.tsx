@@ -9,11 +9,9 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import EmptyState from '@/components/shared/EmptyState'
-import { 
+import {
   CopyIcon,
   WalletIcon,
-  ChevronUp,
-  ChevronDown,
   ListChecks,      // Token Performance
   Calculator,      // Account Stats & PNL
   Users,           // Behavioral Patterns
@@ -159,30 +157,7 @@ export default function WalletProfileLayout({
   const { mutate: globalMutate, cache } = useSWRConfig();
   const { isDemo: isDemoAccount } = useApiKeyStore();
   const { startDate, endDate } = useTimeRangeStore();
-  const [isHeaderExpanded, setIsHeaderExpanded] = useState(true); // Start with true for SSR consistency
-  const [isHydrated, setIsHydrated] = useState(false); // Track hydration state
-
-  // Load saved header state from localStorage after hydration
-  useEffect(() => {
-    const saved = localStorage.getItem('wallet-profile-header-expanded');
-    if (saved !== null) {
-      setIsHeaderExpanded(JSON.parse(saved));
-    }
-    setIsHydrated(true);
-  }, []);
-
-  // Save the header expanded state to localStorage with throttling to prevent excessive writes
-  useEffect(() => {
-    // Only save to localStorage after hydration to avoid conflicts
-    if (typeof window !== 'undefined' && isHydrated) {
-      // Use a ref to throttle localStorage writes
-      const timeoutId = setTimeout(() => {
-        localStorage.setItem('wallet-profile-header-expanded', JSON.stringify(isHeaderExpanded));
-      }, 500); // Throttle to 500ms to reduce excessive writes
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [isHeaderExpanded, isHydrated]);
+  // REMOVED: Header expand/collapse state - no longer needed with natural scroll
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false);
@@ -1051,12 +1026,13 @@ export default function WalletProfileLayout({
   // Only block rendering for critical errors, not for loading states
 
   return (
-    <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col w-full h-full bg-muted/40 overflow-hidden">
-      <header className="flex-shrink-0 z-30 bg-background border-b shadow-sm">
-        <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
-          
-          <div className='flex flex-col items-start gap-3 md:gap-2 md:pl-11'> 
-            {walletAddress && isHeaderExpanded && (
+    <div className="flex flex-col w-full h-screen bg-muted/40 overflow-auto">
+      {/* Scrollable Header - wallet info, summary, filters scroll away */}
+      <div className="bg-background border-b shadow-sm">
+        <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-3 px-1 md:py-4">
+
+          <div className='flex flex-col items-start gap-3 md:gap-2 md:pl-11'>
+            {walletAddress && (
               <>
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
@@ -1088,7 +1064,7 @@ export default function WalletProfileLayout({
                       </TooltipProvider>
                     )}
                   </div>
-                  
+
                   {/* Collections Display */}
                   {currentFavoriteData && currentFavoriteData.collections && currentFavoriteData.collections.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 items-center">
@@ -1106,102 +1082,10 @@ export default function WalletProfileLayout({
                 <ExpandedAnalysisControl />
               </>
             )}
-
-            {walletAddress && !isHeaderExpanded && (
-              <div className="w-full flex items-center justify-between gap-2 py-1">
-                <div className="flex items-center gap-1 flex-shrink min-w-0">
-                  {/* Use WalletBadge component for collapsed state with favorite data, toggle, and edit */}
-                  <WalletBadge
-                    address={walletAddress}
-                    className="text-xs"
-                    favoriteData={currentFavoriteData}
-                    isFavorite={isCurrentWalletFavorite}
-                    onFavoriteToggle={handleToggleFavorite}
-                    onEdit={openEditModal}
-                    showActions={true}
-                    showMetrics={false}
-                  />
-
-                  {/* High-frequency wallet indicator (collapsed) */}
-                  {isValidData && walletSummary?.classification === 'high_frequency' && (
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="h-6 w-6 flex items-center justify-center">
-                            <Bot className="h-3 w-3 text-orange-500" />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          <p>High-frequency trading wallet</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className={cn(
-                              "h-2.5 w-2.5 rounded-full",
-                              lastAnalysisStatus === 'success' && "bg-green-500",
-                              lastAnalysisStatus === 'error' && "bg-red-500",
-                              lastAnalysisStatus === 'idle' && "bg-yellow-500",
-                              "cursor-help hidden sm:block"
-                            )}
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          <p>
-                            {lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
-                             lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
-                             lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : lastAnalysisStatus === 'idle' && !isAnalyzing ? (
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="h-2.5 w-2.5 rounded-full bg-gray-400 cursor-help hidden sm:block" />
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          <p>Not yet analyzed</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : null}
-                  <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          onClick={handleTriggerAnalysis}
-                          variant="outline"
-                          size="sm"
-                          className="px-2 py-1 h-auto text-xs"
-                          disabled={isAnalyzing || !walletAddress}
-                        >
-                          <RefreshCw className={`mr-1 h-3.5 w-3.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                          {lastAnalysisTimestamp ? 'Refresh' : 'Analyze'}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        <p>Trigger full wallet analysis to refresh all data</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="flex flex-col md:flex-row items-start md:items-center justify-end gap-x-2 gap-y-2 mt-2 md:mt-0 flex-grow">
-            <div className={cn(
-              "flex flex-col md:flex-row items-start md:items-center gap-x-2 gap-y-2",
-              isHeaderExpanded ? "opacity-100 visible" : "opacity-0 invisible h-0 overflow-hidden"
-            )}>
+            <div className="flex flex-col md:flex-row items-start md:items-center gap-x-2 gap-y-2">
               <AccountSummaryCard
                 walletAddress={walletAddress}
                 className=""
@@ -1213,47 +1097,44 @@ export default function WalletProfileLayout({
               />
               <TimeRangeSelector />
             </div>
-            <div className={cn(
-              "flex items-center gap-1 self-stretch justify-end",
-              isHeaderExpanded ? "md:ml-2" : "w-full mt-2 md:mt-0"
-            )}>
-              <Button variant="ghost" size="icon" onClick={() => setIsHeaderExpanded(!isHeaderExpanded)} className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0">
-                {isHeaderExpanded ? <ChevronUp className="h-4 w-4 md:h-5 md:w-5" /> : <ChevronDown className="h-4 w-4 md:h-5 md:w-5" />}
-                <span className="sr-only">{isHeaderExpanded ? 'Collapse Summary' : 'Expand Summary'}</span>
-              </Button>
-            </div>
           </div>
         </div>
-        <TabsList className="flex items-center justify-start gap-0.5 p-0.5 px-1 border-t w-full bg-muted/20">
-          <TabsTrigger 
-            value="token-performance" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <ListChecks className="h-3.5 w-3.5" />
-            Token Performance
-          </TabsTrigger>
-          <TabsTrigger 
-            value="account-stats" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <Calculator className="h-3.5 w-3.5" />
-            Account Stats & PNL
-          </TabsTrigger>
-          <TabsTrigger 
-            value="behavioral-patterns" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <Users className="h-3.5 w-3.5" />
-            Behavioral Patterns
-          </TabsTrigger>
-          <TabsTrigger
-            value="notes"
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <FileText className="h-3.5 w-3.5" />
-            Notes
-          </TabsTrigger>
-        </TabsList>
-      </header>
+      </div>
 
-      <main className="flex-1 overflow-hidden p-0 flex flex-col">
-        <div className="w-full h-full flex flex-col min-h-0">
+      {/* Sticky Tabs - stay visible when scrolling */}
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col min-h-0">
+        <div className="sticky top-0 z-30 bg-background border-b shadow-sm">
+          <TabsList className="flex items-center justify-start gap-0.5 p-0.5 px-1 w-full bg-muted/20">
+            <TabsTrigger
+              value="token-performance"
+              className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+              <ListChecks className="h-3.5 w-3.5" />
+              Token Performance
+            </TabsTrigger>
+            <TabsTrigger
+              value="account-stats"
+              className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+              <Calculator className="h-3.5 w-3.5" />
+              Account Stats & PNL
+            </TabsTrigger>
+            <TabsTrigger
+              value="behavioral-patterns"
+              className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+              <Users className="h-3.5 w-3.5" />
+              Behavioral Patterns
+            </TabsTrigger>
+            <TabsTrigger
+              value="notes"
+              className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+              <FileText className="h-3.5 w-3.5" />
+              Notes
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Tab Content - flows naturally with page scroll */}
+        <div className="flex-1 p-4">
+          <div className="w-full h-full flex flex-col">
 
           <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} onMutateReady={handleTokenPerformanceMutateReady} />
@@ -1276,8 +1157,9 @@ export default function WalletProfileLayout({
             <MemoizedReviewerLogTab walletAddress={walletAddress} />
           </LazyTabContent>
         </div>
-      </main>
-      
+      </div>
+    </Tabs>
+
       {/* Quick Add Modal */}
       <QuickAddForm
         isOpen={showQuickAddModal}
@@ -1359,6 +1241,6 @@ export default function WalletProfileLayout({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Tabs>
+    </div>
   );
 }
