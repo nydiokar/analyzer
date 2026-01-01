@@ -56,6 +56,9 @@ export interface TokenPerformanceTabProps {
   triggerAnalysisGlobal: () => void;
   onInitialLoad?: (info: { hasData: boolean }) => void;
   onMutateReady?: (mutate: () => Promise<void>) => void; // NEW: Expose mutate to parent
+  tokenAddressesFilter?: string | string[]; // Optional: comma-separated string OR array of token addresses to filter by
+  defaultSortBy?: string; // Optional: default sort field
+  defaultSortOrder?: 'ASC' | 'DESC'; // Optional: default sort order
 }
 
 // Define PNL filter options
@@ -422,7 +425,16 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
 
 const ESTIMATED_ROW_HEIGHT = 64;
 
-function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
+function TokenPerformanceTab({
+  walletAddress,
+  isAnalyzingGlobal,
+  triggerAnalysisGlobal,
+  onInitialLoad,
+  onMutateReady,
+  tokenAddressesFilter,
+  defaultSortBy = 'netSolProfitLoss',
+  defaultSortOrder = 'DESC',
+}: TokenPerformanceTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const [page, setPage] = useState(1);
   // Default to a smaller page size to reduce initial render cost and improve interactivity
@@ -469,8 +481,8 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   }, []);
 
   // TanStack Table state - RESTORED BACKEND SORTING
-  const [sortBy, setSortBy] = useState('netSolProfitLoss'); 
-  const [sortOrder, setSortOrder] = useState('DESC');
+  const [sortBy, setSortBy] = useState(defaultSortBy);
+  const [sortOrder, setSortOrder] = useState(defaultSortOrder);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
   // PERFORMANCE FIX: Improve debouncing for better responsiveness
@@ -494,6 +506,38 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     if (showHoldingsOnly) params.append('showOnlyHoldings', 'true');
     if (deferredSearchTerm) params.append('searchTerm', deferredSearchTerm);
     if (deferredSpamFilter !== 'all') params.append('spamFilter', deferredSpamFilter);
+
+    // ==================================================================================
+    // SMART URL LENGTH HANDLING FOR TOKEN ADDRESS FILTERING
+    // ==================================================================================
+    // Problem: Exit timing buckets can contain 300+ tokens, creating URLs >8000 chars
+    // Solution: Pass filter to backend only if ≤150 tokens, otherwise filter client-side
+    //
+    // Why 150? Solana addresses are 32-44 chars each:
+    //   150 addresses × 44 chars = 6,600 chars (safe for URL params)
+    //   300 addresses × 44 chars = 13,200 chars (HTTP 414 Error)
+    //
+    // Flow:
+    //   ≤150 tokens → Backend filters with WHERE IN (...) → Efficient ✅
+    //   >150 tokens → Backend returns ALL wallet tokens → Client filters in effectiveResponse
+    // ==================================================================================
+    if (tokenAddressesFilter) {
+      const tokenArray = Array.isArray(tokenAddressesFilter)
+        ? tokenAddressesFilter
+        : tokenAddressesFilter.split(',').map(t => t.trim()).filter(t => t.length > 0);
+
+      if (tokenArray.length > 0 && tokenArray.length <= 150) {
+        // Safe to pass via URL - backend will filter efficiently
+        params.append('tokenAddresses', tokenArray.join(','));
+      } else if (tokenArray.length > 150) {
+        // Too many for URL - skip backend filter, will filter client-side in effectiveResponse
+        console.warn(
+          `[TokenPerformanceTab] ${tokenArray.length} tokens exceeds URL safe limit (150). ` +
+          `Fetching all wallet tokens and filtering client-side. This is normal for large exit timing buckets.`
+        );
+        // Note: No params.append() here - backend returns all tokens, effectiveResponse filters them
+      }
+    }
     
     if (deferredPnlFilter !== 'any') {
       const operatorMatch = deferredPnlFilter.match(/^([><])/);
@@ -586,11 +630,45 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   }, [data, swrKey, isAnalyzingGlobal]);
 
   const effectiveResponse = useMemo<PaginatedTokenPerformanceResponse | null>(() => {
-    if (isUsingFallback && fallbackResponse) {
-      return fallbackResponse;
+    const baseResponse = isUsingFallback && fallbackResponse ? fallbackResponse : (data ?? null);
+
+    // ==================================================================================
+    // CLIENT-SIDE FILTERING FOR LARGE TOKEN LISTS (>150 tokens)
+    // ==================================================================================
+    // This handles the case where we have too many tokens for URL params (see swrKey logic above)
+    //
+    // When tokenAddressesFilter has >150 tokens:
+    //   1. Backend was NOT filtered (would exceed URL length limit)
+    //   2. Backend returned ALL wallet tokens (paginated)
+    //   3. We filter them HERE to show only the tokens in the exit timing bucket
+    //
+    // This ensures users see ALL tokens in the bucket, regardless of count
+    // Trade-off: Fetches more data than needed, but pagination still works
+    // Alternative: Implement POST /token-performance endpoint (future improvement)
+    // ==================================================================================
+    if (baseResponse && tokenAddressesFilter) {
+      const tokenArray = Array.isArray(tokenAddressesFilter)
+        ? tokenAddressesFilter
+        : tokenAddressesFilter.split(',').map(t => t.trim()).filter(t => t.length > 0);
+
+      // Only apply client-side filtering if we exceeded URL limit (>150 tokens)
+      if (tokenArray.length > 150) {
+        const tokenSet = new Set(tokenArray); // O(1) lookup performance
+        const filteredData = baseResponse.data.filter(token => tokenSet.has(token.tokenAddress));
+
+        // Return filtered response with updated pagination metadata
+        return {
+          ...baseResponse,
+          data: filteredData,
+          total: filteredData.length,
+          totalPages: Math.ceil(filteredData.length / pageSize),
+        };
+      }
     }
-    return data ?? null;
-  }, [data, fallbackResponse, isUsingFallback]);
+
+    // Normal case: ≤150 tokens or no filter → use backend response as-is
+    return baseResponse;
+  }, [data, fallbackResponse, isUsingFallback, tokenAddressesFilter, pageSize]);
 
   const tableData = useMemo(() => effectiveResponse?.data || [], [effectiveResponse]);
   const hasTableData = tableData.length > 0;

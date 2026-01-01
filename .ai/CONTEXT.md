@@ -79,7 +79,7 @@
 **Priority**: Medium - Fills empty space, provides qualitative insights
 **Status**: ✅ Complete (Dec 31, 2025)
 
-#### Task 4: Exit Timing Drilldown Redesign 🎭 [TODO]
+#### Task 4: Exit Timing Drilldown Redesign 🎭 [IN PROGRESS]
 **Goal**: Redesign the drilldown panel and hold metrics structure in wallet profiles
 **Problem**: Panel that opens when clicking exit timing buckets is "complete garbage" - unintuitive, cramped, no sorting. Hold metrics (median/avg/holding) are confusing mesh.
 **Location**:
@@ -87,7 +87,44 @@
 - `dashboard/src/components/holder-profiles/v2/WalletBaseballCard.tsx`
 **Challenge**: Design a way to review tokens from time buckets that feels professional, plus clarify hold metrics structure
 **Priority**: High - User pain point, "thorn in eye"
-**Status**: Not started
+**Status**: Designed, ready for implementation
+
+**Design Specifications**:
+
+**Part A: ExitTimingDrilldownPanel - Simple Data Table**
+```
+╔════════════════════════════════════════════════════════════════════════════╗
+║ Exit Timing: Momentum (5-30 min)                                      [X] ║
+║ 47 tokens • 23 wins, 24 losses                                             ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║ [Search token...______]  [All ▼]  [Sort: PnL ▼]                           ║
+║                          Winners/Losers/All                                ║
+║                                                                             ║
+║ TOKEN              ENTRY          EXIT           HOLD    PNL      ROI     ║
+║ ─────────────────────────────────────────────────────────────────────────  ║
+║ 🪙 BONK           Jan 15 14:32   Jan 15 14:47   15m    +2.4    +45% ✓    ║
+║ 🪙 WIF            Jan 12 09:15   Jan 12 09:27   12m    +1.8    +32% ✓    ║
+║ 🪙 SAMO           Jan 10 16:45   Jan 10 17:03   18m    -0.3    -12% ✗    ║
+║ 🪙 MEME           Jan 8  11:22   Jan 8  11:50   28m    +0.9    +18% ✓    ║
+║ ...                                                                         ║
+║                                                                             ║
+║                      [Load More]                 Showing 20 of 47          ║
+╚════════════════════════════════════════════════════════════════════════════╝
+```
+
+**Features (keep it lightweight)**:
+- Clean table with: Token badge, Entry date, Exit date, Hold duration, PnL (SOL), ROI %, Win/Loss (✓/✗)
+- Search by token name/symbol
+- Filter: All/Winners/Losers dropdown
+- Sort: PnL, ROI, Hold time, Entry date, Exit date
+- Load more pagination
+- NO complex stats, aggregations, or charts - just clean data view
+- Style: Match Discover/Trackers pages (modern, sleek, professional)
+
+**Part B: WalletBaseballCard Hold Metrics** [TODO - needs further design]
+**Problem**: Current display mixes "exits only" with "exits + active holdings" which is mathematically confusing
+**Solution needed**: Visually separate current holdings vs completed exits, don't mix time metrics
+**Status**: Awaiting design - will tackle after Part A is implemented
 
 **Tech Stack**: React, Recharts/Tremor for charts, existing UI components
 

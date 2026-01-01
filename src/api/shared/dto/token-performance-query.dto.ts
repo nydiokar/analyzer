@@ -148,4 +148,13 @@ export class TokenPerformanceQueryDto {
   @IsOptional()
   @IsEnum(SpamFilterType)
   spamFilter?: SpamFilterType = SpamFilterType.ALL;
+
+  @ApiPropertyOptional({
+    description: 'Comma-separated list of token addresses to filter by. When provided, only returns data for these specific tokens.',
+    type: String,
+    example: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v,Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  })
+  @IsOptional()
+  @IsString()
+  tokenAddresses?: string;
 } 

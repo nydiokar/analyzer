@@ -60,6 +60,7 @@ export class TokenPerformanceService {
         pnlConditionValue,
         minTrades,
         spamFilter,
+        tokenAddresses: tokenAddressesFilter, // NEW: Filter by specific token addresses (renamed to avoid conflict)
     } = queryDto;
 
     const skip = (page - 1) * pageSize;
@@ -75,8 +76,16 @@ export class TokenPerformanceService {
       where.currentUiBalance = { gt: 0 };
     }
 
-    // Add search term filtering
-    if (searchTerm) {
+    // Filter by specific token addresses if provided
+    if (tokenAddressesFilter) {
+      const addressArray = tokenAddressesFilter.split(',').map(addr => addr.trim()).filter(addr => addr.length > 0);
+      if (addressArray.length > 0) {
+        where.tokenAddress = { in: addressArray };
+      }
+    }
+
+    // Add search term filtering (only if tokenAddressesFilter not provided, as they conflict)
+    if (searchTerm && !tokenAddressesFilter) {
       where.tokenAddress = {
         contains: searchTerm,
         // mode: 'insensitive', // Removed earlier, ensure DB collation handles case-insensitivity if needed
