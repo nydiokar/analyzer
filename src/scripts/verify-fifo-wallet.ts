@@ -2,10 +2,16 @@
 import * as dotenv from 'dotenv';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import Redis from 'ioredis';
+import { HttpService } from '@nestjs/axios';
 import { HeliusApiClient } from '../core/services/helius-api-client';
 import { HeliusSyncService, SyncOptions } from '../core/services/helius-sync-service';
 import { PnlAnalysisService } from '../core/services/pnl-analysis-service';
 import { DatabaseService } from '../api/services/database.service';
+import { DexscreenerService } from '../api/services/dexscreener.service';
+import { DexscreenerPriceProvider } from '../api/services/dexscreener-price-provider';
+import { OnchainMetadataService } from '../core/services/onchain-metadata.service';
+import { TokenInfoService } from '../api/services/token-info.service';
 
 dotenv.config();
 
@@ -68,24 +74,22 @@ async function main(): Promise<void> {
   const focusMint = argv.mint;
   const verbose = argv.verbose || Boolean(focusMint);
 
-  if (!argv.skipSync && !process.env.HELIUS_API_KEY) {
-    console.error('HELIUS_API_KEY is required unless --skipSync is provided.');
+  if (!process.env.HELIUS_API_KEY) {
+    console.error('HELIUS_API_KEY is required for TokenInfoService and sync.');
     process.exit(1);
   }
 
   const databaseService = new DatabaseService();
-  const heliusClient = process.env.HELIUS_API_KEY
-    ? new HeliusApiClient(
-        {
-          apiKey: process.env.HELIUS_API_KEY,
-          network: 'mainnet',
-          requestsPerSecond: 20,
-        },
-        databaseService,
-      )
-    : null;
+  const heliusClient = new HeliusApiClient(
+    {
+      apiKey: process.env.HELIUS_API_KEY,
+      network: 'mainnet',
+      requestsPerSecond: 20,
+    },
+    databaseService,
+  );
 
-  if (!argv.skipSync && heliusClient) {
+  if (!argv.skipSync) {
     const syncService = new HeliusSyncService(databaseService, heliusClient);
     const syncOptions: SyncOptions = {
       limit: argv.limit,
@@ -99,7 +103,29 @@ async function main(): Promise<void> {
     await syncService.syncWalletData(walletAddress, syncOptions);
   }
 
-  const pnlService = new PnlAnalysisService(databaseService, heliusClient, null);
+  const httpService = new HttpService();
+  const redisClient = new Redis({
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD,
+    db: parseInt(process.env.REDIS_DB || '0', 10),
+    lazyConnect: true,
+    maxRetriesPerRequest: 3,
+  });
+
+  const dexscreenerService = new DexscreenerService(databaseService, httpService, redisClient);
+  const dexscreenerProvider = new DexscreenerPriceProvider(databaseService, httpService);
+  const onchainMetadataService = new OnchainMetadataService(heliusClient);
+  const tokenInfoService = new TokenInfoService(
+    databaseService,
+    dexscreenerService,
+    dexscreenerProvider,
+    onchainMetadataService,
+    heliusClient,
+    redisClient,
+  );
+
+  const pnlService = new PnlAnalysisService(databaseService, heliusClient, tokenInfoService);
   console.log(`Running FIFO analysis for ${walletAddress}...`);
   await pnlService.analyzeWalletPnl(walletAddress, undefined, { isViewOnly: false, skipBalanceFetch: false });
 
