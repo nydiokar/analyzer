@@ -53,9 +53,20 @@ async function main(): Promise<void> {
       default: 1000,
       description: 'Optional cap on signatures fetched (0 = no cap)',
     })
+    .option('mint', {
+      type: 'string',
+      description: 'Optional token mint to print detailed diagnostics for',
+    })
+    .option('verbose', {
+      type: 'boolean',
+      default: false,
+      description: 'Print per-token diagnostics (lots, swaps, balances)',
+    })
     .parse();
 
   const walletAddress = argv.wallet;
+  const focusMint = argv.mint;
+  const verbose = argv.verbose || Boolean(focusMint);
 
   if (!argv.skipSync && !process.env.HELIUS_API_KEY) {
     console.error('HELIUS_API_KEY is required unless --skipSync is provided.');
@@ -197,6 +208,29 @@ async function main(): Promise<void> {
         console.warn(
           `[WARN] ${result.tokenAddress} holdings mismatch but hasIncompleteHistory not persisted; run migration/backfill to record incomplete history.`,
         );
+      }
+    }
+
+    if (verbose && (!focusMint || focusMint === result.tokenAddress)) {
+      console.log(
+        `[DETAIL] ${result.tokenAddress} in=${result.totalAmountIn} out=${result.totalAmountOut} spent=${result.totalSolSpent} received=${result.totalSolReceived} fees=${fees}`,
+      );
+      console.log(
+        `[DETAIL] ${result.tokenAddress} realized=${result.realizedPnlSol} unrealized=${result.unrealizedPnlSol} total=${result.totalPnlSol} net=${result.netSolProfitLoss}`,
+      );
+      console.log(
+        `[DETAIL] ${result.tokenAddress} balance=${result.currentUiBalance} costBasis=${result.currentHoldingsCostBasisSol} holdingsValueSol=${result.currentHoldingsValueSol}`,
+      );
+
+      if (tokenSwapInputs.length === 0) {
+        console.log(`[DETAIL] ${result.tokenAddress} swapInputs=0`);
+      } else {
+        console.log(`[DETAIL] ${result.tokenAddress} swapInputs=${tokenSwapInputs.length}`);
+        for (const input of tokenSwapInputs) {
+          console.log(
+            `[SWAP] ${input.signature} ts=${input.timestamp} dir=${input.direction} amount=${input.amount} sol=${input.associatedSolValue} type=${input.interactionType}`,
+          );
+        }
       }
     }
   }

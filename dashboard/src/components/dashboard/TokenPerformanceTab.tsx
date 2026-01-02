@@ -203,12 +203,13 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
     header: 'Realized',
     cell: ({ row }) => {
       const item = row.original;
+      const realizedValue = item.realizedPnlSol;
       return (
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col items-start space-y-0 cursor-help">
-                {formatPnl(item.netSolProfitLoss)}
+                {formatPnl(realizedValue)}
                 {item.realizedPnlPercentage !== null && item.realizedPnlPercentage !== undefined && (
                   <div className="flex justify-start">
                     {formatPercentage(item.realizedPnlPercentage)}
@@ -239,7 +240,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col items-start space-y-0 cursor-help">
-                {formatPnl(item.unrealizedPnlSol ?? 0)}
+                {formatPnl(item.unrealizedPnlSol)}
                 {item.unrealizedPnlPercentage !== null && item.unrealizedPnlPercentage !== undefined && (
                   <div className="flex justify-start">
                     {formatPercentage(item.unrealizedPnlPercentage)}
