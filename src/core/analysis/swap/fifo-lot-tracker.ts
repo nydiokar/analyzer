@@ -19,6 +19,7 @@ export interface FifoSwapInput {
   direction: 'in' | 'out';
   amount: number;
   associatedSolValue: number;
+  interactionType?: string;
 }
 
 function sortSwapInputs(inputs: FifoSwapInput[]): FifoSwapInput[] {
@@ -42,10 +43,14 @@ export function buildFifoLotsForToken(
 
   for (const input of ordered) {
     const normalizedAmount = Math.abs(input.amount);
+    const interactionType = input.interactionType?.toUpperCase() ?? '';
+    const isNonEconomicTransfer = interactionType === 'TRANSFER' || interactionType === 'BURN';
+    const effectiveSolValue = isNonEconomicTransfer ? 0 : Math.abs(input.associatedSolValue);
+
     if (input.direction === 'in') {
       lots.push({
         amountBought: normalizedAmount,
-        costBasisSol: Math.abs(input.associatedSolValue),
+        costBasisSol: effectiveSolValue,
         amountRemaining: normalizedAmount,
         purchaseTimestamp: input.timestamp,
         sourceSignature: input.signature,
@@ -53,7 +58,7 @@ export function buildFifoLotsForToken(
       continue;
     }
 
-    totalProceedsSol += Math.abs(input.associatedSolValue);
+    totalProceedsSol += effectiveSolValue;
     let remainingToSell = normalizedAmount;
 
     while (remainingToSell > 0) {

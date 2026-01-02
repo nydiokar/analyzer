@@ -40,6 +40,22 @@
 
 **Status**: User plans to work on this as top priority. All other feature work is BLOCKED until this is fixed.
 
+**Next Actions (brief)**:
+1) Prevent time-range analyses from overwriting FIFO lots / AnalysisResult.
+2) Add USDC-aware FIFO value handling (use associatedUsdcValue when SOL value is absent).
+3) Preserve interactionType in FIFO inputs to treat TRANSFER/BURN correctly (zero-cost/zero-proceeds).
+4) Normalize fee-payer heuristic amounts to positive values with direction.
+5) De-duplicate fee assignment per transaction to avoid double-counting.
+6) Ensure incomplete history propagates null P&L instead of 0.
+
+**Decision Needed: dashboard fast scopes vs. FIFO integrity**
+- Flash/working analyses currently run with a timeRange. We now block persistence for timeRange runs to protect FIFO lots.
+- Tradeoff: fast scopes won’t refresh canonical PnL/AnalysisResult; UI will show last deep/full snapshot.
+- Options:
+  - Keep fast scopes view-only and trigger a deep/full analysis in background for persistence.
+  - Or store timeRange results in a separate snapshot table (avoid overwriting FIFO lots).
+  - Or accept FIFO corruption risk (not recommended).
+
 ---
 
 ## What's Working

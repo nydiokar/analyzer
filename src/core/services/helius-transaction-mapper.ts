@@ -703,7 +703,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
                       if (!processedRecordKeys.has(recordKey)) {
                           analysisInputs.push({
                               walletAddress: walletAddress, signature: tx.signature, timestamp: tx.timestamp,
-                              mint: inputMint, amount: -Math.abs(inputAmount), direction: 'out',
+                              mint: inputMint, amount: Math.abs(inputAmount), direction: 'out',
                               associatedSolValue: heuristicAssociatedSolValue,
                               associatedUsdcValue: heuristicAssociatedUsdcValue,
                               interactionType: 'SWAP_FEE_PAYER',
