@@ -123,9 +123,14 @@ Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as 
 - FIFO logic moved into SwapAnalyzer (source-of-truth aggregation stage).
 - PnlAnalysisService now orchestrates persistence only; no average-cost P&L calculations remain.
 - Consumers updated to read FIFO fields and skip `hasIncompleteHistory`.
-- Prisma schema updated with TokenLot + FIFO fields (migration not generated yet).
+- Prisma schema updated with TokenLot + FIFO fields (migration generated).
 - Fixed mapping bug: WSOL total movement now counts only user-involved transfers (prevents router hop double-counting of swap value). Added mapper test for this case.
-- Tests not rerun after refactor; backfill script not implemented yet.
+- FIFO logic verified with multiple wallet runs; tests executed in another environment.
+- Backfill script not implemented; dev DB was wiped so backfill not run.
+
+#### ✅ Status
+- Marked done for dev use. FIFO math validated on real wallets and mapping fix confirmed.
+- Backfill/reprocessing script and formal unit test reruns deferred intentionally.
 
 #### 🚧 Remaining Work (P0 FIFO)
 1. Generate Prisma migration (no manual SQL).
