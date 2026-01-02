@@ -48,6 +48,14 @@
 5) De-duplicate fee assignment per transaction to avoid double-counting.
 6) Ensure incomplete history propagates null P&L instead of 0.
 
+**Decision Needed: dashboard fast scopes vs. FIFO integrity**
+- Flash/working analyses currently run with a timeRange. We now block persistence for timeRange runs to protect FIFO lots.
+- Tradeoff: fast scopes won’t refresh canonical PnL/AnalysisResult; UI will show last deep/full snapshot.
+- Options:
+  - Keep fast scopes view-only and trigger a deep/full analysis in background for persistence.
+  - Or store timeRange results in a separate snapshot table (avoid overwriting FIFO lots).
+  - Or accept FIFO corruption risk (not recommended).
+
 ---
 
 ## What's Working
