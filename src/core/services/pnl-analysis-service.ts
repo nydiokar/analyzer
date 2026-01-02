@@ -409,9 +409,10 @@ export class PnlAnalysisService {
 
                     result.unrealizedPnlSol = unrealizedPnlSol;
                     result.totalPnlSol = totalPnlSol;
+                    result.netSolProfitLoss = totalPnlSol - feesPaid;
                     result.hasIncompleteHistory = false;
 
-                    realizedPnl += result.netSolProfitLoss ?? 0;
+                    realizedPnl += realizedPnlSol;
                     if (unrealizedPnlSol !== null) {
                         unrealizedPnl += unrealizedPnlSol;
                     }

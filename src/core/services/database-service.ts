@@ -2179,6 +2179,10 @@ export class DatabaseService {
         ]);
     }
 
+    async getTokenLots(walletAddress: string): Promise<Array<Prisma.TokenLotGetPayload<{}>>> {
+        return this.prismaClient.tokenLot.findMany({ where: { walletAddress } });
+    }
+
     /**
      * Get tokens that have been recently checked in DexScreener to avoid redundant API calls
      * @param tokenAddresses Array of token addresses to check
