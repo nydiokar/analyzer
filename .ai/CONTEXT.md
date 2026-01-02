@@ -40,6 +40,14 @@
 
 **Status**: User plans to work on this as top priority. All other feature work is BLOCKED until this is fixed.
 
+**Next Actions (brief)**:
+1) Prevent time-range analyses from overwriting FIFO lots / AnalysisResult.
+2) Add USDC-aware FIFO value handling (use associatedUsdcValue when SOL value is absent).
+3) Preserve interactionType in FIFO inputs to treat TRANSFER/BURN correctly (zero-cost/zero-proceeds).
+4) Normalize fee-payer heuristic amounts to positive values with direction.
+5) De-duplicate fee assignment per transaction to avoid double-counting.
+6) Ensure incomplete history propagates null P&L instead of 0.
+
 ---
 
 ## What's Working

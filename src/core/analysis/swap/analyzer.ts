@@ -187,6 +187,7 @@ export class SwapAnalyzer {
                     direction: input.direction as 'in' | 'out',
                     amount: input.amount,
                     associatedSolValue: input.associatedSolValue,
+                    interactionType: input.interactionType,
                 })),
             );
             fifoRealizedPnlSol = fifoResult.realizedPnlSol;

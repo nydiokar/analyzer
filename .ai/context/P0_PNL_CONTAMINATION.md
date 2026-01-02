@@ -167,6 +167,53 @@ When selling, use FIFO to determine which lots are consumed and calculate true r
 
 ---
 
+## Post-FIFO Implementation Review (Dec 2025) – Critical Gaps
+
+These are **verified against current code** and represent remaining or newly introduced issues that can still corrupt FIFO correctness.
+
+### 🔴 Critical: Time-range analyses overwrite FIFO lots + AnalysisResult
+**What happens**: `analyzeWalletPnl` persists FIFO lots and AnalysisResult for *time-bounded* runs. That **replaces the wallet's full-history FIFO lots** with partial lots.  
+**Why it matters**: Any historical-slice analysis (jobs with a time range) can corrupt the canonical cost basis and P&L state for the wallet.  
+**Code**:
+- `src/queues/processors/analysis-operations.processor.ts:390` calls `analyzeWalletPnl(walletAddress, timeRange, ...)`
+- `src/core/services/pnl-analysis-service.ts:587` calls `replaceTokenLotsForWallet(...)` unconditionally
+
+### 🔴 High: FIFO ignores USDC-associated value
+**What happens**: FIFO lot tracking only passes `associatedSolValue`; `associatedUsdcValue` is never used.  
+**Why it matters**: USDC-priced swaps (and any swap where the price signal is in USDC) will yield incorrect cost basis / proceeds, often zeroing out value and inflating profits.  
+**Code**:
+- `src/core/analysis/swap/analyzer.ts:182-190` uses `associatedSolValue` only
+- `src/core/services/helius-transaction-mapper.ts:900+` often assigns **USDC** value instead of SOL
+
+### 🔴 High: FIFO has no knowledge of transfer type (BURN/TRANSFER/airdrop)
+**What happens**: SwapAnalyzer strips `interactionType` to FIFO inputs. FIFO treats all non-SOL flows equally (buy/sell).  
+**Why it matters**: Transfer-out should be zero-proceeds disposal; transfer-in should be zero-cost lot. With no interaction type, FIFO can misclassify them as swap buys/sells if `associatedSolValue` is non-zero.  
+**Code**:
+- `src/core/analysis/swap/analyzer.ts:46` filters `BURN`, then FIFO inputs omit interaction type
+- `src/core/analysis/swap/fifo-lot-tracker.ts` only uses `direction` + `associatedSolValue`
+
+### 🟠 Medium: fee-payer heuristic uses negative amounts for `out`
+**What happens**: The fee-payer heuristic inserts `amount: -abs(x)` for direction `out`.  
+**Why it matters**: Most aggregation assumes positive amounts with direction indicating sign. This can undercount totals, flip net amount change, and skew behavior metrics.  
+**Code**:
+- `src/core/services/helius-transaction-mapper.ts:705-709` (negative amount for `out`)
+- `src/core/analysis/swap/analyzer.ts:121-136` assumes positive `amount` and uses `direction`
+
+### 🟠 Medium: fees can be double-counted per transfer chunk
+**What happens**: Fee assignment is computed per transfer row, not per tx/signature.  
+**Why it matters**: Multi-transfer transactions can carry the same network fee multiple times, depressing net P&L.  
+**Code**:
+- `src/core/services/helius-transaction-mapper.ts:992-1013` assigns refined fee per row
+
+### 🟠 Medium: "hasIncompleteHistory" zeros netSolProfitLoss
+**What happens**: If holdings mismatch or incomplete history is detected, netSolProfitLoss is set to `0` (not null).  
+**Why it matters**: Downstream consumers may treat this as breakeven instead of excluding it, affecting ranking, summaries, and win-rate.  
+**Code**:
+- `src/core/services/pnl-analysis-service.ts:398-404`
+
+
+---
+
 ## Impact Assessment
 
 ### Who Gets Hurt
