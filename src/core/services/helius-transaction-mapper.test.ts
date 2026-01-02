@@ -273,6 +273,37 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
       assert.ok(Math.abs(tokenA_row.associatedSolValue - TOTAL_WSOL_MOVEMENT) < 0.0001, `TOKEN_A should have ~${TOTAL_WSOL_MOVEMENT} SOL value, got ${tokenA_row.associatedSolValue}`);
     });
 
+    it('ignores WSOL movement not involving the user when deriving swap value', () => {
+      const USER_WSOL = 25;
+      const ROUTER_WSOL = 25;
+      const txn = {
+        description: 'Router hop WSOL movement should not inflate user swap value',
+        type: 'SWAP',
+        source: 'UNKNOWN',
+        fee: 0.000005,
+        feePayer: WALLET,
+        signature: 'TestSignatureUserWsolOnly',
+        slot: 5,
+        timestamp: 5,
+        tokenTransfers: [
+          makeTokenTransfer(WALLET, 'RouterA', USER_WSOL, SOL_MINT),
+          makeTokenTransfer('RouterA', 'RouterB', ROUTER_WSOL, SOL_MINT),
+          makeTokenTransfer('RouterB', WALLET, 1000, TOKEN_A_MINT),
+        ],
+        nativeTransfers: [],
+        accountData: [],
+        events: {}, // No swap event data
+        instructions: [],
+        transactionError: undefined,
+      } as unknown as HeliusTransaction;
+
+      const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+      const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+
+      assert.ok(tokenA_row, 'Should have a record for TOKEN_A');
+      assert.ok(Math.abs(tokenA_row.associatedSolValue - USER_WSOL) < 0.0001, `TOKEN_A should have ~${USER_WSOL} SOL value, got ${tokenA_row.associatedSolValue}`);
+    });
+
     it('uses net user SOL change as a final fallback', () => {
       const NET_SOL_CHANGE = -0.8; // User's SOL balance decreased
       const txn = {
