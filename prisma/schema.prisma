@@ -29,7 +29,8 @@ model Wallet {
   behaviorProfile              WalletBehaviorProfile?
   walletNotes                  WalletNote[]
   pnlSummary                   WalletPnlSummary?
-
+  TokenLot                     TokenLot[]
+  
   @@index([classification])
   @@index([classificationConfidence])
   @@index([isVerifiedBot])
