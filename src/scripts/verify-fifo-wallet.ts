@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     })
     .option('maxSignatures', {
       type: 'number',
-      default: 0,
+      default: 1000,
       description: 'Optional cap on signatures fetched (0 = no cap)',
     })
     .parse();
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
       fetchAll: argv.fetchAll,
       skipApi: false,
       fetchOlder: argv.fetchOlder,
-      maxSignatures: argv.maxSignatures > 0 ? argv.maxSignatures : null,
+      maxSignatures: argv.maxSignatures > 0 ? argv.maxSignatures : 1000,
       smartFetch: true,
     };
     console.log(`Syncing wallet ${walletAddress}...`);
@@ -94,6 +94,7 @@ async function main(): Promise<void> {
 
   const results = await databaseService.getAnalysisResults({ where: { walletAddress } });
   const lots = await databaseService.getTokenLots(walletAddress);
+  const swapInputs = await databaseService.getSwapAnalysisInputs(walletAddress);
 
   const lotsByMint = new Map<
     string,
@@ -135,11 +136,13 @@ async function main(): Promise<void> {
     }
 
     const lotData = lotsByMint.get(result.tokenAddress);
+    const tokenSwapInputs = swapInputs.filter(input => input.mint === result.tokenAddress);
+    const schemaMissingIncompleteFlag = result.hasIncompleteHistory === null || result.hasIncompleteHistory === undefined;
     if (lotData && result.currentUiBalance !== null && result.currentUiBalance !== undefined) {
       if (!approxEqual(lotData.remaining, result.currentUiBalance)) {
         failures++;
         console.error(
-          `[FAIL] ${result.tokenAddress} lots remaining ${lotData.remaining} != currentUiBalance ${result.currentUiBalance}`,
+          `[FAIL] ${result.tokenAddress} lots remaining ${lotData.remaining} != currentUiBalance ${result.currentUiBalance} (swapInputs=${tokenSwapInputs.length}, schemaHasIncompleteFlag=${!schemaMissingIncompleteFlag})`,
         );
       }
     }
@@ -185,6 +188,14 @@ async function main(): Promise<void> {
         failures++;
         console.error(
           `[FAIL] ${result.tokenAddress} totalPnlSol ${result.totalPnlSol} != (received+holdings-spent) ${expectedTotalFromFormula}`,
+        );
+      }
+    }
+
+    if (schemaMissingIncompleteFlag && tokenSwapInputs.length > 0 && lotData && result.currentUiBalance !== null) {
+      if (!approxEqual(lotData.remaining, result.currentUiBalance)) {
+        console.warn(
+          `[WARN] ${result.tokenAddress} holdings mismatch but hasIncompleteHistory not persisted; run migration/backfill to record incomplete history.`,
         );
       }
     }
