@@ -116,6 +116,21 @@
 **Focus**: Token Performance Fixes & Enhancements
 **Status**: ⚠️ **PAUSED** - Discovered P0 blocker during work
 
+#### 🔧 Additional Scope (P0 Fix)
+Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as a sell with 0 proceeds to avoid overstated P&L; treat transfer-in as a zero-cost lot. This is needed to keep realized P&L correct when tokens leave/enter without swaps.
+
+#### ✅ Progress Update (P0 FIFO Work)
+- FIFO logic moved into SwapAnalyzer (source-of-truth aggregation stage).
+- PnlAnalysisService now orchestrates persistence only; no average-cost P&L calculations remain.
+- Consumers updated to read FIFO fields and skip `hasIncompleteHistory`.
+- Prisma schema updated with TokenLot + FIFO fields (migration not generated yet).
+- Tests not rerun after refactor; backfill script not implemented yet.
+
+#### 🚧 Remaining Work (P0 FIFO)
+1. Generate Prisma migration (no manual SQL).
+2. Implement backfill/reprocessing script to rebuild lots and FIFO P&L from historical SwapAnalysisInput.
+3. Rerun FIFO tests and verify correctness + totals.
+
 #### ✅ Task 4: ROI Calculation Fix (COMPLETED)
 **Problem**: ROI showing -300% for dust trades
 **Solution**: Added dust trade detection (< 0.01 SOL threshold), hide ROI pill for these cases

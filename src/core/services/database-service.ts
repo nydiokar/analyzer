@@ -88,6 +88,8 @@ export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'i
     totalFeesPaidInSol?: number | null; 
 };
 
+export type TokenLotCreateData = Prisma.TokenLotCreateManyInput;
+
 // Type for creating an AdvancedStatsResult record (omit auto-generated id, add runId and walletAddress explicitly)
 // Define this type within or import it for the class method
 /** Data structure for the INPUT to saveAdvancedStats, containing the raw data points. */
@@ -1725,6 +1727,11 @@ export class DatabaseService {
             totalSolSpent: r.totalSolSpent,
             totalSolReceived: r.totalSolReceived,
             netSolProfitLoss: r.netSolProfitLoss,
+            realizedPnlSol: r.realizedPnlSol ?? null,
+            unrealizedPnlSol: r.unrealizedPnlSol ?? null,
+            totalPnlSol: r.totalPnlSol ?? null,
+            hasIncompleteHistory: r.hasIncompleteHistory ?? false,
+            currentHoldingsCostBasisSol: r.currentHoldingsCostBasisSol ?? null,
             transferCountIn: r.transferCountIn,
             transferCountOut: r.transferCountOut,
             firstTransferTimestamp: r.firstTransferTimestamp,
@@ -2156,6 +2163,20 @@ export class DatabaseService {
             this.logger.error(`Error during batch upsert of AnalysisResult records:`, { error, totalProcessed });
             throw error;
         }
+    }
+
+    /**
+     * Replaces all TokenLot records for a wallet with the provided set.
+     * Intended for deterministic FIFO backfills and full recomputation runs.
+     */
+    async replaceTokenLotsForWallet(
+        walletAddress: string,
+        lots: TokenLotCreateData[],
+    ): Promise<void> {
+        await this.prismaClient.$transaction([
+            this.prismaClient.tokenLot.deleteMany({ where: { walletAddress } }),
+            ...(lots.length > 0 ? [this.prismaClient.tokenLot.createMany({ data: lots })] : []),
+        ]);
     }
 
     /**

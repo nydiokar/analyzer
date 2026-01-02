@@ -257,6 +257,7 @@ export interface TokenPerformanceDataDto {
   totalSolReceived: number;
   totalFeesPaidInSol?: number | null;
   netSolProfitLoss: number;
+  hasIncompleteHistory?: boolean | null;
   transferCountIn: number;
   transferCountOut: number;
   firstTransferTimestamp?: number | null; // Unix timestamp (seconds)
@@ -268,6 +269,7 @@ export interface TokenPerformanceDataDto {
   currentUiBalanceString?: string | null;
   balanceDecimals?: number | null;
   balanceFetchedAt?: string | null; // ISO String
+  currentHoldingsCostBasisSol?: number | null;
 
   // Enriched data from TokenInfo (DexScreener)
   name?: string | null;

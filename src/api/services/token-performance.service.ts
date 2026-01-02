@@ -215,6 +215,10 @@ export class TokenPerformanceService {
       const totalSolSpent = ar.totalSolSpent || 0;
       const totalAmountIn = ar.totalAmountIn || 0;
       const netSolProfitLoss = ar.netSolProfitLoss || 0;
+      const realizedPnlSolFromDb = ar.realizedPnlSol ?? null;
+      const totalPnlSolFromDb = ar.totalPnlSol ?? null;
+      const hasIncompleteHistory = ar.hasIncompleteHistory ?? false;
+      const fifoHoldingsCostBasisSol = ar.currentHoldingsCostBasisSol ?? null;
       
       let currentHoldingsValueUsd: number | null = null;
       let currentHoldingsValueSol: number | null = null;
@@ -230,8 +234,6 @@ export class TokenPerformanceService {
       const solReceivedFromSales = ar.totalSolReceived || 0;
       const feesPaid = ar.totalFeesPaidInSol || 0;
       // estimatedSolPriceUsd is already fetched from outer scope
-      const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
-
       if (hasCurrentHoldings && priceUsd && priceUsd > 0) {
         // We have current holdings AND price data - can calculate full P&L
         currentHoldingsValueUsd = currentUiBalance * priceUsd;
@@ -243,47 +245,40 @@ export class TokenPerformanceService {
           currentHoldingsValueSol = null;
         }
 
-        // Realized P&L: Use pre-calculated value from database (more accurate)
-        // The database netSolProfitLoss is calculated by swap analyzer with proper cost basis tracking
-        realizedPnlSol = netSolProfitLoss;
-
-        // Calculate realized PnL excluding fees (for ROI % - measures trading performance, not transaction costs)
-        const realizedPnlExcludingFees = realizedPnlSol + feesPaid;
-
-        // Calculate unrealized PnL from current holdings
-        if (currentHoldingsValueSol !== null && currentHoldingsValueUsd !== null) {
-          // Unrealized P&L: Current value vs cost basis of remaining holdings
-          const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
-          unrealizedPnlUsd = currentHoldingsValueUsd - (costBasisForCurrentHoldings * estimatedSolPriceUsd);
-          unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
-
-          // Calculate percentages (exclude fees to match industry standard ROI calculations)
-          // ROI % measures token trading performance, not transaction efficiency
-          realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlExcludingFees / totalSolSpent) * 100 : null;
-
-          // Unrealized PNL % = (Unrealized PNL / Cost Basis of Current Holdings) × 100
-          unrealizedPnlPercentage = costBasisForCurrentHoldings > 0 ? (unrealizedPnlSol / costBasisForCurrentHoldings) * 100 : null;
-
-          // Total P&L: Includes fees (real money in/out) for absolute SOL profit/loss
-          totalPnlSol = realizedPnlSol + unrealizedPnlSol;
+        if (hasIncompleteHistory) {
+          realizedPnlSol = null;
+          unrealizedPnlSol = null;
+          totalPnlSol = null;
         } else {
-          // ✅ FILTERED TOKEN: Only show realized PnL
-          realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlExcludingFees / totalSolSpent) * 100 : null;
-          totalPnlSol = realizedPnlSol; // Only realized PnL for filtered tokens
+          realizedPnlSol = realizedPnlSolFromDb;
+
+          if (currentHoldingsValueSol !== null && currentHoldingsValueUsd !== null && fifoHoldingsCostBasisSol !== null) {
+            unrealizedPnlUsd = currentHoldingsValueUsd - (fifoHoldingsCostBasisSol * estimatedSolPriceUsd);
+            unrealizedPnlSol = currentHoldingsValueSol - fifoHoldingsCostBasisSol;
+
+          const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
+          realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
+            ? (realizedPnlExcludingFees / totalSolSpent) * 100
+            : null;
+            unrealizedPnlPercentage = fifoHoldingsCostBasisSol > 0 ? (unrealizedPnlSol / fifoHoldingsCostBasisSol) * 100 : null;
+
+            totalPnlSol = (realizedPnlSol ?? 0) + unrealizedPnlSol;
+          } else {
+            realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol ?? 0) / totalSolSpent * 100 : null;
+            totalPnlSol = realizedPnlSol;
+          }
         }
 
              } else if (hasCurrentHoldings) {
          // We have holdings but no price data - can't calculate unrealized P&L
          // Show realized P&L only and mark total as incomplete
 
-         // Use pre-calculated netSolProfitLoss from database (more accurate)
-         realizedPnlSol = netSolProfitLoss;
+         realizedPnlSol = hasIncompleteHistory ? null : realizedPnlSolFromDb;
 
-         // Calculate realized PnL excluding fees (for ROI %)
-         const realizedPnlExcludingFees = realizedPnlSol + feesPaid;
-
-        // Calculate realized PNL percentage (exclude fees to show trading performance)
-        realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlExcludingFees / totalSolSpent) * 100 : null;
+        const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
+        realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
+          ? (realizedPnlExcludingFees / totalSolSpent) * 100
+          : null;
 
         // Can't calculate unrealized without price data
         unrealizedPnlUsd = null;
@@ -291,18 +286,17 @@ export class TokenPerformanceService {
         unrealizedPnlPercentage = null;
 
         // Total P&L is incomplete without unrealized component
-        totalPnlSol = realizedPnlSol; // This will be incomplete but better than using netSolProfitLoss
+        totalPnlSol = realizedPnlSol;
 
       } else {
         // No current holdings - everything is realized
-        // Use netSolProfitLoss which already includes fees subtracted
-        realizedPnlSol = netSolProfitLoss;
+        realizedPnlSol = hasIncompleteHistory ? null : realizedPnlSolFromDb;
+        const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
+        realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
+          ? (realizedPnlExcludingFees / totalSolSpent) * 100
+          : null;
 
-        // For ROI %, add fees back to show trading performance (not transaction costs)
-        const realizedPnlExcludingFees = netSolProfitLoss + feesPaid;
-        realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlExcludingFees / totalSolSpent) * 100 : null;
-
-        totalPnlSol = netSolProfitLoss;
+        totalPnlSol = realizedPnlSol;
         unrealizedPnlUsd = null;
         unrealizedPnlSol = null;
         unrealizedPnlPercentage = null;
@@ -337,6 +331,7 @@ export class TokenPerformanceService {
         totalSolReceived: ar.totalSolReceived,
         totalFeesPaidInSol: ar.totalFeesPaidInSol,
         netSolProfitLoss: ar.netSolProfitLoss,
+        hasIncompleteHistory,
         transferCountIn: ar.transferCountIn,
         transferCountOut: ar.transferCountOut,
         firstTransferTimestamp: ar.firstTransferTimestamp,
@@ -375,7 +370,7 @@ export class TokenPerformanceService {
         currentHoldingsValueSol,
         unrealizedPnlUsd,
         unrealizedPnlSol,
-        totalPnlSol,
+        totalPnlSol: totalPnlSol ?? totalPnlSolFromDb,
         // PNL percentage indicators
         realizedPnlSol,
         realizedPnlPercentage,

@@ -73,6 +73,10 @@ model AnalysisResult {
   totalSolReceived        Float
   totalFeesPaidInSol      Float?
   netSolProfitLoss        Float
+  realizedPnlSol          Float?
+  unrealizedPnlSol        Float?
+  totalPnlSol             Float?
+  hasIncompleteHistory    Boolean?  @default(false)
   transferCountIn         Int
   transferCountOut        Int
   firstTransferTimestamp  Int?
@@ -88,6 +92,7 @@ model AnalysisResult {
   updatedAt               DateTime  @default(now()) @updatedAt
   currentHoldingsValueSol Float?
   currentHoldingsValueUsd Float?
+  currentHoldingsCostBasisSol Float?
   wallet                  Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@unique([walletAddress, tokenAddress])
@@ -95,6 +100,25 @@ model AnalysisResult {
   @@index([tokenAddress])
   @@index([lastTransferTimestamp])
   @@index([netSolProfitLoss])
+}
+
+model TokenLot {
+  id                Int      @id @default(autoincrement())
+  walletAddress     String
+  tokenAddress      String
+  amountBought      Decimal  @db.Decimal(38, 18)
+  costBasisSol      Decimal  @db.Decimal(38, 18)
+  amountRemaining   Decimal  @db.Decimal(38, 18)
+  purchaseTimestamp Int
+  status            String
+  sourceSignature   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  wallet            Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@index([walletAddress, tokenAddress, purchaseTimestamp])
+  @@index([walletAddress])
+  @@index([tokenAddress])
 }
 
 model WalletPnlSummary {
