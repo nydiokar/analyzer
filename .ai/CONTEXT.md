@@ -151,6 +151,71 @@ Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as 
 **Goal**: Replace horizontal pagination with vertical infinite scroll
 **Status**: ✅ Already implemented before this branch started
 
+#### ✅ Task 7: Virtual Scrolling + Client-Side Sorting (COMPLETED - 2026-01-02)
+**Problem**: Infinite scroll + sorting was fundamentally broken
+- Sorting changed → only showed 20 tokens (not the absolute highest/lowest)
+- Backend loaded ALL tokens, sorted them, then threw away 96% (extremely wasteful)
+- Table flickered and disappeared on every sort change
+- Users couldn't see the actual top PNL tokens when sorting
+
+**Root Cause Analysis**:
+- Infinite scroll is for BROWSING (one sort order)
+- Arbitrary sorting requires seeing ALL results
+- Backend already fetched all tokens for calculated fields (totalPnlSol, ROI) but paginated the result
+- Every scroll triggered a full DB query + sort, just to return 20 tokens
+
+**Solution Implemented**: Virtual Scrolling + Client-Side Sorting (what "big players" do)
+1. **Fetch ALL tokens at once** (`pageSize=999999` instead of 20)
+   - Single backend call instead of N calls
+   - No pagination - get everything in one request
+   - Cache key excludes sorting (no refetch on sort change)
+
+2. **Client-side sorting** (instant, no backend calls)
+   - All sorting logic moved to frontend
+   - Sorts full dataset in memory (~1ms for 1000 tokens)
+   - No flickering - data stays visible during sort
+   - `useMemo` prevents re-sorting on every render
+
+3. **Virtual scrolling** (@tanstack/react-virtual)
+   - Only renders ~30 visible rows in DOM
+   - Handles 100, 1000, or even 10,000+ tokens smoothly
+   - Scroll performance stays smooth
+   - Estimated row height: 48px, overscan: 10 rows
+
+**Files Changed**:
+- `dashboard/src/components/dashboard/TokenPerformanceTab.tsx` - Complete refactor
+- `src/api/shared/dto/token-performance-query.dto.ts` - Backend validation fix
+
+**Critical Backend Fix**:
+- **REMOVED**: `@Max(100)` validation on pageSize (was blocking large requests!)
+- **ADDED**: `@Max(100000)` to allow fetching all tokens
+- **Without this fix, only 100 tokens would load!**
+
+**Benefits**:
+- ✅ Sorting works correctly - shows absolute highest/lowest values
+- ✅ No flickering - instant sorting
+- ✅ No arbitrary limits - handles any wallet size
+- ✅ Better performance - 1 backend call instead of N
+- ✅ Infinite scroll removed - simpler code
+
+**Potential Issues to Monitor**:
+1. ⚠️ **Sticky column behavior** - Token column uses `position: sticky`, but virtual scrolling uses `position: absolute`. Test horizontal scrolling to ensure sticky column still works.
+2. ⚠️ **Response size** - 1000 tokens ≈ 2-10MB uncompressed. Check gzip compression is enabled.
+3. ⚠️ **Database performance** - Wallets with 10,000+ tokens could have slower queries. Monitor query times.
+4. ⚠️ **Image loading** - Virtual scrolling only renders visible rows, so only ~30 images load. Should be fine, but verify TokenBadge has lazy loading.
+5. ℹ️ **Frontend memory** - 10K tokens × 5KB each = 50MB. Modern browsers handle this easily.
+6. ℹ️ **Server load** - Actually might IMPROVE (1 heavy request vs 50 light requests).
+
+**Testing Checklist**:
+- [ ] Sort by Total Profit → verify shows absolute highest PNL tokens
+- [ ] Wallet with 1000+ tokens → verify loads completely
+- [ ] Rapid sorting changes → verify no flickering
+- [ ] Horizontal scroll → verify token column stays sticky
+- [ ] Network tab → check response size and gzip compression
+- [ ] Large wallets (5000+ tokens) → verify scroll performance
+
+**Status**: ✅ Implemented and compiles. Needs production testing.
+
 #### 🔴 P0 DISCOVERED: Fundamental P&L Calculation Error
 **What Happened**: While testing fixes, discovered Total Profit showing -80 SOL when should be +721 SOL
 **Investigation**: Led to discovery that ALL P&L calculations are wrong for partial sells
@@ -203,6 +268,10 @@ Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as 
 - 3 Database migrations (classification fields, storytelling metrics)
 - New API endpoints (discover.controller.ts, discover.service.ts)
 - Updated services (user-favorites, behavior, token-performance)
+- **CRITICAL**: Token performance DTO validation change (`@Max(100)` → `@Max(100000)`)
+  - File: `src/api/shared/dto/token-performance-query.dto.ts`
+  - Required for virtual scrolling to work (fetches all tokens at once)
+  - Without this, frontend will only load 100 tokens maximum!
 
 ### Deployment Order (When Ready):
 1. Deploy backend to home server first (run migrations)

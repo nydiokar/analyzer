@@ -6,7 +6,7 @@ import { useTimeRangeStore } from '@/store/time-range-store';
 import { Card } from "@/components/ui/card";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
 import { Input } from "@/components/ui/input";
-import { useInView } from 'react-intersection-observer';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { 
   Select,
   SelectContent,
@@ -373,25 +373,14 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
 function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
   // TIME FILTER: Pass to backend for hasActivityInPeriod calculation, but don't cache on it
   const { startDate, endDate } = useTimeRangeStore();
-  const [page, setPage] = useState(1);
-  // CHANGED: Increased page size for infinite scroll (load 20 at a time)
-  const [pageSize] = useState(20);
+
+  // CHANGED: Fetch ALL tokens at once, no pagination
+  const [pageSize] = useState(999999); // Fetch all tokens
   const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  // Infinite scroll: accumulate all loaded data
+  // Store all tokens - no pagination, no infinite scroll
   const [allTokens, setAllTokens] = useState<TokenPerformanceDataDto[]>([]);
-  const [hasMore, setHasMore] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-
-  // Reset counter to force effect re-run even with cached (304) responses
-  const [resetCounter, setResetCounter] = useState(0);
-
-  // Intersection observer for loading more
-  const { ref: loadMoreRef, inView } = useInView({
-    threshold: 0,
-    rootMargin: '200px', // Start loading 200px before reaching the sentinel
-  });
 
   const [pnlFilter, setPnlFilter] = useState<string>('any');
   const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false);
@@ -415,11 +404,8 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     setEnrichmentMessage(null);
     initialLoadNotifiedRef.current = false;
 
-    // CRITICAL: Reset infinite scroll state on wallet change
-    setPage(1);
+    // Reset tokens on wallet change
     setAllTokens([]);
-    setHasMore(true);
-    setIsLoadingMore(false);
   }, [walletAddress]);
 
   // TanStack Table state - Default sort by Last Active (most recent first)
@@ -437,18 +423,18 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
   if (apiUrlBase) {
     // Build params for ACTUAL API call (includes time filter)
+    // Always fetch page 1 with large pageSize to get ALL tokens
     const fetchParams = new URLSearchParams();
-    fetchParams.append('page', page.toString());
+    fetchParams.append('page', '1');
     fetchParams.append('pageSize', pageSize.toString());
 
     // IMPORTANT: Include time filter for backend's hasActivityInPeriod calculation
     if (startDate) fetchParams.append('startDate', startDate.toISOString());
     if (endDate) fetchParams.append('endDate', endDate.toISOString());
 
-    if (BACKEND_SORTABLE_IDS.includes(sortBy)) {
-      fetchParams.append('sortBy', sortBy);
-      fetchParams.append('sortOrder', sortOrder);
-    }
+    // REMOVED: Backend sorting - we'll sort client-side for instant response
+    // Fetch all tokens and apply sorting in the browser
+
     if (showHoldingsOnly) fetchParams.append('showOnlyHoldings', 'true');
     if (deferredSearchTerm) fetchParams.append('searchTerm', deferredSearchTerm);
     if (deferredSpamFilter !== 'all') fetchParams.append('spamFilter', deferredSpamFilter);
@@ -469,14 +455,12 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
     fetchUrl = `${apiUrlBase}?${fetchParams.toString()}`;
 
-    // Build SWR cache key WITHOUT time filter (prevents refetch on time change)
+    // Build SWR cache key WITHOUT time filter AND WITHOUT sorting
+    // Sorting is done client-side, so cache only depends on filters
     const cacheParams = new URLSearchParams();
-    cacheParams.append('page', page.toString());
+    cacheParams.append('page', '1');
     cacheParams.append('pageSize', pageSize.toString());
-    if (BACKEND_SORTABLE_IDS.includes(sortBy)) {
-      cacheParams.append('sortBy', sortBy);
-      cacheParams.append('sortOrder', sortOrder);
-    }
+    // REMOVED: sortBy, sortOrder - client-side sorting doesn't affect cache
     if (showHoldingsOnly) cacheParams.append('showOnlyHoldings', 'true');
     if (deferredSearchTerm) cacheParams.append('searchTerm', deferredSearchTerm);
     if (deferredSpamFilter !== 'all') cacheParams.append('spamFilter', deferredSpamFilter);
@@ -498,62 +482,113 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
       revalidateIfStale: true,
       onError: (err) => {
         console.error(`[TokenPerformance] ❌ Fetch error:`, err);
-        // CRITICAL: Reset loading state on error
-        setIsLoadingMore(false);
       }
     }
   );
 
-  // INFINITE SCROLL: Accumulate data when new pages load
-  // Virtualization handles rendering performance, so we can keep more tokens
+  // Store all fetched data (no pagination, no accumulation)
   useEffect(() => {
     if (!data) return;
+    // Simply store all tokens from the response
+    setAllTokens(data.data);
+  }, [data]);
 
-    if (page === 1) {
-      // First page - reset accumulated data
-      // Always update on page 1 to ensure fresh data after sort/filter changes
-      setAllTokens(data.data);
-      setHasMore(data.page < data.totalPages);
-      setIsLoadingMore(false);
-    } else if (page > 1) {
-      // Subsequent pages - append data
-      setAllTokens(prev => {
-        // Deduplicate by tokenAddress
-        const existing = new Set(prev.map(t => t.tokenAddress));
-        const newTokens = data.data.filter(t => !existing.has(t.tokenAddress));
-        return [...prev, ...newTokens];
-      });
-      // Stop if no more pages
-      setHasMore(data.page < data.totalPages);
-      setIsLoadingMore(false);
-    }
-  }, [data, page, resetCounter]);
+  // CLIENT-SIDE SORTING: Sort all tokens in memory (instant, no backend call)
+  const sortedTokens = useMemo(() => {
+    if (allTokens.length === 0) return [];
 
-  // INFINITE SCROLL: Load more when sentinel becomes visible (simple and clean)
-  useEffect(() => {
-    if (inView && hasMore && !isLoadingMore && !isLoadingData) {
-      setIsLoadingMore(true);
-      setPage(prev => prev + 1);
-    }
-  }, [inView, hasMore, isLoadingMore, isLoadingData]);
+    const sorted = [...allTokens];
 
-  // INFINITE SCROLL: Reset when filters/sorting changes
-  // TIME FILTER DETACHMENT: Removed startDate/endDate - only refresh button reloads data
-  useEffect(() => {
-    setPage(1);
-    setAllTokens([]);
-    setHasMore(true);
-    setIsLoadingMore(false);
-    setResetCounter(c => c + 1); // Force accumulation effect to re-run
-  }, [
-    showHoldingsOnly,
-    deferredSearchTerm,
-    deferredSpamFilter,
-    deferredPnlFilter,
-    minTradesToggle,
-    sortBy,
-    sortOrder
-  ]);
+    sorted.sort((a, b) => {
+      let valueA: number | string;
+      let valueB: number | string;
+
+      // Map column IDs to actual data fields
+      const fieldMapping: Record<string, string> = {
+        'currentBalanceDisplay': 'currentSolValue',
+        'tokenAddress': 'lastTransferTimestamp'
+      };
+
+      const field = fieldMapping[sortBy] || sortBy;
+
+      // Calculate values based on sort field
+      switch (field) {
+        case 'totalPnlSol':
+          valueA = a.totalPnlSol ?? 0;
+          valueB = b.totalPnlSol ?? 0;
+          break;
+        case 'netSolProfitLoss':
+          valueA = a.netSolProfitLoss ?? 0;
+          valueB = b.netSolProfitLoss ?? 0;
+          break;
+        case 'unrealizedPnlSol':
+          valueA = a.unrealizedPnlSol ?? 0;
+          valueB = b.unrealizedPnlSol ?? 0;
+          break;
+        case 'roi':
+          // Calculate ROI
+          valueA = a.totalSolSpent && a.totalSolSpent !== 0
+            ? ((a.totalPnlSol || 0) / a.totalSolSpent) * 100
+            : (a.totalPnlSol || 0) > 0 ? Infinity : (a.totalPnlSol || 0) < 0 ? -Infinity : 0;
+          valueB = b.totalSolSpent && b.totalSolSpent !== 0
+            ? ((b.totalPnlSol || 0) / b.totalSolSpent) * 100
+            : (b.totalPnlSol || 0) > 0 ? Infinity : (b.totalPnlSol || 0) < 0 ? -Infinity : 0;
+          break;
+        case 'totalSolSpent':
+          valueA = a.totalSolSpent ?? 0;
+          valueB = b.totalSolSpent ?? 0;
+          break;
+        case 'totalSolReceived':
+          valueA = a.totalSolReceived ?? 0;
+          valueB = b.totalSolReceived ?? 0;
+          break;
+        case 'currentSolValue':
+          valueA = a.currentHoldingsValueSol ?? 0;
+          valueB = b.currentHoldingsValueSol ?? 0;
+          break;
+        case 'currentUiBalance':
+          valueA = a.currentUiBalance ?? 0;
+          valueB = b.currentUiBalance ?? 0;
+          break;
+        case 'netAmountChange':
+          valueA = a.netAmountChange ?? 0;
+          valueB = b.netAmountChange ?? 0;
+          break;
+        case 'lastTransferTimestamp':
+          valueA = a.lastTransferTimestamp ?? 0;
+          valueB = b.lastTransferTimestamp ?? 0;
+          break;
+        case 'firstTransferTimestamp':
+          valueA = a.firstTransferTimestamp ?? 0;
+          valueB = b.firstTransferTimestamp ?? 0;
+          break;
+        case 'tokenAddress':
+          valueA = a.tokenAddress || '';
+          valueB = b.tokenAddress || '';
+          break;
+        default:
+          valueA = 0;
+          valueB = 0;
+      }
+
+      // Handle string vs number comparison
+      if (typeof valueA === 'string' && typeof valueB === 'string') {
+        return sortOrder === 'DESC'
+          ? valueB.localeCompare(valueA)
+          : valueA.localeCompare(valueB);
+      }
+
+      const numA = typeof valueA === 'number' ? valueA : 0;
+      const numB = typeof valueB === 'number' ? valueB : 0;
+
+      return sortOrder === 'DESC' ? numB - numA : numA - numB;
+    });
+
+    return sorted;
+  }, [allTokens, sortBy, sortOrder]);
+
+  // REMOVED: Infinite scroll logic - we fetch all data at once
+  // Sorting happens client-side, so no need to refetch when sort changes
 
   useEffect(() => {
     if (!swrKey) {
@@ -604,12 +639,10 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     return data ?? null;
   }, [data, fallbackResponse, isUsingFallback]);
 
-  // INFINITE SCROLL: Use accumulated tokens instead of paged data
-  const tableData = useMemo(() => allTokens, [allTokens]);
+  // Use sorted tokens for table display
+  const tableData = useMemo(() => sortedTokens, [sortedTokens]);
   const hasTableData = tableData.length > 0;
   const totalItems = effectiveResponse?.total ?? 0;
-  const totalPages = effectiveResponse?.totalPages ?? 0;
-  const currentPage = effectiveResponse?.page ?? page;
 
   useEffect(() => {
     if (!onInitialLoad || initialLoadNotifiedRef.current) {
@@ -647,16 +680,19 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     enableSorting: false,
   }), [tableData, columns, columnFilters]);
 
-  // TanStack Table instance - SYNCED WITH BACKEND SORTING
+  // TanStack Table instance - CLIENT-SIDE SORTING
   const table = useReactTable(tableConfig);
   const tableRows = table.getRowModel().rows;
 
-  // INFINITE SCROLL: Scroll to top when page resets to 1 (filter/wallet changes)
-  useEffect(() => {
-    if (page === 1) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, [page]);
+  // Virtual scrolling setup
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: tableRows.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 48, // Estimated row height in pixels
+    overscan: 10, // Render 10 extra rows above/below viewport for smooth scrolling
+  });
 
   // Effect for initial load and wallet change - REMOVED automatic enrichment trigger
   // Enrichment should only be triggered manually or by the dashboard analysis job
@@ -730,13 +766,7 @@ const handleSort = useCallback((columnId: string) => {
     if (isLoadingData) return;
     setIsRefreshing(true);
     try {
-      // CRITICAL: Reset to page 1, but keep showing old data until new data arrives
-      setPage(1);
-      setHasMore(true);
-      setIsLoadingMore(false);
-      // Don't clear allTokens - let the data effect update it when new data arrives
-
-      // Refresh the main data only
+      // Refresh all data from backend
       await localMutate();
       // Enrichment is now handled by the dashboard analysis job or manual trigger
     } finally {
@@ -796,27 +826,41 @@ const handleSort = useCallback((columnId: string) => {
       return <TableBody><TableRow><TableCell colSpan={table.getAllColumns().length}><EmptyState variant="default" icon={BarChartBig} title="No Token Data?" description={emptyMessage} className="my-8" /></TableCell></TableRow></TableBody>;
     }
 
-    // Simple rendering without virtualization - page scroll handles everything
+    // Virtual scrolling: Only render visible rows for performance
+    const virtualRows = rowVirtualizer.getVirtualItems();
+    const totalSize = rowVirtualizer.getTotalSize();
+
     return (
-      <TableBody>
-        {tableRows.map((row) => (
-          <TableRow
-            key={row.id}
-            className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
-          >
-            {row.getVisibleCells().map((cell) => (
-              <TableCell
-                key={cell.id}
-                className={cn(
-                  "overflow-hidden",
-                  (cell.column.columnDef.meta as any)?.className
-                )}
-              >
-                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-              </TableCell>
-            ))}
-          </TableRow>
-        ))}
+      <TableBody style={{ height: `${totalSize}px`, position: 'relative' }}>
+        {virtualRows.map((virtualRow) => {
+          const row = tableRows[virtualRow.index];
+          return (
+            <TableRow
+              key={row.id}
+              data-index={virtualRow.index}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+              className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
+            >
+              {row.getVisibleCells().map((cell) => (
+                <TableCell
+                  key={cell.id}
+                  className={cn(
+                    "overflow-hidden",
+                    (cell.column.columnDef.meta as any)?.className
+                  )}
+                >
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </TableCell>
+              ))}
+            </TableRow>
+          );
+        })}
       </TableBody>
     );
   };
@@ -896,8 +940,12 @@ const handleSort = useCallback((columnId: string) => {
         </div>
       </div>
 
-      {/* Table - flows naturally with page scroll, no max-height */}
-      <div className="bg-white dark:bg-slate-900">
+      {/* Table - virtual scrolling with fixed height */}
+      <div
+        ref={tableContainerRef}
+        className="bg-white dark:bg-slate-900 overflow-auto"
+        style={{ maxHeight: 'calc(100vh - 300px)' }}
+      >
         <Table className="min-w-full table-fixed">
           <TableHeader className="bg-slate-50 dark:bg-slate-800">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -983,23 +1031,12 @@ const handleSort = useCallback((columnId: string) => {
           {renderTableContent()}
         </Table>
 
-        {/* INFINITE SCROLL: Subtle load more indicator */}
-        {hasMore && tableData.length > 0 && (
-          <div
-            ref={loadMoreRef}
-            className="flex items-center justify-center py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30"
-          >
-            {isLoadingMore ? (
-              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>Loading more tokens...</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
-                <span>Scroll for more</span>
-                <span className="animate-pulse">•••</span>
-              </div>
-            )}
+        {/* Show total count */}
+        {tableData.length > 0 && (
+          <div className="flex items-center justify-center py-2 border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30">
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Showing {tableData.length.toLocaleString()} token{tableData.length === 1 ? '' : 's'}
+            </div>
           </div>
         )}
       </div>
