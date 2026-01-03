@@ -375,7 +375,7 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
   const { startDate, endDate } = useTimeRangeStore();
 
   // CHANGED: Fetch ALL tokens at once, no pagination
-  const [pageSize] = useState(999999); // Fetch all tokens
+  const [pageSize] = useState(100000); // Fetch all tokens
   const [showHoldingsOnly, setShowHoldingsOnly] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
@@ -881,8 +881,8 @@ const handleSort = useCallback((columnId: string) => {
   }
 
   return (
-    <div className="flex flex-col h-full w-full">
-      <Card className="mt-0 flex flex-col flex-1 min-h-0 rounded-xl border border-slate-200 dark:border-slate-700 shadow-base hover:shadow-hover transition-shadow">
+    <div className="flex flex-col w-full">
+      <Card className="mt-0 flex flex-col rounded-xl border border-slate-200 dark:border-slate-700 shadow-base hover:shadow-hover transition-shadow">
       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-shrink-0 rounded-t-xl">
         <div className="flex flex-row items-center justify-between gap-3 flex-wrap">
           <div className="flex flex-row items-center gap-3 flex-wrap">
@@ -940,13 +940,12 @@ const handleSort = useCallback((columnId: string) => {
         </div>
       </div>
 
-      {/* Table - virtual scrolling with fixed height */}
+      {/* Table - natural scrolling, window handles overflow */}
       <div
         ref={tableContainerRef}
-        className="bg-white dark:bg-slate-900 overflow-auto"
-        style={{ maxHeight: 'calc(100vh - 300px)' }}
+        className="bg-white dark:bg-slate-900"
       >
-        <Table className="min-w-full table-fixed">
+        <Table className="w-full">
           <TableHeader className="bg-slate-50 dark:bg-slate-800">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="border-b border-slate-200 dark:border-slate-700">
