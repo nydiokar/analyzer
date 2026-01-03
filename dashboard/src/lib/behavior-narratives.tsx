@@ -323,11 +323,6 @@ export function buildNoExitsNarrative(data: {
       )}
       {valueHeldPct && <> representing <Num>{valueHeldPct}%</Num> of portfolio value</>}.
       {' '}{totalBuys ? <><Num>{totalBuys}↑</Num> buy{totalBuys !== 1 ? 's' : ''}</> : <>Buy activity</>}, no sells recorded.
-      {unrealizedPnl !== null && unrealizedPnl !== undefined && (
-        <> Currently <Num className={unrealizedPnl >= 0 ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}>
-          {unrealizedPnl >= 0 ? '+' : ''}{unrealizedPnl.toFixed(1)} SOL
-        </Num> unrealized.</>
-      )}
     </>
   );
 
