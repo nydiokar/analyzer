@@ -101,8 +101,9 @@ export class SwapAnalyzer {
         currentAnalysis.timestamps!.push(timestamp);
 
         const interactionType = input.interactionType?.toUpperCase() ?? '';
-        const isNonEconomicTransfer = interactionType === 'TRANSFER' || interactionType === 'BURN';
-        const solValueToConsider = isNonEconomicTransfer ? 0 : input.associatedSolValue; 
+        // Only BURN is non-economic; TRANSFER can have economic value (mapped associatedSolValue)
+        const isNonEconomicTransfer = interactionType === 'BURN';
+        const solValueToConsider = isNonEconomicTransfer ? 0 : input.associatedSolValue;
         const currentFeeAmount = input.feeAmount || 0;
         const tokenAmount = Math.abs(input.amount || 0);
 

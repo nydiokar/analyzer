@@ -45,7 +45,8 @@ export function buildFifoLotsForToken(
   for (const input of ordered) {
     const normalizedAmount = Math.abs(input.amount);
     const interactionType = input.interactionType?.toUpperCase() ?? '';
-    const isNonEconomicTransfer = interactionType === 'TRANSFER' || interactionType === 'BURN';
+    // Only BURN is non-economic; TRANSFER can have economic value (mapped associatedSolValue)
+    const isNonEconomicTransfer = interactionType === 'BURN';
     const fallbackUsdcValue = input.associatedUsdcValue ?? 0;
     const baseSolValue = Math.abs(input.associatedSolValue);
     const effectiveSolValue = isNonEconomicTransfer ? 0 : (baseSolValue > 0 ? baseSolValue : Math.abs(fallbackUsdcValue));

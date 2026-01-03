@@ -134,10 +134,11 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const userId = await this.resolveUserId(job, jobId);
 
       // Log the full error for debugging
-      this.logger.warn(`Job failed: ${jobId} - ${failedReason}`);
+      this.logger.error(`Job failed: ${jobId}\nFull error:\n${failedReason}`);
 
       // Sanitize error message for user-friendly display
       const sanitizedError = sanitizeErrorMessage(failedReason);
+      this.logger.log(`Sanitized error: ${sanitizedError}`);
 
       await this.jobProgressGateway.publishFailedEvent(jobId, queueName, sanitizedError, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0, userId);
       await this.cleanupUserMapping(jobId);
