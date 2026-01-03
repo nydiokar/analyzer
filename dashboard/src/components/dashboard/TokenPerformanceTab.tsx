@@ -53,6 +53,9 @@ export interface TokenPerformanceTabProps {
   triggerAnalysisGlobal: () => void;
   onInitialLoad?: (info: { hasData: boolean }) => void;
   onMutateReady?: (mutate: () => Promise<void>) => void; // NEW: Expose mutate to parent
+  tokenAddressesFilter?: string | string[]; // Optional: comma-separated string OR array of token addresses to filter by
+  defaultSortBy?: string; // Optional: default sort field
+  defaultSortOrder?: 'ASC' | 'DESC'; // Optional: default sort order
 }
 
 // Define Profit filter options
@@ -370,7 +373,16 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   },
 ];
 
-function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal, onInitialLoad, onMutateReady }: TokenPerformanceTabProps) {
+function TokenPerformanceTab({
+  walletAddress,
+  isAnalyzingGlobal,
+  triggerAnalysisGlobal,
+  onInitialLoad,
+  onMutateReady,
+  tokenAddressesFilter,
+  defaultSortBy = 'lastTransferTimestamp',
+  defaultSortOrder = 'DESC',
+}: TokenPerformanceTabProps) {
   // TIME FILTER: Pass to backend for hasActivityInPeriod calculation, but don't cache on it
   const { startDate, endDate } = useTimeRangeStore();
 
@@ -408,9 +420,9 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
     setAllTokens([]);
   }, [walletAddress]);
 
-  // TanStack Table state - Default sort by Last Active (most recent first)
-  const [sortBy, setSortBy] = useState('lastTransferTimestamp');
-  const [sortOrder, setSortOrder] = useState('DESC');
+  // TanStack Table state - use props or default to Last Active (most recent first)
+  const [sortBy, setSortBy] = useState(defaultSortBy);
+  const [sortOrder, setSortOrder] = useState(defaultSortOrder);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
   // PERFORMANCE FIX: Improve debouncing for better responsiveness
@@ -451,6 +463,14 @@ function TokenPerformanceTab({ walletAddress, isAnalyzingGlobal, triggerAnalysis
 
     if (minTradesToggle) {
       fetchParams.append('minTrades', '2');
+    }
+
+    // Add token address filter if provided
+    if (tokenAddressesFilter) {
+      const tokenAddresses = Array.isArray(tokenAddressesFilter)
+        ? tokenAddressesFilter.join(',')
+        : tokenAddressesFilter;
+      fetchParams.append('tokenAddresses', tokenAddresses);
     }
 
     fetchUrl = `${apiUrlBase}?${fetchParams.toString()}`;
