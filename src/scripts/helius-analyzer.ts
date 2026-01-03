@@ -10,9 +10,9 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import { createLogger } from 'core/utils/logger';
-import { parseTimeRange } from 'core/utils/cliUtils';
-import { displaySummary, displayDetailedResults } from 'core/utils/display-utils'; 
+import { createLogger } from '../core/utils/logger';
+import { parseTimeRange } from '../core/utils/cliUtils';
+import { displaySummary, displayDetailedResults } from '../core/utils/display-utils'; 
 
 // Import Services
 import { HeliusSyncService, SyncOptions } from 'core/services/helius-sync-service';
@@ -444,7 +444,11 @@ async function analyzeWalletWithHelius() {
 if (require.main === module) {
   analyzeWalletWithHelius().catch(error => {
     // Catch any unhandled errors from the main function itself
-    logger.error('Unhandled error in main execution:', { error });
+    logger.error('Unhandled error in main execution:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     process.exit(1);
   });
 }

@@ -1032,8 +1032,8 @@ export default function WalletProfileLayout({
   // Only block rendering for critical errors, not for loading states
 
   return (
-    <div className="flex flex-col w-full h-screen bg-muted/40 overflow-auto">
-      {/* Scrollable Header - wallet info, summary, filters scroll away */}
+    <div className="flex flex-col w-full bg-muted/40">
+      {/* Header - wallet info, summary, filters */}
       <div className="bg-background border-b shadow-sm">
         <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-3 px-1 md:py-4">
 
@@ -1107,9 +1107,9 @@ export default function WalletProfileLayout({
         </div>
       </div>
 
-      {/* Sticky Tabs - stay visible when scrolling */}
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col min-h-0">
-        <div className="sticky top-0 z-30 bg-background border-b shadow-sm">
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col">
+        <div className="bg-background border-b shadow-sm">
           <TabsList className="flex items-center justify-start gap-0.5 p-0.5 px-1 w-full bg-muted/20">
             <TabsTrigger
               value="token-performance"
@@ -1139,14 +1139,13 @@ export default function WalletProfileLayout({
         </div>
 
         {/* Tab Content - flows naturally with page scroll */}
-        <div className="flex-1 p-4">
-          <div className="w-full h-full flex flex-col">
+        <div className="w-full">
 
-          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
+          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} onMutateReady={handleTokenPerformanceMutateReady} />
           </LazyTabContent>
 
-          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
+          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedAccountStatsPnlTab 
               walletAddress={walletAddress} 
               triggerAnalysisGlobal={handleTriggerAnalysis} 
@@ -1155,15 +1154,14 @@ export default function WalletProfileLayout({
             />
           </LazyTabContent>
 
-          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
+          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedBehavioralPatternsTab walletAddress={walletAddress} />
           </LazyTabContent>
 
-          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
+          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedReviewerLogTab walletAddress={walletAddress} />
           </LazyTabContent>
         </div>
-      </div>
     </Tabs>
 
       {/* Quick Add Modal */}

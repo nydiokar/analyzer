@@ -90,12 +90,12 @@ function ResetPasswordContent() {
                 type="email"
                 value={email}
                 disabled
-                className="bg-slate-800/50 border-slate-700 text-slate-400"
+                className="bg-slate-800/50 border-slate-700 text-slate-300"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="new-password" className="text-sm font-medium">
+              <Label htmlFor="new-password" className="text-sm font-medium text-slate-300">
                 New Password
               </Label>
               <div className="relative">
@@ -106,7 +106,7 @@ function ResetPasswordContent() {
                   placeholder="Create a strong password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="pl-10 pr-10 h-11"
+                  className="pl-10 pr-10 h-11 bg-slate-800/50 border-slate-700 text-slate-100 caret-slate-100 placeholder:text-slate-500"
                   autoComplete="new-password"
                   required
                 />
@@ -141,7 +141,7 @@ function ResetPasswordContent() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirm-password" className="text-sm font-medium">
+              <Label htmlFor="confirm-password" className="text-sm font-medium text-slate-300">
                 Confirm Password
               </Label>
               <div className="relative">
@@ -152,7 +152,7 @@ function ResetPasswordContent() {
                   placeholder="Re-enter your password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="pl-10 h-11"
+                  className="pl-10 h-11 bg-slate-800/50 border-slate-700 text-slate-100 caret-slate-100 placeholder:text-slate-500"
                   autoComplete="new-password"
                   required
                 />

@@ -18,11 +18,9 @@ export default async function WalletProfilePage({ params }: WalletProfilePagePro
 
   return (
     <AppShell>
-      <div className="h-full w-full flex flex-col overflow-hidden">
-        <WalletProfileLayout walletAddress={walletAddress}>
-          {null}
-        </WalletProfileLayout>
-      </div>
+      <WalletProfileLayout walletAddress={walletAddress}>
+        {null}
+      </WalletProfileLayout>
     </AppShell>
   );
 } 
