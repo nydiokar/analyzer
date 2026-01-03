@@ -42,14 +42,24 @@ export function buildFifoLotsForToken(
 
   const ordered = sortSwapInputs(inputs);
 
+  // SwapAnalyzer passes ALL transfers including non-economic ones (BURN, UNKNOWN tiny)
+  // We identify and assign ZERO cost to non-economic transfers while tracking token movement
+  const UNKNOWN_TRANSFER_THRESHOLD_SOL = 0.01;
+
   for (const input of ordered) {
     const normalizedAmount = Math.abs(input.amount);
     const interactionType = input.interactionType?.toUpperCase() ?? '';
-    // Only BURN is non-economic; TRANSFER can have economic value (mapped associatedSolValue)
-    const isNonEconomicTransfer = interactionType === 'BURN';
-    const fallbackUsdcValue = input.associatedUsdcValue ?? 0;
+
+    // Non-economic transfers: BURN and UNKNOWN with negligible SOL value
+    // These track token movement but have zero cost basis (DCA deposits, program escrow, etc.)
     const baseSolValue = Math.abs(input.associatedSolValue);
-    const effectiveSolValue = isNonEconomicTransfer ? 0 : (baseSolValue > 0 ? baseSolValue : Math.abs(fallbackUsdcValue));
+    const fallbackUsdcValue = Math.abs(input.associatedUsdcValue ?? 0);
+    const isNonEconomicTransfer = interactionType === 'BURN' ||
+      (interactionType === 'UNKNOWN' &&
+       baseSolValue < UNKNOWN_TRANSFER_THRESHOLD_SOL &&
+       fallbackUsdcValue < UNKNOWN_TRANSFER_THRESHOLD_SOL);
+
+    const effectiveSolValue = isNonEconomicTransfer ? 0 : (baseSolValue > 0 ? baseSolValue : fallbackUsdcValue);
 
     if (input.direction === 'in') {
       lots.push({

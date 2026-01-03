@@ -101,13 +101,22 @@ export class SwapAnalyzer {
         currentAnalysis.timestamps!.push(timestamp);
 
         const interactionType = input.interactionType?.toUpperCase() ?? '';
-        // Only BURN is non-economic; TRANSFER can have economic value (mapped associatedSolValue)
-        const isNonEconomicTransfer = interactionType === 'BURN';
+
+        // Non-economic transfers: BURN and UNKNOWN with tiny SOL value
+        // UNKNOWN tiny transfers are typically: Jupiter DCA deposits, program escrow, account closes
+        // We track token movement but assign ZERO economic value (no cost basis)
+        const UNKNOWN_TRANSFER_THRESHOLD_SOL = 0.01;
+        const isNonEconomicTransfer = interactionType === 'BURN' ||
+            (interactionType === 'UNKNOWN' &&
+             Math.abs(input.associatedSolValue) < UNKNOWN_TRANSFER_THRESHOLD_SOL &&
+             Math.abs(input.associatedUsdcValue ?? 0) < UNKNOWN_TRANSFER_THRESHOLD_SOL);
         const solValueToConsider = isNonEconomicTransfer ? 0 : input.associatedSolValue;
         const currentFeeAmount = input.feeAmount || 0;
         const tokenAmount = Math.abs(input.amount || 0);
 
-        if (splMint !== SOL_MINT) {
+        // Only pass economic transfers to FIFO (exclude UNKNOWN tiny transfers)
+        // FIFO tracks cost basis for economic swaps only, not DCA escrow movements
+        if (splMint !== SOL_MINT && !isNonEconomicTransfer) {
             const existingInputs = fifoInputsByMint.get(splMint);
             if (existingInputs) {
                 existingInputs.push(input);

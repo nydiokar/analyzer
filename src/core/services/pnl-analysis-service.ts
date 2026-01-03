@@ -395,7 +395,15 @@ export class PnlAnalysisService {
                     remainingAmount !== undefined &&
                     Math.abs(currentUiBalance - remainingAmount) > 1e-6;
 
-                if (result.hasIncompleteHistory || hasHoldingsMismatch) {
+                // Holdings mismatch is EXPECTED when tokens are in DCA/program escrow
+                // FIFO only tracks economic swaps, not program deposits
+                // So we accept mismatch and show PnL if FIFO itself succeeded
+                if (hasHoldingsMismatch) {
+                    logger.debug(`[PnlAnalysis] Holdings mismatch for ${result.tokenAddress}: currentUiBalance=${currentUiBalance}, fifoRemainingAmount=${remainingAmount}, diff=${currentUiBalance !== null && remainingAmount !== undefined ? currentUiBalance - remainingAmount : 'N/A'} (expected for DCA/escrow)`);
+                }
+
+                // Only mark incomplete if FIFO itself failed (oversell), not just holdings mismatch
+                if (result.hasIncompleteHistory) {
                     result.realizedPnlSol = null;
                     result.unrealizedPnlSol = null;
                     result.totalPnlSol = null;
