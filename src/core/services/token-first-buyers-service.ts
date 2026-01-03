@@ -554,7 +554,7 @@ export class TokenFirstBuyersService {
        
        if (analysisResult) {
          // Use database result if available
-         const realizedPnl = analysisResult.totalPnlSol ?? analysisResult.netSolProfitLoss ?? 0;
+        const realizedPnl = analysisResult.realizedPnlSol ?? analysisResult.totalPnlSol ?? analysisResult.netSolProfitLoss ?? 0;
          const totalVolume = (analysisResult.totalSolSpent || 0) + (analysisResult.totalSolReceived || 0);
          const profitableTokensCount = realizedPnl > 0 ? 1 : 0;
          const unprofitableTokensCount = realizedPnl <= 0 ? 1 : 0;

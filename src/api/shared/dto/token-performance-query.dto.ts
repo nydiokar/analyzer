@@ -11,6 +11,7 @@ export enum SortOrder {
 export enum TokenPerformanceSortBy {
   TOKEN_ADDRESS = 'tokenAddress',
   NET_SOL_PROFIT_LOSS = 'netSolProfitLoss',
+  REALIZED_PNL_SOL = 'realizedPnlSol',
   TOTAL_PNL_SOL = 'totalPnlSol',
   UNREALIZED_PNL_SOL = 'unrealizedPnlSol',
   ROI = 'roi',

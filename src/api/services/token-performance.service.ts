@@ -96,9 +96,9 @@ export class TokenPerformanceService {
     if (pnlConditionOperator && typeof pnlConditionValue === 'number') {
       const op = pnlConditionOperator.toLowerCase();
       if (op === 'gt' || op === 'lt' || op === 'gte' || op === 'lte') {
-        where.netSolProfitLoss = { [op]: pnlConditionValue } as Prisma.FloatFilter;
+        where.totalPnlSol = { [op]: pnlConditionValue } as Prisma.FloatFilter;
       } else if (op === 'eq') { // DTO enum uses 'eq', Prisma uses 'equals' for numbers
-        where.netSolProfitLoss = { equals: pnlConditionValue } as Prisma.FloatFilter;
+        where.totalPnlSol = { equals: pnlConditionValue } as Prisma.FloatFilter;
       } else {
         this.logger.warn(`Unsupported PNL operator: ${pnlConditionOperator}. Expected gt, lt, gte, lte, or eq.`);
       }

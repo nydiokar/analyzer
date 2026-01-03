@@ -69,6 +69,7 @@ const PROFIT_FILTER_OPTIONS = [
   { value: '<-100', label: 'Loss < -100' },
 ];
 
+
 // Define spam filter options
 const SPAM_FILTER_OPTIONS = [
   { value: 'all', label: 'All Tokens' },
@@ -80,7 +81,7 @@ const SPAM_FILTER_OPTIONS = [
 // Valid sortable IDs based on the backend TokenPerformanceSortBy enum
 const BACKEND_SORTABLE_IDS = [
   'tokenAddress',
-  'netSolProfitLoss',
+  'realizedPnlSol',
   'totalPnlSol',
   'unrealizedPnlSol',
   'roi',
@@ -175,9 +176,8 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
       const totalReceived = item.totalSolReceived ?? 0;
       const currentHoldingsValue = item.currentHoldingsValueSol ?? 0;
 
-      // CORRECTED TOTAL PROFIT: (Sold + Current Value) - Bought
-      // This is accurate without FIFO tracking
-      const totalProfit = (totalReceived + currentHoldingsValue) - totalSpent;
+      // Prefer FIFO-backed totalPnlSol when available to align display with sorting.
+      const totalProfit = item.totalPnlSol ?? ((totalReceived + currentHoldingsValue) - totalSpent);
 
       // ROI FIX: Don't show ROI for dust trades (< 0.01 SOL spent)
       const DUST_THRESHOLD = 0.01;
@@ -202,7 +202,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
     meta: { className: 'text-left px-1 w-[90px] max-w-[90px]' },
   },
   {
-    accessorKey: 'netSolProfitLoss',
+    accessorKey: 'realizedPnlSol',
     header: 'Realized',
     cell: ({ row }) => {
       const item = row.original;

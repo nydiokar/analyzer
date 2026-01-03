@@ -89,7 +89,7 @@ export class PnlOverviewService {
           
           // If the token was profitable, all its trades are considered profitable
           // If the token was unprofitable, all its trades are considered unprofitable
-          const tokenPnl = result.totalPnlSol ?? result.netSolProfitLoss;
+          const tokenPnl = result.realizedPnlSol ?? result.totalPnlSol ?? result.netSolProfitLoss;
           if (tokenPnl !== null && tokenPnl !== undefined && tokenPnl > 0) {
             profitableTradesCount += totalTradesForToken;
           }
