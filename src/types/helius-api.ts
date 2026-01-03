@@ -182,7 +182,7 @@ export interface OnChainAnalysisResult {
   totalSolSpent: number;        // Total SOL paid (when receiving SPL) - This is GROSS
   totalSolReceived: number;     // Total SOL received (when sending SPL) - This is GROSS
   totalFeesPaidInSol?: number;   // NEW: Sum of explicit SOL fees from SwapAnalysisInput
-  netSolProfitLoss: number;     // Net SOL P/L (SOL Received - SOL Spent - Fees)
+  netSolProfitLoss: number | null;     // Net SOL P/L (SOL Received - SOL Spent - Fees)
   realizedPnlSol?: number | null;   // FIFO realized P&L (gross, excludes fees)
   unrealizedPnlSol?: number | null; // FIFO unrealized P&L (gross, excludes fees)
   totalPnlSol?: number | null;      // FIFO total P&L (realized + unrealized)

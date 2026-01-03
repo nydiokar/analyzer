@@ -399,7 +399,7 @@ export class PnlAnalysisService {
                     result.realizedPnlSol = null;
                     result.unrealizedPnlSol = null;
                     result.totalPnlSol = null;
-                    result.netSolProfitLoss = 0;
+                    result.netSolProfitLoss = null;
                     result.hasIncompleteHistory = true;
                 } else {
                     const unrealizedPnlSol = currentHoldingsValueSol !== null && remainingCostBasisSol !== null

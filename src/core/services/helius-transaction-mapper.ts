@@ -420,6 +420,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
     try {
       const processedRecordKeys = new Set<string>();
+      let feeAssignedForSignature = false;
       const lowerWalletAddress = walletAddress.toLowerCase(); // Ensure this is defined early
 
       // Commenting out userPaidTokenFeesMap as we are trying a new broader heuristic first
@@ -989,7 +990,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
             let feeAmount: number | null = null;
             let feePercentage: number | null = null;
 
-            if (!isWsol && !isUsdc && associatedSolValue > FEE_PRECISION_THRESHOLD) {
+            if (!isWsol && !isUsdc && associatedSolValue > FEE_PRECISION_THRESHOLD && !feeAssignedForSignature) {
                  // Calculate refined fee (network fee + small native transfers out)
                 let refinedFeeAmountSol = 0;
                 const networkFee = tx.fee ?? 0;
@@ -1010,6 +1011,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
                 if (refinedFeeAmountSol > FEE_PRECISION_THRESHOLD) {
                     feeAmount = refinedFeeAmountSol;
                     feePercentage = (feeAmount / associatedSolValue) * 100;
+                    feeAssignedForSignature = true;
                     // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Fee Assigned: Refined Fee=${feeAmount.toFixed(9)}, Percentage=${feePercentage.toFixed(4)}`); // Removed debug
                 } else {
                     // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Fee Skipped: No significant refined fee paid by user.`); // Removed debug

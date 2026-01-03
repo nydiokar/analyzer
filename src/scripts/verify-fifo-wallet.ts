@@ -165,11 +165,11 @@ async function main(): Promise<void> {
     const total = result.totalPnlSol ?? realized;
     const expectedNet = total - fees;
 
-    if (!approxEqual(result.netSolProfitLoss, expectedNet)) {
-      failures++;
-      console.error(
-        `[FAIL] ${result.tokenAddress} netSolProfitLoss ${result.netSolProfitLoss} != expected ${expectedNet}`,
-      );
+    if (result.netSolProfitLoss === null || !approxEqual(result.netSolProfitLoss, expectedNet)) {
+        failures++;
+        console.error(
+            `[FAIL] ${result.tokenAddress} netSolProfitLoss ${result.netSolProfitLoss} != expected ${expectedNet}`,
+        );
     }
 
     const lotData = lotsByMint.get(result.tokenAddress);

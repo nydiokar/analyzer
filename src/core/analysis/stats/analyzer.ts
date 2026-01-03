@@ -47,7 +47,10 @@ export class AdvancedStatsAnalyzer {
         }
       });
 
-      const pnlValues = results.map(r => r.netSolProfitLoss).sort((a, b) => a - b);
+      const pnlValues = results
+        .map(r => r.netSolProfitLoss)
+        .filter((value): value is number => value !== null && value !== undefined)
+        .sort((a, b) => a - b);
       const n = pnlValues.length;
 
       // --- Basic Metrics ---

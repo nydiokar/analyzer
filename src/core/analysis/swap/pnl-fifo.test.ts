@@ -48,9 +48,11 @@ describe('PnL FIFO regression – partial sells', () => {
     const result = results.find(r => r.tokenAddress === TOKEN_MINT);
 
     assert.ok(result, 'Expected analysis result for test token');
+    const netPnl = result!.netSolProfitLoss;
+    assert.ok(netPnl !== null && netPnl !== undefined, 'Expected non-null netSolProfitLoss');
     assert.ok(
-      approxEqual(result!.netSolProfitLoss, 200),
-      `Expected FIFO realized PnL of 200 SOL, got ${result!.netSolProfitLoss}`,
+      approxEqual(netPnl, 200),
+      `Expected FIFO realized PnL of 200 SOL, got ${netPnl}`,
     );
   });
 
@@ -66,9 +68,11 @@ describe('PnL FIFO regression – partial sells', () => {
     const result = results.find(r => r.tokenAddress === TOKEN_MINT);
 
     assert.ok(result, 'Expected analysis result for test token');
+    const netPnl = result!.netSolProfitLoss;
+    assert.ok(netPnl !== null && netPnl !== undefined, 'Expected non-null netSolProfitLoss');
     assert.ok(
-      approxEqual(result!.netSolProfitLoss, -100),
-      `Expected transfer-out PnL of -100 SOL, got ${result!.netSolProfitLoss}`,
+      approxEqual(netPnl, -100),
+      `Expected transfer-out PnL of -100 SOL, got ${netPnl}`,
     );
   });
 
