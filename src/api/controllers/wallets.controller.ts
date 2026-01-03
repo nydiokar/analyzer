@@ -214,7 +214,8 @@ export class WalletsController {
                   totalIndividualTrades += totalTradesForToken;
                   
                   // If the token was profitable, all its trades are considered profitable
-                  if ((result.netSolProfitLoss || 0) > 0) {
+                  const tokenPnl = result.totalPnlSol ?? result.netSolProfitLoss;
+                  if (tokenPnl !== null && tokenPnl !== undefined && tokenPnl > 0) {
                     profitableTradesCount += totalTradesForToken;
                   }
                 }

@@ -19,6 +19,7 @@ export interface FifoSwapInput {
   direction: 'in' | 'out';
   amount: number;
   associatedSolValue: number;
+  associatedUsdcValue?: number | null;
   interactionType?: string;
 }
 
@@ -45,7 +46,9 @@ export function buildFifoLotsForToken(
     const normalizedAmount = Math.abs(input.amount);
     const interactionType = input.interactionType?.toUpperCase() ?? '';
     const isNonEconomicTransfer = interactionType === 'TRANSFER' || interactionType === 'BURN';
-    const effectiveSolValue = isNonEconomicTransfer ? 0 : Math.abs(input.associatedSolValue);
+    const fallbackUsdcValue = input.associatedUsdcValue ?? 0;
+    const baseSolValue = Math.abs(input.associatedSolValue);
+    const effectiveSolValue = isNonEconomicTransfer ? 0 : (baseSolValue > 0 ? baseSolValue : Math.abs(fallbackUsdcValue));
 
     if (input.direction === 'in') {
       lots.push({

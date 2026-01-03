@@ -3,7 +3,7 @@
 **Project**: Sova Intel - Wallet Analysis System
 **Branch**: `discover-token-performance` (currently working on P0 issue)
 **Status**: 🔴 **P0 BLOCKER - P&L Contamination Discovered**
-**Last Updated**: 2025-12-30
+**Last Updated**: 2026-01-03
 
 ---
 
@@ -41,12 +41,12 @@
 **Status**: User plans to work on this as top priority. All other feature work is BLOCKED until this is fixed.
 
 **Next Actions (brief)**:
-1) Prevent time-range analyses from overwriting FIFO lots / AnalysisResult.
-2) Add USDC-aware FIFO value handling (use associatedUsdcValue when SOL value is absent).
-3) Preserve interactionType in FIFO inputs to treat TRANSFER/BURN correctly (zero-cost/zero-proceeds).
-4) Normalize fee-payer heuristic amounts to positive values with direction.
-5) De-duplicate fee assignment per transaction to avoid double-counting.
-6) Ensure incomplete history propagates null P&L instead of 0.
+1) ✅ Prevent time-range analyses from overwriting FIFO lots / AnalysisResult (skip persistence on historical runs).
+2) ✅ Add USDC-aware FIFO value handling (use associatedUsdcValue when SOL value is absent).
+3) ✅ Preserve interactionType in FIFO inputs to treat TRANSFER/BURN correctly (transfer + burn now treated as zero-cost/proceeds).
+4) ✅ Normalize fee-payer heuristic amounts to positive values with direction.
+5) ✅ De-duplicate fee assignment per transaction to avoid double-counting.
+6) ✅ Ensure incomplete history propagates null P&L instead of 0 (schema updated; migration still needs to be generated when DB is available).
 
 **Decision Needed: dashboard fast scopes vs. FIFO integrity**
 - Flash/working analyses currently run with a timeRange. We now block persistence for timeRange runs to protect FIFO lots.
@@ -149,9 +149,9 @@ Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as 
 - Backfill/reprocessing script and formal unit test reruns deferred intentionally.
 
 #### 🚧 Remaining Work (P0 FIFO)
-1. Generate Prisma migration (no manual SQL).
-2. Implement backfill/reprocessing script to rebuild lots and FIFO P&L from historical SwapAnalysisInput.
-3. Rerun FIFO tests and verify correctness + totals.
+1. ✅ Generate Prisma migration (no manual SQL).
+2. ⏳ Implement backfill/reprocessing script to rebuild lots and FIFO P&L from historical SwapAnalysisInput.
+3. ⏳ Rerun FIFO tests and verify correctness + totals.
 
 #### ✅ Task 4: ROI Calculation Fix (COMPLETED)
 **Problem**: ROI showing -300% for dust trades
@@ -344,3 +344,5 @@ pm2 restart sova-backend-api
 - Dev mode is unoptimized (expected), production is fast
 - Classification system details in `documentation/01. ARCHITECTURE_DECISIONS.md`
 - Memory leak fixes documented in `.ai/CURRENT_STATE.md`
+- Prisma migration for `AnalysisResult.netSolProfitLoss` nullable still needs to be generated (migration create-only failed due to missing DB).
+- Added `scripts/pnl-usage-audit.js` to map PnL field usage and flag netSolProfitLoss hotspots.

@@ -25,8 +25,8 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: "Total explicit SOL fees paid related to this token's transactions", type: Number, nullable: true, required: false })
   totalFeesPaidInSol?: number | null;
 
-  @ApiProperty({ description: 'Net profit or loss in SOL (totalPnlSol - totalFeesPaidInSol)', type: Number })
-  netSolProfitLoss: number;
+  @ApiProperty({ description: 'Net profit or loss in SOL (totalPnlSol - totalFeesPaidInSol)', type: Number, nullable: true, required: false })
+  netSolProfitLoss: number | null;
 
   @ApiProperty({ description: 'True if FIFO history is incomplete (sells exceed available lots)', type: Boolean, nullable: true, required: false })
   hasIncompleteHistory?: boolean | null;

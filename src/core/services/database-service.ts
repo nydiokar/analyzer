@@ -2070,7 +2070,7 @@ export class DatabaseService {
             let totalSolReceived = 0;
 
             for (const result of results) {
-                overallRealizedPnl += result.netSolProfitLoss;
+                overallRealizedPnl += result.netSolProfitLoss ?? 0;
                 totalSolSpent += result.totalSolSpent;
                 totalSolReceived += result.totalSolReceived;
             }

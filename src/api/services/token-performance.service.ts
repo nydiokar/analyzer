@@ -214,7 +214,6 @@ export class TokenPerformanceService {
       const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
       const totalSolSpent = ar.totalSolSpent || 0;
       const totalAmountIn = ar.totalAmountIn || 0;
-      const netSolProfitLoss = ar.netSolProfitLoss || 0;
       const realizedPnlSolFromDb = ar.realizedPnlSol ?? null;
       const totalPnlSolFromDb = ar.totalPnlSol ?? null;
       const hasIncompleteHistory = ar.hasIncompleteHistory ?? false;
@@ -619,7 +618,7 @@ export class TokenPerformanceService {
     const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
     const totalSpent = token.totalSolSpent || 0;
     const totalReceived = token.totalSolReceived || 0;
-    const netPnl = token.netSolProfitLoss || 0;
+    const netPnl = token.totalPnlSol ?? token.netSolProfitLoss ?? 0;
     const transfersIn = token.transferCountIn || 0;
     const transfersOut = token.transferCountOut || 0;
     const totalTransfers = transfersIn + transfersOut;

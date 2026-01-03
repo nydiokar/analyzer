@@ -503,7 +503,7 @@ export function generateSwapPnlReport(
         summary.results.forEach((r: OnChainAnalysisResult) => {
             tokenData.push([
                 getTokenDisplayName(r.tokenAddress),
-                formatSolAmount(r.netSolProfitLoss),
+                r.netSolProfitLoss === null ? 'N/A' : formatSolAmount(r.netSolProfitLoss),
                 formatTokenQuantity(r.totalAmountIn),
                 formatTokenQuantity(r.totalAmountOut),
                 formatTokenQuantity(r.netAmountChange),

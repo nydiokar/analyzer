@@ -256,7 +256,7 @@ export interface TokenPerformanceDataDto {
   totalSolSpent: number;
   totalSolReceived: number;
   totalFeesPaidInSol?: number | null;
-  netSolProfitLoss: number;
+  netSolProfitLoss: number | null;
   hasIncompleteHistory?: boolean | null;
   transferCountIn: number;
   transferCountOut: number;

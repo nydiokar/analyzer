@@ -40,13 +40,7 @@ export class SwapAnalyzer {
     stablecoinNetFlow: number,
     fifoLotsByMint: Map<string, FifoLot[]>
   } {
-        logger.debug(`[SwapAnalyzer] Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletAddress} (after BURN filter)...`);
-        
-        // Filter out BURN interactions
-        const filteredSwapInputs = swapInputs.filter(input => input.interactionType !== 'BURN');
-        if (filteredSwapInputs.length !== swapInputs.length) {
-            logger.debug(`Filtered out ${swapInputs.length - filteredSwapInputs.length} records with 'BURN' interaction type for ${walletAddress}.`);
-        }
+        logger.debug(`[SwapAnalyzer] Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletAddress}.`);
 
     // 1. Aggregate by SPL Mint
     const analysisBySplMint = new Map<string, Partial<OnChainAnalysisResult> & { timestamps: number[], totalFeesPaidInSol?: number }>();
@@ -65,7 +59,7 @@ export class SwapAnalyzer {
         netSolFlow: number        // Net SOL flow to stablecoins (negative = SOL exited to stablecoins)
     }>();
 
-    for (const input of filteredSwapInputs) {
+    for (const input of swapInputs) {
         // Verification (optional): Check if record belongs to the correct wallet
         if (input.walletAddress.toLowerCase() !== walletAddress.toLowerCase()) {
             logger.warn(`[SwapAnalyzer] Skipping input record for signature ${input.signature} belonging to unexpected wallet ${input.walletAddress}`);
@@ -106,7 +100,9 @@ export class SwapAnalyzer {
 
         currentAnalysis.timestamps!.push(timestamp);
 
-        const solValueToConsider = input.associatedSolValue; 
+        const interactionType = input.interactionType?.toUpperCase() ?? '';
+        const isNonEconomicTransfer = interactionType === 'TRANSFER' || interactionType === 'BURN';
+        const solValueToConsider = isNonEconomicTransfer ? 0 : input.associatedSolValue; 
         const currentFeeAmount = input.feeAmount || 0;
 
         if (splMint !== SOL_MINT) {
@@ -187,6 +183,7 @@ export class SwapAnalyzer {
                     direction: input.direction as 'in' | 'out',
                     amount: input.amount,
                     associatedSolValue: input.associatedSolValue,
+                    associatedUsdcValue: input.associatedUsdcValue,
                     interactionType: input.interactionType,
                 })),
             );

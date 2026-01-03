@@ -73,7 +73,7 @@ model AnalysisResult {
   totalSolSpent           Float
   totalSolReceived        Float
   totalFeesPaidInSol      Float?
-  netSolProfitLoss        Float
+  netSolProfitLoss        Float?
   realizedPnlSol          Float?
   unrealizedPnlSol        Float?
   totalPnlSol             Float?
