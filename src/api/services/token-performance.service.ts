@@ -211,7 +211,11 @@ export class TokenPerformanceService {
       const fallbackMetadata = getWellKnownTokenMetadata(ar.tokenAddress);
       
       // Calculate unrealized P&L for current holdings
-      const netAmountChange = ar.netAmountChange || 0;
+      const rawTotalAmountIn = ar.totalAmountIn || 0;
+      const rawTotalAmountOut = ar.totalAmountOut || 0;
+      const totalAmountIn = Math.abs(rawTotalAmountIn);
+      const totalAmountOut = Math.abs(rawTotalAmountOut);
+      const netAmountChange = totalAmountIn - totalAmountOut;
       const dbCurrentUiBalance = ar.currentUiBalance;
       const derivedBalanceFromNetAmount = (dbCurrentUiBalance === null || dbCurrentUiBalance === undefined) && netAmountChange > 0
         ? netAmountChange
@@ -222,7 +226,6 @@ export class TokenPerformanceService {
       const effectiveCurrentUiBalanceString = ar.currentUiBalanceString ?? (derivedBalanceFromNetAmount !== null ? derivedBalanceFromNetAmount.toString() : null);
       const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
       const totalSolSpent = ar.totalSolSpent || 0;
-      const totalAmountIn = ar.totalAmountIn || 0;
       const realizedPnlSolFromDb = ar.realizedPnlSol ?? null;
       const totalPnlSolFromDb = ar.totalPnlSol ?? null;
       const hasIncompleteHistory = ar.hasIncompleteHistory ?? false;
@@ -238,7 +241,7 @@ export class TokenPerformanceService {
       let unrealizedPnlPercentage: number | null = null;
       
       // Get basic data for calculations
-      const totalAmountOut = ar.totalAmountOut || 0;
+      
       const solReceivedFromSales = ar.totalSolReceived || 0;
       const feesPaid = ar.totalFeesPaidInSol || 0;
       // estimatedSolPriceUsd is already fetched from outer scope
@@ -332,9 +335,9 @@ export class TokenPerformanceService {
       const tokenData: TokenPerformanceDataDto = {
         walletAddress: ar.walletAddress,
         tokenAddress: ar.tokenAddress,
-        totalAmountIn: ar.totalAmountIn,
-        totalAmountOut: ar.totalAmountOut,
-        netAmountChange: ar.netAmountChange,
+        totalAmountIn: totalAmountIn,
+        totalAmountOut: totalAmountOut,
+        netAmountChange: netAmountChange,
         totalSolSpent: ar.totalSolSpent,
         totalSolReceived: ar.totalSolReceived,
         totalFeesPaidInSol: ar.totalFeesPaidInSol,

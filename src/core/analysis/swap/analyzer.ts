@@ -104,6 +104,7 @@ export class SwapAnalyzer {
         const isNonEconomicTransfer = interactionType === 'TRANSFER' || interactionType === 'BURN';
         const solValueToConsider = isNonEconomicTransfer ? 0 : input.associatedSolValue; 
         const currentFeeAmount = input.feeAmount || 0;
+        const tokenAmount = Math.abs(input.amount || 0);
 
         if (splMint !== SOL_MINT) {
             const existingInputs = fifoInputsByMint.get(splMint);
@@ -115,7 +116,7 @@ export class SwapAnalyzer {
         }
 
         if (input.direction === 'in') {
-            currentAnalysis.totalAmountIn! += input.amount; 
+            currentAnalysis.totalAmountIn! += tokenAmount; 
             currentAnalysis.transferCountIn!++;
             currentAnalysis.totalSolSpent! += solValueToConsider; // Gross SOL spent
             currentAnalysis.totalFeesPaidInSol! += currentFeeAmount; 
@@ -123,11 +124,11 @@ export class SwapAnalyzer {
             if (isStablecoin) {
                 const flow = stablecoinFlows.get(splMint)!;
                 flow.totalSolSpent += solValueToConsider;
-                flow.totalAmountIn += input.amount;
+                flow.totalAmountIn += tokenAmount;
                 flow.netSolFlow -= solValueToConsider; 
             }
         } else { // direction === 'out'
-            currentAnalysis.totalAmountOut! += input.amount; 
+            currentAnalysis.totalAmountOut! += tokenAmount; 
             currentAnalysis.transferCountOut!++;
             currentAnalysis.totalSolReceived! += solValueToConsider; // Gross SOL received
             currentAnalysis.totalFeesPaidInSol! += currentFeeAmount; 
@@ -135,7 +136,7 @@ export class SwapAnalyzer {
             if (isStablecoin) {
                 const flow = stablecoinFlows.get(splMint)!;
                 flow.totalSolReceived += solValueToConsider;
-                flow.totalAmountOut += input.amount;
+                flow.totalAmountOut += tokenAmount;
                 flow.netSolFlow += solValueToConsider; 
             }
         }
