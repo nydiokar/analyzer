@@ -6,6 +6,7 @@ import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { RedisLockService } from './redis-lock.service';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import { Redis } from 'ioredis';
+import { sanitizeErrorMessage } from '../utils/error-sanitizer';
 
 @Injectable()
 export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
@@ -132,8 +133,13 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
       const userId = await this.resolveUserId(job, jobId);
 
+      // Log the full error for debugging
       this.logger.warn(`Job failed: ${jobId} - ${failedReason}`);
-      await this.jobProgressGateway.publishFailedEvent(jobId, queueName, failedReason, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0, userId);
+
+      // Sanitize error message for user-friendly display
+      const sanitizedError = sanitizeErrorMessage(failedReason);
+
+      await this.jobProgressGateway.publishFailedEvent(jobId, queueName, sanitizedError, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0, userId);
       await this.cleanupUserMapping(jobId);
     });
 

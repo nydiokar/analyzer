@@ -2149,12 +2149,7 @@ export class DatabaseService {
                                     tokenAddress: record.tokenAddress,
                                 },
                             },
-                            create: {
-                                ...record,
-                                wallet: {
-                                    connect: { address: record.walletAddress },
-                                },
-                            },
+                            create: record,
                             update: record,
                         })
                     )
