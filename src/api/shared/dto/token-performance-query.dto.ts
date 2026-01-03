@@ -43,7 +43,7 @@ export class TokenPerformanceQueryDto {
   page?: number = 1;
 
   @ApiPropertyOptional({
-    description: 'Number of items per page.',
+    description: 'Number of items per page. Set to large number to fetch all tokens.',
     default: 20,
     type: Number,
   })
@@ -51,7 +51,7 @@ export class TokenPerformanceQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100) // Max items per page
+  @Max(100000) // Allow large pageSize to fetch all tokens at once (for virtual scrolling)
   pageSize?: number = 20;
 
   @ApiPropertyOptional({

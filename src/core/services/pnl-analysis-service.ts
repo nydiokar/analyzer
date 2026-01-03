@@ -1,5 +1,6 @@
 import { createLogger } from 'core/utils/logger';
 import { DatabaseService, prisma } from 'core/services/database-service';
+import type { TokenLotCreateData } from 'core/services/database-service';
 import { SwapAnalyzer } from 'core/analysis/swap/analyzer';
 import { AdvancedStatsAnalyzer } from 'core/analysis/stats/analyzer';
 import { OnChainAnalysisResult, SwapAnalysisSummary, AdvancedTradeStats as PrismaAdvancedTradeStats } from '@/types/helius-api';
@@ -234,7 +235,12 @@ export class PnlAnalysisService {
             }
 
             // This is the primary analysis call
-            const { results: swapAnalysisResultsFromAnalyzer, processedSignaturesCount, stablecoinNetFlow } = this.swapAnalyzer.analyze(swapInputs, walletAddress);
+            const {
+                results: swapAnalysisResultsFromAnalyzer,
+                processedSignaturesCount,
+                stablecoinNetFlow,
+                fifoLotsByMint,
+            } = this.swapAnalyzer.analyze(swapInputs, walletAddress);
             logger.debug(`[PnlAnalysis] SwapAnalyzer finished for ${walletAddress}. Got ${swapAnalysisResultsFromAnalyzer.length} token results.`);
             
             // Attach wallet balances to the results if available.
@@ -250,6 +256,30 @@ export class PnlAnalysisService {
                     balanceFetchedAt: tokenBalance ? balancesFetchedAt : undefined,
                 };
             });
+
+            const fifoLotsToPersist: TokenLotCreateData[] = [];
+            for (const [mint, lots] of fifoLotsByMint.entries()) {
+                for (const lot of lots) {
+                    const amountRemaining = lot.amountRemaining;
+                    const status =
+                        amountRemaining <= 0
+                            ? 'CLOSED'
+                            : amountRemaining < lot.amountBought
+                                ? 'PARTIALLY_SOLD'
+                                : 'OPEN';
+
+                    fifoLotsToPersist.push({
+                        walletAddress: walletAddress,
+                        tokenAddress: mint,
+                        amountBought: lot.amountBought.toString(),
+                        costBasisSol: lot.costBasisSol.toString(),
+                        amountRemaining: lot.amountRemaining.toString(),
+                        purchaseTimestamp: lot.purchaseTimestamp,
+                        status,
+                        sourceSignature: lot.sourceSignature,
+                    });
+                }
+            }
 
             if (runId) {
                 await prisma.analysisRun.update({
@@ -271,13 +301,7 @@ export class PnlAnalysisService {
                 totalFees += result.totalFeesPaidInSol || 0;
                 
                 if (!result.isValuePreservation) {
-                    realizedPnl += result.netSolProfitLoss ?? 0;
                     totalExecutedSwapsCount += (result.transferCountIn || 0) + (result.transferCountOut || 0);
-                    const finalPnl = result.netSolProfitLoss ?? 0;
-                    if (finalPnl > 0) profitableTokensCount++;
-                    else if (finalPnl < 0) unprofitableTokensCount++;
-                } else if (result.isValuePreservation && result.estimatedPreservedValue) {
-                    unrealizedPnl += result.estimatedPreservedValue;
                 }
             }
             
@@ -337,30 +361,73 @@ export class PnlAnalysisService {
                                 });
                             }
 
-                            // Unrealized PNL only when SOL price is valid and we have cost basis
-                            if (currentHoldingsValueSol !== null && estimatedSolPriceUsd > 0) {
-                                const analysisResult = enrichedSwapAnalysisResults.find(r => r.tokenAddress === tokenBalance.mint);
-                                if (analysisResult) {
-                                    const totalSolSpent = analysisResult.totalSolSpent || 0;
-                                    const totalAmountIn = analysisResult.totalAmountIn || 0;
-                                    const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
-                                    const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
-                                    const unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
-
-                                    unrealizedPnl += unrealizedPnlSol;
-                                }
-                            }
                         }
                     }
                     if (estimatedSolPriceUsd <= 0) {
                         logger.warn(`[PnlAnalysis] Skipping SOL-denominated unrealized PNL calculation due to missing SOL price; USD values still captured for holdings.`);
                     }
                     
-                    logger.debug(`[PnlAnalysis] Calculated unrealized PNL for ${walletAddress}: ${unrealizedPnl} SOL`);
+                    logger.debug(`[PnlAnalysis] Prepared holdings valuation for ${walletAddress} (FIFO unrealized computed later).`);
                 } catch (error) {
                     logger.warn(`[PnlAnalysis] Failed to calculate unrealized PNL for ${walletAddress}: ${error}`);
                 }
             }
+            for (const result of enrichedSwapAnalysisResults) {
+                if (result.isValuePreservation) {
+                    if (result.estimatedPreservedValue) {
+                        unrealizedPnl += result.estimatedPreservedValue;
+                    }
+                    continue;
+                }
+
+                const currentHoldingsValueSol = holdingValueByMint.get(result.tokenAddress)?.valueSol ?? null;
+                const feesPaid = result.totalFeesPaidInSol || 0;
+                const remainingCostBasisSol = result.currentHoldingsCostBasisSol ?? null;
+                const realizedPnlSol = result.realizedPnlSol ?? 0;
+                const remainingAmount = fifoLotsByMint.get(result.tokenAddress)?.reduce(
+                    (sum, lot) => sum + lot.amountRemaining,
+                    0,
+                );
+
+                const currentUiBalance = result.currentUiBalance ?? null;
+                const hasHoldingsMismatch =
+                    currentUiBalance !== null &&
+                    remainingAmount !== undefined &&
+                    Math.abs(currentUiBalance - remainingAmount) > 1e-6;
+
+                if (result.hasIncompleteHistory || hasHoldingsMismatch) {
+                    result.realizedPnlSol = null;
+                    result.unrealizedPnlSol = null;
+                    result.totalPnlSol = null;
+                    result.netSolProfitLoss = 0;
+                    result.hasIncompleteHistory = true;
+                } else {
+                    const unrealizedPnlSol = currentHoldingsValueSol !== null && remainingCostBasisSol !== null
+                        ? currentHoldingsValueSol - remainingCostBasisSol
+                        : null;
+                    const totalPnlSol = realizedPnlSol + (unrealizedPnlSol ?? 0);
+
+                    result.unrealizedPnlSol = unrealizedPnlSol;
+                    result.totalPnlSol = totalPnlSol;
+                    result.netSolProfitLoss = totalPnlSol - feesPaid;
+                    result.hasIncompleteHistory = false;
+
+                    realizedPnl += realizedPnlSol;
+                    if (unrealizedPnlSol !== null) {
+                        unrealizedPnl += unrealizedPnlSol;
+                    }
+                }
+            }
+
+            for (const result of enrichedSwapAnalysisResults) {
+                if (result.isValuePreservation || result.hasIncompleteHistory) {
+                    continue;
+                }
+                const finalPnl = result.netSolProfitLoss ?? 0;
+                if (finalPnl > 0) profitableTokensCount++;
+                else if (finalPnl < 0) unprofitableTokensCount++;
+            }
+
             const finalNetPnl = realizedPnl + unrealizedPnl;
             const totalPnlTokens = profitableTokensCount + unprofitableTokensCount;
             const averageSwapSize = totalPnlTokens > 0 ? totalVolume / totalPnlTokens : 0;
@@ -403,118 +470,131 @@ export class PnlAnalysisService {
             // Dashboard scoped analyses (flash/working/deep) should all update the canonical state
             // because they represent progressive snapshots of current state, not historical queries
             if (!isViewOnlyMode) {
-                const pnlSummaryDataForDb: any = {
-                    walletAddress: walletAddress,
-                    totalVolume: summary.totalVolume,
-                    totalFees: summary.totalFees,
-                    realizedPnl: summary.realizedPnl,
-                    unrealizedPnl: summary.unrealizedPnl,
-                    netPnl: summary.netPnl,
-                    stablecoinNetFlow: summary.stablecoinNetFlow,
-                    averageSwapSize: summary.averageSwapSize,
-                    profitableTokensCount: summary.profitableTokensCount,
-                    unprofitableTokensCount: summary.unprofitableTokensCount,
-                    totalExecutedSwapsCount: summary.totalExecutedSwapsCount,
-                    averageRealizedPnlPerExecutedSwap: summary.averageRealizedPnlPerExecutedSwap,
-                    realizedPnlToTotalVolumeRatio: summary.realizedPnlToTotalVolumeRatio,
-                    totalSignaturesProcessed: summary.totalSignaturesProcessed,
-                    overallFirstTimestamp: summary.overallFirstTimestamp,
-                    overallLastTimestamp: summary.overallLastTimestamp,
-                    updatedAt: new Date(),
-                };
-
-                if (currentWalletBalance) {
-                    pnlSummaryDataForDb.currentSolBalance = currentWalletBalance.solBalance;
-                    pnlSummaryDataForDb.solBalanceFetchedAt = balancesFetchedAt;
-                }
-
-                if (advancedStatsData) {
-                    const sanitizedStats = {
-                        medianPnlPerToken: !isFinite(advancedStatsData.medianPnlPerToken) ? 0 : advancedStatsData.medianPnlPerToken,
-                        trimmedMeanPnlPerToken: !isFinite(advancedStatsData.trimmedMeanPnlPerToken) ? 0 : advancedStatsData.trimmedMeanPnlPerToken,
-                        tokenWinRatePercent: !isFinite(advancedStatsData.tokenWinRatePercent) ? 0 : advancedStatsData.tokenWinRatePercent,
-                        standardDeviationPnl: !isFinite(advancedStatsData.standardDeviationPnl) ? 0 : advancedStatsData.standardDeviationPnl,
-                        profitConsistencyIndex: !isFinite(advancedStatsData.medianPnlToVolatilityRatio) ? 0 : advancedStatsData.medianPnlToVolatilityRatio,
-                        weightedEfficiencyScore: !isFinite(advancedStatsData.weightedEfficiencyScore) ? 0 : advancedStatsData.weightedEfficiencyScore,
-                        averagePnlPerDayActiveApprox: !isFinite(advancedStatsData.averagePnlPerDayActiveApprox) ? 0 : advancedStatsData.averagePnlPerDayActiveApprox,
-                        firstTransactionTimestamp: advancedStatsData.firstTransactionTimestamp,
-                        lastTransactionTimestamp: advancedStatsData.lastTransactionTimestamp,
+                if (isHistoricalView) {
+                    logger.warn(
+                        `[PnlAnalysis] Historical/time-range analysis detected for ${walletAddress}; skipping persistence of FIFO lots, AnalysisResult, and WalletPnlSummary.`,
+                    );
+                } else {
+                    const pnlSummaryDataForDb: any = {
+                        walletAddress: walletAddress,
+                        totalVolume: summary.totalVolume,
+                        totalFees: summary.totalFees,
+                        realizedPnl: summary.realizedPnl,
+                        unrealizedPnl: summary.unrealizedPnl,
+                        netPnl: summary.netPnl,
+                        stablecoinNetFlow: summary.stablecoinNetFlow,
+                        averageSwapSize: summary.averageSwapSize,
+                        profitableTokensCount: summary.profitableTokensCount,
+                        unprofitableTokensCount: summary.unprofitableTokensCount,
+                        totalExecutedSwapsCount: summary.totalExecutedSwapsCount,
+                        averageRealizedPnlPerExecutedSwap: summary.averageRealizedPnlPerExecutedSwap,
+                        realizedPnlToTotalVolumeRatio: summary.realizedPnlToTotalVolumeRatio,
+                        totalSignaturesProcessed: summary.totalSignaturesProcessed,
+                        overallFirstTimestamp: summary.overallFirstTimestamp,
+                        overallLastTimestamp: summary.overallLastTimestamp,
+                        updatedAt: new Date(),
                     };
 
-                    await prisma.walletPnlSummary.upsert({
-                        where: { walletAddress: walletAddress }, 
-                        create: {
-                            ...pnlSummaryDataForDb,
-                            advancedStats: {
-                                create: sanitizedStats,
-                            },
-                        },
-                        update: {
-                            ...pnlSummaryDataForDb,
-                            advancedStats: {
-                                upsert: {
+                    if (currentWalletBalance) {
+                        pnlSummaryDataForDb.currentSolBalance = currentWalletBalance.solBalance;
+                        pnlSummaryDataForDb.solBalanceFetchedAt = balancesFetchedAt;
+                    }
+
+                    if (advancedStatsData) {
+                        const sanitizedStats = {
+                            medianPnlPerToken: !isFinite(advancedStatsData.medianPnlPerToken) ? 0 : advancedStatsData.medianPnlPerToken,
+                            trimmedMeanPnlPerToken: !isFinite(advancedStatsData.trimmedMeanPnlPerToken) ? 0 : advancedStatsData.trimmedMeanPnlPerToken,
+                            tokenWinRatePercent: !isFinite(advancedStatsData.tokenWinRatePercent) ? 0 : advancedStatsData.tokenWinRatePercent,
+                            standardDeviationPnl: !isFinite(advancedStatsData.standardDeviationPnl) ? 0 : advancedStatsData.standardDeviationPnl,
+                            profitConsistencyIndex: !isFinite(advancedStatsData.medianPnlToVolatilityRatio) ? 0 : advancedStatsData.medianPnlToVolatilityRatio,
+                            weightedEfficiencyScore: !isFinite(advancedStatsData.weightedEfficiencyScore) ? 0 : advancedStatsData.weightedEfficiencyScore,
+                            averagePnlPerDayActiveApprox: !isFinite(advancedStatsData.averagePnlPerDayActiveApprox) ? 0 : advancedStatsData.averagePnlPerDayActiveApprox,
+                            firstTransactionTimestamp: advancedStatsData.firstTransactionTimestamp,
+                            lastTransactionTimestamp: advancedStatsData.lastTransactionTimestamp,
+                        };
+
+                        await prisma.walletPnlSummary.upsert({
+                            where: { walletAddress: walletAddress }, 
+                            create: {
+                                ...pnlSummaryDataForDb,
+                                advancedStats: {
                                     create: sanitizedStats,
-                                    update: sanitizedStats,
                                 },
                             },
-                        },
-                    });
-                } else {
-                    await prisma.walletPnlSummary.upsert({
-                        where: { walletAddress: walletAddress },
-                        create: pnlSummaryDataForDb,
-                        update: pnlSummaryDataForDb,
-                    });
-                    logger.info(`[PnlAnalysis] Upserted WalletPnlSummary (no advanced stats) for ${walletAddress}.`);
-                }
-                
-                // Update the analyzed timestamp range for the wallet
-                const nowInSeconds = Math.floor(Date.now() / 1000);
-                const startTs = summary.overallFirstTimestamp !== undefined && summary.overallFirstTimestamp !== 0 ? summary.overallFirstTimestamp : nowInSeconds;
-                const endTs = nowInSeconds; // Always use current time for when analysis was completed
-
+                            update: {
+                                ...pnlSummaryDataForDb,
+                                advancedStats: {
+                                    upsert: {
+                                        create: sanitizedStats,
+                                        update: sanitizedStats,
+                                    },
+                                },
+                            },
+                        });
+                    } else {
+                        await prisma.walletPnlSummary.upsert({
+                            where: { walletAddress: walletAddress },
+                            create: pnlSummaryDataForDb,
+                            update: pnlSummaryDataForDb,
+                        });
+                        logger.info(`[PnlAnalysis] Upserted WalletPnlSummary (no advanced stats) for ${walletAddress}.`);
+                    }
                     
-                    await prisma.wallet.update({
-                        where: { address: walletAddress },
-                        data: {
-                            analyzedTimestampStart: startTs,
-                            analyzedTimestampEnd: endTs,
-                            lastSuccessfulFetchTimestamp: new Date(),
-                        },
-                        select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true }
-                    });
-                                    
+                    // Update the analyzed timestamp range for the wallet
+                    const nowInSeconds = Math.floor(Date.now() / 1000);
+                    const startTs = summary.overallFirstTimestamp !== undefined && summary.overallFirstTimestamp !== 0 ? summary.overallFirstTimestamp : nowInSeconds;
+                    const endTs = nowInSeconds; // Always use current time for when analysis was completed
 
-                // Upsert AnalysisResult records with token balances
-                const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
-                    walletAddress: walletAddress,
-                    tokenAddress: r.tokenAddress,
-                    totalAmountIn: r.totalAmountIn,
-                    totalAmountOut: r.totalAmountOut,
-                    netAmountChange: r.netAmountChange,
-                    totalSolSpent: r.totalSolSpent,
-                    totalSolReceived: r.totalSolReceived,
-                    totalFeesPaidInSol: r.totalFeesPaidInSol,
-                    netSolProfitLoss: r.netSolProfitLoss,
-                    firstTransferTimestamp: r.firstTransferTimestamp,
-                    lastTransferTimestamp: r.lastTransferTimestamp,
-                    transferCountIn: r.transferCountIn,
-                    transferCountOut: r.transferCountOut,
-                    isValuePreservation: r.isValuePreservation,
-                    estimatedPreservedValue: r.estimatedPreservedValue,
-                    preservationType: r.preservationType,
-                    currentRawBalance: r.currentRawBalance,
-                    currentUiBalance: r.currentUiBalance,
-                    currentUiBalanceString: r.currentUiBalanceString,
-                    balanceDecimals: r.balanceDecimals,
-                    currentHoldingsValueSol: holdingValueByMint.get(r.tokenAddress)?.valueSol ?? null,
-                    currentHoldingsValueUsd: holdingValueByMint.get(r.tokenAddress)?.valueUsd ?? null,
-                    balanceFetchedAt: r.balanceFetchedAt,
-                }));
+                        
+                        await prisma.wallet.update({
+                            where: { address: walletAddress },
+                            data: {
+                                analyzedTimestampStart: startTs,
+                                analyzedTimestampEnd: endTs,
+                                lastSuccessfulFetchTimestamp: new Date(),
+                            },
+                            select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true }
+                        });
+                                        
 
-                // Use the optimized batch upsert method for better performance
-                await this.databaseService.batchUpsertAnalysisResults(resultsToUpsert);
-                logger.debug(`[PnlAnalysis] Batch upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
+                    // Upsert AnalysisResult records with token balances
+                    const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
+                        walletAddress: walletAddress,
+                        tokenAddress: r.tokenAddress,
+                        totalAmountIn: r.totalAmountIn,
+                        totalAmountOut: r.totalAmountOut,
+                        netAmountChange: r.netAmountChange,
+                        totalSolSpent: r.totalSolSpent,
+                        totalSolReceived: r.totalSolReceived,
+                        totalFeesPaidInSol: r.totalFeesPaidInSol,
+                        netSolProfitLoss: r.netSolProfitLoss,
+                        realizedPnlSol: r.realizedPnlSol ?? null,
+                        unrealizedPnlSol: r.unrealizedPnlSol ?? null,
+                        totalPnlSol: r.totalPnlSol ?? null,
+                        hasIncompleteHistory: r.hasIncompleteHistory ?? false,
+                        firstTransferTimestamp: r.firstTransferTimestamp,
+                        lastTransferTimestamp: r.lastTransferTimestamp,
+                        transferCountIn: r.transferCountIn,
+                        transferCountOut: r.transferCountOut,
+                        isValuePreservation: r.isValuePreservation,
+                        estimatedPreservedValue: r.estimatedPreservedValue,
+                        preservationType: r.preservationType,
+                        currentRawBalance: r.currentRawBalance,
+                        currentUiBalance: r.currentUiBalance,
+                        currentUiBalanceString: r.currentUiBalanceString,
+                        balanceDecimals: r.balanceDecimals,
+                        currentHoldingsValueSol: holdingValueByMint.get(r.tokenAddress)?.valueSol ?? null,
+                        currentHoldingsValueUsd: holdingValueByMint.get(r.tokenAddress)?.valueUsd ?? null,
+                        currentHoldingsCostBasisSol: r.currentHoldingsCostBasisSol ?? null,
+                        balanceFetchedAt: r.balanceFetchedAt,
+                    }));
+
+                    await this.databaseService.replaceTokenLotsForWallet(walletAddress, fifoLotsToPersist);
+
+                    // Use the optimized batch upsert method for better performance
+                    await this.databaseService.batchUpsertAnalysisResults(resultsToUpsert);
+                    logger.debug(`[PnlAnalysis] Batch upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
+                }
 
                 // DEACTIVATED: The enrichment process is now triggered from the frontend to decouple it from the main analysis pipeline.
                 // if (this.tokenInfoService) {

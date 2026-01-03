@@ -183,6 +183,10 @@ export interface OnChainAnalysisResult {
   totalSolReceived: number;     // Total SOL received (when sending SPL) - This is GROSS
   totalFeesPaidInSol?: number;   // NEW: Sum of explicit SOL fees from SwapAnalysisInput
   netSolProfitLoss: number;     // Net SOL P/L (SOL Received - SOL Spent - Fees)
+  realizedPnlSol?: number | null;   // FIFO realized P&L (gross, excludes fees)
+  unrealizedPnlSol?: number | null; // FIFO unrealized P&L (gross, excludes fees)
+  totalPnlSol?: number | null;      // FIFO total P&L (realized + unrealized)
+  hasIncompleteHistory?: boolean;   // True if sells exceed available lots
   transferCountIn: number;      // Number of times SPL was received
   transferCountOut: number;     // Number of times SPL was sent
   firstTransferTimestamp: number; // Unix timestamp of first swap involving this SPL
@@ -201,6 +205,7 @@ export interface OnChainAnalysisResult {
   balanceFetchedAt?: Date;           // Timestamp when this specific token balance was part of a WalletState fetch
   currentHoldingsValueSol?: number | null; // Current value in SOL (if price was available)
   currentHoldingsValueUsd?: number | null; // Current value in USD (if price was available)
+  currentHoldingsCostBasisSol?: number | null; // FIFO cost basis of remaining holdings
 }
 
 /**

@@ -1306,13 +1306,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       if (pnlResults.length > 0) {
         pnlMap = new Map(
-          pnlResults.map(r => [
-            r.tokenAddress,
-            {
-              pnl: r.netSolProfitLoss,
-              capital: r.totalSolSpent,
-            },
-          ])
+          pnlResults
+            .filter(r => !r.hasIncompleteHistory)
+            .map(r => [
+              r.tokenAddress,
+              {
+                pnl: r.totalPnlSol ?? r.netSolProfitLoss,
+                capital: r.totalSolSpent,
+              },
+            ])
         );
         currentHoldings = pnlResults
           .filter(r => typeof r.currentUiBalance === 'number' && (r.currentUiBalance ?? 0) > 0)

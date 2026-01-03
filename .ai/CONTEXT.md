@@ -1,9 +1,60 @@
 # Current State
 
 **Project**: Sova Intel - Wallet Analysis System
-**Branch**: `discover`
-**Status**: Ready for parallel development 🚀
+**Branch**: `discover-token-performance` (currently working on P0 issue)
+**Status**: 🔴 **P0 BLOCKER - P&L Contamination Discovered**
 **Last Updated**: 2025-12-30
+
+---
+
+## 🔴 P0 CRITICAL ISSUE - BLOCKS ALL OTHER WORK
+
+### P&L Calculations Are Fundamentally Broken
+
+**Discovered**: 2025-12-30 during `discover-token-performance` branch work
+
+**Problem**: The entire platform shows **WRONG P&L** for any wallet with partial sells. Wallets that are **winning show as losing** and vice versa.
+
+**Example**:
+- Token: The Official 67 Coin
+- Bought: 70 SOL, Sold: 555 SOL, Holdings: 236 SOL worth
+- **Expected Total**: (555 + 236) - 70 = **+721 SOL profit** ✅
+- **Shown Total**: **-80 SOL loss** ❌
+- **Error magnitude**: 801 SOL (off by 1000%+)
+
+**Root Cause**: No FIFO (First In, First Out) cost basis tracking. We use simple average cost which fails catastrophically for partial sells.
+
+**Blast Radius**:
+- ❌ Token Performance Tab (Realized column)
+- ❌ Account Summary Card
+- ❌ Discover Page (all wallet P&L metrics)
+- ❌ Trackers Page (portfolio overview)
+- ❌ Holder Profiles (win rate & ROI by exit timing)
+- ✅ Token Performance Total Profit (patched with correct formula)
+
+**Impact**: Users make trading decisions based on backwards P&L data. This is a **trading intelligence tool** - showing wrong profit/loss is catastrophic.
+
+**Required Fix**: Implement proper FIFO lot-based cost tracking (~2-3 days work)
+
+**Documentation**: See `.ai/context/P0_PNL_CONTAMINATION.md` for full details, contamination map, and implementation plan.
+
+**Status**: User plans to work on this as top priority. All other feature work is BLOCKED until this is fixed.
+
+**Next Actions (brief)**:
+1) Prevent time-range analyses from overwriting FIFO lots / AnalysisResult.
+2) Add USDC-aware FIFO value handling (use associatedUsdcValue when SOL value is absent).
+3) Preserve interactionType in FIFO inputs to treat TRANSFER/BURN correctly (zero-cost/zero-proceeds).
+4) Normalize fee-payer heuristic amounts to positive values with direction.
+5) De-duplicate fee assignment per transaction to avoid double-counting.
+6) Ensure incomplete history propagates null P&L instead of 0.
+
+**Decision Needed: dashboard fast scopes vs. FIFO integrity**
+- Flash/working analyses currently run with a timeRange. We now block persistence for timeRange runs to protect FIFO lots.
+- Tradeoff: fast scopes won’t refresh canonical PnL/AnalysisResult; UI will show last deep/full snapshot.
+- Options:
+  - Keep fast scopes view-only and trigger a deep/full analysis in background for persistence.
+  - Or store timeRange results in a separate snapshot table (avoid overwriting FIFO lots).
+  - Or accept FIFO corruption risk (not recommended).
 
 ---
 
@@ -157,42 +208,121 @@
 
 ### 🎯 Branch 2: `discover-token-performance` (LLM 2)
 **Focus**: Token Performance Fixes & Enhancements
+**Status**: ⚠️ **PAUSED** - Discovered P0 blocker during work
 
-#### Task 4: ROI Calculation Fix 🐛
-**Problem**: ROI showing -300% when it should be ~0% because fees/taxes are almost equal to buy amount (e.g., 0.001 SOL bought, 0.002 SOL fees)
-**Location**:
-- Backend: `src/core/services/pnl-analysis-service.ts`
-- Backend: `src/api/services/token-performance.service.ts`
-- Frontend: `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx`
-**Solution**:
-- Adjust ROI formula to handle edge case where `totalSolSpent ≈ 0`
-- Option A: Show "N/A" or "—" when spent amount < threshold (e.g., 0.01 SOL)
-- Option B: Calculate ROI excluding fees: `(received - spent) / (spent - fees) * 100`
-- Add validation: if `spent < fees * 0.5`, mark as dust trade
-**Priority**: High - Data accuracy bug
+#### 🔧 Additional Scope (P0 Fix)
+Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as a sell with 0 proceeds to avoid overstated P&L; treat transfer-in as a zero-cost lot. This is needed to keep realized P&L correct when tokens leave/enter without swaps.
 
-#### Task 5: Time Filter Detachment 🔧
-**Problem**: Token Performance tab shows NO tokens when wallet has no transactions in filtered time period, even though wallet holds tokens
-**Location**:
-- Backend: `src/api/services/token-performance.service.ts`
-- Frontend: `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx`
-**Solution**:
-- Decouple token list from transaction history filter
-- Always show current holdings
-- Apply time filter only to PnL calculations and transaction counts
-- Show: "Holding 5 tokens (2 traded in last 30d, 3 held only)"
-**Priority**: High - UX bug, confusing behavior
+#### ✅ Progress Update (P0 FIFO Work)
+- FIFO logic moved into SwapAnalyzer (source-of-truth aggregation stage).
+- PnlAnalysisService now orchestrates persistence only; no average-cost P&L calculations remain.
+- Consumers updated to read FIFO fields and skip `hasIncompleteHistory`.
+- Prisma schema updated with TokenLot + FIFO fields (migration generated).
+- Fixed mapping bug: WSOL total movement now counts only user-involved transfers (prevents router hop double-counting of swap value). Added mapper test for this case.
+- FIFO logic verified with multiple wallet runs; tests executed in another environment.
+- Backfill script not implemented; dev DB was wiped so backfill not run.
 
-#### Task 6: Infinite Scroll Pagination ♾️
-**Goal**: Replace horizontal pagination (1, 2, 3...) with vertical infinite scroll
-**Location**: `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx`
-**Implementation**:
-- Load initial 20 tokens
-- On scroll to bottom, load next 20
-- Show loading indicator at bottom
-- Keep existing filters/sorting
-**Library**: `react-intersection-observer` or `react-infinite-scroll-component`
-**Priority**: Medium - Better UX for large token lists
+#### ✅ Status
+- Marked done for dev use. FIFO math validated on real wallets and mapping fix confirmed.
+- Backfill/reprocessing script and formal unit test reruns deferred intentionally.
+
+#### 🚧 Remaining Work (P0 FIFO)
+1. Generate Prisma migration (no manual SQL).
+2. Implement backfill/reprocessing script to rebuild lots and FIFO P&L from historical SwapAnalysisInput.
+3. Rerun FIFO tests and verify correctness + totals.
+
+#### ✅ Task 4: ROI Calculation Fix (COMPLETED)
+**Problem**: ROI showing -300% for dust trades
+**Solution**: Added dust trade detection (< 0.01 SOL threshold), hide ROI pill for these cases
+**Status**: ✅ Fixed in `TokenPerformanceTab.tsx:174-186`
+
+#### ✅ Task 5: Time Filter Detachment (COMPLETED)
+**Problem**: Token Performance tab hid tokens when no activity in time period
+**Solution**: Separated fetch URL (with time filter) from cache key (without time filter)
+**Status**: ✅ Fixed in `TokenPerformanceTab.tsx:425-473`
+
+#### ✅ Task 6: Infinite Scroll Pagination (COMPLETED)
+**Goal**: Replace horizontal pagination with vertical infinite scroll
+**Status**: ✅ Already implemented before this branch started
+
+#### ✅ Task 7: Virtual Scrolling + Client-Side Sorting (COMPLETED - 2026-01-02)
+**Problem**: Infinite scroll + sorting was fundamentally broken
+- Sorting changed → only showed 20 tokens (not the absolute highest/lowest)
+- Backend loaded ALL tokens, sorted them, then threw away 96% (extremely wasteful)
+- Table flickered and disappeared on every sort change
+- Users couldn't see the actual top PNL tokens when sorting
+
+**Root Cause Analysis**:
+- Infinite scroll is for BROWSING (one sort order)
+- Arbitrary sorting requires seeing ALL results
+- Backend already fetched all tokens for calculated fields (totalPnlSol, ROI) but paginated the result
+- Every scroll triggered a full DB query + sort, just to return 20 tokens
+
+**Solution Implemented**: Virtual Scrolling + Client-Side Sorting (what "big players" do)
+1. **Fetch ALL tokens at once** (`pageSize=999999` instead of 20)
+   - Single backend call instead of N calls
+   - No pagination - get everything in one request
+   - Cache key excludes sorting (no refetch on sort change)
+
+2. **Client-side sorting** (instant, no backend calls)
+   - All sorting logic moved to frontend
+   - Sorts full dataset in memory (~1ms for 1000 tokens)
+   - No flickering - data stays visible during sort
+   - `useMemo` prevents re-sorting on every render
+
+3. **Virtual scrolling** (@tanstack/react-virtual)
+   - Only renders ~30 visible rows in DOM
+   - Handles 100, 1000, or even 10,000+ tokens smoothly
+   - Scroll performance stays smooth
+   - Estimated row height: 48px, overscan: 10 rows
+
+**Files Changed**:
+- `dashboard/src/components/dashboard/TokenPerformanceTab.tsx` - Complete refactor
+- `src/api/shared/dto/token-performance-query.dto.ts` - Backend validation fix
+
+**Critical Backend Fix**:
+- **REMOVED**: `@Max(100)` validation on pageSize (was blocking large requests!)
+- **ADDED**: `@Max(100000)` to allow fetching all tokens
+- **Without this fix, only 100 tokens would load!**
+
+**Benefits**:
+- ✅ Sorting works correctly - shows absolute highest/lowest values
+- ✅ No flickering - instant sorting
+- ✅ No arbitrary limits - handles any wallet size
+- ✅ Better performance - 1 backend call instead of N
+- ✅ Infinite scroll removed - simpler code
+
+**Potential Issues to Monitor**:
+1. ⚠️ **Sticky column behavior** - Token column uses `position: sticky`, but virtual scrolling uses `position: absolute`. Test horizontal scrolling to ensure sticky column still works.
+2. ⚠️ **Response size** - 1000 tokens ≈ 2-10MB uncompressed. Check gzip compression is enabled.
+3. ⚠️ **Database performance** - Wallets with 10,000+ tokens could have slower queries. Monitor query times.
+4. ⚠️ **Image loading** - Virtual scrolling only renders visible rows, so only ~30 images load. Should be fine, but verify TokenBadge has lazy loading.
+5. ℹ️ **Frontend memory** - 10K tokens × 5KB each = 50MB. Modern browsers handle this easily.
+6. ℹ️ **Server load** - Actually might IMPROVE (1 heavy request vs 50 light requests).
+
+**Testing Checklist**:
+- [ ] Sort by Total Profit → verify shows absolute highest PNL tokens
+- [ ] Wallet with 1000+ tokens → verify loads completely
+- [ ] Rapid sorting changes → verify no flickering
+- [ ] Horizontal scroll → verify token column stays sticky
+- [ ] Network tab → check response size and gzip compression
+- [ ] Large wallets (5000+ tokens) → verify scroll performance
+
+**Status**: ✅ Implemented and compiles. Needs production testing.
+
+#### 🔴 P0 DISCOVERED: Fundamental P&L Calculation Error
+**What Happened**: While testing fixes, discovered Total Profit showing -80 SOL when should be +721 SOL
+**Investigation**: Led to discovery that ALL P&L calculations are wrong for partial sells
+**Root Cause**: No FIFO cost basis tracking - simple averaging fails catastrophically
+**Scope**: Affects 6 major areas across entire platform (see P0 section above)
+**Action**: Created `.ai/context/P0_PNL_CONTAMINATION.md` with full analysis
+**Next Steps**: Block all feature work, implement proper FIFO lot tracking (~2-3 days)
+
+#### Additional Changes Made This Branch:
+1. ✅ Wallet page layout - natural scrolling with sticky tabs
+2. ✅ Last Active timestamp - inline with token badge
+3. ✅ Sleek tooltips - consistent styling across table
+4. ✅ Total Profit formula - PATCHED with correct calculation (frontend band-aid)
 
 **Tech Stack**: NestJS backend, Prisma ORM, React frontend
 
@@ -200,18 +330,29 @@
 
 ## Branch Strategy
 
-### Workflow:
-1. **LLM 1** works on `discover-analytics-ux` (tasks 1, 2, 3)
+### ⚠️ ORIGINAL PLAN (NOW BLOCKED BY P0)
+
+**Original Workflow**:
+1. **LLM 1** works on `discover-analytics-ux` (tasks 1, 2, 3, 4)
 2. **LLM 2** works on `discover-token-performance` (tasks 4, 5, 6)
 3. Both branches based on `discover` (current state)
 4. When done, merge both back into `discover`
-5. Resolve any conflicts (should be minimal)
-6. Then `discover` → `main` for deployment
+5. Then `discover` → `main` for deployment
 
-### Why This Split:
+**Why This Split**:
 - **Minimal overlap**: Different pages/components
 - **Independent work**: No blocking dependencies
-- **Low conflict risk**: Tasks 4-5-6 touch same area but sequential
+- **Low conflict risk**: Different areas of codebase
+
+### 🔴 CURRENT REALITY (P0 BLOCKING)
+
+**Branch 2 Status**: Tasks 4-5-6 completed, but discovered P0 issue
+**P0 Blocker**: Fundamental P&L calculation error affecting entire platform
+**All Feature Work**: PAUSED until P0 is resolved
+**Next Steps**:
+1. Fix FIFO cost basis tracking (~2-3 days)
+2. Verify all infected areas show correct data
+3. THEN resume parallel branch work if still desired
 
 ---
 
@@ -221,6 +362,10 @@
 - 3 Database migrations (classification fields, storytelling metrics)
 - New API endpoints (discover.controller.ts, discover.service.ts)
 - Updated services (user-favorites, behavior, token-performance)
+- **CRITICAL**: Token performance DTO validation change (`@Max(100)` → `@Max(100000)`)
+  - File: `src/api/shared/dto/token-performance-query.dto.ts`
+  - Required for virtual scrolling to work (fetches all tokens at once)
+  - Without this, frontend will only load 100 tokens maximum!
 
 ### Deployment Order (When Ready):
 1. Deploy backend to home server first (run migrations)

@@ -76,6 +76,9 @@ export class PnlOverviewService {
     
     analysisSummary.results.forEach(result => {
       if (!result.isValuePreservation) {
+        if (result.hasIncompleteHistory) {
+          return;
+        }
         // Count individual trades (transfers)
         const tradesIn = result.transferCountIn || 0;
         const tradesOut = result.transferCountOut || 0;
@@ -86,7 +89,7 @@ export class PnlOverviewService {
           
           // If the token was profitable, all its trades are considered profitable
           // If the token was unprofitable, all its trades are considered unprofitable
-          if (result.netSolProfitLoss > 0) {
+          if ((result.netSolProfitLoss || 0) > 0) {
             profitableTradesCount += totalTradesForToken;
           }
         }

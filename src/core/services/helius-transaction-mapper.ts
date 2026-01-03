@@ -483,6 +483,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
       // logger.debug(`Tx ${tx.signature}: Net Native SOL Change=${netNativeSolChange.toFixed(9)}, WSOL Change=${wsolChange.toFixed(9)}, USDC Change=${usdcChange.toFixed(9)} -> Final Net SOL=${finalNetUserSolChange.toFixed(9)}, Final Net USDC=${finalNetUserUsdcChange.toFixed(9)}`); // Removed debug
 
       // Calculate the total absolute movement and largest transfer of WSOL/USDC
+      // Only count transfers involving the user (exclude router/router hops) to avoid double-counting.
       let totalWsolMovement = 0;
       let largestWsolTransfer = 0;
       let totalUsdcMovement = 0;
@@ -507,6 +508,17 @@ export function mapHeliusTransactionsToIntermediateRecords(
                       wsolAmount = scaledAmount;
                   }
               }
+
+              const fromUser =
+                transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress ||
+                (transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount));
+              const toUser =
+                transfer.toUserAccount?.toLowerCase() === lowerWalletAddress ||
+                (transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount));
+
+              // Ignore transfers not involving the user and internal user self-moves.
+              if (!fromUser && !toUser) continue;
+              if (fromUser && toUser) continue;
 
               totalWsolMovement += wsolAmount;
               if (wsolAmount > largestWsolTransfer) largestWsolTransfer = wsolAmount;
@@ -691,7 +703,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
                       if (!processedRecordKeys.has(recordKey)) {
                           analysisInputs.push({
                               walletAddress: walletAddress, signature: tx.signature, timestamp: tx.timestamp,
-                              mint: inputMint, amount: -Math.abs(inputAmount), direction: 'out',
+                              mint: inputMint, amount: Math.abs(inputAmount), direction: 'out',
                               associatedSolValue: heuristicAssociatedSolValue,
                               associatedUsdcValue: heuristicAssociatedUsdcValue,
                               interactionType: 'SWAP_FEE_PAYER',

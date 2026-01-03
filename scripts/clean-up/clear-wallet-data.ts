@@ -80,9 +80,8 @@ async function clearWalletData(walletAddress: string, dryRun: boolean = false) {
 (async () => {
   const argv = await yargs(hideBin(process.argv))
     .scriptName('clear-wallet-data')
-    .usage('$0 --wallet <WALLET_ADDRESS> [options]')
-    .option('wallet', {
-      alias: 'w',
+    .usage('$0 <WALLET_ADDRESS> [options]')
+    .positional('wallet', {
       description: 'Wallet address to clear all data for',
       type: 'string',
       demandOption: true
@@ -93,8 +92,8 @@ async function clearWalletData(walletAddress: string, dryRun: boolean = false) {
       type: 'boolean',
       default: false
     })
-    .example('$0 --wallet DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm', 'Clear all data for specific wallet')
-    .example('$0 --wallet abc123 --dryRun', 'Dry run to see what would be deleted')
+    .example('$0 DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm', 'Clear all data for specific wallet')
+    .example('$0 abc123 --dryRun', 'Dry run to see what would be deleted')
     .wrap(yargs.terminalWidth())
     .help()
     .alias('help', 'h')
