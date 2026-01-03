@@ -316,23 +316,17 @@ export function buildNoExitsNarrative(data: {
   // SPEED: Focus on TIMING of current holdings (how long held, % of value)
   const story = (
     <>
-      {currentHoldHours !== null && currentHoldHours !== undefined ? (
-        <>
-          Holding
-          {uniqueTokensTraded ? <> <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</> : <> positions</>} for <Num>{formatHours(currentHoldHours)}</Num> (median)
-          {valueHeldPct ? <>, representing <Num>{valueHeldPct}%</Num> of portfolio value</> : null}.
-          No exits recorded yet.
-        </>
+      {uniqueTokensTraded ? (
+        <>Holding <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</>
       ) : (
-        <>
-          {uniqueTokensTraded ? (
-            <>Holding <Num>{uniqueTokensTraded}</Num> token{uniqueTokensTraded !== 1 ? 's' : ''}</>
-          ) : (
-            <>Holding positions</>
-          )}
-          {valueHeldPct ? <> representing <Num>{valueHeldPct}%</Num> of portfolio value</> : null}.
-          {totalBuys ? <> <Num>{totalBuys}↑</Num> buy transaction{totalBuys !== 1 ? 's' : ''} observed</> : <> Buy activity observed</>}, no exits yet.
-        </>
+        <>Holding positions</>
+      )}
+      {valueHeldPct && <> representing <Num>{valueHeldPct}%</Num> of portfolio value</>}.
+      {' '}{totalBuys ? <><Num>{totalBuys}↑</Num> buy{totalBuys !== 1 ? 's' : ''}</> : <>Buy activity</>}, no sells recorded.
+      {unrealizedPnl !== null && unrealizedPnl !== undefined && (
+        <> Currently <Num className={unrealizedPnl >= 0 ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}>
+          {unrealizedPnl >= 0 ? '+' : ''}{unrealizedPnl.toFixed(1)} SOL
+        </Num> unrealized.</>
       )}
     </>
   );

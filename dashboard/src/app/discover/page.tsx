@@ -89,11 +89,6 @@ const holdBiasOptions = [
 
 const speedLegend = speedOptions.filter((option) => option.value !== "any");
 const flowLegend = flowOptions.filter((option) => option.value !== "any");
-const velocityBands = [
-  { label: "Slow", range: "0-30" },
-  { label: "Active", range: "31-70" },
-  { label: "Rapid", range: "71-100" },
-];
 
 const formatSOL = (val: number): string => {
   const absVal = Math.abs(val);
@@ -154,7 +149,6 @@ export default function DiscoverPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [activePreset, setActivePreset] = useState<string | null>(null);
-  const [velocityRange, setVelocityRange] = useState<[number, number]>([0, 100]);
 
   // Refs for chart instances
   const speedChartRef = useRef<any>(null);
@@ -176,8 +170,8 @@ export default function DiscoverPage() {
 
   const cacheKey = useMemo(
     () =>
-      `discover:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${velocityRange[0]}-${velocityRange[1]}:${PAGE_SIZE}`,
-    [sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias, velocityRange],
+      `discover:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${PAGE_SIZE}`,
+    [sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias],
   );
 
   const pageCount = useMemo(
@@ -201,8 +195,6 @@ export default function DiscoverPage() {
       if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
       if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern);
       if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
-      if (velocityRange[0] > 0) params.set('minVelocity', String(velocityRange[0]));
-      if (velocityRange[1] < 100) params.set('maxVelocity', String(velocityRange[1]));
 
       const data = (await fetcher(`/discover/wallets?${params.toString()}`)) as DiscoverWalletsResponse;
       setWallets(data.items || []);
@@ -214,7 +206,7 @@ export default function DiscoverPage() {
       setLoading(false);
       setIsUpdating(false);
     }
-  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern, velocityRange]);
+  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern]);
 
   useEffect(() => {
     const cached = readCache(cacheKey);
@@ -293,7 +285,6 @@ export default function DiscoverPage() {
     setHoldBias('any');
     setMinTradeCount('');
     setMinUniqueTokens('');
-    setVelocityRange([0, 100]);
     setPage(1);
     setActivePreset(null);
   };
@@ -342,8 +333,6 @@ export default function DiscoverPage() {
       if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
       if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern);
       if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
-      if (velocityRange[0] > 0) params.set('minVelocity', String(velocityRange[0]));
-      if (velocityRange[1] < 100) params.set('maxVelocity', String(velocityRange[1]));
 
       const data = await fetcher(`/discover/aggregation?${params.toString()}`);
       setSpeedDistribution(data.speedDistribution || []);
@@ -353,7 +342,7 @@ export default function DiscoverPage() {
       console.error('Failed to fetch aggregation stats:', err);
       // Non-critical, just log it
     }
-  }, [minTradeCount, minUniqueTokens, speedCategory, flowPattern, holdBias, velocityRange, sort]);
+  }, [minTradeCount, minUniqueTokens, speedCategory, flowPattern, holdBias, sort]);
 
   useEffect(() => {
     fetchAggregation();
@@ -364,12 +353,6 @@ export default function DiscoverPage() {
 
   const getFlowStat = (pattern: string) =>
     flowDistribution.find((item) => item.pattern === pattern) || { count: 0, percentage: 0 };
-
-  const velocityMin = velocityRange[0];
-  const velocityMax = velocityRange[1];
-  const velocityFillLeft = `${velocityMin}%`;
-  const velocityFillRight = `${100 - velocityMax}%`;
-  const toBgClass = (colorClass: string) => colorClass.replace("text-", "bg-");
 
   const showTableSkeleton = (loading || isUpdating) && !error;
   const showSidebarSkeleton = showTableSkeleton && wallets.length === 0;
@@ -690,12 +673,6 @@ export default function DiscoverPage() {
             </Tooltip>
           </TooltipProvider>
 
-          {/* Velocity filter indicator */}
-          {(velocityRange[0] > 0 || velocityRange[1] < 100) && (
-            <Badge variant="secondary" className="h-7 px-2 text-xs">
-              Velocity: {velocityRange[0]}-{velocityRange[1]}
-            </Badge>
-          )}
 
           {/* Reset + Refresh combined */}
           <TooltipProvider>
@@ -862,64 +839,6 @@ export default function DiscoverPage() {
               </>
             ) : (
               <>
-                {/* Compact Velocity Filter */}
-                <Card>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <CardTitle className="text-sm cursor-help flex items-center gap-1">
-                              Velocity Filter
-                              <Info className="h-3 w-3 text-muted-foreground" />
-                            </CardTitle>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs">
-                            <p className="text-xs">Trading velocity measures rotation speed. Higher values = faster exits.</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <span className="text-xs text-muted-foreground">{velocityMin}–{velocityMax}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="pb-3">
-                    <div className="relative h-2 rounded-full bg-muted">
-                      <div
-                        className="absolute inset-y-0 rounded-full bg-primary/60"
-                        style={{ left: velocityFillLeft, right: velocityFillRight }}
-                      />
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={velocityMin}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          setVelocityRange(([_, max]) => [Math.min(value, max - 1), max]);
-                          setPage(1);
-                          setActivePreset(null);
-                        }}
-                        className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto z-20 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-primary/60 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0"
-                        aria-label="Minimum velocity"
-                      />
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={velocityMax}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          setVelocityRange(([min]) => [min, Math.max(value, min + 1)]);
-                          setPage(1);
-                          setActivePreset(null);
-                        }}
-                        className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto z-10 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-primary/60 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0"
-                        aria-label="Maximum velocity"
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-
                 {/* Speed Distribution - Visual Donut Chart */}
                 <Card>
                   <CardHeader className="pb-2">
@@ -1535,7 +1454,7 @@ function WalletRow({
               {unpairedPct}%{isHighUnpaired ? " ⚠️" : ""}
             </div>
             {isHighUnpaired && (
-              <div className="text-xs text-muted-foreground">airdrop scam</div>
+              <div className="text-xs text-muted-foreground"></div>
             )}
           </div>
         ) : (
