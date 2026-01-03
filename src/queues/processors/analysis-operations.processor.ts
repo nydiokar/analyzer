@@ -1311,7 +1311,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             .map(r => [
               r.tokenAddress,
               {
-                pnl: r.totalPnlSol ?? r.netSolProfitLoss,
+                pnl: r.realizedPnlSol ?? r.totalPnlSol ?? r.netSolProfitLoss,
                 capital: r.totalSolSpent,
               },
             ])

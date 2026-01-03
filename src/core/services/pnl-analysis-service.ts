@@ -423,7 +423,7 @@ export class PnlAnalysisService {
                 if (result.isValuePreservation || result.hasIncompleteHistory) {
                     continue;
                 }
-                const finalPnl = result.netSolProfitLoss ?? 0;
+                const finalPnl = result.realizedPnlSol ?? result.totalPnlSol ?? result.netSolProfitLoss ?? 0;
                 if (finalPnl > 0) profitableTokensCount++;
                 else if (finalPnl < 0) unprofitableTokensCount++;
             }

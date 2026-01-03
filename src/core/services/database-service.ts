@@ -2141,15 +2141,20 @@ export class DatabaseService {
                 
                 // Use transaction for batch processing
                 await this.prismaClient.$transaction(
-                    batch.map(record => 
+                    batch.map(record =>
                         this.prismaClient.analysisResult.upsert({
-                            where: { 
-                                walletAddress_tokenAddress: { 
-                                    walletAddress: record.walletAddress, 
-                                    tokenAddress: record.tokenAddress 
-                                }
+                            where: {
+                                walletAddress_tokenAddress: {
+                                    walletAddress: record.walletAddress,
+                                    tokenAddress: record.tokenAddress,
+                                },
                             },
-                            create: record,
+                            create: {
+                                ...record,
+                                wallet: {
+                                    connect: { address: record.walletAddress },
+                                },
+                            },
                             update: record,
                         })
                     )
