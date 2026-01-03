@@ -30,6 +30,14 @@ const TOKENS = [
   'totalSolReceived',
 ];
 
+const AREAS = [
+  { name: 'frontend', match: [/dashboard[\\/]/] },
+  { name: 'api', match: [/src[\\/]api[\\/]/] },
+  { name: 'core', match: [/src[\\/]core[\\/]/, /src[\\/]queues[\\/]/] },
+  { name: 'scripts', match: [/src[\\/]scripts[\\/]/, /scripts[\\/]/] },
+  { name: 'types', match: [/src[\\/]types[\\/]/, /dashboard[\\/]src[\\/]types[\\/]/] },
+];
+
 function walk(dir, files = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
@@ -45,11 +53,20 @@ function walk(dir, files = []) {
   return files;
 }
 
+function resolveArea(filePath) {
+  for (const area of AREAS) {
+    if (area.match.some(rx => rx.test(filePath))) return area.name;
+  }
+  return 'other';
+}
+
 function classify(line) {
   const text = line.trim();
   if (/totalPnlSol\s*\?\?\s*netSolProfitLoss/.test(text)) return 'fallback-totalPnlSol';
   if (/netSolProfitLoss\s*\?\?/.test(text)) return 'null-coalesce';
   if (/netSolProfitLoss\s*\|\|\s*0/.test(text)) return 'zero-coalesce';
+  if (/netSolProfitLoss\s*=\s*/.test(text)) return 'assignment';
+  if (/\b(interface|type|class)\b/.test(text)) return 'type-definition';
   if (/orderBy\.|sort\(|sortOrder|sortBy/.test(text)) return 'sorting';
   if (/filter\(|where\./.test(text)) return 'filtering';
   if (/reduce\(|sum|aggregate/.test(text)) return 'aggregation';
@@ -71,6 +88,7 @@ function scanFile(filePath) {
         line,
         tokens: tokenHits,
         category: classify(line),
+        area: resolveArea(filePath),
       });
     }
   }
@@ -100,6 +118,14 @@ function main() {
   console.log(`Potentially risky netSolProfitLoss usage: ${risky.length}`);
   console.log('');
 
+  const riskyByArea = new Map();
+  for (const area of [...AREAS.map(a => a.name), 'other']) {
+    riskyByArea.set(area, []);
+  }
+  for (const item of risky) {
+    riskyByArea.get(item.area).push(item);
+  }
+
   function printSection(title, items) {
     console.log(title);
     console.log('-'.repeat(title.length));
@@ -120,11 +146,17 @@ function main() {
 
   printSection('Risky netSolProfitLoss usage (review for FIFO correctness)', risky);
 
+  for (const [area, items] of riskyByArea.entries()) {
+    printSection(`Risky netSolProfitLoss usage in ${area}`, items);
+  }
+
   printSection('Fallback usage (totalPnlSol ?? netSolProfitLoss)', matches.filter(m => m.category === 'fallback-totalPnlSol'));
 
   printSection('FIFO fields usage (realizedPnlSol/unrealizedPnlSol/totalPnlSol)', matches.filter(m => m.tokens.some(t => ['realizedPnlSol', 'unrealizedPnlSol', 'totalPnlSol'].includes(t))));
 
   printSection('Wallet summary fields usage (realizedPnl/unrealizedPnl/netPnl)', matches.filter(m => m.tokens.some(t => ['realizedPnl', 'unrealizedPnl', 'netPnl'].includes(t))));
+
+  printSection('NetSolProfitLoss type/assignment usage', matches.filter(m => m.tokens.includes('netSolProfitLoss') && (m.category === 'type-definition' || m.category === 'assignment')));
 }
 
 main();

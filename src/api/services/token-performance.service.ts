@@ -156,11 +156,11 @@ export class TokenPerformanceService {
     let needsPostFiltering = false;
     
     // These fields are calculated after data fetch, so they need post-processing
-    const calculatedFields = ['roi', 'totalPnlSol', 'unrealizedPnlSol', 'currentSolValue'];
+    const calculatedFields = ['roi', 'totalPnlSol', 'realizedPnlSol', 'unrealizedPnlSol', 'currentSolValue'];
     
     if (calculatedFields.includes(sortBy)) {
       // For calculated fields, we'll sort by a related field for now and apply post-processing
-      if (sortBy === 'roi' || sortBy === 'totalPnlSol') {
+      if (sortBy === 'roi' || sortBy === 'totalPnlSol' || sortBy === 'realizedPnlSol') {
         orderBy.netSolProfitLoss = sortOrder.toLowerCase() as Prisma.SortOrder;
       } else if (sortBy === 'unrealizedPnlSol' || sortBy === 'currentSolValue') {
         orderBy.currentUiBalance = sortOrder.toLowerCase() as Prisma.SortOrder;
@@ -448,39 +448,64 @@ export class TokenPerformanceService {
 
     // Apply calculated field sorting if needed
     if (needsPostSorting) {
+      const compareNullable = (valueA: number | null | undefined, valueB: number | null | undefined) => {
+        const aNull = valueA === null || valueA === undefined || Number.isNaN(valueA);
+        const bNull = valueB === null || valueB === undefined || Number.isNaN(valueB);
+        if (aNull && bNull) return 0;
+        if (aNull) return 1;
+        if (bNull) return -1;
+        return sortOrder === SortOrder.DESC ? (valueB as number) - (valueA as number) : (valueA as number) - (valueB as number);
+      };
+
       tokenPerformanceDataList.sort((a, b) => {
-        let valueA: number;
-        let valueB: number;
+        let valueA: number | null = null;
+        let valueB: number | null = null;
         
         switch (sortBy) {
-          case 'roi':
-            // Fixed ROI calculation: Use totalPnlSol instead of netSolProfitLoss for more accurate ROI
-            valueA = a.totalSolSpent && a.totalSolSpent !== 0 
-              ? (a.totalPnlSol || 0) / a.totalSolSpent * 100 
-              : (a.totalPnlSol || 0) > 0 ? Infinity : (a.totalPnlSol || 0) < 0 ? -Infinity : 0;
-            valueB = b.totalSolSpent && b.totalSolSpent !== 0 
-              ? (b.totalPnlSol || 0) / b.totalSolSpent * 100 
-              : (b.totalPnlSol || 0) > 0 ? Infinity : (b.totalPnlSol || 0) < 0 ? -Infinity : 0;
+          case 'roi': {
+            if (a.totalPnlSol === null || a.totalPnlSol === undefined) {
+              valueA = null;
+            } else if (a.totalSolSpent && a.totalSolSpent !== 0) {
+              valueA = (a.totalPnlSol / a.totalSolSpent) * 100;
+            } else {
+              valueA = a.totalPnlSol > 0 ? Infinity : a.totalPnlSol < 0 ? -Infinity : 0;
+            }
+
+            if (b.totalPnlSol === null || b.totalPnlSol === undefined) {
+              valueB = null;
+            } else if (b.totalSolSpent && b.totalSolSpent !== 0) {
+              valueB = (b.totalPnlSol / b.totalSolSpent) * 100;
+            } else {
+              valueB = b.totalPnlSol > 0 ? Infinity : b.totalPnlSol < 0 ? -Infinity : 0;
+            }
             break;
+          }
           case 'totalPnlSol':
-            valueA = a.totalPnlSol || 0;
-            valueB = b.totalPnlSol || 0;
+            valueA = a.totalPnlSol ?? null;
+            valueB = b.totalPnlSol ?? null;
+            break;
+          case 'realizedPnlSol':
+            valueA = a.realizedPnlSol ?? null;
+            valueB = b.realizedPnlSol ?? null;
             break;
           case 'unrealizedPnlSol':
-            valueA = a.unrealizedPnlSol || 0;
-            valueB = b.unrealizedPnlSol || 0;
+            valueA = a.unrealizedPnlSol ?? null;
+            valueB = b.unrealizedPnlSol ?? null;
             break;
           case 'currentSolValue':
-            // Sort by SOL value of current holdings
-            valueA = a.currentHoldingsValueUsd ? a.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
-            valueB = b.currentHoldingsValueUsd ? b.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
+            valueA = a.currentHoldingsValueUsd !== null && a.currentHoldingsValueUsd !== undefined
+              ? a.currentHoldingsValueUsd / estimatedSolPriceUsd
+              : null;
+            valueB = b.currentHoldingsValueUsd !== null && b.currentHoldingsValueUsd !== undefined
+              ? b.currentHoldingsValueUsd / estimatedSolPriceUsd
+              : null;
             break;
           default:
             valueA = 0;
             valueB = 0;
         }
         
-        return sortOrder === SortOrder.DESC ? valueB - valueA : valueA - valueB;
+        return compareNullable(valueA, valueB);
       });
     }
 

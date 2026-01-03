@@ -173,18 +173,14 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
     cell: ({ row }) => {
       const item = row.original;
       const totalSpent = item.totalSolSpent ?? 0;
-      const totalReceived = item.totalSolReceived ?? 0;
-      const currentHoldingsValue = item.currentHoldingsValueSol ?? 0;
-
-      // Prefer FIFO-backed totalPnlSol when available to align display with sorting.
-      const totalProfit = item.totalPnlSol ?? ((totalReceived + currentHoldingsValue) - totalSpent);
+      const totalProfit = item.totalPnlSol;
 
       // ROI FIX: Don't show ROI for dust trades (< 0.01 SOL spent)
       const DUST_THRESHOLD = 0.01;
       const isDustTrade = totalSpent < DUST_THRESHOLD;
 
       // Calculate ROI based on corrected total profit
-      const roi = !isDustTrade && totalSpent !== 0
+      const roi = totalProfit !== null && totalProfit !== undefined && !isDustTrade && totalSpent !== 0
         ? (totalProfit / totalSpent) * 100
         : null;
 
@@ -419,8 +415,41 @@ function TokenPerformanceTab({
   const [isUsingFallback, setIsUsingFallback] = useState(false);
   const initialLoadNotifiedRef = useRef(false);
 
+  const querySignature = useMemo(() => JSON.stringify({
+    walletAddress,
+    sortBy,
+    sortOrder,
+    showHoldingsOnly,
+    search: deferredSearchTerm,
+    spam: deferredSpamFilter,
+    pnl: deferredPnlFilter,
+    minTrades: minTradesToggle,
+    startDate: startDate?.toISOString() ?? null,
+    endDate: endDate?.toISOString() ?? null,
+    tokenAddressesFilter,
+  }), [
+    walletAddress,
+    sortBy,
+    sortOrder,
+    showHoldingsOnly,
+    deferredSearchTerm,
+    deferredSpamFilter,
+    deferredPnlFilter,
+    minTradesToggle,
+    startDate,
+    endDate,
+    tokenAddressesFilter,
+  ]);
+
+  const lastQuerySignatureRef = useRef<string>('');
+  const effectivePage = lastQuerySignatureRef.current === querySignature ? page : 1;
+
   // Reset ALL state when wallet or filters change
   useEffect(() => {
+    if (lastQuerySignatureRef.current === querySignature) {
+      return;
+    }
+    lastQuerySignatureRef.current = querySignature;
     fallbackCacheRef.current.clear();
     setFallbackResponse(null);
     setIsUsingFallback(false);
@@ -431,7 +460,7 @@ function TokenPerformanceTab({
     setPage(1);
     setAllTokens([]);
     setHasMore(true);
-  }, [walletAddress, sortBy, sortOrder, showHoldingsOnly, deferredSearchTerm, deferredSpamFilter, deferredPnlFilter, minTradesToggle]);
+  }, [querySignature]);
 
   const apiUrlBase = walletAddress ? `/wallets/${walletAddress}/token-performance` : null;
   let swrKey: string | null = null;
@@ -440,7 +469,7 @@ function TokenPerformanceTab({
   if (apiUrlBase) {
     // Build params for ACTUAL API call (includes time filter and sorting)
     const fetchParams = new URLSearchParams();
-    fetchParams.append('page', page.toString());
+    fetchParams.append('page', effectivePage.toString());
     fetchParams.append('pageSize', pageSize.toString());
 
     // IMPORTANT: Include time filter for backend's hasActivityInPeriod calculation
@@ -504,7 +533,7 @@ function TokenPerformanceTab({
     if (!data) return;
 
     // If page 1, replace all tokens (fresh start)
-    if (page === 1) {
+    if ((data.page ?? effectivePage) === 1) {
       setAllTokens(data.data);
     } else {
       // Append new page to existing tokens
@@ -512,9 +541,9 @@ function TokenPerformanceTab({
     }
 
     // Check if there are more pages
-    const totalLoaded = page * pageSize;
+    const totalLoaded = (data.page ?? effectivePage) * pageSize;
     setHasMore(totalLoaded < (data.total || 0));
-  }, [data, page, pageSize]);
+  }, [data, effectivePage, pageSize]);
 
   // Backend handles sorting - just use accumulated tokens
   const tableData = useMemo(() => allTokens, [allTokens]);
