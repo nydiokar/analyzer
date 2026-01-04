@@ -246,14 +246,26 @@ export class PnlAnalysisService {
             // Attach wallet balances to the results if available.
             const enrichedSwapAnalysisResults = swapAnalysisResultsFromAnalyzer.map(result => {
                 const tokenBalance = currentWalletBalance?.tokenBalances.find(b => b.mint === result.tokenAddress);
+                const hasBalanceData = !!currentWalletBalance;
+
+                // Balance logic:
+                // - If we have fresh balance data from Helius:
+                //   → Token in response: use it
+                //   → Token NOT in response: balance is 0 (sold/transferred away)
+                // - If we don't have balance data (edge case: test scripts without API):
+                //   → Leave undefined (don't update the field in database)
+                //
+                // We always fetch balances during analysis (even for time-ranged scopes)
+                // because we need current balances for unrealized PnL calculations.
+                // Therefore in production, hasBalanceData is always true.
 
                 return {
                     ...result,
-                    currentRawBalance: tokenBalance?.balance,
-                    currentUiBalance: tokenBalance?.uiBalance,
-                    currentUiBalanceString: tokenBalance?.uiBalanceString,
+                    currentRawBalance: hasBalanceData ? (tokenBalance?.balance ?? '0') : undefined,
+                    currentUiBalance: hasBalanceData ? (tokenBalance?.uiBalance ?? 0) : undefined,
+                    currentUiBalanceString: hasBalanceData ? (tokenBalance?.uiBalanceString ?? '0') : undefined,
                     balanceDecimals: tokenBalance?.decimals,
-                    balanceFetchedAt: tokenBalance ? balancesFetchedAt : undefined,
+                    balanceFetchedAt: hasBalanceData ? balancesFetchedAt : undefined,
                 };
             });
 

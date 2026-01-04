@@ -521,6 +521,19 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
       }
 
+      // Clear balance cache after deep scope completes
+      // This ensures the next refresh always fetches fresh balances from Helius
+      // Without this, consecutive refreshes within 10 minutes would use stale cached balances
+      if (scope === 'deep') {
+        try {
+          await this.balanceCacheService.clearCache(walletAddress);
+          this.logger.debug(`Cleared balance cache for ${walletAddress} after deep scope completion`);
+        } catch (error) {
+          this.logger.warn(`Failed to clear balance cache for ${walletAddress}:`, error);
+          // Non-critical, don't fail the job
+        }
+      }
+
       const result = {
         success: true,
         walletAddress,

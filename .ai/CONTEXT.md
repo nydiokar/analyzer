@@ -1,15 +1,15 @@
 # Current State
 
 **Project**: Sova Intel - Wallet Analysis System
-**Branch**: `discover-token-performance` (currently working on P0 issue)
-**Status**: 🔴 **P0 BLOCKER - P&L Contamination Discovered**
-**Last Updated**: 2026-01-03
+**Branch**: `discover-analytics-ux` (P0 FIFO fixes completed)
+**Status**: 🟢 **P0 CRITICAL BUGS FIXED** - FIFO precision + stale balance resolved
+**Last Updated**: 2026-01-04
 
 ---
 
-## 🔴 P0 CRITICAL ISSUE - BLOCKS ALL OTHER WORK
+## 🟢 P0 CRITICAL ISSUE - RESOLVED (2026-01-04)
 
-### P&L Calculations Are Fundamentally Broken
+### P&L Calculations - FIFO Implementation Complete + Bug Fixes
 
 **Discovered**: 2025-12-30 during `discover-token-performance` branch work
 
@@ -38,7 +38,12 @@
 
 **Documentation**: See `.ai/context/P0_PNL_CONTAMINATION.md` for full details, contamination map, and implementation plan.
 
-**Status**: User plans to work on this as top priority. All other feature work is BLOCKED until this is fixed.
+**Status**: ✅ **RESOLVED (2026-01-04)** - FIFO implementation complete, critical bugs fixed:
+- ✅ FIFO lot-based cost tracking implemented
+- ✅ Floating point precision bug fixed (percentage-based tolerance)
+- ✅ Stale balance data bug fixed (zero-balance tokens cleared correctly)
+- ✅ All 4 incomplete tokens now showing correct data
+- ✅ Verified on production wallet data
 
 **Next Actions (brief)**:
 1) ✅ Prevent time-range analyses from overwriting FIFO lots / AnalysisResult (skip persistence on historical runs).
@@ -226,10 +231,46 @@ Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as 
 - Marked done for dev use. FIFO math validated on real wallets and mapping fix confirmed.
 - Backfill/reprocessing script and formal unit test reruns deferred intentionally.
 
-#### 🚧 Remaining Work (P0 FIFO)
-1. ✅ Generate Prisma migration (no manual SQL).
-2. ⏳ Implement backfill/reprocessing script to rebuild lots and FIFO P&L from historical SwapAnalysisInput.
-3. ⏳ Rerun FIFO tests and verify correctness + totals.
+#### ✅ FIFO Bug Fixes (2026-01-04)
+**Issue 1: Floating Point Precision Bug**
+- **Problem**: 4 tokens showed `hasIncompleteHistory = true` despite perfect balance (IN = OUT)
+- **Root Cause**: `while (remainingToSell > 0)` failed on tiny floating point remainders (e.g., 0.0000000037)
+- **Solution**: Implemented percentage-based tolerance with floor/ceiling bounds
+  ```typescript
+  const PERCENTAGE_TOLERANCE = 0.001; // 0.1% of sale amount
+  const MIN_TOLERANCE = 0.001; // Floor: prevent floating point issues
+  const MAX_TOLERANCE = 100; // Ceiling: prevent being too loose
+  const completionTolerance = Math.min(
+    Math.max(normalizedAmount * PERCENTAGE_TOLERANCE, MIN_TOLERANCE),
+    MAX_TOLERANCE
+  );
+  while (remainingToSell > completionTolerance) { ... }
+  ```
+- **Files**: `src/core/analysis/swap/fifo-lot-tracker.ts:49-100`
+
+**Issue 2: Stale Balance Data Bug**
+- **Problem**: Tokens with 15M stale balance when actual balance should be 0 (fully sold)
+- **Root Cause**: Helius API doesn't return tokens with balance=0, causing `currentUiBalance: undefined` in upsert, which preserves old data in Prisma
+- **Solution**: Trust Helius balance data - if token not in response, set to 0
+  ```typescript
+  const hasBalanceData = !!currentWalletBalance;
+
+  // If we have fresh balance data:
+  //   - Token in response → use it
+  //   - Token NOT in response → balance is 0 (sold/transferred)
+  // If no balance data (test scripts):
+  //   - Leave undefined (don't update field)
+
+  currentUiBalance: hasBalanceData ? (tokenBalance?.uiBalance ?? 0) : undefined
+  ```
+- **Files**: `src/core/services/pnl-analysis-service.ts:246-270`
+- **Impact**: All tokens now show accurate current balances; stale data automatically cleared on analysis
+- **Note**: We always fetch balances during analysis (even time-ranged) for unrealized PnL, so `hasBalanceData` is always true in production
+
+**Verification**: Both fixes tested and verified on wallet CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B
+- All 4 incomplete tokens now show `hasIncompleteHistory: false` ✅
+- All stale balances cleared (15M → 0, 5M → 0) ✅
+- FIFO realized PnL calculations now accurate ✅
 
 #### ✅ Task 4: ROI Calculation Fix (COMPLETED)
 **Problem**: ROI showing -300% for dust trades

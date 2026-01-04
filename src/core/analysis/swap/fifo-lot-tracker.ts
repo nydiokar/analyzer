@@ -46,6 +46,13 @@ export function buildFifoLotsForToken(
   // We identify and assign ZERO cost to non-economic transfers while tracking token movement
   const UNKNOWN_TRANSFER_THRESHOLD_SOL = 0.01;
 
+  // Tolerance configuration for FIFO completion detection
+  // Uses percentage-based tolerance with floor/ceiling bounds to handle all token scales
+  const PERCENTAGE_TOLERANCE = 0.001; // 0.1% of the amount being sold
+  const MIN_TOLERANCE = 0.001; // Floor: prevent floating point precision issues
+  const MAX_TOLERANCE = 100; // Ceiling: prevent being too loose on massive sales
+  const LOT_FINDING_TOLERANCE = 0.001; // For finding lots with real tokens (not dust)
+
   for (const input of ordered) {
     const normalizedAmount = Math.abs(input.amount);
     const interactionType = input.interactionType?.toUpperCase() ?? '';
@@ -75,8 +82,18 @@ export function buildFifoLotsForToken(
     totalProceedsSol += effectiveSolValue;
     let remainingToSell = normalizedAmount;
 
-    while (remainingToSell > 0) {
-      const nextLot = lots.find(lot => lot.amountRemaining > 0);
+    // Calculate tolerance for this specific sale amount
+    // Scales with token amount but bounded by floor/ceiling
+    const completionTolerance = Math.min(
+      Math.max(
+        normalizedAmount * PERCENTAGE_TOLERANCE,
+        MIN_TOLERANCE
+      ),
+      MAX_TOLERANCE
+    );
+
+    while (remainingToSell > completionTolerance) {
+      const nextLot = lots.find(lot => lot.amountRemaining > LOT_FINDING_TOLERANCE);
       if (!nextLot) {
         hasIncompleteHistory = true;
         break;
