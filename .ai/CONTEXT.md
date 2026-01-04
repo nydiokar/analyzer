@@ -354,6 +354,11 @@ Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as 
 2. Verify all infected areas show correct data
 3. THEN resume parallel branch work if still desired
 
+THIS IS PROBLEMATIC!  [PnlAnalysisService] [PnlAnalysis] Historical/time-range analysis detected for CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B; skipping persistence of FIFO lots, AnalysisResult, and WalletPnlSummary.
+
+We basically do it wrong! 
+
+
 ---
 
 ## Deployment Notes

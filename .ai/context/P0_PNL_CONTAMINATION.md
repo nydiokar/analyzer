@@ -1,429 +1,499 @@
-# P0: P&L Contamination - Misleading Data Across Entire Platform
+# P0: P&L Calculation Issues - Current Status
 
-**Severity**: 🔴 **CRITICAL - P0**
-**Discovered**: 2025-12-30
-**Status**: DOCUMENTED - Needs immediate fix
-**Impact**: Entire platform shows misleading P&L data, affecting trading decisions
+**Severity**: 🟡 **HIGH (was P0, partially resolved)**
+**Last Updated**: 2026-01-03
+**Status**: FIFO implemented, but significant issues remain
 
 ---
 
-## TL;DR - The Problem
+## Executive Summary
 
-**The entire platform is showing WRONG P&L calculations for any wallet with partial sells.**
+### ✅ What's Fixed
+- **FIFO cost basis tracking** implemented (December 2025)
+- **Holdings mismatch** handling improved (January 2026)
+- **UNKNOWN transfers** (DCA escrow) no longer break calculations
+- **Main test token** now shows PnL (was completely null before)
 
-When a wallet:
-1. Buys tokens at different prices over time
-2. Sells SOME of those tokens (partial exit)
-3. Still holds remaining tokens
+### ❌ What's Still Broken
+- **PnL differs 110-450 SOL** from competitor platforms
+- **3 tokens show incomplete history** despite being "clean" (no DCA)
+- **TRANSFER interactions** treated as economic (inflating cost basis)
+- **Unknown interaction types** beyond SWAP/TRANSFER/UNKNOWN/BURN/TOKEN_MINT
 
-We show them as **LOSING money when they're actually WINNING**.
+---
 
-### Real Example That Exposed The Bug
+## The Original Problem (Historical Context)
 
-**Token**: The Official 67 Coin
-**Wallet Activity**:
-- Bought: 70 SOL spent total
+**FIFO cost basis tracking was missing.** We used simple average cost, which catastrophically fails for partial sells:
+
+**Real Example:**
+- Bought: 70 SOL spent
 - Sold: 555 SOL received
-- Current Holdings: 236 SOL worth of tokens still held
-- **EXPECTED Total Profit**: (555 + 236) - 70 = **+721 SOL** 🟢
-- **ACTUAL Shown**: **-80 SOL** 🔴
+- Holdings: 236 SOL worth
+- **Expected**: +721 SOL profit
+- **Shown**: -80 SOL loss
+- **Error**: 801 SOL (1000%+ off!)
 
-**We're off by 801 SOL!** That's not a rounding error, that's catastrophic.
+**Root Cause:** No tracking of which specific token lots were sold (FIFO = First In, First Out).
 
-### Why This Matters (A LOT)
-
-This is a **trading intelligence tool**, not an accounting tool. People use it to:
-- Find profitable wallets to copy
-- Avoid wallets that are losing
-- Track performance of smart money
-
-**If our P&L is backwards, they're following losers and ignoring winners.**
-
-As the user put it: "everybody is fucking losing big if they hold something and it's price is going up :D if they are losing we will be mostly correct :D ahahha"
+**Impact:** Entire platform showed backwards P&L - winners appeared as losers and vice versa.
 
 ---
 
-## Root Cause: No FIFO Cost Basis Tracking
+## FIFO Implementation (Dec 2025) ✅
 
-### What We're Missing
+### What We Built
+- `TokenLots` table in database
+- FIFO lot tracking in `SwapAnalyzer`
+- Proper realized/unrealized split
+- Cost basis tracking per lot
 
-We don't track **which specific tokens were sold** (FIFO = First In, First Out).
+### Files Modified
+- `prisma/schema.prisma` - Added TokenLots table
+- `src/core/analysis/swap/analyzer.ts` - FIFO lot creation
+- `src/core/analysis/swap/fifo-lot-tracker.ts` - FIFO consumption logic
+- `src/core/services/pnl-analysis-service.ts` - Lot-based P&L calculations
 
-When someone:
-- Buys 100 tokens at $1 each → cost basis: $100
-- Buys 100 more at $2 each → cost basis: $200
-- Total: 200 tokens, $300 spent, avg cost: $1.50/token
+**Status**: ✅ Implemented and working for most cases
 
-Then sells 100 tokens at $3 each:
-- **We calculate**: Sold 100 @ avg $1.50 = cost of $150, profit = $300 - $150 = **+$150**
-- **Reality (FIFO)**: Sold the FIRST 100 bought at $1 = cost of $100, profit = $300 - $100 = **+$200**
-- **Remaining 100 tokens**: Should have cost basis of $200 (the $2 batch), but we think it's $150
+---
 
-Result: **Realized P&L is wrong, Unrealized P&L is wrong, Total P&L is wrong.**
+## New Issues Discovered (Jan 2026)
 
-### Current Broken Formula
+### 1. 🔴 **UNKNOWN Transfers Breaking FIFO**
 
-```typescript
-// WRONG - treats ALL spent as if it was for sold tokens
-const avgCostPerToken = totalSolSpent / totalAmountIn;
-const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
-realizedPnlSol = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
+**Problem**: Jupiter DCA deposits/withdrawals marked as `UNKNOWN` by Helius
+
+**Characteristics:**
+- Tiny SOL values (0.007 SOL) but HUGE token amounts (millions)
+- Represent program escrow movements (tokens leave wallet but aren't sold yet)
+
+**Example** (Wallet: `CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B`, Token: `9Avy...pump`):
+```
+UNKNOWN IN:  54.7M tokens (0.042 SOL total)
+UNKNOWN OUT: 57.1M tokens (0.042 SOL total)
+Net: -2.4M tokens (in DCA escrow, not sold)
 ```
 
-This assumes ALL the cost is for the sold portion, ignoring that we still hold tokens!
+**Original Impact**: FIFO saw "oversell" and marked incomplete
 
-### Correct Approach (What We Need)
-
-Track individual token "lots":
+**Solution Implemented:**
 ```typescript
-interface TokenLot {
-  tokenAddress: string;
-  amountBought: number;
-  costBasis: number;  // SOL spent for THIS batch
-  timestamp: number;
-  amountRemaining: number;  // Decreases as we sell
+// analyzer.ts - Exclude UNKNOWN tiny from FIFO, include in supply totals
+const isNonEconomicTransfer =
+    interactionType === 'BURN' ||
+    (interactionType === 'UNKNOWN' &&
+     Math.abs(input.associatedSolValue) < 0.01 &&
+     Math.abs(input.associatedUsdcValue ?? 0) < 0.01);
+
+// Only pass economic transfers to FIFO
+if (splMint !== SOL_MINT && !isNonEconomicTransfer) {
+    fifoInputsByMint.set(splMint, [input]);
 }
+
+// But still count in supply totals with zero SOL value
+currentAnalysis.totalAmountIn! += tokenAmount;
+const solValueToConsider = isNonEconomicTransfer ? 0 : input.associatedSolValue;
+currentAnalysis.totalSolSpent! += solValueToConsider;
 ```
 
-When selling, use FIFO to determine which lots are consumed and calculate true realized P&L.
+**Status**: ✅ Fixed - UNKNOWN tiny transfers excluded from FIFO, included in supply
 
 ---
 
-## Full Contamination Map
+### 2. 🔴 **Holdings Mismatch Check Too Strict**
 
-### ✅ PATCHED (Frontend Band-Aid)
-1. **Token Performance Tab - Total Profit Column**
-   - Location: `dashboard/src/components/dashboard/TokenPerformanceTab.tsx:170-197`
-   - Fix: `totalProfit = (totalReceived + currentHoldingsValue) - totalSpent`
-   - Status: Shows correct TOTAL without FIFO
-   - Limitation: Realized/Unrealized split still wrong
+**Problem**: Code failed on mismatch between `currentBalance` and `fifoRemainingAmount`
 
-### ❌ INFECTED (Still Showing Wrong Data)
+**Why Mismatch Happens:**
+- Tokens in DCA escrow (left wallet but not sold yet)
+- FIFO only tracks economic swaps, not escrow movements
+- Mismatch is **EXPECTED and CORRECT** for wallets using DCA
 
-#### 2. Token Performance Tab - Realized Column
-- Location: `dashboard/src/components/dashboard/TokenPerformanceTab.tsx:215-229`
-- Uses: `item.realizedPnlSol` from backend
-- Source: `token-performance.service.ts` uses wrong `netSolProfitLoss`
-- Impact: **Shows incorrect realized P&L for every partial sell**
-
-#### 3. Account Summary Card
-- Location: `dashboard/src/components/layout/WalletProfileLayout.tsx`
-- Uses: `WalletPnlSummary.realizedPnl` (aggregates all tokens)
-- Impact: **Wallet header shows wrong total P&L summary**
-
-#### 4. Discover Page - Wallet P&L Metrics
-- Location: `dashboard/src/app/discover/page.tsx:779-899`
-- Uses: `wallet.metrics.realizedPnl`, `wallet.metrics.unrealizedPnl`
-- Impact: **All wallet rankings by P&L are backwards**
-- Critical: Users copy wallets based on this data!
-
-#### 5. Trackers Page - Portfolio Overview
-- Location: `dashboard/src/app/trackers/page.tsx:118-127, 689-710`
-- Aggregates: `totalPnl = sum(wallet.pnl)`
-- Impact: **Portfolio performance tracking is wrong**
-
-#### 6. Holder Profiles - Exit Timing Cohort Analysis
-- Location: `src/queues/processors/analysis-operations.processor.ts:1308-1316`
-- Contamination Path:
-  ```typescript
-  pnlMap = new Map(
-    pnlResults.map(r => [
-      r.tokenAddress,
-      { pnl: r.netSolProfitLoss, capital: r.totalSolSpent }
-    ])
-  );
-  // Passed to BehaviorAnalyzer → enrichedHoldTimeDistribution
-  // Displayed as Win Rate & ROI per time bucket
-  ```
-- Impact: **Win rates and ROI by exit speed are incorrect**
-- Shows in: WalletBaseballCard exit timing tables
-
----
-
-## The Data Flow (How Contamination Spreads)
-
+**Example:**
 ```
-1. Swap Analyzer calculates P&L
-   └─> Stores in AnalysisResult.netSolProfitLoss (WRONG for partial sells)
-
-2. Token Performance Service reads netSolProfitLoss
-   └─> Returns to frontend as realizedPnlSol
-
-3. WalletPnlSummary aggregates across all tokens
-   └─> Sums up wrong individual values
-
-4. Discover/Trackers pages query WalletPnlSummary
-   └─> Display wrong aggregated metrics
-
-5. Holder Profiles builds pnlMap from AnalysisResult
-   └─> Calculates wrong win rates and ROI by cohort
-
-6. Frontend displays all this contaminated data
-   └─> Users make trading decisions based on wrong information
+Current balance: 15,000,000 tokens (on-chain)
+FIFO expected: 17,442,587 tokens (doesn't know about DCA OUT)
+Difference: -2,442,587 tokens (exactly the UNKNOWN delta!)
 ```
 
-**Single point of failure**: `AnalysisResult.netSolProfitLoss`
-**Contamination radius**: Literally everything that shows P&L
-
----
-
-## Post-FIFO Implementation Review (Dec 2025) – Critical Gaps
-
-These are **verified against current code** and represent remaining or newly introduced issues that can still corrupt FIFO correctness.
-
-### 🔴 Critical: Time-range analyses overwrite FIFO lots + AnalysisResult
-**What happens**: `analyzeWalletPnl` persists FIFO lots and AnalysisResult for *time-bounded* runs. That **replaces the wallet's full-history FIFO lots** with partial lots.  
-**Why it matters**: Any historical-slice analysis (jobs with a time range) can corrupt the canonical cost basis and P&L state for the wallet.  
-**Code**:
-- `src/queues/processors/analysis-operations.processor.ts:390` calls `analyzeWalletPnl(walletAddress, timeRange, ...)`
-- `src/core/services/pnl-analysis-service.ts:587` calls `replaceTokenLotsForWallet(...)` unconditionally
-
-### 🔴 High: FIFO ignores USDC-associated value
-**What happens**: FIFO lot tracking only passes `associatedSolValue`; `associatedUsdcValue` is never used.  
-**Why it matters**: USDC-priced swaps (and any swap where the price signal is in USDC) will yield incorrect cost basis / proceeds, often zeroing out value and inflating profits.  
-**Code**:
-- `src/core/analysis/swap/analyzer.ts:182-190` uses `associatedSolValue` only
-- `src/core/services/helius-transaction-mapper.ts:900+` often assigns **USDC** value instead of SOL
-
-### 🔴 High: FIFO has no knowledge of transfer type (BURN/TRANSFER/airdrop)
-**What happens**: SwapAnalyzer strips `interactionType` to FIFO inputs. FIFO treats all non-SOL flows equally (buy/sell).  
-**Why it matters**: Transfer-out should be zero-proceeds disposal; transfer-in should be zero-cost lot. With no interaction type, FIFO can misclassify them as swap buys/sells if `associatedSolValue` is non-zero.  
-**Code**:
-- `src/core/analysis/swap/analyzer.ts:46` filters `BURN`, then FIFO inputs omit interaction type
-- `src/core/analysis/swap/fifo-lot-tracker.ts` only uses `direction` + `associatedSolValue`
-
-### 🟠 Medium: fee-payer heuristic uses negative amounts for `out`
-**What happens**: The fee-payer heuristic inserts `amount: -abs(x)` for direction `out`.  
-**Why it matters**: Most aggregation assumes positive amounts with direction indicating sign. This can undercount totals, flip net amount change, and skew behavior metrics.  
-**Code**:
-- `src/core/services/helius-transaction-mapper.ts:705-709` (negative amount for `out`)
-- `src/core/analysis/swap/analyzer.ts:121-136` assumes positive `amount` and uses `direction`
-
-### 🟠 Medium: fees can be double-counted per transfer chunk
-**What happens**: Fee assignment is computed per transfer row, not per tx/signature.  
-**Why it matters**: Multi-transfer transactions can carry the same network fee multiple times, depressing net P&L.  
-**Code**:
-- `src/core/services/helius-transaction-mapper.ts:992-1013` assigns refined fee per row
-
-### 🟠 Medium: "hasIncompleteHistory" zeros netSolProfitLoss
-**What happens**: If holdings mismatch or incomplete history is detected, netSolProfitLoss is set to `0` (not null).  
-**Why it matters**: Downstream consumers may treat this as breakeven instead of excluding it, affecting ranking, summaries, and win-rate.  
-**Code**:
-- `src/core/services/pnl-analysis-service.ts:398-404`
-
-
----
-
-## Impact Assessment
-
-### Who Gets Hurt
-
-1. **Users tracking "smart money" wallets**
-   - Copy wallets that appear profitable but are actually losing
-   - Avoid wallets that appear to be losing but are actually winning
-
-2. **Users analyzing token holder cohorts**
-   - Wrong win rates by exit timing
-   - Wrong ROI by behavioral category
-   - Misleading insights about which strategies work
-
-3. **Portfolio tracking**
-   - Can't trust aggregate performance metrics
-   - Can't compare collections properly
-   - Can't track own wallet performance
-
-### Why Simple Averaging Fails
-
-The simple average cost formula breaks when:
-- Token price changes significantly during accumulation
-- Partial sells happen at different price points
-- Large price movements between buy/sell events
-
-It's especially broken for volatile tokens (which is... all crypto).
-
----
-
-## Solution Options
-
-### Option A: Quick Frontend Patches (BAND-AID)
-**Time**: 2-3 hours
-**Approach**: Apply same fix as Total Profit to all infected areas
+**Original Code:**
 ```typescript
-// Use available data to compute correct totals
-const totalProfit = (totalReceived + currentHoldingsValue) - totalSpent;
+if (result.hasIncompleteHistory || hasHoldingsMismatch) {
+    result.realizedPnlSol = null; // ❌ Too strict!
 ```
-**Pros**: Fast, shows correct TOTAL profit
-**Cons**: Still can't split realized vs unrealized correctly
-**Verdict**: ⚠️ Temporarily fixes headlines, doesn't fix root cause
 
-### Option B: Backend Aggregation Fixes (BETTER BAND-AID)
-**Time**: 4-6 hours
-**Approach**: Fix `WalletPnlSummary` calculations, improve formulas
-**Pros**: Centralized fix, affects all consumers
-**Cons**: Still fundamentally limited without FIFO
-**Verdict**: ⚠️ Reduces error magnitude but doesn't eliminate it
+**Solution Implemented:**
+```typescript
+// Only mark incomplete if FIFO itself failed (oversell), not just holdings mismatch
+if (result.hasIncompleteHistory) {
+    result.realizedPnlSol = null; // ✅ Only fail on real FIFO failure
+```
 
-### Option C: Proper FIFO Implementation (THE FIX) ⭐
-**Time**: 2-3 days
-**Approach**: Implement lot-based cost tracking in swap analyzer
-
-**Changes Required**:
-1. **Database Schema**:
-   ```sql
-   CREATE TABLE TokenLots (
-     id SERIAL PRIMARY KEY,
-     walletAddress VARCHAR(44),
-     tokenAddress VARCHAR(44),
-     amountBought DECIMAL,
-     costBasisSol DECIMAL,
-     purchaseTimestamp INTEGER,
-     amountRemaining DECIMAL,  -- Decreases with sells
-     lotStatus VARCHAR(20),    -- OPEN, PARTIALLY_SOLD, CLOSED
-     ...
-   );
-   ```
-
-2. **Swap Analyzer Logic**:
-   - On BUY: Create new TokenLot
-   - On SELL: Consume oldest lots first (FIFO)
-   - Track remaining balance per lot
-   - Calculate true realized P&L from consumed lots
-   - Calculate unrealized P&L from remaining lots
-
-3. **Migration Strategy**:
-   - Reprocess existing swap data to create historical lots
-   - Use transaction timestamps for FIFO ordering
-   - Handle edge cases (airdrops, transfers)
-
-**Pros**:
-- Fixes EVERYTHING properly
-- Accurate realized vs unrealized split
-- Tax reporting becomes possible
-- Foundation for advanced features (tax-loss harvesting insights)
-
-**Cons**:
-- Requires schema changes
-- Need to reprocess historical data
-- More complex ongoing calculations
-
-**Verdict**: ✅ **THIS IS THE WAY** - It's P0, so invest the 2-3 days now
-
-### Option D: Document Limitations (UNACCEPTABLE)
-**Verdict**: ❌ Hell no. This is a trading tool showing backwards P&L. Can't ship this.
+**Status**: ✅ Fixed - Accept expected mismatch from DCA escrow
 
 ---
 
-## Recommended Action Plan
+### 3. 🟡 **TRANSFER Treated as Economic** (Not Yet Fixed)
 
-### Phase 1: Immediate Mitigation (Today)
-1. ✅ Document the issue (this file)
-2. ⚠️ Consider adding warnings to infected UI areas:
-   ```tsx
-   <TooltipContent>
-     ⚠️ P&L calculations for partial positions may be inaccurate.
-     Total profit is correct, but realized/unrealized split uses
-     average cost basis instead of FIFO tracking.
-   </TooltipContent>
-   ```
+**Problem**: Non-swap transfers counted as purchases with cost basis
 
-### Phase 2: Proper FIFO Implementation (This Week)
-1. **Design** (4 hours):
-   - Schema design for TokenLots table
-   - FIFO consumption algorithm
-   - Migration strategy for historical data
+**Example** (Token: `9Avy...pump`):
+```
+TRANSFER (✓ ECONOMIC):  ← Should be NON-ECONOMIC!
+  Count: 4 transfers IN
+  Tokens: 5,690 tokens
+  SOL: 0.70 SOL ← Counted as cost!
+```
 
-2. **Implementation** (12 hours):
-   - Database migration
-   - Update swap analyzer to create/consume lots
-   - Update P&L calculation logic
-   - Reprocess historical swaps
+**These are likely:**
+- Wallet-to-wallet transfers (zero cost)
+- Airdrops (zero cost)
+- Rewards (zero cost)
 
-3. **Testing** (4 hours):
-   - Verify against known examples (The Official 67 Coin, VWANCE)
-   - Test edge cases (same-day round trips, partial sells)
-   - Validate totals match current Total Profit formula
+**Impact:**
+- Inflates `totalSolSpent` by small amounts per token
+- Accumulates across all tokens in wallet
 
-4. **Deployment** (2 hours):
-   - Run migration on production database
-   - Reprocess all wallet swap data
-   - Verify metrics update correctly
+**Comparison:**
+```
+GMGN shows: 2,460 SOL spent
+We show:    2,511 SOL spent (includes TRANSFER)
+Difference: 51 SOL
+```
 
-**Total**: ~3 days of focused work
-**Payoff**: Correct P&L across entire platform, forever
+**Status**: ❌ **NOT FIXED** - Need to exclude TRANSFER from economic calculations
 
 ---
 
-## Files to Modify (Phase 2)
+### 4. 🔴 **PnL Differs Significantly from Competitors**
 
-### Database
-- `prisma/schema.prisma` - Add TokenLots table
-- New migration file
+**Test Wallet**: `CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B`
+**Test Token**: `9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump`
 
-### Core Logic
-- `src/core/analysis/swap-analyzer.ts` - Implement FIFO lot tracking
-- `src/core/services/pnl-analysis-service.ts` - Use lot-based calculations
+| Platform | Total PnL | Realized | Unrealized | Notes |
+|----------|-----------|----------|------------|-------|
+| **Our System** | **-145 SOL** | +84 SOL | -229 SOL | Shows unrealized |
+| GMGN | +309 SOL | +309 SOL | 0 SOL | Unrealized=0 (wrong?) |
+| Axiom | -35 SOL | ? | ? | Closer to reality |
+| Padre.gg | +45 SOL | ? | ? | - |
 
-### Backend Services
-- `src/api/services/token-performance.service.ts` - Query from TokenLots
-- `src/api/services/wallet-pnl-summary.service.ts` - Aggregate lot-based P&L
+**Discrepancy Range**: 110 to 450 SOL difference!
 
-### Data Migration
-- New script: `src/scripts/migrate-to-fifo-lots.ts`
-- Reprocess all existing AnalysisResult records
+**Possible Causes:**
+1. ✅ TRANSFER counting (0.70 SOL - partially explains)
+2. ❓ Unknown interaction types we don't handle
+3. ❓ Different FIFO vs average cost approaches
+4. ❓ Current holdings valuation differences
+5. ❓ Different handling of failed transactions
 
----
-
-## Testing Strategy
-
-### Test Cases
-1. **Simple FIFO**:
-   - Buy 100 @ $1, Buy 100 @ $2, Sell 100 @ $3
-   - Expected: Realized +$200, Unrealized with $200 cost basis
-
-2. **Multiple Partial Sells**:
-   - Buy 100 @ $1, Buy 100 @ $2, Sell 50 @ $3, Sell 50 @ $2.5
-   - Verify FIFO order is preserved
-
-3. **Same-Day Round Trip**:
-   - Buy and sell same token same day
-   - Should close lots properly
-
-4. **The Official 67 Coin** (Real Data):
-   - Bought 70 SOL, Sold 555 SOL, Holdings 236 SOL
-   - Expected Total: +721 SOL (or close after fees)
-
-5. **VWANCE** (Real Data):
-   - Bought 49.35 SOL, Sold 13.37 SOL, Holdings 51 SOL
-   - Expected Total: ~+15 SOL
-
-### Validation
-- Compare new Total P&L with current "patched" Total Profit formula
-- Should match within rounding errors
-- Realized + Unrealized should = Total
+**Status**: ❌ **UNDER INVESTIGATION**
 
 ---
 
-## Why This Is P0
+### 5. 🟡 **3 Tokens Still Show Incomplete History**
 
-1. **Core Product Value**: Platform exists to identify profitable wallets
-2. **Data Integrity**: Wrong P&L = wrong decisions = lost user trust
-3. **Blast Radius**: Every page with P&L data is affected
-4. **User Impact**: People are copying losing wallets thinking they're winners
-5. **Competitive Risk**: Other tools with correct P&L will steal users
+**Wallet**: `CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B`
 
-No amount of UI polish fixes showing backwards profit/loss data.
+```
+⚠️ Tokens with incomplete history:
+   - 5PsnNwPmMtsGZgG6ZqMoDJJi28BR5xpAotXHHiQhpump
+   - BANKJmvhT8tiJRsBSS1n2HryMBPvT5Ze4HU95DUAmeta
+   - fRfKGCriduzDwSudCwpL7ySCEiboNuryhZDVJtr1a1C
+```
+
+**Characteristics:**
+- Supposedly "clean" (no DCA/UNKNOWN issues)
+- But FIFO still failing
+
+**Example** (`fRfKGCriduzDwSudCwpL7ySCEiboNuryhZDVJtr1a1C`):
+```
+Interaction types:
+  TOKEN_MINT: 8 in (250 SOL)  ← What is this?
+  TRANSFER:   5 in (0.75 SOL)
+  SWAP:       1 out (212 SOL)
+
+Status: hasIncompleteHistory=true
+Balance: null (exited position)
+Net: 0 tokens (all sold)
+```
+
+**Questions:**
+- What is TOKEN_MINT? Minting new tokens?
+- Should it have cost basis?
+- Why does FIFO fail on clean buy/sell?
+
+**Status**: ❌ **NEEDS INVESTIGATION**
+
+---
+
+## Helius Interaction Types Inventory
+
+### Known Types (From Database Analysis)
+1. **SWAP** - Real economic swaps ✓
+2. **TRANSFER** - Wallet-to-wallet, airdrops ⚠️ (should be zero-cost, currently economic)
+3. **UNKNOWN** - DCA deposits, program interactions ✓ (tiny SOL filtered)
+4. **BURN** - Burning tokens ✓ (zero-cost)
+5. **TOKEN_MINT** - ❓ Unknown, needs investigation
+
+### Classification Logic (Current)
+
+```typescript
+// Non-economic transfers (zero cost basis):
+const isNonEconomicTransfer =
+    interactionType === 'BURN' ||
+    (interactionType === 'UNKNOWN' &&
+     Math.abs(input.associatedSolValue) < 0.01 &&
+     Math.abs(input.associatedUsdcValue ?? 0) < 0.01);
+
+// Economic transfers (tracked in FIFO):
+const isEconomic = !isNonEconomicTransfer;
+```
+
+**Issue**: TRANSFER and TOKEN_MINT currently treated as economic!
+
+---
+
+## Architecture (Current)
+
+### Data Flow
+
+```
+1. Helius API → SwapAnalysisInput (raw transactions)
+   ├─ interactionType: SWAP | TRANSFER | UNKNOWN | BURN | TOKEN_MINT | ?
+   ├─ direction: in | out
+   ├─ amount: token quantity
+   ├─ associatedSolValue: SOL value
+   └─ associatedUsdcValue: USDC value (optional)
+
+2. SwapAnalyzer → Filter & Aggregate
+   ├─ Classify as economic or non-economic
+   ├─ Aggregate supply totals (ALL transfers)
+   └─ Pass economic transfers to FIFO
+
+3. FIFO Tracker → Cost Basis Calculation
+   ├─ Create lots for economic INs
+   ├─ Consume lots for economic OUTs
+   ├─ Track realized PnL (sold lots)
+   └─ Track unrealized PnL (remaining lots)
+
+4. PnlAnalysisService → Finalize & Store
+   ├─ Calculate total PnL
+   ├─ Check for incomplete history (FIFO failures only)
+   └─ Store in AnalysisResult + TokenLots
+```
+
+### Key Design Decisions
+
+**Supply Totals** (`totalAmountIn/Out`):
+- ✅ Include ALL transfers (economic + non-economic)
+- ✅ Count tokens accurately for balance verification
+- ✅ Assign zero SOL value to non-economic transfers
+
+**FIFO Inputs**:
+- ✅ Only ECONOMIC transfers
+- ✅ Clean cost basis tracking
+- ✅ No escrow/program movements
+
+**Holdings Mismatch**:
+- ✅ EXPECTED when tokens in DCA escrow
+- ✅ Don't fail on mismatch alone
+- ✅ Only fail if FIFO detects oversell
+
+---
+
+## Next Steps (Prioritized)
+
+### 🔥 P0: Audit All Interaction Types
+
+**Goal**: Document every interaction type in database and classify correctly
+
+**Action**:
+```sql
+SELECT interactionType,
+       COUNT(*) as count,
+       SUM(CASE WHEN direction='in' THEN 1 ELSE 0 END) as ins,
+       SUM(CASE WHEN direction='out' THEN 1 ELSE 0 END) as outs,
+       AVG(ABS(associatedSolValue)) as avg_sol_value
+FROM SwapAnalysisInput
+GROUP BY interactionType
+ORDER BY count DESC;
+```
+
+**Expected Output**: Complete list of all interaction types with examples
+
+**Decision Matrix**:
+| Type | Economic? | Reason |
+|------|-----------|--------|
+| SWAP | ✅ Yes | Real trades |
+| TRANSFER | ❌ No | Zero-cost transfers |
+| UNKNOWN (tiny) | ❌ No | DCA escrow |
+| BURN | ❌ No | Disposal |
+| TOKEN_MINT | ❓ TBD | Need investigation |
+
+**Files to Update**:
+- `src/core/analysis/swap/analyzer.ts` - Update `isNonEconomicTransfer` logic
+
+---
+
+### 🔥 P1: Exclude TRANSFER from Economic
+
+**Problem**: TRANSFER inflates cost basis by ~0.70 SOL (and more across all tokens)
+
+**Solution**:
+```typescript
+const isNonEconomicTransfer =
+    interactionType === 'BURN' ||
+    interactionType === 'TRANSFER' || // ← Add this!
+    (interactionType === 'UNKNOWN' &&
+     Math.abs(input.associatedSolValue) < 0.01 &&
+     Math.abs(input.associatedUsdcValue ?? 0) < 0.01);
+```
+
+**Expected Impact**:
+- Reduce cost basis by ~51 SOL for test wallet
+- Closer to GMGN's 2,460 SOL (vs our current 2,511 SOL)
+
+**Files to Modify**:
+- `src/core/analysis/swap/analyzer.ts` (line 107-112)
+- `src/core/analysis/swap/fifo-lot-tracker.ts` (line 57-60)
+
+---
+
+### 🔥 P2: Investigate 3 Incomplete Tokens
+
+**Goal**: Understand why clean tokens fail FIFO
+
+**Approach**: For each token, analyze:
+1. What interaction types exist?
+2. Any UNKNOWN/TRANSFER causing issues?
+3. Is there actual oversell in chronological order?
+4. What is TOKEN_MINT and how to handle it?
+
+**Tools**:
+```bash
+npx ts-node check-token.ts <mint>
+```
+
+**Tokens to Investigate**:
+1. `5PsnNwPmMtsGZgG6ZqMoDJJi28BR5xpAotXHHiQhpump`
+2. `BANKJmvhT8tiJRsBSS1n2HryMBPvT5Ze4HU95DUAmeta`
+3. `fRfKGCriduzDwSudCwpL7ySCEiboNuryhZDVJtr1a1C` (has TOKEN_MINT)
+
+---
+
+### 🎯 P3: Reconcile with Competitor Calculations
+
+**Goal**: Understand 110-450 SOL discrepancy with competitors
+
+**Approach**:
+1. Get raw transaction data from GMGN/Axiom (if API available)
+2. Compare what they count vs what we count
+3. Document differences in methodology
+
+**Questions to Answer**:
+- Do they include TRANSFER? (likely NO ✅)
+- Do they include TOKEN_MINT? (unknown)
+- How do they handle UNKNOWN? (likely ignore completely)
+- Do they use FIFO or average cost? (unknown)
+- Do they handle failed transactions differently?
+
+**Hypothesis**:
+- TRANSFER exclusion: ~51 SOL difference
+- Remaining ~60-400 SOL: Other interaction types or methodology
+
+---
+
+## Testing Wallets
+
+### Primary Test Case
+**Wallet**: `CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B`
+- Good mix of SWAP, TRANSFER, UNKNOWN
+- Uses Jupiter DCA (UNKNOWN transfers)
+- 15 tokens total (12 complete, 3 incomplete)
+- Known discrepancy with GMGN/Axiom
+
+### Verification Checklist
+- [ ] All interaction types documented
+- [ ] TRANSFER excluded from economic
+- [ ] 3 incomplete tokens resolved
+- [ ] PnL within ±10% of competitors
+- [ ] Holdings mismatch accepted (DCA wallets)
+
+---
+
+## Debug Scripts
+
+**Location**: `C:\Users\solastic\prj\analyzer\`
+
+1. `analyze-unknown.ts` - Breakdown of UNKNOWN transfers
+2. `check-token.ts` - Analyze specific token's interaction types
+3. `check-economic.ts` - Economic vs non-economic totals
+4. `test-fix.ts` - Run full analysis and show results
+
+**Usage**:
+```bash
+npx ts-node -r tsconfig-paths/register <script>.ts
+```
+
+---
+
+## Current Metrics (Test Token)
+
+**Token**: `9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump`
+**Wallet**: `CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B`
+
+### Our System
+```
+totalSolSpent: 2,511.52 SOL (includes TRANSFER)
+totalSolReceived: 470.16 SOL
+currentHoldingsValueSol: 1,896.30 SOL
+realizedPnlSol: 83.70 SOL
+unrealizedPnlSol: -228.62 SOL
+totalPnlSol: -144.92 SOL
+hasIncompleteHistory: false ✅
+```
+
+### Competitors
+```
+GMGN:
+  Bought: 2,460 SOL (51 SOL less than us)
+  Sold: 467 SOL
+  Total PnL: +309 SOL
+
+Axiom:
+  Bought: $325K (≈2,462 SOL)
+  Sold: $61.6K (≈467 SOL)
+  Remaining: $259K (≈1,962 SOL)
+  Total PnL: -$4.66K (≈-35 SOL)
+```
+
+### Transaction Breakdown
+```
+SWAP (Economic): 236 transactions
+  Tokens: 21.2M in, 3.7M out
+  SOL: 2,510.82 in, 470.16 out
+
+TRANSFER (Economic - SHOULD BE NON-ECONOMIC):
+  Count: 4 in
+  Tokens: 5,690 in
+  SOL: 0.70 in ← Inflating cost!
+
+UNKNOWN (Non-Economic): 13 transactions
+  Tokens: 54.7M in, 57.2M out (DCA escrow)
+  SOL: 0.042 in, 0.182 out (negligible)
+```
 
 ---
 
 ## Notes
 
-- Frontend "Total Profit" patch in TokenPerformanceTab is correct and should be kept
-- FIFO implementation will replace realized/unrealized calculations
-- Consider adding "Tax Report" feature once FIFO is in place (nice upsell)
-- User quote: "everybody is fucking losing big if they hold something and it's price is going up" 😂💀
+- FIFO implementation is solid and working
+- Main issues are interaction type classification, not FIFO logic
+- Holdings mismatch is expected and correct for DCA wallets
+- Competitor discrepancies likely due to different heuristics
+- Need comprehensive audit of all interaction types in production data
 
 ---
 
-**Last Updated**: 2025-12-30
-**Priority**: P0 - Block everything else
-**Owner**: TBD (user plans to work on this)
+**Status**: Work in progress - FIFO foundation solid, classification needs refinement
