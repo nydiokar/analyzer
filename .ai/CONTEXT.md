@@ -272,6 +272,12 @@ Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as 
 - All stale balances cleared (15M → 0, 5M → 0) ✅
 - FIFO realized PnL calculations now accurate ✅
 
+# ONGOING 
+
+**Issue 3: Inflated PNL calculations when tokens are transferd with no cost or with USDC involved in FIFO** 
+
+- **Check**: if ALL tx types should be preemptively "normalized" for FIFO; If usdc fallback is proper when there is no Sol value associate; 
+
 #### ✅ Task 4: ROI Calculation Fix (COMPLETED)
 **Problem**: ROI showing -300% for dust trades
 **Solution**: Added dust trade detection (< 0.01 SOL threshold), hide ROI pill for these cases

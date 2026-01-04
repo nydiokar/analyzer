@@ -17,7 +17,7 @@
 ### ❌ What's Still Broken
 - **PnL differs 110-450 SOL** from competitor platforms
 - **3 tokens show incomplete history** despite being "clean" (no DCA)
-- **TRANSFER interactions** treated as economic (inflating cost basis)
+- **TRANSFER interactions** treated as economic and they are sometimes! (inflating cost basis)
 - **Unknown interaction types** beyond SWAP/TRANSFER/UNKNOWN/BURN/TOKEN_MINT
 
 ---
@@ -326,8 +326,8 @@ ORDER BY count DESC;
 | Type | Economic? | Reason |
 |------|-----------|--------|
 | SWAP | ✅ Yes | Real trades |
-| TRANSFER | ❌ No | Zero-cost transfers |
-| UNKNOWN (tiny) | ❌ No | DCA escrow |
+| TRANSFER | ❌ no AND yes | Zero-cost transfers |
+| UNKNOWN (tiny) | ❌ No BUT could be in some cases| DCA escrow |
 | BURN | ❌ No | Disposal |
 | TOKEN_MINT | ❓ TBD | Need investigation |
 
@@ -336,7 +336,7 @@ ORDER BY count DESC;
 
 ---
 
-### 🔥 P1: Exclude TRANSFER from Economic
+### 🔥 P1: Exclude TRANSFER from Economic - DO NOT EXCLUDE actually check if really does not have associate value - SOL OR USDC
 
 **Problem**: TRANSFER inflates cost basis by ~0.70 SOL (and more across all tokens)
 
