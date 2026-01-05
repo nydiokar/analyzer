@@ -965,17 +965,34 @@ export function mapHeliusTransactionsToIntermediateRecords(
                             }
 
                             // 4. Fallback: Net User SOL/USDC Change
+                            // BUT: Check if net change is just the transaction fee (not actual economic value)
+                            // This happens with airdrops/transfers where user pays fee but receives tokens with no SOL value
                             if (associatedSolValue === 0 && associatedUsdcValue === 0) {
                                 const absSolChange = Math.abs(finalNetUserSolChange);
                                 const absUsdcChange = Math.abs(finalNetUserUsdcChange);
                                 const solChangeIsSignificant = absSolChange >= netChangeSignificanceThreshold;
                                 const usdcChangeIsSignificant = absUsdcChange >= netChangeSignificanceThreshold;
 
-                                if (solChangeIsSignificant && !usdcChangeIsSignificant) {
+                                // Calculate transaction fee for comparison
+                                const networkFee = tx.fee ?? 0;
+                                const feeInSol = networkFee / LAMPORTS_PER_SOL;
+
+                                // Check if net SOL change is approximately just the fee (within 10% tolerance)
+                                // If so, it's likely an airdrop/transfer where fee is paid but tokens have no SOL value
+                                const netChangeIsJustFee = feeInSol > 0 &&
+                                    Math.abs(absSolChange - feeInSol) < (feeInSol * 0.1) &&
+                                    absSolChange < 0.02; // And the amount is small (< 0.02 SOL)
+
+                                if (netChangeIsJustFee) {
+                                    // Net change is just the fee - don't use it as economic value
+                                    // This is an airdrop/transfer with zero cost basis
+                                    // Leave associatedSolValue = 0
+                                } else if (solChangeIsSignificant && !usdcChangeIsSignificant) {
+                                    // Net change is real economic value, not just fee
                                     associatedSolValue = absSolChange;
                                     mappingStats.associatedValueFromNetChange++;
                                 } else if (usdcChangeIsSignificant && !solChangeIsSignificant) {
-                                    associatedUsdcValue = absUsdcChange; // If USDC logic is needed
+                                    associatedUsdcValue = absUsdcChange;
                                 }
                             }
                        }

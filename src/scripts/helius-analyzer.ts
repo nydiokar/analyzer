@@ -76,6 +76,11 @@ async function analyzeWalletWithHelius() {
       default: false,
       description: 'Skip Helius API calls and analyze only data already in the database',
     })
+    .option('force', {
+      type: 'boolean',
+      default: false,
+      description: 'Force re-analysis even if no new transactions detected',
+    })
     .option('analyzeBehavior', {
         type: 'boolean',
         default: false,
@@ -117,21 +122,25 @@ async function analyzeWalletWithHelius() {
     })
     .parseAsync();
 
-  const { 
-      walletAddress, 
-      limit, 
-      maxSignatures, 
-      fetchAll, 
-      fetchOlder, 
+  const {
+      walletAddress,
+      limit,
+      maxSignatures,
+      fetchAll,
+      fetchOlder,
       smartFetch,
-      skipApi, 
-      startDate, 
-      endDate, 
-      saveAnalysisCsv, 
+      skipApi,
+      force,
+      startDate,
+      endDate,
+      saveAnalysisCsv,
       saveReportMd,
       displayLimit,
       analyzeBehavior,
     } = argv;
+
+  // Set maxSignatures to a large number when fetchAll is true
+  const effectiveMaxSignatures = fetchAll && !maxSignatures ? 100000 : maxSignatures;
 
   logger.info(`Starting analysis for wallet: ${walletAddress}`);
   logger.debug('CLI Arguments:', argv);
@@ -221,7 +230,7 @@ async function analyzeWalletWithHelius() {
         fetchAll: fetchAll,
         skipApi: skipApi, // Should be false here
         fetchOlder: fetchOlder,
-        maxSignatures: maxSignatures,
+        maxSignatures: effectiveMaxSignatures,
         smartFetch: smartFetch,
       };
       await syncService.syncWalletData(walletAddress, syncOptions);
@@ -267,9 +276,12 @@ async function analyzeWalletWithHelius() {
         const noNewOlderData = effectiveMinFetchedForPnlCheck >= wallet.analyzedTimestampStart;
         const noNewNewerData = effectiveMaxFetchedForPnlCheck <= wallet.analyzedTimestampEnd;
 
-        if (noNewOlderData && noNewNewerData) {
+        if (noNewOlderData && noNewNewerData && !force) {
           logger.info(`--- Skipping P/L Analysis for ${walletAddress}: No new transactions outside the previously analyzed range (${wallet.analyzedTimestampStart} - ${wallet.analyzedTimestampEnd}). Effective fetched range for check based on wallet state: ${effectiveMinFetchedForPnlCheck} - ${effectiveMaxFetchedForPnlCheck}. (Wallet fields: firstProcessedTimestamp=${globalFirstProcessedTs}, newestProcessedTimestamp=${globalNewestProcessedTs}) ---`);
           pnlAnalysisSkipped = true;
+        } else if (noNewOlderData && noNewNewerData && force) {
+          logger.info(`--- Performing P/L Analysis for ${walletAddress}: --force flag set, bypassing skip logic. ---`);
+          // pnlAnalysisSkipped remains false
         } else {
           let reason = [];
           if (!noNewOlderData) reason.push(`older data (batch min ${effectiveMinFetchedForPnlCheck} < analyzed start ${wallet.analyzedTimestampStart})`);

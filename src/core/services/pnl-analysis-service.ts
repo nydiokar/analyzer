@@ -414,24 +414,21 @@ export class PnlAnalysisService {
                     logger.debug(`[PnlAnalysis] Holdings mismatch for ${result.tokenAddress}: currentUiBalance=${currentUiBalance}, fifoRemainingAmount=${remainingAmount}, diff=${currentUiBalance !== null && remainingAmount !== undefined ? currentUiBalance - remainingAmount : 'N/A'} (expected for DCA/escrow)`);
                 }
 
-                // Only mark incomplete if FIFO itself failed (oversell), not just holdings mismatch
-                if (result.hasIncompleteHistory) {
-                    result.realizedPnlSol = null;
-                    result.unrealizedPnlSol = null;
-                    result.totalPnlSol = null;
-                    result.netSolProfitLoss = null;
-                    result.hasIncompleteHistory = true;
-                } else {
-                    const unrealizedPnlSol = currentHoldingsValueSol !== null && remainingCostBasisSol !== null
-                        ? currentHoldingsValueSol - remainingCostBasisSol
-                        : null;
-                    const totalPnlSol = realizedPnlSol + (unrealizedPnlSol ?? 0);
+                // Calculate PnL metrics for both complete and incomplete history
+                // For incomplete history, we show partial data (what we know) but flag it
+                const unrealizedPnlSol = currentHoldingsValueSol !== null && remainingCostBasisSol !== null
+                    ? currentHoldingsValueSol - remainingCostBasisSol
+                    : null;
+                const totalPnlSol = realizedPnlSol + (unrealizedPnlSol ?? 0);
 
-                    result.unrealizedPnlSol = unrealizedPnlSol;
-                    result.totalPnlSol = totalPnlSol;
-                    result.netSolProfitLoss = totalPnlSol - feesPaid;
-                    result.hasIncompleteHistory = false;
+                result.realizedPnlSol = realizedPnlSol; // Always show partial data
+                result.unrealizedPnlSol = unrealizedPnlSol;
+                result.totalPnlSol = totalPnlSol;
+                result.netSolProfitLoss = totalPnlSol - feesPaid;
+                result.hasIncompleteHistory = result.hasIncompleteHistory; // Keep the flag
 
+                // Only include in wallet-level PnL if history is complete
+                if (!result.hasIncompleteHistory) {
                     realizedPnl += realizedPnlSol;
                     if (unrealizedPnlSol !== null) {
                         unrealizedPnl += unrealizedPnlSol;
