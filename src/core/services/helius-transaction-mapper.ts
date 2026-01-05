@@ -487,6 +487,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
       // Only count transfers involving the user (exclude router/router hops) to avoid double-counting.
       let totalWsolMovement = 0;
       let largestWsolTransfer = 0;
+      let largestWsolTransferForSplDetection = 0; // Count ALL WSOL transfers for SPL-to-SPL detection
+      let totalWsolForSplValue = 0; // Sum of ALL WSOL transfers for SPL-to-SPL value calculation
       let totalUsdcMovement = 0;
       for (const transfer of tx.tokenTransfers || []) {
           if (transfer.mint === SOL_MINT) {
@@ -510,6 +512,10 @@ export function mapHeliusTransactionsToIntermediateRecords(
                   }
               }
 
+              // Track WSOL transfers for SPL-to-SPL detection and value calculation (count ALL transfers)
+              if (wsolAmount > largestWsolTransferForSplDetection) largestWsolTransferForSplDetection = wsolAmount;
+              totalWsolForSplValue += wsolAmount;
+
               const fromUser =
                 transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress ||
                 (transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount));
@@ -518,6 +524,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
                 (transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount));
 
               // Ignore transfers not involving the user and internal user self-moves.
+              // This check only applies to totalWsolMovement/largestWsolTransfer for the movement heuristic
               if (!fromUser && !toUser) continue;
               if (fromUser && toUser) continue;
 
@@ -557,7 +564,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
       const userNonWsolTokensOut = new Set<string>();
       const userNonWsolTokensIn = new Set<string>();
       for (const transfer of tx.tokenTransfers || []) {
-          if (!transfer.mint || transfer.mint === SOL_MINT) continue;
+          if (!transfer.mint) continue;
           const isFromUser = transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress;
           const isToUser = transfer.toUserAccount?.toLowerCase() === lowerWalletAddress;
           if (isFromUser && !isToUser) userNonWsolTokensOut.add(transfer.mint);
@@ -567,10 +574,11 @@ export function mapHeliusTransactionsToIntermediateRecords(
       const maxTokenTypesForSimpleSwap = 3; // Heuristic threshold
       const hasReasonableTokenCount = userNonWsolTokensOut.size <= maxTokenTypesForSimpleSwap && userNonWsolTokensIn.size <= maxTokenTypesForSimpleSwap;
       const absSolChange = Math.abs(finalNetUserSolChange);
-      const isApproximatelyDouble = largestWsolTransfer > 0 && (Math.abs(absSolChange - (2 * largestWsolTransfer)) / absSolChange < 0.20); // Ratio check heuristic
-      if (hasTokensInBothDirections && largestWsolTransfer > 0 && (isApproximatelyDouble || hasReasonableTokenCount)) {
+      const isApproximatelyDouble = largestWsolTransferForSplDetection > 0 && (Math.abs(absSolChange - (2 * largestWsolTransferForSplDetection)) / absSolChange < 0.20); // Ratio check heuristic
+      if (hasTokensInBothDirections && largestWsolTransferForSplDetection > 0 && (isApproximatelyDouble || hasReasonableTokenCount)) {
           isSplToSplSwap = true;
-          correctSolValueForSplToSpl = largestWsolTransfer; // Use largest WSOL transfer as value
+          // For simple swaps (ratio check passes), use WSOL amount; for complex swaps, use average WSOL transferred (fair value of each side)
+          correctSolValueForSplToSpl = isApproximatelyDouble ? largestWsolTransferForSplDetection : (totalWsolForSplValue / 2);
           mappingStats.splToSplSwapDetections++;
           // logger.debug(`Detected SPL-to-SPL swap with WSOL intermediary: ${tx.signature}`); // Removed debug
           // logger.debug(`Using largest WSOL transfer (${correctSolValueForSplToSpl.toFixed(9)}) as SOL value.`); // Removed debug

@@ -12,9 +12,9 @@ import Redis from 'ioredis';
 dotenv.config();
 
 async function main() {
-  // Testing USDC fix with wallet that has known USDC swap issues
-  const wallet = '6SKSZh15zbwcoZicLioCdAxsQsStnd7y2QixVNEzs3So';
-  const targetMint = '2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv'; // 668,500 USDC swap
+  // Testing SPL-to-SPL fix with the token we just fixed
+  const wallet = 'ACgGWUySLSudRFPdfVe1R5i4m1j6M3ovb42oF7hcL8Ud';
+  const targetMint = 'F7pB3ZdfBnyFw2LRHydWEn9BmhEa5XihXLjhySFRpump'; // The token from our SPL-to-SPL fix
 
   const db = new DatabaseService();
   const heliusClient = new HeliusApiClient(
@@ -50,6 +50,7 @@ async function main() {
   const pnlService = new PnlAnalysisService(db, heliusClient, tokenInfoService);
 
   console.log(`\n🔄 Re-running PnL analysis for ${wallet}...`);
+  console.log(`   Target token: ${targetMint} (from our SPL-to-SPL fix)`);
   await pnlService.analyzeWalletPnl(wallet, undefined, { isViewOnly: false, skipBalanceFetch: false });
 
   console.log(`\n📊 Fetching results from database...`);
@@ -59,10 +60,11 @@ async function main() {
 
   if (!targetToken) {
     console.error(`❌ Token ${targetMint} not found in results!`);
+    console.log(`   Available tokens: ${results.map(r => r.tokenAddress).join(', ')}`);
     process.exit(1);
   }
 
-  console.log(`\n✅ Found token ${targetMint}:`);
+  console.log(`\n✅ Found token ${targetMint} (F7pB3ZdfBnyFw2LRHydWEn9BmhEa5XihXLjhySFRpump):`);
   console.log(`   hasIncompleteHistory: ${targetToken.hasIncompleteHistory}`);
   console.log(`   realizedPnlSol: ${targetToken.realizedPnlSol}`);
   console.log(`   unrealizedPnlSol: ${targetToken.unrealizedPnlSol}`);
@@ -70,24 +72,45 @@ async function main() {
   console.log(`   netSolProfitLoss: ${targetToken.netSolProfitLoss}`);
   console.log(`   totalSolSpent: ${targetToken.totalSolSpent}`);
   console.log(`   totalSolReceived: ${targetToken.totalSolReceived}`);
+  console.log(`   currentBalance: ${targetToken.currentUiBalance}`);
   console.log(`   currentHoldingsValueSol: ${targetToken.currentHoldingsValueSol}`);
   console.log(`   currentHoldingsCostBasisSol: ${targetToken.currentHoldingsCostBasisSol}`);
+
+  // Check for transactions involving this token
+  console.log(`\n🔍 Checking raw transactions for ${targetMint}...`);
+  const swapInputs = await db.getSwapAnalysisInputs(wallet);
+  const tokenInputs = swapInputs.filter(i => i.mint === targetMint);
+
+  console.log(`   Found ${swapInputs.length} transactions for this token:`);
+  swapInputs.forEach((tx, index) => {
+    console.log(`   ${index + 1}. ${tx.signature.substring(0, 8)}... | ${tx.direction} | amount: ${tx.amount} | assocSOL: ${tx.associatedSolValue} | fee: ${tx.feeAmount || 'null'}`);
+  });
+
+  // Analysis of the issue
+  console.log(`\n🔍 SPL-to-SPL Fix Analysis:`);
+
+  if (swapInputs.length === 0) {
+    console.log(`   ❌ NO TRANSACTIONS FOUND - This explains "0 bought and 0 sold"!`);
+  } else {
+    const bought = swapInputs.filter(tx => tx.direction === 'in').length;
+    const sold = swapInputs.filter(tx => tx.direction === 'out').length;
+    const totalAssocSol = swapInputs.reduce((sum, tx) => sum + (tx.associatedSolValue || 0), 0);
+
+    console.log(`   Bought transactions: ${bought}`);
+    console.log(`   Sold transactions: ${sold}`);
+    console.log(`   Total associated SOL value: ${totalAssocSol}`);
+
+    if (bought === 0 && sold === 0) {
+      console.log(`   ❌ CONFIRMED: "0 bought and 0 sold" - transactions exist but not counted properly!`);
+    } else if (targetToken.realizedPnlSol && Math.abs(targetToken.realizedPnlSol) > 100) {
+      console.log(`   ❌ ISSUE: Large realized loss (${targetToken.realizedPnlSol}) despite proper transactions!`);
+      console.log(`   This suggests PnL calculation issue, not transaction mapping.`);
+    }
+  }
 
   // Summary for all tokens
   const incompleteCount = results.filter(r => r.hasIncompleteHistory).length;
   const completeCount = results.filter(r => !r.hasIncompleteHistory).length;
-
-  console.log(`\n🔍 USDC Fix Validation:`);
-  const expectedCostBasis = 668500 / 135; // Approx SOL at time of test
-  console.log(`   Expected cost basis: ~${expectedCostBasis.toFixed(2)} SOL (668,500 USDC)`);
-  console.log(`   Actual cost basis: ${targetToken.totalSolSpent} SOL`);
-  console.log(`   Previous (buggy): 668,500 SOL`);
-
-  if (targetToken.totalSolSpent && targetToken.totalSolSpent < 10000) {
-    console.log(`   ✅ FIX SUCCESSFUL - Cost basis is now reasonable!`);
-  } else {
-    console.log(`   ❌ FIX FAILED - Cost basis still inflated!`);
-  }
 
   console.log(`\n📈 Summary for wallet:`);
   console.log(`   Total tokens: ${results.length}`);

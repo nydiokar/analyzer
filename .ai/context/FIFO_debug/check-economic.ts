@@ -4,8 +4,8 @@ import { DatabaseService } from '../../../src/api/services/database.service';
 dotenv.config();
 
 async function main() {
-  const wallet = 'CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B';
-  const mint = '9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump';
+  const wallet = 'ACgGWUySLSudRFPdfVe1R5i4m1j6M3ovb42oF7hcL8Ud';
+  const mint = 'F7pB3ZdfBnyFw2LRHydWEn9BmhEa5XihXLjhySFRpump';
 
   const db = new DatabaseService();
   const allInputs = await db.getSwapAnalysisInputs(wallet);

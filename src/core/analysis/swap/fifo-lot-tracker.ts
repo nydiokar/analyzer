@@ -67,14 +67,15 @@ export function buildFifoLotsForToken(
        baseSolValue < UNKNOWN_TRANSFER_THRESHOLD_SOL &&
        fallbackUsdcValue < UNKNOWN_TRANSFER_THRESHOLD_SOL);
 
-    // Convert USDC to SOL using provided price
+    // Convert USDC to SOL - each record has EITHER SOL or USDC, not both
     let effectiveSolValue: number;
     if (isNonEconomicTransfer) {
       effectiveSolValue = 0;
     } else if (baseSolValue > 0) {
+      // Use SOL value
       effectiveSolValue = baseSolValue;
     } else if (fallbackUsdcValue > 0 && solPriceUsd) {
-      // Convert USDC to SOL (assumes USDC ≈ $1 USD)
+      // Convert USDC to SOL
       effectiveSolValue = fallbackUsdcValue / solPriceUsd;
     } else {
       effectiveSolValue = 0;
