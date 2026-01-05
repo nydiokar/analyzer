@@ -3,7 +3,90 @@
 **Project**: Sova Intel - Wallet Analysis System
 **Branch**: `discover-analytics-ux` (P0 FIFO fixes completed)
 **Status**: 🟢 **P0 CRITICAL BUGS FIXED** - FIFO precision + stale balance resolved
-**Last Updated**: 2026-01-04
+**Last Updated**: 2026-01-05
+
+Still having issues with FIFO: 
+
+Wallet to check: HAsNv9GjHsCrcSN6bRWwsxbH8fD89tZiYY5D6YpaUQLz -
+
+ use this script @validate-fifo-inputs.ts  to investigate what is happenign with this account
+HAsNv9GjHsCrcSN6bRWwsxbH8fD89tZiYY5D6YpaUQLz we see stuff like this:
+
+ The Official 67 Coin
+The Official 67 Coin
+
+67
+MC:
+$19.8M
+16h
+0.00 SOL
+-0.0%
+N/A
+N/A
+3,529.33 SOL    9,679.62 SOL
+1,879.24 SOL
+13M
+40/77
+9/20/2025
+
+
+
+bought 3.5k sol, sold 9.7k and balance is 1.8k sol but we show 0 realized and unrealized
+
+This token as well Hn4MTyN495EXwNauGnTNYVrXvJoQf2R2PRpr2qL8pump -
+0.00 SOL
+-0.0%
+N/A
+N/A
+9.4 SOL    34.84 SOL    -
+2/3
+12/30/2025
+
+
+bought 9, sold 34, we have 2/3 buys/sells and we show 0 realized
+
+
+ Ah! Got it - those are TOKEN addresses, not wallets. So I already have the data for the wallet you wanted. Let me analyze what I found:
+
+  Key Finding: The 67 Coin Token (9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Ch...)
+
+  From the output, I can see:
+
+  📍 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Ch...
+     Has P&L: YES (0.0000 SOL realized)
+
+     📊 FIFO INPUT BREAKDOWN:
+        Buys (IN): 39 txs, 3529.3295 SOL
+        Sells (OUT): 76 txs, 9679.6153 SOL
+
+     📋 VERDICT:
+        ❌ INCOMPLETE: Sold more than bought (58,815,871.726 out > 38,265,942.456 in) (LEGITIMATE)
+
+  This matches your description perfectly:
+  - Bought: 3,529.33 SOL ✓
+  - Sold: 9,679.62 SOL ✓
+  - Realized PnL: 0.0000 SOL ❌ (WRONG!)
+
+  The Root Cause
+
+  The bug: When a token has incomplete history (sold more tokens than bought), the FIFO calculator is returning 0.0000 SOL realized instead of calculating the realized gains/losses for the portion that WAS matched.
+
+  What should happen:
+  - FIFO should match the 38.2M tokens bought against the first 38.2M tokens sold
+  - Calculate realized PnL for those matched lots
+  - The remaining 20.5M tokens sold would have no cost basis (incomplete)
+  - But we should still see the realized PnL from the matched portion!
+
+  What's actually happening:
+  - The system detects incomplete history
+  - Returns 0.0000 SOL realized for the entire position
+  - This is masking what could be significant realized gains or losses
+
+  Where to Look
+
+  The issue is in the FIFO lot tracker in src/core/analysis/swap/analyzer.ts. When hasIncompleteHistory is true, it's likely zeroing out or not calculating the realized PnL properly.
+
+
 
 ---
 

@@ -1,5 +1,5 @@
 import * as dotenv from 'dotenv';
-import { DatabaseService } from './src/api/services/database.service';
+import { DatabaseService } from '../../../src/api/services/database.service';
 
 dotenv.config();
 
