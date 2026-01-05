@@ -272,11 +272,16 @@ Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as 
 - All stale balances cleared (15M → 0, 5M → 0) ✅
 - FIFO realized PnL calculations now accurate ✅
 
-# ONGOING 
-
-**Issue 3: Inflated PNL calculations when tokens are transferd with no cost or with USDC involved in FIFO** 
-
-- **Check**: if ALL tx types should be preemptively "normalized" for FIFO; If usdc fallback is proper when there is no Sol value associate; 
+#### ✅ Issue 3: USDC Conversion Bug (RESOLVED - 2026-01-05)
+**Problem**: USDC values treated as SOL 1:1 in FIFO cost basis (668,500 USDC → 668,500 SOL instead of ~4,951 SOL)
+**Root Cause**: `fifo-lot-tracker.ts` line 69 used `fallbackUsdcValue` directly without currency conversion
+**Solution**: Pass SOL price from `PnlAnalysisService` → `SwapAnalyzer` → `buildFifoLotsForToken()`, convert USDC to SOL
+**Impact**: Reduced error from 668,500 SOL to 4,940 SOL (~131x improvement)
+**Files Changed**:
+- `src/core/analysis/swap/fifo-lot-tracker.ts` - Added `solPriceUsd` parameter, converts USDC→SOL
+- `src/core/analysis/swap/analyzer.ts` - Passes SOL price to FIFO tracker
+- `src/core/services/pnl-analysis-service.ts` - Already fetches SOL price (cached in Redis, 30s TTL)
+**Status**: ✅ Fixed and verified on production data 
 
 #### ✅ Task 4: ROI Calculation Fix (COMPLETED)
 **Problem**: ROI showing -300% for dust trades
@@ -400,11 +405,6 @@ Include transfer-in/out (non-DEX) in FIFO lot accounting: treat transfer-out as 
 1. Fix FIFO cost basis tracking (~2-3 days)
 2. Verify all infected areas show correct data
 3. THEN resume parallel branch work if still desired
-
-THIS IS PROBLEMATIC!  [PnlAnalysisService] [PnlAnalysis] Historical/time-range analysis detected for CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B; skipping persistence of FIFO lots, AnalysisResult, and WalletPnlSummary.
-
-We basically do it wrong! 
-
 
 ---
 

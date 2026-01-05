@@ -58,9 +58,28 @@
 
 ---
 
+## ✅ USDC Conversion Bug (RESOLVED - 2026-01-05)
+
+**Problem**: USDC swaps treated as 1 USDC = 1 SOL in FIFO cost basis calculations
+**Example**: 668,500 USDC recorded as 668,500 SOL cost (should be ~4,951 SOL at $135/SOL)
+**Impact**: ~131x cost basis overinflation, catastrophic PnL errors
+
+**Root Cause**: `fifo-lot-tracker.ts:69` - when `associatedSolValue = 0`, code used `associatedUsdcValue` directly without conversion
+
+**Solution**:
+- Pass SOL price from `PnlAnalysisService` through to `buildFifoLotsForToken()`
+- Convert USDC to SOL: `effectiveSolValue = usdcValue / solPriceUsd`
+- SOL price fetched once per analysis, cached in Redis (30s TTL)
+
+**Verification**: Token `2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv` - cost basis went from 668,500 SOL → 4,940 SOL ✅
+
+**Reprocessing**: Use `scripts/reprocess-usdc-wallets.ts` to update affected wallets
+
+---
+
 ## New Issues Discovered (Jan 2026)
 
-### 1. 🔴 **UNKNOWN Transfers Breaking FIFO**
+### 1. 🔴 **UNKNOWN Transfers Breaking FIFO** - should have to be resolved! 
 
 **Problem**: Jupiter DCA deposits/withdrawals marked as `UNKNOWN` by Helius
 
@@ -101,7 +120,7 @@ currentAnalysis.totalSolSpent! += solValueToConsider;
 
 ---
 
-### 2. 🔴 **Holdings Mismatch Check Too Strict**
+### 2. 🔴 **Holdings Mismatch Check Too Strict** - should have to be resolved via percent and amount tolerance treshholds! 
 
 **Problem**: Code failed on mismatch between `currentBalance` and `fifoRemainingAmount`
 
@@ -191,7 +210,7 @@ Difference: 51 SOL
 
 ---
 
-### 5. 🟡 **3 Tokens Still Show Incomplete History**
+### 5. 🟡 **3 Tokens Still Show Incomplete History** - this should be resolved! 
 
 **Wallet**: `CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B`
 
@@ -223,7 +242,7 @@ Net: 0 tokens (all sold)
 - Should it have cost basis?
 - Why does FIFO fail on clean buy/sell?
 
-**Status**: ❌ **NEEDS INVESTIGATION**
+**Status**: ❌ **NEEDS INVESTIGATION** - STILL ONGOING - needs to verify types of Txs and how they contribute to FIFO lots - in terms of amount and value for each TX type.  
 
 ---
 

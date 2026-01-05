@@ -240,7 +240,7 @@ export class PnlAnalysisService {
                 processedSignaturesCount,
                 stablecoinNetFlow,
                 fifoLotsByMint,
-            } = this.swapAnalyzer.analyze(swapInputs, walletAddress);
+            } = this.swapAnalyzer.analyze(swapInputs, walletAddress, estimatedSolPriceUsd);
             logger.debug(`[PnlAnalysis] SwapAnalyzer finished for ${walletAddress}. Got ${swapAnalysisResultsFromAnalyzer.length} token results.`);
             
             // Attach wallet balances to the results if available.

@@ -12,8 +12,9 @@ import Redis from 'ioredis';
 dotenv.config();
 
 async function main() {
-  const wallet = 'CFVVFXTQWc3WTjeUSPKWWXxqdSgkFuDZZ9oe1ERvVn2B';
-  const targetMint = '9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump';
+  // Testing USDC fix with wallet that has known USDC swap issues
+  const wallet = '6SKSZh15zbwcoZicLioCdAxsQsStnd7y2QixVNEzs3So';
+  const targetMint = '2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv'; // 668,500 USDC swap
 
   const db = new DatabaseService();
   const heliusClient = new HeliusApiClient(
@@ -75,6 +76,18 @@ async function main() {
   // Summary for all tokens
   const incompleteCount = results.filter(r => r.hasIncompleteHistory).length;
   const completeCount = results.filter(r => !r.hasIncompleteHistory).length;
+
+  console.log(`\n🔍 USDC Fix Validation:`);
+  const expectedCostBasis = 668500 / 135; // Approx SOL at time of test
+  console.log(`   Expected cost basis: ~${expectedCostBasis.toFixed(2)} SOL (668,500 USDC)`);
+  console.log(`   Actual cost basis: ${targetToken.totalSolSpent} SOL`);
+  console.log(`   Previous (buggy): 668,500 SOL`);
+
+  if (targetToken.totalSolSpent && targetToken.totalSolSpent < 10000) {
+    console.log(`   ✅ FIX SUCCESSFUL - Cost basis is now reasonable!`);
+  } else {
+    console.log(`   ❌ FIX FAILED - Cost basis still inflated!`);
+  }
 
   console.log(`\n📈 Summary for wallet:`);
   console.log(`   Total tokens: ${results.length}`);

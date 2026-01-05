@@ -34,6 +34,7 @@ function sortSwapInputs(inputs: FifoSwapInput[]): FifoSwapInput[] {
 
 export function buildFifoLotsForToken(
   inputs: FifoSwapInput[],
+  solPriceUsd?: number,
 ): FifoPnlResult {
   const lots: FifoLot[] = [];
   let realizedCostBasisSol = 0;
@@ -66,7 +67,18 @@ export function buildFifoLotsForToken(
        baseSolValue < UNKNOWN_TRANSFER_THRESHOLD_SOL &&
        fallbackUsdcValue < UNKNOWN_TRANSFER_THRESHOLD_SOL);
 
-    const effectiveSolValue = isNonEconomicTransfer ? 0 : (baseSolValue > 0 ? baseSolValue : fallbackUsdcValue);
+    // Convert USDC to SOL using provided price
+    let effectiveSolValue: number;
+    if (isNonEconomicTransfer) {
+      effectiveSolValue = 0;
+    } else if (baseSolValue > 0) {
+      effectiveSolValue = baseSolValue;
+    } else if (fallbackUsdcValue > 0 && solPriceUsd) {
+      // Convert USDC to SOL (assumes USDC ≈ $1 USD)
+      effectiveSolValue = fallbackUsdcValue / solPriceUsd;
+    } else {
+      effectiveSolValue = 0;
+    }
 
     if (input.direction === 'in') {
       lots.push({

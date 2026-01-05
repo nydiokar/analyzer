@@ -32,10 +32,10 @@ export class SwapAnalyzer {
    * @returns An object containing the analysis results per token, signature count, and timestamps.
    *          Note: This returns the core data; the calling service will assemble the final SwapAnalysisSummary.
    */
-  analyze(swapInputs: SwapAnalysisInput[], walletAddress: string): { 
-    results: OnChainAnalysisResult[], 
-    processedSignaturesCount: number, 
-    firstTimestamp: number, 
+  analyze(swapInputs: SwapAnalysisInput[], walletAddress: string, solPriceUsd?: number): {
+    results: OnChainAnalysisResult[],
+    processedSignaturesCount: number,
+    firstTimestamp: number,
     lastTimestamp: number,
     stablecoinNetFlow: number,
     fifoLotsByMint: Map<string, FifoLot[]>
@@ -197,6 +197,7 @@ export class SwapAnalyzer {
                     associatedUsdcValue: input.associatedUsdcValue,
                     interactionType: input.interactionType,
                 })),
+                solPriceUsd
             );
             fifoRealizedPnlSol = fifoResult.realizedPnlSol;
             remainingCostBasisSol = fifoResult.remainingCostBasisSol;
