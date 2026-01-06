@@ -510,13 +510,19 @@ function parseWalletsFromCsv(fileContent: string): string[] {
     }
 
     const data = parsed.data as Record<string, string>[];
-    const addressHeaderCandidates = ['address', 'wallet', 'addresses', 'wallets'];
+    const addressHeaderCandidates = ['address', 'wallet', 'addresses', 'wallets', 'wallet address'];
 
     let actualAddressHeader: string | undefined = undefined;
 
     if (data.length > 0) {
-        const headers = Object.keys(data[0]).map(h => h.toLowerCase());
-        actualAddressHeader = addressHeaderCandidates.find(cand => headers.includes(cand));
+        const headers = Object.keys(data[0]);
+        const headersLower = headers.map(h => h.toLowerCase());
+
+        // Find the original case header that matches our candidate
+        const matchedIndex = headersLower.findIndex(header => addressHeaderCandidates.includes(header));
+        if (matchedIndex !== -1) {
+            actualAddressHeader = headers[matchedIndex];
+        }
     }
 
     if (!actualAddressHeader && data.length > 0 && Object.keys(data[0]).length === 1) {
@@ -722,7 +728,6 @@ if (require.main === module) {
             console.log(`Similarity pairs analyzed: ${result.analysisMetadata.similarityPairsAnalyzed}`);
             console.log(`Processing time: ${result.analysisMetadata.processingTimeSeconds.toFixed(2)}s`);
             console.log(`Session file: ${getSessionFilePath(session.sessionId)}`);
-            console.log(`📄 Markdown report: ${reportPath}`);
 
             // Show top results in table format
             console.log(`\nTop ${result.topMatchingWallets.length} matching wallets:`);

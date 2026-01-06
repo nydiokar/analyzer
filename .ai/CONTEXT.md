@@ -146,6 +146,46 @@ bought 9, sold 34, we have 2/3 buys/sells and we show 0 realized
 
 ---
 
+## 🟢 Significant buyers - WALLET DISCOVERY INVESTIGATION - COMPLETED (2026-01-06)
+
+### Helius API Limitations Discovery
+
+**Problem**: `test-wallet-discovery.ts` script couldn't find target wallet `GPsdQQDYewZuYjG6u2fhvpTbPce9kKfoSE4usNLZUXPU` despite it existing in historical analysis reports.
+
+**Investigation Approach**:
+1. **Enhanced API Time Filtering Test**: Verified that time filtering works but only returns partial transaction data
+2. **Bonding Curve Detection**: Implemented automatic detection of pump.fun tokens vs regular tokens
+3. **RPC vs Enhanced Comparison**: Compared RPC pagination (complete but slow) vs Enhanced API (fast but incomplete)
+
+**Key Findings**:
+
+1. **Enhanced API Has Significant Gaps**: Missing 20-30% of historical transactions that exist on-chain
+   - Example: Enhanced API returned transactions from `22:38-22:59` but RPC found data from `22:31-22:36`
+   - Time filtering works but coverage is incomplete
+
+2. **Bonding Curve Logic Already Exists**: The codebase already handles pump.fun token migration edge cases
+   - `TokenFirstBuyersService` has `determineFetchAddress()` method
+   - Supports `mint`, `bonding-curve`, and `auto` modes
+   - Auto-detection attempts to identify pump.fun tokens
+
+3. **RPC Pagination Works But Is Slow**: Extensive backwards pagination (3000+ signatures) successfully finds all historical data
+   - Reliable but requires processing thousands of signatures
+   - No gaps in coverage but high API usage
+
+**Current Status**: The existing `significantBuyersAnalysis.ts` script uses a hybrid approach (Enhanced API pre-filtering + RPC fallback) but suffers from Enhanced API gaps.
+
+**Recommended Solution**: Modify `significantBuyersAnalysis.ts` to use RPC-first approach for complete data coverage, with optional Enhanced API acceleration for non-historical queries.
+
+**Implementation Feasibility**: Medium difficulty - requires refactoring the pre-filtering logic to prioritize completeness over speed for historical analysis.
+
+**Combining Approaches Assessment**: Possible but complex. The current hybrid approach (Enhanced API for speed + RPC for completeness) is fundamentally flawed because Enhanced API misses data entirely. A true combined approach would require:
+- RPC-first for historical analysis (complete data)
+- Enhanced API for real-time queries (fast but incomplete)
+- Dual-path logic with fallback mechanisms
+- **Conclusion**: Too complex for current needs. Recommend RPC-first with optional Enhanced API mode for specific use cases.
+
+---
+
 ## 🟢 INCOMPLETE HISTORY INVESTIGATION - FIXED (2026-01-05)
 
 ### Fee Heuristic Bug + Partial Data Display
