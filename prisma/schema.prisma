@@ -44,6 +44,20 @@ model HeliusTransactionCache {
   @@index([timestamp])
 }
 
+model SignificantBuyersCache {
+  id String @id @default(cuid())
+  mint String
+  startBlockTime Int
+  endBlockTime Int
+  walletAddresses String // JSON array of wallet addresses
+  totalTransactions Int
+  processedAt DateTime @default(now())
+
+  @@unique([mint, startBlockTime, endBlockTime], name: "mint_startBlockTime_endBlockTime")
+  @@index([mint])
+  @@index([processedAt])
+}
+
 model SwapAnalysisInput {
   id                  Int    @id @default(autoincrement())
   walletAddress       String
