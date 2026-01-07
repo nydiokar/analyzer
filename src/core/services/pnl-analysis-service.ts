@@ -427,17 +427,15 @@ export class PnlAnalysisService {
                 result.netSolProfitLoss = totalPnlSol - feesPaid;
                 result.hasIncompleteHistory = result.hasIncompleteHistory; // Keep the flag
 
-                // Only include in wallet-level PnL if history is complete
-                if (!result.hasIncompleteHistory) {
-                    realizedPnl += realizedPnlSol;
-                    if (unrealizedPnlSol !== null) {
-                        unrealizedPnl += unrealizedPnlSol;
-                    }
+                // Include partial results in wallet-level PnL (flagged via hasIncompleteHistory)
+                realizedPnl += realizedPnlSol;
+                if (unrealizedPnlSol !== null) {
+                    unrealizedPnl += unrealizedPnlSol;
                 }
             }
 
             for (const result of enrichedSwapAnalysisResults) {
-                if (result.isValuePreservation || result.hasIncompleteHistory) {
+                if (result.isValuePreservation) {
                     continue;
                 }
                 const finalPnl = result.realizedPnlSol ?? result.totalPnlSol ?? result.netSolProfitLoss ?? 0;

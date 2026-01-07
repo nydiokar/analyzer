@@ -35,6 +35,7 @@ export class PaginatedTokenPerformanceResponse {
  */
 export class TokenPerformanceService {
   private readonly logger = new Logger(TokenPerformanceService.name);
+  private readonly MIN_MEANINGFUL_SOL = 0.01;
 
   constructor(
     private readonly databaseService: DatabaseService,
@@ -69,27 +70,37 @@ export class TokenPerformanceService {
     const where: Prisma.AnalysisResultWhereInput = {
       walletAddress: walletAddress,
     };
+    const andFilters: Prisma.AnalysisResultWhereInput[] = [];
+    const addAndFilter = (filter: Prisma.AnalysisResultWhereInput) => {
+      andFilters.push(filter);
+    };
+
+    // Default exclusion: stablecoins and wrapped/native tokens
+    addAndFilter({ tokenAddress: { notIn: DEFAULT_EXCLUDED_MINTS } });
 
     if (showOnlyHoldings) { // Use the destructured variable
       // Only show meaningful holdings (not dust)
       // This will be further filtered post-processing to ensure positions are worth > $1 USD or have meaningful token amounts
-      where.currentUiBalance = { gt: 0 };
+      addAndFilter({ currentUiBalance: { gt: 0 } });
     }
 
     // Filter by specific token addresses if provided
     if (tokenAddressesFilter) {
       const addressArray = tokenAddressesFilter.split(',').map(addr => addr.trim()).filter(addr => addr.length > 0);
       if (addressArray.length > 0) {
-        where.tokenAddress = { in: addressArray };
+        addAndFilter({ tokenAddress: { in: addressArray } });
       }
     }
 
     // Add search term filtering (only if tokenAddressesFilter not provided, as they conflict)
     if (searchTerm && !tokenAddressesFilter) {
-      where.tokenAddress = {
-        contains: searchTerm,
-        // mode: 'insensitive', // Removed earlier, ensure DB collation handles case-insensitivity if needed
+      const searchFilter: Prisma.AnalysisResultWhereInput = {
+        tokenAddress: {
+          contains: searchTerm,
+          // mode: 'insensitive', // Removed earlier, ensure DB collation handles case-insensitivity if needed
+        },
       };
+      addAndFilter(searchFilter);
     }
 
     // Apply PNL condition
@@ -123,21 +134,33 @@ export class TokenPerformanceService {
           ],
         };
 
-        if (where.AND) {
-          if (Array.isArray(where.AND)) {
-            where.AND.push(minTradesCondition);
-          } else {
-            where.AND = [where.AND, minTradesCondition];
-          }
-        } else {
-          where.AND = [minTradesCondition];
-        }
+        addAndFilter(minTradesCondition);
       } else {
         // For other minTrades values, if a simpler sum isn't directly possible, this might need raw SQL
         // or a broader interpretation e.g. (transferCountIn >= minTrades OR transferCountOut >= minTrades)
         // For now, only minTrades = 2 is explicitly handled with the sum logic.
         this.logger.warn(`Min trades filter currently only implements specific logic for value 2. Received: ${minTrades}`);
       }
+    }
+
+    // Exclude noise tokens with zero activity and no meaningful holdings.
+    const meaningfulActivityFilter: Prisma.AnalysisResultWhereInput = {
+      OR: [
+        { totalSolSpent: { gte: this.MIN_MEANINGFUL_SOL } },
+        { totalSolReceived: { gte: this.MIN_MEANINGFUL_SOL } },
+        { realizedPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { realizedPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { unrealizedPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { unrealizedPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { totalPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { totalPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { currentHoldingsValueSol: { gte: this.MIN_MEANINGFUL_SOL } },
+      ],
+    };
+    addAndFilter(meaningfulActivityFilter);
+
+    if (andFilters.length > 0) {
+      where.AND = andFilters;
     }
 
     // CHANGED: Store time filter separately instead of applying to WHERE clause
@@ -256,35 +279,29 @@ export class TokenPerformanceService {
           currentHoldingsValueSol = null;
         }
 
-        if (hasIncompleteHistory) {
-          realizedPnlSol = null;
-          unrealizedPnlSol = null;
-          totalPnlSol = null;
+        realizedPnlSol = realizedPnlSolFromDb;
+
+        if (currentHoldingsValueSol !== null && currentHoldingsValueUsd !== null && fifoHoldingsCostBasisSol !== null) {
+          unrealizedPnlUsd = currentHoldingsValueUsd - (fifoHoldingsCostBasisSol * estimatedSolPriceUsd);
+          unrealizedPnlSol = currentHoldingsValueSol - fifoHoldingsCostBasisSol;
+
+        const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
+        realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
+          ? (realizedPnlExcludingFees / totalSolSpent) * 100
+          : null;
+          unrealizedPnlPercentage = fifoHoldingsCostBasisSol > 0 ? (unrealizedPnlSol / fifoHoldingsCostBasisSol) * 100 : null;
+
+          totalPnlSol = (realizedPnlSol ?? 0) + (unrealizedPnlSol ?? 0);
         } else {
-          realizedPnlSol = realizedPnlSolFromDb;
-
-          if (currentHoldingsValueSol !== null && currentHoldingsValueUsd !== null && fifoHoldingsCostBasisSol !== null) {
-            unrealizedPnlUsd = currentHoldingsValueUsd - (fifoHoldingsCostBasisSol * estimatedSolPriceUsd);
-            unrealizedPnlSol = currentHoldingsValueSol - fifoHoldingsCostBasisSol;
-
-          const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
-          realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
-            ? (realizedPnlExcludingFees / totalSolSpent) * 100
-            : null;
-            unrealizedPnlPercentage = fifoHoldingsCostBasisSol > 0 ? (unrealizedPnlSol / fifoHoldingsCostBasisSol) * 100 : null;
-
-            totalPnlSol = (realizedPnlSol ?? 0) + unrealizedPnlSol;
-          } else {
-            realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol ?? 0) / totalSolSpent * 100 : null;
-            totalPnlSol = realizedPnlSol;
-          }
+          realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol ?? 0) / totalSolSpent * 100 : null;
+          totalPnlSol = realizedPnlSol;
         }
 
              } else if (hasCurrentHoldings) {
          // We have holdings but no price data - can't calculate unrealized P&L
          // Show realized P&L only and mark total as incomplete
 
-         realizedPnlSol = hasIncompleteHistory ? null : realizedPnlSolFromDb;
+         realizedPnlSol = realizedPnlSolFromDb;
 
         const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
         realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
@@ -301,7 +318,7 @@ export class TokenPerformanceService {
 
       } else {
         // No current holdings - everything is realized
-        realizedPnlSol = hasIncompleteHistory ? null : realizedPnlSolFromDb;
+        realizedPnlSol = realizedPnlSolFromDb;
         const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
         realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
           ? (realizedPnlExcludingFees / totalSolSpent) * 100
@@ -539,8 +556,27 @@ export class TokenPerformanceService {
 
   async getAllTokenPerformanceForWallet(walletAddress: string): Promise<TokenPerformanceDataDto[]> {
     this.logger.debug(`Fetching all token performance for wallet ${walletAddress} from AnalysisResult.`);
+    const meaningfulActivityFilter: Prisma.AnalysisResultWhereInput = {
+      OR: [
+        { totalSolSpent: { gte: this.MIN_MEANINGFUL_SOL } },
+        { totalSolReceived: { gte: this.MIN_MEANINGFUL_SOL } },
+        { realizedPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { realizedPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { unrealizedPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { unrealizedPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { totalPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { totalPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { currentHoldingsValueSol: { gte: this.MIN_MEANINGFUL_SOL } },
+      ],
+    };
     const analysisResults = await this.databaseService.getAnalysisResults({
-      where: { walletAddress },
+      where: {
+        walletAddress,
+        AND: [
+          { tokenAddress: { notIn: DEFAULT_EXCLUDED_MINTS } },
+          meaningfulActivityFilter,
+        ],
+      },
     });
 
     if (analysisResults.length === 0) {

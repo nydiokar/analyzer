@@ -774,10 +774,13 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
              const fromUserTA = transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount);
              const toUserTA = transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount);
-             if (toUserTA && !fromUserTA) direction = 'in';
-             else if (fromUserTA && !toUserTA) direction = 'out';
-             else if (fromUserTA && toUserTA) direction = 'out'; // Treat self-transfers as 'out'
-             if (!direction) continue;
+            if (toUserTA && !fromUserTA) direction = 'in';
+            else if (fromUserTA && !toUserTA) direction = 'out';
+            else if (fromUserTA && toUserTA) {
+                // Ignore self-transfers to avoid distorting FIFO inventory.
+                continue;
+            }
+            if (!direction) continue;
 
              // --- Duplicate value-assignment guard ---
              const mintDirectionKey = `${mint}:${direction}`;
@@ -999,6 +1002,12 @@ export function mapHeliusTransactionsToIntermediateRecords(
                    }
               }
           }
+
+            // Non-economic order placement/cancel should not carry economic value.
+            if (interactionType === 'CREATE_ORDER' || interactionType === 'CANCEL_ORDER') {
+                associatedSolValue = 0;
+                associatedUsdcValue = 0;
+            }
 
             // Duplicate value-assignment guard (actual enforcement)
             if (!isWsol && !isUsdc && (Math.abs(associatedSolValue) > FEE_PRECISION_THRESHOLD || Math.abs(associatedUsdcValue) > FEE_PRECISION_THRESHOLD)) {
