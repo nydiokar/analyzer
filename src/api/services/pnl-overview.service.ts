@@ -70,32 +70,8 @@ export class PnlOverviewService {
     // Use unrealized PNL from the analysis summary (calculated by core service)
     const unrealizedPnl = analysisSummary.unrealizedPnl || 0;
     
-    // Calculate true trade-level winrate by counting individual trades
-    let profitableTradesCount = 0;
-    let totalIndividualTrades = 0;
-    
-    analysisSummary.results.forEach(result => {
-      if (!result.isValuePreservation) {
-        if (result.hasIncompleteHistory) {
-          return;
-        }
-        // Count individual trades (transfers)
-        const tradesIn = result.transferCountIn || 0;
-        const tradesOut = result.transferCountOut || 0;
-        const totalTradesForToken = tradesIn + tradesOut;
-        
-        if (totalTradesForToken > 0) {
-          totalIndividualTrades += totalTradesForToken;
-          
-          // If the token was profitable, all its trades are considered profitable
-          // If the token was unprofitable, all its trades are considered unprofitable
-          const tokenPnl = result.realizedPnlSol ?? result.totalPnlSol ?? result.netSolProfitLoss;
-          if (tokenPnl !== null && tokenPnl !== undefined && tokenPnl > 0) {
-            profitableTradesCount += totalTradesForToken;
-          }
-        }
-      }
-    });
+    const totalIndividualTrades = analysisSummary.totalIndividualTradesCount ?? 0;
+    const profitableTradesCount = analysisSummary.profitableTradesCount ?? 0;
     
     // Use true trade-level winrate if we have individual trade data, otherwise fallback to token-level
     const swapWinRate = totalIndividualTrades > 0 

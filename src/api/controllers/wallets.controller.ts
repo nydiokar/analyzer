@@ -191,41 +191,16 @@ export class WalletsController {
       let currentSolBalance = overallPnlSummary.currentSolBalance;
       let balancesFetchedAt = overallPnlSummary.solBalanceFetchedAt;
       
-      // Calculate trade-level winrate for the summary card
+      // Calculate trade-level winrate for the summary card (canonical: WalletPnlSummary)
       let tradeLevelWinRate = tokenWinRate;
-      let profitableTradesCount = 0;
-      let totalIndividualTrades = 0;
-      
+      const profitableTradesCount = overallPnlSummary.profitableTradesCount ?? 0;
+      const totalIndividualTrades = overallPnlSummary.totalIndividualTradesCount ?? 0;
+
       if (overallPnlSummary.profitableTokensCount !== undefined && overallPnlSummary.unprofitableTokensCount !== undefined) {
         const totalTokens = overallPnlSummary.profitableTokensCount + overallPnlSummary.unprofitableTokensCount;
         if (totalTokens > 0) {
-          // Calculate trade-level winrate by counting individual trades
-          
-          // Get the detailed analysis to count individual trades
-          const detailedAnalysis = await this.pnlOverviewService.getPnlAnalysisForSummary(walletAddress);
-          if (detailedAnalysis && detailedAnalysis.results) {
-            detailedAnalysis.results.forEach(result => {
-              if (!result.isValuePreservation && !result.hasIncompleteHistory) {
-                const tradesIn = result.transferCountIn || 0;
-                const tradesOut = result.transferCountOut || 0;
-                const totalTradesForToken = tradesIn + tradesOut;
-                
-                if (totalTradesForToken > 0) {
-                  totalIndividualTrades += totalTradesForToken;
-                  
-                  // If the token was profitable, all its trades are considered profitable
-                  const tokenPnl = result.realizedPnlSol ?? result.totalPnlSol ?? result.netSolProfitLoss;
-                  if (tokenPnl !== null && tokenPnl !== undefined && tokenPnl > 0) {
-                    profitableTradesCount += totalTradesForToken;
-                  }
-                }
-              }
-            });
-          }
-          
-          // Use trade-level winrate if we have individual trade data, otherwise fallback to token-level
-          tradeLevelWinRate = totalIndividualTrades > 0 
-            ? (profitableTradesCount / totalIndividualTrades) * 100 
+          tradeLevelWinRate = totalIndividualTrades > 0
+            ? (profitableTradesCount / totalIndividualTrades) * 100
             : (overallPnlSummary.profitableTokensCount / totalTokens) * 100;
         }
       }
