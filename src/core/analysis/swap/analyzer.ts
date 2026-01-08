@@ -38,7 +38,8 @@ export class SwapAnalyzer {
     firstTimestamp: number,
     lastTimestamp: number,
     stablecoinNetFlow: number,
-    fifoLotsByMint: Map<string, FifoLot[]>
+    fifoLotsByMint: Map<string, FifoLot[]>,
+    fifoInputsByMint: Map<string, SwapAnalysisInput[]>
   } {
         logger.debug(`[SwapAnalyzer] Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletAddress}.`);
 
@@ -49,6 +50,8 @@ export class SwapAnalyzer {
     let overallLastTimestamp = 0;
     const fifoInputsByMint = new Map<string, SwapAnalysisInput[]>();
     const fifoLotsByMint = new Map<string, FifoLot[]>();
+    const zeroValueSwapsByMint = new Map<string, number>();
+    const valuedTransfersByMint = new Map<string, number>();
 
     // Track stablecoin metrics separately
     const stablecoinFlows = new Map<string, {
@@ -102,23 +105,23 @@ export class SwapAnalyzer {
 
         const interactionType = input.interactionType?.toUpperCase() ?? '';
 
-        // Non-economic transfers: BURN and UNKNOWN/TRANSFER with tiny SOL value
-        // UNKNOWN tiny transfers are typically: Jupiter DCA deposits, program escrow, account closes, airdrops
-        // We track token movement but assign ZERO economic value (no cost basis)
-        // After fee detection fix, airdrops now have 0 SOL value (not fee value)
-        const UNKNOWN_TRANSFER_THRESHOLD_SOL = 0.01;
-        const isNonEconomicTransfer = interactionType === 'BURN' ||
-            ((interactionType === 'UNKNOWN' || interactionType === 'TRANSFER') &&
-             Math.abs(input.associatedSolValue) < UNKNOWN_TRANSFER_THRESHOLD_SOL &&
-             Math.abs(input.associatedUsdcValue ?? 0) < UNKNOWN_TRANSFER_THRESHOLD_SOL);
-        const solValueToConsider = isNonEconomicTransfer ? 0 : input.associatedSolValue;
+        const solValueToConsider = input.associatedSolValue || 0;
         const currentFeeAmount = input.feeAmount || 0;
         const tokenAmount = Math.abs(input.amount || 0);
 
-        // Only pass economic transfers to FIFO (exclude UNKNOWN/TRANSFER with tiny values)
-        // With fee detection fix, airdrops (0 SOL) and fee-valued transfers are filtered here
-        // FIFO tracks cost basis for economic swaps only
-        if (splMint !== SOL_MINT && !isNonEconomicTransfer) {
+        const hasEconomicValue = Math.abs(input.associatedSolValue || 0) > 0 ||
+            Math.abs(input.associatedUsdcValue ?? 0) > 0;
+
+        if (interactionType === 'SWAP' && !hasEconomicValue) {
+            zeroValueSwapsByMint.set(splMint, (zeroValueSwapsByMint.get(splMint) || 0) + 1);
+        }
+
+        if ((interactionType === 'TRANSFER' || interactionType === 'UNKNOWN') && hasEconomicValue) {
+            valuedTransfersByMint.set(splMint, (valuedTransfersByMint.get(splMint) || 0) + 1);
+        }
+
+        // Pass ALL SPL token transfers to FIFO (economic or not) so inventory stays complete.
+        if (splMint !== SOL_MINT) {
             const existingInputs = fifoInputsByMint.get(splMint);
             if (existingInputs) {
                 existingInputs.push(input);
@@ -155,6 +158,22 @@ export class SwapAnalyzer {
     } // End loop through swap inputs
 
     logger.debug(`[SwapAnalyzer] Aggregated data for ${analysisBySplMint.size} unique SPL tokens across ${processedSignatures.size} signatures.`);
+    if (process.env.PNL_DEBUG_LOGS === 'true') {
+        if (zeroValueSwapsByMint.size > 0) {
+            const examples = Array.from(zeroValueSwapsByMint.entries())
+                .slice(0, 5)
+                .map(([mint, count]) => `${mint}:${count}`)
+                .join(', ');
+            logger.debug(`[SwapAnalyzer] Detected SWAPs with zero associated value for ${zeroValueSwapsByMint.size} mints (examples: ${examples}).`);
+        }
+        if (valuedTransfersByMint.size > 0) {
+            const examples = Array.from(valuedTransfersByMint.entries())
+                .slice(0, 5)
+                .map(([mint, count]) => `${mint}:${count}`)
+                .join(', ');
+            logger.debug(`[SwapAnalyzer] Detected valued TRANSFER/UNKNOWN legs for ${valuedTransfersByMint.size} mints (examples: ${examples}).`);
+        }
+    }
 
     // 2. Calculate Final Metrics
     const finalResultsPreFilter: OnChainAnalysisResult[] = [];
@@ -260,7 +279,8 @@ export class SwapAnalyzer {
         firstTimestamp: overallFirstTimestamp,
         lastTimestamp: overallLastTimestamp,
         stablecoinNetFlow: totalStablecoinNetFlow, // Return the calculated net flow
-        fifoLotsByMint
+        fifoLotsByMint,
+        fifoInputsByMint
     };
   }
 }

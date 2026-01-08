@@ -241,6 +241,8 @@ export interface SwapAnalysisSummary {
   profitableTokensCount: number;
   unprofitableTokensCount: number;
   totalExecutedSwapsCount: number;
+  totalIndividualTradesCount?: number;
+  profitableTradesCount?: number;
   averageRealizedPnlPerExecutedSwap: number;
   realizedPnlToTotalVolumeRatio: number;
   results: OnChainAnalysisResult[];

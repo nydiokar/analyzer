@@ -305,16 +305,15 @@ export class PnlAnalysisService {
                 return { results: [], totalSignaturesProcessed: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, overallFirstTimestamp: overallFirstTimestamp ||0, overallLastTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId, currentSolBalance: currentWalletBalance?.solBalance, balancesFetchedAt: balancesFetchedAt };
             }
 
+            const MIN_MEANINGFUL_SOL = 0.01;
             let totalVolume = 0, totalFees = 0, realizedPnl = 0, unrealizedPnl = 0, profitableTokensCount = 0, unprofitableTokensCount = 0;
             let totalExecutedSwapsCount = 0;
+            let totalIndividualTradesCount = 0;
+            let profitableTradesCount = 0;
 
             for (const result of swapAnalysisResultsFromAnalyzer) {
                 totalVolume += (result.totalSolSpent || 0) + (result.totalSolReceived || 0);
                 totalFees += result.totalFeesPaidInSol || 0;
-                
-                if (!result.isValuePreservation) {
-                    totalExecutedSwapsCount += (result.transferCountIn || 0) + (result.transferCountOut || 0);
-                }
             }
             
             // Calculate unrealized PNL for current holdings using stored balance data
@@ -420,6 +419,13 @@ export class PnlAnalysisService {
                     ? currentHoldingsValueSol - remainingCostBasisSol
                     : null;
                 const totalPnlSol = realizedPnlSol + (unrealizedPnlSol ?? 0);
+                const isMeaningful =
+                    (result.totalSolSpent ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    (result.totalSolReceived ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    Math.abs(realizedPnlSol) >= MIN_MEANINGFUL_SOL ||
+                    Math.abs(unrealizedPnlSol ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    Math.abs(totalPnlSol) >= MIN_MEANINGFUL_SOL ||
+                    (currentHoldingsValueSol ?? 0) >= MIN_MEANINGFUL_SOL;
 
                 result.realizedPnlSol = realizedPnlSol; // Always show partial data
                 result.unrealizedPnlSol = unrealizedPnlSol;
@@ -427,20 +433,47 @@ export class PnlAnalysisService {
                 result.netSolProfitLoss = totalPnlSol - feesPaid;
                 result.hasIncompleteHistory = result.hasIncompleteHistory; // Keep the flag
 
-                // Only include in wallet-level PnL if history is complete
-                if (!result.hasIncompleteHistory) {
-                    realizedPnl += realizedPnlSol;
-                    if (unrealizedPnlSol !== null) {
-                        unrealizedPnl += unrealizedPnlSol;
+                // Include partial results in wallet-level PnL (flagged via hasIncompleteHistory)
+                realizedPnl += realizedPnlSol;
+                if (unrealizedPnlSol !== null) {
+                    unrealizedPnl += unrealizedPnlSol;
+                }
+
+                if (isMeaningful) {
+                    totalExecutedSwapsCount += (result.transferCountIn || 0) + (result.transferCountOut || 0);
+                }
+
+                // NOTE: We currently include incomplete-history tokens in trade counts
+                // to keep activity aligned with displayed partial PnL. Consider splitting
+                // complete vs all counts if metrics need stricter accuracy.
+                if (isMeaningful) {
+                    const tokenTrades = (result.transferCountIn || 0) + (result.transferCountOut || 0);
+                    if (tokenTrades > 0) {
+                        const tokenPnl = result.realizedPnlSol ?? result.totalPnlSol ?? result.netSolProfitLoss ?? 0;
+                        totalIndividualTradesCount += tokenTrades;
+                        if (tokenPnl > 0) {
+                            profitableTradesCount += tokenTrades;
+                        }
                     }
                 }
             }
 
             for (const result of enrichedSwapAnalysisResults) {
-                if (result.isValuePreservation || result.hasIncompleteHistory) {
+                if (result.isValuePreservation) {
                     continue;
                 }
+                const currentHoldingsValueSol = holdingValueByMint.get(result.tokenAddress)?.valueSol ?? null;
                 const finalPnl = result.realizedPnlSol ?? result.totalPnlSol ?? result.netSolProfitLoss ?? 0;
+                const isMeaningful =
+                    (result.totalSolSpent ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    (result.totalSolReceived ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    Math.abs(finalPnl) >= MIN_MEANINGFUL_SOL ||
+                    (currentHoldingsValueSol ?? 0) >= MIN_MEANINGFUL_SOL;
+
+                if (!isMeaningful) {
+                    continue;
+                }
+
                 if (finalPnl > 0) profitableTokensCount++;
                 else if (finalPnl < 0) unprofitableTokensCount++;
             }
@@ -453,7 +486,16 @@ export class PnlAnalysisService {
 
             let advancedStatsData: PrismaAdvancedTradeStats | null = null;
             try {
-                const resultsForAdvancedStats = swapAnalysisResultsFromAnalyzer.filter(r => !r.isValuePreservation);
+                const resultsForAdvancedStats = swapAnalysisResultsFromAnalyzer.filter(r => {
+                    if (r.isValuePreservation) return false;
+                    const isMeaningful =
+                        (r.totalSolSpent ?? 0) >= MIN_MEANINGFUL_SOL ||
+                        (r.totalSolReceived ?? 0) >= MIN_MEANINGFUL_SOL ||
+                        Math.abs(r.realizedPnlSol ?? 0) >= MIN_MEANINGFUL_SOL ||
+                        Math.abs(r.unrealizedPnlSol ?? 0) >= MIN_MEANINGFUL_SOL ||
+                        Math.abs(r.totalPnlSol ?? 0) >= MIN_MEANINGFUL_SOL;
+                    return isMeaningful;
+                });
                 if (resultsForAdvancedStats.length > 0) advancedStatsData = this.advancedStatsAnalyzer.analyze(resultsForAdvancedStats);
                 else logger.warn(`[PnlAnalysis] No non-stablecoin results for advanced stats for ${walletAddress}.`);
             } catch (statsError) {
@@ -474,6 +516,8 @@ export class PnlAnalysisService {
                 profitableTokensCount,
                 unprofitableTokensCount,
                 totalExecutedSwapsCount: totalExecutedSwapsCount,
+                totalIndividualTradesCount: totalIndividualTradesCount,
+                profitableTradesCount: profitableTradesCount,
                 averageSwapSize: averageSwapSize,
                 averageRealizedPnlPerExecutedSwap: averageRealizedPnlPerExecutedSwap,
                 realizedPnlToTotalVolumeRatio: realizedPnlToTotalVolumeRatio,
@@ -504,6 +548,8 @@ export class PnlAnalysisService {
                         profitableTokensCount: summary.profitableTokensCount,
                         unprofitableTokensCount: summary.unprofitableTokensCount,
                         totalExecutedSwapsCount: summary.totalExecutedSwapsCount,
+                        totalIndividualTradesCount: summary.totalIndividualTradesCount ?? 0,
+                        profitableTradesCount: summary.profitableTradesCount ?? 0,
                         averageRealizedPnlPerExecutedSwap: summary.averageRealizedPnlPerExecutedSwap,
                         realizedPnlToTotalVolumeRatio: summary.realizedPnlToTotalVolumeRatio,
                         totalSignaturesProcessed: summary.totalSignaturesProcessed,

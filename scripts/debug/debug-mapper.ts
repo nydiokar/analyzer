@@ -4,9 +4,9 @@ import { hideBin } from 'yargs/helpers';
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
-import { mapHeliusTransactionsToIntermediateRecords } from '../src/core/services/helius-transaction-mapper';
-import { HeliusTransaction } from '../src/types/helius-api';
-import { createLogger } from '../src/core/utils/logger';
+import { mapHeliusTransactionsToIntermediateRecords } from '../../src/core/services/helius-transaction-mapper';
+import { HeliusTransaction } from '../../src/types/helius-api';
+import { createLogger } from '../../src/core/utils/logger';
 
 const logger = createLogger('DebugMapperScript');
 

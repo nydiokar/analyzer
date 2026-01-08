@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "0.19.9",
+  "version": "0.20.1",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "engines": {
@@ -22,7 +22,7 @@
     "kpi-report": "npx ts-node -r tsconfig-paths/register src/scripts/kpi-comparison-report.ts",
     "start:wallet-analysis": "npx ts-node -r tsconfig-paths/register src/wallet_analysis/index.ts",
     "pm2:start:backend": "npm run build && pm2 start ecosystem.backend.config.js --env production",
-    "debug:mapper": "ts-node -r tsconfig-paths/register scripts/debug-mapper.ts",
+    "debug:mapper": "ts-node -r tsconfig-paths/register scripts/debug/debug-mapper.ts",
     "user:manage": "ts-node -r tsconfig-paths/register scripts/manage-users.ts",
     "apikey:manage": "ts-node -r tsconfig-paths/register scripts/manage-api-keys.ts",
     "test:integration": "npx ts-node -r tsconfig-paths/register src/queues/test-backend-integration.ts",

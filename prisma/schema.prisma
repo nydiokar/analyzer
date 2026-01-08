@@ -150,6 +150,8 @@ model WalletPnlSummary {
   profitableTokensCount             Int
   unprofitableTokensCount           Int
   totalExecutedSwapsCount           Int
+  totalIndividualTradesCount       Int @default(0)
+  profitableTradesCount            Int @default(0)
   averageRealizedPnlPerExecutedSwap Float
   realizedPnlToTotalVolumeRatio     Float
   totalSignaturesProcessed          Int

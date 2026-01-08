@@ -61,9 +61,10 @@ If history is complete:
 - `netSolProfitLoss = totalPnlSol - totalFeesPaidInSol`
 
 If history is incomplete:
-- Do not compute realized/unrealized/total; set to `null`.
+- Compute realized PnL for the matched portion only.
 - Preserve `hasIncompleteHistory = true`.
-- Consumers should exclude these tokens from rankings/ROI cohorts.
+- Unmatched sells do not contribute to proceeds.
+- Consumers should flag these tokens as partial; ranking usage is a product choice.
 
 ## Fees Policy
 - Fees remain separate and are subtracted only in `netSolProfitLoss`.

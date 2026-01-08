@@ -43,9 +43,8 @@ export function buildFifoLotsForToken(
 
   const ordered = sortSwapInputs(inputs);
 
-  // SwapAnalyzer passes ALL transfers including non-economic ones (BURN, UNKNOWN tiny)
-  // We identify and assign ZERO cost to non-economic transfers while tracking token movement
-  const UNKNOWN_TRANSFER_THRESHOLD_SOL = 0.01;
+  // FIFO treats transfers with no associated value as non-economic (zero cost basis).
+  const VALUE_EPSILON = 1e-9;
 
   // Tolerance configuration for FIFO completion detection
   // Uses percentage-based tolerance with floor/ceiling bounds to handle all token scales
@@ -56,22 +55,12 @@ export function buildFifoLotsForToken(
 
   for (const input of ordered) {
     const normalizedAmount = Math.abs(input.amount);
-    const interactionType = input.interactionType?.toUpperCase() ?? '';
-
-    // Non-economic transfers: BURN and UNKNOWN with negligible SOL value
-    // These track token movement but have zero cost basis (DCA deposits, program escrow, etc.)
     const baseSolValue = Math.abs(input.associatedSolValue);
     const fallbackUsdcValue = Math.abs(input.associatedUsdcValue ?? 0);
-    const isNonEconomicTransfer = interactionType === 'BURN' ||
-      (interactionType === 'UNKNOWN' &&
-       baseSolValue < UNKNOWN_TRANSFER_THRESHOLD_SOL &&
-       fallbackUsdcValue < UNKNOWN_TRANSFER_THRESHOLD_SOL);
 
     // Convert USDC to SOL - each record has EITHER SOL or USDC, not both
     let effectiveSolValue: number;
-    if (isNonEconomicTransfer) {
-      effectiveSolValue = 0;
-    } else if (baseSolValue > 0) {
+    if (baseSolValue > 0) {
       // Use SOL value
       effectiveSolValue = baseSolValue;
     } else if (fallbackUsdcValue > 0 && solPriceUsd) {
@@ -80,6 +69,7 @@ export function buildFifoLotsForToken(
     } else {
       effectiveSolValue = 0;
     }
+    const isNonEconomicTransfer = effectiveSolValue <= VALUE_EPSILON;
 
     if (input.direction === 'in') {
       lots.push({
@@ -92,8 +82,8 @@ export function buildFifoLotsForToken(
       continue;
     }
 
-    totalProceedsSol += effectiveSolValue;
     let remainingToSell = normalizedAmount;
+    const unitProceeds = normalizedAmount > 0 ? effectiveSolValue / normalizedAmount : 0;
 
     // Calculate tolerance for this specific sale amount
     // Scales with token amount but bounded by floor/ceiling
@@ -109,29 +99,19 @@ export function buildFifoLotsForToken(
       const nextLot = lots.find(lot => lot.amountRemaining > LOT_FINDING_TOLERANCE);
       if (!nextLot) {
         hasIncompleteHistory = true;
+        remainingToSell = 0;
         break;
       }
 
       const unitCost =
         nextLot.amountBought > 0 ? nextLot.costBasisSol / nextLot.amountBought : 0;
       const consumed = Math.min(remainingToSell, nextLot.amountRemaining);
+      totalProceedsSol += consumed * unitProceeds;
       realizedCostBasisSol += consumed * unitCost;
       nextLot.amountRemaining -= consumed;
       remainingToSell -= consumed;
     }
 
-    if (hasIncompleteHistory) {
-      break;
-    }
-  }
-
-  if (hasIncompleteHistory) {
-    return {
-      realizedPnlSol: null,
-      remainingCostBasisSol: null,
-      hasIncompleteHistory: true,
-      lots,
-    };
   }
 
   const remainingCostBasisSol = lots.reduce((sum, lot) => {
@@ -143,7 +123,7 @@ export function buildFifoLotsForToken(
   return {
     realizedPnlSol: totalProceedsSol - realizedCostBasisSol,
     remainingCostBasisSol,
-    hasIncompleteHistory: false,
+    hasIncompleteHistory: hasIncompleteHistory,
     lots,
   };
 }

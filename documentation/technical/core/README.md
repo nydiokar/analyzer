@@ -240,6 +240,60 @@ The `SwapAnalyzer` focuses specifically on swap transaction patterns and token f
 - **Token Flow Tracking**: Monitors token movement between wallets
 - **Value Analysis**: Tracks SOL and USD values across trades
 
+## dY"? **FIFO PnL** - Deep Dive
+
+### **Purpose**
+FIFO PnL computes realized/unrealized profit per token using lot-based cost basis. It consumes SwapAnalysisInput rows (mapper output), runs lot matching, then persists results in AnalysisResult via PnlAnalysisService.
+
+### **Data Flow**
+1) Mapper creates SwapAnalysisInput with associatedSolValue/associatedUsdcValue.
+2) SwapAnalyzer aggregates totals and passes ALL SPL transfers to FIFO.
+3) FIFO lot tracker builds lots and computes realized/remaining cost basis.
+4) PnlAnalysisService derives unrealized (when price + cost basis are available) and persists.
+
+### **Ordering Rules**
+FIFO inputs are processed in deterministic order:
+1) timestamp ASC
+2) signature ASC
+3) direction with IN before OUT (so buys create lots before sells consume them)
+
+### **Lot Creation (BUY / IN)**
+- Each IN creates a lot:
+  - amountBought = amount
+  - costBasisSol = effectiveSolValue (0 for non-economic transfers)
+  - amountRemaining = amount
+
+### **Lot Consumption (SELL / OUT)**
+- Consume oldest lots first.
+- Cost basis consumed = consumedAmount * (lot.costBasisSol / lot.amountBought).
+- Proceeds counted only for matched amount:
+  - unitProceeds = effectiveSolValue / sellAmount
+  - proceeds += consumedAmount * unitProceeds
+
+### **Incomplete History Handling**
+- If sells exceed available lots:
+  - hasIncompleteHistory = true
+  - realizedPnlSol is still returned for the matched portion
+  - unmatched sells do not contribute to proceeds
+
+### **Economic Value Source**
+- Mapper is the single source of truth for value.
+- FIFO never invents value; non-economic == value == 0.
+- Self-transfers are ignored in mapping.
+- CREATE_ORDER / CANCEL_ORDER are zero-valued in mapping.
+
+### **Outputs (per token)**
+- realizedPnlSol: proceeds (matched) minus realized cost basis
+- remainingCostBasisSol: cost basis of remaining lots
+- unrealizedPnlSol: current holdings value minus remaining cost basis (if price exists)
+- totalPnlSol: realized + unrealized
+- hasIncompleteHistory: true if any sell exceeded available lots
+
+### **Known Limits**
+- If mapper fails to assign value on an economic swap, cost basis can be understated.
+- Cross-wallet transfers are not traced; PnL is wallet-local only.
+- Tokens acquired before tracked history remain partial.
+
 ## 🔍 **Stats Analyzer** - Deep Dive
 
 ### **Purpose & Capabilities**
@@ -467,6 +521,7 @@ class AnalysisCache {
 ---
 
 ## 📚 **Related Documentation**
+- **[FIFO Design Notes](../../../docs/pnl_fifo_design.md)** - FIFO design rationale and data model
 
 - **[API Layer](./../api/README.md)** - How the core engine is exposed via REST API
 - **[Database Schema](./../database/README.md)** - Data structures and relationships
