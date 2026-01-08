@@ -1,10 +1,10 @@
 #!/usr/bin/env ts-node
 
-import { HeliusApiClient } from './src/core/services/helius-api-client';
-import { DatabaseService } from './src/api/services/database.service';
-import { mapHeliusTransactionsToIntermediateRecords } from './src/core/services/helius-transaction-mapper';
-import { HELIUS_CONFIG } from './src/config/constants';
-import { HeliusTransaction } from './src/types/helius-api';
+import { HeliusApiClient } from '../../../src/core/services/helius-api-client';
+import { DatabaseService } from '../../../src/api/services/database.service';
+import { mapHeliusTransactionsToIntermediateRecords } from '../../../src/core/services/helius-transaction-mapper';
+import { HELIUS_CONFIG } from '../../../src/config/constants';
+import { HeliusTransaction } from '../../../src/types/helius-api';
 
 /**
  * WORKING VERSION: Time-based wallet discovery using RPC approach
@@ -707,20 +707,9 @@ async function testEnhancedApiTimeFiltering() {
   console.log(`🎯 Target time range: ${new Date(config.startTime * 1000).toISOString()} - ${new Date(config.endTime * 1000).toISOString()}`);
   console.log(`🎯 Target wallet: GPsdQQDYewZuYjG6u2fhvpTbPce9kKfoSE4usNLZUXPU\n`);
 
-  // Test multiple approaches including manual bonding curve input
-  //
-  // HOW TO FIND BONDING CURVE ADDRESS:
-  // 1. Go to https://solscan.io/token/3wASZZHadqJDw2decXbBoM1qLMKmh3pCBXk9nArwpump
-  // 2. Look at "Token Extensions" or "Program Accounts" section
-  // FOUND FROM TRANSACTION ANALYSIS:
-  // Address 4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf appears in multiple pump.fun transactions
-  // and is consistently involved in token swaps - this is likely the bonding curve!
-  const manualBondingCurve = '4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf';
-
+  // Enhanced API ONLY: mint address approach (no bonding curve, no RPC)
   const approaches = [
-    { addressType: 'auto' as const, name: 'AUTO-DETECT (Mint vs Bonding Curve)', bondingCurveAddress: undefined },
     { addressType: 'mint' as const, name: 'MINT ADDRESS ONLY', bondingCurveAddress: undefined },
-    { addressType: 'bonding-curve' as const, name: 'MANUAL BONDING CURVE (if provided)', bondingCurveAddress: manualBondingCurve || undefined },
   ];
 
   let foundInAnyApproach = false;
@@ -743,70 +732,23 @@ async function testEnhancedApiTimeFiltering() {
       // If we're using a different address than the mint, we need to get transactions for that address
       // and then filter for ones involving our token
       if (fetchAddress.address !== config.mintAddress) {
-        console.log('🎯 Using BONDING CURVE APPROACH: Get all transactions for bonding curve, then filter for our token\n');
-
-        // Get transactions for the bonding curve address with time filters
-        const bondingCurveTxs = await heliusClient.getAllTransactionsForAddress(
-          fetchAddress.address,
-          1000,
-          undefined,
-          undefined,
-          undefined,
-          config.startTime, // start time
-          config.endTime    // end time
-        );
-
-        console.log(`✅ Found ${bondingCurveTxs.length} transactions for bonding curve address`);
-
-        // Filter for transactions involving our specific token
-        const relevantTxs = bondingCurveTxs.filter(tx =>
-          tx.tokenTransfers?.some(transfer => transfer.mint === config.mintAddress)
-        );
-
-        console.log(`🎯 Filtered to ${relevantTxs.length} transactions involving our token: ${config.mintAddress}\n`);
-
-        const allTransactions = relevantTxs;
-        console.log(`📊 Total relevant transactions: ${allTransactions.length}`);
-
-        if (allTransactions.length === 0) {
-          console.log('❌ No transactions found for our token on this address');
-          continue;
-        }
-
-        // Analyze the filtered transactions
-        const walletMap = analyzeTransactionsForWallets(allTransactions, config.mintAddress);
-
-        // Check for target wallet
-        const found = checkForTargetWallet(walletMap, approach.name);
-        if (found) foundInAnyApproach = true;
-
+        console.log('❌ Unexpected fetch address (bonding curve path disabled in this test).');
+        continue;
       } else {
         console.log('🎯 Using MINT ADDRESS APPROACH: Get transactions directly for mint\n');
 
-        // Original approach: get transactions directly for the mint
-        const swapTransactions = await heliusClient.getAllTransactionsForMint(
+        const allTransactions = await fetchEnhancedTransactionsForMintWindow(
+          heliusClient,
           config.mintAddress,
-          1000,
+          ['SWAP', 'TRANSFER'],
+          config.startTime,
+          config.endTime,
           {
-            type: 'SWAP',
-            gteTime: config.startTime,
-            lteTime: config.endTime
+            useAnchorBatch: true,
+            maxPages: 200,
+            maxTransactions: 5000
           }
         );
-        console.log(`✅ SWAP transactions found: ${swapTransactions.length}`);
-
-        const transferTransactions = await heliusClient.getAllTransactionsForMint(
-          config.mintAddress,
-          1000,
-          {
-            type: 'TRANSFER',
-            gteTime: config.startTime,
-            lteTime: config.endTime
-          }
-        );
-        console.log(`✅ TRANSFER transactions found: ${transferTransactions.length}`);
-
-        const allTransactions = [...swapTransactions, ...transferTransactions];
         console.log(`📊 Total Enhanced API transactions: ${allTransactions.length}\n`);
 
         if (allTransactions.length === 0) {
@@ -849,6 +791,109 @@ async function testEnhancedApiTimeFiltering() {
     console.log('💡 Or the token may not be accessible via current API methods');
     return false;
   }
+}
+
+async function fetchEnhancedTransactionsForMintWindow(
+  heliusClient: HeliusApiClient,
+  mintAddress: string,
+  types: string[],
+  startTime: number,
+  endTime: number,
+  options: {
+    useAnchorBatch: boolean;
+    maxPages: number;
+    maxTransactions: number;
+  }
+): Promise<HeliusTransaction[]> {
+  const allBySignature = new Map<string, HeliusTransaction>();
+
+  for (const type of types) {
+    const typeTransactions = await fetchEnhancedTransactionsForMintWindowByType(
+      heliusClient,
+      mintAddress,
+      type,
+      startTime,
+      endTime,
+      options
+    );
+
+    for (const tx of typeTransactions) {
+      allBySignature.set(tx.signature, tx);
+    }
+  }
+
+  return Array.from(allBySignature.values());
+}
+
+async function fetchEnhancedTransactionsForMintWindowByType(
+  heliusClient: HeliusApiClient,
+  mintAddress: string,
+  type: string,
+  startTime: number,
+  endTime: number,
+  options: {
+    useAnchorBatch: boolean;
+    maxPages: number;
+    maxTransactions: number;
+  }
+): Promise<HeliusTransaction[]> {
+  const allTransactions: HeliusTransaction[] = [];
+  const limit = 100;
+  let beforeSignature: string | undefined;
+  let pagesFetched = 0;
+
+  if (options.useAnchorBatch) {
+    const anchorBatch = await heliusClient.getTransactionsViaEnhancedAPI(mintAddress, {
+      limit,
+      type,
+      gteTime: startTime,
+      lteTime: endTime
+    });
+
+    console.log(`🔍 Anchor batch (${type}): ${anchorBatch.length} transactions`);
+
+    for (const tx of anchorBatch) {
+      if (tx.timestamp >= startTime && tx.timestamp <= endTime) {
+        allTransactions.push(tx);
+      }
+    }
+
+    if (anchorBatch.length === 0) {
+      return allTransactions;
+    }
+
+    beforeSignature = anchorBatch[anchorBatch.length - 1]?.signature;
+  }
+
+  while (allTransactions.length < options.maxTransactions && pagesFetched < options.maxPages) {
+    const batch = await heliusClient.getTransactionsViaEnhancedAPI(mintAddress, {
+      limit,
+      beforeSignature,
+      type
+    });
+
+    pagesFetched += 1;
+
+    if (batch.length === 0) break;
+
+    for (const tx of batch) {
+      if (tx.timestamp >= startTime && tx.timestamp <= endTime) {
+        allTransactions.push(tx);
+      }
+    }
+
+    const oldestTx = batch[batch.length - 1];
+    beforeSignature = oldestTx?.signature;
+
+    // Stop paging once we have gone past the window.
+    if (oldestTx?.timestamp && oldestTx.timestamp < startTime) {
+      break;
+    }
+
+    if (batch.length < limit) break;
+  }
+
+  return allTransactions;
 }
 
 // Run the discovery
@@ -911,4 +956,5 @@ async function quickBondingCurveTest() {
   }
 }
 
-quickBondingCurveTest().catch(console.error);
+testEnhancedApiTimeFiltering().catch(console.error);
+// quickBondingCurveTest().catch(console.error);

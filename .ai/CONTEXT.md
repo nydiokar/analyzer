@@ -159,7 +159,7 @@ bought 9, sold 34, we have 2/3 buys/sells and we show 0 realized
 
 **Key Findings**:
 
-1. **Enhanced API Has Significant Gaps**: Missing 20-30% of historical transactions that exist on-chain
+1. **Enhanced API Has Significant Gaps**: Missing of historical transactions that are behind the bonding curve address not the actual mint address
    - Example: Enhanced API returned transactions from `22:38-22:59` but RPC found data from `22:31-22:36`
    - Time filtering works but coverage is incomplete
 

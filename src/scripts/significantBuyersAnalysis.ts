@@ -1,9 +1,7 @@
 #!/usr/bin/env ts-node
 
-import { TokenFirstBuyersService } from '../core/services/token-first-buyers-service';
 import { HeliusApiClient } from '../core/services/helius-api-client';
 import { DatabaseService } from '../api/services/database.service';
-import { prisma } from '../core/services/database-service';
 import { createLogger } from '../core/utils/logger';
 import { mapHeliusTransactionsToIntermediateRecords } from '@/core/services/helius-transaction-mapper';
 import { HELIUS_CONFIG, PROCESSING_CONFIG, DB_CONFIG } from '../config/constants';
@@ -62,10 +60,8 @@ interface WalletAnalysisResult {
  * npx ts-node -r tsconfig-paths/register src/scripts/significantBuyersAnalysis.ts <MINT_ADDRESS> [options]
  *
  * MODES:
- * - TIME-FILTERED MODE: When --before-time, --after-time, or --end-time is specified
- *   Uses ONLY Enhanced API for precise time-filtered analysis
- * - LEGACY MODE: When no time filters specified
- *   Uses Step 1 (first buyers) + Step 1.5 (pre-filtering)
+ * - ENHANCED-ONLY MODE: Uses Helius Enhanced API for mint transactions and local filtering
+ *   Time filters (if provided) are applied locally after Enhanced pagination.
  *
  * Time filtering options:
  * --before-time=N      Unix timestamp - transactions before this time
@@ -84,12 +80,15 @@ function parseArgs(argv: string[]): {
   addressType: 'bonding-curve' | 'mint' | 'auto';
   bondingCurve?: string;
   maxSignatures: number;
+  maxPages: number | null;
+  useAnchorBatch: boolean;
+  watchWallets: string[];
   topTradersPerToken: number;
   sortBy: 'pnl' | 'investment';
   beforeTime?: number;
   afterTime?: number;
   endTime?: number;
-  transactionType: string;
+  transactionTypes: string[];
 } {
   const args = argv.slice(2);
 
@@ -106,12 +105,15 @@ function parseArgs(argv: string[]): {
   let addressType: 'bonding-curve' | 'mint' | 'auto' = 'auto';
   let bondingCurve: string | undefined;
   let maxSignatures = 5000;
+  let maxPages: number | null = null;
+  let useAnchorBatch = true;
+  let watchWallets: string[] = [];
   let topTradersPerToken = 20;
   let sortBy: 'pnl' | 'investment' = 'pnl';
   let beforeTime: number | undefined;
   let afterTime: number | undefined;
   let endTime: number | undefined;
-  let transactionType = 'SWAP';
+  let transactionTypes = ['SWAP', 'TRANSFER'];
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -125,6 +127,13 @@ function parseArgs(argv: string[]): {
       bondingCurve = arg.split('=')[1];
     } else if (arg.startsWith('--max-signatures=')) {
       maxSignatures = parseInt(arg.split('=')[1]);
+    } else if (arg.startsWith('--max-pages=')) {
+      maxPages = parseInt(arg.split('=')[1]);
+    } else if (arg === '--no-anchor') {
+      useAnchorBatch = false;
+    } else if (arg.startsWith('--watch-wallet=')) {
+      const walletArg = arg.split('=')[1];
+      watchWallets = walletArg.split(',').map(addr => addr.trim()).filter(Boolean);
     } else if (arg.startsWith('--top-traders=')) {
       topTradersPerToken = parseInt(arg.split('=')[1]);
     } else if (arg.startsWith('--sort-by=')) {
@@ -136,16 +145,17 @@ function parseArgs(argv: string[]): {
     } else if (arg.startsWith('--end-time=')) {
       endTime = parseInt(arg.split('=')[1]);
     } else if (arg.startsWith('--transaction-type=')) {
-      transactionType = arg.split('=')[1];
+      const rawTypes = arg.split('=')[1];
+      transactionTypes = rawTypes.split(',').map(type => type.trim()).filter(Boolean);
     }
   }
 
-  return { mints, minSol, maxTx, addressType, bondingCurve, maxSignatures, topTradersPerToken, sortBy, beforeTime, afterTime, endTime, transactionType };
+  return { mints, minSol, maxTx, addressType, bondingCurve, maxSignatures, maxPages, useAnchorBatch, watchWallets, topTradersPerToken, sortBy, beforeTime, afterTime, endTime, transactionTypes };
 }
 
 async function main(): Promise<void> {
   try {
-    const { mints, minSol, maxTx, addressType, bondingCurve, maxSignatures, topTradersPerToken, sortBy, beforeTime, afterTime, endTime, transactionType } = parseArgs(process.argv);
+    const { mints, minSol, maxTx, addressType, bondingCurve, maxSignatures, maxPages, useAnchorBatch, watchWallets, topTradersPerToken, sortBy, beforeTime, afterTime, endTime, transactionTypes } = parseArgs(process.argv);
 
     if (!process.env.HELIUS_API_KEY) {
       console.error('❌ HELIUS_API_KEY environment variable is required');
@@ -153,10 +163,13 @@ async function main(): Promise<void> {
     }
 
     logger.info(`Starting significant buyers analysis for ${mints.length} token(s): ${mints.join(', ')}`);
-    logger.info(`Parameters: minSol=${minSol}, maxTx=${maxTx}, addressType=${addressType}, maxSignatures=${maxSignatures}, topTradersPerToken=${topTradersPerToken}, sortBy=${sortBy}`);
-    logger.info(`Time filters: beforeTime=${beforeTime}, afterTime=${afterTime}, endTime=${endTime}, transactionType=${transactionType}`);
-    if (bondingCurve) {
-      logger.info(`Bonding curve address: ${bondingCurve}`);
+    logger.info(`Parameters: minSol=${minSol}, maxTx=${maxTx}, maxSignatures=${maxSignatures}, maxPages=${maxPages ?? 'auto'}, anchor=${useAnchorBatch}, topTradersPerToken=${topTradersPerToken}, sortBy=${sortBy}`);
+    logger.info(`Time filters: beforeTime=${beforeTime}, afterTime=${afterTime}, endTime=${endTime}, transactionTypes=${transactionTypes.join(',')}`);
+    if (watchWallets.length > 0) {
+      logger.info(`Watch wallets: ${watchWallets.join(', ')}`);
+    }
+    if (addressType !== 'auto' || bondingCurve) {
+      logger.info(`Note: addressType/bondingCurve options are ignored in Enhanced-only mode.`);
     }
 
     // Initialize services
@@ -167,8 +180,6 @@ async function main(): Promise<void> {
       requestsPerSecond: HELIUS_CONFIG.DEFAULT_RPS // Use established config (40 RPS)
     }, databaseService);
 
-    const tokenBuyersService = new TokenFirstBuyersService(heliusClient, databaseService);
-
     const startTime = Date.now();
     const allResults: WalletAnalysisResult[] = [];
     const allAnalysisInputs: any[] = []; // Collect all analysis inputs for batch saving
@@ -177,530 +188,331 @@ async function main(): Promise<void> {
     for (const mint of mints) {
       logger.info(`\n🔄 Processing token: ${mint}`);
 
-      // Determine approach based on whether time filters are specified
       const hasTimeFilters = beforeTime || afterTime || endTime;
-      let walletsToAnalyze: any[] = [];
-      let preFilteredWallets: string[] | null = null;
+      const windowStart = afterTime;
+      const windowEnd = beforeTime ?? endTime;
+      const maxPagesToUse = maxPages ?? Math.max(1, Math.ceil(maxSignatures / 100) + 5);
+      let walletsToAnalyze: { walletAddress: string }[] = [];
+      let mintTransactions: HeliusTransaction[] = [];
 
-      if (hasTimeFilters) {
-        // TIME-FILTERED MODE: Use ONLY Enhanced API (Step 1.5) - more efficient and precise
-        logger.info(`⏰ TIME-FILTERED MODE: Using Enhanced API only (skipping Step 1)`);
-        logger.info(`🚀 Step 1.5: Fetching and analyzing mint transactions with time filters...`);
+      logger.info(`🚀 ENHANCED-ONLY MODE: Fetching mint transactions via Enhanced API...`);
 
-        try {
-          // Build time filter options
-          const timeFilterOptions: any = {
-            type: transactionType
-          };
-
-          if (beforeTime) timeFilterOptions.ltTime = beforeTime;
-          if (afterTime) timeFilterOptions.gteTime = afterTime;
-          if (endTime) timeFilterOptions.ltTime = endTime; // Look backwards from end time
-
-          // Fetch all transactions for this mint with time filters
-          const mintTransactions = await heliusClient.getAllTransactionsForMint(
-            mint,
-            maxSignatures,
-            timeFilterOptions
-          );
-
-          logger.info(`✅ Fetched ${mintTransactions.length} transactions for mint ${mint}`);
-
-          // Extract ALL wallets from transactions (not just buyers)
-          const walletSet = new Set<string>();
-          const walletSolSpent = new Map<string, number>();
-
-          for (const tx of mintTransactions) {
-            // Extract all wallet addresses from this transaction
-            const addresses: string[] = [];
-
-            // From swap events
-            if (tx.events?.swap) {
-              const swap = tx.events.swap;
-              if (swap.nativeInput?.account) addresses.push(swap.nativeInput.account);
-              if (swap.nativeOutput?.account) addresses.push(swap.nativeOutput.account);
-              if (swap.tokenInputs?.[0]?.userAccount) addresses.push(swap.tokenInputs[0].userAccount);
-              if (swap.tokenOutputs?.[0]?.userAccount) addresses.push(swap.tokenOutputs[0].userAccount);
-            }
-
-            // From token transfers (for TRANSFER type)
-            if (tx.tokenTransfers) {
-              tx.tokenTransfers.forEach(transfer => {
-                if (transfer.fromUserAccount) addresses.push(transfer.fromUserAccount);
-                if (transfer.toUserAccount) addresses.push(transfer.toUserAccount);
-              });
-            }
-
-            // Add all unique addresses
-            addresses.forEach(addr => {
-              if (addr && addr !== mint) { // Exclude mint address itself
-                walletSet.add(addr);
-              }
-            });
-
-            // Track SOL spent for pre-filtering
-            if (tx.events?.swap?.nativeInput) {
-              const wallet = tx.events.swap.nativeInput.account;
-              const solSpent = parseInt(tx.events.swap.nativeInput.amount) / 1e9;
-              if (wallet && solSpent > 0) {
-                walletSolSpent.set(wallet, (walletSolSpent.get(wallet) || 0) + solSpent);
-              }
-            }
+      try {
+        mintTransactions = await fetchEnhancedTransactionsForMintWindow(
+          heliusClient,
+          mint,
+          transactionTypes,
+          windowStart,
+          windowEnd,
+          {
+            useAnchorBatch: hasTimeFilters && useAnchorBatch,
+            maxPages: maxPagesToUse,
+            maxTransactions: maxSignatures
           }
-
-          // TIME-FILTERED MODE: Hybrid approach
-          // Use Enhanced API to get time-filtered transactions, extract wallets, then analyze them individually
-          // This gives us time filtering while still getting proper SOL amounts
-
-          logger.info(`📊 TIME-FILTERED MODE: Hybrid approach - ${mintTransactions.length} time-filtered transactions found`);
-
-          // Extract unique wallets from time-filtered transactions
-          const timeFilteredWallets = new Set<string>();
-
-          for (const tx of mintTransactions) {
-            // From swap events (if any)
-            if (tx.events?.swap) {
-              const swap = tx.events.swap;
-              if (swap.nativeInput?.account) timeFilteredWallets.add(swap.nativeInput.account);
-              if (swap.nativeOutput?.account) timeFilteredWallets.add(swap.nativeOutput.account);
-              if (swap.tokenInputs?.[0]?.userAccount) timeFilteredWallets.add(swap.tokenInputs[0].userAccount);
-              if (swap.tokenOutputs?.[0]?.userAccount) timeFilteredWallets.add(swap.tokenOutputs[0].userAccount);
-            }
-
-            // From token transfers
-            if (tx.tokenTransfers) {
-              tx.tokenTransfers.forEach(transfer => {
-                if (transfer.fromUserAccount) timeFilteredWallets.add(transfer.fromUserAccount);
-                if (transfer.toUserAccount) timeFilteredWallets.add(transfer.toUserAccount);
-              });
-            }
-          }
-
-          logger.info(`📊 TIME-FILTERED MODE: Found ${timeFilteredWallets.size} unique wallets in time-filtered transactions`);
-
-          if (timeFilteredWallets.size === 0) {
-            logger.info(`⚠️ No wallets found in time-filtered transactions. This could mean:`);
-            logger.info(`   - No transactions in the specified time range`);
-            logger.info(`   - Enhanced API doesn't parse swap events for this token`);
-            logger.info(`   - Try using LEGACY MODE (without time filters) to compare`);
-
-            // Skip to next mint
-            continue;
-          }
-
-          // Convert to array for analysis
-          walletsToAnalyze = Array.from(timeFilteredWallets).map(walletAddress => ({
-            walletAddress,
-            firstBuyTimestamp: Date.now() / 1000, // Will be updated during analysis
-            firstBuySignature: 'time-filtered',
-            tokenAmount: 0
-          }));
-
-          globalTelemetry.wallets.totalReviewed += walletsToAnalyze.length;
-
-          logger.info(`📊 TIME-FILTERED MODE: Analyzing ${walletsToAnalyze.length} wallets with time constraint: before ${new Date(beforeTime! * 1000).toISOString()}`);
-
-        } catch (error) {
-          logger.error(`❌ Enhanced API approach failed:`, error);
-          throw new Error(`Time-filtered mode requires working Enhanced API. Error: ${error}`);
-        }
-
-      } else {
-        // LEGACY MODE: Use Step 1 + Step 1.5 (backward compatibility)
-        logger.info(`📊 Step 1: Fetching wallets who interacted with ${mint}...`);
-        const allBuyers = await tokenBuyersService.getFirstBuyers(mint, {
-          maxBuyers: Math.max(5000, topTradersPerToken * 10),
-          maxSignatures,
-          batchSize: 100,
-          addressType,
-          bondingCurveAddress: bondingCurve
-        });
-
-        logger.info(`Found ${allBuyers.length} unique wallets who interacted with ${mint}`);
-        globalTelemetry.wallets.totalReviewed += allBuyers.length;
-
-        if (allBuyers.length === 0) {
-          logger.warn(`No wallets found for ${mint}. Skipping.`);
-          continue;
-        }
-
-        // Step 1.5: PRE-FILTER wallets by fetching mint transactions (EFFICIENT!)
-        logger.info(`🚀 Step 1.5: Pre-filtering wallets by SOL amount using Enhanced API...`);
-
-        try {
-          // Build time filter options (default to SWAP for legacy mode)
-          const timeFilterOptions: any = {
-            type: transactionType || 'SWAP'
-          };
-
-          const mintTransactions = await heliusClient.getAllTransactionsForMint(
-            mint,
-            maxSignatures,
-            timeFilterOptions
-          );
-
-          logger.info(`✅ Fetched ${mintTransactions.length} swap transactions for mint ${mint}`);
-
-          // Aggregate SOL spent per wallet from mint transactions using the mapper
-          const walletSolSpent = new Map<string, number>();
-          const walletTransactionCount = new Map<string, number>();
-          let totalTransactionsProcessed = 0;
-
-          logger.info(`🔍 DEBUG: Analyzing ${mintTransactions.length} transactions for SOL investment using mapper...`);
-
-          // Debug: Log first few transactions to see their structure
-          if (mintTransactions.length > 0) {
-            logger.info(`📋 Sample transaction structure:`);
-            const sampleTx = mintTransactions[0];
-            logger.info(`  - Signature: ${sampleTx.signature}`);
-            logger.info(`  - Timestamp: ${new Date(sampleTx.timestamp).toISOString()}`);
-            logger.info(`  - Events: ${Object.keys(sampleTx.events || {})}`);
-            if (sampleTx.events?.swap) {
-              logger.info(`  - Swap event: ${JSON.stringify(sampleTx.events.swap).substring(0, 200)}...`);
-            }
-            if (sampleTx.tokenTransfers) {
-              logger.info(`  - Token transfers: ${sampleTx.tokenTransfers.length}`);
-            }
-          }
-
-          // Group transactions by wallet address to use the mapper
-          const transactionsByWallet = new Map<string, HeliusTransaction[]>();
-
-          for (const tx of mintTransactions) {
-            totalTransactionsProcessed++;
-
-            // Extract all wallet addresses involved in this transaction
-            const walletAddresses: string[] = [];
-
-            // From swap events
-            if (tx.events?.swap) {
-              const swap = tx.events.swap;
-              if (swap.nativeInput?.account) walletAddresses.push(swap.nativeInput.account);
-              if (swap.nativeOutput?.account) walletAddresses.push(swap.nativeOutput.account);
-              if (swap.tokenInputs?.[0]?.userAccount) walletAddresses.push(swap.tokenInputs[0].userAccount);
-              if (swap.tokenOutputs?.[0]?.userAccount) walletAddresses.push(swap.tokenOutputs[0].userAccount);
-            }
-
-            // From token transfers
-            if (tx.tokenTransfers) {
-              tx.tokenTransfers.forEach(transfer => {
-                if (transfer.fromUserAccount) walletAddresses.push(transfer.fromUserAccount);
-                if (transfer.toUserAccount) walletAddresses.push(transfer.toUserAccount);
-              });
-            }
-
-            // From native transfers
-            if (tx.nativeTransfers) {
-              tx.nativeTransfers.forEach(transfer => {
-                walletAddresses.push(transfer.fromUserAccount);
-                walletAddresses.push(transfer.toUserAccount);
-              });
-            }
-
-            // Add transaction to each wallet's transaction list
-            const uniqueWallets = [...new Set(walletAddresses.filter(addr => addr && addr !== mint))];
-            uniqueWallets.forEach(wallet => {
-              if (!transactionsByWallet.has(wallet)) {
-                transactionsByWallet.set(wallet, []);
-              }
-              transactionsByWallet.get(wallet)!.push(tx);
-            });
-          }
-
-          logger.info(`📊 Found ${transactionsByWallet.size} unique wallets across ${totalTransactionsProcessed} transactions`);
-
-          // Now use the mapper to calculate SOL investment for each wallet
-          for (const [walletAddress, walletTransactions] of transactionsByWallet) {
-            try {
-              // Use the mapper to get properly calculated SOL values
-              const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(
-                walletAddress,
-                walletTransactions
-              );
-
-              // Filter for transactions involving the target mint
-              const relevantInputs = analysisInputs.filter(input => input.mint === mint);
-
-              if (relevantInputs.length === 0) continue;
-
-              // Calculate total SOL spent (outgoing transactions for this mint)
-              const solSpent = relevantInputs
-                .filter(input => input.direction === 'out')
-                .reduce((sum, input) => sum + input.associatedSolValue, 0);
-
-              // Calculate total SOL received (incoming transactions for this mint)
-              const solReceived = relevantInputs
-                .filter(input => input.direction === 'in')
-                .reduce((sum, input) => sum + input.associatedSolValue, 0);
-
-              // Only count wallets that actually spent SOL (positive solSpent)
-              if (solSpent > 0) {
-                walletSolSpent.set(walletAddress, (walletSolSpent.get(walletAddress) || 0) + solSpent);
-                walletTransactionCount.set(walletAddress, relevantInputs.length);
-
-                if (walletSolSpent.size <= 5) { // Debug first few wallets
-                  logger.debug(`Wallet ${walletAddress}: ${solSpent.toFixed(4)} SOL spent, ${solReceived.toFixed(4)} SOL received, ${relevantInputs.length} tx for mint ${mint}`);
-                }
-              }
-            } catch (error) {
-              logger.warn(`Failed to map transactions for wallet ${walletAddress}:`, error);
-            }
-          }
-
-          logger.info(`📊 TELEMETRY: Transaction Analysis Complete (Using Mapper)`);
-          logger.info(`   - Total transactions processed: ${totalTransactionsProcessed}`);
-          logger.info(`   - Unique wallets found: ${transactionsByWallet.size}`);
-          logger.info(`   - Wallets with SOL investment in target token: ${walletSolSpent.size}`);
-          logger.info(`   - Total SOL invested across all wallets: ${Array.from(walletSolSpent.values()).reduce((sum, sol) => sum + sol, 0).toFixed(4)} SOL`);
-
-          if (walletSolSpent.size > 0) {
-            const sortedBySol = Array.from(walletSolSpent.entries()).sort((a, b) => b[1] - a[1]);
-            logger.info(`   - Top 3 investors: ${sortedBySol.slice(0, 3).map(([wallet, sol]) => `${wallet.substring(0, 8)}...: ${sol.toFixed(4)} SOL`).join(', ')}`);
-            logger.info(`   - Transaction counts: ${sortedBySol.slice(0, 3).map(([wallet]) => walletTransactionCount.get(wallet) || 0).join(', ')} tx`);
-          }
-
-          // Filter to only wallets that meet the minSol threshold
-          preFilteredWallets = Array.from(walletSolSpent.entries())
-            .filter(([_, solSpent]) => solSpent >= minSol)
-            .map(([wallet]) => wallet);
-
-          globalTelemetry.wallets.relevantFound += preFilteredWallets.length;
-          logger.info(`✅ Pre-filtered to ${preFilteredWallets.length} wallets meeting ${minSol}+ SOL threshold`);
-          logger.info(`   (Avoided fetching full histories for ${allBuyers.length - preFilteredWallets.length} wallets!)`);
-
-        } catch (error) {
-          logger.warn(`⚠️  Enhanced API pre-filtering failed, falling back to analyzing all wallets:`, error);
-          preFilteredWallets = null;
-        }
-
-        // Filter allBuyers to only include pre-filtered wallets (if pre-filtering succeeded)
-        walletsToAnalyze = preFilteredWallets
-          ? allBuyers.filter(buyer => preFilteredWallets!.includes(buyer.walletAddress))
-          : allBuyers;
+        );
+      } catch (error) {
+        logger.error(`❌ Enhanced API fetch failed for ${mint}:`, error);
+        throw error;
       }
+
+      logger.info(`✅ Fetched ${mintTransactions.length} transactions for mint ${mint} (types=${transactionTypes.join(',')})`);
+
+      if (mintTransactions.length === 0) {
+        logger.warn(`No transactions found for ${mint}. Skipping.`);
+        continue;
+      }
+
+      const timestamps = mintTransactions.map(tx => tx.timestamp);
+      if (timestamps.length > 0) {
+        const minTime = Math.min(...timestamps);
+        const maxTime = Math.max(...timestamps);
+        logger.info(`📊 Time range in fetched txs: ${new Date(minTime * 1000).toISOString()} - ${new Date(maxTime * 1000).toISOString()}`);
+      }
+
+      // Group transactions by wallet address
+      const transactionsByWallet = new Map<string, HeliusTransaction[]>();
+      for (const tx of mintTransactions) {
+        const walletAddresses: string[] = [];
+
+        if (tx.events?.swap) {
+          const swap = tx.events.swap;
+          if (swap.nativeInput?.account) walletAddresses.push(swap.nativeInput.account);
+          if (swap.nativeOutput?.account) walletAddresses.push(swap.nativeOutput.account);
+          if (swap.tokenInputs?.[0]?.userAccount) walletAddresses.push(swap.tokenInputs[0].userAccount);
+          if (swap.tokenOutputs?.[0]?.userAccount) walletAddresses.push(swap.tokenOutputs[0].userAccount);
+        }
+
+        if (tx.tokenTransfers) {
+          tx.tokenTransfers.forEach(transfer => {
+            if (transfer.fromUserAccount) walletAddresses.push(transfer.fromUserAccount);
+            if (transfer.toUserAccount) walletAddresses.push(transfer.toUserAccount);
+          });
+        }
+
+        if (tx.nativeTransfers) {
+          tx.nativeTransfers.forEach(transfer => {
+            if (transfer.fromUserAccount) walletAddresses.push(transfer.fromUserAccount);
+            if (transfer.toUserAccount) walletAddresses.push(transfer.toUserAccount);
+          });
+        }
+
+        const uniqueWallets = [...new Set(walletAddresses.filter(addr => addr && addr !== mint))];
+        uniqueWallets.forEach(wallet => {
+          if (!transactionsByWallet.has(wallet)) {
+            transactionsByWallet.set(wallet, []);
+          }
+          transactionsByWallet.get(wallet)!.push(tx);
+        });
+      }
+
+      walletsToAnalyze = Array.from(transactionsByWallet.keys()).map(walletAddress => ({ walletAddress }));
+      if (watchWallets.length > 0) {
+        const present = watchWallets.filter(addr => transactionsByWallet.has(addr));
+        const missing = watchWallets.filter(addr => !transactionsByWallet.has(addr));
+        if (present.length > 0) {
+          logger.info(`✅ Watch wallets present in mint transactions: ${present.join(', ')}`);
+        }
+        if (missing.length > 0) {
+          logger.warn(`⚠️ Watch wallets missing from mint transactions: ${missing.join(', ')}`);
+        }
+      }
+      globalTelemetry.wallets.totalReviewed += walletsToAnalyze.length;
+      logger.info(`📊 Found ${walletsToAnalyze.length} unique wallets in Enhanced API transactions`);
+
+      const cacheStartBlockTime = windowStart ?? 0;
+      const cacheEndBlockTime = windowEnd ?? 0;
+      const transactionSummaries = mintTransactions.map(tx => ({
+        signature: tx.signature,
+        timestamp: tx.timestamp
+      }));
+
+      await databaseService.upsertSignificantBuyersCache({
+        mint,
+        startBlockTime: cacheStartBlockTime,
+        endBlockTime: cacheEndBlockTime,
+        walletAddresses: walletsToAnalyze.map(w => w.walletAddress),
+        transactions: transactionSummaries,
+      });
 
       logger.info(`📊 Step 2: Analyzing ${walletsToAnalyze.length} wallets for ${mint}...`);
       const results: WalletAnalysisResult[] = [];
       let processedCount = 0;
 
-    // Function to process a single wallet
-    const processWallet = async (buyer: any, solBalanceMap: Map<string, number>, tokenBalanceMap: Map<string, number>): Promise<{ result: WalletAnalysisResult; analysisInputs: any[] }> => {
-      try {
-        // Fetch transactions for this wallet and mint (don't save yet)
-        const analysisInputs = await fetchWalletTransactions(
-          heliusClient,
-          buyer.walletAddress,
-          mint,
-          maxSignatures
-        );
-
-        // Use the fetched analysis inputs directly
-        const swapRecords = analysisInputs;
-
-        if (!swapRecords || swapRecords.length === 0) {
-          logger.debug(`No swap records found for wallet ${buyer.walletAddress} on token ${mint}`);
-          return {
-            result: {
-              mint,
-              walletAddress: buyer.walletAddress,
-              totalSolSpent: 0,
-              totalSolReceived: 0,
-              netPnl: 0,
-              transactionCount: 0,
-              firstBuyTimestamp: buyer.firstBuyTimestamp,
-              currentTokenBalance: 0,
-              currentSolBalance: 0,
-              realizedPnl: 0,
-              unrealizedPnl: 0,
-              analysisSuccess: false,
-              errorMessage: 'No swap records found'
-            },
-            analysisInputs: []
-          };
-        }
-
-        // Calculate metrics (with time filtering if in TIME-FILTERED MODE)
-        let totalSolSpent = 0;
-        let totalSolReceived = 0;
-        let transactionCount = 0;
-
-        for (const swap of swapRecords) {
-          // Apply time filter if specified (for TIME-FILTERED MODE)
-          if (hasTimeFilters && swap.timestamp) {
-            const swapTime = swap.timestamp;
-            if (beforeTime && swapTime >= beforeTime) continue;
-            if (afterTime && swapTime < afterTime) continue;
-            if (endTime && swapTime >= endTime) continue; // endTime sets beforeTime
-          }
-
-          transactionCount++;
-
-          if (swap.direction === 'in') {
-            // Buying token (spending SOL)
-            totalSolSpent += Math.abs(swap.associatedSolValue || 0);
-          } else if (swap.direction === 'out') {
-            // Selling token (receiving SOL)
-            totalSolReceived += Math.abs(swap.associatedSolValue || 0);
-          }
-        }
-
-        // Filter: must have spent 50+ SOL and fewer than maxTx transactions
-        if (totalSolSpent < minSol) {
-          logger.debug(`Wallet ${buyer.walletAddress} spent only ${totalSolSpent.toFixed(2)} SOL (< ${minSol}), skipping`);
-          return {
-            result: {
-              mint,
-              walletAddress: buyer.walletAddress,
-              totalSolSpent: 0,
-              totalSolReceived: 0,
-              netPnl: 0,
-              transactionCount: 0,
-              firstBuyTimestamp: buyer.firstBuyTimestamp,
-              currentTokenBalance: 0,
-              currentSolBalance: 0,
-              realizedPnl: 0,
-              unrealizedPnl: 0,
-              analysisSuccess: false,
-              errorMessage: `Spent only ${totalSolSpent.toFixed(2)} SOL (< ${minSol})`
-            },
-            analysisInputs: []
-          };
-        }
-
-        if (transactionCount >= maxTx) {
-          logger.debug(`Wallet ${buyer.walletAddress} has ${transactionCount} transactions (>= ${maxTx}), skipping (possible bot)`);
-          return {
-            result: {
-              mint,
-              walletAddress: buyer.walletAddress,
-              totalSolSpent: 0,
-              totalSolReceived: 0,
-              netPnl: 0,
-              transactionCount: 0,
-              firstBuyTimestamp: buyer.firstBuyTimestamp,
-              currentTokenBalance: 0,
-              currentSolBalance: 0,
-              realizedPnl: 0,
-              unrealizedPnl: 0,
-              analysisSuccess: false,
-              errorMessage: `Too many transactions (${transactionCount} >= ${maxTx})`
-            },
-            analysisInputs: []
-          };
-        }
-
-        const netPnl = totalSolReceived - totalSolSpent;
-
-        // Get current balances from pre-fetched maps
-        const currentSolBalance = solBalanceMap.get(buyer.walletAddress) || 0;
-        const currentTokenBalance = tokenBalanceMap.get(buyer.walletAddress) || 0;
-
-        // Calculate realized and unrealized PnL
-        const realizedPnl = netPnl;
-        const unrealizedPnl = 0; // Would need current token price to calculate accurately
-
-        logger.info(`✅ Wallet ${buyer.walletAddress}: ${totalSolSpent.toFixed(2)} SOL spent, ${transactionCount} tx, PnL: ${netPnl.toFixed(2)} SOL`);
-
-        return {
-          result: {
-            mint,
-            walletAddress: buyer.walletAddress,
-            totalSolSpent,
-            totalSolReceived,
-            netPnl,
-            transactionCount,
-            firstBuyTimestamp: buyer.firstBuyTimestamp,
-            currentTokenBalance,
-            currentSolBalance,
-            realizedPnl,
-            unrealizedPnl,
-            analysisSuccess: true
-          },
-          analysisInputs
-        };
-
-      } catch (error) {
-        logger.error(`Error analyzing wallet ${buyer.walletAddress}:`, error);
-        return {
-          result: {
-            mint,
-            walletAddress: buyer.walletAddress,
-            totalSolSpent: 0,
-            totalSolReceived: 0,
-            netPnl: 0,
-            transactionCount: 0,
-            firstBuyTimestamp: buyer.firstBuyTimestamp,
-            currentTokenBalance: 0,
-            currentSolBalance: 0,
-            realizedPnl: 0,
-            unrealizedPnl: 0,
-            analysisSuccess: false,
-            errorMessage: error instanceof Error ? error.message : 'Unknown error'
-          },
-          analysisInputs: []
-        };
-      }
-    };
-
-    // Pre-fetch all balances to avoid individual API calls
-    logger.info('Pre-fetching balances for filtered wallets...');
-    const walletAddresses = walletsToAnalyze.map(b => b.walletAddress);
-
-    // Pre-fetch SOL balances in batches (using established config batch size)
-    const solBalanceMap = new Map<string, number>();
-    for (let i = 0; i < walletAddresses.length; i += HELIUS_CONFIG.BATCH_SIZE) {
-      const batch = walletAddresses.slice(i, i + 100);
-      try {
-        const accountInfo = await heliusClient.getMultipleAccounts(batch, 'finalized', 'base64');
-        if (accountInfo.value) {
-          accountInfo.value.forEach((acc, index) => {
-            const address = batch[index];
-            const balance = acc ? (acc.lamports || 0) / 1e9 : 0;
-            solBalanceMap.set(address, balance);
-          });
-        }
-      } catch (error) {
-        logger.warn(`Failed to fetch SOL balances for batch ${i}-${i+100}:`, error);
-      }
-    }
-
-    // Pre-fetch token balances in batches
-    const tokenBalanceMap = new Map<string, number>();
-    for (let i = 0; i < walletAddresses.length; i += HELIUS_CONFIG.BATCH_SIZE) { // Use established batch size
-      const batch = walletAddresses.slice(i, i + HELIUS_CONFIG.BATCH_SIZE);
-      const tokenPromises = batch.map(async (address) => {
+      // Function to process a single wallet using mint transactions only
+      const processWallet = async (buyer: { walletAddress: string }, walletTransactions: HeliusTransaction[]): Promise<{ result: WalletAnalysisResult; analysisInputs: any[] }> => {
         try {
-          const tokenAccounts = await heliusClient.getTokenAccountsByOwner(
-            address,
-            mint,
-            'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
-            'finalized',
-            'jsonParsed'
+          const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(
+            buyer.walletAddress,
+            walletTransactions
           );
 
-          let totalBalance = 0;
-          if (tokenAccounts.value && tokenAccounts.value.length > 0) {
-            for (const acc of tokenAccounts.value) {
-              const parsed = (acc as any).account?.data?.parsed?.info;
-              if (parsed?.tokenAmount?.uiAmount) {
-                totalBalance += parsed.tokenAmount.uiAmount;
-              }
+          const relevantInputs = analysisInputs.filter(input => input.mint === mint);
+          const filteredInputs = relevantInputs.filter(input => {
+            if (windowStart !== undefined && input.timestamp < windowStart) return false;
+            if (windowEnd !== undefined && input.timestamp >= windowEnd) return false;
+            return true;
+          });
+
+          if (filteredInputs.length === 0) {
+            if (watchWallets.includes(buyer.walletAddress)) {
+              logger.warn(`⚠️ Watch wallet ${buyer.walletAddress}: no filtered inputs (wallet txs=${walletTransactions.length}, relevantInputs=${relevantInputs.length})`);
             }
+            return {
+              result: {
+                mint,
+                walletAddress: buyer.walletAddress,
+                totalSolSpent: 0,
+                totalSolReceived: 0,
+                netPnl: 0,
+                transactionCount: 0,
+                firstBuyTimestamp: 0,
+                currentTokenBalance: 0,
+                currentSolBalance: 0,
+                realizedPnl: 0,
+                unrealizedPnl: 0,
+                analysisSuccess: false,
+                errorMessage: 'No relevant transactions for mint'
+              },
+              analysisInputs: []
+            };
           }
-          return { address, balance: totalBalance };
+
+          const totalSolSpent = filteredInputs
+            .filter(input => input.direction === 'out')
+            .reduce((sum, input) => sum + Math.abs(input.associatedSolValue || 0), 0);
+
+          const totalSolReceived = filteredInputs
+            .filter(input => input.direction === 'in')
+            .reduce((sum, input) => sum + Math.abs(input.associatedSolValue || 0), 0);
+
+          // Prefer swap event amounts when present (more direct than mapper for Enhanced API)
+          let swapSolSpent = 0;
+          let swapSolReceived = 0;
+          let swapTxCount = 0;
+          let swapBuyTimestamp: number | undefined;
+
+          for (const tx of walletTransactions) {
+            if (windowStart !== undefined && tx.timestamp < windowStart) continue;
+            if (windowEnd !== undefined && tx.timestamp >= windowEnd) continue;
+
+            const swap = tx.events?.swap;
+            if (!swap) continue;
+
+            let involved = false;
+            const tokenOutputs = swap.tokenOutputs ?? [];
+            const tokenInputs = swap.tokenInputs ?? [];
+            const isBuy = tokenOutputs.some(output => output.userAccount === buyer.walletAddress && output.mint === mint);
+            const isSell = tokenInputs.some(input => input.userAccount === buyer.walletAddress && input.mint === mint);
+
+            if (isBuy && swap.nativeInput?.amount) {
+              swapSolSpent += Number(swap.nativeInput.amount || 0) / 1e9;
+              involved = true;
+              swapBuyTimestamp = swapBuyTimestamp ?? tx.timestamp;
+            }
+            if (isSell && swap.nativeOutput?.amount) {
+              swapSolReceived += Number(swap.nativeOutput.amount || 0) / 1e9;
+              involved = true;
+            }
+            if (isBuy || isSell) involved = true;
+
+            if (involved) swapTxCount += 1;
+          }
+
+          let transferSolSpent = 0;
+          let transferSolReceived = 0;
+          let transferTxCount = 0;
+
+          for (const tx of walletTransactions) {
+            if (windowStart !== undefined && tx.timestamp < windowStart) continue;
+            if (windowEnd !== undefined && tx.timestamp >= windowEnd) continue;
+
+            const tokenTransfers = tx.tokenTransfers ?? [];
+            const receivedMint = tokenTransfers.some(t => t.toUserAccount === buyer.walletAddress && t.mint === mint);
+            const sentMint = tokenTransfers.some(t => t.fromUserAccount === buyer.walletAddress && t.mint === mint);
+
+            if (!receivedMint && !sentMint) continue;
+
+            const nativeTransfers = tx.nativeTransfers ?? [];
+            const nativeOut = nativeTransfers
+              .filter(t => t.fromUserAccount === buyer.walletAddress)
+              .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+            const nativeIn = nativeTransfers
+              .filter(t => t.toUserAccount === buyer.walletAddress)
+              .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+            if (receivedMint && nativeOut > 0) transferSolSpent += nativeOut / 1e9;
+            if (sentMint && nativeIn > 0) transferSolReceived += nativeIn / 1e9;
+            transferTxCount += 1;
+          }
+
+          const useSwapTotals = swapSolSpent > 0 || swapSolReceived > 0;
+          const useTransferTotals = !useSwapTotals && (transferSolSpent > 0 || transferSolReceived > 0);
+          const effectiveSolSpent = useSwapTotals ? swapSolSpent : (useTransferTotals ? transferSolSpent : totalSolSpent);
+          const effectiveSolReceived = useSwapTotals ? swapSolReceived : (useTransferTotals ? transferSolReceived : totalSolReceived);
+          const transactionCount = useSwapTotals ? swapTxCount : (useTransferTotals ? transferTxCount : filteredInputs.length);
+
+          if (watchWallets.includes(buyer.walletAddress)) {
+            logger.info(`🔎 Watch wallet ${buyer.walletAddress}: mapperSpent=${totalSolSpent.toFixed(4)}, swapSpent=${swapSolSpent.toFixed(4)}, transferSpent=${transferSolSpent.toFixed(4)}, mapperTx=${filteredInputs.length}, swapTx=${swapTxCount}, transferTx=${transferTxCount}`);
+          }
+
+          if (effectiveSolSpent < minSol) {
+            if (watchWallets.includes(buyer.walletAddress)) {
+              logger.warn(`⚠️ Watch wallet ${buyer.walletAddress}: below minSol (spent=${effectiveSolSpent.toFixed(4)}, tx=${transactionCount})`);
+            }
+            return {
+              result: {
+                mint,
+                walletAddress: buyer.walletAddress,
+                totalSolSpent: 0,
+                totalSolReceived: 0,
+                netPnl: 0,
+                transactionCount: 0,
+                firstBuyTimestamp: 0,
+                currentTokenBalance: 0,
+                currentSolBalance: 0,
+                realizedPnl: 0,
+                unrealizedPnl: 0,
+                analysisSuccess: false,
+                errorMessage: `Spent only ${effectiveSolSpent.toFixed(2)} SOL (< ${minSol})`
+              },
+              analysisInputs: []
+            };
+          }
+
+          if (transactionCount >= maxTx) {
+            if (watchWallets.includes(buyer.walletAddress)) {
+              logger.warn(`⚠️ Watch wallet ${buyer.walletAddress}: too many tx (spent=${totalSolSpent.toFixed(4)}, tx=${transactionCount})`);
+            }
+            return {
+              result: {
+                mint,
+                walletAddress: buyer.walletAddress,
+                totalSolSpent: 0,
+                totalSolReceived: 0,
+                netPnl: 0,
+                transactionCount: 0,
+                firstBuyTimestamp: 0,
+                currentTokenBalance: 0,
+                currentSolBalance: 0,
+                realizedPnl: 0,
+                unrealizedPnl: 0,
+                analysisSuccess: false,
+                errorMessage: `Too many transactions (${transactionCount} >= ${maxTx})`
+              },
+              analysisInputs: []
+            };
+          }
+
+          const netPnl = effectiveSolReceived - effectiveSolSpent;
+          const buyTimestamps = filteredInputs.filter(input => input.direction === 'in').map(input => input.timestamp);
+          const firstBuyTimestamp = buyTimestamps.length > 0
+            ? Math.min(...buyTimestamps)
+            : (swapBuyTimestamp ?? Math.min(...filteredInputs.map(input => input.timestamp)));
+
+          const realizedPnl = netPnl;
+          const unrealizedPnl = 0;
+
+          logger.info(`✅ Wallet ${buyer.walletAddress}: ${effectiveSolSpent.toFixed(2)} SOL spent, ${transactionCount} tx, PnL: ${netPnl.toFixed(2)} SOL`);
+
+          return {
+            result: {
+              mint,
+              walletAddress: buyer.walletAddress,
+              totalSolSpent: effectiveSolSpent,
+              totalSolReceived: effectiveSolReceived,
+              netPnl,
+              transactionCount,
+              firstBuyTimestamp,
+              currentTokenBalance: 0,
+              currentSolBalance: 0,
+              realizedPnl,
+              unrealizedPnl,
+              analysisSuccess: true
+            },
+            analysisInputs: filteredInputs
+          };
         } catch (error) {
-          logger.warn(`Failed to fetch token balance for ${address}:`, error);
-          return { address, balance: 0 };
+          logger.error(`Error analyzing wallet ${buyer.walletAddress}:`, error);
+          return {
+            result: {
+              mint,
+              walletAddress: buyer.walletAddress,
+              totalSolSpent: 0,
+              totalSolReceived: 0,
+              netPnl: 0,
+              transactionCount: 0,
+              firstBuyTimestamp: 0,
+              currentTokenBalance: 0,
+              currentSolBalance: 0,
+              realizedPnl: 0,
+              unrealizedPnl: 0,
+              analysisSuccess: false,
+              errorMessage: error instanceof Error ? error.message : 'Unknown error'
+            },
+            analysisInputs: []
+          };
         }
-      });
-
-      const tokenResults = await Promise.all(tokenPromises);
-      tokenResults.forEach(({ address, balance }) => {
-        tokenBalanceMap.set(address, balance);
-      });
-    }
-
-    logger.info(`✅ Pre-fetched balances for ${walletAddresses.length} wallets`);
+      };
 
     // ANSI progress counter - always visible
     const updateProgress = () => {
@@ -709,9 +521,10 @@ async function main(): Promise<void> {
 
     // Process wallets in parallel with concurrency limit
     const concurrencyLimit = pLimit(PROCESSING_CONFIG.WALLET_SYNC_CONCURRENCY); // Use established config (5 concurrent wallets)
-    const analysisPromises = walletsToAnalyze.map((buyer, index) =>
+    const analysisPromises = walletsToAnalyze.map(buyer =>
       concurrencyLimit(async () => {
-        const walletResult = await processWallet(buyer, solBalanceMap, tokenBalanceMap);
+        const walletTransactions = transactionsByWallet.get(buyer.walletAddress) || [];
+        const walletResult = await processWallet(buyer, walletTransactions);
         processedCount++;
         updateProgress();
         return walletResult;
@@ -725,12 +538,25 @@ async function main(): Promise<void> {
     for (const walletResult of walletResults) {
       if (walletResult.result.analysisSuccess) {
         results.push(walletResult.result);
+        globalTelemetry.wallets.relevantFound++;
         globalTelemetry.wallets.analyzedSuccessfully++;
       } else {
         globalTelemetry.wallets.failedAnalysis++;
       }
       // Collect all analysis inputs for batch saving
       allAnalysisInputs.push(...walletResult.analysisInputs);
+    }
+
+    if (watchWallets.length > 0) {
+      const resultAddresses = new Set(results.map(r => r.walletAddress));
+      const found = watchWallets.filter(addr => resultAddresses.has(addr));
+      const missing = watchWallets.filter(addr => !resultAddresses.has(addr));
+      if (found.length > 0) {
+        logger.info(`✅ Watch wallets in qualifying results: ${found.join(', ')}`);
+      }
+      if (missing.length > 0) {
+        logger.warn(`⚠️ Watch wallets NOT in qualifying results: ${missing.join(', ')}`);
+      }
     }
 
     // Batch save all analysis inputs at once (using established batch size)
@@ -752,11 +578,11 @@ async function main(): Promise<void> {
         results.sort((a, b) => b.netPnl - a.netPnl);
       }
 
-      // Take only top N traders for this token
+      // Keep full results for files; topTradersPerToken is only a display cap
       const topResults = results.slice(0, topTradersPerToken);
-      allResults.push(...topResults);
+      allResults.push(...results);
 
-      logger.info(`✅ Completed analysis for ${mint}: ${topResults.length} top traders found (${tokenDuration.toFixed(2)}s)`);
+      logger.info(`✅ Completed analysis for ${mint}: ${results.length} qualifying traders (${topResults.length} in top cap, ${tokenDuration.toFixed(2)}s)`);
 
     } // End of mint loop
 
@@ -802,18 +628,19 @@ async function main(): Promise<void> {
       ``,
       `**Tokens Analyzed:** ${mints.map(m => `\`${m}\``).join(', ')} (${uniqueTokens} unique tokens)`,
       `**Analysis Date:** ${new Date().toISOString()}  `,
-      `**Criteria:** Min ${minSol} SOL spent, Max ${maxTx} transactions, Top ${topTradersPerToken} per token, Sorted by ${sortBy}  `,
+      `**Criteria:** Min ${minSol} SOL spent, Max ${maxTx} transactions, Sorted by ${sortBy}  `,
       `${bondingCurve ? `**Bonding Curve:** \`${bondingCurve}\`  ` : ''}`,
       ``,
       `## Summary`,
       ``,
       `- **Tokens Processed:** ${uniqueTokens}`,
-      `- **Total Traders Found:** ${allResults.length}`,
+      `- **Qualified Traders:** ${allResults.length}`,
       `- **Successful Analyses:** ${successfulAnalyses}`,
       `- **Total SOL Invested:** ${totalSolInvested.toFixed(2)} SOL`,
       `- **Average PnL:** ${averagePnl.toFixed(4)} SOL`,
       `- **Winners:** ${winnersCount} (${((winnersCount / allResults.length) * 100).toFixed(1)}%)`,
       `- **Losers:** ${losersCount} (${((losersCount / allResults.length) * 100).toFixed(1)}%)`,
+      `- **Note:** CSV/TXT include all qualifying traders; tables are capped for readability`,
       `- **Processing Time:** ${totalDuration.toFixed(2)} seconds`,
       ``,
       `## Top Performing Traders Across All Tokens`,
@@ -853,8 +680,8 @@ async function main(): Promise<void> {
     console.log('SIGNIFICANT BUYERS ANALYSIS COMPLETE (MULTI-TOKEN)');
     console.log('='.repeat(100));
     console.log(`Tokens Analyzed: ${mints.join(', ')}`);
-    console.log(`Criteria: Min ${minSol} SOL spent, Max ${maxTx} transactions, Top ${topTradersPerToken} per token, Sorted by ${sortBy}`);
-    console.log(`Total Traders Found: ${allResults.length}`);
+    console.log(`Criteria: Min ${minSol} SOL spent, Max ${maxTx} transactions, Sorted by ${sortBy}`);
+    console.log(`Qualified Traders: ${allResults.length} (files include all; top ${topTradersPerToken} per token is only a display cap)`);
     console.log(`Successful Analyses: ${successfulAnalyses}`);
     console.log(`Total SOL Invested: ${totalSolInvested.toFixed(2)} SOL`);
     console.log(`Average PnL: ${averagePnl.toFixed(4)} SOL`);
@@ -915,23 +742,23 @@ async function main(): Promise<void> {
       console.log('\n📖 Usage:');
       console.log('npx ts-node -r tsconfig-paths/register src/scripts/significantBuyersAnalysis.ts <MINT_ADDRESS> [options]');
       console.log('Multiple tokens: npx ts-node -r tsconfig-paths/register src/scripts/significantBuyersAnalysis.ts "MINT1,MINT2,MINT3" [options]');
-      console.log('\n📊 MODES:');
-      console.log('  TIME-FILTERED: When using --before-time/--after-time/--end-time → Uses ONLY Enhanced API');
-      console.log('  LEGACY: No time filters → Uses Step 1 (first buyers) + Step 1.5 (pre-filtering)');
+      console.log('\n📊 MODE:');
+      console.log('  ENHANCED-ONLY: Uses Enhanced API mint transactions + local filtering');
       console.log('\nOptions:');
       console.log('  --min-sol=N          Minimum SOL spent (default: 50)');
       console.log('  --max-tx=N           Maximum transaction count (default: 5)');
-      console.log('  --address-type=TYPE  Address type: bonding-curve|mint|auto (default: auto)');
-      console.log('  --bonding-curve=ADDR Bonding curve address (for pump.fun tokens)');
       console.log('  --max-signatures=N   Maximum signatures to process (default: 5000)');
+      console.log('  --max-pages=N        Maximum Enhanced API pages to fetch per type (default: auto)');
+      console.log('  --no-anchor          Disable time-filtered anchor batch even when time filters are set');
+      console.log('  --watch-wallet=A,B   Comma-separated wallets to check for presence');
       console.log('  --top-traders=N      Number of top traders to return per token (default: 20)');
       console.log('  --sort-by=CRITERIA   Sort by: pnl|investment (default: pnl)');
-      console.log('  --before-time=N      Unix timestamp - transactions before this time (TIME-FILTERED mode)');
-      console.log('  --after-time=N       Unix timestamp - transactions after this time (TIME-FILTERED mode)');
-      console.log('  --end-time=N         Unix timestamp - look backwards from this time (TIME-FILTERED mode)');
-      console.log('  --transaction-type=T Transaction type: SWAP|TRANSFER|etc (default: SWAP)');
+      console.log('  --before-time=N      Unix timestamp - transactions before this time');
+      console.log('  --after-time=N       Unix timestamp - transactions after this time');
+      console.log('  --end-time=N         Unix timestamp - look backwards from this time');
+      console.log('  --transaction-type=T Transaction types, comma-separated (default: SWAP,TRANSFER)');
       console.log('\nExamples:');
-      console.log('Legacy mode: npx ts-node -r tsconfig-paths/register src/scripts/significantBuyersAnalysis.ts TOKEN --min-sol=50 --max-tx=5');
+      console.log('Enhanced-only: npx ts-node -r tsconfig-paths/register src/scripts/significantBuyersAnalysis.ts TOKEN --min-sol=50 --max-tx=5');
       console.log('Time-filtered: npx ts-node -r tsconfig-paths/register src/scripts/significantBuyersAnalysis.ts TOKEN --end-time=1704067200 --transaction-type=TRANSFER');
       console.log('Multiple tokens: npx ts-node -r tsconfig-paths/register src/scripts/significantBuyersAnalysis.ts "TOKEN1,TOKEN2" --min-sol=2 --top-traders=30');
     }
@@ -940,68 +767,140 @@ async function main(): Promise<void> {
   }
 }
 
-/**
- * Fetches and saves transactions for a specific wallet and mint using the Helius method.
- * This is adapted from TokenFirstBuyersService.
- */
-async function fetchWalletTransactions(
+async function fetchEnhancedTransactionsForMintWindow(
   heliusClient: HeliusApiClient,
-  walletAddress: string,
   mintAddress: string,
-  maxSignaturesPerWallet: number = 1000
-): Promise<any[]> {
-  try {
-    logger.debug(`🔄 Fetching transactions for wallet ${walletAddress} and mint ${mintAddress}`);
-
-    // Fetch all transactions for this wallet
-    const transactions = await heliusClient.getAllTransactionsForAddress(
-      walletAddress,
-      100, // batch size
-      maxSignaturesPerWallet, // max signatures - configurable limit
-      undefined,
-      undefined,
-      undefined,
-      5 // internal concurrency
-    );
-
-    if (!transactions || transactions.length === 0) {
-      logger.debug(`No transactions found for wallet ${walletAddress}`);
-      return [];
-    }
-
-    // Filter for transactions involving this specific mint
-    const relevantTransactions = transactions.filter(tx => 
-      tx.tokenTransfers?.some(transfer => transfer.mint === mintAddress)
-    );
-
-    logger.debug(`Found ${relevantTransactions.length} relevant transactions for wallet ${walletAddress} on mint ${mintAddress}`);
-
-    if (relevantTransactions.length === 0) {
-      return [];
-    }
-
-    // Map transactions to swap analysis inputs
-    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(
-      walletAddress,
-      relevantTransactions
-    );
-
-    // Filter analysis inputs for this specific mint
-    const mintAnalysisInputs = analysisInputs.filter(record => record.mint === mintAddress);
-
-    if (mintAnalysisInputs.length === 0) {
-      logger.debug(`No swap analysis inputs found for mint ${mintAddress} in wallet ${walletAddress}`);
-      return [];
-    }
-
-    logger.debug(`✅ Fetched ${mintAnalysisInputs.length} swap analysis inputs for wallet ${walletAddress} on mint ${mintAddress}`);
-
-    return mintAnalysisInputs;
-
-  } catch (error) {
-    logger.error(`Error fetching transactions for wallet ${walletAddress}:`, error);
-    throw error;
+  types: string[],
+  windowStart: number | undefined,
+  windowEnd: number | undefined,
+  options: {
+    useAnchorBatch: boolean;
+    maxPages: number;
+    maxTransactions: number;
   }
+): Promise<HeliusTransaction[]> {
+  const allBySignature = new Map<string, HeliusTransaction>();
+
+  for (const type of types) {
+    const typeTransactions = await fetchEnhancedTransactionsForMintWindowByType(
+      heliusClient,
+      mintAddress,
+      type,
+      windowStart,
+      windowEnd,
+      options
+    );
+
+    for (const tx of typeTransactions) {
+      const existing = allBySignature.get(tx.signature);
+      if (!existing) {
+        allBySignature.set(tx.signature, tx);
+        continue;
+      }
+
+      allBySignature.set(tx.signature, pickPreferredTransaction(existing, tx));
+    }
+  }
+
+  return Array.from(allBySignature.values()).slice(0, options.maxTransactions);
+}
+
+function pickPreferredTransaction(a: HeliusTransaction, b: HeliusTransaction): HeliusTransaction {
+  const score = (tx: HeliusTransaction): number => {
+    let value = 0;
+    if (tx.events?.swap) value += 10;
+    if (tx.nativeTransfers?.length) value += 3;
+    if (tx.tokenTransfers?.length) value += 2;
+    if (tx.accountData?.length) value += 1;
+    if (tx.instructions?.length) value += 1;
+    return value;
+  };
+
+  const scoreA = score(a);
+  const scoreB = score(b);
+
+  if (scoreB > scoreA) return b;
+  if (scoreA > scoreB) return a;
+
+  // Prefer SWAP-typed transactions if equal score
+  if (a.type === 'SWAP' && b.type !== 'SWAP') return a;
+  if (b.type === 'SWAP' && a.type !== 'SWAP') return b;
+
+  return a;
+}
+
+async function fetchEnhancedTransactionsForMintWindowByType(
+  heliusClient: HeliusApiClient,
+  mintAddress: string,
+  type: string,
+  windowStart: number | undefined,
+  windowEnd: number | undefined,
+  options: {
+    useAnchorBatch: boolean;
+    maxPages: number;
+    maxTransactions: number;
+  }
+): Promise<HeliusTransaction[]> {
+  const allTransactions: HeliusTransaction[] = [];
+  const limit = 100;
+  let beforeSignature: string | undefined;
+  let pagesFetched = 0;
+
+  if (options.useAnchorBatch) {
+    const anchorBatch = await heliusClient.getTransactionsViaEnhancedAPI(mintAddress, {
+      limit,
+      type,
+      ...(windowStart !== undefined ? { gteTime: windowStart } : {}),
+      ...(windowEnd !== undefined ? { lteTime: windowEnd } : {})
+    });
+
+    logger.info(`🔍 Anchor batch (${type}): ${anchorBatch.length} transactions`);
+
+    for (const tx of anchorBatch) {
+      if (windowStart !== undefined && tx.timestamp < windowStart) continue;
+      if (windowEnd !== undefined && tx.timestamp >= windowEnd) continue;
+      allTransactions.push(tx);
+    }
+
+    if (anchorBatch.length === 0) {
+      return allTransactions;
+    }
+
+    beforeSignature = anchorBatch[anchorBatch.length - 1]?.signature;
+  }
+
+  while (allTransactions.length < options.maxTransactions && pagesFetched < options.maxPages) {
+    const batch = await heliusClient.getTransactionsViaEnhancedAPI(mintAddress, {
+      limit,
+      beforeSignature,
+      type
+    });
+
+    pagesFetched += 1;
+
+    if (batch.length === 0) break;
+
+    for (const tx of batch) {
+      if (windowStart !== undefined && tx.timestamp < windowStart) continue;
+      if (windowEnd !== undefined && tx.timestamp >= windowEnd) continue;
+      allTransactions.push(tx);
+    }
+
+    const oldestTx = batch[batch.length - 1];
+    beforeSignature = oldestTx?.signature;
+
+    if (windowStart !== undefined && oldestTx?.timestamp && oldestTx.timestamp < windowStart) {
+      break;
+    }
+
+    if (batch.length < limit) break;
+  }
+
+  if (pagesFetched >= options.maxPages) {
+    logger.info(`⚠️ Reached max pages (${options.maxPages}) for ${mintAddress} (${type}); stopping pagination.`);
+  }
+
+  return allTransactions.slice(0, options.maxTransactions);
 }
 
 // Run the script
@@ -1011,4 +910,3 @@ if (require.main === module) {
     process.exit(1);
   });
 }
-

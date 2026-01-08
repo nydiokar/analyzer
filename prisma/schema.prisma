@@ -50,6 +50,7 @@ model SignificantBuyersCache {
   startBlockTime Int
   endBlockTime Int
   walletAddresses String // JSON array of wallet addresses
+  transactions String // JSON array of { signature, timestamp }
   totalTransactions Int
   processedAt DateTime @default(now())
 

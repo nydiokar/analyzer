@@ -1383,6 +1383,42 @@ export class DatabaseService {
         }
     }
 
+    async upsertSignificantBuyersCache(data: {
+        mint: string;
+        startBlockTime: number;
+        endBlockTime: number;
+        walletAddresses: string[];
+        transactions: Array<{ signature: string; timestamp: number }>;
+    }): Promise<void> {
+        try {
+            await this.prismaClient.significantBuyersCache.upsert({
+                where: {
+                    mint_startBlockTime_endBlockTime: {
+                        mint: data.mint,
+                        startBlockTime: data.startBlockTime,
+                        endBlockTime: data.endBlockTime,
+                    },
+                },
+                create: {
+                    mint: data.mint,
+                    startBlockTime: data.startBlockTime,
+                    endBlockTime: data.endBlockTime,
+                    walletAddresses: JSON.stringify(data.walletAddresses),
+                    transactions: JSON.stringify(data.transactions),
+                    totalTransactions: data.transactions.length,
+                },
+                update: {
+                    walletAddresses: JSON.stringify(data.walletAddresses),
+                    transactions: JSON.stringify(data.transactions),
+                    totalTransactions: data.transactions.length,
+                    processedAt: new Date(),
+                },
+            });
+        } catch (error) {
+            this.logger.error(`Error upserting SignificantBuyersCache for ${data.mint}`, { error });
+        }
+    }
+
     // --- SwapAnalysisInput Methods ---
 
     /**
