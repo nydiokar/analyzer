@@ -565,6 +565,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
       const userNonWsolTokensIn = new Set<string>();
       for (const transfer of tx.tokenTransfers || []) {
           if (!transfer.mint) continue;
+          if (transfer.mint === SOL_MINT || transfer.mint === USDC_MINT) continue;
           const isFromUser = transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress;
           const isToUser = transfer.toUserAccount?.toLowerCase() === lowerWalletAddress;
           if (isFromUser && !isToUser) userNonWsolTokensOut.add(transfer.mint);

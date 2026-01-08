@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 import { DatabaseService } from '../core/services/database-service';
 import { createLogger } from '../core/utils/logger';
-import { WalletBalanceService } from '../core/services/wallet-balance-service';
-import { HeliusApiClient } from '../core/services/helius-api-client';
-import { HeliusApiConfig } from '../types/helius-api';
-import { WalletBalance } from '../types/wallet';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import * as dotenv from 'dotenv';
@@ -300,9 +296,10 @@ async function calculateTokenOverlapWithDetails(
     if (matchedTokens.length > 0) {
         try {
             // Fetch transaction data for this wallet to get first/last seen timestamps
+            const nowSeconds = Math.floor(Date.now() / 1000);
             const transactions = await dbService.getTransactionsForAnalysis([wallet], {
                 excludedMints: DEFAULT_EXCLUDED_MINTS,
-                timeRange: { startTs: 0, endTs: Date.now() } // Get all historical data
+                timeRange: { startTs: 0, endTs: nowSeconds } // Get all historical data (seconds)
             });
 
             const walletTxs = transactions[wallet] || [];
@@ -372,31 +369,49 @@ async function runTokenMatchingAnalysis(
     // 1. Instantiate Services
     const dbService = new DatabaseService();
 
-    // ---- Instantiate WalletBalanceService ----
-    const heliusApiKey = process.env.HELIUS_API_KEY;
-    if (!heliusApiKey) {
-        logger.error("HELIUS_API_KEY is not set. Cannot fetch wallet balances.");
-        throw new Error("HELIUS_API_KEY environment variable is required");
-    }
+    // 2. Fetch wallet holdings from stored analysis results (no live balance fetch)
+    logger.info(`Loading stored analysis results for ${session.initialWallets.length} candidate wallets...`);
+    const analysisResults = await dbService['prismaClient'].analysisResult.findMany({
+        where: {
+            walletAddress: {
+                in: session.initialWallets
+            }
+        },
+        select: {
+            walletAddress: true,
+            tokenAddress: true,
+            currentUiBalance: true,
+            totalAmountIn: true,
+            totalAmountOut: true
+        }
+    });
 
-    const heliusConfig: HeliusApiConfig = {
-        apiKey: heliusApiKey,
-        network: 'mainnet'
-    };
-    const heliusClient = new HeliusApiClient(heliusConfig, dbService);
-    const walletBalanceService = new WalletBalanceService(heliusClient, dbService);
-
-    // 2. Fetch wallet balances for all candidate wallets
-    logger.info(`Fetching balances for ${session.initialWallets.length} candidate wallets...`);
-    const walletBalancesMap = await walletBalanceService.fetchWalletBalances(session.initialWallets);
-    logger.info(`Fetched balances for ${walletBalancesMap.size} wallets.`);
+    const walletHeldTokens = new Map<string, Set<string>>();
+    const walletTradedTokens = new Map<string, Set<string>>();
+    analysisResults.forEach(result => {
+        if (!walletHeldTokens.has(result.walletAddress)) {
+            walletHeldTokens.set(result.walletAddress, new Set());
+            walletTradedTokens.set(result.walletAddress, new Set());
+        }
+        if (typeof result.currentUiBalance === 'number' && result.currentUiBalance > 0) {
+            walletHeldTokens.get(result.walletAddress)!.add(result.tokenAddress);
+        }
+        if ((result.totalAmountIn ?? 0) > 0 || (result.totalAmountOut ?? 0) > 0) {
+            walletTradedTokens.get(result.walletAddress)!.add(result.tokenAddress);
+        }
+    });
 
     // 3. Get unique tokens across all wallets for metadata enrichment
     const allTokens = new Set<string>();
-    walletBalancesMap.forEach(balance => {
-        balance.tokenBalances.forEach(tb => {
-            if (!DEFAULT_EXCLUDED_MINTS.includes(tb.mint)) {
-                allTokens.add(tb.mint);
+    session.initialWallets.forEach(wallet => {
+        const held = walletHeldTokens.get(wallet);
+        const traded = walletTradedTokens.get(wallet);
+        const source = held && held.size > 0 ? held : traded;
+        if (!source || source.size === 0) return;
+
+        source.forEach(mint => {
+            if (!DEFAULT_EXCLUDED_MINTS.includes(mint)) {
+                allTokens.add(mint);
             }
         });
     });
@@ -423,11 +438,12 @@ async function runTokenMatchingAnalysis(
     logger.info("Calculating token overlaps and transaction details...");
     const walletOverlaps = [];
     for (const wallet of session.initialWallets) {
-        const walletBalance = walletBalancesMap.get(wallet);
-        const heldTokens = walletBalance ?
-            walletBalance.tokenBalances
-                .filter(tb => !DEFAULT_EXCLUDED_MINTS.includes(tb.mint))
-                .map(tb => tb.mint) : [];
+        const held = walletHeldTokens.get(wallet);
+        const traded = walletTradedTokens.get(wallet);
+        const combined = new Set<string>();
+        if (held) held.forEach(mint => combined.add(mint));
+        if (traded) traded.forEach(mint => combined.add(mint));
+        const heldTokens = Array.from(combined).filter(mint => !DEFAULT_EXCLUDED_MINTS.includes(mint));
 
         const overlap = await calculateTokenOverlapWithDetails(
             wallet,

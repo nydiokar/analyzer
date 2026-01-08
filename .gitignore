@@ -35,6 +35,7 @@ active_alerts/
 all_alerts/
 alerts.json
 analysis_reports/
+analysis_sessions/
 debug_output/
 logs.json
 *audit.json 
