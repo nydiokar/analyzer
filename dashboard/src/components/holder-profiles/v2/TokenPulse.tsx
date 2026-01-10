@@ -1,5 +1,5 @@
 import type { HolderProfilesResult } from '../types';
-import { getSpeedPrimitive } from './utils/cognitive-primitives';
+import { getSpeedPrimitive, getConsistencyPrimitive } from './utils/cognitive-primitives';
 import { getMeanBehaviorSimilarity } from './utils/behavior-similarity';
 import { TraderDistributionBar } from './TraderDistributionBar';
 import { ApproachingHoldTimePanel } from './ApproachingHoldTimePanel';
@@ -21,6 +21,7 @@ interface Props {
 export function TokenPulse({ result }: Props) {
   const outcome = getTokenOutcome(result.profiles);
   const speed = getSpeedPrimitive(result.profiles);
+  const consistency = getConsistencyPrimitive(result.profiles);
   const meanBehaviorSimilarity = getMeanBehaviorSimilarity(result.profiles);
   const qualityCount = result.profiles.filter((profile) => profile.dataQualityTier === 'GOLD' || profile.dataQualityTier === 'SILVER').length;
   const totalHolders = result.metadata.totalHoldersRequested || result.profiles.length;
@@ -51,16 +52,16 @@ export function TokenPulse({ result }: Props) {
             <TokenBadge mint={result.tokenMint} size="lg" />
           </div>
         )}
-        <OutcomeStrip {...outcome} holdersCount={result.metadata.totalHoldersAnalyzed} compact />
+        <OutcomeStrip {...outcome} holdersCount={result.metadata.totalHoldersAnalyzed} />
         <CognitiveMetricCard primitive={speed} />
         <CognitiveMetricCard
           primitive={{
             id: 'quality',
             label: 'Quality',
             value: qualityValue,
-            category: 'Gold + Silver',
-            description: 'Quality tiers among holders',
-            color: 'text-amber-500',
+            category: consistency.category,
+            description: consistency.description,
+            color: consistency.color,
           }}
         />
         <CognitiveMetricCard

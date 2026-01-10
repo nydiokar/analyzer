@@ -42,6 +42,16 @@ interface Props {
 export function TraderDistributionBar({ profiles }: Props) {
   const distribution = buildDistribution(profiles);
   const total = distribution.reduce((sum, bucket) => sum + bucket.count, 0);
+  const maxCount = distribution.reduce((max, bucket) => Math.max(max, bucket.count), 0);
+  const axisSteps = maxCount > 0
+    ? [
+        maxCount,
+        Math.round(maxCount * 0.75),
+        Math.round(maxCount * 0.5),
+        Math.round(maxCount * 0.25),
+        0,
+      ]
+    : [0, 0, 0, 0, 0];
 
   return (
     <div className="rounded-xl border p-3 space-y-3">
@@ -57,32 +67,23 @@ export function TraderDistributionBar({ profiles }: Props) {
         </p>
       ) : (
         <div className="grid grid-cols-[28px_1fr] gap-3">
-          <div className="flex flex-col justify-between text-[10px] text-muted-foreground h-40">
-            <span>100%</span>
-            <span>75%</span>
-            <span>50%</span>
-            <span>25%</span>
-            <span>0%</span>
+          <div className="flex flex-col justify-between text-[10px] text-white h-40">
+            {axisSteps.map((value, index) => (
+              <span key={`${value}-${index}`}>{value}</span>
+            ))}
           </div>
           <div className="flex items-end gap-2 h-40">
             {distribution.map((bucket) => {
-              const percent = total ? Math.round((bucket.count / total) * 100) : 0;
+              const height = maxCount > 0 ? Math.round((bucket.count / maxCount) * 100) : 0;
               return (
                 <div key={bucket.id} className="flex flex-col items-center flex-1 min-w-0">
                   <div className="relative w-full flex items-end h-32">
                     <div
                       className="relative w-full rounded-md"
-                      style={{ height: `${percent}%`, backgroundColor: bucket.color }}
-                    >
-                      <div className="absolute inset-0 flex items-start justify-center pt-1 text-[10px] font-semibold text-white/90">
-                        {percent}%
-                      </div>
-                    </div>
+                      style={{ height: `${height}%`, backgroundColor: bucket.color }}
+                    />
                   </div>
-                  <div className="mt-1 text-[10px] text-muted-foreground tabular-nums">
-                    {bucket.count}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground text-center">
+                  <div className="mt-1 text-[10px] text-white text-center">
                     {bucket.label}
                   </div>
                 </div>
