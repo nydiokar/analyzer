@@ -54,6 +54,22 @@ import {
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { CollectionAnalytics, CollectionStat } from '@/components/trackers/CollectionAnalytics';
 
+// Helper function to format SOL values
+function formatSOL(val: number): string {
+  const absVal = Math.abs(val);
+  const sign = val < 0 ? '-' : '+';
+
+  if (absVal >= 1000000) {
+    return `${sign}${(absVal / 1000000).toFixed(1)}M`;
+  } else if (absVal >= 1000) {
+    return `${sign}${(absVal / 1000).toFixed(1)}k`;
+  } else if (absVal >= 100) {
+    return `${sign}${absVal.toFixed(0)}`;
+  } else {
+    return `${sign}${absVal.toFixed(2)}`;
+  }
+}
+
 // Helper function to format time ago
 function timeAgo(timestamp: number | string | undefined): string {
   if (!timestamp) return 'Never';
@@ -692,99 +708,91 @@ export default function TrackersPage() {
                 )}
               </div>
             </div>
-
-            <div className="flex items-center gap-2">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search tracked wallets..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 h-9 w-64"
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isImporting}
-                  >
-                    <Upload className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Import wallets from CSV</TooltipContent>
-              </Tooltip>
-
-              {/* Hidden file input */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleImportWallets}
-                className="hidden"
-              />
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9"
-                    onClick={handleExportWallets}
-                    disabled={!favoriteWallets || favoriteWallets.length === 0}
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Export tracked wallets to CSV</TooltipContent>
-              </Tooltip>
-
-              <Button
-                size="sm"
-                className="h-9 bg-purple-600 hover:bg-purple-700"
-                onClick={() => setShowAddWalletModal(true)}
-              >
-                <Plus className="h-4 w-4 mr-1.5" />
-                Add Wallet
-              </Button>
-            </div>
           </div>
 
           <div className="flex gap-6">
             {/* Main Content - 3/4 width */}
-            <div className="flex-1">
+            <div className="flex-1 space-y-4">
+              {/* Search and Action Buttons - Above Table */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search tracked wallets..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8 h-9 w-64"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isImporting}
+                      >
+                        <Upload className="h-4 w-4 mr-1.5" />
+                        Import
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Import wallets from CSV</TooltipContent>
+                  </Tooltip>
+
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={handleImportWallets}
+                    className="hidden"
+                  />
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9"
+                        onClick={handleExportWallets}
+                        disabled={!favoriteWallets || favoriteWallets.length === 0}
+                      >
+                        <Download className="h-4 w-4 mr-1.5" />
+                        Export
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Export tracked wallets to CSV</TooltipContent>
+                  </Tooltip>
+
+                  <Button
+                    size="sm"
+                    className="h-9 bg-purple-600 hover:bg-purple-700"
+                    onClick={() => setShowAddWalletModal(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-1.5" />
+                    Add Wallet
+                  </Button>
+                </div>
+              </div>
+
               {/* Wallets Table */}
               <Card>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-32">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="cursor-help">Added</span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            The time this wallet was added to tracked wallets
-                          </TooltipContent>
-                        </Tooltip>
-                      </TableHead>
                       <TableHead>Wallet</TableHead>
+                      <TableHead className="w-32">PnL</TableHead>
+                      <TableHead className="w-24">Winrate</TableHead>
                       <TableHead className="w-32">Last Active</TableHead>
-                      <TableHead className="w-40 text-right">Balance</TableHead>
+                      <TableHead className="w-32 text-right">SOL Balance</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredWallets.map((wallet: FavoriteWallet) => (
                       <TableRow key={wallet.walletAddress} className="hover:bg-accent/30">
-                        <TableCell className="font-medium text-muted-foreground text-sm">
-                          {timeAgo(wallet.favoritedAt)} ago
-                        </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <WalletBadge
@@ -825,6 +833,22 @@ export default function TrackersPage() {
                               </Tooltip>
                             )}
                           </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-sm">
+                          {wallet.pnl !== undefined ? (
+                            <span className={wallet.pnl >= 0 ? 'text-green-500' : 'text-red-500'}>
+                              {formatSOL(wallet.pnl)} SOL
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {wallet.winRate !== undefined ? (
+                            <span>{wallet.winRate.toFixed(1)}%</span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">
                           {wallet.lastActiveTimestamp ? timeAgo(wallet.lastActiveTimestamp) + ' ago' : 'Unknown'}

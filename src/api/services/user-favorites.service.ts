@@ -51,12 +51,20 @@ export class UserFavoritesService {
 
       if (fav.wallet) {
         if (fav.wallet.pnlSummary) {
-          pnl = fav.wallet.pnlSummary.realizedPnl ?? undefined;
+          // Calculate total PnL = realized + unrealized (same as Discover page)
+          const realizedPnl = fav.wallet.pnlSummary.realizedPnl ?? 0;
+          const unrealizedPnl = fav.wallet.pnlSummary.unrealizedPnl ?? 0;
+          pnl = realizedPnl + unrealizedPnl;
+
           currentSolBalance = fav.wallet.pnlSummary.currentSolBalance ?? undefined;
           lastActiveTimestamp = fav.wallet.pnlSummary.overallLastTimestamp ?? undefined;
+
+          // Get winrate from advancedStats (same as Discover page)
+          if (fav.wallet.pnlSummary.advancedStats) {
+            winRate = fav.wallet.pnlSummary.advancedStats.tokenWinRatePercent ?? undefined;
+          }
         }
         if (fav.wallet.behaviorProfile) {
-          winRate = fav.wallet.behaviorProfile.flipperScore ?? undefined;
           // Fallback to behaviorProfile's lastTransactionTimestamp if pnlSummary doesn't have it
           if (!lastActiveTimestamp && fav.wallet.behaviorProfile.lastTransactionTimestamp) {
             lastActiveTimestamp = fav.wallet.behaviorProfile.lastTransactionTimestamp;

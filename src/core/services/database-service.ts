@@ -1042,7 +1042,7 @@ export class DatabaseService {
      * @throws NotFoundException if the user does not exist.
      * @throws InternalServerErrorException for other database errors.
      */
-    async getFavoriteWalletsByUserId(userId: string): Promise<Array<Prisma.UserFavoriteWalletGetPayload<{ include: { wallet: { include: { pnlSummary: true, behaviorProfile: true } } } }>>> {
+    async getFavoriteWalletsByUserId(userId: string): Promise<Array<Prisma.UserFavoriteWalletGetPayload<{ include: { wallet: { include: { pnlSummary: { include: { advancedStats: true } }, behaviorProfile: true } } } }>>> {
         this.logger.debug(`Fetching favorite wallets for user ${userId}`);
         try {
             return await this.prismaClient.userFavoriteWallet.findMany({
@@ -1050,7 +1050,11 @@ export class DatabaseService {
                 include: {
                     wallet: {
                         include: {
-                            pnlSummary: true,
+                            pnlSummary: {
+                                include: {
+                                    advancedStats: true,
+                                }
+                            },
                             behaviorProfile: true,
                         }
                     }
