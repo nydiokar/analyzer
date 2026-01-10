@@ -479,174 +479,175 @@ export default function DiscoverPage() {
         </div>
 
         {/* Filter row */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 flex-1">
-            {/* Active (48H) Badge - First for prominence */}
+        <div className="flex items-center gap-2">
+          {/* Active (48H) Badge - First for prominence */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant={active48H ? "default" : "outline"}
+                  className={cn(
+                    "cursor-pointer h-7 px-2.5 text-xs font-medium transition-all",
+                    active48H && "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/50 hover:bg-amber-500/30",
+                    !active48H && "hover:bg-accent"
+                  )}
+                  onClick={() => {
+                    setActive48H(!active48H);
+                    setPage(1);
+                  }}
+                >
+                  Active (48H)
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">
+                  {active48H ? "Showing wallets active in last 48 hours" : "Click to filter wallets active in last 48 hours"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Sort filter */}
+          <div className="flex items-center gap-2 text-sm">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge
-                    variant={active48H ? "default" : "outline"}
-                    className={cn(
-                      "cursor-pointer h-7 px-2.5 text-xs font-medium transition-all",
-                      active48H && "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/50 hover:bg-amber-500/30",
-                      !active48H && "hover:bg-accent"
-                    )}
-                    onClick={() => {
-                      setActive48H(!active48H);
-                      setPage(1);
-                    }}
-                  >
-                    Active (48)
-                  </Badge>
+                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                    Sort: <Info className="h-3 w-3" />
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p className="text-xs">
-                    {active48H ? "Showing wallets active in last 48 hours" : "Click to filter wallets active in last 48 hours"}
-                  </p>
+                  <p className="text-xs">Order results by different criteria</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-
-            {/* Sort filter */}
-            <div className="flex items-center gap-2 text-sm">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
-                      Sort: <Info className="h-3 w-3" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">Order results by different criteria</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <Select value={sort} onValueChange={(v) => { setSort(v); setPage(1); setActivePreset(null); }}>
-                <SelectTrigger className="w-[130px] h-7 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <TooltipProvider>
-                    {sortOptions.map((o) => (
-                      <Tooltip key={o.value}>
-                        <TooltipTrigger asChild>
-                          <SelectItem value={o.value}>
-                            {o.label}
-                          </SelectItem>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-xs">
-                          <p className="text-xs font-semibold">{o.label}</p>
-                          <p className="text-xs text-muted-foreground">{o.hint}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ))}
-                  </TooltipProvider>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Hold filter */}
-            <div className="flex items-center gap-2 text-sm">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
-                      Hold: <Info className="h-3 w-3" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">Filter by median hold time duration</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <Select value={holdBias} onValueChange={(v) => { setHoldBias(v); setPage(1); setActivePreset(null); }}>
-                <SelectTrigger className="w-[100px] h-7 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {holdBiasOptions.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            <Select value={sort} onValueChange={(v) => { setSort(v); setPage(1); setActivePreset(null); }}>
+              <SelectTrigger className="w-[130px] h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <TooltipProvider>
+                  {sortOptions.map((o) => (
+                    <Tooltip key={o.value}>
+                      <TooltipTrigger asChild>
+                        <SelectItem value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        <p className="text-xs font-semibold">{o.label}</p>
+                        <p className="text-xs text-muted-foreground">{o.hint}</p>
+                      </TooltipContent>
+                    </Tooltip>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Min trades input */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    placeholder="Min trades"
-                    className="w-[80px] h-7 text-xs"
-                    value={minTradeCount === '' ? '' : String(minTradeCount)}
-                    onChange={(e) => {
-                      setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
-                      setPage(1);
-                      setActivePreset(null);
-                    }}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">Filter by minimum total trades (buys + sells)</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            {/* Min tokens input */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    placeholder="Min tokens"
-                    className="w-[80px] h-7 text-xs"
-                    value={minUniqueTokens === '' ? '' : String(minUniqueTokens)}
-                    onChange={(e) => {
-                      setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
-                      setPage(1);
-                      setActivePreset(null);
-                    }}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">Filter by minimum unique tokens traded</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            {/* Reset + Refresh buttons */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" onClick={resetFilters} className="h-7 px-2 text-xs">
-                    Reset
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">Reset all filters to default</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating} className="h-7 px-2">
-                    {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">Refresh results</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+                </TooltipProvider>
+              </SelectContent>
+            </Select>
           </div>
 
-          {/* Time Period Filter - Right aligned */}
+          {/* Hold filter */}
+          <div className="flex items-center gap-2 text-sm">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                    Hold: <Info className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Filter by median hold time duration</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Select value={holdBias} onValueChange={(v) => { setHoldBias(v); setPage(1); setActivePreset(null); }}>
+              <SelectTrigger className="w-[100px] h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {holdBiasOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Min trades input */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Min trades"
+                  className="w-[80px] h-7 text-xs"
+                  value={minTradeCount === '' ? '' : String(minTradeCount)}
+                  onChange={(e) => {
+                    setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
+                    setPage(1);
+                    setActivePreset(null);
+                  }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Filter by minimum total trades (buys + sells)</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Min tokens input */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Min tokens"
+                  className="w-[80px] h-7 text-xs"
+                  value={minUniqueTokens === '' ? '' : String(minUniqueTokens)}
+                  onChange={(e) => {
+                    setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
+                    setPage(1);
+                    setActivePreset(null);
+                  }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Filter by minimum unique tokens traded</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Reset + Refresh buttons */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={resetFilters} className="h-7 px-2 text-xs">
+                  Reset
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Reset all filters to default</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating} className="h-7 px-2">
+                  {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Refresh results</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Divider */}
+          <div className="h-6 w-px bg-border mx-1" />
+
+          {/* Time Period Filter - After divider */}
           <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/30">
             <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
               1d
