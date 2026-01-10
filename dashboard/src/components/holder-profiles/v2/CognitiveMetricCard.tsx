@@ -9,7 +9,7 @@ interface Props {
 
 function getTooltip(primitiveId: string): string {
   const tooltips: Record<string, string> = {
-    speed: 'Median hold time across all holders. Shows how long holders typically keep positions before exiting. Faster exits indicate scalping/day trading; longer holds suggest patience and conviction.',
+    speed: 'Median hold time across all holders. Shows how long holders typically keep positions before exiting.',
     conviction: 'Conviction score (100% - daily flip rate). Lower % means holders rarely flip tokens within 24 hours, indicating strong conviction. Higher scores suggest frequent trading and weak hands.',
     consistency: 'Data quality reliability. Shows the proportion of holders with sufficient exit history (GOLD tier) to make accurate behavioral classifications. "Chaotic" means limited data; "Reliable" means confident analysis.',
     quality: 'Count of holders with strong data quality (GOLD + SILVER) versus total holders.',

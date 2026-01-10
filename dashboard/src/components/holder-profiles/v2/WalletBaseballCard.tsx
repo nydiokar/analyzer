@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { HolderProfile } from '../types';
-import { formatHoldTime, formatHoldSource, formatPercentage, getTypicalHoldTimeHours } from './utils/formatters';
 import { getBehaviorColor, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ExitTimingDrilldownPanel } from './ExitTimingDrilldownPanel';
@@ -225,59 +224,6 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
   );
 }
 
-function HoldMetricCard(props: {
-  label: string;
-  exitedLabel?: string;
-  exitedValue: string;
-  mixedLabel?: string;
-  mixedValue: string;
-  highlightMixed?: boolean;
-  footer?: React.ReactNode;
-  tooltip?: string;
-}) {
-  const {
-    label,
-    exitedLabel = 'Exited',
-    exitedValue,
-    mixedLabel = 'Active + exited',
-    mixedValue,
-    highlightMixed,
-    footer,
-    tooltip,
-  } = props;
-
-  return (
-    <div className="bg-muted/30 rounded-md p-3 border space-y-3">
-      <div className="flex items-center gap-1">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
-        {tooltip && (
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <InfoIcon className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                <p>{tooltip}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <p className="text-[11px] text-muted-foreground">{exitedLabel}</p>
-          <p className="text-xl font-semibold tabular-nums">{exitedValue}</p>
-        </div>
-        <div className={highlightMixed ? 'rounded-md bg-primary/5 p-2 -m-1 space-y-1' : ''}>
-          <p className="text-[11px] text-muted-foreground">{mixedLabel}</p>
-          <p className="text-lg font-semibold tabular-nums whitespace-nowrap leading-tight">{mixedValue}</p>
-        </div>
-      </div>
-      {footer && <div className="text-[11px] text-muted-foreground">{footer}</div>}
-    </div>
-  );
-}
-
 function getQualityIndicator(tier?: string) {
   switch (tier) {
     case 'GOLD':
@@ -312,13 +258,6 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
   };
 
   const qualityIndicator = getQualityIndicator(profile.dataQualityTier);
-  const typicalHold = getTypicalHoldTimeHours(profile);
-  const realizedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours ?? null;
-  const realizedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours ?? null;
-  const inclusiveMedian = typicalHold ?? profile.currentHoldMedianHours ?? realizedMedian;
-  const inclusiveAverage = profile.avgHoldTimeHours ?? profile.currentHoldAverageHours ?? realizedAverage;
-  const includesCurrentData =
-    profile.typicalHoldTimeSource === 'CURRENT' || profile.typicalHoldTimeSource === 'MIXED';
   const totalTokens = profile.totalTokensTraded ?? profile.completedCycleCount ?? 0;
   const heldTokens = profile.currentHoldingsCount ?? 0;
   const exitedTokens = profile.completedCycleCount ?? 0;
@@ -395,7 +334,10 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-help ${getBehaviorColor(behaviorDisplayType)}`}>
+                  <span 
+                    className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-help ${getBehaviorColor(behaviorDisplayType).className}`}
+                    style={getBehaviorColor(behaviorDisplayType).style}
+                  >
                     {getBehaviorMeta(profile.behaviorType)?.label
                       ?? (heldTokens > 0 ? 'Holder (no exits yet)' : profile.behaviorType)
                       ?? 'Unclassified'}
@@ -468,51 +410,8 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
         />
       </div>
 
-      <div className="p-3 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] gap-4">
-        <div className="space-y-3">
-          <HoldMetricCard
-            label="Median Hold"
-            exitedValue={formatHoldTime(realizedMedian)}
-            mixedValue={formatHoldTime(inclusiveMedian)}
-            highlightMixed={includesCurrentData}
-            mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
-            tooltip="Median hold time across exits: half of the exits were faster and half slower. The mixed value blends current positions with exits to reflect present behavior."
-          />
-          <HoldMetricCard
-            label="Average Hold"
-            exitedValue={formatHoldTime(realizedAverage)}
-            mixedValue={formatHoldTime(inclusiveAverage)}
-            highlightMixed={includesCurrentData}
-            mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
-            footer={
-              typeof profile.percentValueInCurrentHoldings === 'number' ? (
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={toggleHoldingsVisibility}
-                        disabled={!hasHoldingsList}
-                        className={`underline-offset-2 ${hasHoldingsList ? 'underline hover:text-primary transition-colors' : 'text-muted-foreground cursor-not-allowed'}`}
-                      >
-                        Value still held: {formatPercentage(profile.percentValueInCurrentHoldings)}{' '}
-                        {hasHoldingsList ? '(click to view tokens)' : '(no current tokens detected)'}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs text-xs">
-                      <p className="font-semibold mb-1">Value still held</p>
-                      <p className="text-muted-foreground">
-                        Percentage of portfolio value still in current holdings. May differ from token counts because dust/low-balance tokens are filtered by backend thresholds.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ) : undefined
-            }
-            tooltip="Average (mean) hold duration. Sensitive to outliers; compare against the median to spot skew from very long or very short trades. Mixed value includes active positions to show current behavior."
-          />
-        </div>
-
-        <div className="bg-muted/10 rounded-md p-3 border w-full lg:min-w-[280px]">
+      <div className="p-3">
+        <div className="bg-muted/10 rounded-md p-3 border w-full lg:max-w-[600px]">
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>

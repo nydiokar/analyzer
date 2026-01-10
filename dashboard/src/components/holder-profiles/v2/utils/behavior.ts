@@ -1,3 +1,4 @@
+import type React from 'react';
 import { SPEED_CATEGORY_COLORS } from '@/lib/strategy-colors';
 
 export interface BehaviorMeta {
@@ -6,15 +7,36 @@ export interface BehaviorMeta {
   description: string;
   timeframe: string;
   palette: {
-    badge: string;
-    bar: string;
+    badge: {
+      className: string;
+      style: React.CSSProperties;
+    };
+    bar: {
+      className: string;
+      style: React.CSSProperties;
+    };
   };
 }
 
+// Convert hex to rgba for proper opacity
+const hexToRgba = (hex: string, alpha: number) => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 // Create badge and bar styles from centralized colors
+// Returns both className and style for proper color matching
 const createPaletteFromHex = (hex: string) => ({
-  badge: `bg-[${hex}]/15 text-[${hex}] dark:text-[${hex}]`,
-  bar: `bg-[${hex}]`,
+  badge: {
+    className: 'font-medium',
+    style: { backgroundColor: hexToRgba(hex, 0.15), color: hex },
+  },
+  bar: {
+    className: '',
+    style: { backgroundColor: hex },
+  },
 });
 
 const BEHAVIOR_META: Record<string, BehaviorMeta> = {
@@ -88,9 +110,9 @@ export const QUALITY_COLORS: Record<string, string> = {
   INSUFFICIENT: 'bg-red-500/15 text-red-500',
 };
 
-export function getBehaviorColor(type?: string | null) {
+export function getBehaviorColor(type?: string | null): { className: string; style: React.CSSProperties } {
   const meta = getBehaviorMeta(type);
-  if (!meta) return 'bg-muted text-muted-foreground';
+  if (!meta) return { className: 'bg-muted text-muted-foreground', style: {} };
   return meta.palette.badge;
 }
 

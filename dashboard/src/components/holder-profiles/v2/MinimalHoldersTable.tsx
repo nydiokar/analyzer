@@ -1,5 +1,5 @@
 import type { HolderProfile } from '../types';
-import { formatHoldTime, formatSol, formatUsd, getTypicalHoldTimeHours } from './utils/formatters';
+import { formatHoldTime, formatSol, formatUsd } from './utils/formatters';
 import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
@@ -63,8 +63,24 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
             <th className="text-left px-4 py-2">Wallet</th>
             <th className="text-left px-4 py-2">Holding Value</th>
             <th className="text-left px-4 py-2">PnL</th>
-            <th className="text-left px-4 py-2">Category + Time</th>
-            <th className="text-left px-4 py-2">Hold Time (&gt;0.3 SOL)</th>
+            <th className="text-left px-4 py-2">Behavior</th>
+            <th className="text-left px-4 py-2 whitespace-nowrap">Exit timings</th>
+            <th className="text-left px-4 py-2">
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex items-center gap-1 cursor-help">
+                      Current holdings <InfoIcon className="h-3 w-3 text-muted-foreground" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    <p className="text-muted-foreground">
+                      Hold time for all currently held tokens across all positions with value ≥ 0.3 SOL.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </th>
             <th className="text-left px-4 py-2">SOL Balance</th>
           </tr>
         </thead>
@@ -79,9 +95,8 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                 }
               : null);
             const behaviorDisplayType = profile.behaviorType ?? (isHolderOnly ? 'HODLER' : null);
-            const typicalHold = getTypicalHoldTimeHours(profile);
-            const exitedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours;
-            const exitedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours;
+            const exitedMedian = profile.realizedMedianHoldTimeHours ?? null;
+            const exitedAverage = profile.realizedAverageHoldTimeHours ?? null;
             const holdingValueUsd = getHoldingValueUsd(profile);
             const pnlDisplay = getPnlDisplay(profile);
             const currentHoldTime = hasSignificantHoldings(profile)
@@ -106,35 +121,41 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                   {pnlDisplay.value}
                 </td>
                 <td className="px-4 py-2">
-                  <div className="flex flex-col gap-1">
-                    <TooltipProvider delayDuration={150}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span
-                            className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${getBehaviorColor(behaviorDisplayType)}`}
-                          >
-                            {behaviorMeta?.label ?? profile.behaviorType ?? 'Unclassified'}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-sm text-xs">
-                          {(() => {
-                            const info = getBehaviorDescription(profile.behaviorType) || behaviorMeta;
-                            if (!info) {
-                              return <p className="text-muted-foreground">No behavior classification yet.</p>;
-                            }
-                            return (
-                              <div className="space-y-2">
-                                <p className="font-semibold">{'title' in info ? info.title : info.label}</p>
-                                <p className="text-muted-foreground">{info.description}</p>
-                                <p className="text-primary font-medium">{info.timeframe}</p>
-                              </div>
-                            );
-                          })()}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <span className="text-xs text-muted-foreground">
-                      exit median {formatHoldTime(exitedMedian)} · avg {formatHoldTime(exitedAverage)}
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          className={`px-2 py-1 rounded-full text-sm w-fit ${getBehaviorColor(behaviorDisplayType).className}`}
+                          style={getBehaviorColor(behaviorDisplayType).style}
+                        >
+                          {behaviorMeta?.label ?? profile.behaviorType ?? 'Unclassified'}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-sm text-xs">
+                        {(() => {
+                          const info = getBehaviorDescription(profile.behaviorType) || behaviorMeta;
+                          if (!info) {
+                            return <p className="text-muted-foreground">No behavior classification yet.</p>;
+                          }
+                          return (
+                            <div className="space-y-2">
+                              <p className="font-semibold">{'title' in info ? info.title : info.label}</p>
+                              <p className="text-muted-foreground">{info.description}</p>
+                              <p className="text-primary font-medium">{info.timeframe}</p>
+                            </div>
+                          );
+                        })()}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm tabular-nums">
+                      Median: {formatHoldTime(exitedMedian)}
+                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      Average: {formatHoldTime(exitedAverage)}
                     </span>
                   </div>
                 </td>

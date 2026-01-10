@@ -262,7 +262,7 @@ export default function HolderProfilesPage() {
 
   return (
     <AppShell>
-      <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8">
+      <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8 pb-8">
         <div className="max-w-6xl mx-auto space-y-1">
           <h1 className="text-2xl font-semibold">Holder Profiles</h1>
           <p className="text-sm text-muted-foreground">

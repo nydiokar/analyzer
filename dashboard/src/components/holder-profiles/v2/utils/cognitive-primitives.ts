@@ -1,5 +1,5 @@
 import type { HolderProfile } from '../../../holder-profiles/types';
-import { formatHoldTime, getTypicalHoldTimeHours } from './formatters';
+import { formatHoldTime } from './formatters';
 import { SPEED_CATEGORY_COLORS } from '@/lib/strategy-colors';
 
 export interface CognitivePrimitive {
@@ -28,12 +28,13 @@ function calculateMedian(values: number[]) {
 }
 
 export function getSpeedPrimitive(profiles: HolderProfile[]): CognitivePrimitive {
+  // Use only realized median (completed exits) to show actual exit behavior
+  // Not mixed values that include current holdings
   const holds = profiles
     .map((profile) => {
-      const value = getTypicalHoldTimeHours(profile);
-      return typeof value === 'number' ? value : null;
+      return profile.realizedMedianHoldTimeHours ?? null;
     })
-    .filter((v): v is number => v !== null);
+    .filter((v): v is number => v !== null && Number.isFinite(v));
   const median = holds.length ? calculateMedian(holds) : 0;
   const bucket = SPEED_BUCKETS.find((b) => median <= b.threshold);
   const category = bucket ? bucket.label : 'Long-term';

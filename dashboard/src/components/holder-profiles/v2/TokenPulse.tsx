@@ -80,7 +80,7 @@ export function TokenPulse({ result }: Props) {
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
             <TraderDistributionBar profiles={result.profiles} />
-            <ApproachingHoldTimePanel profiles={result.profiles} />
+            <ApproachingHoldTimePanel profiles={result.profiles} tokenMint={result.tokenMint} />
           </div>
           <div>
             <TooltipProvider delayDuration={200}>
