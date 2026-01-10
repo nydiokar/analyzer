@@ -415,6 +415,7 @@ export class DiscoverService {
         exitPattern: behavior?.exitPattern ?? null, // Now stored directly in DB
         percentOfValueInCurrentHoldings: behavior?.percentOfValueInCurrentHoldings ?? null,
         medianCurrentHoldingDurationHours: behavior?.medianCurrentHoldingDurationHours ?? null,
+        currentSolBalance: pnl?.currentSolBalance ?? null,
         lastActiveAt: lastActiveAt ? lastActiveAt.toISOString() : null,
         pnlUpdatedAt: pnl?.updatedAt ?? null,
         behaviorUpdatedAt: behavior?.updatedAt ?? null,

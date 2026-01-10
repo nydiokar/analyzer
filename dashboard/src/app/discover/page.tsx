@@ -143,6 +143,7 @@ export default function DiscoverPage() {
   const [speedCategory, setSpeedCategory] = useState<string>('any');
   const [flowPattern, setFlowPattern] = useState<string>('any');
   const [holdBias, setHoldBias] = useState<string>('any');
+  const [active48H, setActive48H] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -369,13 +370,13 @@ export default function DiscoverPage() {
                   <Info className="h-3.5 w-3.5 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  Shows wallet address with key metrics: trades (buy↑/sell↓), win rate and last activity.
+                  Shows wallet address with key metrics: trades (buy↑/sell↓) and last activity.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
         </th>
-        <th className="text-left px-3 py-2 font-medium text-sm whitespace-nowrap">
+        <th className="text-left px-2 py-2 font-medium text-sm whitespace-nowrap w-32">
           <div className="inline-flex items-center gap-1">
             PnL
             <TooltipProvider>
@@ -390,6 +391,36 @@ export default function DiscoverPage() {
             </TooltipProvider>
           </div>
         </th>
+        <th className="text-left px-2 py-2 font-medium text-sm whitespace-nowrap w-20">
+          <div className="inline-flex items-center gap-1">
+            Winrate
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Token-level win rate: percentage of tokens with profitable outcomes.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-left px-2 py-2 font-medium text-sm whitespace-nowrap w-20">
+          <div className="inline-flex items-center gap-1">
+            SOL
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Current SOL balance in wallet.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
         <th className="text-left px-3 py-2 font-medium text-sm">
           <div className="inline-flex items-center gap-1">
             Speed
@@ -399,7 +430,7 @@ export default function DiscoverPage() {
                   <Info className="h-3.5 w-3.5 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  Narrative description of exit timing patterns and current holdings. Checkout Holder profiles for details on this wallet
+                  Exit timing patterns. Click Speed pie chart on right to filter.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -414,15 +445,15 @@ export default function DiscoverPage() {
                   <Info className="h-3.5 w-3.5 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  Narrative description of buy/sell behavior and exit patterns.
+                  Buy/sell behavior patterns. Click Flow pie chart on right to filter.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
         </th>
-        <th className="text-right px-3 py-2 font-medium text-sm whitespace-nowrap">
+        <th className="text-right px-2 py-2 font-medium text-xs whitespace-nowrap w-16">
           <div className="inline-flex items-center gap-1 justify-end">
-            Unpaired
+            Unp
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -442,264 +473,194 @@ export default function DiscoverPage() {
   return (
     <AppShell>
       <div className="w-full px-6 py-4 space-y-3">
-        {/* Compact header + filters in one line */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Header row */}
+        <div className="flex items-center">
           <h1 className="text-xl font-semibold">Discover</h1>
+        </div>
 
-          {/* Preset filters as distinct pills */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent/50 border border-border/50">
-            <Button
-              size="sm"
-              variant={activePreset === 'fast-traders' ? 'default' : 'ghost'}
-              onClick={() => applyPreset('fast-traders')}
-              className={cn(
-                "h-7 text-xs font-medium transition-all",
-                activePreset === 'fast-traders' && "bg-primary text-primary-foreground shadow-sm"
-              )}
-            >
-              Fast Traders
-            </Button>
-            <Button
-              size="sm"
-              variant={activePreset === 'balanced-fast' ? 'default' : 'ghost'}
-              onClick={() => applyPreset('balanced-fast')}
-              className={cn(
-                "h-7 text-xs font-medium transition-all",
-                activePreset === 'balanced-fast' && "bg-primary text-primary-foreground shadow-sm"
-              )}
-            >
-              Balanced Fast
-            </Button>
-            <Button
-              size="sm"
-              variant={activePreset === 'patient-holder' ? 'default' : 'ghost'}
-              onClick={() => applyPreset('patient-holder')}
-              className={cn(
-                "h-7 text-xs font-medium transition-all",
-                activePreset === 'patient-holder' && "bg-primary text-primary-foreground shadow-sm"
-              )}
-            >
-              Patient Holder
-            </Button>
-          </div>
-
-          {/* Divider */}
-          <div className="h-6 w-px bg-border" />
-
-          {/* Inline filters */}
-          <div className="flex items-center gap-2 text-sm">
+        {/* Filter row */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 flex-1">
+            {/* Active (48H) Badge - First for prominence */}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
-                    Sort: <Info className="h-3 w-3" />
-                  </span>
+                  <Badge
+                    variant={active48H ? "default" : "outline"}
+                    className={cn(
+                      "cursor-pointer h-7 px-2.5 text-xs font-medium transition-all",
+                      active48H && "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/50 hover:bg-amber-500/30",
+                      !active48H && "hover:bg-accent"
+                    )}
+                    onClick={() => {
+                      setActive48H(!active48H);
+                      setPage(1);
+                    }}
+                  >
+                    Active (48)
+                  </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p className="text-xs">Order results by different criteria</p>
+                  <p className="text-xs">
+                    {active48H ? "Showing wallets active in last 48 hours" : "Click to filter wallets active in last 48 hours"}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <Select value={sort} onValueChange={(v) => { setSort(v); setPage(1); setActivePreset(null); }}>
-              <SelectTrigger className="w-[130px] h-7 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <TooltipProvider>
-                  {sortOptions.map((o) => (
-                    <Tooltip key={o.value}>
-                      <TooltipTrigger asChild>
-                        <SelectItem value={o.value}>
-                          {o.label}
-                        </SelectItem>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-xs">
-                        <p className="text-xs font-semibold">{o.label}</p>
-                        <p className="text-xs text-muted-foreground">{o.hint}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
-                </TooltipProvider>
-              </SelectContent>
-            </Select>
-          </div>
 
-          {/* NEW: Speed filter */}
-          <div className="flex items-center gap-2 text-sm">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
-                    Speed: <Info className="h-3 w-3" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">Filter by exit timing (how fast they exit positions)</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <Select value={speedCategory} onValueChange={(v) => { setSpeedCategory(v); setPage(1); setActivePreset(null); }}>
-              <SelectTrigger className="w-[100px] h-7 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <TooltipProvider>
-                  {speedOptions.map((o) => (
-                    <Tooltip key={o.value}>
-                      <TooltipTrigger asChild>
-                        <SelectItem value={o.value}>
-                          {o.label}
-                        </SelectItem>
-                      </TooltipTrigger>
-                      {o.hint && (
+            {/* Sort filter */}
+            <div className="flex items-center gap-2 text-sm">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                      Sort: <Info className="h-3 w-3" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">Order results by different criteria</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <Select value={sort} onValueChange={(v) => { setSort(v); setPage(1); setActivePreset(null); }}>
+                <SelectTrigger className="w-[130px] h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <TooltipProvider>
+                    {sortOptions.map((o) => (
+                      <Tooltip key={o.value}>
+                        <TooltipTrigger asChild>
+                          <SelectItem value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        </TooltipTrigger>
                         <TooltipContent side="right" className="max-w-xs">
                           <p className="text-xs font-semibold">{o.label}</p>
                           <p className="text-xs text-muted-foreground">{o.hint}</p>
                         </TooltipContent>
-                      )}
-                    </Tooltip>
-                  ))}
-                </TooltipProvider>
-              </SelectContent>
-            </Select>
-          </div>
+                      </Tooltip>
+                    ))}
+                  </TooltipProvider>
+                </SelectContent>
+              </Select>
+            </div>
 
-          {/* NEW: Flow filter */}
-          <div className="flex items-center gap-2 text-sm">
+            {/* Hold filter */}
+            <div className="flex items-center gap-2 text-sm">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                      Hold: <Info className="h-3 w-3" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">Filter by median hold time duration</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <Select value={holdBias} onValueChange={(v) => { setHoldBias(v); setPage(1); setActivePreset(null); }}>
+                <SelectTrigger className="w-[100px] h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {holdBiasOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Min trades input */}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
-                    Flow: <Info className="h-3 w-3" />
-                  </span>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="Min trades"
+                    className="w-[80px] h-7 text-xs"
+                    value={minTradeCount === '' ? '' : String(minTradeCount)}
+                    onChange={(e) => {
+                      setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
+                      setPage(1);
+                      setActivePreset(null);
+                    }}
+                  />
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p className="text-xs">Filter by buy/sell behavior (trading flow pattern)</p>
+                  <p className="text-xs">Filter by minimum total trades (buys + sells)</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <Select value={flowPattern} onValueChange={(v) => { setFlowPattern(v); setPage(1); setActivePreset(null); }}>
-              <SelectTrigger className="w-[100px] h-7 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <TooltipProvider>
-                  {flowOptions.map((o) => (
-                    <Tooltip key={o.value}>
-                      <TooltipTrigger asChild>
-                        <SelectItem value={o.value}>
-                          {o.label}
-                        </SelectItem>
-                      </TooltipTrigger>
-                      {o.hint && (
-                        <TooltipContent side="right" className="max-w-xs">
-                          <p className="text-xs font-semibold">{o.label}</p>
-                          <p className="text-xs text-muted-foreground">{o.hint}</p>
-                        </TooltipContent>
-                      )}
-                    </Tooltip>
-                  ))}
-                </TooltipProvider>
-              </SelectContent>
-            </Select>
-          </div>
 
-          <div className="flex items-center gap-2 text-sm">
+            {/* Min tokens input */}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
-                    Hold: <Info className="h-3 w-3" />
-                  </span>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="Min tokens"
+                    className="w-[80px] h-7 text-xs"
+                    value={minUniqueTokens === '' ? '' : String(minUniqueTokens)}
+                    onChange={(e) => {
+                      setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
+                      setPage(1);
+                      setActivePreset(null);
+                    }}
+                  />
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p className="text-xs">Filter by median hold time duration</p>
+                  <p className="text-xs">Filter by minimum unique tokens traded</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <Select value={holdBias} onValueChange={(v) => { setHoldBias(v); setPage(1); setActivePreset(null); }}>
-              <SelectTrigger className="w-[100px] h-7 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {holdBiasOptions.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+            {/* Reset + Refresh buttons */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" onClick={resetFilters} className="h-7 px-2 text-xs">
+                    Reset
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Reset all filters to default</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating} className="h-7 px-2">
+                    {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Refresh results</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
 
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder="Min trades"
-                  className="w-[80px] h-7 text-xs"
-                  value={minTradeCount === '' ? '' : String(minTradeCount)}
-                  onChange={(e) => {
-                    setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
-                    setPage(1);
-                    setActivePreset(null);
-                  }}
-                />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Filter by minimum total trades (buys + sells)</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder="Min tokens"
-                  className="w-[80px] h-7 text-xs"
-                  value={minUniqueTokens === '' ? '' : String(minUniqueTokens)}
-                  onChange={(e) => {
-                    setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
-                    setPage(1);
-                    setActivePreset(null);
-                  }}
-                />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Filter by minimum unique tokens traded</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-
-
-          {/* Reset + Refresh combined */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={resetFilters} className="h-7 px-2 text-xs">
-                  Reset
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Reset all filters to default</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating} className="h-7 px-2">
-                  {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Refresh results</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {/* Time Period Filter - Right aligned */}
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/30">
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+              1d
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+              7d
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+              30d
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+              All
+            </Button>
+          </div>
         </div>
 
         <div className="flex gap-4">
@@ -856,7 +817,7 @@ export default function DiscoverPage() {
                       </Tooltip>
                     </TooltipProvider>
                   </CardHeader>
-                  <CardContent className="pb-4 px-0 min-h-[360px]">
+                  <CardContent className="pb-4 px-0">
                     <ReactECharts
                       ref={speedChartRef}
                       option={{
@@ -949,9 +910,23 @@ export default function DiscoverPage() {
                           }),
                         }],
                       }}
-                      style={{ height: '340px', width: '100%' }}
+                      style={{ height: '260px', width: '100%' }}
                       opts={{ renderer: 'svg' }}
                       onEvents={{
+                        click: (params: any) => {
+                          if (params.componentType === 'series' && params.seriesType === 'pie') {
+                            const clickedCategory = params.name;
+                            if (speedCategory === clickedCategory) {
+                              // If already filtered by this category, reset to 'any'
+                              setSpeedCategory('any');
+                            } else {
+                              // Filter by clicked category
+                              setSpeedCategory(clickedCategory);
+                            }
+                            setPage(1);
+                            setActivePreset(null);
+                          }
+                        },
                         mouseover: (params: any) => {
                           if (params.componentType === 'series' && params.seriesType === 'pie' && speedChartRef.current) {
                             // Find the matching distribution entry to get totalPnl
@@ -1142,9 +1117,23 @@ export default function DiscoverPage() {
                           }),
                         }],
                       }}
-                      style={{ height: '340px', width: '100%' }}
+                      style={{ height: '260px', width: '100%' }}
                       opts={{ renderer: 'svg' }}
                       onEvents={{
+                        click: (params: any) => {
+                          if (params.componentType === 'series' && params.seriesType === 'pie') {
+                            const clickedPattern = params.name;
+                            if (flowPattern === clickedPattern) {
+                              // If already filtered by this pattern, reset to 'any'
+                              setFlowPattern('any');
+                            } else {
+                              // Filter by clicked pattern
+                              setFlowPattern(clickedPattern);
+                            }
+                            setPage(1);
+                            setActivePreset(null);
+                          }
+                        },
                         mouseover: (params: any) => {
                           if (params.componentType === 'series' && params.seriesType === 'pie' && flowChartRef.current) {
                             // Find the matching distribution entry to get totalPnl
@@ -1370,9 +1359,9 @@ function WalletRow({
             metrics={{
               totalBuys: wallet.metrics.totalBuys,
               totalSells: wallet.metrics.totalSells,
-              winRatePercent: wallet.metrics.winRatePercent,
               lastActiveAt: wallet.metrics.lastActiveAt,
             }}
+            showActions={true}
           />
           {isStale && stalenessHours !== null && (
             <TooltipProvider>
@@ -1391,8 +1380,8 @@ function WalletRow({
         </div>
       </td>
 
-      {/* Column 2: PnL (left-aligned, close to wallet) */}
-      <td className="px-3 py-2.5 align-top min-w-[140px]">
+      {/* Column 2: PnL (tight, compact) */}
+      <td className="px-2 py-2.5 align-top">
         {hasPnl ? (
           <div className={cn("inline-flex flex-col gap-0.5 px-2.5 py-1 rounded-md transition-all", totalPnlBgClass)}>
             <div className={cn("text-sm font-bold tabular-nums", totalPnlClass)}>
@@ -1413,8 +1402,30 @@ function WalletRow({
         )}
       </td>
 
-      {/* Column 3: Speed (narrative with range) */}
-      <td className="px-3 py-2.5 align-top max-w-[380px]">
+      {/* Column 3: Winrate (tight) */}
+      <td className="px-2 py-2.5 align-top">
+        {wallet.metrics.winRatePercent !== null && wallet.metrics.winRatePercent !== undefined ? (
+          <span className="text-sm font-medium tabular-nums">
+            {wallet.metrics.winRatePercent.toFixed(1)}%
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+      </td>
+
+      {/* Column 4: SOL Balance (tight) */}
+      <td className="px-2 py-2.5 align-top">
+        {wallet.metrics.currentSolBalance !== null && wallet.metrics.currentSolBalance !== undefined ? (
+          <span className="text-sm font-medium tabular-nums">
+            {wallet.metrics.currentSolBalance.toFixed(1)}
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+      </td>
+
+      {/* Column 5: Speed (narrative with range) */}
+      <td className="px-3 py-2.5 align-top">
         <div className="space-y-1">
           <div className="text-sm font-semibold">
             <span className={getSpeedColor(wallet.metrics.speedCategory)}>
@@ -1428,8 +1439,8 @@ function WalletRow({
         </div>
       </td>
 
-      {/* Column 4: Flow (narrative) */}
-      <td className="px-3 py-2.5 align-top max-w-[480px]">
+      {/* Column 6: Flow (narrative) */}
+      <td className="px-3 py-2.5 align-top">
         {flowNarrative ? (
           <div className="space-y-1">
             <div className="text-sm font-semibold">
@@ -1446,19 +1457,14 @@ function WalletRow({
         )}
       </td>
 
-      {/* Column 5: Unpaired % (spam/dust indicator) */}
-      <td className="px-3 py-2.5 text-right align-top">
+      {/* Column 7: Unpaired % (spam/dust indicator) */}
+      <td className="px-2 py-2.5 text-right align-top">
         {unpairedPct !== null ? (
-          <div className="inline-flex flex-col items-end gap-0.5">
-            <div className={cn("text-sm font-medium tabular-nums", isHighUnpaired ? "text-amber-600 dark:text-amber-500" : "")}>
-              {unpairedPct}%{isHighUnpaired ? " ⚠️" : ""}
-            </div>
-            {isHighUnpaired && (
-              <div className="text-xs text-muted-foreground"></div>
-            )}
-          </div>
+          <span className={cn("text-xs font-medium tabular-nums", isHighUnpaired ? "text-amber-600 dark:text-amber-500" : "")}>
+            {unpairedPct}%
+          </span>
         ) : (
-          <span className="text-sm text-muted-foreground">—</span>
+          <span className="text-xs text-muted-foreground">—</span>
         )}
       </td>
     </tr>

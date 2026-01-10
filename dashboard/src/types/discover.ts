@@ -27,6 +27,7 @@ export interface DiscoverWalletMetrics {
   exitPattern?: string | null;
   percentOfValueInCurrentHoldings?: number | null;
   medianCurrentHoldingDurationHours?: number | null;
+  currentSolBalance?: number | null;
 
   lastActiveAt?: string | null;
   pnlUpdatedAt?: string | null;

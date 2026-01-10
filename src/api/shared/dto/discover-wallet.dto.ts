@@ -189,6 +189,9 @@ export class DiscoverWalletMetricsDto {
   @ApiProperty({ required: false, nullable: true, description: 'Median current holding duration in hours' })
   medianCurrentHoldingDurationHours?: number | null;
 
+  @ApiProperty({ required: false, nullable: true, description: 'Current SOL balance in wallet' })
+  currentSolBalance?: number | null;
+
   @ApiProperty({ required: false, nullable: true })
   lastActiveAt?: string | null;
 

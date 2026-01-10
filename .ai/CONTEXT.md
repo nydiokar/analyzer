@@ -65,15 +65,27 @@ Mapper changes do not backfill existing SwapAnalysisInput rows. To see fixes:
 - `src/core/services/database-service.ts` - Added advancedStats to query
 
 ### 2. Discover Page Refactor
-**Status:** In Progress
+**Status:** ✅ COMPLETED
 **Docs:** `.ai/context/DISCOVER_PAGE.md`
-**Changes:**
-- Extract winrate from wallet badge to separate column
-- Add time period filters (1d/7d/30d/all-time) - placeholders
-- Add 48H activity filter
-- Move Flow/Speed category filters to pie charts
-- Reorder columns: Wallet | PnL | Winrate | Categories | SOL Balance | Unpaired
-- Add tooltip directing users to filter via pie charts
+**Changes Implemented:**
+- ✅ Split header into two rows (title row + filter row)
+- ✅ Extracted winrate from wallet badge to separate column
+- ✅ Added time period filters (1d/7d/30d/All) - placeholders, right-aligned
+- ✅ Added Active (48) filter as prominent pill badge at start of filter row
+- ✅ Moved Flow/Speed category filters to pie chart click interactions
+- ✅ Reordered columns: Wallet | PnL | Winrate | SOL Balance | Speed | Flow | Unpaired
+- ✅ Made PnL, Winrate, SOL Balance columns tight and compact (w-32, w-20, w-20)
+- ✅ Removed fixed width from Flow column for natural text wrapping
+- ✅ Reduced pie chart sizes from 340px to 260px
+- ✅ Removed min-height from Speed chart container to fit content
+- ✅ Added tooltips directing users to filter via pie charts
+- ✅ Added currentSolBalance to backend API response
+
+**Files Modified:**
+- `dashboard/src/app/discover/page.tsx` - Layout, filtering, table structure, column order
+- `src/api/services/discover.service.ts` - Added currentSolBalance to metrics
+- `src/api/shared/dto/discover-wallet.dto.ts` - Added currentSolBalance field
+- `dashboard/src/types/discover.ts` - Added currentSolBalance to interface
 
 ### 3. Holder Profiles Page Refactor
 **Status:** Pending
