@@ -98,6 +98,7 @@ export function TokenPulse({ result }: Props) {
             <MinimalHoldersTable
               profiles={result.profiles}
               mode="token"
+              tokenMint={result.tokenMint}
               onSelect={(profile) => setSelectedProfile(profile)}
             />
           </div>

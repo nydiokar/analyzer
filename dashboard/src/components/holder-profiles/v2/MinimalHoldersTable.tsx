@@ -1,5 +1,5 @@
 import type { HolderProfile } from '../types';
-import { formatHoldTime, formatSol, formatUsd } from './utils/formatters';
+import { formatHoldTime, formatPercentage, formatSol, formatUsd } from './utils/formatters';
 import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
@@ -8,14 +8,18 @@ import { InfoIcon } from 'lucide-react';
 interface Props {
   profiles: HolderProfile[];
   mode: 'token' | 'wallet';
+  tokenMint?: string;
   onSelect?: (profile: HolderProfile) => void;
 }
 
 const SIGNIFICANT_HOLD_THRESHOLD_SOL = 0.3;
 
-function getHoldingValueSol(profile: HolderProfile) {
+function getHoldingValueSol(profile: HolderProfile, tokenMint?: string) {
   const holdings = profile.currentHoldings ?? [];
-  const total = holdings.reduce((sum, holding) => {
+  const filteredHoldings = tokenMint
+    ? holdings.filter((holding) => holding.tokenAddress === tokenMint)
+    : holdings;
+  const total = filteredHoldings.reduce((sum, holding) => {
     if (typeof holding.valueSol === 'number') return sum + holding.valueSol;
     return sum;
   }, 0);
@@ -36,7 +40,7 @@ function hasSignificantHoldings(profile: HolderProfile) {
   return (profile.currentHoldings ?? []).some((holding) => (holding.valueSol ?? 0) >= SIGNIFICANT_HOLD_THRESHOLD_SOL);
 }
 
-export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
+export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect }: Props) {
   return (
     <div className="rounded-2xl border overflow-hidden">
       <table className="w-full text-sm">
@@ -97,7 +101,8 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
             const behaviorDisplayType = profile.behaviorType ?? (isHolderOnly ? 'HODLER' : null);
             const exitedMedian = profile.realizedMedianHoldTimeHours ?? null;
             const exitedAverage = profile.realizedAverageHoldTimeHours ?? null;
-            const holdingValueSol = getHoldingValueSol(profile);
+            const holdingValueSol = getHoldingValueSol(profile, mode === 'token' ? tokenMint : undefined);
+            const supplyPercent = typeof profile.supplyPercent === 'number' ? profile.supplyPercent : null;
             const pnlDisplay = getPnlDisplay(profile);
             const currentHoldTime = hasSignificantHoldings(profile)
               ? (profile.currentHoldMedianHours ?? profile.currentHoldAverageHours)
@@ -113,9 +118,16 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                   <WalletBadge address={profile.walletAddress} size="sm" variant="inline" />
                 </td>
                 <td className="px-4 py-2">
-                  <span className="font-medium tabular-nums">
-                    {holdingValueSol !== null ? formatSol(holdingValueSol) : '—'}
-                  </span>
+                  <div className="flex flex-col">
+                    <span className="font-medium tabular-nums">
+                      {holdingValueSol !== null ? formatSol(holdingValueSol) : '—'}
+                    </span>
+                    {supplyPercent !== null && supplyPercent > 0 && (
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatPercentage(supplyPercent, 2)} supply
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className={`px-4 py-2 font-medium tabular-nums ${pnlDisplay.raw === null ? 'text-muted-foreground' : pnlDisplay.raw >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
                   {pnlDisplay.value}

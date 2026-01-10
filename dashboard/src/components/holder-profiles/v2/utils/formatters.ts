@@ -26,7 +26,6 @@ export function formatSol(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
   return `${SOL_FORMATTER.format(value)} SOL`;
 }
-
 export function formatHoldTime(hours: number | null | undefined) {
   if (hours === null || hours === undefined) return '—';
   if (hours < 1) {
