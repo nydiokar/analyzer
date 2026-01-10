@@ -899,6 +899,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       if (readyWallets.length > 0) {
         this.logger.log(`Streaming ${readyWallets.length} cached holder profiles immediately`);
+        const solPriceUsd = await this.getSolPriceUsd();
         for (const wallet of readyWallets) {
           const snapshot = snapshots.get(wallet);
           const metadata = holderMetadataByWallet.get(wallet);
@@ -907,7 +908,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           }
           try {
             const hydrated = this.holderProfilesCacheService.hydrateSnapshot(snapshot, metadata);
-            await streamProfile(wallet, hydrated);
+            const withFinancials = await this.hydrateWalletFinancials(hydrated, solPriceUsd);
+            await streamProfile(wallet, withFinancials);
           } catch (error) {
             this.logger.warn(`Failed to hydrate cached holder profile for ${wallet}:`, error);
           }
@@ -984,7 +986,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
               profile.supplyPercent = metadata.supplyPercent;
               profile.tokenHoldingValueSol = metadata.tokenHoldingValueSol;
             }
-            await streamProfile(wallet, profile);
+            const solPriceUsd = await this.getSolPriceUsd();
+            const withFinancials = await this.hydrateWalletFinancials(profile, solPriceUsd);
+            await streamProfile(wallet, withFinancials);
           } else {
             failedWallets.add(wallet);
           }
@@ -1075,21 +1079,30 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     // Try Tier 1 cache (Redis) first
     const cached = await this.holderProfilesCacheService.getWalletResult(walletAddress);
-    if (cached) {
-      this.logger.log(`Returning cached holder profile for wallet ${walletAddress}`);
-      await job.updateProgress(100);
-      return cached;
-    }
+      if (cached) {
+        this.logger.log(`Returning cached holder profile for wallet ${walletAddress}`);
+        const solPriceUsd = await this.getSolPriceUsd();
+        const hydratedProfiles = await Promise.all(
+          cached.profiles.map((profile) => this.hydrateWalletFinancials(profile, solPriceUsd)),
+        );
+        await job.updateProgress(100);
+        return {
+          ...cached,
+          profiles: hydratedProfiles,
+        };
+      }
 
     // Try Tier 2 cache (DB snapshots)
     const cachedProfile = await this.holderProfilesCacheService.getWalletSnapshot(walletAddress);
     if (cachedProfile) {
+      const solPriceUsd = await this.getSolPriceUsd();
+      const hydratedProfile = await this.hydrateWalletFinancials(cachedProfile, solPriceUsd);
       const processingTimeMs = Date.now() - startTime;
       const result: HolderProfilesResult = {
         success: true,
         mode: 'wallet',
         targetWallet: walletAddress,
-        profiles: [cachedProfile],
+        profiles: [hydratedProfile],
         metadata: {
           totalHoldersRequested: 1,
           totalHoldersAnalyzed: 1,
@@ -1188,6 +1201,45 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     this.logger.log(`Holder profile analysis for wallet ${walletAddress} completed in ${processingTimeMs}ms`);
 
     return result;
+  }
+
+  private async getSolPriceUsd(): Promise<number | null> {
+    try {
+      const solPriceUsd = await this.tokenInfoService.getSolPrice();
+      return solPriceUsd > 0 ? solPriceUsd : null;
+    } catch (error) {
+      this.logger.debug('SOL price unavailable for wallet financial hydration.');
+      return null;
+    }
+  }
+
+  private async hydrateWalletFinancials(profile: HolderProfile, solPriceUsd: number | null): Promise<HolderProfile> {
+    const needsPnl = profile.walletPnlSol === null || profile.walletPnlSol === undefined;
+    const needsSolBalance = profile.solBalance === null || profile.solBalance === undefined;
+    if (!needsPnl && !needsSolBalance) {
+      return profile;
+    }
+
+    try {
+      const summary = await this.databaseService.getWalletPnlSummaryWithRelations(profile.walletAddress);
+      if (!summary) {
+        return profile;
+      }
+      const walletPnlSol = summary.netPnl ?? null;
+      const solBalance = summary.currentSolBalance ?? null;
+      const walletPnlUsd =
+        walletPnlSol !== null && solPriceUsd !== null ? walletPnlSol * solPriceUsd : profile.walletPnlUsd ?? null;
+
+      return {
+        ...profile,
+        walletPnlSol: needsPnl ? walletPnlSol : profile.walletPnlSol,
+        walletPnlUsd: needsPnl ? walletPnlUsd : profile.walletPnlUsd ?? walletPnlUsd,
+        solBalance: needsSolBalance ? solBalance : profile.solBalance,
+      };
+    } catch (error) {
+      this.logger.debug(`Failed to hydrate wallet financials for ${profile.walletAddress}`);
+      return profile;
+    }
   }
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {
     const { mint, cutoffTs } = job.data;
