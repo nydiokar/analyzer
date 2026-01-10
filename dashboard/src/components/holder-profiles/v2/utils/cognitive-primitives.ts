@@ -93,7 +93,7 @@ export function getConsistencyPrimitive(profiles: HolderProfile[]): CognitivePri
     };
   }
 
-  const highQuality = profiles.filter((p) => p.dataQualityTier === 'GOLD').length;
+  const highQuality = profiles.filter((p) => p.dataQualityTier === 'GOLD' || p.dataQualityTier === 'SILVER').length;
   const ratio = highQuality / profiles.length;
   let category = 'Chaotic';
   let color = 'text-red-500';

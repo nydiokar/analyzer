@@ -1,7 +1,8 @@
 import type { HolderProfilesResult } from '../types';
-import { OutcomeStrip } from './OutcomeStrip';
-import { CognitivePrimitivesRow } from './CognitivePrimitivesRow';
-import { BehaviorCompositionBar } from './BehaviorCompositionBar';
+import { getSpeedPrimitive } from './utils/cognitive-primitives';
+import { getMeanBehaviorSimilarity } from './utils/behavior-similarity';
+import { TraderDistributionBar } from './TraderDistributionBar';
+import { ApproachingHoldTimePanel } from './ApproachingHoldTimePanel';
 import { MinimalHoldersTable } from './MinimalHoldersTable';
 import { getTokenOutcome } from './utils/outcome-logic';
 import { useEffect, useState } from 'react';
@@ -9,6 +10,9 @@ import { WalletBaseballCard } from './WalletBaseballCard';
 import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { TokenBadge } from '@/components/shared/TokenBadge';
+import { SimilaritySidebar } from './SimilaritySidebar';
+import { InfoIcon } from 'lucide-react';
+import { formatSol, formatUsd } from './utils/formatters';
 
 interface Props {
   result: HolderProfilesResult;
@@ -16,6 +20,19 @@ interface Props {
 
 export function TokenPulse({ result }: Props) {
   const outcome = getTokenOutcome(result.profiles);
+  const speed = getSpeedPrimitive(result.profiles);
+  const meanBehaviorSimilarity = getMeanBehaviorSimilarity(result.profiles);
+  const qualityCount = result.profiles.filter((profile) => profile.dataQualityTier === 'GOLD' || profile.dataQualityTier === 'SILVER').length;
+  const totalHolders = result.metadata.totalHoldersRequested || result.profiles.length;
+  const outcomePnlUsd = result.profiles.reduce((sum, profile) => sum + (profile.tokenPnlUsd ?? 0), 0);
+  const outcomePnlSol = result.profiles.reduce((sum, profile) => sum + (profile.tokenPnlSol ?? 0), 0);
+  const hasOutcomePnlUsd = result.profiles.some((profile) => typeof profile.tokenPnlUsd === 'number');
+  const hasOutcomePnlSol = result.profiles.some((profile) => typeof profile.tokenPnlSol === 'number');
+  const outcomeValue = hasOutcomePnlUsd
+    ? formatUsd(outcomePnlUsd)
+    : hasOutcomePnlSol
+      ? formatSol(outcomePnlSol)
+      : outcome.verdict;
   const [selectedProfile, setSelectedProfile] = useState<HolderProfilesResult['profiles'][number] | null>(null);
 
   useEffect(() => {
@@ -35,54 +52,73 @@ export function TokenPulse({ result }: Props) {
 
   return (
     <section className="space-y-4 max-w-7xl mx-auto">
-      {/* Token Badge */}
-      {result.tokenMint && (
-        <div className="flex justify-start">
-          <TokenBadge mint={result.tokenMint} size="lg" />
+      <div className="rounded-xl border p-3">
+        <div className="flex flex-wrap items-center gap-4">
+          {result.tokenMint && <TokenBadge mint={result.tokenMint} size="lg" />}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span>Outcome</span>
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <InfoIcon className="h-3 w-3 cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm text-xs">
+                      <p className="text-muted-foreground">
+                        Outcome is derived from holder behavior speed, conviction, and data quality patterns.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <div className="font-medium">{outcomeValue}</div>
+            </div>
+            <div className="space-y-0.5">
+              <span className="text-xs text-muted-foreground">Speed</span>
+              <div className="font-medium">{speed.category}</div>
+            </div>
+            <div className="space-y-0.5">
+              <span className="text-xs text-muted-foreground">Quality</span>
+              <div className="font-medium">{qualityCount}/{totalHolders}</div>
+            </div>
+            <div className="space-y-0.5">
+              <span className="text-xs text-muted-foreground">Mean Behavior Similarity</span>
+              <div className="font-medium">
+                {meanBehaviorSimilarity === null ? '—' : `${Math.round(meanBehaviorSimilarity)}%`}
+              </div>
+            </div>
+          </div>
         </div>
-      )}
-
-      {/* Outcome + Cognitive Metrics */}
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-4">
-        <OutcomeStrip {...outcome} holdersCount={result.metadata.totalHoldersAnalyzed} />
-        <CognitivePrimitivesRow profiles={result.profiles} />
       </div>
 
-      <div className="space-y-4">
-        <div>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <p className="text-sm font-medium mb-3 cursor-help w-fit">Behavior composition</p>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-sm text-xs">
-                <p className="text-muted-foreground">
-                  Distribution of trading behaviors among token holders. Shows the proportion of different trader types (scalpers, day traders, swing traders, etc.) holding this token.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <BehaviorCompositionBar profiles={result.profiles} />
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-4">
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
+            <TraderDistributionBar profiles={result.profiles} />
+            <ApproachingHoldTimePanel profiles={result.profiles} />
+          </div>
+          <div>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <p className="text-sm font-medium mb-3 cursor-help w-fit">Supporting evidence</p>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm text-xs">
+                  <p className="text-muted-foreground">
+                    Individual holder profiles that make up this analysis. Click any row to see detailed trading patterns for that wallet.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <MinimalHoldersTable
+              profiles={result.profiles}
+              mode="token"
+              onSelect={(profile) => setSelectedProfile(profile)}
+            />
+          </div>
         </div>
-        <div>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <p className="text-sm font-medium mb-3 cursor-help w-fit">Supporting evidence</p>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-sm text-xs">
-                <p className="text-muted-foreground">
-                  Individual holder profiles that make up this analysis. Click any row to see detailed trading patterns for that wallet.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <MinimalHoldersTable
-            profiles={result.profiles}
-            mode="token"
-            onSelect={(profile) => setSelectedProfile(profile)}
-          />
-        </div>
+        <SimilaritySidebar summaries={result.similaritySummaries} />
       </div>
 
       {selectedProfile && typeof window !== 'undefined' && createPortal(

@@ -4,14 +4,14 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import type { JobProgressData, JobFailedData, JobCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import type { HolderProfilesResult } from '@/components/holder-profiles/types';
 import { TokenPulse } from '@/components/holder-profiles/v2/TokenPulse';
 import {
@@ -263,91 +263,81 @@ export default function HolderProfilesPage() {
   return (
     <AppShell>
       <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8">
-      <Card className="max-w-5xl mx-auto p-5 space-y-4">
-        <p className="text-[13px] text-foreground/90 leading-relaxed text-center">
-          Analyze holder behavior patterns to understand trading styles and conviction levels across token cohorts or wallet lists.
-        </p>
-
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pb-3 border-b">
-          <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
-            <TabsList className="h-9 grid w-[260px] grid-cols-2">
-              <TabsTrigger value="token" className="text-sm">Token Cohort</TabsTrigger>
-              <TabsTrigger value="wallet" className="text-sm">Wallet List</TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          <Button onClick={handleAnalyze} disabled={disableAnalyze} size="sm" className="min-w-[160px] h-9">
-            {analysisMode === 'token' && isTokenRunning ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {tokenProgress}%
-              </>
-            ) : analysisMode === 'wallet' && isWalletRunning ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing
-              </>
-            ) : (
-              <>
-                <Search className="mr-2 h-4 w-4" /> Analyze
-              </>
-            )}
-          </Button>
-        </div>
-
-        {analysisMode === 'token' ? (
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
-              <Label htmlFor="tokenMint" className="text-xs text-muted-foreground mb-1.5 block">Token mint address</Label>
-              <Input
-                id="tokenMint"
-                placeholder="e.g., EhzVcKmGjLk6pD5gL..."
-                value={tokenMint}
-                onChange={(e) => setTokenMint(e.target.value)}
-                disabled={tokenStatus === 'running'}
-                className="h-9"
-              />
+        <Card className="max-w-6xl mx-auto p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex-1 min-w-[220px]">
+              {analysisMode === 'token' ? (
+                <Input
+                  id="tokenMint"
+                  placeholder="Token mint address"
+                  value={tokenMint}
+                  onChange={(e) => setTokenMint(e.target.value)}
+                  disabled={tokenStatus === 'running'}
+                  className="h-9"
+                />
+              ) : (
+                <Input
+                  id="walletAddresses"
+                  placeholder="Wallet addresses (comma or space separated)"
+                  value={walletInput}
+                  onChange={(e) => setWalletInput(e.target.value)}
+                  className="h-9"
+                />
+              )}
             </div>
-            <div className="w-full sm:w-24">
-              <Label htmlFor="topN" className="text-xs text-muted-foreground mb-1.5 block">Top N</Label>
-              <Input
-                id="topN"
-                type="number"
-                min={1}
-                max={50}
-                value={topN}
-                onChange={(e) => setTopN(parseInt(e.target.value, 10) || 10)}
-                disabled={tokenStatus === 'running'}
-                className="h-9"
-                placeholder="10"
-              />
-            </div>
-          </div>
-        ) : (
-          <div>
-            <Label htmlFor="walletAddresses" className="text-xs text-muted-foreground mb-1.5 block">Wallet addresses (comma or space separated)</Label>
-            <Input
-              id="walletAddresses"
-              placeholder="Paste wallet addresses here..."
-              value={walletInput}
-              onChange={(e) => setWalletInput(e.target.value)}
-              className="h-9"
-            />
-            {parsedWallets.list.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-1.5">
-                {parsedWallets.list.length} wallet{parsedWallets.list.length !== 1 ? 's' : ''} detected
-              </p>
+
+            {analysisMode === 'token' && (
+              <Select value={String(topN)} onValueChange={(value) => setTopN(parseInt(value, 10))}>
+                <SelectTrigger className="h-9 w-[96px]">
+                  <SelectValue placeholder="Top N" />
+                </SelectTrigger>
+                <SelectContent>
+                  {[10, 25, 50].map((value) => (
+                    <SelectItem key={value} value={String(value)}>
+                      Top {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
+
+            <Button onClick={handleAnalyze} disabled={disableAnalyze} size="sm" className="h-9 px-5">
+              {analysisMode === 'token' && isTokenRunning ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {tokenProgress}%
+                </>
+              ) : analysisMode === 'wallet' && isWalletRunning ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Running
+                </>
+              ) : (
+                <>
+                  <Search className="mr-2 h-4 w-4" /> Check
+                </>
+              )}
+            </Button>
+
+            <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
+              <TabsList className="h-9 grid w-[140px] grid-cols-2">
+                <TabsTrigger value="token" className="text-xs">Token</TabsTrigger>
+                <TabsTrigger value="wallet" className="text-xs">Wallet</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
+
+          {analysisMode === 'wallet' && parsedWallets.list.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-2">
+              {parsedWallets.list.length} wallet{parsedWallets.list.length !== 1 ? 's' : ''} detected
+            </p>
+          )}
+        </Card>
+
+        {analysisMode === 'token' && (tokenResult || tokenPartialResult) && (
+          <TokenPulse result={(tokenResult ?? tokenPartialResult)!} />
         )}
-      </Card>
 
-
-      {analysisMode === 'token' && (tokenResult || tokenPartialResult) && (
-        <TokenPulse result={(tokenResult ?? tokenPartialResult)!} />
-      )}
-
-      {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}
+        {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}
       </div>
     </AppShell>
   );
 }
-

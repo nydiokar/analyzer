@@ -1,7 +1,9 @@
 import type { HolderProfile } from '../types';
-import { formatAddress, formatHoldTime, formatHoldSource, getTypicalHoldTimeHours } from './utils/formatters';
-import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta, getQualityColor } from './utils/behavior';
+import { formatHoldTime, formatSol, formatUsd, getTypicalHoldTimeHours } from './utils/formatters';
+import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { WalletBadge } from '@/components/shared/WalletBadge';
+import { InfoIcon } from 'lucide-react';
 
 interface Props {
   profiles: HolderProfile[];
@@ -9,15 +11,29 @@ interface Props {
   onSelect?: (profile: HolderProfile) => void;
 }
 
-function getQualityDescription(tier: string | null | undefined): string {
-  if (!tier) return 'Quality tier unknown';
-  const descriptions: Record<string, string> = {
-    GOLD: 'Gold tier: Highest quality data with comprehensive transaction history and strong statistical significance',
-    SILVER: 'Silver tier: Good quality data with sufficient transaction history for reliable analysis',
-    BRONZE: 'Bronze tier: Basic quality data with limited transaction history, analysis may be less reliable',
-    INSUFFICIENT: 'Insufficient data: Not enough transactions for reliable behavioral classification',
-  };
-  return descriptions[tier] || 'Data quality classification';
+const SIGNIFICANT_HOLD_THRESHOLD_SOL = 0.3;
+
+function getHoldingValueUsd(profile: HolderProfile) {
+  const holdings = profile.currentHoldings ?? [];
+  const total = holdings.reduce((sum, holding) => {
+    if (typeof holding.valueUsd === 'number') return sum + holding.valueUsd;
+    return sum;
+  }, 0);
+  return total > 0 ? total : null;
+}
+
+function getPnlDisplay(profile: HolderProfile) {
+  if (typeof profile.tokenPnlUsd === 'number') {
+    return { value: formatUsd(profile.tokenPnlUsd), raw: profile.tokenPnlUsd };
+  }
+  if (typeof profile.tokenPnlSol === 'number') {
+    return { value: formatSol(profile.tokenPnlSol), raw: profile.tokenPnlSol };
+  }
+  return { value: '—', raw: null };
+}
+
+function hasSignificantHoldings(profile: HolderProfile) {
+  return (profile.currentHoldings ?? []).some((holding) => (holding.valueSol ?? 0) >= SIGNIFICANT_HOLD_THRESHOLD_SOL);
 }
 
 export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
@@ -26,62 +42,30 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
       <table className="w-full text-sm">
         <thead className="bg-muted/40">
           <tr>
-            {mode === 'token' && <th className="text-left px-4 py-2">Rank</th>}
+            {mode === 'token' && (
+              <th className="text-left px-4 py-2">
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex items-center gap-1 cursor-help">
+                        Rank <InfoIcon className="h-3 w-3 text-muted-foreground" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-xs">
+                      <p className="text-muted-foreground">
+                        Position based on holding value and behavioral similarity.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </th>
+            )}
             <th className="text-left px-4 py-2">Wallet</th>
-            <th className="text-left px-4 py-2">
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="cursor-help">Behavior</span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs text-xs">
-                    <p className="text-muted-foreground">
-                      Trading behavior classification based on typical exited hold times; current holdings do not affect this tag.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </th>
-            <th className="text-left px-4 py-2">
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="cursor-help">Exited Hold</span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs text-xs">
-                    <p className="text-muted-foreground">
-                      Hold times calculated only from completed exits. Median = typical exit; Average = mean across all exits.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </th>
-            <th className="text-left px-4 py-2">
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="cursor-help">Active + Exited</span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs text-xs">
-                    <p className="text-muted-foreground">
-                      Mixes current holdings with exits to show present behavior. Use alongside exit-only stats to spot recent shifts.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </th>
-            <th className="text-left px-4 py-2">
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="cursor-help">Quality</span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs text-xs">
-                    <p className="text-muted-foreground">Data quality tier based on transaction history depth and statistical significance</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </th>
+            <th className="text-left px-4 py-2">Holding Value</th>
+            <th className="text-left px-4 py-2">PnL</th>
+            <th className="text-left px-4 py-2">Category + Time</th>
+            <th className="text-left px-4 py-2">Hold Time (&gt;0.3 SOL)</th>
+            <th className="text-left px-4 py-2">SOL Balance</th>
           </tr>
         </thead>
         <tbody>
@@ -96,8 +80,11 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
               : null);
             const behaviorDisplayType = profile.behaviorType ?? (isHolderOnly ? 'HODLER' : null);
             const typicalHold = getTypicalHoldTimeHours(profile);
-            const exitedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours;
-            const exitedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours;
+            const holdingValueUsd = getHoldingValueUsd(profile);
+            const pnlDisplay = getPnlDisplay(profile);
+            const currentHoldTime = hasSignificantHoldings(profile)
+              ? (profile.currentHoldMedianHours ?? profile.currentHoldAverageHours)
+              : null;
             return (
               <tr
                 key={profile.walletAddress}
@@ -105,74 +92,55 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                 onClick={onSelect ? () => onSelect(profile) : undefined}
               >
                 {mode === 'token' && <td className="px-4 py-2 text-muted-foreground">#{profile.rank}</td>}
-                <td className="px-4 py-2 font-mono text-xs">{formatAddress(profile.walletAddress)}</td>
                 <td className="px-4 py-2">
-                  <TooltipProvider delayDuration={150}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${getBehaviorColor(behaviorDisplayType)}`}
-                        >
-                          {behaviorMeta?.label ?? profile.behaviorType ?? 'Unclassified'}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-sm text-xs">
-                        {(() => {
-                          const info = getBehaviorDescription(profile.behaviorType) || behaviorMeta;
-                          if (!info) {
-                            return <p className="text-muted-foreground">No behavior classification yet.</p>;
-                          }
-                          return (
-                            <div className="space-y-2">
-                              <p className="font-semibold">{'title' in info ? info.title : info.label}</p>
-                              <p className="text-muted-foreground">{info.description}</p>
-                              <p className="text-primary font-medium">{info.timeframe}</p>
-                              <div className="border-t border-border pt-2 mt-2">
-                                <p className="font-medium mb-1">All Speed Categories:</p>
-                                <ul className="space-y-0.5 text-[10px] text-muted-foreground">
-                                  <li>• SNIPER: &lt;1 min exits (ultra-fast bot trading)</li>
-                                  <li>• SCALPER: 1-5 min exits (quick momentum captures)</li>
-                                  <li>• MOMENTUM: 5-30 min exits (short-term trend following)</li>
-                                  <li>• INTRADAY: 30min-4h exits (session-based trading)</li>
-                                  <li>• DAY_TRADER: 4-24h exits (daily position closes)</li>
-                                  <li>• SWING: 1-7 day holds (multi-day swings)</li>
-                                  <li>• POSITION: 7-30 day holds (patient positioning)</li>
-                                  <li>• HODLER: 30+ day holds (long-term conviction, crypto spelling)</li>
-                                </ul>
+                  <WalletBadge address={profile.walletAddress} size="sm" variant="inline" />
+                </td>
+                <td className="px-4 py-2">
+                  <span className="font-medium tabular-nums">
+                    {holdingValueUsd !== null ? formatUsd(holdingValueUsd) : '—'}
+                  </span>
+                </td>
+                <td className={`px-4 py-2 font-medium tabular-nums ${pnlDisplay.raw === null ? 'text-muted-foreground' : pnlDisplay.raw >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {pnlDisplay.value}
+                </td>
+                <td className="px-4 py-2">
+                  <div className="flex flex-col gap-1">
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${getBehaviorColor(behaviorDisplayType)}`}
+                          >
+                            {behaviorMeta?.label ?? profile.behaviorType ?? 'Unclassified'}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm text-xs">
+                          {(() => {
+                            const info = getBehaviorDescription(profile.behaviorType) || behaviorMeta;
+                            if (!info) {
+                              return <p className="text-muted-foreground">No behavior classification yet.</p>;
+                            }
+                            return (
+                              <div className="space-y-2">
+                                <p className="font-semibold">{'title' in info ? info.title : info.label}</p>
+                                <p className="text-muted-foreground">{info.description}</p>
+                                <p className="text-primary font-medium">{info.timeframe}</p>
                               </div>
-                            </div>
-                          );
-                        })()}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </td>
-                <td className="px-4 py-2 text-xs">
-                  <div className="font-semibold text-sm">Median: {formatHoldTime(exitedMedian)}</div>
-                  <div className="text-muted-foreground text-[11px]">
-                    Average: {formatHoldTime(exitedAverage)}
+                            );
+                          })()}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <span className="text-xs text-muted-foreground">
+                      held {formatHoldTime(typicalHold)}
+                    </span>
                   </div>
                 </td>
-                <td className="px-4 py-2 text-xs">
-                  <div className="font-semibold text-sm">Median: {formatHoldTime(typicalHold)}</div>
-                  <div className="text-muted-foreground text-[11px]">
-                    Average: {formatHoldTime(profile.currentHoldAverageHours ?? typicalHold)}
-                  </div>
+                <td className="px-4 py-2 text-xs text-muted-foreground tabular-nums">
+                  {formatHoldTime(currentHoldTime)}
                 </td>
-                <td className="px-4 py-2">
-                  <TooltipProvider delayDuration={150}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getQualityColor(profile.dataQualityTier)}`}>
-                          {profile.dataQualityTier}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs text-xs">
-                        <p className="font-semibold mb-1">{profile.dataQualityTier || 'Unknown quality'}</p>
-                        <p className="text-muted-foreground">{getQualityDescription(profile.dataQualityTier)}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                <td className="px-4 py-2 text-xs text-muted-foreground tabular-nums">
+                  {formatSol(profile.solBalance)}
                 </td>
               </tr>
             );

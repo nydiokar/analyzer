@@ -1,8 +1,30 @@
 import type { HolderProfile, HoldTimeSource } from '../../../holder-profiles/types';
 
+const USD_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
+
+const SOL_FORMATTER = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 2,
+});
+
 export function formatAddress(address?: string | null) {
   if (!address) return '—';
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+export function formatUsd(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  return USD_FORMATTER.format(value);
+}
+
+export function formatSol(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  return `${SOL_FORMATTER.format(value)} SOL`;
 }
 
 export function formatHoldTime(hours: number | null | undefined) {

@@ -65,7 +65,15 @@ export interface HolderProfile {
     tokenAddress: string;
     uiBalance: number | null;
     decimals: number | null;
+    valueSol?: number | null;
+    valueUsd?: number | null;
   }>;
+  unresolvedTokensCount?: number | null;
+  activeHoldingsFilteredOut?: number | null;
+  heldValueThresholdSol?: number | null;
+  tokenPnlSol?: number | null;
+  tokenPnlUsd?: number | null;
+  solBalance?: number | null;
   oldestTransactionTimestamp?: number;
   newestTransactionTimestamp?: number;
 }
@@ -75,6 +83,14 @@ export interface HolderProfilesResult {
   tokenMint?: string;
   targetWallet?: string;
   profiles: HolderProfile[];
+  similaritySummaries?: Array<{
+    overallSimilarityPercent: number;
+    capitalSimilarityPercent: number;
+    behavioralSimilarityPercent: number;
+    sharedTokensCount: number;
+    sharedTokensValueUsd?: number | null;
+    sharedTokensValuePercent?: number | null;
+  }>;
   metadata: {
     totalHoldersRequested: number;
     totalHoldersAnalyzed: number;
