@@ -803,7 +803,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching token supply');
 
-      const holderMetadataByWallet = new Map<string, { rank: number; supplyPercent: number }>();
+      let tokenPriceUsd: number | null = null;
+      let solPriceUsd: number | null = null;
+      try {
+        const tokenInfoList = await this.tokenInfoService.findMany([tokenMint]);
+        const tokenInfo = tokenInfoList[0];
+        tokenPriceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
+      } catch (priceError) {
+        this.logger.warn(`Failed to load token price for ${tokenMint}:`, priceError);
+      }
+      try {
+        solPriceUsd = await this.tokenInfoService.getSolPrice();
+      } catch (solError) {
+        this.logger.warn(`Failed to load SOL price for ${tokenMint} valuation:`, solError);
+      }
+
+      const holderMetadataByWallet = new Map<string, { rank: number; supplyPercent: number; tokenHoldingValueSol: number | null }>();
       const walletAddresses: string[] = [];
       holderEntries.forEach((holder, index) => {
         if (!holder.ownerAccount) {
@@ -815,9 +830,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           actualTotalSupply > 0 && typeof holder.uiAmount === 'number'
             ? (holder.uiAmount / actualTotalSupply) * 100
             : 0;
+        const tokenHoldingValueSol =
+          tokenPriceUsd && solPriceUsd && solPriceUsd > 0 && typeof holder.uiAmount === 'number'
+            ? (holder.uiAmount * tokenPriceUsd) / solPriceUsd
+            : null;
         holderMetadataByWallet.set(holder.ownerAccount, {
           rank,
           supplyPercent,
+          tokenHoldingValueSol,
         });
       });
 
@@ -962,6 +982,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             if (metadata) {
               profile.rank = metadata.rank;
               profile.supplyPercent = metadata.supplyPercent;
+              profile.tokenHoldingValueSol = metadata.tokenHoldingValueSol;
             }
             await streamProfile(wallet, profile);
           } else {
@@ -1344,6 +1365,42 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             valueSol: r.currentHoldingsValueSol,
             valueUsd: r.currentHoldingsValueUsd,
           }));
+        const missingValueMints = currentHoldings
+          .filter((holding) => (holding.valueSol === null || holding.valueSol === undefined) && (holding.uiBalance ?? 0) > 0)
+          .map((holding) => holding.tokenAddress);
+        if (missingValueMints.length > 0 && this.tokenInfoService) {
+          try {
+            const tokenInfos = await this.tokenInfoService.findMany(missingValueMints);
+            const tokenInfoByMint = new Map(tokenInfos.map((info) => [info.tokenAddress, info]));
+            let solPriceUsd = 0;
+            try {
+              solPriceUsd = await this.tokenInfoService.getSolPrice();
+            } catch (error) {
+              this.logger.debug(`SOL price unavailable for current holdings valuation: ${walletAddress}`);
+            }
+            if (solPriceUsd > 0) {
+              currentHoldings = currentHoldings.map((holding) => {
+                if (holding.valueSol !== null && holding.valueSol !== undefined) {
+                  return holding;
+                }
+                const tokenInfo = tokenInfoByMint.get(holding.tokenAddress);
+                const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
+                if (!priceUsd || priceUsd <= 0) {
+                  return holding;
+                }
+                const valueUsd = (holding.uiBalance ?? 0) * priceUsd;
+                const valueSol = valueUsd / solPriceUsd;
+                return {
+                  ...holding,
+                  valueUsd,
+                  valueSol,
+                };
+              });
+            }
+          } catch (error: any) {
+            this.logger.debug(`Failed to backfill current holdings values: ${error?.message || 'Unknown error'}`);
+          }
+        }
         this.logger.debug(
           `Loaded PnL for ${pnlResults.length} tokens for wallet ${walletAddress}`
         );

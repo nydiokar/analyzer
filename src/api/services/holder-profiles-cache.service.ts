@@ -64,7 +64,7 @@ import { WALLET_STALENESS_CONFIG } from '../../config/constants';
 @Injectable()
 export class HolderProfilesCacheService implements OnModuleDestroy {
   private readonly logger = new Logger(HolderProfilesCacheService.name);
-  private readonly TTL_SECONDS = 3600; // 1 hour - holder profiles don't change frequently
+  private readonly TTL_SECONDS = 900; // 15 minutes - holder profiles can change quickly
   private redis: Redis;
 
   // Cache metrics (in-memory counters, reset on service restart)
@@ -325,7 +325,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
    */
   hydrateSnapshot(
     snapshot: HolderProfileSnapshot,
-    metadata: { rank: number; supplyPercent: number },
+    metadata: { rank: number; supplyPercent: number; tokenHoldingValueSol?: number | null },
   ): HolderProfile {
     if (!this.isHolderProfile(snapshot.profile)) {
       throw new Error(`Invalid HolderProfile structure in snapshot for wallet ${snapshot.walletAddress}`);
@@ -335,6 +335,11 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
     const cloned: HolderProfile = JSON.parse(JSON.stringify(raw));
     cloned.rank = metadata.rank;
     cloned.supplyPercent = metadata.supplyPercent;
+    if (typeof metadata.tokenHoldingValueSol === 'number') {
+      cloned.tokenHoldingValueSol = metadata.tokenHoldingValueSol;
+    } else if (metadata.tokenHoldingValueSol === null) {
+      cloned.tokenHoldingValueSol = null;
+    }
     return cloned;
   }
 

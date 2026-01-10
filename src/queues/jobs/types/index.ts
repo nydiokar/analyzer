@@ -196,6 +196,7 @@ export interface HolderProfile {
   walletAddress: string;
   rank: number;
   supplyPercent: number;
+  tokenHoldingValueSol?: number | null;
   // Smart fallback metrics (typical → realized → current) - NOT deprecated
   medianHoldTimeHours: number | null;
   avgHoldTimeHours: number | null;

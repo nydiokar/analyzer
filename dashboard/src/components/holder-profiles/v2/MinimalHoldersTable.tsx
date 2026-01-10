@@ -101,7 +101,12 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect }: Pro
             const behaviorDisplayType = profile.behaviorType ?? (isHolderOnly ? 'HODLER' : null);
             const exitedMedian = profile.realizedMedianHoldTimeHours ?? null;
             const exitedAverage = profile.realizedAverageHoldTimeHours ?? null;
-            const holdingValueSol = getHoldingValueSol(profile, mode === 'token' ? tokenMint : undefined);
+            const holdingValueSol = mode === 'token'
+              ? (typeof profile.tokenHoldingValueSol === 'number'
+                ? profile.tokenHoldingValueSol
+                : getHoldingValueSol(profile, tokenMint))
+              : getHoldingValueSol(profile, tokenMint);
+            const totalHoldingsValueSol = getHoldingValueSol(profile);
             const supplyPercent = typeof profile.supplyPercent === 'number' ? profile.supplyPercent : null;
             const pnlDisplay = getPnlDisplay(profile);
             const currentHoldTime = hasSignificantHoldings(profile)
@@ -172,7 +177,12 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect }: Pro
                   </div>
                 </td>
                 <td className="px-4 py-2 text-xs text-muted-foreground tabular-nums">
-                  {formatHoldTime(currentHoldTime)}
+                  <div className="flex flex-col gap-0.5">
+                    <span>{formatHoldTime(currentHoldTime)}</span>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                      {formatSol(totalHoldingsValueSol)}
+                    </span>
+                  </div>
                 </td>
                 <td className="px-4 py-2 text-xs text-muted-foreground tabular-nums">
                   {formatSol(profile.solBalance)}
