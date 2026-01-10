@@ -1,50 +1,37 @@
 import type { HolderProfile } from '../types';
+import { SPEED_CATEGORY_COLORS } from '@/lib/strategy-colors';
 
 type DistributionBucket = {
-  id: string;
+  id: keyof NonNullable<HolderProfile['holdTimeDistribution']>;
   label: string;
   count: number;
+  color: string;
 };
 
-const BUCKETS = [
-  { id: 'ultra', label: '1s-1m' },
-  { id: 'short', label: '1m-1h' },
-  { id: 'mid', label: '1h-6h' },
-  { id: 'long', label: '6h-24h' },
-  { id: 'extended', label: '24h+' },
+const BUCKETS: Array<Omit<DistributionBucket, 'count'>> = [
+  { id: 'instant', label: '1s-1m', color: SPEED_CATEGORY_COLORS.SNIPER.hex },
+  { id: 'ultraFast', label: '1m-5m', color: SPEED_CATEGORY_COLORS.SCALPER.hex },
+  { id: 'fast', label: '5m-30m', color: SPEED_CATEGORY_COLORS.MOMENTUM.hex },
+  { id: 'momentum', label: '30m-4h', color: SPEED_CATEGORY_COLORS.INTRADAY.hex },
+  { id: 'intraday', label: '4h-24h', color: SPEED_CATEGORY_COLORS.DAY_TRADER.hex },
+  { id: 'day', label: '1-7d', color: SPEED_CATEGORY_COLORS.SWING.hex },
+  { id: 'swing', label: '7-30d', color: SPEED_CATEGORY_COLORS.POSITION.hex },
+  { id: 'position', label: '30d+', color: SPEED_CATEGORY_COLORS.HODLER.hex },
 ];
 
-function getBucketCount(profile: HolderProfile, key: string) {
-  const enriched = profile.enrichedHoldTimeDistribution;
-  const raw = profile.holdTimeDistribution;
-  const read = (bucket: keyof NonNullable<HolderProfile['holdTimeDistribution']>) => {
-    if (enriched && typeof enriched[bucket] === 'object') {
-      return enriched[bucket]?.count ?? 0;
-    }
-    return raw?.[bucket] ?? 0;
-  };
-
-  switch (key) {
-    case 'ultra':
-      return read('instant') + read('ultraFast');
-    case 'short':
-      return read('fast') + read('momentum');
-    case 'mid':
-      return read('intraday');
-    case 'long':
-      return read('day');
-    case 'extended':
-      return read('swing') + read('position');
-    default:
-      return 0;
-  }
-}
-
 function buildDistribution(profiles: HolderProfile[]): DistributionBucket[] {
-  const totals = BUCKETS.map((bucket) => ({
-    ...bucket,
-    count: profiles.reduce((sum, profile) => sum + getBucketCount(profile, bucket.id), 0),
-  }));
+  const totals = BUCKETS.map((bucket) => ({ ...bucket, count: 0 }));
+  profiles.forEach((profile) => {
+    const enriched = profile.enrichedHoldTimeDistribution;
+    const raw = profile.holdTimeDistribution;
+    totals.forEach((bucket) => {
+      if (enriched && typeof enriched[bucket.id] === 'object') {
+        bucket.count += enriched[bucket.id]?.count ?? 0;
+      } else if (raw) {
+        bucket.count += raw[bucket.id] ?? 0;
+      }
+    });
+  });
   return totals;
 }
 
@@ -69,24 +56,39 @@ export function TraderDistributionBar({ profiles }: Props) {
           No completed hold history yet.
         </p>
       ) : (
-        <div className="space-y-2">
-          {distribution.map((bucket) => {
-            const percent = total ? Math.round((bucket.count / total) * 100) : 0;
-            return (
-              <div key={bucket.id} className="flex items-center gap-3 text-xs">
-                <div className="w-14 text-muted-foreground">{bucket.label}</div>
-                <div className="flex-1 h-2 rounded-full bg-muted/60 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-foreground/70"
-                    style={{ width: `${percent}%` }}
-                  />
+        <div className="grid grid-cols-[28px_1fr] gap-3">
+          <div className="flex flex-col justify-between text-[10px] text-muted-foreground h-40">
+            <span>100%</span>
+            <span>75%</span>
+            <span>50%</span>
+            <span>25%</span>
+            <span>0%</span>
+          </div>
+          <div className="flex items-end gap-2 h-40">
+            {distribution.map((bucket) => {
+              const percent = total ? Math.round((bucket.count / total) * 100) : 0;
+              return (
+                <div key={bucket.id} className="flex flex-col items-center flex-1 min-w-0">
+                  <div className="relative w-full flex items-end h-32">
+                    <div
+                      className="relative w-full rounded-md"
+                      style={{ height: `${percent}%`, backgroundColor: bucket.color }}
+                    >
+                      <div className="absolute inset-0 flex items-start justify-center pt-1 text-[10px] font-semibold text-white/90">
+                        {percent}%
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-1 text-[10px] text-muted-foreground tabular-nums">
+                    {bucket.count}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground text-center">
+                    {bucket.label}
+                  </div>
                 </div>
-                <div className="w-16 text-right text-muted-foreground tabular-nums">
-                  {percent}% (n={bucket.count})
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

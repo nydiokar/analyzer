@@ -1,7 +1,7 @@
 import type { HolderProfile } from '../types';
 import { formatPercentage, formatHoldTime, getTypicalHoldTimeHours } from './utils/formatters';
 
-const APPROACHING_THRESHOLD = 0.8;
+const APPROACHING_THRESHOLD = 1;
 
 function getCurrentHoldHours(profile: HolderProfile) {
   return profile.currentHoldMedianHours ?? profile.currentHoldAverageHours ?? null;
@@ -48,7 +48,7 @@ export function ApproachingHoldTimePanel({ profiles }: Props) {
             {formatPercentage(approachingPercent, 0)} of holders nearing their typical hold time
           </p>
           <p className="text-xs text-muted-foreground">
-            Average current hold duration: {formatPercentage(averageRatio, 0)} of typical
+            vs {formatPercentage(averageRatio, 0)} of current hold duration
           </p>
         </div>
       )}

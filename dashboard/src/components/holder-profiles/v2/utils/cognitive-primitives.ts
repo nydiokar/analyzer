@@ -3,7 +3,7 @@ import { formatHoldTime, getTypicalHoldTimeHours } from './formatters';
 import { SPEED_CATEGORY_COLORS } from '@/lib/strategy-colors';
 
 export interface CognitivePrimitive {
-  id: 'speed' | 'conviction' | 'consistency';
+  id: 'speed' | 'conviction' | 'consistency' | 'quality' | 'similarity';
   label: string;
   value: string;
   category: string;

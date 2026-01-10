@@ -12,6 +12,8 @@ function getTooltip(primitiveId: string): string {
     speed: 'Median hold time across all holders. Shows how long holders typically keep positions before exiting. Faster exits indicate scalping/day trading; longer holds suggest patience and conviction.',
     conviction: 'Conviction score (100% - daily flip rate). Lower % means holders rarely flip tokens within 24 hours, indicating strong conviction. Higher scores suggest frequent trading and weak hands.',
     consistency: 'Data quality reliability. Shows the proportion of holders with sufficient exit history (GOLD tier) to make accurate behavioral classifications. "Chaotic" means limited data; "Reliable" means confident analysis.',
+    quality: 'Count of holders with strong data quality (GOLD + SILVER) versus total holders.',
+    similarity: 'Mean behavioral similarity across holders based on behavior category clustering.',
   };
   return tooltips[primitiveId] || 'Behavioral metric';
 }
@@ -43,6 +45,12 @@ function getCategoryTooltip(primitiveId: string, category: string): string {
       'Chaotic': '<40% have clean exits - take with grain of salt',
     };
     return qualityTooltips[category] || 'Data quality classification';
+  }
+  if (primitiveId === 'quality') {
+    return 'Gold + Silver tiers';
+  }
+  if (primitiveId === 'similarity') {
+    return 'Mean behavioral similarity';
   }
   return category;
 }

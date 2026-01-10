@@ -11,8 +11,8 @@ import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { SimilaritySidebar } from './SimilaritySidebar';
-import { InfoIcon } from 'lucide-react';
-import { formatSol, formatUsd } from './utils/formatters';
+import { OutcomeStrip } from './OutcomeStrip';
+import { CognitiveMetricCard } from './CognitiveMetricCard';
 
 interface Props {
   result: HolderProfilesResult;
@@ -24,15 +24,8 @@ export function TokenPulse({ result }: Props) {
   const meanBehaviorSimilarity = getMeanBehaviorSimilarity(result.profiles);
   const qualityCount = result.profiles.filter((profile) => profile.dataQualityTier === 'GOLD' || profile.dataQualityTier === 'SILVER').length;
   const totalHolders = result.metadata.totalHoldersRequested || result.profiles.length;
-  const outcomePnlUsd = result.profiles.reduce((sum, profile) => sum + (profile.tokenPnlUsd ?? 0), 0);
-  const outcomePnlSol = result.profiles.reduce((sum, profile) => sum + (profile.tokenPnlSol ?? 0), 0);
-  const hasOutcomePnlUsd = result.profiles.some((profile) => typeof profile.tokenPnlUsd === 'number');
-  const hasOutcomePnlSol = result.profiles.some((profile) => typeof profile.tokenPnlSol === 'number');
-  const outcomeValue = hasOutcomePnlUsd
-    ? formatUsd(outcomePnlUsd)
-    : hasOutcomePnlSol
-      ? formatSol(outcomePnlSol)
-      : outcome.verdict;
+  const qualityValue = `${qualityCount}/${totalHolders || result.profiles.length}`;
+  const similarityValue = meanBehaviorSimilarity === null ? '—' : `${Math.round(meanBehaviorSimilarity)}%`;
   const [selectedProfile, setSelectedProfile] = useState<HolderProfilesResult['profiles'][number] | null>(null);
 
   useEffect(() => {
@@ -52,44 +45,34 @@ export function TokenPulse({ result }: Props) {
 
   return (
     <section className="space-y-4 max-w-7xl mx-auto">
-      <div className="rounded-xl border p-3">
-        <div className="flex flex-wrap items-center gap-4">
-          {result.tokenMint && <TokenBadge mint={result.tokenMint} size="lg" />}
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <span>Outcome</span>
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <InfoIcon className="h-3 w-3 cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-sm text-xs">
-                      <p className="text-muted-foreground">
-                        Outcome is derived from holder behavior speed, conviction, and data quality patterns.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              <div className="font-medium">{outcomeValue}</div>
-            </div>
-            <div className="space-y-0.5">
-              <span className="text-xs text-muted-foreground">Speed</span>
-              <div className="font-medium">{speed.category}</div>
-            </div>
-            <div className="space-y-0.5">
-              <span className="text-xs text-muted-foreground">Quality</span>
-              <div className="font-medium">{qualityCount}/{totalHolders}</div>
-            </div>
-            <div className="space-y-0.5">
-              <span className="text-xs text-muted-foreground">Mean Behavior Similarity</span>
-              <div className="font-medium">
-                {meanBehaviorSimilarity === null ? '—' : `${Math.round(meanBehaviorSimilarity)}%`}
-              </div>
-            </div>
+      <div className="grid grid-cols-1 xl:grid-cols-[auto_2fr_repeat(3,minmax(0,1fr))] gap-3 items-start">
+        {result.tokenMint && (
+          <div className="flex items-start">
+            <TokenBadge mint={result.tokenMint} size="lg" />
           </div>
-        </div>
+        )}
+        <OutcomeStrip {...outcome} holdersCount={result.metadata.totalHoldersAnalyzed} compact />
+        <CognitiveMetricCard primitive={speed} />
+        <CognitiveMetricCard
+          primitive={{
+            id: 'quality',
+            label: 'Quality',
+            value: qualityValue,
+            category: 'Gold + Silver',
+            description: 'Quality tiers among holders',
+            color: 'text-amber-500',
+          }}
+        />
+        <CognitiveMetricCard
+          primitive={{
+            id: 'similarity',
+            label: 'Mean Similarity',
+            value: similarityValue,
+            category: 'Behavior',
+            description: 'Behavior similarity across holders',
+            color: 'text-sky-500',
+          }}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-4">

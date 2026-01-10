@@ -12,6 +12,7 @@ const COLOR_MAP: Record<OutcomeVerdict['color'], string> = {
 
 interface OutcomeStripProps extends OutcomeVerdict {
   holdersCount?: number;
+  compact?: boolean;
 }
 
 function getOutcomeTooltip(verdict: string): string {
@@ -24,11 +25,12 @@ function getOutcomeTooltip(verdict: string): string {
   return tooltips[verdict] || 'Assessment based on holder exit speeds and conviction patterns.';
 }
 
-export function OutcomeStrip({ verdict, description, color, holdersCount }: OutcomeStripProps) {
+export function OutcomeStrip({ verdict, description, color, holdersCount, compact = false }: OutcomeStripProps) {
   return (
     <div
       className={cn(
-        'rounded-lg border p-4 bg-gradient-to-br flex flex-col gap-2 h-full',
+        'rounded-lg border bg-gradient-to-br flex flex-col gap-2 h-full',
+        compact ? 'p-3' : 'p-4',
         COLOR_MAP[color]
       )}
     >
@@ -53,8 +55,10 @@ export function OutcomeStrip({ verdict, description, color, holdersCount }: Outc
           </div>
         )}
       </div>
-      <div className="text-lg font-semibold leading-tight">{verdict}</div>
-      <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+      <div className={cn('font-semibold leading-tight', compact ? 'text-base' : 'text-lg')}>{verdict}</div>
+      {!compact && (
+        <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+      )}
     </div>
   );
 }

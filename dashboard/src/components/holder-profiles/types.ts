@@ -71,8 +71,8 @@ export interface HolderProfile {
   unresolvedTokensCount?: number | null;
   activeHoldingsFilteredOut?: number | null;
   heldValueThresholdSol?: number | null;
-  tokenPnlSol?: number | null;
-  tokenPnlUsd?: number | null;
+  walletPnlSol?: number | null;
+  walletPnlUsd?: number | null;
   solBalance?: number | null;
   oldestTransactionTimestamp?: number;
   newestTransactionTimestamp?: number;

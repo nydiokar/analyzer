@@ -1,4 +1,4 @@
-import type { HolderProfile } from '../../holder-profiles/types';
+import type { HolderProfile } from '../../../holder-profiles/types';
 
 export function getMeanBehaviorSimilarity(profiles: HolderProfile[]): number | null {
   if (!profiles.length) return null;

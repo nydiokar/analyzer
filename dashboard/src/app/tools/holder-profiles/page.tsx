@@ -263,6 +263,12 @@ export default function HolderProfilesPage() {
   return (
     <AppShell>
       <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8">
+        <div className="max-w-6xl mx-auto space-y-1">
+          <h1 className="text-2xl font-semibold">Holder Profiles</h1>
+          <p className="text-sm text-muted-foreground">
+            Scan holder behavior patterns and conviction signals across top wallets.
+          </p>
+        </div>
         <Card className="max-w-6xl mx-auto p-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex-1 min-w-[220px]">

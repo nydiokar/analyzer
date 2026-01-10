@@ -23,11 +23,11 @@ function getHoldingValueUsd(profile: HolderProfile) {
 }
 
 function getPnlDisplay(profile: HolderProfile) {
-  if (typeof profile.tokenPnlUsd === 'number') {
-    return { value: formatUsd(profile.tokenPnlUsd), raw: profile.tokenPnlUsd };
+  if (typeof profile.walletPnlUsd === 'number') {
+    return { value: formatUsd(profile.walletPnlUsd), raw: profile.walletPnlUsd };
   }
-  if (typeof profile.tokenPnlSol === 'number') {
-    return { value: formatSol(profile.tokenPnlSol), raw: profile.tokenPnlSol };
+  if (typeof profile.walletPnlSol === 'number') {
+    return { value: formatSol(profile.walletPnlSol), raw: profile.walletPnlSol };
   }
   return { value: '—', raw: null };
 }
@@ -80,6 +80,8 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
               : null);
             const behaviorDisplayType = profile.behaviorType ?? (isHolderOnly ? 'HODLER' : null);
             const typicalHold = getTypicalHoldTimeHours(profile);
+            const exitedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours;
+            const exitedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours;
             const holdingValueUsd = getHoldingValueUsd(profile);
             const pnlDisplay = getPnlDisplay(profile);
             const currentHoldTime = hasSignificantHoldings(profile)
@@ -132,7 +134,7 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                       </Tooltip>
                     </TooltipProvider>
                     <span className="text-xs text-muted-foreground">
-                      held {formatHoldTime(typicalHold)}
+                      exit median {formatHoldTime(exitedMedian)} · avg {formatHoldTime(exitedAverage)}
                     </span>
                   </div>
                 </td>

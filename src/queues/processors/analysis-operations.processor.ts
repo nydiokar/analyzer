@@ -1304,6 +1304,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         dailyFlipRatioConfidence: 'NONE',
         currentHoldingsCount: null,
         currentHoldings: [],
+        walletPnlSol: null,
+        walletPnlUsd: null,
+        solBalance: null,
         oldestTransactionTimestamp,
         newestTransactionTimestamp,
       };
@@ -1312,6 +1315,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // Query pre-computed PnL from AnalysisResult table (source of truth)
     let pnlMap: Map<string, { pnl: number; capital: number }> | undefined;
     let currentHoldings: Array<{ tokenAddress: string; uiBalance: number | null; decimals: number | null; valueSol?: number | null; valueUsd?: number | null }> = [];
+    let walletPnlSol: number | null = null;
+    let walletPnlUsd: number | null = null;
+    let solBalance: number | null = null;
     try {
       const pnlResults = await this.databaseService.getAnalysisResults({
         where: { walletAddress },
@@ -1349,6 +1355,28 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         `Failed to query PnL for wallet ${walletAddress}: ${error?.message || 'Unknown error'}. Will proceed without PnL metrics.`
       );
       pnlMap = undefined;
+    }
+
+    try {
+      const pnlSummary = await this.databaseService.getWalletPnlSummaryWithRelations(walletAddress);
+      if (pnlSummary) {
+        walletPnlSol = pnlSummary.netPnl ?? null;
+        solBalance = pnlSummary.currentSolBalance ?? null;
+        if (walletPnlSol !== null) {
+          try {
+            const solPriceUsd = await this.tokenInfoService.getSolPrice();
+            if (solPriceUsd && solPriceUsd > 0) {
+              walletPnlUsd = walletPnlSol * solPriceUsd;
+            }
+          } catch (error) {
+            this.logger.debug(`SOL price unavailable for wallet PnL USD conversion: ${walletAddress}`);
+          }
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to query wallet PnL summary for ${walletAddress}: ${error?.message || 'Unknown error'}.`
+      );
     }
 
     // Use BehaviorService to get historical pattern (with PnL map)
@@ -1429,6 +1457,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           dailyFlipRatioConfidence: 'NONE',
           currentHoldingsCount,
           currentHoldings,
+          walletPnlSol,
+          walletPnlUsd,
+          solBalance,
           oldestTransactionTimestamp,
           newestTransactionTimestamp,
         };
@@ -1513,6 +1544,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         unresolvedTokensCount,
         activeHoldingsFilteredOut: Math.max(rawHoldingsCount - (currentHoldingsCount ?? 0), 0),
         heldValueThresholdSol: HOLD_VALUE_THRESHOLD_SOL,
+        walletPnlSol,
+        walletPnlUsd,
+        solBalance,
         oldestTransactionTimestamp,
         newestTransactionTimestamp,
       };
@@ -1547,6 +1581,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         percentValueInCurrentHoldings: null,
         currentHoldingsCount: null,
         currentHoldings: currentHoldings,
+        walletPnlSol,
+        walletPnlUsd,
+        solBalance,
         oldestTransactionTimestamp,
         newestTransactionTimestamp,
       };
