@@ -13,10 +13,10 @@ interface Props {
 
 const SIGNIFICANT_HOLD_THRESHOLD_SOL = 0.3;
 
-function getHoldingValueUsd(profile: HolderProfile) {
+function getHoldingValueSol(profile: HolderProfile) {
   const holdings = profile.currentHoldings ?? [];
   const total = holdings.reduce((sum, holding) => {
-    if (typeof holding.valueUsd === 'number') return sum + holding.valueUsd;
+    if (typeof holding.valueSol === 'number') return sum + holding.valueSol;
     return sum;
   }, 0);
   return total > 0 ? total : null;
@@ -97,7 +97,7 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
             const behaviorDisplayType = profile.behaviorType ?? (isHolderOnly ? 'HODLER' : null);
             const exitedMedian = profile.realizedMedianHoldTimeHours ?? null;
             const exitedAverage = profile.realizedAverageHoldTimeHours ?? null;
-            const holdingValueUsd = getHoldingValueUsd(profile);
+            const holdingValueSol = getHoldingValueSol(profile);
             const pnlDisplay = getPnlDisplay(profile);
             const currentHoldTime = hasSignificantHoldings(profile)
               ? (profile.currentHoldMedianHours ?? profile.currentHoldAverageHours)
@@ -114,7 +114,7 @@ export function MinimalHoldersTable({ profiles, mode, onSelect }: Props) {
                 </td>
                 <td className="px-4 py-2">
                   <span className="font-medium tabular-nums">
-                    {holdingValueUsd !== null ? formatUsd(holdingValueUsd) : '—'}
+                    {holdingValueSol !== null ? formatSol(holdingValueSol) : '—'}
                   </span>
                 </td>
                 <td className={`px-4 py-2 font-medium tabular-nums ${pnlDisplay.raw === null ? 'text-muted-foreground' : pnlDisplay.raw >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>

@@ -66,9 +66,12 @@ export function ApproachingHoldTimePanel({ profiles, tokenMint }: Props) {
     .map((p) => p.realizedMedianHoldTimeHours)
     .filter((v): v is number => v !== null && Number.isFinite(v))
     .sort((a, b) => a - b);
-  const medianTypical = medianTypicalExitTime.length
-    ? medianTypicalExitTime[Math.floor(medianTypicalExitTime.length / 2)]
-    : null;
+  const medianTypical = (() => {
+    if (!medianTypicalExitTime.length) return null;
+    const mid = Math.floor(medianTypicalExitTime.length / 2);
+    if (medianTypicalExitTime.length % 2 !== 0) return medianTypicalExitTime[mid];
+    return (medianTypicalExitTime[mid - 1] + medianTypicalExitTime[mid]) / 2;
+  })();
 
   // Check if we have the required data
   const hasTokenHoldTimeData = ratios.length > 0;
