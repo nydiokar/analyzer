@@ -10,6 +10,8 @@ interface Props {
   mode: 'token' | 'wallet';
   tokenMint?: string;
   onSelect?: (profile: HolderProfile) => void;
+  /** Set of wallet addresses to highlight (e.g., from similarity pair hover) */
+  highlightedWallets?: Set<string>;
 }
 
 const SIGNIFICANT_HOLD_THRESHOLD_SOL = 0.3;
@@ -40,7 +42,7 @@ function hasSignificantHoldings(profile: HolderProfile) {
   return (profile.currentHoldings ?? []).some((holding) => (holding.valueSol ?? 0) >= SIGNIFICANT_HOLD_THRESHOLD_SOL);
 }
 
-export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect }: Props) {
+export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highlightedWallets }: Props) {
   return (
     <div className="rounded-2xl border overflow-hidden">
       <table className="w-full text-sm">
@@ -112,10 +114,17 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect }: Pro
             const currentHoldTime = hasSignificantHoldings(profile)
               ? (profile.currentHoldMedianHours ?? profile.currentHoldAverageHours)
               : null;
+            const isHighlighted = highlightedWallets?.has(profile.walletAddress);
             return (
               <tr
                 key={profile.walletAddress}
-                className={`border-t border-border/60 ${onSelect ? 'cursor-pointer hover:bg-muted/40' : ''}`}
+                className={`border-t border-border/60 transition-colors duration-200 ${
+                  isHighlighted
+                    ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
+                    : onSelect
+                      ? 'cursor-pointer hover:bg-muted/40'
+                      : ''
+                }`}
                 onClick={onSelect ? () => onSelect(profile) : undefined}
               >
                 {mode === 'token' && <td className="px-4 py-2 text-muted-foreground">#{profile.rank}</td>}

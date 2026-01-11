@@ -339,7 +339,10 @@ export default function HolderProfilesPage() {
         </Card>
 
         {analysisMode === 'token' && (tokenResult || tokenPartialResult) && (
-          <TokenPulse result={(tokenResult ?? tokenPartialResult)!} />
+          <TokenPulse
+            result={(tokenResult ?? tokenPartialResult)!}
+            isComplete={tokenStatus === 'completed'}
+          />
         )}
 
         {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}

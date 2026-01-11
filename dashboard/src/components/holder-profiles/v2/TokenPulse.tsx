@@ -5,7 +5,7 @@ import { TraderDistributionBar } from './TraderDistributionBar';
 import { ApproachingHoldTimePanel } from './ApproachingHoldTimePanel';
 import { MinimalHoldersTable } from './MinimalHoldersTable';
 import { getTokenOutcome } from './utils/outcome-logic';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { WalletBaseballCard } from './WalletBaseballCard';
 import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -13,12 +13,15 @@ import { TokenBadge } from '@/components/shared/TokenBadge';
 import { SimilaritySidebar } from './SimilaritySidebar';
 import { OutcomeStrip } from './OutcomeStrip';
 import { CognitiveMetricCard } from './CognitiveMetricCard';
+import { useSimilarityAnalysis } from './hooks/useSimilarityAnalysis';
 
 interface Props {
   result: HolderProfilesResult;
+  /** Whether the holder profiles job is complete (not streaming anymore) */
+  isComplete?: boolean;
 }
 
-export function TokenPulse({ result }: Props) {
+export function TokenPulse({ result, isComplete = false }: Props) {
   const outcome = getTokenOutcome(result.profiles);
   const speed = getSpeedPrimitive(result.profiles);
   const consistency = getConsistencyPrimitive(result.profiles);
@@ -29,6 +32,67 @@ export function TokenPulse({ result }: Props) {
   const similarityValue = meanBehaviorSimilarity === null ? '—' : `${Math.round(meanBehaviorSimilarity)}%`;
   const [selectedProfile, setSelectedProfile] = useState<HolderProfilesResult['profiles'][number] | null>(null);
 
+  // Track which wallets are highlighted from similarity pair hover
+  const [highlightedWallets, setHighlightedWallets] = useState<Set<string>>(new Set());
+
+  // Similarity analysis hook
+  const {
+    result: similarityResult,
+    status: similarityStatus,
+    isFinalAnalysis,
+    onProfilesUpdate,
+    reset: resetSimilarity,
+  } = useSimilarityAnalysis({
+    minProfiles: 5,
+    autoTrigger: true,
+    debounceMs: 500,
+  });
+
+  // Build wallet address to rank map for the sidebar
+  const walletRanks = useMemo(() => {
+    const map = new Map<string, number>();
+    result.profiles.forEach((profile, index) => {
+      map.set(profile.walletAddress, index + 1);
+    });
+    return map;
+  }, [result.profiles]);
+
+  // Handle pair hover - highlight wallets in table
+  const handlePairHover = useCallback((wallets: [string, string] | null) => {
+    if (wallets) {
+      setHighlightedWallets(new Set(wallets));
+    } else {
+      setHighlightedWallets(new Set());
+    }
+  }, []);
+
+  // Handle pair click - scroll to first wallet in table and select it
+  const handlePairClick = useCallback((wallets: [string, string]) => {
+    const profile = result.profiles.find((p) => p.walletAddress === wallets[0]);
+    if (profile) {
+      setSelectedProfile(profile);
+    }
+  }, [result.profiles]);
+
+  // Track token mint to reset similarity when analyzing a new token
+  const lastTokenMintRef = useRef<string | undefined>(result.tokenMint);
+
+  // Reset similarity when token changes
+  useEffect(() => {
+    if (result.tokenMint !== lastTokenMintRef.current) {
+      lastTokenMintRef.current = result.tokenMint;
+      resetSimilarity();
+    }
+  }, [result.tokenMint, resetSimilarity]);
+
+  // Update similarity analysis when profiles change
+  useEffect(() => {
+    if (result.profiles.length > 0) {
+      onProfilesUpdate(result.profiles, isComplete);
+    }
+  }, [result.profiles, isComplete, onProfilesUpdate]);
+
+  // Escape key handler for modal
   useEffect(() => {
     if (!selectedProfile) return;
 
@@ -100,10 +164,20 @@ export function TokenPulse({ result }: Props) {
               mode="token"
               tokenMint={result.tokenMint}
               onSelect={(profile) => setSelectedProfile(profile)}
+              highlightedWallets={highlightedWallets}
             />
           </div>
         </div>
-        <SimilaritySidebar summaries={result.similaritySummaries} />
+        <SimilaritySidebar
+          similarityResult={similarityResult}
+          status={similarityStatus}
+          profileCount={result.profiles.length}
+          minProfilesForAnalysis={5}
+          isFinalAnalysis={isFinalAnalysis}
+          onPairHover={handlePairHover}
+          onPairClick={handlePairClick}
+          walletRanks={walletRanks}
+        />
       </div>
 
       {selectedProfile && typeof window !== 'undefined' && createPortal(
