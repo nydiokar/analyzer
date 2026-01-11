@@ -101,3 +101,19 @@ Mapper changes do not backfill existing SwapAnalysisInput rows. To see fixes:
 ### 4. Similarity Lab Bug Fixes
 **Status:** Pending
 **Details:** TBD
+
+---
+
+## Known Issues
+
+### Database Deadlock in Token Metadata Upserts
+**Status:** 🔴 Needs Fix
+**Location:** `src/core/services/dexscreener.service.ts` → `DatabaseService.upsertManyTokenInfo`
+**Error:** `PostgresError { code: "40P01", message: "deadlock detected" }`
+**Cause:** Multiple parallel requests trying to upsert the same tokens simultaneously during similarity/holder-profiles analysis.
+**Impact:** Token metadata enrichment fails intermittently, retries may help but not guaranteed.
+**Potential Fixes:**
+1. Add retry logic with exponential backoff in `upsertManyTokenInfo`
+2. Use Prisma `$transaction` with `Serializable` isolation level
+3. Process token upserts sequentially instead of in parallel batches
+4. Add row-level locking or use `ON CONFLICT` more carefully

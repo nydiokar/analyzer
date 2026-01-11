@@ -5,6 +5,8 @@ Major restructuring of the Holder Profiles page to improve layout, add new analy
 
 ## Changes Required
 
+Immediate feedback - 1. must change the overall similarity to lean over behavior more than capital. 2. Give overall number of how many wallets "this" wallet on each row in the table is connected to the rest (threshold); 3. Figure out how to highlight potential clusters - 3 or more wallets - just over the Similarity, this way we would align it with the table. Maybe only some sort of a simple info that when clicked will highlight the 3 or more wallets in the cluster (with tresholds). 
+
 ### 1. Input/Analysis Area (Top Section)
 **Current Issue:** Takes up too much vertical space
 

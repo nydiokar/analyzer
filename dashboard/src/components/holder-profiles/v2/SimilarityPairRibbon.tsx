@@ -18,6 +18,10 @@ interface Props {
   rank?: number;
   /** Map of wallet address to rank in the holders table */
   walletRanks?: Map<string, number>;
+  /** Whether this pair is currently selected */
+  isSelected?: boolean;
+  /** Callback when the pair is clicked */
+  onClick?: () => void;
 }
 
 function getScoreColor(score: number): string {
@@ -41,7 +45,7 @@ function getScoreBarColor(score: number): string {
   return 'bg-zinc-500';
 }
 
-export function SimilarityPairRibbon({ pair, rank, walletRanks }: Props) {
+export function SimilarityPairRibbon({ pair, rank, walletRanks, isSelected, onClick }: Props) {
   const overallPercent = pair.overallScore * 100;
   const behavioralPercent = pair.behavioralScore * 100;
   const capitalPercent = pair.capitalScore * 100;
@@ -53,11 +57,16 @@ export function SimilarityPairRibbon({ pair, rank, walletRanks }: Props) {
   return (
     <TooltipProvider delayDuration={150}>
       <div
+        onClick={onClick}
         className={cn(
-          'group relative rounded-lg border border-border/40 overflow-hidden',
+          'group relative rounded-lg border overflow-hidden',
           'bg-gradient-to-r',
           getScoreGradient(pair.overallScore),
-          'hover:border-border/70 hover:shadow-sm transition-all duration-200'
+          'transition-all duration-200',
+          onClick && 'cursor-pointer',
+          isSelected
+            ? 'border-primary/60 ring-1 ring-inset ring-primary/40 shadow-sm'
+            : 'border-border/40 hover:border-border/70 hover:shadow-sm'
         )}
       >
         {/* Main content */}
@@ -140,12 +149,32 @@ export function SimilarityPairRibbon({ pair, rank, walletRanks }: Props) {
 
           {/* Shared tokens footer */}
           <div className="flex items-center justify-between text-[10px] pt-0.5">
-            <span className="text-foreground/50">
-              <span className="font-semibold text-foreground/70">{pair.sharedTokensCount}</span> shared tokens
-            </span>
-            <span className="text-foreground/40">
-              {pair.uniqueTokensA} + {pair.uniqueTokensB} unique
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-foreground/50 cursor-help">
+                  <span className="font-semibold text-foreground/70">{pair.sharedTokensCount}</span> shared tokens
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs max-w-xs">
+                <p className="font-medium">Shared Tokens</p>
+                <p className="text-muted-foreground mt-1">
+                  Both wallets traded {pair.sharedTokensCount} of the same tokens. Higher overlap suggests coordinated trading or following similar strategies.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-foreground/40 cursor-help">
+                  {pair.uniqueTokensA} + {pair.uniqueTokensB} unique
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs max-w-xs">
+                <p className="font-medium">Unique Tokens</p>
+                <p className="text-muted-foreground mt-1">
+                  First wallet traded {pair.uniqueTokensA} tokens the second didn't, and the second wallet traded {pair.uniqueTokensB} tokens the first didn't. Lower unique counts indicate more focused overlap.
+                </p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>

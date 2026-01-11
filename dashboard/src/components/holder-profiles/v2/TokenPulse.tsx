@@ -32,8 +32,12 @@ export function TokenPulse({ result, isComplete = false }: Props) {
   const similarityValue = meanBehaviorSimilarity === null ? '—' : `${Math.round(meanBehaviorSimilarity)}%`;
   const [selectedProfile, setSelectedProfile] = useState<HolderProfilesResult['profiles'][number] | null>(null);
 
-  // Track which wallets are highlighted from similarity pair hover
-  const [highlightedWallets, setHighlightedWallets] = useState<Set<string>>(new Set());
+  // Track which wallets are highlighted from similarity pair selection (persistent click)
+  const [selectedPair, setSelectedPair] = useState<[string, string] | null>(null);
+  const highlightedWallets = useMemo(() => {
+    if (!selectedPair) return new Set<string>();
+    return new Set(selectedPair);
+  }, [selectedPair]);
 
   // Similarity analysis hook
   const {
@@ -57,31 +61,20 @@ export function TokenPulse({ result, isComplete = false }: Props) {
     return map;
   }, [result.profiles]);
 
-  // Handle pair hover - highlight wallets in table
-  const handlePairHover = useCallback((wallets: [string, string] | null) => {
-    if (wallets) {
-      setHighlightedWallets(new Set(wallets));
-    } else {
-      setHighlightedWallets(new Set());
-    }
+  // Handle pair selection - persistently highlight wallets in table until clicked again
+  const handlePairSelect = useCallback((wallets: [string, string] | null) => {
+    setSelectedPair(wallets);
   }, []);
-
-  // Handle pair click - scroll to first wallet in table and select it
-  const handlePairClick = useCallback((wallets: [string, string]) => {
-    const profile = result.profiles.find((p) => p.walletAddress === wallets[0]);
-    if (profile) {
-      setSelectedProfile(profile);
-    }
-  }, [result.profiles]);
 
   // Track token mint to reset similarity when analyzing a new token
   const lastTokenMintRef = useRef<string | undefined>(result.tokenMint);
 
-  // Reset similarity when token changes
+  // Reset similarity and selection when token changes
   useEffect(() => {
     if (result.tokenMint !== lastTokenMintRef.current) {
       lastTokenMintRef.current = result.tokenMint;
       resetSimilarity();
+      setSelectedPair(null);
     }
   }, [result.tokenMint, resetSimilarity]);
 
@@ -174,8 +167,8 @@ export function TokenPulse({ result, isComplete = false }: Props) {
           profileCount={result.profiles.length}
           minProfilesForAnalysis={5}
           isFinalAnalysis={isFinalAnalysis}
-          onPairHover={handlePairHover}
-          onPairClick={handlePairClick}
+          selectedPair={selectedPair}
+          onPairSelect={handlePairSelect}
           walletRanks={walletRanks}
         />
       </div>
