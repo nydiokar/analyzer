@@ -1226,14 +1226,19 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         return profile;
       }
       const walletPnlSol = summary.netPnl ?? null;
+      const walletRealizedPnlSol = summary.realizedPnl ?? null;
       const solBalance = summary.currentSolBalance ?? null;
       const walletPnlUsd =
         walletPnlSol !== null && solPriceUsd !== null ? walletPnlSol * solPriceUsd : profile.walletPnlUsd ?? null;
+      const walletRealizedPnlUsd =
+        walletRealizedPnlSol !== null && solPriceUsd !== null ? walletRealizedPnlSol * solPriceUsd : null;
 
       return {
         ...profile,
         walletPnlSol: needsPnl ? walletPnlSol : profile.walletPnlSol,
         walletPnlUsd: needsPnl ? walletPnlUsd : profile.walletPnlUsd ?? walletPnlUsd,
+        walletRealizedPnlSol: needsPnl ? walletRealizedPnlSol : profile.walletRealizedPnlSol,
+        walletRealizedPnlUsd: needsPnl ? walletRealizedPnlUsd : profile.walletRealizedPnlUsd,
         solBalance: needsSolBalance ? solBalance : profile.solBalance,
       };
     } catch (error) {

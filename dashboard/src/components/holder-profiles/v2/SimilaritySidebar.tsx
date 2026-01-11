@@ -1,12 +1,16 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { Loader2, RefreshCw, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SimilarityPairRibbon, type SimilarityPairData } from './SimilarityPairRibbon';
+import { ClusterIndicator } from './ClusterIndicator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
+import { analyzeSimilarityGraph, type SimilarityGraphAnalysis } from './utils/similarity-clusters';
 
 export type SimilarityStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
+
+/** Threshold for considering wallets "connected" (0-1) */
+export const CONNECTION_THRESHOLD = 0.7;
 
 interface Props {
   similarityResult?: CombinedSimilarityResult | null;
@@ -19,14 +23,26 @@ interface Props {
   selectedPair?: [string, string] | null;
   /** Callback when a wallet pair is clicked */
   onPairSelect?: (wallets: [string, string] | null) => void;
+  /** Currently selected cluster ID */
+  selectedClusterId?: number | null;
+  /** Callback when a cluster is clicked */
+  onClusterSelect?: (clusterId: number | null, wallets: string[]) => void;
   /** Map of wallet address to rank in the table */
   walletRanks?: Map<string, number>;
+  /** Callback to share graph analysis (connection counts, clusters) with parent */
+  onGraphAnalysisChange?: (analysis: SimilarityGraphAnalysis | null) => void;
 }
 
-// Calculate overall score same way as similarity lab (40% behavioral + 60% capital)
+// Re-export for parent components
+export type { SimilarityGraphAnalysis } from './utils/similarity-clusters';
+
+// Calculate overall score: 60% behavioral + 40% capital (behavioral is more indicative of coordination)
 function calculateOverallScore(binaryScore: number, capitalScore: number): number {
-  return binaryScore * 0.4 + capitalScore * 0.6;
+  return binaryScore * 0.6 + capitalScore * 0.4;
 }
+
+/** Minimum behavioral score to display a pair (filters out wallets with few shared tokens) */
+const MIN_BEHAVIORAL_SCORE = 0.3;
 
 // Transform CombinedSimilarityResult into displayable pairs
 function transformToPairs(result: CombinedSimilarityResult): SimilarityPairData[] {
@@ -43,6 +59,8 @@ function transformToPairs(result: CombinedSimilarityResult): SimilarityPairData[
       uniqueTokensA: pair.binaryUniqueTokenCountA ?? 0,
       uniqueTokensB: pair.binaryUniqueTokenCountB ?? 0,
     }))
+    // Filter out pairs with 0% overall or low behavioral score (few shared tokens)
+    .filter((pair) => pair.overallScore > 0 && pair.behavioralScore >= MIN_BEHAVIORAL_SCORE)
     .sort((a, b) => b.overallScore - a.overallScore);
 }
 
@@ -58,12 +76,21 @@ export function SimilaritySidebar({
   isFinalAnalysis = false,
   selectedPair,
   onPairSelect,
+  selectedClusterId,
+  onClusterSelect,
   walletRanks,
+  onGraphAnalysisChange,
 }: Props) {
   const pairs = useMemo(() => {
     if (!similarityResult) return [];
     return transformToPairs(similarityResult);
   }, [similarityResult]);
+
+  // Analyze similarity graph for clusters and connection counts
+  const graphAnalysis = useMemo<SimilarityGraphAnalysis | null>(() => {
+    if (pairs.length === 0) return null;
+    return analyzeSimilarityGraph(pairs, CONNECTION_THRESHOLD);
+  }, [pairs]);
 
   // Calculate stats - high similarity pairs (>= 80%)
   const stats = useMemo(() => {
@@ -73,6 +100,22 @@ export function SimilaritySidebar({
     const uniqueWallets = new Set(pairs.flatMap((p) => [p.walletA, p.walletB])).size;
     return { highSimilarityCount, moderateCount, totalPairs: pairs.length, uniqueWallets };
   }, [pairs]);
+
+  // Notify parent of graph analysis changes (for connection counts in table)
+  useEffect(() => {
+    onGraphAnalysisChange?.(graphAnalysis);
+  }, [graphAnalysis, onGraphAnalysisChange]);
+
+  // Handle cluster selection
+  const handleClusterSelect = (clusterId: number | null) => {
+    if (!onClusterSelect || !graphAnalysis) return;
+    if (clusterId === null) {
+      onClusterSelect(null, []);
+    } else {
+      const cluster = graphAnalysis.clusters.find((c) => c.id === clusterId);
+      onClusterSelect(clusterId, cluster?.wallets ?? []);
+    }
+  };
 
   // Handle pair click - toggle selection
   const handlePairClick = (pair: SimilarityPairData) => {
@@ -205,7 +248,17 @@ export function SimilaritySidebar({
   // Completed state with results
   return (
     <TooltipProvider delayDuration={200}>
-      <aside className="space-y-3 animate-in fade-in slide-in-from-right-2 duration-300">
+      <aside className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-300 min-w-0 overflow-hidden">
+        {/* Clusters section - only show if clusters exist */}
+        {graphAnalysis && graphAnalysis.clusters.length > 0 && (
+          <ClusterIndicator
+            clusters={graphAnalysis.clusters}
+            selectedClusterId={selectedClusterId}
+            onClusterSelect={handleClusterSelect}
+            walletRanks={walletRanks}
+          />
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -279,9 +332,8 @@ export function SimilaritySidebar({
           </div>
         )}
 
-        {/* Scrollable pairs list */}
-        <ScrollArea className="max-h-[450px]">
-          <div className="space-y-2 pr-2">
+        {/* Pairs list - grows naturally with content */}
+        <div className="space-y-2">
             {pairs.map((pair, index) => (
               <div
                 key={`${pair.walletA}-${pair.walletB}`}
@@ -297,8 +349,7 @@ export function SimilaritySidebar({
                 />
               </div>
             ))}
-          </div>
-        </ScrollArea>
+        </div>
       </aside>
     </TooltipProvider>
   );

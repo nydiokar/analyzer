@@ -10,7 +10,7 @@ import { WalletBaseballCard } from './WalletBaseballCard';
 import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { TokenBadge } from '@/components/shared/TokenBadge';
-import { SimilaritySidebar } from './SimilaritySidebar';
+import { SimilaritySidebar, type SimilarityGraphAnalysis } from './SimilaritySidebar';
 import { OutcomeStrip } from './OutcomeStrip';
 import { CognitiveMetricCard } from './CognitiveMetricCard';
 import { useSimilarityAnalysis } from './hooks/useSimilarityAnalysis';
@@ -32,12 +32,18 @@ export function TokenPulse({ result, isComplete = false }: Props) {
   const similarityValue = meanBehaviorSimilarity === null ? '—' : `${Math.round(meanBehaviorSimilarity)}%`;
   const [selectedProfile, setSelectedProfile] = useState<HolderProfilesResult['profiles'][number] | null>(null);
 
-  // Track which wallets are highlighted from similarity pair selection (persistent click)
+  // Track which wallets are highlighted from similarity pair or cluster selection
   const [selectedPair, setSelectedPair] = useState<[string, string] | null>(null);
+  const [selectedClusterId, setSelectedClusterId] = useState<number | null>(null);
+  const [clusterWallets, setClusterWallets] = useState<string[]>([]);
+  const [graphAnalysis, setGraphAnalysis] = useState<SimilarityGraphAnalysis | null>(null);
+
+  // Highlighted wallets - from pair selection OR cluster selection
   const highlightedWallets = useMemo(() => {
-    if (!selectedPair) return new Set<string>();
-    return new Set(selectedPair);
-  }, [selectedPair]);
+    if (clusterWallets.length > 0) return new Set(clusterWallets);
+    if (selectedPair) return new Set(selectedPair);
+    return new Set<string>();
+  }, [selectedPair, clusterWallets]);
 
   // Similarity analysis hook
   const {
@@ -64,6 +70,26 @@ export function TokenPulse({ result, isComplete = false }: Props) {
   // Handle pair selection - persistently highlight wallets in table until clicked again
   const handlePairSelect = useCallback((wallets: [string, string] | null) => {
     setSelectedPair(wallets);
+    // Clear cluster selection when selecting a pair
+    if (wallets) {
+      setSelectedClusterId(null);
+      setClusterWallets([]);
+    }
+  }, []);
+
+  // Handle cluster selection - highlight all wallets in the cluster
+  const handleClusterSelect = useCallback((clusterId: number | null, wallets: string[]) => {
+    setSelectedClusterId(clusterId);
+    setClusterWallets(wallets);
+    // Clear pair selection when selecting a cluster
+    if (clusterId !== null) {
+      setSelectedPair(null);
+    }
+  }, []);
+
+  // Handle graph analysis updates from sidebar
+  const handleGraphAnalysisChange = useCallback((analysis: SimilarityGraphAnalysis | null) => {
+    setGraphAnalysis(analysis);
   }, []);
 
   // Track token mint to reset similarity when analyzing a new token
@@ -75,6 +101,9 @@ export function TokenPulse({ result, isComplete = false }: Props) {
       lastTokenMintRef.current = result.tokenMint;
       resetSimilarity();
       setSelectedPair(null);
+      setSelectedClusterId(null);
+      setClusterWallets([]);
+      setGraphAnalysis(null);
     }
   }, [result.tokenMint, resetSimilarity]);
 
@@ -133,7 +162,7 @@ export function TokenPulse({ result, isComplete = false }: Props) {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4">
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
             <TraderDistributionBar profiles={result.profiles} />
@@ -158,6 +187,7 @@ export function TokenPulse({ result, isComplete = false }: Props) {
               tokenMint={result.tokenMint}
               onSelect={(profile) => setSelectedProfile(profile)}
               highlightedWallets={highlightedWallets}
+              connectionCounts={graphAnalysis?.connectionCounts}
             />
           </div>
         </div>
@@ -169,7 +199,10 @@ export function TokenPulse({ result, isComplete = false }: Props) {
           isFinalAnalysis={isFinalAnalysis}
           selectedPair={selectedPair}
           onPairSelect={handlePairSelect}
+          selectedClusterId={selectedClusterId}
+          onClusterSelect={handleClusterSelect}
           walletRanks={walletRanks}
+          onGraphAnalysisChange={handleGraphAnalysisChange}
         />
       </div>
 

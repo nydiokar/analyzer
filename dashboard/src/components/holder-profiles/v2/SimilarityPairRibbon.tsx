@@ -110,7 +110,7 @@ export function SimilarityPairRibbon({ pair, rank, walletRanks, isSelected, onCl
               <TooltipContent side="left" className="text-xs max-w-xs">
                 <p className="font-medium">Overall Similarity</p>
                 <p className="text-muted-foreground mt-1">
-                  Weighted average: 40% behavioral + 60% capital
+                  Weighted average: 60% behavioral + 40% capital
                 </p>
               </TooltipContent>
             </Tooltip>

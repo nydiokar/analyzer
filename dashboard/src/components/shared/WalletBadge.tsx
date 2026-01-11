@@ -26,7 +26,7 @@ export interface WalletMetrics {
 }
 
 type WalletBadgeSize = "s" | "m" | "l" | "xl" | "sm" | "md" | "lg";
-type WalletBadgeVariant = "card" | "inline";
+type WalletBadgeVariant = "card" | "inline" | "minimal";
 
 interface WalletBadgeProps {
   address: string;
@@ -172,6 +172,83 @@ const WalletBadge = memo(({
       onFavoriteToggle();
     }
   };
+
+  // ===== RENDER MINIMAL VARIANT (ultra-compact for tables) =====
+  if (variant === "minimal") {
+    return (
+      <TooltipProvider>
+        <div className={cn("flex items-center gap-1.5", className)}>
+          {/* Small wallet icon for visual boundary */}
+          <div className="flex-shrink-0 h-5 w-5 rounded bg-muted/50 flex items-center justify-center">
+            <Wallet className="h-3 w-3 text-muted-foreground" />
+          </div>
+
+          {/* Address - clickable to copy */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleCopyAddress}
+                className="font-mono text-sm text-foreground hover:text-primary transition-colors"
+              >
+                {truncateAddress(address)}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="font-mono text-xs">{address}</p>
+              <p className="text-muted-foreground text-xs mt-1">Click to copy</p>
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Compact icon row */}
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleCopyAddress}
+                  className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <Copy className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent><p>Copy address</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={`https://solscan.io/account/${address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent><p>Solscan</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={`/wallets/${address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <User className="h-3 w-3" />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent><p>Wallet Profile</p></TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
 
   // ===== RENDER INLINE VARIANT (horizontal 2-row compact) =====
   if (variant === "inline") {

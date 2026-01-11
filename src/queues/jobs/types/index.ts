@@ -234,6 +234,8 @@ export interface HolderProfile {
   heldValueThresholdSol?: number | null;
   walletPnlSol?: number | null;
   walletPnlUsd?: number | null;
+  walletRealizedPnlSol?: number | null;
+  walletRealizedPnlUsd?: number | null;
   solBalance?: number | null;
   oldestTransactionTimestamp?: number;
   newestTransactionTimestamp?: number;
