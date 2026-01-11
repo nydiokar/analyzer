@@ -13,6 +13,9 @@ import type { JobProgressData, JobFailedData, JobCompletionData } from '@/types/
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { Loader2, Search } from 'lucide-react';
 import type { HolderProfilesResult } from '@/components/holder-profiles/types';
+import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
+import type { SimilarityStatus } from '@/components/holder-profiles/v2/SimilaritySidebar';
+import type { JobResult } from '@/types/websockets';
 import { TokenPulse } from '@/components/holder-profiles/v2/TokenPulse';
 import {
   WalletClassifier,
@@ -26,6 +29,10 @@ type AnalysisMode = 'token' | 'wallet';
 type WalletParseResult = {
   list: string[];
   truncated: number;
+};
+
+type SimilarityJobResponse = {
+  jobId: string;
 };
 
 function parseWalletList(raw: string): WalletParseResult {
@@ -56,11 +63,16 @@ export default function HolderProfilesPage() {
   const tokenJobIdRef = useRef<string | null>(null);
   const [tokenStatus, setTokenStatus] = useState<JobStatus>('idle');
   const [tokenProgress, setTokenProgress] = useState(0);
+  const [similarityResult, setSimilarityResult] = useState<CombinedSimilarityResult | null>(null);
+  const [similarityStatus, setSimilarityStatus] = useState<SimilarityStatus>('idle');
+  const similarityJobIdRef = useRef<string | null>(null);
+  const similarityTriggeredRef = useRef(false);
 
   const parsedWallets = useMemo(() => parseWalletList(walletInput), [walletInput]);
 
   // Use a ref to store unsubscribeFromJob so we can call it from callbacks
   const unsubscribeFromJobRef = useRef<((jobId: string) => void) | null>(null);
+  const subscribeToJobRef = useRef<((jobId: string) => void) | null>(null);
 
   const updateWalletEntryByJob = useCallback((jobId: string, updater: (entry: WalletClassifierEntry) => WalletClassifierEntry) => {
     setWalletEntries((prev) => prev.map((entry) => (entry.jobId === jobId ? updater(entry) : entry)));
@@ -72,6 +84,47 @@ export default function HolderProfilesPage() {
     },
     []
   );
+
+  const queueSimilarityAnalysis = useCallback(async (walletAddresses: string[]) => {
+    if (walletAddresses.length < 2) {
+      return;
+    }
+    if (similarityJobIdRef.current) {
+      return;
+    }
+    setSimilarityStatus('pending');
+    try {
+      const response = await fetcher('/analyses/similarity/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          walletAddresses,
+          vectorType: 'capital',
+        }),
+      }) as SimilarityJobResponse;
+      similarityJobIdRef.current = response.jobId;
+      setSimilarityStatus('running');
+      subscribeToJobRef.current?.(response.jobId);
+    } catch (error: any) {
+      similarityTriggeredRef.current = false;
+      setSimilarityStatus('failed');
+      toast.error('Failed to start similarity analysis', {
+        description: error.message || 'Unknown error',
+      });
+    }
+  }, []);
+
+  const extractSimilarityResult = useCallback((payload: JobResult | unknown): CombinedSimilarityResult | null => {
+    if (!payload) {
+      return null;
+    }
+    const maybeJobResult = payload as JobResult;
+    const data = (maybeJobResult && typeof maybeJobResult === 'object' && 'data' in maybeJobResult)
+      ? maybeJobResult.data
+      : payload;
+    const directResult = data as CombinedSimilarityResult;
+    return directResult?.pairwiseSimilarities ? directResult : null;
+  }, []);
 
   const { subscribeToJob, unsubscribeFromJob } = useJobProgress({
     onJobProgress: useCallback(
@@ -102,6 +155,10 @@ export default function HolderProfilesPage() {
           }
           return;
         }
+        if (similarityJobIdRef.current && data.jobId === similarityJobIdRef.current) {
+          setSimilarityStatus('running');
+          return;
+        }
         updateWalletEntryByJob(data.jobId, (entry) => ({
           ...entry,
           status: 'running',
@@ -121,6 +178,13 @@ export default function HolderProfilesPage() {
             setTokenPartialResult(null);
             setTokenStatus('completed');
             setTokenProgress(100);
+            setSimilarityResult(null);
+            setSimilarityStatus('idle');
+            similarityTriggeredRef.current = false;
+            if (similarityJobIdRef.current && unsubscribeFromJobRef.current) {
+              unsubscribeFromJobRef.current(similarityJobIdRef.current);
+              similarityJobIdRef.current = null;
+            }
             // Unsubscribe from the completed job
             if (unsubscribeFromJobRef.current) {
               unsubscribeFromJobRef.current(tokenJobIdRef.current);
@@ -129,7 +193,26 @@ export default function HolderProfilesPage() {
             toast.success('Holder profiles ready', {
               description: `Analyzed ${resultData.metadata.totalHoldersAnalyzed} holders`,
             });
+            if (!similarityTriggeredRef.current && resultData.profiles.length >= 2) {
+              similarityTriggeredRef.current = true;
+              queueSimilarityAnalysis(resultData.profiles.map((profile) => profile.walletAddress));
+            }
           }
+          return;
+        }
+        if (similarityJobIdRef.current && data.jobId === similarityJobIdRef.current) {
+          const similarityData = extractSimilarityResult(data.result);
+          if (similarityData) {
+            setSimilarityResult(similarityData);
+            setSimilarityStatus('completed');
+          } else {
+            console.warn('Similarity job completed without usable payload', data.result);
+            setSimilarityStatus('failed');
+          }
+          if (unsubscribeFromJobRef.current) {
+            unsubscribeFromJobRef.current(similarityJobIdRef.current);
+          }
+          similarityJobIdRef.current = null;
           return;
         }
         updateWalletEntryByJob(data.jobId, (entry) => ({
@@ -140,7 +223,7 @@ export default function HolderProfilesPage() {
           result: data.result as unknown as HolderProfilesResult,
         }));
       },
-      [updateWalletEntryByJob]
+      [updateWalletEntryByJob, extractSimilarityResult, queueSimilarityAnalysis]
     ),
 
     onJobFailed: useCallback(
@@ -154,6 +237,14 @@ export default function HolderProfilesPage() {
           }
           tokenJobIdRef.current = null;
           toast.error('Token analysis failed', { description: data.error });
+          return;
+        }
+        if (similarityJobIdRef.current && data.jobId === similarityJobIdRef.current) {
+          setSimilarityStatus('failed');
+          if (unsubscribeFromJobRef.current) {
+            unsubscribeFromJobRef.current(similarityJobIdRef.current);
+          }
+          similarityJobIdRef.current = null;
           return;
         }
         updateWalletEntryByJob(data.jobId, (entry) => ({
@@ -172,6 +263,7 @@ export default function HolderProfilesPage() {
 
   // Store the unsubscribe function in the ref so callbacks can use it
   unsubscribeFromJobRef.current = unsubscribeFromJob;
+  subscribeToJobRef.current = subscribeToJob;
 
   const handleTokenAnalyze = async () => {
     if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
@@ -186,10 +278,17 @@ export default function HolderProfilesPage() {
 
     try {
       setTokenStatus('running');
-          setTokenProgress(0);
-          setTokenResult(null);
-          setTokenPartialResult(null);
-          const response = await fetcher('/analyses/holder-profiles', {
+      setTokenProgress(0);
+      setTokenResult(null);
+      setTokenPartialResult(null);
+      setSimilarityResult(null);
+      setSimilarityStatus('idle');
+      similarityTriggeredRef.current = false;
+      if (similarityJobIdRef.current && unsubscribeFromJobRef.current) {
+        unsubscribeFromJobRef.current(similarityJobIdRef.current);
+        similarityJobIdRef.current = null;
+      }
+      const response = await fetcher('/analyses/holder-profiles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tokenMint, topN }),
@@ -341,7 +440,9 @@ export default function HolderProfilesPage() {
         {analysisMode === 'token' && (tokenResult || tokenPartialResult) && (
           <TokenPulse
             result={(tokenResult ?? tokenPartialResult)!}
-            isComplete={tokenStatus === 'completed'}
+            similarityResult={similarityResult}
+            similarityStatus={similarityStatus}
+            isFinalAnalysis={similarityStatus !== 'idle'}
           />
         )}
 

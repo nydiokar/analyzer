@@ -10,18 +10,24 @@ import { WalletBaseballCard } from './WalletBaseballCard';
 import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { TokenBadge } from '@/components/shared/TokenBadge';
-import { SimilaritySidebar, type SimilarityGraphAnalysis } from './SimilaritySidebar';
+import { SimilaritySidebar, type SimilarityGraphAnalysis, type SimilarityStatus } from './SimilaritySidebar';
 import { OutcomeStrip } from './OutcomeStrip';
 import { CognitiveMetricCard } from './CognitiveMetricCard';
-import { useSimilarityAnalysis } from './hooks/useSimilarityAnalysis';
+import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 
 interface Props {
   result: HolderProfilesResult;
-  /** Whether the holder profiles job is complete (not streaming anymore) */
-  isComplete?: boolean;
+  similarityResult?: CombinedSimilarityResult | null;
+  similarityStatus?: SimilarityStatus;
+  isFinalAnalysis?: boolean;
 }
 
-export function TokenPulse({ result, isComplete = false }: Props) {
+export function TokenPulse({
+  result,
+  similarityResult = null,
+  similarityStatus = 'idle',
+  isFinalAnalysis = false,
+}: Props) {
   const outcome = getTokenOutcome(result.profiles);
   const speed = getSpeedPrimitive(result.profiles);
   const consistency = getConsistencyPrimitive(result.profiles);
@@ -44,19 +50,6 @@ export function TokenPulse({ result, isComplete = false }: Props) {
     if (selectedPair) return new Set(selectedPair);
     return new Set<string>();
   }, [selectedPair, clusterWallets]);
-
-  // Similarity analysis hook
-  const {
-    result: similarityResult,
-    status: similarityStatus,
-    isFinalAnalysis,
-    onProfilesUpdate,
-    reset: resetSimilarity,
-  } = useSimilarityAnalysis({
-    minProfiles: 5,
-    autoTrigger: true,
-    debounceMs: 500,
-  });
 
   // Build wallet address to rank map for the sidebar
   const walletRanks = useMemo(() => {
@@ -99,20 +92,12 @@ export function TokenPulse({ result, isComplete = false }: Props) {
   useEffect(() => {
     if (result.tokenMint !== lastTokenMintRef.current) {
       lastTokenMintRef.current = result.tokenMint;
-      resetSimilarity();
       setSelectedPair(null);
       setSelectedClusterId(null);
       setClusterWallets([]);
       setGraphAnalysis(null);
     }
-  }, [result.tokenMint, resetSimilarity]);
-
-  // Update similarity analysis when profiles change
-  useEffect(() => {
-    if (result.profiles.length > 0) {
-      onProfilesUpdate(result.profiles, isComplete);
-    }
-  }, [result.profiles, isComplete, onProfilesUpdate]);
+  }, [result.tokenMint]);
 
   // Escape key handler for modal
   useEffect(() => {
