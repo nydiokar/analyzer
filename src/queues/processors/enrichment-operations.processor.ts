@@ -1,13 +1,14 @@
-import { Logger, Injectable, Inject } from '@nestjs/common';
+import { Inject, Logger, Injectable } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult, ParallelEnrichmentJobData } from '../jobs/types';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
+import { JobPayloadCacheService } from '../../api/services/job-payload-cache.service';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { REDIS_CLIENT } from '../config/redis.provider';
-import { Redis } from 'ioredis';
+import Redis from 'ioredis';
 
 @Injectable()
 export class EnrichmentOperationsProcessor {
@@ -18,8 +19,8 @@ export class EnrichmentOperationsProcessor {
     private readonly redisLockService: RedisLockService,
     private readonly tokenInfoService: TokenInfoService,
     private readonly balanceCacheService: BalanceCacheService,
-
-    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
+    private readonly jobPayloadCache: JobPayloadCacheService,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis, // For result caching
   ) {
     const config = QueueConfigs[QueueNames.ENRICHMENT_OPERATIONS];
     
@@ -70,19 +71,12 @@ export class EnrichmentOperationsProcessor {
     
     let balancesPayload = walletBalances;
     if (!balancesPayload && balancesKey) {
-      const cached = await this.redisClient.get(balancesKey);
-      if (cached) {
-        try {
-          balancesPayload = JSON.parse(cached);
-        } catch (error) {
-          this.logger.error(`Failed to parse balances payload for ${balancesKey}:`, error);
-        }
-      }
+      balancesPayload = await this.jobPayloadCache.retrievePayload(balancesKey);
       if (!balancesPayload) {
         throw new Error(`Missing balances payload for enrichment request ${requestId}`);
       }
       // Best-effort cleanup once loaded
-      await this.redisClient.del(balancesKey);
+      await this.jobPayloadCache.deletePayload(balancesKey);
     }
 
     if (!balancesPayload) {
@@ -182,19 +176,12 @@ export class EnrichmentOperationsProcessor {
 
       let balancesPayload = walletBalances;
       if (!balancesPayload && balancesKey) {
-        const cached = await this.redisClient.get(balancesKey);
-        if (cached) {
-          try {
-            balancesPayload = JSON.parse(cached);
-          } catch (error) {
-            this.logger.error(`Failed to parse balances payload for ${balancesKey}:`, error);
-          }
-        }
+        balancesPayload = await this.jobPayloadCache.retrievePayload(balancesKey);
         if (!balancesPayload) {
           throw new Error(`Missing balances payload for enrichment request ${requestId}`);
         }
         // Best-effort cleanup once loaded
-        await this.redisClient.del(balancesKey);
+        await this.jobPayloadCache.deletePayload(balancesKey);
       }
 
       if (!balancesPayload) {

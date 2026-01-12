@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, Req, ForbiddenException, Inject } from '@nestjs/common';
+import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, Req, ForbiddenException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
@@ -12,9 +12,8 @@ import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations
 import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData, AnalyzeHolderProfilesJobData } from '../../queues/jobs/types';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
 import { generateJobId } from '../../queues/utils/job-id-generator';
-import { REDIS_CLIENT } from '../../queues/config/redis.provider';
-import Redis from 'ioredis';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
+import { JobPayloadCacheService } from '../services/job-payload-cache.service';
 import { JobPriority } from '../../queues/config/queue.config';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { Request } from 'express';
@@ -32,7 +31,7 @@ export class AnalysesController {
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
     private readonly redisLockService: RedisLockService,
-    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
+    private readonly jobPayloadCache: JobPayloadCacheService,
   ) {}
 
   @Post('/similarity/enrich-balances')
@@ -95,11 +94,11 @@ export class AnalysesController {
 
       // Determine optimization hint based on token count using strategy service
       const optimizationHint = this.enrichmentStrategyService.determineOptimizationHint(totalTokens);
-      
+
       this.logger.log(`Determined optimization hint '${optimizationHint}' for ${totalTokens} tokens. Strategy: ${this.enrichmentStrategyService.getStrategyDescription(optimizationHint)}`);
 
-      const balancesKey = `enrich:balances:${requestId}`;
-      await this.redisClient.set(balancesKey, JSON.stringify(body.walletBalances), 'EX', 15 * 60);
+      // Store wallet balances in Redis to avoid bloating BullMQ job data
+      const balancesKey = await this.jobPayloadCache.storePayload(requestId, 'enrich', body.walletBalances);
 
       const tokenMints = Object.values(body.walletBalances)
         .flatMap((wallet: any) => (wallet?.tokenBalances || []).map((t: any) => t.mint));

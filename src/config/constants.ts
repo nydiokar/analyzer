@@ -283,6 +283,7 @@ export const KNOWN_SYSTEM_WALLETS = [
   'HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC', // jupiter partner referral fee vault
   'FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM',
   // Large system accounts (over 10k tokens but not necessarily Jupiter)
+  'GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL', // Raydium Vault Authority #2
   '34FKjAdVcTax2DHqV2XnbXa9J3zmyKcFuFKWbcmgxjgm', // 5.5k tokens - system account
   'ZG98FUCjb8mJ824Gbs6RsgVmr1FhXb2oNiJHa2dwmPd', // 5.5k tokens - system account
   '8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf', // 5.5k tokens - system account

@@ -25,6 +25,7 @@ import { AlertingService } from './services/alerting.service';
 import { DeadLetterQueueService } from './services/dead-letter-queue.service';
 import { QueueHealthService } from './services/queue-health.service';
 import { JobEventsBridgeService } from './services/job-events-bridge.service';
+import { JobPayloadCacheService } from '../api/services/job-payload-cache.service';
 
 // External dependencies - Import modules that provide the services we need
 import { DatabaseModule } from '../api/modules/database.module';
@@ -84,7 +85,8 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
-    
+    JobPayloadCacheService, // Cache service for storing large job payloads
+
     // Queue Services
     WalletOperationsQueue,
     AnalysisOperationsQueue,
@@ -100,13 +102,16 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
   ],
   
   exports: [
+    // Export RedisModule to make REDIS_CLIENT globally available
+    RedisModule,
+
     // Export queue services for use in other modules
     WalletOperationsQueue,
     AnalysisOperationsQueue,
     SimilarityOperationsQueue,
     EnrichmentOperationsQueue,
     MintParticipantsJobsQueue,
-    
+
     // Export core services for use in other modules
     RedisLockService,
     AlertingService,
@@ -114,10 +119,11 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
-    
+    JobPayloadCacheService, // Export for controllers/services that need to cache job payloads
+
     // Export processors if needed by other modules
     WalletOperationsProcessor,
-    AnalysisOperationsProcessor, 
+    AnalysisOperationsProcessor,
     SimilarityOperationsProcessor,
     EnrichmentOperationsProcessor,
   ],

@@ -13,6 +13,7 @@ import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
 import { BehaviorService } from '../../api/services/behavior.service';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
+import { JobPayloadCacheService } from '../../api/services/job-payload-cache.service';
 import { generateJobId } from '../utils/job-id-generator';
 import { WalletBalance } from '../../types/wallet';
 import { Wallet } from '@prisma/client';
@@ -41,7 +42,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     private readonly behaviorService: BehaviorService,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly balanceCacheService: BalanceCacheService,
-    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
+    private readonly jobPayloadCache: JobPayloadCacheService,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis, // For locks, result caching, etc.
   ) {
     // Note: In a proper NestJS setup, WalletBalanceService would be injected via constructor
     // For now, we'll keep the manual instantiation for the processor
@@ -278,9 +280,9 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
             }
           }
 
-          const balancesKey = `similarity:balances:${requestId}`;
-          await this.redisClient.set(balancesKey, JSON.stringify(validWalletBalances), 'EX', 15 * 60);
-          
+          // Store balances in Redis to avoid bloating BullMQ job data
+          const balancesKey = await this.jobPayloadCache.storePayload(requestId, 'similarity', validWalletBalances);
+
           enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
             balancesKey,
             requestId,
