@@ -53,16 +53,6 @@ Immediate feedback - 1. must change the overall similarity to lean over behavior
 - Must be compact but clearly readable
 - Example: `████ 1s-1m (23%, n=45)`
 
-**Layout:**
-```
-TRADER DISTRIBUTION (Holding Time)
-████ 1s-1m    (23%, n=45)
-██████ 1m-1h  (35%, n=70)
-███ 1h-6h     (18%, n=36)
-██ 6h-24h     (12%, n=24)
-█ 24h+        (12%, n=24)
-```
-
 ### 4. Approaching Typical Hold Time Component
 **New Component** - Position: Right next to bar chart
 
