@@ -100,9 +100,20 @@ Mapper changes do not backfill existing SwapAnalysisInput rows. To see fixes:
 **Pending (Task 3):** (2026-01-12)
 - Holder profiles → similarity now triggers sequentially after completion; review once similarity lab refactor lands.
 - Similarity job fast-path currently reads cached balances via private helper in `SimilarityOperationsProcessor`; replace with BalanceCacheService cache-only helper or job flag.
+
+CHECK IF THESE AREN"T ALREADY DONE
 - Similarity lab + analyses controller have TODOs for cache-only path when ready.
 - Holder profiles page has TODOs for JobResult unwrap + cache-only similarity queue.
 - Holder profiles UI: clear stale results on failure vs keep last success (decide behavior).
+
+New TASKS: 
+- verify what mean similarity is producing and make sure it's correct and showing what it must
+- Outcome is too influenced with the quality of data and other stuff - it should be more influence by the speed - it's almost constantly showing Relatively stable. 
+- speed - check if tag (classification) is corresponding with the time
+- fix Quality tooltip
+- add lines in the Trader Distribution table, so it's easily to see where the table bar is reaching - currently the bars are like in the air. 
+- Approaching typical hold time needs to be finished off. 
+- Reduce logs for  [HeliusApiClient] Successfully fetched token accounts (V2) for owner qmC1gusK2b5pYNDp1Aw5nDdZx9WTLVs7KHQoq6AAxFN. Count: 28 - this is happening too often, either wrong or just badly put into the logging system - maybe to only show big counts - over 5000 and to be debug, not info every single of them (maybe some aggregation). 
 
 ### 4. Similarity Lab Bug Fixes
 **Status:** Pending

@@ -20,7 +20,7 @@ import { WalletBalance } from '../../types/wallet';
 import { Wallet } from '@prisma/client';
 import { BatchProcessor } from '../utils/batch-processor';
 import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
-import { KNOWN_SYSTEM_WALLETS, WALLET_CLASSIFICATIONS, SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
+import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import Redis from 'ioredis';
 
@@ -126,76 +126,23 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       // Publish progress via bridge (centralized userId extraction)
       // BullMQ handles progress - bridge picks it up automatically
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
-      
-      // 🏷️ UNIFIED SYSTEM WALLET HANDLING: Handle both pre-tagged and dynamic detection
-      // First, tag known system wallets
-      await this.filterAndTagSystemWallets(walletAddresses);
-      
-      // NOTE: Fast-path for holder-profiles → similarity chain when balances are already cached.
-      // Cached wallets are already validated (they passed through holder profiles).
-      // Only run dynamic detection on wallets MISSING from cache to avoid redundant RPC calls.
-      const cachedBalancesResult = await this.getCachedBalances(walletAddresses);
-      const cachedWallets = Object.keys(cachedBalancesResult.balances);
-      const hasMissingBalances = cachedBalancesResult.missing.length > 0;
 
-      if (!hasMissingBalances) {
-        this.logger.debug('Skipping dynamic system wallet detection (all balances cached).');
-      } else {
-        this.logger.debug(`Running detection for ${cachedBalancesResult.missing.length} uncached wallets (${cachedWallets.length} already cached).`);
-      }
+      // 🔍 SYSTEM WALLET DETECTION: Use centralized service for all wallets
+      // The service handles 3-tier caching (memory → Redis → database) and RPC detection
+      // Thresholds: 15k tokens = LARGE (process with warning), 35k+ tokens = INVALID (skip)
+      this.logger.log(`Running system wallet detection for ${walletAddresses.length} wallets...`);
 
-      // Only run detection for wallets MISSING from cache (cached ones are already validated)
-      const dynamicDetectionResult = hasMissingBalances
-        ? await this.detectSystemWalletsEarly(cachedBalancesResult.missing)
-        : {
-            validWallets: [],
-            systemWallets: [],
-            tokenCounts: {},
-            tokenData: {},
-          };
+      const detectionResult = await this.detectSystemWalletsEarly(walletAddresses);
+      const validWallets = detectionResult.validWallets;
+      const invalidWallets = detectionResult.systemWallets;
 
-      // Cached wallets are already valid (they were processed by holder profiles)
-      dynamicDetectionResult.validWallets = [...cachedWallets, ...dynamicDetectionResult.validWallets];
-      
-      // Combine results: any wallet that's either pre-tagged or dynamically detected is invalid
-      const validWallets: string[] = [];
-      const invalidWallets: string[] = [];
-      
-      // Add dynamically detected system wallets to invalid list
-      invalidWallets.push(...dynamicDetectionResult.systemWallets);
-      
-      // Check database for any remaining pre-tagged wallets
-      try {
-        const wallets = await this.databaseService.getWallets(walletAddresses, true) as Wallet[];
-        const walletMap = new Map(wallets.map(w => [w.address, w]));
-        
-        for (const address of walletAddresses) {
-          // Skip if already in invalid list from dynamic detection
-          if (invalidWallets.includes(address)) {
-            continue;
-          }
-          
-          const wallet = walletMap.get(address);
-          if (wallet && wallet.classification === 'INVALID') {
-            this.logger.warn(`Wallet ${address} is pre-tagged as INVALID - skipping processing entirely`);
-            invalidWallets.push(address);
-          } else {
-            validWallets.push(address);
-          }
-        }
-      } catch (error) {
-        this.logger.warn(`Error in batch wallet validation, including all wallets in analysis:`, error);
-        // Fallback: include all wallets if batch query fails
-        validWallets.push(...walletAddresses.filter(addr => !invalidWallets.includes(addr)));
-      }
-      
-      this.logger.log(`Unified system wallet handling complete: ${validWallets.length} valid, ${invalidWallets.length} invalid (system wallets skipped)`);
-      
+      this.logger.log(`System wallet detection complete: ${validWallets.length} valid, ${invalidWallets.length} invalid (system wallets)`);
+
       // If we don't have enough valid wallets, fail early
       if (validWallets.length < 2) {
         throw new Error(`Insufficient valid wallets for similarity analysis. Only ${validWallets.length} of ${walletAddresses.length} wallets are valid. Invalid wallets: ${invalidWallets.join(', ')}`);
       }
-      
+
       // Use ONLY valid wallets for processing (no more 270k+ token crashes!)
       const walletsToAnalyze = validWallets;
       const walletsNeedingSyncFiltered = syncRequired ? walletsToAnalyze.filter(address => {
@@ -211,14 +158,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         : Promise.resolve();
 
       // Start balance fetching in parallel - DON'T await yet
-      // If all balances are cached, use them directly; otherwise fetch missing ones
-      const balancePromise = !hasMissingBalances
-        ? Promise.resolve(cachedBalancesResult.balances)
-        : this.balanceCacheService.getManyBalances(
-            dynamicDetectionResult.validWallets,
-            dynamicDetectionResult.tokenCounts,
-            dynamicDetectionResult.tokenData
-          );
+      // Fetch balances for all valid wallets (uses cache internally)
+      const balancePromise = this.balanceCacheService.getManyBalances(validWallets);
       
       // Log progress but don't block
       await job.updateProgress(10);
@@ -239,17 +180,12 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         this.logger.warn(`Balance fetch failed, but this might be due to system wallet detection: ${balanceResult.reason}`);
         
         // Try to get any valid wallets that were processed before the error
-        // This is a fallback for when system wallet detection causes the promise to reject
+        // This is a fallback for when balance fetch fails
         try {
-          const fallbackResult = await this.detectSystemWalletsEarly(walletAddresses);
-          const fallbackBalances = await this.balanceCacheService.getManyBalances(
-            fallbackResult.validWallets, 
-            fallbackResult.tokenCounts, 
-            fallbackResult.tokenData
-          );
-          
+          const fallbackBalances = await this.balanceCacheService.getManyBalances(validWallets);
+
           if (Object.keys(fallbackBalances).length >= 2) {
-            this.logger.log(`✅ Recovered ${Object.keys(fallbackBalances).length} valid wallets after system wallet detection error`);
+            this.logger.log(`✅ Recovered ${Object.keys(fallbackBalances).length} valid wallets after balance fetch error`);
             actualWalletBalances = fallbackBalances;
           } else {
             throw new Error(`Balance fetch failed and insufficient valid wallets recovered: ${balanceResult.reason}`);
@@ -428,44 +364,6 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     return `similarity:result:${requestId}`;
   }
 
-  // NOTE: Private cache-only read to avoid redundant RPC when holder profiles already fetched balances.
-  // TODO: Replace with BalanceCacheService cache-only helper once added (avoid raw Redis access here).
-  private async getCachedBalances(walletAddresses: string[]): Promise<{
-    balances: Record<string, WalletBalance>;
-    missing: string[];
-  }> {
-    if (walletAddresses.length === 0) {
-      return { balances: {}, missing: [] };
-    }
-
-    const keys = walletAddresses.map(address => `balance:${address}`);
-    const cached = await this.redisClient.mget(keys);
-
-    const balances: Record<string, WalletBalance> = {};
-    const missing: string[] = [];
-
-    cached.forEach((value, index) => {
-      const address = walletAddresses[index];
-      if (!value) {
-        missing.push(address);
-        return;
-      }
-      try {
-        const parsed = JSON.parse(value) as WalletBalance | null;
-        if (!parsed || !Array.isArray(parsed.tokenBalances)) {
-          missing.push(address);
-          return;
-        }
-        balances[address] = parsed;
-      } catch {
-        missing.push(address);
-      }
-    });
-
-    return { balances, missing };
-  }
-
-
   /**
    * Orchestrates the full data synchronization and analysis pipeline for a list of wallets.
    * This includes fetching all transactions and running PNL and behavior analysis.
@@ -566,157 +464,40 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * Filters out and tags known system wallets from the provided list of wallet addresses.
-   * This ensures that these wallets are not included in the similarity analysis.
+   * Detects and filters system wallets using the centralized SystemWalletDetectionService.
+   *
+   * Thresholds:
+   * - 15k-35k tokens: LARGE (processed with warning)
+   * - 35k+ tokens: INVALID (skipped entirely)
+   *
+   * The service handles 3-tier caching (memory → Redis → database) and dynamic RPC detection.
    */
-  private async filterAndTagSystemWallets(walletAddresses: string[]): Promise<void> {
-    const systemWalletsArray = [...KNOWN_SYSTEM_WALLETS] as string[]; // Convert readonly to mutable array
-    const systemWalletsSet = new Set(systemWalletsArray);
-    const taggedWallets: string[] = [];
-    const invalidWallets: string[] = [];
-
-    for (const address of walletAddresses) {
-      if (systemWalletsSet.has(address)) {
-        this.logger.warn(`Wallet ${address} is a known system wallet - tagging as INVALID.`);
-        // Tag as INVALID using the correct method parameters
-        await this.databaseService.updateWalletClassification(address, {
-          classification: WALLET_CLASSIFICATIONS.INVALID,
-          classificationMethod: 'system_wallet_filter',
-          classificationUpdatedAt: new Date(),
-        });
-        invalidWallets.push(address);
-      } else {
-        taggedWallets.push(address);
-      }
-    }
-
-    // this.logger.log(`System wallet filtering complete: ${taggedWallets.length} valid, ${invalidWallets.length} invalid`);
-  }
-
-
-
-  /**
-   * Detects and returns wallets with excessive token counts early in the process.
-   * This helps prevent processing wallets that are likely system wallets or have
-   * an unusually high number of tokens, which can cause performance issues.
-   * 
-   * Uses dynamic detection by checking actual token counts, not just hardcoded lists.
-   */
-  private async detectSystemWalletsEarly(walletAddresses: string[]): Promise<{ 
-    validWallets: string[], 
-    systemWallets: string[], 
-    tokenCounts: Record<string, number>,
-    tokenData: Record<string, any[]> // Store actual token data for reuse
+  private async detectSystemWalletsEarly(walletAddresses: string[]): Promise<{
+    validWallets: string[];
+    systemWallets: string[];
   }> {
-    const validWallets: string[] = [];
-    const systemWallets: string[] = [];
-    const tokenCounts: Record<string, number> = {};
-    const tokenData: Record<string, any[]> = {};
-    const SYSTEM_WALLET_THRESHOLD = 10000; // 10k+ tokens = system wallet
+    this.logger.log(`🔍 System wallet detection: Using SystemWalletDetectionService (thresholds: 15k LARGE, 35k INVALID)`);
 
-    this.logger.log(`🔍 Dynamic system wallet detection: Checking ${walletAddresses.length} wallets for excessive token counts...`);
+    // Use the centralized detection service
+    const { valid, filtered, largeWallets } = await this.systemWalletDetection.filterSystemWallets(walletAddresses);
 
-    // Check database first for existing INVALID classifications
-    const walletsNeedingRpcCheck: string[] = [];
-    try {
-      const existingWallets = await this.databaseService.getWallets(walletAddresses, true) as any[];
-      const walletMap = new Map(existingWallets.map(w => [w.address, w]));
-
-      for (const address of walletAddresses) {
-        const wallet = walletMap.get(address);
-        if (wallet && wallet.classification === 'INVALID') {
-          this.logger.debug(`Skipping ${address} - already tagged as INVALID in database`);
-          systemWallets.push(address);
-          tokenCounts[address] = -1; // Mark as already processed
-        } else {
-          walletsNeedingRpcCheck.push(address);
-        }
-      }
-    } catch (error) {
-      this.logger.warn(`Database check failed, proceeding with all wallets:`, error);
-      walletsNeedingRpcCheck.push(...walletAddresses);
-    }
-
-    // Now check the remaining wallets that need RPC verification
-    for (const address of walletsNeedingRpcCheck) {
-      try {
-        // Check if it's already in our known system wallets list
-        if (KNOWN_SYSTEM_WALLETS.includes(address as any)) {
-          systemWallets.push(address);
-          this.logger.debug(`Known system wallet detected: ${address}`);
-          continue;
-        }
-
-        // Dynamic detection: Check actual token count and get full data
-        const tokenAccountsResult = await this.heliusApiClient.getTokenAccountsByOwner(
-          address,
-          undefined, // No specific mint
-          SPL_TOKEN_PROGRAM_ID,
-          undefined, // Default commitment
-          'jsonParsed' // Get full parsed data for reuse
-        );
-
-        const tokenCount = tokenAccountsResult.value.length;
-        
-        // Store token data for reuse in balance fetching
-        tokenData[address] = tokenAccountsResult.value;
-        
-        if (tokenCount >= SYSTEM_WALLET_THRESHOLD) {
-          systemWallets.push(address);
-          this.logger.warn(`🚨 DYNAMIC SYSTEM WALLET DETECTED: ${address} has ${tokenCount} tokens (threshold: ${SYSTEM_WALLET_THRESHOLD})`);
-          
-          // Auto-tag the wallet as SYSTEM in database
-          try {
-            await this.databaseService.updateWalletClassification(address, {
-              classification: WALLET_CLASSIFICATIONS.INVALID,
-              classificationMethod: 'dynamic_token_count_detection',
-              classificationUpdatedAt: new Date(),
-            });
-            this.logger.log(`✅ Auto-tagged wallet ${address} as INVALID in database`);
-          } catch (tagError) {
-            this.logger.warn(`Failed to auto-tag wallet ${address} as INVALID:`, tagError);
-          }
-        } else {
-          validWallets.push(address);
-          this.logger.debug(`Valid wallet: ${address} has ${tokenCount} tokens`);
-        }
-        tokenCounts[address] = tokenCount; // Store token count for balance fetch
-      } catch (error: any) {
-        const errorMessage = error.message || 'Unknown error';
-        
-        // Check for specific error types that indicate system wallets
-        if (errorMessage.includes('Maximum call stack size exceeded') || 
-            errorMessage.includes('stack overflow') ||
-            errorMessage.includes('memory') ||
-            errorMessage.includes('timeout')) {
-          this.logger.warn(`🚨 SYSTEM WALLET DETECTED (ERROR): ${address} caused ${errorMessage} - likely has excessive tokens`);
-          
-          // Auto-tag as INVALID in database
-          try {
-            await this.databaseService.updateWalletClassification(address, {
-              classification: WALLET_CLASSIFICATIONS.INVALID,
-              classificationMethod: 'error_detection',
-              classificationUpdatedAt: new Date(),
-            });
-            this.logger.log(`✅ Auto-tagged wallet ${address} as INVALID due to error during early detection`);
-          } catch (tagError) {
-            this.logger.warn(`Failed to auto-tag wallet ${address} as INVALID:`, tagError);
-          }
-          
-          systemWallets.push(address);
-          tokenCounts[address] = -1; // Mark as error
-        } else {
-          // If the lightweight check fails for other reasons, include the wallet in valid wallets
-          // This ensures we don't accidentally exclude wallets due to API issues
-          this.logger.warn(`Dynamic system wallet detection failed for ${address}, including in valid wallets:`, error);
-          validWallets.push(address);
-          tokenCounts[address] = 0; // Ensure token count is 0 for invalid wallets
-        }
+    if (filtered.size > 0) {
+      this.logger.warn(`🚫 Filtered ${filtered.size} system wallet(s) from similarity analysis`);
+      for (const [address, reason] of filtered) {
+        this.logger.debug(`  - ${address}: ${reason}`);
       }
     }
 
-    this.logger.log(`Dynamic system wallet detection complete: ${validWallets.length} valid wallets, ${systemWallets.length} system wallets detected`);
-    return { validWallets, systemWallets, tokenCounts, tokenData };
+    if (largeWallets.length > 0) {
+      this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-35k tokens)`);
+    }
+
+    this.logger.log(`System wallet detection complete: ${valid.length} valid wallets, ${filtered.size} system wallets filtered`);
+
+    return {
+      validWallets: valid,
+      systemWallets: Array.from(filtered.keys()),
+    };
   }
 
   /**
