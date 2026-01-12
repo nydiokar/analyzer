@@ -168,6 +168,8 @@ export class AnalysesController {
     estimatedProcessingTime: string;
     monitoringUrl: string;
   }> {
+    // NOTE: Similarity jobs currently do their own system-wallet detection + balance fetch.
+    // TODO: Add a cache-only flag (holder-profiles → similarity) to skip redundant balance RPCs.
     this.logger.log(`Received request to queue similarity analysis for ${dto.walletAddresses.length} wallets.`);
 
     // Validate input

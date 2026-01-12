@@ -2,7 +2,7 @@
 
 Project: Sova Intel - Wallet Analysis System
 Branch: discover-analytics-ux
-Last Updated: 2026-01-10
+Last Updated: 2026-01-12
 
 ## Current Focus
 UX/Analytics refactor for three main pages:
@@ -97,6 +97,13 @@ Mapper changes do not backfill existing SwapAnalysisInput rows. To see fixes:
 - Add "approaching typical hold time" component
 - Holders table with 7 columns including merged Category+Time
 - Similarity analysis sidebar with compact cards
+**Pending (Task 3):**
+- Holder profiles → similarity now triggers sequentially after completion; review once similarity lab refactor lands.
+- Similarity job fast-path currently reads cached balances via private helper in `SimilarityOperationsProcessor`; replace with BalanceCacheService cache-only helper or job flag.
+- Similarity lab + analyses controller have TODOs for cache-only path when ready.
+- Holder profiles page has TODOs for JobResult unwrap + cache-only similarity queue.
+- Holder profiles UI: clear stale results on failure vs keep last success (decide behavior).
+- Similarity sidebar message "Will retry with next batch" is misleading; update copy or add retry.
 
 ### 4. Similarity Lab Bug Fixes
 **Status:** Pending

@@ -1154,9 +1154,21 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(40);
 
     // Aggregate SwapAnalysisInput → AnalysisResult (PnL calculation)
-    // PnL analysis now fetches SOL price internally when not provided
+    // Reuse cached balances when available to avoid extra RPC calls later (e.g., similarity).
     this.logger.debug(`Running PnL aggregation for ${walletAddress} [holder-profile mode]`);
-    await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined);
+    const cachedBalance = await this.balanceCacheService.getBalances(walletAddress);
+    const preFetchedBalances = cachedBalance ? new Map([[walletAddress, cachedBalance]]) : undefined;
+    const pnlSummary = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, {
+      preFetchedBalances,
+    });
+    if (!cachedBalance && pnlSummary?.tokenBalances && pnlSummary.balancesFetchedAt) {
+      const balanceToCache: WalletBalance = {
+        solBalance: pnlSummary.currentSolBalance ?? 0,
+        tokenBalances: pnlSummary.tokenBalances,
+        fetchedAt: pnlSummary.balancesFetchedAt,
+      };
+      await this.balanceCacheService.cacheBalances(walletAddress, balanceToCache, 600);
+    }
     await job.updateProgress(50);
 
     const profile = await this.analyzeWalletProfile(walletAddress, inferredRank, inferredSupplyPercent, swapRecords);

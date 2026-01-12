@@ -395,6 +395,8 @@ export default function AnalysisLabPage() {
     setJobProgress(0);
     
     try {
+      // NOTE: Similarity jobs currently perform their own balance fetch + system-wallet detection.
+      // TODO: Allow cache-only runs once BalanceCacheService exposes a cache-only helper.
       const jobResponse = await fetcher('/analyses/similarity/queue', {
         method: 'POST',
         body: JSON.stringify({

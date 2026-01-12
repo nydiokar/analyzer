@@ -117,8 +117,23 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       // First, tag known system wallets
       await this.filterAndTagSystemWallets(walletAddresses);
       
+      // NOTE: Fast-path for holder-profiles → similarity chain when balances are already cached.
+      // TODO: Replace with BalanceCacheService cache-only helper and/or job flag once refactoring is prioritized.
+      const cachedBalancesResult = await this.getCachedBalances(walletAddresses);
+      const shouldSkipDynamicDetection = cachedBalancesResult.missing.length === 0;
+      if (shouldSkipDynamicDetection) {
+        this.logger.debug('Skipping dynamic system wallet detection (all balances cached).');
+      }
+
       // Then run dynamic detection on ALL wallets (including those that might be pre-tagged)
-      const dynamicDetectionResult = await this.detectSystemWalletsEarly(walletAddresses);
+      const dynamicDetectionResult = shouldSkipDynamicDetection
+        ? {
+            validWallets: walletAddresses,
+            systemWallets: [],
+            tokenCounts: {},
+            tokenData: {},
+          }
+        : await this.detectSystemWalletsEarly(walletAddresses);
       
       // Combine results: any wallet that's either pre-tagged or dynamically detected is invalid
       const validWallets: string[] = [];
@@ -174,11 +189,13 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         : Promise.resolve();
 
       // Start balance fetching in parallel - DON'T await yet
-      const balancePromise = this.balanceCacheService.getManyBalances(
-        dynamicDetectionResult.validWallets, 
-        dynamicDetectionResult.tokenCounts, 
-        dynamicDetectionResult.tokenData
-      );
+      const balancePromise = shouldSkipDynamicDetection
+        ? Promise.resolve(cachedBalancesResult.balances)
+        : this.balanceCacheService.getManyBalances(
+            dynamicDetectionResult.validWallets,
+            dynamicDetectionResult.tokenCounts,
+            dynamicDetectionResult.tokenData
+          );
       
       // Log progress but don't block
       await job.updateProgress(10);
@@ -371,6 +388,42 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     return `similarity:result:${requestId}`;
   }
 
+  // NOTE: Private cache-only read to avoid redundant RPC when holder profiles already fetched balances.
+  // TODO: Replace with BalanceCacheService cache-only helper once added (avoid raw Redis access here).
+  private async getCachedBalances(walletAddresses: string[]): Promise<{
+    balances: Record<string, WalletBalance>;
+    missing: string[];
+  }> {
+    if (walletAddresses.length === 0) {
+      return { balances: {}, missing: [] };
+    }
+
+    const keys = walletAddresses.map(address => `balance:${address}`);
+    const cached = await this.redisClient.mget(keys);
+
+    const balances: Record<string, WalletBalance> = {};
+    const missing: string[] = [];
+
+    cached.forEach((value, index) => {
+      const address = walletAddresses[index];
+      if (!value) {
+        missing.push(address);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(value) as WalletBalance | null;
+        if (!parsed || !Array.isArray(parsed.tokenBalances)) {
+          missing.push(address);
+          return;
+        }
+        balances[address] = parsed;
+      } catch {
+        missing.push(address);
+      }
+    });
+
+    return { balances, missing };
+  }
 
 
   /**

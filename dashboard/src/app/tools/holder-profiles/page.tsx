@@ -85,6 +85,8 @@ export default function HolderProfilesPage() {
     []
   );
 
+  // NOTE: We only trigger similarity after holder profiles completes to avoid mid-stream churn.
+  // TODO: Use a cache-only flag once similarity can rely on BalanceCacheService for cached balances.
   const queueSimilarityAnalysis = useCallback(async (walletAddresses: string[]) => {
     if (walletAddresses.length < 2) {
       return;
@@ -114,6 +116,8 @@ export default function HolderProfilesPage() {
     }
   }, []);
 
+  // NOTE: Similarity returns a standard JobResult wrapper; unwrap and normalize here.
+  // TODO: Align this with the shared queue job result types once refactoring is prioritized.
   const extractSimilarityResult = useCallback((payload: JobResult | unknown): CombinedSimilarityResult | null => {
     if (!payload) {
       return null;
