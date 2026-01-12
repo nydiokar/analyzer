@@ -498,7 +498,7 @@ export class AnalysesController {
   @HttpCode(202)
   async queueHolderProfilesAnalysis(
     @Req() req: Request & { user?: User },
-    @Body() body: { tokenMint: string; topN?: number },
+    @Body() body: { tokenMint: string; topN?: number; debugFailAfterProfiles?: number },
   ): Promise<{
     jobId: string;
     requestId: string;
@@ -520,6 +520,11 @@ export class AnalysesController {
       throw new BadRequestException('topN must be between 1 and 50');
     }
 
+    const debugFailAfterProfiles = process.env.NODE_ENV !== 'production'
+      ? Number(body.debugFailAfterProfiles)
+      : undefined;
+    const shouldDebugFailAfterProfiles = Number.isFinite(debugFailAfterProfiles) && debugFailAfterProfiles >= 0;
+
     try {
       // Generate request ID
       const requestId = `holder-profiles-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -531,6 +536,7 @@ export class AnalysesController {
         tokenMint: body.tokenMint,
         topN,
         requestId,
+        ...(shouldDebugFailAfterProfiles ? { debugFailAfterProfiles } : {}),
       };
 
       // Add job to analysis operations queue

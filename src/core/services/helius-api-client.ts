@@ -1246,9 +1246,10 @@ export class HeliusApiClient {
         const sanitizedError = this.sanitizeError(error);
 
         if (!this.isRetryableError(error) || retries >= MAX_RETRIES) {
-           logger.error(
-            `All retries failed or non-retryable error for RPC method ${method}.`,
-            { params, lastError: sanitizedError }
+          const logLevel = this.isRetryableError(error) ? 'error' : 'warn';
+          logger[logLevel](
+            `RPC method ${method} failed${this.isRetryableError(error) ? ' after retries' : ''}.`,
+            { lastError: sanitizedError }
           );
           throw new Error(
             `Failed to execute RPC method ${method}: ${sanitizedError.message || 'Unknown RPC Error'}`
@@ -1565,10 +1566,15 @@ export class HeliusApiClient {
       logger.debug(`Successfully fetched ${result.value.length} largest token accounts for mint ${mintPubkey}`);
       return result;
     } catch (error) {
-      logger.error(
-        `Failed to fetch largest token accounts for mint ${mintPubkey}`,
-        { error: this.sanitizeError(error), mintPubkey, options }
-      );
+      const message = String((error as Error)?.message || '').toLowerCase();
+      if (message.includes('invalid token mint') || message.includes('not a token mint') || message.includes('invalid param')) {
+        logger.warn(`Invalid token mint provided for getTokenLargestAccounts`, { mintPubkey });
+      } else {
+        logger.error(
+          `Failed to fetch largest token accounts for mint ${mintPubkey}`,
+          { error: this.sanitizeError(error), mintPubkey, options }
+        );
+      }
       throw error; // Re-throw to allow the caller to handle it
     }
   }

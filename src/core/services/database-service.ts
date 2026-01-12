@@ -119,6 +119,7 @@ interface HolderProfileSnapshotCreateParams {
 interface WalletStatus {
   walletAddress: string;
   status: WalletAnalysisStatus;
+  lastSuccessfulFetchTimestamp?: Date | null;
 }
 
 interface WalletStatusResponse {
@@ -479,7 +480,7 @@ export class DatabaseService {
 
             const foundWallets = await this.prismaClient.wallet.findMany({
                 where: { address: { in: walletAddresses } },
-                select: { address: true, analyzedTimestampEnd: true },
+                select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true },
             });
 
             const latestRunMap = new Map(latestRuns.map(run => [run.walletAddress, run]));
@@ -490,13 +491,14 @@ export class DatabaseService {
             const statuses: WalletStatus[] = walletAddresses.map(addr => {
                 const latestRun = latestRunMap.get(addr);
                 const wallet = walletMap.get(addr);
+                const lastFetch = wallet?.lastSuccessfulFetchTimestamp ?? null;
 
                 if (!latestRun) {
-                    return { walletAddress: addr, status: WalletAnalysisStatus.MISSING };
+                    return { walletAddress: addr, status: WalletAnalysisStatus.MISSING, lastSuccessfulFetchTimestamp: lastFetch };
                 }
-                
+
                 if (latestRun.status === 'IN_PROGRESS' || latestRun.status === 'INITIATED') {
-                    return { walletAddress: addr, status: WalletAnalysisStatus.IN_PROGRESS };
+                    return { walletAddress: addr, status: WalletAnalysisStatus.IN_PROGRESS, lastSuccessfulFetchTimestamp: lastFetch };
                 }
 
                 if (latestRun.status === 'FAILED') {
@@ -506,10 +508,10 @@ export class DatabaseService {
 
                 // If the run is COMPLETED or FAILED, check for staleness.
                 if (!wallet?.analyzedTimestampEnd || wallet.analyzedTimestampEnd < stalenessThreshold) {
-                    return { walletAddress: addr, status: WalletAnalysisStatus.STALE };
+                    return { walletAddress: addr, status: WalletAnalysisStatus.STALE, lastSuccessfulFetchTimestamp: lastFetch };
                 }
 
-                return { walletAddress: addr, status: WalletAnalysisStatus.READY };
+                return { walletAddress: addr, status: WalletAnalysisStatus.READY, lastSuccessfulFetchTimestamp: lastFetch };
             });
 
             return { statuses };

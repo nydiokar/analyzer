@@ -50,6 +50,7 @@ export interface AnalyzeHolderProfilesJobData {
   topN?: number;              // Number of top holders to analyze (default: 10) when token mode
   walletAddress?: string;     // Specific wallet to analyze when wallet mode
   requestId: string;
+  debugFailAfterProfiles?: number; // Dev-only: force failure after streaming N profiles
   _holderContext?: {
     rank: number;
     supplyPercent: number;

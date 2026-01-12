@@ -1,5 +1,6 @@
 import { useMemo, useEffect } from 'react';
 import { Loader2, RefreshCw, Users } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { SimilarityPairRibbon, type SimilarityPairData } from './SimilarityPairRibbon';
 import { ClusterIndicator } from './ClusterIndicator';
@@ -31,6 +32,8 @@ interface Props {
   walletRanks?: Map<string, number>;
   /** Callback to share graph analysis (connection counts, clusters) with parent */
   onGraphAnalysisChange?: (analysis: SimilarityGraphAnalysis | null) => void;
+  /** Callback to retry similarity analysis */
+  onRetry?: () => void;
 }
 
 // Re-export for parent components
@@ -80,6 +83,7 @@ export function SimilaritySidebar({
   onClusterSelect,
   walletRanks,
   onGraphAnalysisChange,
+  onRetry,
 }: Props) {
   const pairs = useMemo(() => {
     if (!similarityResult) return [];
@@ -221,8 +225,18 @@ export function SimilaritySidebar({
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-center transition-all duration-300 animate-in fade-in">
           <p className="text-xs text-destructive">Analysis failed</p>
           <p className="text-[10px] text-muted-foreground mt-1">
-            Will retry with next batch
+            Retry the similarity analysis with the current wallet set.
           </p>
+          {onRetry && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3 h-7 text-[10px]"
+              onClick={onRetry}
+            >
+              Retry analysis
+            </Button>
+          )}
         </div>
       </aside>
     );

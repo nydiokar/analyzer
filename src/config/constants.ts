@@ -90,6 +90,9 @@ export const ANALYSIS_EXECUTION_CONFIG = {
   SIMILARITY_LAB_MAX_SIGNATURES: getEnvNumber('SIMILARITY_LAB_MAX_SIGNATURES', 500),
   DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 4000),
   HOLDER_PROFILES_MAX_SIGNATURES: getEnvNumber('HOLDER_PROFILES_MAX_SIGNATURES', 2000), // Wallet sync cap for holder profiles
+  HOLDER_PROFILES_TOKEN_CACHE_MAX_AGE_SECONDS: getEnvNumber('HOLDER_PROFILES_TOKEN_CACHE_MAX_AGE_SECONDS', 300),
+  HOLDER_PROFILES_SNAPSHOT_MAX_AGE_MINUTES: getEnvNumber('HOLDER_PROFILES_SNAPSHOT_MAX_AGE_MINUTES', 60),
+  HOLDER_PROFILES_TOP_HOLDERS_TTL_SECONDS: getEnvNumber('HOLDER_PROFILES_TOP_HOLDERS_TTL_SECONDS', 60),
 } as const;
 
 export const DASHBOARD_ANALYSIS_SCOPE_DEFAULTS = {
@@ -278,7 +281,7 @@ export const KNOWN_SYSTEM_WALLETS = [
   'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA',
   '45ruCyfdRkWpRNGEqWzjCiXRHkZs8WXCLQ67Pnpye7Hp', // jupiter partner referral fee vault
   'HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC', // jupiter partner referral fee vault
-  
+  'FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM',
   // Large system accounts (over 10k tokens but not necessarily Jupiter)
   '34FKjAdVcTax2DHqV2XnbXa9J3zmyKcFuFKWbcmgxjgm', // 5.5k tokens - system account
   'ZG98FUCjb8mJ824Gbs6RsgVmr1FhXb2oNiJHa2dwmPd', // 5.5k tokens - system account

@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Job, Worker } from 'bullmq';
+import { Job, Worker, UnrecoverableError } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts, JobPriority } from '../config/queue.config';
 import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult, AnalyzeHolderProfilesJobData, HolderProfilesResult, HolderProfile } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
@@ -59,7 +59,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     });
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Job ${job?.id} from queue ${job?.queueName} failed:`, err);
+      if (err instanceof UnrecoverableError) {
+        this.logger.warn(`Job ${job?.id} from queue ${job?.queueName} failed: ${err.message}`);
+      } else {
+        this.logger.error(`Job ${job?.id} from queue ${job?.queueName} failed:`, err);
+      }
     });
 
     this.worker.on('error', (err) => {
@@ -711,6 +715,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const { mode = 'token', tokenMint, topN = 10, walletAddress, requestId } = job.data;
     const startTime = Date.now();
     const timeoutMs = 5 * 60 * 1000;
+    const debugFailAfterProfiles = process.env.NODE_ENV !== 'production'
+      ? job.data.debugFailAfterProfiles
+      : undefined;
+    const shouldDebugFailAfterProfiles = Number.isFinite(debugFailAfterProfiles) && (debugFailAfterProfiles as number) >= 0;
+    let debugFailTriggered = false;
 
     /**
      * TOKEN MODE OVERVIEW (new orchestrator pattern)
@@ -747,18 +756,23 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     this.logger.log(`Starting token holder orchestration for ${tokenMint} [topN=${topN}]`);
 
     try {
-      const cachedResult = await this.holderProfilesCacheService.getTokenResult(tokenMint, topN);
-      if (cachedResult) {
-        this.logger.log(`Returning cached holder profiles for ${tokenMint} (topN=${topN})`);
-        await job.updateProgress(100);
-        return cachedResult;
-      }
-
       this.checkTimeout(startTime, timeoutMs, 'Starting holder profiles analysis');
       await job.updateProgress(5);
 
       this.logger.debug(`Fetching top ${topN} holders for ${tokenMint}...`);
-      const topHoldersResponse = await this.tokenHoldersService.getTopHolders(tokenMint);
+      let topHoldersResponse = await this.holderProfilesCacheService.getCachedTopHolders(tokenMint);
+      if (!topHoldersResponse) {
+        try {
+          topHoldersResponse = await this.tokenHoldersService.getTopHolders(tokenMint);
+          await this.holderProfilesCacheService.cacheTopHolders(tokenMint, topHoldersResponse);
+        } catch (error: any) {
+          const message = String(error?.message || '').toLowerCase();
+          if (message.includes('invalid token mint') || message.includes('not a token mint') || message.includes('invalid param')) {
+            throw new UnrecoverableError(`Invalid token mint: ${tokenMint}`);
+          }
+          throw error;
+        }
+      }
       const topHolders = topHoldersResponse.holders.slice(0, topN);
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching top holders');
@@ -841,6 +855,33 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         });
       });
 
+      const cachedResult = await this.holderProfilesCacheService.getTokenResult(tokenMint, topN);
+      if (cachedResult) {
+        const cachedWallets = cachedResult.profiles.map((profile) => profile.walletAddress);
+        const sameWallets = cachedWallets.length === walletAddresses.length &&
+          cachedWallets.every((wallet, idx) => wallet === walletAddresses[idx]);
+        const hasMissingHoldings = cachedResult.profiles.some((profile) => {
+          const count = profile.currentHoldingsCount ?? 0;
+          if (count <= 0) {
+            return false;
+          }
+          const holdings = profile.currentHoldings ?? [];
+          if (holdings.length === 0) {
+            return true;
+          }
+          const hasValue = holdings.some((holding) => typeof holding.valueSol === 'number');
+          return !hasValue && (profile.tokenHoldingValueSol === null || profile.tokenHoldingValueSol === undefined);
+        });
+        if (sameWallets) {
+          if (!hasMissingHoldings) {
+            this.logger.log(`Returning cached holder profiles for ${tokenMint} (topN=${topN})`);
+            await job.updateProgress(100);
+            return cachedResult;
+          }
+          this.logger.log(`Cached holder profiles incomplete for ${tokenMint} (topN=${topN}); recomputing`);
+        }
+      }
+
       if (walletAddresses.length === 0) {
         const processingTimeMs = Date.now() - startTime;
         await job.updateProgress(100);
@@ -888,6 +929,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
         aggregatedProfiles.set(wallet, profile);
         await publishProgressUpdate();
+        if (shouldDebugFailAfterProfiles && !debugFailTriggered && aggregatedProfiles.size >= (debugFailAfterProfiles as number)) {
+          debugFailTriggered = true;
+          throw new UnrecoverableError(`Debug failure after ${debugFailAfterProfiles} profile(s)`);
+        }
       };
 
       await job.updateProgress(20);
@@ -1057,7 +1102,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       return result;
     } catch (error) {
-      this.logger.error(`Holder profiles analysis failed for ${tokenMint}:`, error);
+      if (error instanceof UnrecoverableError) {
+        this.logger.warn(`Holder profiles analysis failed for ${tokenMint}: ${error.message}`);
+      } else {
+        this.logger.error(`Holder profiles analysis failed for ${tokenMint}:`, error);
+      }
       throw error;
     }
   }
@@ -1122,15 +1171,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // Check if wallet needs sync
     this.logger.debug(`Checking wallet status for ${walletAddress}`);
     const walletStatuses = await this.databaseService.getWalletsStatus([walletAddress]);
-    const needsSync =
-      walletStatuses.statuses[0].status === 'STALE' ||
-      walletStatuses.statuses[0].status === 'MISSING';
+    const walletStatus = walletStatuses.statuses[0]?.status;
+    const needsSync = walletStatus === 'STALE' || walletStatus === 'MISSING';
 
     await job.updateProgress(10);
 
     // Sync wallet if needed
     if (needsSync) {
-      this.logger.log(`Syncing wallet ${walletAddress} for holder profile analysis`);
+      this.logger.log(`Syncing wallet ${walletAddress} for holder profile analysis (status: ${walletStatus})`);
       const syncOptions: SyncOptions = {
         limit: 100,
         fetchAll: true,

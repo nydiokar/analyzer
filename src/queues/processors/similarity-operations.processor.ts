@@ -118,22 +118,30 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       await this.filterAndTagSystemWallets(walletAddresses);
       
       // NOTE: Fast-path for holder-profiles → similarity chain when balances are already cached.
-      // TODO: Replace with BalanceCacheService cache-only helper and/or job flag once refactoring is prioritized.
+      // Cached wallets are already validated (they passed through holder profiles).
+      // Only run dynamic detection on wallets MISSING from cache to avoid redundant RPC calls.
       const cachedBalancesResult = await this.getCachedBalances(walletAddresses);
-      const shouldSkipDynamicDetection = cachedBalancesResult.missing.length === 0;
-      if (shouldSkipDynamicDetection) {
+      const cachedWallets = Object.keys(cachedBalancesResult.balances);
+      const hasMissingBalances = cachedBalancesResult.missing.length > 0;
+
+      if (!hasMissingBalances) {
         this.logger.debug('Skipping dynamic system wallet detection (all balances cached).');
+      } else {
+        this.logger.debug(`Running detection for ${cachedBalancesResult.missing.length} uncached wallets (${cachedWallets.length} already cached).`);
       }
 
-      // Then run dynamic detection on ALL wallets (including those that might be pre-tagged)
-      const dynamicDetectionResult = shouldSkipDynamicDetection
-        ? {
-            validWallets: walletAddresses,
+      // Only run detection for wallets MISSING from cache (cached ones are already validated)
+      const dynamicDetectionResult = hasMissingBalances
+        ? await this.detectSystemWalletsEarly(cachedBalancesResult.missing)
+        : {
+            validWallets: [],
             systemWallets: [],
             tokenCounts: {},
             tokenData: {},
-          }
-        : await this.detectSystemWalletsEarly(walletAddresses);
+          };
+
+      // Cached wallets are already valid (they were processed by holder profiles)
+      dynamicDetectionResult.validWallets = [...cachedWallets, ...dynamicDetectionResult.validWallets];
       
       // Combine results: any wallet that's either pre-tagged or dynamically detected is invalid
       const validWallets: string[] = [];
@@ -189,7 +197,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         : Promise.resolve();
 
       // Start balance fetching in parallel - DON'T await yet
-      const balancePromise = shouldSkipDynamicDetection
+      // If all balances are cached, use them directly; otherwise fetch missing ones
+      const balancePromise = !hasMissingBalances
         ? Promise.resolve(cachedBalancesResult.balances)
         : this.balanceCacheService.getManyBalances(
             dynamicDetectionResult.validWallets,

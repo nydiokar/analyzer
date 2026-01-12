@@ -4,7 +4,8 @@ import { HolderProfilesResult, HolderProfile } from '../../queues/jobs/types';
 import { DatabaseService } from './database.service';
 import type { HolderProfileSnapshot, Wallet as PrismaWallet } from '@prisma/client';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
-import { WALLET_STALENESS_CONFIG } from '../../config/constants';
+import { ANALYSIS_EXECUTION_CONFIG, WALLET_STALENESS_CONFIG } from '../../config/constants';
+import type { TopHoldersResponse } from './token-holders.service';
 
 /**
  * TWO-TIER CACHE SERVICE: Manages both Redis (Tier 1) and PostgreSQL (Tier 2) caching
@@ -71,6 +72,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
   private metrics = {
     tier1: { hits: 0, misses: 0 },
     tier2: { hits: 0, misses: 0, partial: 0 },
+    topHolders: { hits: 0, misses: 0 },
     lastReset: new Date(),
   };
 
@@ -89,7 +91,15 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
 
   async getTokenResult(tokenMint: string, topN: number): Promise<HolderProfilesResult | null> {
     const cacheKey = `holder-profiles:token:${tokenMint}:${topN}`;
-    const result = await this.readResult(cacheKey);
+    const result = await this.readResult(cacheKey) as HolderProfilesResult | null;
+    if (result?.timestamp) {
+      const maxAgeMs = ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_TOKEN_CACHE_MAX_AGE_SECONDS * 1000;
+      if (maxAgeMs > 0 && Date.now() - result.timestamp > maxAgeMs) {
+        this.metrics.tier1.misses++;
+        this.logger.debug(`Cache stale: ${cacheKey} (age ${(Date.now() - result.timestamp) / 1000}s)`);
+        return null;
+      }
+    }
     if (result) {
       this.metrics.tier1.hits++;
     } else {
@@ -103,9 +113,27 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
     await this.writeResult(cacheKey, result);
   }
 
+  async getCachedTopHolders(tokenMint: string): Promise<TopHoldersResponse | null> {
+    const cacheKey = `holder-profiles:top-holders:${tokenMint}`;
+    const cached = await this.readResult(cacheKey, { log: false });
+    if (cached) {
+      this.metrics.topHolders.hits++;
+      this.logger.debug(`Cache HIT: ${cacheKey}`);
+      return cached as TopHoldersResponse;
+    }
+    this.metrics.topHolders.misses++;
+    this.logger.debug(`Cache MISS: ${cacheKey}`);
+    return null;
+  }
+
+  async cacheTopHolders(tokenMint: string, result: TopHoldersResponse): Promise<void> {
+    const cacheKey = `holder-profiles:top-holders:${tokenMint}`;
+    await this.writeResult(cacheKey, result, ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_TOP_HOLDERS_TTL_SECONDS);
+  }
+
   async getWalletResult(walletAddress: string): Promise<HolderProfilesResult | null> {
     const cacheKey = `holder-profiles:wallet:${walletAddress}`;
-    const result = await this.readResult(cacheKey);
+    const result = await this.readResult(cacheKey) as HolderProfilesResult | null;
     if (result) {
       this.metrics.tier1.hits++;
     } else {
@@ -222,16 +250,21 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
     }
   }
 
-  private async readResult(cacheKey: string): Promise<HolderProfilesResult | null> {
+  private async readResult(cacheKey: string, options: { log?: boolean } = {}): Promise<unknown | null> {
     const startTime = Date.now();
+    const shouldLog = options.log !== false;
     try {
       const cached = await this.redis.get(cacheKey);
       const duration = Date.now() - startTime;
       if (cached) {
-        this.logger.debug(`Cache HIT: ${cacheKey} (${duration}ms)`);
+        if (shouldLog) {
+          this.logger.debug(`Cache HIT: ${cacheKey} (${duration}ms)`);
+        }
         return JSON.parse(cached);
       }
-      this.logger.debug(`Cache MISS: ${cacheKey} (${duration}ms)`);
+      if (shouldLog) {
+        this.logger.debug(`Cache MISS: ${cacheKey} (${duration}ms)`);
+      }
       return null;
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -241,12 +274,12 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
     }
   }
 
-  private async writeResult(cacheKey: string, result: HolderProfilesResult): Promise<void> {
+  private async writeResult(cacheKey: string, result: unknown, ttlSeconds: number = this.TTL_SECONDS): Promise<void> {
     const startTime = Date.now();
     try {
-      await this.redis.set(cacheKey, JSON.stringify(result), 'EX', this.TTL_SECONDS);
+      await this.redis.set(cacheKey, JSON.stringify(result), 'EX', ttlSeconds);
       const duration = Date.now() - startTime;
-      this.logger.debug(`Cached holder profiles result ${cacheKey} (TTL=${this.TTL_SECONDS}s, ${duration}ms)`);
+      this.logger.debug(`Cached holder profiles result ${cacheKey} (TTL=${ttlSeconds}s, ${duration}ms)`);
     } catch (error) {
       const duration = Date.now() - startTime;
       this.logger.warn(`Cache write failed for ${cacheKey} (${duration}ms):`,
@@ -286,6 +319,14 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
       const analyzedEndMs = walletRecord.analyzedTimestampEnd * 1000; // Convert seconds to ms
       if (analyzedEndMs < stalenessThresholdMs) {
         // Wallet's analysis is stale, regardless of snapshot age
+        return false;
+      }
+    }
+
+    const maxAgeMinutes = ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_SNAPSHOT_MAX_AGE_MINUTES;
+    if (snapshot.tokenMint && maxAgeMinutes > 0) {
+      const maxAgeMs = maxAgeMinutes * 60 * 1000;
+      if (Date.now() - computedAt > maxAgeMs) {
         return false;
       }
     }
@@ -519,6 +560,12 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
         hitRate: this.calculateHitRate(this.metrics.tier2.hits, this.metrics.tier2.misses),
         total: this.metrics.tier2.hits + this.metrics.tier2.misses + this.metrics.tier2.partial,
       },
+      topHolders: {
+        hits: this.metrics.topHolders.hits,
+        misses: this.metrics.topHolders.misses,
+        hitRate: this.calculateHitRate(this.metrics.topHolders.hits, this.metrics.topHolders.misses),
+        total: this.metrics.topHolders.hits + this.metrics.topHolders.misses,
+      },
       uptime: {
         milliseconds: uptimeMs,
         hours: uptimeHours,
@@ -534,6 +581,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
     this.metrics = {
       tier1: { hits: 0, misses: 0 },
       tier2: { hits: 0, misses: 0, partial: 0 },
+      topHolders: { hits: 0, misses: 0 },
       lastReset: new Date(),
     };
     this.logger.log('Cache metrics reset');

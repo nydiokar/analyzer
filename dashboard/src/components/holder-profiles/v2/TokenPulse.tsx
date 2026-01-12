@@ -14,12 +14,19 @@ import { SimilaritySidebar, type SimilarityGraphAnalysis, type SimilarityStatus 
 import { OutcomeStrip } from './OutcomeStrip';
 import { CognitiveMetricCard } from './CognitiveMetricCard';
 import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface Props {
   result: HolderProfilesResult;
   similarityResult?: CombinedSimilarityResult | null;
   similarityStatus?: SimilarityStatus;
   isFinalAnalysis?: boolean;
+  notice?: {
+    title: string;
+    description?: string;
+    variant?: 'default' | 'destructive';
+  } | null;
+  onRetrySimilarity?: () => void;
 }
 
 export function TokenPulse({
@@ -27,6 +34,8 @@ export function TokenPulse({
   similarityResult = null,
   similarityStatus = 'idle',
   isFinalAnalysis = false,
+  notice = null,
+  onRetrySimilarity,
 }: Props) {
   const outcome = getTokenOutcome(result.profiles);
   const speed = getSpeedPrimitive(result.profiles);
@@ -117,6 +126,17 @@ export function TokenPulse({
 
   return (
     <section className="space-y-4 max-w-7xl mx-auto">
+      {notice && (
+        <Alert
+          variant={notice.variant}
+          className={notice.variant === 'destructive' ? undefined : 'border-amber-400/40 bg-amber-50/20'}
+        >
+          <AlertTitle>{notice.title}</AlertTitle>
+          {notice.description && (
+            <AlertDescription>{notice.description}</AlertDescription>
+          )}
+        </Alert>
+      )}
       <div className="grid grid-cols-1 xl:grid-cols-[auto_2fr_repeat(3,minmax(0,1fr))] gap-3 items-start">
         {result.tokenMint && (
           <div className="flex items-start">
@@ -188,6 +208,7 @@ export function TokenPulse({
           onClusterSelect={handleClusterSelect}
           walletRanks={walletRanks}
           onGraphAnalysisChange={handleGraphAnalysisChange}
+          onRetry={onRetrySimilarity}
         />
       </div>
 

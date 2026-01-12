@@ -47,6 +47,26 @@ function getHoldingValueSol(profile: HolderProfile, tokenMint?: string) {
   return total > 0 ? total : null;
 }
 
+function getOverallHoldingsValueSol(profile: HolderProfile, tokenMint?: string) {
+  const holdings = profile.currentHoldings ?? [];
+  const baseHoldings = holdings.filter((holding) => !EXCLUDED_HOLDING_MINTS.has(holding.tokenAddress));
+  const baseTotal = baseHoldings.reduce((sum, holding) => {
+    if (typeof holding.valueSol === 'number') return sum + holding.valueSol;
+    return sum;
+  }, 0);
+
+  if (tokenMint && typeof profile.tokenHoldingValueSol === 'number') {
+    const tokenHolding = holdings.find((holding) => holding.tokenAddress === tokenMint);
+    const hasTokenValue = typeof tokenHolding?.valueSol === 'number';
+    const tokenExcluded = EXCLUDED_HOLDING_MINTS.has(tokenMint);
+    if (!hasTokenValue || tokenExcluded) {
+      return baseTotal + profile.tokenHoldingValueSol;
+    }
+  }
+
+  return baseTotal > 0 ? baseTotal : null;
+}
+
 function getRealizedPnlDisplay(profile: HolderProfile) {
   // Show realized PnL in SOL (prefer SOL over USD)
   if (typeof profile.walletRealizedPnlSol === 'number') {
@@ -100,7 +120,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
                   <p className="text-muted-foreground">
-                    Total SOL value and Hold time for all currently held tokens across all positions with value ≥ 0.3 SOL.
+                    Total value and Hold time (median) for all currently held tokens across all positions with value ≥ 0.3 SOL.
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -126,7 +146,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                 ? profile.tokenHoldingValueSol
                 : getHoldingValueSol(profile, tokenMint))
               : getHoldingValueSol(profile, tokenMint);
-            const totalHoldingsValueSol = getHoldingValueSol(profile);
+            const totalHoldingsValueSol = getOverallHoldingsValueSol(profile, tokenMint);
             const supplyPercent = typeof profile.supplyPercent === 'number' ? profile.supplyPercent : null;
             const pnlDisplay = getRealizedPnlDisplay(profile);
             const currentHoldTime = hasSignificantHoldings(profile)
@@ -245,11 +265,17 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                     return (
                       <div className="flex flex-col gap-0.5">
                         <span className={`${isSignificantlyLarger ? 'font-medium text-amber-400' : 'text-foreground'} text-[13px] whitespace-nowrap`}>
-                          {formatSol(totalHoldingsValueSol)}
+                          {totalHoldingsValueSol !== null ? formatSol(totalHoldingsValueSol) : '—'}
                         </span>
-                        <span className="text-[12px] text-muted-foreground whitespace-nowrap">
-                          {formatHoldTime(currentHoldTime)}
-                        </span>
+                        {totalHoldingsValueSol === null && (profile.currentHoldingsCount ?? 0) > 0 ? (
+                          <span className="text-[12px] text-muted-foreground whitespace-nowrap">
+                            Value unavailable ({profile.currentHoldingsCount} holdings)
+                          </span>
+                        ) : (
+                          <span className="text-[12px] text-muted-foreground whitespace-nowrap">
+                            {formatHoldTime(currentHoldTime)}
+                          </span>
+                        )}
                       </div>
                     );
                   })()}
