@@ -163,6 +163,9 @@ export class JobsService {
       requestId,
       failureThreshold: dto.failureThreshold ?? 0.8,
       timeoutMinutes: dto.timeoutMinutes ?? 30,
+      includeBalances: dto.includeBalances ?? false,
+      includeVectors: dto.includeVectors ?? false,
+      enrichMetadata: dto.enrichMetadata ?? false,
       similarityConfig: {
         vectorType: dto.vectorType || 'capital',
         excludeMints: [],

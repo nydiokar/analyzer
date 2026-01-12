@@ -83,6 +83,8 @@ export interface ComprehensiveSimilarityFlowData {
   requestId: string;
   walletsNeedingSync?: string[]; // Specific wallets that need sync (empty array = no sync needed)
   enrichMetadata?: boolean;     // Whether to enrich token metadata (default true)
+  includeBalances?: boolean;    // Include wallet balances in result payload (default false)
+  includeVectors?: boolean;     // Include wallet vectors in result payload (default false)
   failureThreshold?: number;    // Partial failure tolerance (default 0.8)
   timeoutMinutes?: number;      // Job-level timeout (default 45)
   similarityConfig?: {
@@ -100,12 +102,22 @@ export interface ComprehensiveSimilarityFlowData {
 
 // Enrichment Operations Job Data
 export interface EnrichTokenBalancesJobData {
-  walletBalances: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>;
+  walletBalances?: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>;
+  balancesKey?: string;
+  walletAddresses?: string[];
   userId?: string;              // User who triggered the job (for room-based WebSocket)
   requestId: string;
   priority?: number;
   optimizationHint?: 'small' | 'large' | 'massive'; // For smart batching
   enrichmentContext?: 'dashboard-analysis' | 'similarity-analysis' | 'manual'; // Context for filtering decisions
+}
+
+export interface ParallelEnrichmentJobData {
+  requestId: string;
+  userId?: string;
+  walletBalances?: Record<string, any>;
+  balancesKey?: string;
+  walletAddresses?: string[];
 }
 
 

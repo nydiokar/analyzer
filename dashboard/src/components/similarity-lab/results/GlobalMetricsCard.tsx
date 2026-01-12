@@ -12,7 +12,11 @@ interface GlobalMetricsCardProps {
   metrics: GlobalMetrics;
   pairwiseSimilarities: CombinedPairwiseSimilarity[];
   walletBalances?: Record<string, any> | null;
-  walletVectorsUsed?: Record<string, Record<string, number>>;
+  uniqueTokensPerWallet?: Record<string, { binary: number; capital: number }>;
+  summary?: {
+    walletCount: number;
+    uniqueTokensTotal: number;
+  };
 }
 
 const StatCard = ({ title, value, icon, details, tooltipContent }: { title: string, value: string | number | React.ReactNode, icon: React.ReactNode, details?: React.ReactNode, tooltipContent?: string }) => {
@@ -55,7 +59,7 @@ const getSimilarityStatus = (avgSim: number) => {
   }
 };
 
-const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalances, walletVectorsUsed }: GlobalMetricsCardProps) => {
+const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, summary }: GlobalMetricsCardProps) => {
 
   const content = useMemo(() => {
     if (!metrics) return null;
@@ -63,7 +67,9 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
     const percentFormatter = new Intl.NumberFormat('en-US', { style: 'percent', minimumFractionDigits: 1 });
 
     // --- Calculations ---
-    const walletsAnalyzed = walletVectorsUsed ? Object.keys(walletVectorsUsed).length : 0;
+    const walletsAnalyzed =
+      summary?.walletCount ??
+      (uniqueTokensPerWallet ? Object.keys(uniqueTokensPerWallet).length : 0);
     
     const avgSim = metrics.averageSimilarity > 1 ? metrics.averageSimilarity / 100 : metrics.averageSimilarity;
     const similarityStatus = getSimilarityStatus(avgSim);
@@ -82,7 +88,6 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
       .slice(0, 5);
 
     let totalValueAnalyzed = 0;
-    const allTokens = new Set<string>();
     const tokenValues: Record<string, number> = {};
 
     if (walletBalances) {
@@ -99,12 +104,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
       });
     }
 
-    if (walletVectorsUsed) {
-        Object.values(walletVectorsUsed).forEach(walletVector => {
-            Object.keys(walletVector).forEach(mint => allTokens.add(mint));
-        });
-    }
-    const totalUniqueTokens = allTokens.size;
+    const totalUniqueTokens = summary?.uniqueTokensTotal ?? 0;
     
     let topTokenDominance = 0;
     let topTokenDisplay = 'N/A';
@@ -289,7 +289,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
         </CardContent>
       </Card>
     );
-  }, [metrics, pairwiseSimilarities, walletBalances, walletVectorsUsed]);
+  }, [metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, summary]);
   
   return content;
 };

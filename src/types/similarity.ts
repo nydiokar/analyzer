@@ -13,6 +13,11 @@ export interface TokenVector {
     [mint: string]: number;
 }
 
+export interface SimilaritySummary {
+    walletCount: number;
+    uniqueTokensTotal: number;
+}
+
 // =================================================================
 // === Structures for the Core Service (Single Analysis Run)
 // =================================================================
@@ -28,7 +33,7 @@ export interface CorePairwiseResult {
 }
 
 export interface SingleSimilarityResult {
-    walletVectorsUsed: Record<string, TokenVector>;
+    walletVectorsUsed?: Record<string, TokenVector>;
     pairwiseSimilarities: CorePairwiseResult[];
     clusters: WalletCluster[];
     globalMetrics: GlobalMetrics;
@@ -39,6 +44,7 @@ export interface SingleSimilarityResult {
     vectorTypeUsed: 'capital' | 'binary';
     holdingsPresenceJaccardMatrix?: Record<string, Record<string, number>>;
     holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
+    summary?: SimilaritySummary;
 }
 
 export interface GlobalMetrics {
@@ -73,7 +79,7 @@ export interface CombinedPairwiseSimilarity {
 export interface CombinedSimilarityResult {
     pairwiseSimilarities: CombinedPairwiseSimilarity[];
     globalMetrics: GlobalMetrics;
-    walletVectorsUsed: Record<string, TokenVector>;
+    walletVectorsUsed?: Record<string, TokenVector>;
     uniqueTokensPerWallet: Record<string, { binary: number; capital: number }>;
     walletBalances?: Record<string, WalletBalance>;
     vectorTypeUsed: 'combined';
@@ -83,4 +89,5 @@ export interface CombinedSimilarityResult {
     holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
     // Additional field for the original all-tokens holdings matrix (for transparency/debugging)
     holdingsPresenceJaccardMatrixAllTokens?: Record<string, Record<string, number>>;
+    summary?: SimilaritySummary;
 } 

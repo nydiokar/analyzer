@@ -1,4 +1,4 @@
-import { IsArray, IsIn, IsOptional, IsString, ArrayNotEmpty, ArrayMinSize } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString, ArrayNotEmpty, ArrayMinSize, IsBoolean } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class SimilarityAnalysisRequestDto {
@@ -22,4 +22,31 @@ export class SimilarityAnalysisRequestDto {
   @IsOptional()
   @IsIn(['capital', 'binary'])
   vectorType?: 'capital' | 'binary';
+
+  @ApiProperty({
+    description: 'Include full wallet balances in the response payload (heavy).',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  includeBalances?: boolean;
+
+  @ApiProperty({
+    description: 'Include raw wallet vectors in the response payload (very heavy).',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  includeVectors?: boolean;
+
+  @ApiProperty({
+    description: 'Queue background token enrichment for similarity results.',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  enrichMetadata?: boolean;
 }

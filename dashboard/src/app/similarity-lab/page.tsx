@@ -92,7 +92,8 @@ export default function AnalysisLabPage() {
               ? data.result
               : { data: data.result };
           const walletCount =
-            resultData.data?.globalMetrics?.analyzedWallets ??
+            resultData.data?.summary?.walletCount ??
+            Object.keys(resultData.data?.uniqueTokensPerWallet ?? {}).length ??
             Object.keys(resultData.data?.walletBalances ?? {}).length;
           if (jobSocketDebug) {
             console.log('✅ Using similarity result data from WebSocket:', {
@@ -104,7 +105,7 @@ export default function AnalysisLabPage() {
           
           // The correct data structure is: resultData.data (the actual analysis data)
           // resultData is the SimilarityFlowResult wrapper, resultData.data is the analysis data
-          const analysisData = resultData.data;
+          const analysisData = resultData.data ?? resultData;
           
           if (analysisData?.pairwiseSimilarities?.length > 0) {
             setAnalysisResult(analysisData);
@@ -450,19 +451,20 @@ export default function AnalysisLabPage() {
       try {
         const jobStatus = await fetcher(`/jobs/${jobId}/status`);
         
-        if (jobStatus.status === 'completed') {
-          setJobProgress(100);
-          setSyncMessage('Analysis complete! Fetching results...');
+          if (jobStatus.status === 'completed') {
+            setJobProgress(100);
+            setSyncMessage('Analysis complete! Fetching results...');
           
-          const result = await fetcher(`/jobs/${jobId}/result`);
+            const result = await fetcher(`/jobs/${jobId}/result`);
           const resultData = result.result;
-          setAnalysisResult(resultData.data);
+          const analysisData = resultData?.data ?? resultData;
+          setAnalysisResult(analysisData);
           setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
           setCurrentJobId(null);
           setSyncMessage('');
           
           // Show user feedback about invalid wallets if any were filtered out 
-          if (resultData.metadata?.invalidWallets && resultData.metadata.invalidWallets.length > 0) {
+          if (resultData?.metadata?.invalidWallets && resultData.metadata.invalidWallets.length > 0) {
             const invalidCount = resultData.metadata.invalidWallets.length;
             const totalCount = resultData.metadata.requestedWallets;
             const invalidWalletsList = resultData.metadata.invalidWallets

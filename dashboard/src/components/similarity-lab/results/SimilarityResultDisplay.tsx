@@ -26,7 +26,8 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
           metrics={results.globalMetrics}
           pairwiseSimilarities={results.pairwiseSimilarities}
           walletBalances={results.walletBalances}
-          walletVectorsUsed={results.walletVectorsUsed}
+          uniqueTokensPerWallet={results.uniqueTokensPerWallet}
+          summary={results.summary}
         />
       )}
       

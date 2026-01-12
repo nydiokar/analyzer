@@ -21,9 +21,13 @@ export interface SingleSimilarityResult {
   pairwiseSimilarities: CorePairwiseResult[];
   clusters: any[]; // Use a more specific type if cluster structure is known
   globalMetrics: GlobalMetrics;
-  walletVectorsUsed: Record<string, Record<string, number>>;
+  walletVectorsUsed?: Record<string, Record<string, number>>;
   uniqueTokensPerWallet: Record<string, number>;
   vectorTypeUsed: SimilarityVectorType;
+  summary?: {
+    walletCount: number;
+    uniqueTokensTotal: number;
+  };
 }
 
 export interface TokenVector {
@@ -101,7 +105,7 @@ export interface CombinedPairwiseSimilarity {
 export interface CombinedSimilarityResult {
   pairwiseSimilarities: CombinedPairwiseSimilarity[];
   globalMetrics?: GlobalMetrics;
-  walletVectorsUsed: Record<string, Record<string, number>>;
+  walletVectorsUsed?: Record<string, Record<string, number>>;
   uniqueTokensPerWallet: Record<string, { binary: number; capital: number }>;
   walletBalances?: Record<string, { 
     totalValueUsd: number;
@@ -114,6 +118,10 @@ export interface CombinedSimilarityResult {
   holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
   // Additional field for the original all-tokens holdings matrix (for transparency/debugging)
   holdingsPresenceJaccardMatrixAllTokens?: Record<string, Record<string, number>>;
+  summary?: {
+    walletCount: number;
+    uniqueTokensTotal: number;
+  };
 }
 
 // --- END: Types for the new Similarity Report Parser output --- 

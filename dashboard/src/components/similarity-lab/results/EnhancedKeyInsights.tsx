@@ -667,14 +667,15 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
   const [selectedPairId, setSelectedPairId] = useState<string | null>(null);
   
   const walletLabels = useMemo(() => {
-    if (!results.walletVectorsUsed) {
+    const walletKeys = results.uniqueTokensPerWallet ? Object.keys(results.uniqueTokensPerWallet) : [];
+    if (walletKeys.length === 0) {
       return {} as Record<string, string>;
     }
-    return Object.keys(results.walletVectorsUsed).reduce((acc, address) => {
+    return walletKeys.reduce((acc, address) => {
       acc[address] = `${address.slice(0, 6)}...${address.slice(-4)}`;
       return acc;
     }, {} as Record<string, string>);
-  }, [results.walletVectorsUsed]);
+  }, [results.uniqueTokensPerWallet]);
 
   const processedPairs = useMemo(() => {
     const insights = generateKeyInsights(results, walletLabels);

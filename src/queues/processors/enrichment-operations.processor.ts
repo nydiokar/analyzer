@@ -1,7 +1,8 @@
 import { Logger, Injectable, Inject } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
-import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult } from '../jobs/types';
+import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult, ParallelEnrichmentJobData } from '../jobs/types';
+import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { TokenInfoService } from '../../api/services/token-info.service';
@@ -15,7 +16,8 @@ export class EnrichmentOperationsProcessor {
 
     constructor(
     private readonly redisLockService: RedisLockService,
-    private readonly tokenInfoService: TokenInfoService, 
+    private readonly tokenInfoService: TokenInfoService,
+    private readonly balanceCacheService: BalanceCacheService,
 
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {
@@ -62,18 +64,52 @@ export class EnrichmentOperationsProcessor {
    * Process parallel enrichment job using cached balances
    * This runs in the enrichQ queue for the new parallel architecture
    */
-  async processParallelEnrichment(job: Job<{ walletBalances: Record<string, any>; requestId: string }>): Promise<{ enrichedBalances: Record<string, any> }> {
-    const { walletBalances, requestId } = job.data;
+  async processParallelEnrichment(job: Job<ParallelEnrichmentJobData>): Promise<{ enrichedBalances: Record<string, any> }> {
+    const { walletBalances, balancesKey, requestId, walletAddresses } = job.data;
     const startTime = Date.now();
     
-    this.logger.log(`Processing parallel enrichment for ${Object.keys(walletBalances).length} wallets, requestId: ${requestId}`);
+    let balancesPayload = walletBalances;
+    if (!balancesPayload && balancesKey) {
+      const cached = await this.redisClient.get(balancesKey);
+      if (cached) {
+        try {
+          balancesPayload = JSON.parse(cached);
+        } catch (error) {
+          this.logger.error(`Failed to parse balances payload for ${balancesKey}:`, error);
+        }
+      }
+      if (!balancesPayload) {
+        throw new Error(`Missing balances payload for enrichment request ${requestId}`);
+      }
+      // Best-effort cleanup once loaded
+      await this.redisClient.del(balancesKey);
+    }
+
+    if (!balancesPayload) {
+      if (walletAddresses && walletAddresses.length > 0) {
+        const fetched = await this.balanceCacheService.getManyBalances(walletAddresses);
+        const filtered: Record<string, any> = {};
+        for (const [address, balance] of Object.entries(fetched)) {
+          if (balance) {
+            filtered[address] = balance;
+          }
+        }
+        balancesPayload = filtered;
+      }
+    }
+
+    if (!balancesPayload || Object.keys(balancesPayload).length === 0) {
+      throw new Error(`No balances provided for enrichment request ${requestId}`);
+    }
+
+    this.logger.log(`Processing parallel enrichment for ${Object.keys(balancesPayload).length} wallets, requestId: ${requestId}`);
     
     try {
       // Check for cancellation before starting
       await this.checkJobCancellation(job);
       
       // Use the existing sophisticated enrichment logic
-      const { enrichedBalances, summary } = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
+      const { enrichedBalances, summary } = await this.enrichBalancesWithSophisticatedLogic(balancesPayload, job);
 
       // BullMQ handles progress - bridge picks it up automatically
       await job.updateProgress(100);
@@ -140,12 +176,46 @@ export class EnrichmentOperationsProcessor {
    * Preserves database-first optimization, smart batching, and background processing
    */
   async processEnrichTokenBalances(job: Job<EnrichTokenBalancesJobData>): Promise<EnrichTokenBalancesResult> {
-    const { walletBalances, requestId, optimizationHint } = job.data;
+    const { walletBalances, balancesKey, walletAddresses, requestId, optimizationHint } = job.data;
     const timeoutMs = JobTimeouts['enrich-token-balances'].timeout;
     const startTime = Date.now();
-    
-          // Apply deduplication strategy using wallet balances
-      const allTokens = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
+
+      let balancesPayload = walletBalances;
+      if (!balancesPayload && balancesKey) {
+        const cached = await this.redisClient.get(balancesKey);
+        if (cached) {
+          try {
+            balancesPayload = JSON.parse(cached);
+          } catch (error) {
+            this.logger.error(`Failed to parse balances payload for ${balancesKey}:`, error);
+          }
+        }
+        if (!balancesPayload) {
+          throw new Error(`Missing balances payload for enrichment request ${requestId}`);
+        }
+        // Best-effort cleanup once loaded
+        await this.redisClient.del(balancesKey);
+      }
+
+      if (!balancesPayload) {
+        if (walletAddresses && walletAddresses.length > 0) {
+          const fetched = await this.balanceCacheService.getManyBalances(walletAddresses);
+          const filtered: Record<string, any> = {};
+          for (const [address, balance] of Object.entries(fetched)) {
+            if (balance) {
+              filtered[address] = balance;
+            }
+          }
+          balancesPayload = filtered;
+        }
+      }
+
+      if (!balancesPayload || Object.keys(balancesPayload).length === 0) {
+        throw new Error(`No balances provided for enrichment request ${requestId}`);
+      }
+
+      // Apply deduplication strategy using wallet balances
+      const allTokens = Object.values(balancesPayload).flatMap(b => b.tokenBalances.map(t => t.mint));
       const sortedTokens = [...new Set(allTokens)].sort().join('-');
       const expectedJobId = generateJobId.enrichMetadata(sortedTokens, requestId);
       if (job.id !== expectedJobId) {
@@ -165,7 +235,7 @@ export class EnrichmentOperationsProcessor {
         await job.updateProgress(5);
 
         // Use the sophisticated logic from enrichBalances method
-        const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
+        const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(balancesPayload, job);
 
         await job.updateProgress(100);
 

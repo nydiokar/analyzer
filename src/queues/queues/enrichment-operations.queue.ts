@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
-import { EnrichTokenBalancesJobData } from '../jobs/types';
+import { EnrichTokenBalancesJobData, ParallelEnrichmentJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { Job } from 'bullmq';
 import { REDIS_CLIENT } from '../config/redis.provider';
@@ -19,11 +19,20 @@ export class EnrichmentOperationsQueue {
   /**
    * Add a token balance enrichment job to the queue (new sophisticated enrichment)
    */
-  async addEnrichTokenBalances(data: EnrichTokenBalancesJobData, options?: { priority?: number; delay?: number }) {
-    // Generate job ID based on all tokens in the wallet balances
-    const allTokens = Object.values(data.walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
-    const sortedTokens = [...new Set(allTokens)].sort().join('-');
-    const jobId = generateJobId.enrichMetadata(sortedTokens, data.requestId);
+  async addEnrichTokenBalances(
+    data: EnrichTokenBalancesJobData,
+    options?: { priority?: number; delay?: number; jobId?: string }
+  ) {
+    let jobId = options?.jobId;
+    if (!jobId) {
+      if (!data.walletBalances) {
+        throw new Error('walletBalances or jobId is required to enqueue enrichment job');
+      }
+      // Generate job ID based on all tokens in the wallet balances
+      const allTokens = Object.values(data.walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
+      const sortedTokens = [...new Set(allTokens)].sort().join('-');
+      jobId = generateJobId.enrichMetadata(sortedTokens, data.requestId);
+    }
     
     const job = await this.queue.add('enrich-token-balances', data, {
       jobId,
@@ -46,7 +55,7 @@ export class EnrichmentOperationsQueue {
    * Add parallel enrichment job to the queue
    * This is a simplified version for the new parallel architecture
    */
-  async addParallelEnrichmentJob(data: { walletBalances: Record<string, any>, requestId: string, userId?: string }, options?: { priority?: number, delay?: number }): Promise<Job> {
+  async addParallelEnrichmentJob(data: ParallelEnrichmentJobData, options?: { priority?: number, delay?: number }): Promise<Job> {
     const jobId = generateJobId.enrichParallel(data.requestId);
 
     const job = await this.queue.add('parallel-enrichment', data, {
@@ -57,7 +66,7 @@ export class EnrichmentOperationsQueue {
       removeOnFail: 20,
     });
 
-    const userId = (data as any).userId;
+    const userId = data.userId;
     if (userId) {
       const key = `job:user:${jobId}`;
       // Persist routing metadata for room-based websocket delivery (24h TTL)

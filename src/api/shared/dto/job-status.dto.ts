@@ -223,6 +223,21 @@ export class SimilarityAnalysisJobRequestDto {
   @IsOptional()
   @IsNumber()
   timeoutMinutes?: number;
+
+  @ApiProperty({ description: 'Include full wallet balances in the response payload (heavy)', required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  includeBalances?: boolean;
+
+  @ApiProperty({ description: 'Include raw wallet vectors in the response payload (very heavy)', required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  includeVectors?: boolean;
+
+  @ApiProperty({ description: 'Queue background token enrichment for similarity results', required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  enrichMetadata?: boolean;
 }
 
 export class DashboardAnalysisJobRequestDto {

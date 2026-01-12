@@ -36,42 +36,52 @@ export class SimilarityApiService {
             };
 
             const similarityAnalyzer = new SimilarityService(this.databaseService, config);
+
+            const includeBalances = dto.includeBalances === true;
+            const includeVectors = dto.includeVectors === true;
             
             // --- Balances are now pre-fetched and passed in ---
 
-            // --- Pre-enrich balances with existing metadata ---
-            const uniqueMints = Array.from(new Set(
-                [...balancesMap.values()].flatMap(balance => balance.tokenBalances.map(tb => tb.mint))
-            ));
+            if (includeBalances) {
+                // --- Pre-enrich balances with existing metadata ---
+                const uniqueMints = Array.from(new Set(
+                    [...balancesMap.values()].flatMap(balance => balance.tokenBalances.map(tb => tb.mint))
+                ));
 
-            const tokenInfo = await this.tokenInfoService.findManyPartial(uniqueMints);
-            const tokenInfoMap = new Map(tokenInfo.map(info => [info.tokenAddress, info]));
+                const tokenInfo = await this.tokenInfoService.findManyPartial(uniqueMints);
+                const tokenInfoMap = new Map(tokenInfo.map(info => [info.tokenAddress, info]));
 
-            for (const [walletAddress, balance] of balancesMap) {
-                for (const tokenBalance of balance.tokenBalances) {
-                    const info = tokenInfoMap.get(tokenBalance.mint);
-                    if (info) {
-                        tokenBalance.name = info.name;
-                        tokenBalance.symbol = info.symbol;
-                        tokenBalance.imageUrl = info.imageUrl;
+                for (const [, balance] of balancesMap) {
+                    for (const tokenBalance of balance.tokenBalances) {
+                        const info = tokenInfoMap.get(tokenBalance.mint);
+                        if (info) {
+                            tokenBalance.name = info.name;
+                            tokenBalance.symbol = info.symbol;
+                            tokenBalance.imageUrl = info.imageUrl;
 
-                        if (info.priceUsd) {
-                            const price = parseFloat(info.priceUsd);
-                            const rawBalance = BigInt(tokenBalance.balance);
-                            const divisor = BigInt(10 ** tokenBalance.decimals);
-                            const numericBalance = Number(rawBalance) / Number(divisor);
-                            
-                            tokenBalance.priceUsd = price;
-                            tokenBalance.valueUsd = numericBalance * price;
+                            if (info.priceUsd) {
+                                const price = parseFloat(info.priceUsd);
+                                const rawBalance = BigInt(tokenBalance.balance);
+                                const divisor = BigInt(10 ** tokenBalance.decimals);
+                                const numericBalance = Number(rawBalance) / Number(divisor);
+                                
+                                tokenBalance.priceUsd = price;
+                                tokenBalance.valueUsd = numericBalance * price;
+                            }
                         }
                     }
                 }
             }
             
-            // Kick off the core analysis.
+            const transactionData = await this.databaseService.getTransactionsForAnalysis(dto.walletAddresses, config);
+            if (!transactionData || Object.keys(transactionData).length < 2) {
+                throw new UnprocessableEntityException('Insufficient valid wallets for similarity analysis. Some wallets may be invalid or have no transaction data.');
+            }
+
+            // Kick off the core analysis with shared transaction data.
             const analysisPromise = Promise.all([
-                similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'binary', balancesMap),
-                similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'capital', balancesMap)
+                similarityAnalyzer.calculateWalletSimilarityFromTransactions(transactionData, 'binary', balancesMap, { includeVectors }),
+                similarityAnalyzer.calculateWalletSimilarityFromTransactions(transactionData, 'capital', balancesMap, { includeVectors })
             ]);
             
             const [binaryResults, capitalResults] = await analysisPromise;
@@ -120,15 +130,22 @@ export class SimilarityApiService {
                     };
                 }),
                 globalMetrics: capitalResults.globalMetrics,
-                walletVectorsUsed: capitalResults.walletVectorsUsed,
                 uniqueTokensPerWallet: combinedUniqueTokens,
-                walletBalances: Object.fromEntries(balancesMap),
                 sharedTokenCountsMatrix: capitalResults.sharedTokenCountsMatrix,
                 jaccardSimilarityMatrix: capitalResults.jaccardSimilarityMatrix,
                 holdingsPresenceJaccardMatrix: capitalResults['holdingsPresenceFilteredJaccardMatrix'] || capitalResults.holdingsPresenceJaccardMatrix,
                 holdingsPresenceCosineMatrix: capitalResults.holdingsPresenceCosineMatrix,
                 holdingsPresenceJaccardMatrixAllTokens: capitalResults.holdingsPresenceJaccardMatrix,
+                summary: capitalResults.summary,
             };
+
+            if (includeVectors && capitalResults.walletVectorsUsed) {
+                combinedResults.walletVectorsUsed = capitalResults.walletVectorsUsed;
+            }
+
+            if (includeBalances) {
+                combinedResults.walletBalances = Object.fromEntries(balancesMap);
+            }
 
             return combinedResults;
         } catch (error) {

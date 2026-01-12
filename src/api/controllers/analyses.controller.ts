@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, Req, ForbiddenException, Inject } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
@@ -11,6 +11,9 @@ import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operat
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData, AnalyzeHolderProfilesJobData } from '../../queues/jobs/types';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
+import { generateJobId } from '../../queues/utils/job-id-generator';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import Redis from 'ioredis';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
 import { JobPriority } from '../../queues/config/queue.config';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
@@ -29,6 +32,7 @@ export class AnalysesController {
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
     private readonly redisLockService: RedisLockService,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {}
 
   @Post('/similarity/enrich-balances')
@@ -94,9 +98,18 @@ export class AnalysesController {
       
       this.logger.log(`Determined optimization hint '${optimizationHint}' for ${totalTokens} tokens. Strategy: ${this.enrichmentStrategyService.getStrategyDescription(optimizationHint)}`);
 
+      const balancesKey = `enrich:balances:${requestId}`;
+      await this.redisClient.set(balancesKey, JSON.stringify(body.walletBalances), 'EX', 15 * 60);
+
+      const tokenMints = Object.values(body.walletBalances)
+        .flatMap((wallet: any) => (wallet?.tokenBalances || []).map((t: any) => t.mint));
+      const sortedTokens = [...new Set(tokenMints)].sort().join('-');
+      const jobId = generateJobId.enrichMetadata(sortedTokens, requestId);
+
       // Prepare job data
       const jobData: EnrichTokenBalancesJobData = {
-        walletBalances: body.walletBalances,
+        balancesKey,
+        walletAddresses: Object.keys(body.walletBalances),
         userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         priority: 5, // Normal priority
@@ -106,7 +119,8 @@ export class AnalysesController {
       // Add job to enrichment operations queue
       const job = await this.enrichmentOperationsQueue.addEnrichTokenBalances(jobData, {
         priority: 5,
-        delay: 0
+        delay: 0,
+        jobId,
       });
 
       this.logger.log(`Queued balance enrichment job ${job.id} for request ${requestId} with ${Object.keys(body.walletBalances).length} wallets and ${totalTokens} tokens`);
@@ -201,7 +215,9 @@ export class AnalysesController {
         userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         walletsNeedingSync, // Pass specific wallets to sync (empty array = no sync needed)
-        enrichMetadata: true, // Enable metadata enrichment for proper token display
+        enrichMetadata: dto.enrichMetadata ?? false,
+        includeBalances: dto.includeBalances ?? false,
+        includeVectors: dto.includeVectors ?? false,
         failureThreshold: 0.8, // 80% success rate required
         timeoutMinutes: walletsNeedingSync.length > 0 ? 45 : 15, // Longer timeout if sync is needed
         similarityConfig: {

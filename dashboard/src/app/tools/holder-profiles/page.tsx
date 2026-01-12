@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, Suspense } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -64,7 +64,7 @@ function normalizeHolderProfilesError(message?: string | null): string | null {
   return message;
 }
 
-export default function HolderProfilesPage() {
+function HolderProfilesContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -675,5 +675,21 @@ export default function HolderProfilesPage() {
         {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}
       </div>
     </AppShell>
+  );
+}
+
+export default function HolderProfilesPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="w-full mx-auto px-4 md:px-6 lg:px-10 py-8">
+            <p className="text-sm text-muted-foreground">Loading holder profiles…</p>
+          </div>
+        </AppShell>
+      }
+    >
+      <HolderProfilesContent />
+    </Suspense>
   );
 }

@@ -81,7 +81,17 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
    * Runs directly in the main process for optimal memory efficiency.
    */
   public async processSimilarityFlow(job: Job<ComprehensiveSimilarityFlowData>): Promise<SimilarityFlowResult> {
-    const { walletAddresses, requestId, walletsNeedingSync = [], enrichMetadata = true, failureThreshold = 0.8, timeoutMinutes = 45, similarityConfig } = job.data;
+    const {
+      walletAddresses,
+      requestId,
+      walletsNeedingSync = [],
+      enrichMetadata = true,
+      includeBalances = false,
+      includeVectors = false,
+      failureThreshold = 0.8,
+      timeoutMinutes = 45,
+      similarityConfig,
+    } = job.data;
     
     // Determine if sync is needed based on the wallets list (no redundant boolean needed)
     const syncRequired = walletsNeedingSync.length > 0;
@@ -255,6 +265,11 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       if (enrichMetadata && process.env.DISABLE_ENRICHMENT !== 'true') {
         this.logger.log(`Triggering background enrichment job for request: ${requestId}.`);
         try {
+          const enrichmentLockKey = `enrich:scheduled:${requestId}`;
+          const lockSet = await this.redisClient.set(enrichmentLockKey, job.id as string, 'EX', 15 * 60, 'NX');
+          if (!lockSet) {
+            this.logger.log(`Enrichment already scheduled for request: ${requestId}. Skipping duplicate.`);
+          } else {
           // Use all wallet balances for enrichment
           const validWalletBalances: Record<string, any> = {};
           for (const walletAddr of finalWalletsToAnalyze) {
@@ -262,14 +277,19 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
               validWalletBalances[walletAddr] = actualWalletBalances[walletAddr];
             }
           }
+
+          const balancesKey = `similarity:balances:${requestId}`;
+          await this.redisClient.set(balancesKey, JSON.stringify(validWalletBalances), 'EX', 15 * 60);
           
           enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
-            walletBalances: validWalletBalances,
+            balancesKey,
             requestId,
             userId: job.data.userId,
+            walletAddresses: finalWalletsToAnalyze,
           });
           this.logger.log(`Background enrichment job queued: ${enrichmentJob?.id} for request: ${requestId}.`);
           // DON'T wait for enrichment - keep it truly parallel!
+          }
         } catch (error) {
           this.logger.warn(`Failed to queue enrichment job, continuing without enrichment:`, error);
         }
@@ -315,6 +335,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         {
           walletAddresses: validWalletsWithBalances, // Use only valid wallets with balances
           vectorType: similarityConfig?.vectorType || 'capital',
+          includeBalances,
+          includeVectors,
         },
         balancesMap,
       );
@@ -332,7 +354,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
 
       const result: SimilarityFlowResult = {
         success: true,
-        data: similarityResult, // Return the actual data, not just a resultKey
+        data: undefined, // Set after Redis store
         requestId: requestId,
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime,
@@ -355,13 +377,18 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         this.logger.warn(`Similarity result is large (${(payloadSize / 1024 / 1024).toFixed(2)} MB) for request ${requestId}`);
       }
 
+      const resultKey = this.buildResultKey(requestId);
       try {
-        await this.redisClient.set(this.buildResultKey(requestId), serialized, 'EX', this.resultTtlSeconds);
+        await this.redisClient.set(resultKey, serialized, 'EX', this.resultTtlSeconds);
         this.logger.debug(`Stored similarity result for ${requestId} with TTL ${this.resultTtlSeconds}s`);
       } catch (storeError) {
         this.logger.error(`Failed to store similarity result for ${requestId}:`, storeError);
         // As a fallback, include the data directly if Redis storage fails
         result.data = similarityResult as any;
+      }
+      
+      if (!result.data) {
+        result.data = { resultKey };
       }
 
       this.logger.log(`Advanced similarity analysis completed successfully in ${Date.now() - startTime}ms. Mode: ${mode}`);
