@@ -87,6 +87,7 @@ export interface ComprehensiveSimilarityFlowData {
   includeVectors?: boolean;     // Include wallet vectors in result payload (default false)
   failureThreshold?: number;    // Partial failure tolerance (default 0.8)
   timeoutMinutes?: number;      // Job-level timeout (default 45)
+  skipSystemWalletDetection?: boolean; // Skip system wallet filtering (default false) - for pure similarity analysis
   similarityConfig?: {
     vectorType?: 'capital' | 'binary';
     minSharedTokens?: number;

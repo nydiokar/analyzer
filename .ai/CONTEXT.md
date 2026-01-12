@@ -123,3 +123,6 @@ Mapper changes do not backfill existing SwapAnalysisInput rows. To see fixes:
 2. Use Prisma `$transaction` with `Serializable` isolation level
 3. Process token upserts sequentially instead of in parallel batches
 4. Add row-level locking or use `ON CONFLICT` more carefully
+
+
+We are currently denominatic the value only in SOL and USD (USDC) but missing USD1 - USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB

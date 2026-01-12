@@ -14,6 +14,7 @@ import { BehaviorService } from '../../api/services/behavior.service';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { JobPayloadCacheService } from '../../api/services/job-payload-cache.service';
+import { SystemWalletDetectionService } from '../../api/services/system-wallet-detection.service';
 import { generateJobId } from '../utils/job-id-generator';
 import { WalletBalance } from '../../types/wallet';
 import { Wallet } from '@prisma/client';
@@ -43,6 +44,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly balanceCacheService: BalanceCacheService,
     private readonly jobPayloadCache: JobPayloadCacheService,
+    private readonly systemWalletDetection: SystemWalletDetectionService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis, // For locks, result caching, etc.
   ) {
     // Note: In a proper NestJS setup, WalletBalanceService would be injected via constructor

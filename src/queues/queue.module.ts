@@ -26,6 +26,7 @@ import { DeadLetterQueueService } from './services/dead-letter-queue.service';
 import { QueueHealthService } from './services/queue-health.service';
 import { JobEventsBridgeService } from './services/job-events-bridge.service';
 import { JobPayloadCacheService } from '../api/services/job-payload-cache.service';
+import { SystemWalletDetectionService } from '../api/services/system-wallet-detection.service';
 
 // External dependencies - Import modules that provide the services we need
 import { DatabaseModule } from '../api/modules/database.module';
@@ -86,6 +87,7 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     JobEventsBridgeService,
     TelegramAlertsService,
     JobPayloadCacheService, // Cache service for storing large job payloads
+    SystemWalletDetectionService, // System wallet detection and filtering
 
     // Queue Services
     WalletOperationsQueue,
@@ -120,6 +122,7 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     JobEventsBridgeService,
     TelegramAlertsService,
     JobPayloadCacheService, // Export for controllers/services that need to cache job payloads
+    SystemWalletDetectionService, // Export for system wallet filtering
 
     // Export processors if needed by other modules
     WalletOperationsProcessor,

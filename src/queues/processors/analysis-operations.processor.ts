@@ -19,6 +19,7 @@ import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenHoldersService } from '../../api/services/token-holders.service';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
+import { SystemWalletDetectionService } from '../../api/services/system-wallet-detection.service';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
@@ -45,6 +46,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly holderProfilesCacheService: HolderProfilesCacheService,
     private readonly telegramAlerts: TelegramAlertsService,
     private readonly balanceCacheService: BalanceCacheService,
+    private readonly systemWalletDetection: SystemWalletDetectionService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -961,7 +963,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
       }
 
-      const walletsNeedingJobs = staleWallets.filter(addr => holderMetadataByWallet.has(addr));
+      // 🚨 Filter out system wallets before queueing jobs
+      const { valid: validWallets, filtered: systemWallets, largeWallets } =
+        await this.systemWalletDetection.filterSystemWallets(staleWallets);
+
+      if (systemWallets.size > 0) {
+        this.logger.warn(`🚫 Filtered ${systemWallets.size} system wallet(s) from holder profiles analysis`);
+        for (const [address, reason] of systemWallets) {
+          this.logger.debug(`  - ${address}: ${reason}`);
+        }
+      }
+
+      if (largeWallets.length > 0) {
+        this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-35k tokens)`);
+      }
+
+      const walletsNeedingJobs = validWallets.filter(addr => holderMetadataByWallet.has(addr));
 
       const childJobIds: string[] = [];
       const jobIdToWallet = new Map<string, string>();
