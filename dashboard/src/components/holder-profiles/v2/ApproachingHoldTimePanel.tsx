@@ -1,7 +1,9 @@
 import type { HolderProfile } from '../types';
 import { formatPercentage, formatHoldTime } from './utils/formatters';
 
-const APPROACHING_THRESHOLD = 1;
+// Thresholds for "approaching" classification
+const APPROACHING_THRESHOLD_MIN = 0.8; // 80% of typical hold time
+const APPROACHING_THRESHOLD_MAX = 1.0; // 100% of typical hold time
 
 /**
  * Get how long the wallet has held THIS specific token
@@ -10,17 +12,35 @@ const APPROACHING_THRESHOLD = 1;
  */
 function getTokenSpecificHoldHours(profile: HolderProfile, tokenMint?: string): number | null {
   if (!tokenMint) return null;
-  
+
   // Check if wallet holds this token
   const holdsToken = (profile.currentHoldings ?? []).some(
     (holding) => holding.tokenAddress === tokenMint && (holding.uiBalance ?? 0) > 0
   );
-  
+
   if (!holdsToken) return null;
-  
+
   // TODO: We need per-token hold time from backend
   // For now, return null to indicate we need this data
   // The backend should provide: how long each wallet has held THIS specific token
+  return null;
+}
+
+/**
+ * Get typical hold time for a holder - prefer median over mean for robustness
+ * Falls back to mean if median is not available
+ */
+function getTypicalHoldTime(profile: HolderProfile): number | null {
+  // Prefer realized median (only completed exits) as it's more robust
+  if (profile.realizedMedianHoldTimeHours !== null && profile.realizedMedianHoldTimeHours !== undefined) {
+    return profile.realizedMedianHoldTimeHours;
+  }
+
+  // Fallback to mean hold time if available
+  if (profile.avgHoldTimeHours !== null && profile.avgHoldTimeHours !== undefined) {
+    return profile.avgHoldTimeHours;
+  }
+
   return null;
 }
 
@@ -39,38 +59,44 @@ export function ApproachingHoldTimePanel({ profiles, tokenMint }: Props) {
       )
     : profiles;
 
-  // Calculate ratios: token hold time / median exit time
+  // Calculate ratios: token hold time / typical hold time
   const ratios = relevantProfiles
     .map((profile) => {
-      // Use realized median (only completed exits) as the typical hold time
-      const typicalExitTime = profile.realizedMedianHoldTimeHours;
-      
-      // Get how long they've held THIS token
+      const typicalHoldTime = getTypicalHoldTime(profile);
       const tokenHoldTime = getTokenSpecificHoldHours(profile, tokenMint);
-      
-      if (!typicalExitTime || !tokenHoldTime || typicalExitTime <= 0) return null;
-      return tokenHoldTime / typicalExitTime;
+
+      if (!typicalHoldTime || !tokenHoldTime || typicalHoldTime <= 0) return null;
+      return tokenHoldTime / typicalHoldTime;
     })
     .filter((value): value is number => value !== null && Number.isFinite(value));
 
-  const approachingCount = ratios.filter((ratio) => ratio >= APPROACHING_THRESHOLD).length;
-  const approachingPercent = relevantProfiles.length 
-    ? (approachingCount / relevantProfiles.length) * 100 
-    : null;
-  
-  const averageRatio = ratios.length
-    ? ratios.reduce((sum, value) => sum + value, 0) / ratios.length
+  // Count holders within the "approaching" threshold (80-100% of typical hold time)
+  const approachingCount = ratios.filter(
+    (ratio) => ratio >= APPROACHING_THRESHOLD_MIN && ratio <= APPROACHING_THRESHOLD_MAX
+  ).length;
+
+  const approachingPercent = relevantProfiles.length > 0 && ratios.length > 0
+    ? (approachingCount / relevantProfiles.length) * 100
     : null;
 
-  const medianTypicalExitTime = relevantProfiles
-    .map((p) => p.realizedMedianHoldTimeHours)
+  // Calculate how many profiles have sufficient data
+  const profilesWithData = relevantProfiles.filter((profile) => {
+    const typicalHoldTime = getTypicalHoldTime(profile);
+    const tokenHoldTime = getTokenSpecificHoldHours(profile, tokenMint);
+    return typicalHoldTime !== null && tokenHoldTime !== null;
+  }).length;
+
+  // Get median typical hold time across all holders
+  const typicalHoldTimes = relevantProfiles
+    .map((p) => getTypicalHoldTime(p))
     .filter((v): v is number => v !== null && Number.isFinite(v))
     .sort((a, b) => a - b);
+
   const medianTypical = (() => {
-    if (!medianTypicalExitTime.length) return null;
-    const mid = Math.floor(medianTypicalExitTime.length / 2);
-    if (medianTypicalExitTime.length % 2 !== 0) return medianTypicalExitTime[mid];
-    return (medianTypicalExitTime[mid - 1] + medianTypicalExitTime[mid]) / 2;
+    if (!typicalHoldTimes.length) return null;
+    const mid = Math.floor(typicalHoldTimes.length / 2);
+    if (typicalHoldTimes.length % 2 !== 0) return typicalHoldTimes[mid];
+    return (typicalHoldTimes[mid - 1] + typicalHoldTimes[mid]) / 2;
   })();
 
   // Check if we have the required data
@@ -82,28 +108,34 @@ export function ApproachingHoldTimePanel({ profiles, tokenMint }: Props) {
         Approaching Typical Hold Time
       </p>
       {!hasTokenHoldTimeData ? (
-        <p className="text-xs text-muted-foreground">
-          {tokenMint 
-            ? 'Per-token hold time data not available. Requires backend support for token-specific hold duration.'
-            : 'No active holding duration data yet.'}
-        </p>
-      ) : (
-        <div className="space-y-1 text-sm">
-          <p className="font-medium">
-            {formatPercentage(approachingPercent, 0)} of holders approaching their typical exit time
-          </p>
+        <div className="space-y-1">
           <p className="text-xs text-muted-foreground">
-            Avg ratio: {averageRatio ? `${averageRatio.toFixed(2)}x` : '—'} (token hold / median exit)
+            {tokenMint
+              ? 'Per-token hold time data not available yet.'
+              : 'No active holding duration data.'}
           </p>
+          {medianTypical !== null && (
+            <p className="text-[11px] text-muted-foreground">
+              Median typical exit: {formatHoldTime(medianTypical)}
+            </p>
+          )}
         </div>
-      )}
-      {relevantProfiles.length > 0 && (
-        <p className="text-[11px] text-muted-foreground">
-          {tokenMint 
-            ? `${relevantProfiles.length} holders of this token`
-            : `Based on ${relevantProfiles.length} holders`}
-          {medianTypical !== null ? `; median exit time ${formatHoldTime(medianTypical)}` : ''}
-        </p>
+      ) : (
+        <div className="space-y-1.5">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">
+              {formatPercentage(approachingPercent, 0)} within exit window
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {approachingCount} of {profilesWithData} holders are 80-100% through their typical hold time
+            </p>
+          </div>
+          {medianTypical !== null && (
+            <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/50">
+              Median typical exit: {formatHoldTime(medianTypical)}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

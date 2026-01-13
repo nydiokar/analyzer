@@ -88,14 +88,23 @@ export function TraderDistributionBar({ profiles }: Props) {
               <span key={`${value}-${index}`}>{value}</span>
             ))}
           </div>
-          <div className="flex items-end gap-2 h-40">
+          <div className="relative flex items-end gap-2 h-40">
+            {/* Grid lines */}
+            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+              {axisSteps.slice(0, -1).map((value, index) => (
+                <div
+                  key={`grid-${value}-${index}`}
+                  className="w-full border-t border-muted-foreground/10"
+                />
+              ))}
+            </div>
             {nonZeroDistribution.map((bucket) => {
               const height = maxCount > 0 ? Math.round((bucket.count / maxCount) * 100) : 0;
               const percentage = total > 0 ? Math.round((bucket.count / total) * 100) : 0;
               return (
-                <div 
-                  key={bucket.id} 
-                  className="flex flex-col items-center flex-1 min-w-0 group cursor-pointer"
+                <div
+                  key={bucket.id}
+                  className="relative flex flex-col items-center flex-1 min-w-0 group cursor-pointer z-10"
                   title={`${bucket.label}: ${bucket.count} wallets (${percentage}%)`}
                 >
                   <div className="relative w-full flex items-end h-32">
@@ -113,8 +122,8 @@ export function TraderDistributionBar({ profiles }: Props) {
                     {bucket.label}
                   </div>
                   <div className="mt-0.5 text-[9px] text-white/90 text-center drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] min-h-[11px]">
-                    {bucket.id === 'HODLER' || bucket.timeframe === 'Holds until it is not' 
-                      ? 'No exits yet' 
+                    {bucket.id === 'HODLER' || bucket.timeframe === 'Holds until it is not'
+                      ? 'No exits yet'
                       : bucket.timeframe || '—'}
                   </div>
                 </div>

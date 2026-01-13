@@ -1383,7 +1383,10 @@ export class HeliusApiClient {
           encoding,
           dataSlice,
         });
-        logger.info(`Successfully fetched token accounts (V2) for owner ${ownerPubkey}. Count: ${v2.value.length}`);
+        // Only log if count exceeds threshold (5000+)
+        if (v2.value.length >= 5000) {
+          logger.debug(`Fetched large token account set (V2) for owner ${ownerPubkey}. Count: ${v2.value.length}`);
+        }
         return v2;
       } catch (e: any) {
         const code = e?.code as number | undefined;
@@ -1423,7 +1426,10 @@ export class HeliusApiClient {
         'getTokenAccountsByOwner',
         params
       );
-      logger.debug(`Successfully fetched token accounts for owner ${ownerPubkey}. Count: ${result.value.length}`);
+      // Only log if count exceeds threshold (5000+)
+      if (result.value.length >= 5000) {
+        logger.debug(`Fetched large token account set for owner ${ownerPubkey}. Count: ${result.value.length}`);
+      }
       return result;
     } catch (error) {
       logger.error(
