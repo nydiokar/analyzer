@@ -36,7 +36,7 @@
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
-| 13.7 | dY" | Mapper: Stable USD value attribution & USD1 integration | dY", | `helius-transaction-mapper.ts`, `swap/analyzer.ts`, `token-metadata.ts` |
+| 13.7 | ✅ | Mapper: Stable USD value attribution & USD1 integration | 🔶", | `helius-transaction-mapper.ts`, `swap/analyzer.ts`, `token-metadata.ts`, `behavior/analyzer.ts`, `helius-transaction-mapper.test.ts` |
 | 13.1 | 🔧 | Queue Stability: Orphaned Lock Cleanup on Startup | 🔶 | `queue.module.ts`, `redis-lock.service.ts` |
 | 13.2 | 🔧 | Queue Stability: Fail-Fast Lock Acquisition | 🔶 | `*-operations.processor.ts` |
 | 13.3 | 📊 | Lock Contention & Concurrent Analysis Metrics | 🔸 | `metrics.service.ts` |
@@ -44,7 +44,7 @@
 | 13.5 | ✅ | Holder Profiles: Visual Refinements | 🔹 | `TraderDistributionBar.tsx`, `CognitiveMetricCard.tsx` |
 | 13.6 | ✅ | Holder Profiles: Approaching Hold Time Panel | 🔸 | `ApproachingHoldTimePanel.tsx` |
 
-**Summary:** Queue stability architecture complete. Holder Profiles v2 UX refinements complete (pending final review). Mapper now treats stable USD (USDC/USDT/USD1) as a single value source to avoid double counting; USD1 fully integrated.
+**Summary:** Queue stability architecture complete. Holder Profiles v2 UX refinements complete (pending final review). Mapper now treats stable USD (USDC/USDT/USD1) as a single value source to avoid double counting; USD1 fully integrated. Added fixture regression coverage for real txs.
 
 ### January 12, 2026
 

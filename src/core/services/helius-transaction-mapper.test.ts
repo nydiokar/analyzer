@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as pathMod from 'node:path';
 import { mapHeliusTransactionsToIntermediateRecords } from './helius-transaction-mapper';
 import { HeliusTransaction } from '../../types/helius-api';
 
@@ -72,6 +74,8 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
   const TOKEN_A_MINT = 'TokenAMint111111111111111111111111111111111';
   const TOKEN_B_MINT = 'TokenBMint111111111111111111111111111111111';
   const SOL_MINT = 'So11111111111111111111111111111111111111112';
+  const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  const USD1_MINT = 'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB';
 
   function makeTokenTransfer(from: string, to: string, amount: number, mint: string) {
     return {
@@ -229,6 +233,89 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
       assert.ok(tokenB_row, 'Should create a record for TOKEN_B');
       assert.strictEqual(tokenB_row.direction, 'in');
       assert.ok(Math.abs(tokenB_row.associatedSolValue - INTERMEDIARY_SOL_AMOUNT) < 0.0001, `TOKEN_B should have ~${INTERMEDIARY_SOL_AMOUNT} SOL value, got ${tokenB_row.associatedSolValue}`);
+    });
+  });
+
+  describe('Stable USD value handling', () => {
+    it('prefers a single stable mint when multiple stable routes are consistent', () => {
+      const USDC_VALUE = 10;
+      const USD1_VALUE = 10.1;
+      const txn = {
+        description: 'Swap with consistent USDC + USD1 innerSwaps; choose preferred stable',
+        type: 'SWAP',
+        source: 'JUPITER',
+        fee: 0.000005,
+        feePayer: 'SomeOtherWallet',
+        signature: 'TestSignatureStableEventMatcher',
+        slot: 9,
+        timestamp: 9,
+        tokenTransfers: [
+          makeTokenTransfer(WALLET, 'Pool', 100, TOKEN_A_MINT),
+          makeTokenTransfer('Pool', WALLET, 50, TOKEN_B_MINT),
+        ],
+        nativeTransfers: [],
+        accountData: [],
+        events: {
+          swap: {
+            innerSwaps: [
+              {
+                tokenInputs: [{ mint: TOKEN_A_MINT, tokenAmount: 100 }],
+                tokenOutputs: [
+                  { mint: USDC_MINT, tokenAmount: USDC_VALUE },
+                  { mint: USD1_MINT, tokenAmount: USD1_VALUE },
+                ],
+              },
+              {
+                tokenInputs: [
+                  { mint: USDC_MINT, tokenAmount: USDC_VALUE },
+                  { mint: USD1_MINT, tokenAmount: USD1_VALUE },
+                ],
+                tokenOutputs: [{ mint: TOKEN_B_MINT, tokenAmount: 50 }],
+              },
+            ],
+          },
+        },
+        instructions: [],
+        transactionError: undefined,
+      } as unknown as HeliusTransaction;
+
+      const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+      const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+
+      assert.ok(tokenA_row, 'Should create a record for TOKEN_A');
+      assert.ok(Math.abs(tokenA_row.associatedUsdcValue - USDC_VALUE) < 0.0001, `Should prefer USDC value ${USDC_VALUE}, got ${tokenA_row.associatedUsdcValue}`);
+    });
+
+    it('uses WSOL movement when stable routing nets to zero and no event data exists', () => {
+      const TOTAL_WSOL_MOVEMENT = 2;
+      const txn = {
+        description: 'Stable routing in/out should not block WSOL movement heuristic',
+        type: 'SWAP',
+        source: 'UNKNOWN',
+        fee: 0.000005,
+        feePayer: WALLET,
+        signature: 'TestSignatureStableRoutingWsol',
+        slot: 10,
+        timestamp: 10,
+        tokenTransfers: [
+          makeTokenTransfer(WALLET, 'Pool', 100, TOKEN_A_MINT),
+          makeTokenTransfer('Pool', WALLET, 5, USD1_MINT),
+          makeTokenTransfer(WALLET, 'Pool', 5, USD1_MINT),
+          makeTokenTransfer('Pool', WALLET, TOTAL_WSOL_MOVEMENT, SOL_MINT),
+        ],
+        nativeTransfers: [],
+        accountData: [],
+        events: {},
+        instructions: [],
+        transactionError: undefined,
+      } as unknown as HeliusTransaction;
+
+      const { analysisInputs, stats } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+      const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+
+      assert.strictEqual(stats.associatedValueFromTotalMovement, 1, 'WSOL movement should drive value attribution');
+      assert.ok(tokenA_row, 'Should have a record for TOKEN_A');
+      assert.ok(Math.abs(tokenA_row.associatedSolValue - TOTAL_WSOL_MOVEMENT) < 0.0001, `TOKEN_A should have ~${TOTAL_WSOL_MOVEMENT} SOL value, got ${tokenA_row.associatedSolValue}`);
     });
   });
 
@@ -559,4 +646,86 @@ describe('HeliusTransactionMapper – Jito MEV Heuristic for UNKNOWN transaction
         assert.strictEqual(analysisInputs.length, 0, 'Should skip the transaction entirely');
         assert.strictEqual(stats.unknownTxSkippedNoJito, 1, 'Should increment the skipped counter');
     });
-}); 
+});
+
+describe('HeliusTransactionMapper - Fixture regression', () => {
+  const OUTPUT_DIR = pathMod.join(process.cwd(), 'debug_output');
+  const FLOAT_TOLERANCE = 1e-6;
+
+  function readJson(filename: string) {
+    const filePath = pathMod.join(OUTPUT_DIR, filename);
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw);
+  }
+
+  function sortRows(rows: Array<Record<string, any>>) {
+    return [...rows].sort((a, b) => {
+      const keyA = `${a.signature}:${a.mint}:${a.direction}:${a.amount}`;
+      const keyB = `${b.signature}:${b.mint}:${b.direction}:${b.amount}`;
+      return keyA.localeCompare(keyB);
+    });
+  }
+
+  function assertClose(actual: number | null | undefined, expected: number | null | undefined, label: string) {
+    const normalizedActual = actual ?? null;
+    const normalizedExpected = expected ?? null;
+    if (normalizedActual === null || normalizedExpected === null) {
+      assert.strictEqual(normalizedActual, normalizedExpected, `${label} should be ${normalizedExpected}`);
+      return;
+    }
+    assert.ok(
+      Math.abs(normalizedActual - normalizedExpected) < FLOAT_TOLERANCE,
+      `${label} should be ${normalizedExpected}, got ${normalizedActual}`,
+    );
+  }
+
+  function verifyFixture(signature: string) {
+    const rawTx = readJson(`${signature}_raw.json`) as HeliusTransaction;
+    const expectedRows = readJson(`${signature}_database_rows.json`) as Array<Record<string, any>>;
+
+    assert.ok(expectedRows.length > 0, 'Fixture should contain expected rows');
+    const wallet = expectedRows[0].walletAddress;
+    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(wallet, [rawTx]);
+
+    assert.strictEqual(
+      analysisInputs.length,
+      expectedRows.length,
+      `Expected ${expectedRows.length} rows, got ${analysisInputs.length}`,
+    );
+
+    const actualSorted = sortRows(analysisInputs);
+    const expectedSorted = sortRows(expectedRows);
+
+    for (let i = 0; i < expectedSorted.length; i += 1) {
+      const actual = actualSorted[i] as Record<string, any>;
+      const expected = expectedSorted[i];
+      assert.strictEqual(actual.walletAddress, expected.walletAddress, 'walletAddress mismatch');
+      assert.strictEqual(actual.signature, expected.signature, 'signature mismatch');
+      assert.strictEqual(actual.timestamp, expected.timestamp, 'timestamp mismatch');
+      assert.strictEqual(actual.mint, expected.mint, 'mint mismatch');
+      assertClose(actual.amount, expected.amount, 'amount');
+      assert.strictEqual(actual.direction, expected.direction, 'direction mismatch');
+      assertClose(actual.associatedSolValue, expected.associatedSolValue, 'associatedSolValue');
+      assertClose(actual.associatedUsdcValue, expected.associatedUsdcValue, 'associatedUsdcValue');
+      assert.strictEqual(actual.interactionType, expected.interactionType, 'interactionType mismatch');
+      assertClose(actual.feeAmount, expected.feeAmount, 'feeAmount');
+      assertClose(actual.feePercentage, expected.feePercentage, 'feePercentage');
+    }
+  }
+
+  it('matches USD1 routing fixture output', () => {
+    verifyFixture('2qajRsuMmRyguEkuG94b52iFwvG6Lk45yQbSs9Fkay7MJqpfoCMQW9sVD3pRnCLG5C3a9JhQedYirVFnqNYoXwFM');
+  });
+
+  it('matches WSOL movement with stable routing fixture output', () => {
+    verifyFixture('kCTmj2gogfiBKqch9QB8kw7UK1M26cW9cENK8fS6hXAeQ6USyDfy3aewCQXqJ6WchmYPYUiqE8zbubHK4M2KR3U');
+  });
+
+  it('matches SPL-to-SPL fixture output', () => {
+    verifyFixture('3zpdKaPGK2cCN2AoaiVJfsTiYqBPeeYfRq8RXF5qHPi9t9JUvtrg6hH8UFw5Q3KrzPQ3BLcw2hyZzAcK2ufDvttB');
+  });
+
+  it('matches multi-hop stable routing fixture output', () => {
+    verifyFixture('wdLCBpZFJXmV1uThjVNU3VuvzM44QR5v61oGq22BHPGWXJNUAtxjF9dCNFcmoikwgFLJxciAcPZzFbS8bsA7j79');
+  });
+});

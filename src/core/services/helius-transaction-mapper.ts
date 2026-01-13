@@ -13,6 +13,7 @@ const STABLE_MINT_PREFERENCE = [USDC_MINT, USDT_MINT, USD1_MINT];
 const STABLE_VALUE_TOLERANCE = 0.03; // 3% tolerance for stable-to-stable routing differences
 const STABLE_DUST_RATIO = 0.01; // Ignore stable values <1% of the max when multiple stables appear
 const STABLE_NET_DOMINANCE = 0.1; // Require net movement >=10% of max side to treat as value (not routing)
+const INTERMEDIATE_NET_EPSILON = 1e-6; // Drop zero-net intermediate tokens within a single signature
 const LAMPORTS_PER_SOL = 1e9;
 const NATIVE_SOL_LAMPORT_THRESHOLD = TRANSACTION_MAPPING_CONFIG.NATIVE_SOL_LAMPORT_THRESHOLD;
 const FEE_PRECISION_THRESHOLD = 0.000000001; // Avoid assigning near-zero fees
@@ -619,17 +620,23 @@ export function mapHeliusTransactionsToIntermediateRecords(
           }
       }
       const stableMovementByMint = new Map<string, number>();
+      const stableMovementByMintDominant = new Map<string, number>();
       for (const [mint, flow] of stableFlows.entries()) {
           const maxSide = Math.max(flow.in, flow.out);
           const netSide = Math.abs(flow.in - flow.out);
           if (maxSide === 0) continue;
-          if (netSide / maxSide < STABLE_NET_DOMINANCE) {
-              continue; // Likely routing stable in/out; don't use as value signal.
-          }
           stableMovementByMint.set(mint, maxSide);
+          if (netSide / maxSide >= STABLE_NET_DOMINANCE) {
+              stableMovementByMintDominant.set(mint, maxSide);
+          }
       }
-      const selectedStableMovement = pickStableValueByPreference(stableMovementByMint, STABLE_VALUE_TOLERANCE);
-      const totalStableMovement = selectedStableMovement?.value ?? 0;
+      const movementSignificanceThresholdForStable = 0.0001;
+      const selectedStableMovementAll = pickStableValueByPreference(stableMovementByMint, STABLE_VALUE_TOLERANCE);
+      const selectedStableMovementDominant = pickStableValueByPreference(stableMovementByMintDominant, STABLE_VALUE_TOLERANCE);
+      const totalStableMovement =
+        totalWsolMovement >= movementSignificanceThresholdForStable
+          ? (selectedStableMovementDominant?.value ?? 0)
+          : (selectedStableMovementAll?.value ?? 0);
       // logger.debug(`Tx ${tx.signature}: Total WSOL Movement = ${totalWsolMovement.toFixed(9)}, Largest WSOL Transfer = ${largestWsolTransfer.toFixed(9)}, Total Stable Movement = ${totalStableMovement.toFixed(9)}`); // Removed debug
 
       // --- Heuristic Pre-calculation: Find largest transfer amount for each mint in this transaction ---
@@ -1267,6 +1274,49 @@ export function mapHeliusTransactionsToIntermediateRecords(
         logger.error(`Error during proportional value redistribution for tx ${tx.signature}`, { error: redistErr });
       }
       // --- End redistribution block ---
+
+      // --- Drop intermediate tokens with zero net change within the same signature ---
+      try {
+        const txRows = analysisInputs.slice(txStartIndex);
+        const mintNetMap = new Map<string, { in: number; out: number }>();
+        for (const row of txRows) {
+          if (!row || row.mint === SOL_MINT || isStableMint(row.mint)) continue;
+          const current = mintNetMap.get(row.mint) || { in: 0, out: 0 };
+          if (row.direction === 'in') current.in += Math.abs(row.amount);
+          else if (row.direction === 'out') current.out += Math.abs(row.amount);
+          mintNetMap.set(row.mint, current);
+        }
+
+        let hasNetPositiveToken = false;
+        for (const flows of mintNetMap.values()) {
+          if (Math.abs(flows.in - flows.out) > INTERMEDIATE_NET_EPSILON) {
+            hasNetPositiveToken = true;
+            break;
+          }
+        }
+
+        if (hasNetPositiveToken) {
+          const intermediateMints = new Set<string>();
+          for (const [mint, flows] of mintNetMap.entries()) {
+            if (flows.in > 0 && flows.out > 0 && Math.abs(flows.in - flows.out) <= INTERMEDIATE_NET_EPSILON) {
+              intermediateMints.add(mint);
+            }
+          }
+
+          if (intermediateMints.size > 0) {
+            for (let idx = analysisInputs.length - 1; idx >= txStartIndex; idx -= 1) {
+              const row = analysisInputs[idx];
+              if (row && intermediateMints.has(row.mint)) {
+                analysisInputs.splice(idx, 1);
+              }
+            }
+          }
+        }
+        inputsGeneratedThisTransaction = analysisInputs.length - txStartIndex;
+      } catch (filterErr) {
+        logger.error(`Error filtering intermediate tokens for tx ${tx.signature}`, { error: filterErr });
+      }
+      // --- End intermediate token filter ---
 
       if (inputsGeneratedThisTransaction > 0) {
         mappingStats.transactionsSuccessfullyProcessed++;
