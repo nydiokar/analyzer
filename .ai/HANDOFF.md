@@ -6,7 +6,7 @@
 
 ### First Visit
 ```
-Read .ai/CONTEXT.md and .ai/GUIDE.md, then skim docs/1. scaling_plan.md to confirm priorities. Spin up local .env (HELIUS_API_KEY, Redis), run `npx prisma migrate status`, and ensure Redis + queues are reachable.
+Read .ai/CONTEXT.md and .ai/GUIDE.md, then skim .ai/context for potentially more context for each active task.
 ```
 
 ### Continuing Work
@@ -65,8 +65,7 @@ If the context feels off:
 1. `git status` and `git diff --stat` to see outstanding changes.
 2. Review recent commits: `git log --oneline -5`.
 3. Check queue health via `GET /api/v1/jobs/queue/<queue>/stats` or logs in `logs/`.
-4. Verify `.env` vs `.env.example`, restart Redis/PM2 if needed.
-5. Align `.ai/CONTEXT.md` with actual repo state or raise the inconsistency.
+4. Align `.ai/CONTEXT.md` with actual repo state or raise the inconsistency.
 
 ---
 

@@ -56,7 +56,6 @@ Universal execution contract for AI agents.
 
 ### Update As You Go
 - Document decisions in `.ai/CONTEXT.md`
-- Update README if adding features
 - Add comments for non-obvious code
 - Keep docs in sync with code
 
