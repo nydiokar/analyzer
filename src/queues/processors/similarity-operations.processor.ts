@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Job, Worker, QueueEvents } from 'bullmq';
+import { Job, Worker, UnrecoverableError } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { ComprehensiveSimilarityFlowData, SimilarityFlowResult } from '../jobs/types';
 import { RedisLockService } from '../services/redis-lock.service';

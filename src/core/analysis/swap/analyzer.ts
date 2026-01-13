@@ -10,6 +10,7 @@ const logger = createLogger('SwapAnalyzer');
 const stablecoins = new Map<string, { name: string, decimals: number }>([
     ['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', { name: 'USDC', decimals: 6 }],
     ['Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', { name: 'USDT', decimals: 6 }],
+    ['USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', { name: 'USD1', decimals: 6 }],
 ]);
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 

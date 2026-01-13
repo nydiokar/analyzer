@@ -19,6 +19,7 @@ export interface FifoSwapInput {
   direction: 'in' | 'out';
   amount: number;
   associatedSolValue: number;
+  // Stable USD value (USDC/USDT/USD1) if SOL value is missing.
   associatedUsdcValue?: number | null;
   interactionType?: string;
 }

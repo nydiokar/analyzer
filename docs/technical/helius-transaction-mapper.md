@@ -7,7 +7,7 @@ The Helius Transaction Mapper (`src/core/services/helius-transaction-mapper.ts`)
 ## Core Responsibilities
 
 1. **Transaction Parsing**: Convert Helius `HeliusTransaction` objects into normalized database records
-2. **Value Attribution**: Associate SOL/USDC values with token transfers using multiple heuristics
+2. **Value Attribution**: Associate SOL/stable values with token transfers using multiple heuristics (stable = USDC/USDT/USD1)
 3. **Swap Detection**: Identify SPL-to-SPL swaps, including those using WSOL as an intermediary
 4. **Fee Calculation**: Calculate and attribute network fees and protocol fees to trades
 5. **Deduplication**: Prevent duplicate records from being created for the same transaction
@@ -42,7 +42,7 @@ Build a `Set<string>` of all accounts belonging to the user:
 Calculate net changes across the transaction:
 ```typescript
 finalNetUserSolChange = netNativeSolChange + wsolChange
-finalNetUserUsdcChange = usdcChange
+finalNetUserStableChange = selectedStableChange
 ```
 
 These values serve as ground truth for validation and self-healing.
@@ -136,7 +136,7 @@ if (hasTokensInBothDirections && largestWsolTransfer > 0 &&
 
 ### 6. Event Matcher
 
-Attempts to find consistent intermediary SOL/USDC values from `tx.events.swap.innerSwaps`:
+Attempts to find consistent intermediary SOL/stable values from `tx.events.swap.innerSwaps`:
 
 ```typescript
 const eventResult = findIntermediaryValueFromEvent(tx, userAccounts, stats);
@@ -149,7 +149,7 @@ Returns:
 
 **Logic**:
 1. Identify user's primary IN/OUT tokens from top-level transfers
-2. Scan `innerSwaps` for WSOL/USDC amounts associated with these tokens
+2. Scan `innerSwaps` for WSOL/stable amounts associated with these tokens
 3. Check consistency: amounts from "sell" leg should match "buy" leg (within 1% tolerance)
 4. Return matched value if consistent, otherwise return zeros
 
@@ -186,14 +186,16 @@ For each SPL token transfer involving the user:
 
 **Tiered Value Attribution Strategy**:
 
+**Note**: `associatedUsdcValue` represents a generic stable USD value (USDC/USDT/USD1). The mapper selects at most one stable value per leg within tolerance to avoid double-counting when routes hop across multiple stables.
+
 ```typescript
 if (isWsol) {
     // Apply self-healing bug mitigation (see section 4)
     associatedSolValue = wsolAmount;
-} else if (isUsdc) {
-    associatedUsdcValue = usdcAmount;
+} else if (isStable) {
+    associatedUsdcValue = stableAmount;
 } else {
-    // Non-WSOL/USDC tokens - use tiered logic:
+    // Non-WSOL/stable tokens - use tiered logic:
 
     // Tier 1: SPL-to-SPL swap detection
     if (isSplToSplSwap) {
@@ -216,7 +218,7 @@ if (isWsol) {
 
 ### 10. Fee Calculation
 
-For non-WSOL/USDC transfers with associated SOL value:
+For non-WSOL/stable transfers with associated SOL value:
 
 ```typescript
 let refinedFeeAmountSol = 0;

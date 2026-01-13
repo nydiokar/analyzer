@@ -9,6 +9,7 @@ const EXCLUDED_TOKEN_MINTS: string[] = [
   'So11111111111111111111111111111111111111112', // SOL / wSOL
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // USD1
   // Add other quasi-native or stablecoin mints here if needed (e.g., JitoSOL, mSOL, other stables)
 ];
 
@@ -21,7 +22,7 @@ interface TokenTrade {
   direction: 'in' | 'out';
   amount: number;
   associatedSolValue: number;
-  associatedUsdcValue?: number; // Optional since some trades might not have USDC value
+  associatedUsdcValue?: number; // Optional since some trades might not have stable USD value
 }
 
 interface TokenTradeSequence {
@@ -1462,7 +1463,7 @@ export class BehaviorAnalyzer {
         if (trade.timestamp < firstSeen) firstSeen = trade.timestamp;
         if (trade.timestamp > lastSeen) lastSeen = trade.timestamp;
         totalValue += trade.associatedSolValue;
-        totalUsdcValue += trade.associatedUsdcValue ?? 0; // Use actual USDC value from database
+        totalUsdcValue += trade.associatedUsdcValue ?? 0; // Use stable USD value from database
       });
 
       tokenDataForMostTraded[seq.mint] = {

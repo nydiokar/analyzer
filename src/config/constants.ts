@@ -10,7 +10,7 @@ export const DEFAULT_EXCLUDED_MINTS = [
   '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj', // stSOL
   'rndrizKT3MK1iimdxRdWabcF7Zb7nx9Vi3CY6A5J9NK', // rndr
   '8888xhvqnTWZ6tNbfAyP8mLLfaKsqfiW33tgA8RZ8888', // memeSOL - fake/scam token
-  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // usdc1
+  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // USD1
 
   // Wrapped tokens (Wormhole, Sollet, Allbridge, etc.)
   'KgV1GvrHQmRBY8sHQQeUKwTm2r2h8t4C8qt12Cw1HVE', // Wrapped AVAX (Wormhole)
@@ -100,19 +100,19 @@ export const DASHBOARD_ANALYSIS_SCOPE_DEFAULTS = {
     historyWindowDays: getEnvNumber('DASHBOARD_FLASH_HISTORY_DAYS', 7),
     targetSignatureCount: getEnvNumber('DASHBOARD_FLASH_TARGET_SIGNATURES', 250),
     freshnessMinutes: getEnvNumber('DASHBOARD_FLASH_FRESHNESS_MINUTES', 30),
-    timeoutMinutes: getEnvNumber('DASHBOARD_FLASH_TIMEOUT_MINUTES', 8),
+    timeoutMinutes: getEnvNumber('DASHBOARD_FLASH_TIMEOUT_MINUTES', 3),
   },
   working: {
     historyWindowDays: getEnvNumber('DASHBOARD_WORKING_HISTORY_DAYS', 30),
     targetSignatureCount: getEnvNumber('DASHBOARD_WORKING_TARGET_SIGNATURES', 2000),
     freshnessMinutes: getEnvNumber('DASHBOARD_WORKING_FRESHNESS_MINUTES', 180), // 3 hours
-    timeoutMinutes: getEnvNumber('DASHBOARD_WORKING_TIMEOUT_MINUTES', 15),
+    timeoutMinutes: getEnvNumber('DASHBOARD_WORKING_TIMEOUT_MINUTES', 3),
   },
   deep: {
     historyWindowDays: getEnvNumber('DASHBOARD_DEEP_HISTORY_DAYS', 0), // 0 = full history
     targetSignatureCount: getEnvNumber('DASHBOARD_DEEP_TARGET_SIGNATURES', ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES),
     freshnessMinutes: getEnvNumber('DASHBOARD_DEEP_FRESHNESS_MINUTES', 720), // 12 hours
-    timeoutMinutes: getEnvNumber('DASHBOARD_DEEP_TIMEOUT_MINUTES', 30),
+    timeoutMinutes: getEnvNumber('DASHBOARD_DEEP_TIMEOUT_MINUTES', 5),
   },
 } as const;
 
@@ -315,7 +315,7 @@ export const WALLET_CLASSIFICATIONS = {
 export const SYSTEM_WALLET_DETECTION_CONFIG = {
   // Token count thresholds
   GRAY_ZONE_THRESHOLD: 15000,        // 15k tokens - Mark as LARGE, process anyway
-  CERTAIN_SYSTEM_THRESHOLD: 35000,   // 35k tokens - Mark as INVALID, skip processing
+  CERTAIN_SYSTEM_THRESHOLD: 70000,  // 70k tokens - Mark as INVALID, skip processing
 
   // Caching
   REDIS_CACHE_KEY_PREFIX: 'system-wallet:',

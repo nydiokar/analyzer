@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Job, Worker } from 'bullmq';
+import { Job, Worker, UnrecoverableError } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { SyncWalletJobData, FetchBalanceJobData, WalletSyncResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
