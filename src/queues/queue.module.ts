@@ -41,6 +41,7 @@ import { BalanceCacheModule } from '../api/modules/balance-cache.module';
 import { HolderProfilesCacheModule } from '../api/modules/holder-profiles-cache.module';
 import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
+import { MetricsService } from '../api/services/metrics.service';
 
 @Global()
 @Module({
@@ -86,6 +87,7 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
+    MetricsService, // Metrics tracking for monitoring
     JobPayloadCacheService, // Cache service for storing large job payloads
     SystemWalletDetectionService, // System wallet detection and filtering
 
@@ -121,6 +123,7 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
+    MetricsService, // Export for metrics tracking
     JobPayloadCacheService, // Export for controllers/services that need to cache job payloads
     SystemWalletDetectionService, // Export for system wallet filtering
 
@@ -136,6 +139,7 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly queueHealthService: QueueHealthService,
+    private readonly redisLockService: RedisLockService,
     private readonly walletOperationsQueue: WalletOperationsQueue,
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
@@ -147,6 +151,20 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
+    // 🧹 CRITICAL: Clean up orphaned locks from previous server crashes/restarts
+    // This prevents jobs from being permanently stuck due to locks held by dead processes
+    this.logger.log('Starting orphaned lock cleanup on startup...');
+    try {
+      const cleanedCount = await this.redisLockService.cleanupOrphanedLocksOnStartup();
+      if (cleanedCount > 0) {
+        this.logger.warn(`🧹 Cleaned up ${cleanedCount} orphaned lock(s) from previous session`);
+      } else {
+        this.logger.log('✅ No orphaned locks found - system is clean');
+      }
+    } catch (error) {
+      this.logger.error('❌ Failed to clean up orphaned locks (non-critical, continuing):', error);
+    }
+
     // Register all queues with the health service for monitoring
     this.queueHealthService.registerQueue(QueueNames.WALLET_OPERATIONS, this.walletOperationsQueue.getQueue());
     this.queueHealthService.registerQueue(QueueNames.ANALYSIS_OPERATIONS, this.analysisOperationsQueue.getQueue());

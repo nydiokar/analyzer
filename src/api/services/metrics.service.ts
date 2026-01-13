@@ -15,6 +15,10 @@ export class MetricsService implements OnModuleInit {
   public readonly analysisJobsTotal: Counter;
   public readonly analysisJobDuration: Histogram;
 
+  // Lock contention metrics
+  public readonly lockContentionTotal: Counter;
+  public readonly concurrentAnalysisAttempts: Counter;
+
   constructor() {
     // HTTP request counter
     this.httpRequestsTotal = new Counter({
@@ -57,6 +61,20 @@ export class MetricsService implements OnModuleInit {
       help: 'Duration of analysis jobs in seconds',
       labelNames: ['type'],
       buckets: [1, 5, 10, 30, 60, 120, 300],
+    });
+
+    // Lock contention counter - tracks when jobs fail to acquire locks
+    this.lockContentionTotal = new Counter({
+      name: 'lock_contention_total',
+      help: 'Total number of lock acquisition failures',
+      labelNames: ['lock_type', 'resource'], // e.g. lock_type=dashboard, resource=wallet_address
+    });
+
+    // Concurrent analysis attempts - tracks when same resource is analyzed concurrently
+    this.concurrentAnalysisAttempts = new Counter({
+      name: 'concurrent_analysis_attempts_total',
+      help: 'Total attempts to analyze same resource concurrently',
+      labelNames: ['analysis_type', 'resource_type'], // e.g. analysis_type=holder_profiles, resource_type=wallet
     });
   }
 

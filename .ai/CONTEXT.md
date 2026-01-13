@@ -2,9 +2,12 @@
 
 Project: Sova Intel - Wallet Analysis System
 Branch: discover-analytics-ux
-Last Updated: 2026-01-12
+Last Updated: 2026-01-13
 
 ## Current Focus
+Job queue stability and reliability improvements.
+
+## Previous Focus (2026-01-12)
 UX/Analytics refactor for three main pages:
 1. Tracked Wallets - Layout improvements and additional columns
 2. Discover - Filtering improvements and column reorganization
@@ -45,7 +48,117 @@ Mapper changes do not backfill existing SwapAnalysisInput rows. To see fixes:
 
 ---
 
-## Active Tasks (2026-01-10)
+## Queue System Stability Improvements (2026-01-13)
+
+### Problem Diagnosed
+A wallet with 29k token accounts triggered system-wide queue starvation after server restart:
+- Orphaned Redis lock from crashed job persisted after restart (15-min TTL)
+- New jobs for same wallet failed to acquire lock → retried with HIGH priority
+- **Retry storm**: Failed jobs kept retrying, consuming workers and starving lower-priority jobs
+- **Priority inversion**: High-priority retries blocked legitimate lower-priority work
+- Similarity jobs starved because dashboard jobs had higher priority (10 vs 7)
+
+### Root Causes Identified
+1. **No orphaned lock cleanup** - Locks from crashed jobs persisted through restart
+2. **Retry storm self-DDoS** - Lock failures retried 3x with exponential backoff, wasting workers
+3. **Priority inversion** - Failing high-priority jobs blocked working low-priority jobs
+4. **Poor logging** - No visibility into lock ownership, TTL, or contention
+
+### Fixes Implemented
+
+#### 1. Orphaned Lock Cleanup on Startup
+**File:** `src/queues/queue.module.ts`
+- Added `RedisLockService.cleanupOrphanedLocksOnStartup()` to `QueueModule.onModuleInit()`
+- Scans all `lock:*` keys on startup, checks if jobs still exist in BullMQ
+- Force-releases locks for jobs that no longer exist or are finished
+- Prevents server restarts from leaving zombie locks
+
+#### 2. Fail-Fast Lock Acquisition (Prevent Retry Storms)
+**Files:**
+- `src/queues/processors/analysis-operations.processor.ts`
+- `src/queues/processors/wallet-operations.processor.ts`
+- `src/queues/processors/similarity-operations.processor.ts`
+
+Changed all lock acquisition failures to throw `UnrecoverableError` instead of regular `Error`:
+- **Before:** Job fails → BullMQ retries 3x → wastes workers → creates priority inversion
+- **After:** Job fails → throws UnrecoverableError → BullMQ does NOT retry → worker freed immediately
+
+Benefits:
+- No retry storms consuming workers
+- Failed jobs fail immediately and free workers for legitimate work
+- Users get clear error message: "Analysis already in progress (locked by: job-123, TTL: 180000ms)"
+
+#### 3. Enhanced Lock Failure Logging
+All lock failures now log:
+- Lock owner (job ID)
+- Remaining TTL in milliseconds
+- Resource being locked (wallet address, request ID, etc.)
+- Explicit "FAILED (no retry)" message
+
+Example log:
+```
+❌ Cannot acquire lock for dashboard analysis on ABC123 [scope=working].
+Locked by: dashboard-xyz789, TTL: 450000ms. Job dashboard-abc456 FAILED (no retry).
+```
+
+#### 4. Metrics for Lock Contention and Concurrent Analysis
+**Files:**
+- `src/api/services/metrics.service.ts`
+- `src/queues/queue.module.ts`
+- `src/queues/processors/analysis-operations.processor.ts`
+
+Added Prometheus metrics:
+- `lock_contention_total{lock_type, resource}` - Counts lock acquisition failures
+- `concurrent_analysis_attempts_total{analysis_type, resource_type}` - Tracks concurrent analysis attempts
+
+Use cases:
+- Monitor if lock contention is a real problem or edge case
+- Track how often holder profiles analysis runs while dashboard analysis is in progress
+- Data-driven decisions on whether to add coordination/locks
+
+Example metrics:
+```
+lock_contention_total{lock_type="dashboard",resource="wallet"} 5
+concurrent_analysis_attempts_total{analysis_type="holder_profiles",resource_type="wallet"} 12
+```
+
+Access via: `GET /api/v1/metrics` (Prometheus format)
+
+### Architecture Notes
+
+**Lock Scope Independence:**
+- Dashboard uses `lock:wallet:dashboard-analysis:{address}`
+- PnL uses `lock:wallet:pnl:{address}`
+- Behavior uses `lock:wallet:behavior:{address}`
+- Sync uses `lock:wallet:sync:{address}`
+- Similarity uses `lock:similarity:{requestId}`
+- **Holder profiles uses NO LOCK** - relies on service idempotency
+
+**Priority System (Unchanged):**
+- CRITICAL (10): User dashboard requests
+- HIGH (7): Similarity analysis
+- NORMAL (5): Regular analysis
+- LOW (3): Background enrichment
+- MAINTENANCE (1): Cleanup jobs
+
+Priorities prevent background jobs from blocking interactive user requests. Fail-fast prevents priority inversion from retry storms.
+
+**Testing Results:**
+- Ran 2 simultaneous jobs for same wallet → both completed smoothly
+- Services are idempotent → concurrent execution is safe
+- Database caching works → second job benefits from first's work
+- No lock contention → no blocking
+
+### Impact
+- **Server restart resilience**: Orphaned locks cleaned up automatically
+- **Self-DDoS prevention**: Lock conflicts fail immediately instead of retrying
+- **Better observability**: Clear logs + metrics for monitoring
+- **Faster recovery**: Workers freed immediately instead of wasting cycles on retries
+- **User experience**: Clear error messages when analysis is already in progress
+
+---
+
+## Active Tasks (2026-01-13)
 
 ### 1. Tracked Wallets Page Refactor
 **Status:** ✅ COMPLETED
@@ -111,7 +224,7 @@ New TASKS:
 - Outcome is too influenced with the quality of data and other stuff - it should be more influence by the speed - it's almost constantly showing Relatively stable. 
 - speed - check if tag (classification) is corresponding with the time
 - fix Quality tooltip
-- add lines in the Trader Distribution table, so it's easily to see where the table bar is reaching - currently the bars are like in the air. 
+- add lines in the Trader Distribution table, so it's easily to see where the chart bar is reaching - currently the bars are like in the air. 
 - Approaching typical hold time needs to be finished off. 
 - Reduce logs for  [HeliusApiClient] Successfully fetched token accounts (V2) for owner qmC1gusK2b5pYNDp1Aw5nDdZx9WTLVs7KHQoq6AAxFN. Count: 28 - this is happening too often, either wrong or just badly put into the logging system - maybe to only show big counts - over 5000 and to be debug, not info every single of them (maybe some aggregation). 
 

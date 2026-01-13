@@ -79,9 +79,18 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
     // 1. Acquire Redis lock to prevent concurrent processing
     const lockKey = RedisLockService.createSyncLockKey(walletAddress);
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
-    
+
     if (!lockAcquired) {
-      throw new Error(`Wallet ${walletAddress} is already being synced`);
+      // 🚨 FAIL FAST: Prevent retry storms
+      const lockOwner = await this.redisLockService.getLockValue(lockKey);
+      const ttl = await this.redisLockService.getLockTTL(lockKey);
+      this.logger.warn(
+        `❌ Cannot acquire lock for wallet sync on ${walletAddress}. ` +
+        `Locked by: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms. Job ${job.id} FAILED (no retry).`
+      );
+      throw new UnrecoverableError(
+        `Wallet ${walletAddress} is already being synced (locked by: ${lockOwner})`
+      );
     }
 
     try {

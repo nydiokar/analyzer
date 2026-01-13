@@ -112,9 +112,18 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     // Acquire similarity lock to prevent concurrent processing of same request
     const lockKey = RedisLockService.createSimilarityLockKey(requestId);
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
-    
+
     if (!lockAcquired) {
-      throw new Error(`Similarity analysis already in progress for request: ${requestId}`);
+      // 🚨 FAIL FAST: Prevent retry storms
+      const lockOwner = await this.redisLockService.getLockValue(lockKey);
+      const ttl = await this.redisLockService.getLockTTL(lockKey);
+      this.logger.warn(
+        `❌ Cannot acquire lock for similarity analysis (request: ${requestId}). ` +
+        `Locked by: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms. Job ${job.id} FAILED (no retry).`
+      );
+      throw new UnrecoverableError(
+        `Similarity analysis already in progress for request: ${requestId} (locked by: ${lockOwner})`
+      );
     }
 
     // Declare enrichmentJob outside try block so it's accessible in catch block

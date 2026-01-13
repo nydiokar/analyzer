@@ -26,6 +26,7 @@ import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
 import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../shared/dashboard-analysis.types';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
+import { MetricsService } from '../../api/services/metrics.service';
 
 @Injectable()
 export class AnalysisOperationsProcessor implements OnModuleDestroy {
@@ -47,6 +48,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly telegramAlerts: TelegramAlertsService,
     private readonly balanceCacheService: BalanceCacheService,
     private readonly systemWalletDetection: SystemWalletDetectionService,
+    private readonly metricsService: MetricsService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -115,10 +117,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // Acquire lock
     const lockKey = RedisLockService.createWalletLockKey(walletAddress, 'pnl');
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
-    
+
     if (!lockAcquired) {
-      this.logger.warn(`Could not acquire lock for PnL analysis on ${walletAddress}, job ${job.id} will be retried.`);
-      throw new Error(`PnL analysis already in progress for wallet ${walletAddress}`);
+      // 🚨 FAIL FAST: Prevent retry storms
+      const lockOwner = await this.redisLockService.getLockValue(lockKey);
+      const ttl = await this.redisLockService.getLockTTL(lockKey);
+
+      // 📊 Track lock contention metrics
+      this.metricsService.lockContentionTotal.inc({ lock_type: 'pnl', resource: 'wallet' });
+
+      this.logger.warn(
+        `❌ Cannot acquire lock for PnL analysis on ${walletAddress}. ` +
+        `Locked by: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms. Job ${job.id} FAILED (no retry).`
+      );
+      throw new UnrecoverableError(
+        `PnL analysis already in progress for wallet ${walletAddress} (locked by: ${lockOwner})`
+      );
     }
 
     try {
@@ -193,10 +207,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // Acquire lock
     const lockKey = RedisLockService.createWalletLockKey(walletAddress, 'behavior');
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
-    
+
     if (!lockAcquired) {
-      this.logger.warn(`Could not acquire lock for behavior analysis on ${walletAddress}, job ${job.id} will be retried.`);
-      throw new Error(`Behavior analysis already in progress for wallet ${walletAddress}`);
+      // 🚨 FAIL FAST: Prevent retry storms
+      const lockOwner = await this.redisLockService.getLockValue(lockKey);
+      const ttl = await this.redisLockService.getLockTTL(lockKey);
+
+      // 📊 Track lock contention metrics
+      this.metricsService.lockContentionTotal.inc({ lock_type: 'behavior', resource: 'wallet' });
+
+      this.logger.warn(
+        `❌ Cannot acquire lock for behavior analysis on ${walletAddress}. ` +
+        `Locked by: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms. Job ${job.id} FAILED (no retry).`
+      );
+      throw new UnrecoverableError(
+        `Behavior analysis already in progress for wallet ${walletAddress} (locked by: ${lockOwner})`
+      );
     }
 
     try {
@@ -290,10 +316,26 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
 
     if (!lockAcquired) {
+      // 🚨 FAIL FAST: Lock acquisition failures are unrecoverable - don't retry
+      // Retrying creates priority inversion and starves other jobs
+      const lockOwner = await this.redisLockService.getLockValue(lockKey);
+      const ttl = await this.redisLockService.getLockTTL(lockKey);
+
+      // 📊 Track lock contention metrics
+      this.metricsService.lockContentionTotal.inc({ lock_type: 'dashboard', resource: 'wallet' });
+
       this.logger.warn(
-        `Could not acquire lock for dashboard analysis on ${walletAddress} [scope=${scope}], job ${job.id} will be retried.`,
+        `❌ Cannot acquire lock for dashboard analysis on ${walletAddress} [scope=${scope}]. ` +
+        `Lock held by job: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms. ` +
+        `Job ${job.id} FAILED (no retry - preventing retry storm).`,
       );
-      throw new Error(`Dashboard analysis already in progress for wallet ${walletAddress}`);
+
+      // UnrecoverableError prevents BullMQ from retrying this job
+      throw new UnrecoverableError(
+        `Dashboard analysis already in progress for wallet ${walletAddress} ` +
+        `(locked by: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms). ` +
+        `Please wait for the current analysis to complete.`
+      );
     }
 
     let enrichmentJob: Job | undefined;
@@ -1184,6 +1226,21 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     this.checkTimeout(startTime, timeoutMs, 'Starting wallet holder profile analysis');
     await job.updateProgress(5);
+
+    // 📊 Track concurrent analysis attempts (no lock, just monitoring)
+    const existingLock = await this.redisLockService.getLockValue(
+      RedisLockService.createWalletLockKey(walletAddress, 'dashboard-analysis')
+    );
+    if (existingLock) {
+      this.metricsService.concurrentAnalysisAttempts.inc({
+        analysis_type: 'holder_profiles',
+        resource_type: 'wallet'
+      });
+      this.logger.debug(
+        `📊 Concurrent analysis detected: holder profile analysis for ${walletAddress} ` +
+        `while dashboard analysis is in progress (job: ${existingLock})`
+      );
+    }
 
     // Check if wallet needs sync
     this.logger.debug(`Checking wallet status for ${walletAddress}`);
