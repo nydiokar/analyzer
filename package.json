@@ -9,6 +9,7 @@
   "scripts": {
     "start": "ts-node -r tsconfig-paths/register src/main.ts",
     "build": "npx tsc",
+    "build:dashboard": "pnpm --prefix dashboard run build",
     "dev": "ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/main.ts",
     "dev:quiet": "cross-env QUIET_MODE=true ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/main.ts",
     "dev:verbose": "cross-env NODE_ENV=production ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/main.ts",

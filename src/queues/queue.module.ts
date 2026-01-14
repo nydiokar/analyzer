@@ -41,7 +41,6 @@ import { BalanceCacheModule } from '../api/modules/balance-cache.module';
 import { HolderProfilesCacheModule } from '../api/modules/holder-profiles-cache.module';
 import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
-import { MetricsService } from '../api/services/metrics.service';
 
 @Global()
 @Module({
@@ -87,7 +86,6 @@ import { MetricsService } from '../api/services/metrics.service';
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
-    MetricsService, // Metrics tracking for monitoring
     JobPayloadCacheService, // Cache service for storing large job payloads
     SystemWalletDetectionService, // System wallet detection and filtering
 
@@ -123,7 +121,6 @@ import { MetricsService } from '../api/services/metrics.service';
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
-    MetricsService, // Export for metrics tracking
     JobPayloadCacheService, // Export for controllers/services that need to cache job payloads
     SystemWalletDetectionService, // Export for system wallet filtering
 
