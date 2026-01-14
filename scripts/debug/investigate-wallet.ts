@@ -164,6 +164,39 @@ async function main() {
       console.log(`   The system is NOT converting USDC to SOL when computing totalSolSpent/totalSolReceived.`);
       console.log(`   This happens when swaps are done with USDC instead of SOL.`);
     }
+
+    // Simulate the fix
+    console.log(`\n${'='.repeat(100)}`);
+    console.log('🔧 SIMULATED FIX (with USDC→SOL conversion):\n');
+
+    const SOL_PRICE_USD = 200; // Approximate current price
+    let fixedSolSpent = 0;
+    let fixedSolReceived = 0;
+
+    for (const input of swapInputs) {
+      let solValue = Math.abs(input.associatedSolValue);
+      if (solValue === 0 && input.associatedUsdcValue) {
+        solValue = Math.abs(input.associatedUsdcValue) / SOL_PRICE_USD;
+      }
+      if (input.direction === 'in') {
+        fixedSolSpent += solValue;
+      } else {
+        fixedSolReceived += solValue;
+      }
+    }
+
+    console.log(`   Using SOL price: $${SOL_PRICE_USD}`);
+    console.log(`   Fixed totalSolSpent:    ${fixedSolSpent.toFixed(6)} SOL (was ${analysisResult.totalSolSpent})`);
+    console.log(`   Fixed totalSolReceived: ${fixedSolReceived.toFixed(6)} SOL (was ${analysisResult.totalSolReceived})`);
+    console.log(`   Fixed net:              ${(fixedSolReceived - fixedSolSpent).toFixed(6)} SOL`);
+    console.log(`   Stored realizedPnlSol:  ${analysisResult.realizedPnlSol?.toFixed(6)} SOL`);
+
+    const diff = Math.abs((fixedSolReceived - fixedSolSpent) - (analysisResult.realizedPnlSol ?? 0));
+    if (diff < 0.01) {
+      console.log(`\n   ✅ FIX VALIDATED: Net matches realizedPnlSol (diff: ${diff.toFixed(6)} SOL)`);
+    } else {
+      console.log(`\n   ⚠️  Difference from realizedPnlSol: ${diff.toFixed(6)} SOL (may be due to fees or SOL price variance)`);
+    }
   }
 
   await prisma.$disconnect();

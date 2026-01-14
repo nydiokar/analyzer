@@ -267,7 +267,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       }
     });
 
-    this.logger.debug(
+    this.logger.warn(
       `Token enrichment plan: total=${tokenAddresses.length}, new=${newTokens.length}, stale=${staleTokens.length}, refresh=${needsEnrichment.size}`
     );
 

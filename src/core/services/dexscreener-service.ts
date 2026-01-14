@@ -438,25 +438,6 @@ export class DexscreenerService {
         
         return validTokens;
 
-            })
-            : uncheckedTokens;
-        
-        logger.info(`🔍 Pre-filter: After scam filter - ${validTokens.length} tokens remain (${uncheckedTokens.length - validTokens.length} filtered as scam)`);
-        
-        
-        
-        // FILTER 3: Prioritize tokens by wallet activity (if enabled)
-        if (METADATA_FETCHING_CONFIG.filtering.enableActivityPrioritization) {
-            const tokensWithActivity = await this.databaseService.getTokensWithRecentActivity(validTokens);
-            const prioritizedTokens = [
-                ...tokensWithActivity, // Tokens with recent trading activity first
-                ...validTokens.filter(addr => !tokensWithActivity.includes(addr)) // Other tokens last
-            ];
-                        
-            return prioritizedTokens;
-        }
-        
-        return validTokens;
     }
 
     /**

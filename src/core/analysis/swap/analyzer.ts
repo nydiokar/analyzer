@@ -106,7 +106,11 @@ export class SwapAnalyzer {
 
         const interactionType = input.interactionType?.toUpperCase() ?? '';
 
-        const solValueToConsider = input.associatedSolValue || 0;
+        // Convert USDC to SOL if no SOL value - each record has EITHER SOL or USDC, not both
+        let solValueToConsider = Math.abs(input.associatedSolValue || 0);
+        if (solValueToConsider === 0 && input.associatedUsdcValue && solPriceUsd) {
+            solValueToConsider = Math.abs(input.associatedUsdcValue) / solPriceUsd;
+        }
         const currentFeeAmount = input.feeAmount || 0;
         const tokenAmount = Math.abs(input.amount || 0);
 
