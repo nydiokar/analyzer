@@ -224,7 +224,7 @@ Holder Profiles: NO LOCK (relies on service idempotency)
 ✅ Starting new work → Add to Active Work
 ✅ Architectural decisions → Add to Architecture Decisions
 ✅ Discovering bugs → Add to Known Issues
-✅ End of session → Update Current Focus, timestamp
+✅ End of session → Update Current Focus, timestamp, and CHANGELOG.md for user-facing changes
 
 ### Entry Format
 

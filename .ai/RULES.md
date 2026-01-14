@@ -40,21 +40,25 @@ Universal execution contract for AI agents working on Sova Intel.
    - Record tests or manual checks performed
    - Stamp timestamp and your handle
 
-2. **Verify Work**
+2. **Update CHANGELOG.md** (for user-facing changes)
+   - Add completed features/fixes under `[Unreleased]` section using appropriate category (Added/Changed/Fixed/Removed)
+   - For version releases, use `./scripts/release.sh [patch|minor|major]` or update manually following SemVer
+
+3. **Verify Work**
    ```bash
    npm run verify
    npm run test:unit
    npm run analyze -- --address <WALLET> --period week   # confirm math remains sane
    ```
 
-3. **Commit** (if applicable)
+4. **Commit** (if applicable)
    ```bash
    git add <changed files>
    git commit -m "type(scope): brief summary"
    ```
    **Types**: feat, fix, docs, style, refactor, test, chore
 
-4. **Summarize for Next Session**
+5. **Summarize for Next Session**
    - Deliverables shipped (file paths or endpoints)
    - Pending actions or open questions
    - Runtime state (queues running, env changes)
