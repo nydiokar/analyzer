@@ -306,63 +306,17 @@ export class EnrichmentOperationsProcessor {
       this.logger.log(`Filtered to ${meaningfulTokens.length} meaningful tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as likely account addresses or zero balances)`);
     }
     
-    // STEP 1: Get existing tokens from database (database-first approach)
-    const existingTokens = await this.tokenInfoService.findMany(meaningfulTokens);
-    const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
-    
-    // STEP 2: Filter to only fetch tokens that don't exist or are stale (1 hour for metadata, 5 minutes for prices)
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes for prices
-    
-    const tokensToFetch = meaningfulTokens.filter(address => {
-      const existingToken = existingTokenMap.get(address);
-      
-      // Skip tokens that are clearly placeholders (Unknown Token with no real data)
-      if (existingToken?.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {
-        // Only refresh placeholders if they're older than 1 hour
-        const isPlaceholderStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-        return isPlaceholderStale;
-      }
-      
-      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (5 minutes)
-      if (existingToken) {
-        const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
-        
-        // Only fetch if metadata is stale OR if we have price data but it's stale
-        return metadataStale || (existingToken.priceUsd && priceStale);
-      }
-      
-      // New token - always fetch
-      return true;
-    });
-    
+    // STEP 1: Centralized staleness plan from TokenInfoService
+    const enrichmentPlan = await this.tokenInfoService.getTokenEnrichmentPlan(meaningfulTokens);
+    const tokensToFetch = enrichmentPlan.needsEnrichment;
+    const newTokens = enrichmentPlan.newTokens;
+    const staleTokens = enrichmentPlan.staleTokens;
+
     if (isDashboardAnalysis) {
-      this.logger.log(`Found ${existingTokens.length} existing mapped tokens, need to fetch ${tokensToFetch.length} new/stale mapped tokens`);
+      this.logger.log(`Found ${enrichmentPlan.existingTokens.length} existing mapped tokens, need to fetch ${tokensToFetch.length} new/stale mapped tokens`);
     } else {
-      this.logger.log(`Found ${existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
+      this.logger.log(`Found ${enrichmentPlan.existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
     }
-    
-    // Log breakdown of why tokens are being fetched
-    const newTokens = meaningfulTokens.filter(address => !existingTokenMap.has(address));
-    const staleTokens = meaningfulTokens.filter(address => {
-      const existingToken = existingTokenMap.get(address);
-      if (!existingToken) return false;
-      
-      const oneHourAgo = new Date(Date.now() - 1 * 60 * 1000);
-      const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000);
-      
-      // Check if it's a placeholder that needs refresh
-      if (existingToken.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {
-        return !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-      }
-      
-      // Check if metadata or price is stale
-      const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-      const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
-      
-      return metadataStale || (existingToken.priceUsd && priceStale);
-    });
     
     if (isDashboardAnalysis) {
       this.logger.log(`Breakdown: ${newTokens.length} new mapped tokens, ${staleTokens.length} stale mapped tokens`);

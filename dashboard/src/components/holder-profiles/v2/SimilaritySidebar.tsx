@@ -306,13 +306,13 @@ export function SimilaritySidebar({
                     <div className="h-2 w-2 rounded-full bg-emerald-500" />
                     <span className="text-xs">
                       <span className="font-semibold text-emerald-400">{stats.highSimilarityCount}</span>
-                      <span className="text-foreground/50"> pairs `&gt;`= 80%</span>
+                      <span className="text-foreground/50"> pairs &gt;= 80%</span>
                     </span>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs max-w-xs">
                                     <p className="text-muted-foreground mt-1">
-                    Overall similarity `&gt;`= 80% (0.6 behavior, 0.4 capital).
+                    Overall similarity &gt;= 80% (0.6 behavior, 0.4 capital).
                   </p>
                 </TooltipContent>
               </Tooltip>

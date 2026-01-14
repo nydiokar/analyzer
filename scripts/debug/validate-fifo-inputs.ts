@@ -5,7 +5,7 @@ import { SwapAnalyzer } from '../../src/core/analysis/swap/analyzer';
 dotenv.config();
 
 async function main() {
-  const wallet = process.argv[2] || 'HAsNv9GjHsCrcSN6bRWwsxbH8fD89tZiYY5D6YpaUQLz';
+  const wallet = process.argv[2] || 'kapD6ok2UTZsCLeqvuykmN7UE6wWBsLEfct9861esrh';
   const mintFilterArg = process.argv[3];
   const targetMints = mintFilterArg
     ? new Set(mintFilterArg.split(',').map(m => m.trim()).filter(Boolean))

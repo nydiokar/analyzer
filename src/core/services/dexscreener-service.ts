@@ -412,25 +412,32 @@ export class DexscreenerService {
      * This can reduce API calls by 60-80% for wallets with many scam/new tokens
      */
     private async preFilterTokensForDexScreener(tokenAddresses: string[]): Promise<string[]> {
-        
-        // FILTER 1: Check database for recently checked tokens (within configured hours)
-        const recentlyCheckedTokens = await this.databaseService.getRecentlyCheckedTokens(
-            tokenAddresses, 
-            METADATA_FETCHING_CONFIG.dexscreener.cacheExpiryHours
-        );
-        const recentlyCheckedSet = new Set(recentlyCheckedTokens);
-        
-        const uncheckedTokens = tokenAddresses.filter(addr => !recentlyCheckedSet.has(addr));        
-        
-        
-        // FILTER 2: Skip known scam/spam patterns (if enabled)
+        // FILTER 1: Skip known scam/spam patterns (if enabled)
         const validTokens = METADATA_FETCHING_CONFIG.filtering.enableScamTokenFilter 
-            ? uncheckedTokens.filter(addr => {
+            ? tokenAddresses.filter(addr => {
                 // Skip tokens that are clearly invalid or scam patterns
                 if (!addr || addr.length !== 44) return false;
                 
                 // Skip tokens with configured scam patterns
                 return !METADATA_FETCHING_CONFIG.filtering.scamPatterns.some(pattern => pattern.test(addr));
+            })
+            : tokenAddresses;
+        
+        logger.info(`dY"? Pre-filter: After scam filter - ${validTokens.length} tokens remain (${tokenAddresses.length - validTokens.length} filtered as scam)`);
+        
+        // FILTER 2: Prioritize tokens by wallet activity (if enabled)
+        if (METADATA_FETCHING_CONFIG.filtering.enableActivityPrioritization) {
+            const tokensWithActivity = await this.databaseService.getTokensWithRecentActivity(validTokens);
+            const prioritizedTokens = [
+                ...tokensWithActivity, // Tokens with recent trading activity first
+                ...validTokens.filter(addr => !tokensWithActivity.includes(addr)) // Other tokens last
+            ];
+                        
+            return prioritizedTokens;
+        }
+        
+        return validTokens;
+
             })
             : uncheckedTokens;
         

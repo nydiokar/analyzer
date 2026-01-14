@@ -1129,6 +1129,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const finalProfiles = [...aggregatedProfiles.values()].sort(
         (a, b) => (orderLookup.get(a.walletAddress) ?? 0) - (orderLookup.get(b.walletAddress) ?? 0),
       );
+      const hydratedFinalProfiles = await this.hydrateHoldingsValues(finalProfiles);
       const analyzedCount = finalProfiles.length;
       const totalRequested = walletAddresses.length;
       const failedCount = Math.max(failedWallets.size, totalRequested - analyzedCount);
@@ -1137,7 +1138,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         success: true,
         mode: 'token',
         tokenMint,
-        profiles: finalProfiles,
+        profiles: hydratedFinalProfiles,
         metadata: {
           totalHoldersRequested: totalRequested,
           totalHoldersAnalyzed: analyzedCount,
@@ -1380,6 +1381,73 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       return profile;
     }
   }
+
+  private async hydrateHoldingsValues(profiles: HolderProfile[]): Promise<HolderProfile[]> {
+    const missingMints = new Set<string>();
+    for (const profile of profiles) {
+      for (const holding of profile.currentHoldings ?? []) {
+        if ((holding.uiBalance ?? 0) > 0 && (holding.valueSol === null || holding.valueSol === undefined) &&
+            (holding.valueUsd === null || holding.valueUsd === undefined)) {
+          if (holding.tokenAddress) {
+            missingMints.add(holding.tokenAddress);
+          }
+        }
+      }
+    }
+
+    if (missingMints.size === 0) {
+      return profiles;
+    }
+
+    let solPriceUsd = 0;
+    try {
+      solPriceUsd = await this.tokenInfoService.getSolPrice();
+    } catch (error) {
+      this.logger.debug('SOL price unavailable for holdings hydration.');
+      return profiles;
+    }
+
+    if (!solPriceUsd || solPriceUsd <= 0) {
+      return profiles;
+    }
+
+    try {
+      const pricesByMint = await this.tokenInfoService.getTokenPrices([...missingMints]);
+      return profiles.map((profile) => {
+        const holdings = profile.currentHoldings ?? [];
+        if (holdings.length === 0) {
+          return profile;
+        }
+        const updatedHoldings = holdings.map((holding) => {
+          if ((holding.uiBalance ?? 0) <= 0) {
+            return holding;
+          }
+          if ((holding.valueSol !== null && holding.valueSol !== undefined) ||
+              (holding.valueUsd !== null && holding.valueUsd !== undefined)) {
+            return holding;
+          }
+          const priceUsd = pricesByMint.get(holding.tokenAddress) ?? null;
+          if (!priceUsd || priceUsd <= 0) {
+            return holding;
+          }
+          const valueUsd = (holding.uiBalance ?? 0) * priceUsd;
+          const valueSol = valueUsd / solPriceUsd;
+          return {
+            ...holding,
+            valueUsd,
+            valueSol,
+          };
+        });
+        return {
+          ...profile,
+          currentHoldings: updatedHoldings,
+        };
+      });
+    } catch (error: any) {
+      this.logger.debug(`Failed to hydrate holdings values: ${error?.message || 'unknown error'}`);
+      return profiles;
+    }
+  }
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {
     const { mint, cutoffTs } = job.data;
     const startTime = Date.now();
@@ -1561,8 +1629,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           .map((holding) => holding.tokenAddress);
         if (missingValueMints.length > 0 && this.tokenInfoService) {
           try {
-            const tokenInfos = await this.tokenInfoService.findMany(missingValueMints);
-            const tokenInfoByMint = new Map(tokenInfos.map((info) => [info.tokenAddress, info]));
+            const pricesByMint = await this.tokenInfoService.getTokenPrices(missingValueMints);
             let solPriceUsd = 0;
             try {
               solPriceUsd = await this.tokenInfoService.getSolPrice();
@@ -1574,8 +1641,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
                 if (holding.valueSol !== null && holding.valueSol !== undefined) {
                   return holding;
                 }
-                const tokenInfo = tokenInfoByMint.get(holding.tokenAddress);
-                const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
+                const priceUsd = pricesByMint.get(holding.tokenAddress) ?? null;
                 if (!priceUsd || priceUsd <= 0) {
                   return holding;
                 }

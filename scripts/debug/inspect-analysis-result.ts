@@ -8,7 +8,7 @@ async function main() {
   const mint = process.argv[3];
 
   if (!wallet || !mint) {
-    console.error('Usage: npx ts-node -r tsconfig-paths/register .ai/context/FIFO_debug/inspect-analysis-result.ts <WALLET> <MINT>');
+    console.error('Usage: npx ts-node -r tsconfig-paths/register scripts/debug/inspect-analysis-result.ts <WALLET> <MINT>');
     process.exit(1);
   }
 

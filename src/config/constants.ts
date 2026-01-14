@@ -95,6 +95,11 @@ export const ANALYSIS_EXECUTION_CONFIG = {
   HOLDER_PROFILES_TOP_HOLDERS_TTL_SECONDS: getEnvNumber('HOLDER_PROFILES_TOP_HOLDERS_TTL_SECONDS', 60),
 } as const;
 
+export const TOKEN_INFO_REFRESH_CONFIG = {
+  metadataStaleMs: getEnvNumber('TOKEN_INFO_METADATA_STALE_MS', 20 * 1000),
+  priceStaleMs: getEnvNumber('TOKEN_INFO_PRICE_STALE_MS', 20 * 1000),
+} as const;
+
 export const DASHBOARD_ANALYSIS_SCOPE_DEFAULTS = {
   flash: {
     historyWindowDays: getEnvNumber('DASHBOARD_FLASH_HISTORY_DAYS', 7),
@@ -203,11 +208,8 @@ export const METADATA_FETCHING_CONFIG = {
     baseWaitTimeMs: 800, // Reduced from 1000ms
     adaptiveRateLimiting: true, // Dynamically adjust based on response times
     maxRetries: 2,
-    // Caching for metadata ONLY (not price/balance data)
-    // FIXED: Use 24 hours to allow old tokens like POKE6900 to be refreshed
-    cacheExpiryHours: 1, // 24 hours - allows old tokens like POKE6900 to be refreshed
-    // Price data should be refreshed more frequently
-    priceCacheExpiryMinutes: 1, // 5 minutes for price data
+    // Staleness decisions are centralized in TokenInfoService (TOKEN_INFO_REFRESH_CONFIG).
+    // Keep only transport-level knobs here.
     prioritizeActiveTokens: true, // Prioritize tokens with recent trading activity
   },
   

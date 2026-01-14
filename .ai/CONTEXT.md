@@ -12,6 +12,8 @@
 
 ## 📋 Active Work
 
+Question not to forget! How can we "hide" the results from the frontend dev tools, currently in network calls we publish the results, is it necessary fro the frontend to populate or we can not send the whole results only "ok" or finished or something like that. Currently similarity is sending the whole analysis in the response 
+
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |

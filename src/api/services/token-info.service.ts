@@ -1,13 +1,14 @@
 import { Injectable, Logger, Inject, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { DatabaseService } from '../services/database.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, TokenInfo } from '@prisma/client';
 import { DexscreenerService } from '../services/dexscreener.service';
 import { IPriceProvider } from '../../types/price-provider.interface';
-import { ITokenInfoService } from '../../types/token-info-service.interface';
+import { ITokenInfoService, TokenEnrichmentPlan } from '../../types/token-info-service.interface';
 import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../core/services/onchain-metadata.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import { TOKEN_INFO_REFRESH_CONFIG } from '../../config/constants';
 
 /**
  * TokenInfoService - Unified Token Information & Price Management
@@ -199,13 +200,92 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     if (tokenAddresses.length === 0) {
       return;
     }
-    this.logger.debug(`[Background] Enriching ${tokenAddresses.length} tokens`);
-    await this.priceProvider.fetchAndSaveTokenInfo(tokenAddresses);
+    const plan = await this.getTokenEnrichmentPlan(tokenAddresses);
+    if (plan.needsEnrichment.length === 0) {
+      return;
+    }
+    this.logger.debug(`[Background] Enriching ${plan.needsEnrichment.length} tokens`);
+    await this.priceProvider.fetchAndSaveTokenInfo(plan.needsEnrichment);
+  }
+
+  async getTokenEnrichmentPlan(tokenAddresses: string[]): Promise<TokenEnrichmentPlan> {
+    const deduped = [...new Set(tokenAddresses)];
+    const existingTokens = await this.findMany(deduped);
+    return this.buildTokenEnrichmentPlan(deduped, existingTokens);
+  }
+
+  private buildTokenEnrichmentPlan(tokenAddresses: string[], existingTokens: TokenInfo[]): TokenEnrichmentPlan {
+    const metadataStaleBefore = new Date(Date.now() - TOKEN_INFO_REFRESH_CONFIG.metadataStaleMs);
+    const priceStaleBefore = new Date(Date.now() - TOKEN_INFO_REFRESH_CONFIG.priceStaleMs);
+    const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
+    const needsEnrichment = new Set<string>();
+    const needsOnchainData = new Set<string>();
+    const needsPriceData = new Set<string>();
+    const newTokens: string[] = [];
+    const staleTokens: string[] = [];
+
+    tokenAddresses.forEach(address => {
+      const existing = existingTokenMap.get(address);
+      if (!existing) {
+        newTokens.push(address);
+        needsEnrichment.add(address);
+        needsOnchainData.add(address);
+        needsPriceData.add(address);
+        return;
+      }
+
+      const hasOnchainData = !!existing.onchainBasicFetchedAt;
+      const dexUpdatedAt = existing.dexscreenerUpdatedAt;
+      const metadataStale = !dexUpdatedAt || dexUpdatedAt < metadataStaleBefore;
+      const priceStale = !existing.priceUsd || !dexUpdatedAt || dexUpdatedAt < priceStaleBefore;
+      const isPlaceholder =
+        existing.name === 'Unknown Token' &&
+        !existing.onchainName &&
+        !existing.priceUsd &&
+        !existing.marketCapUsd;
+
+      let needsRefresh = false;
+
+      if (!hasOnchainData) {
+        needsOnchainData.add(address);
+        needsRefresh = true;
+      }
+
+      if (isPlaceholder) {
+        if (metadataStale) {
+          needsPriceData.add(address);
+          needsRefresh = true;
+        }
+      } else if (metadataStale || priceStale) {
+        needsPriceData.add(address);
+        needsRefresh = true;
+      }
+
+      if (needsRefresh) {
+        needsEnrichment.add(address);
+        staleTokens.push(address);
+      }
+    });
+
+    this.logger.debug(
+      `Token enrichment plan: total=${tokenAddresses.length}, new=${newTokens.length}, stale=${staleTokens.length}, refresh=${needsEnrichment.size}`
+    );
+
+    return {
+      tokenAddresses,
+      existingTokens,
+      needsEnrichment: [...needsEnrichment],
+      needsOnchainData: [...needsOnchainData],
+      needsPriceData: [...needsPriceData],
+      newTokens,
+      staleTokens,
+    };
   }
 
   async triggerTokenInfoEnrichment(
     tokenAddresses: string[],
     userId: string,
+    plan?: TokenEnrichmentPlan,
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -216,50 +296,16 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       tokenCount: tokenAddresses.length,
     });
 
-    const existingTokens = await this.findMany(tokenAddresses);
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata staleness
-    const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
-
-    // Determine which tokens need enrichment
-    const needsEnrichment = tokenAddresses.filter(address => {
-      const existing = existingTokenMap.get(address);
-
-      // If no data at all, needs enrichment
-      if (!existing) return true;
-
-      // If "Unknown Token" with no onchain data, needs enrichment
-      if (existing.name === 'Unknown Token' && !existing.onchainName) {
-        return true;
-      }
-
-      // Onchain metadata is IMMUTABLE - once fetched, never refetch
-      // Only check if DexScreener data is stale (prices/volume change)
-      const hasOnchainData = !!existing.onchainBasicFetchedAt;
-      const dexStale = !existing.dexscreenerUpdatedAt || existing.dexscreenerUpdatedAt < oneHourAgo;
-
-      // Skip enrichment if:
-      // - We have onchain data (immutable, never changes) AND
-      // - DexScreener data is fresh (prices are recent)
-      if (hasOnchainData && !dexStale) {
-        return false;
-      }
-
-      // Enrich if we're missing onchain data OR DexScreener is stale
-      return !hasOnchainData || dexStale;
-    });
-
+    const enrichmentPlan = plan ?? await this.getTokenEnrichmentPlan(tokenAddresses);
+    const needsEnrichment = enrichmentPlan.needsEnrichment;
     if (needsEnrichment.length === 0) {
       this.logger.log('All tokens already have recent metadata');
       return;
     }
 
     // Split enrichment needs: onchain metadata vs price data
-    const needsOnchainData = needsEnrichment.filter(address => {
-      const existing = existingTokenMap.get(address);
-      return !existing?.onchainBasicFetchedAt; // Missing onchain data (immutable)
-    });
-
-    const needsPriceData = needsEnrichment; // All tokens in needsEnrichment need price refresh
+    const needsOnchainData = enrichmentPlan.needsOnchainData;
+    const needsPriceData = enrichmentPlan.needsPriceData;
 
     this.logger.log(`Enriching ${needsEnrichment.length} tokens (onchain: ${needsOnchainData.length}, prices: ${needsPriceData.length})`);
 
