@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Users, Link2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatAddress } from './utils/formatters';
 import {
   type WalletCluster,
   getClusterStrengthLabel,
@@ -16,15 +15,12 @@ interface Props {
   selectedClusterId?: number | null;
   /** Callback when a cluster is clicked */
   onClusterSelect?: (clusterId: number | null) => void;
-  /** Map of wallet address to rank in the table */
-  walletRanks?: Map<string, number>;
 }
 
 export function ClusterIndicator({
   clusters,
   selectedClusterId,
   onClusterSelect,
-  walletRanks,
 }: Props) {
   // Only show if there are clusters
   if (clusters.length === 0) return null;
@@ -90,9 +86,9 @@ export function ClusterIndicator({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs max-w-xs">
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-4">
-                      <span className="font-medium">Cluster of {cluster.wallets.length}</span>
+                      <span className="font-medium">Cluster: {cluster.wallets.length} wallets</span>
                       <span className={cn('font-semibold', strengthColor)}>{strengthLabel}</span>
                     </div>
                     <div className="text-muted-foreground">
@@ -100,30 +96,6 @@ export function ClusterIndicator({
                       <p>Min edge: {Math.round(cluster.minSimilarity * 100)}%</p>
                       <p>{cluster.edgeCount} connections</p>
                     </div>
-                    <div className="pt-1 border-t border-border/40">
-                      <p className="text-muted-foreground mb-1">Wallets:</p>
-                      <div className="flex flex-wrap gap-1">
-                        {cluster.wallets.slice(0, 6).map((wallet) => {
-                          const rank = walletRanks?.get(wallet);
-                          return (
-                            <span
-                              key={wallet}
-                              className="font-mono text-[10px] bg-muted/50 px-1 rounded"
-                            >
-                              {rank ? `#${rank} ` : ''}{formatAddress(wallet)}
-                            </span>
-                          );
-                        })}
-                        {cluster.wallets.length > 6 && (
-                          <span className="text-[10px] text-muted-foreground">
-                            +{cluster.wallets.length - 6} more
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-foreground/40 pt-1">
-                      Click to highlight in table
-                    </p>
                   </div>
                 </TooltipContent>
               </Tooltip>

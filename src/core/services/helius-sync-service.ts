@@ -68,7 +68,7 @@ export class HeliusSyncService {
         }
         this.heliusClient = heliusApiClient; // Use the provided instance
         this.smartFetchService = smartFetchService || new SmartFetchService();
-        // logger.info('HeliusSyncService instantiated with provided HeliusApiClient and SmartFetchService.');
+        logger.info('HeliusSyncService instantiated with provided HeliusApiClient and SmartFetchService.');
     }
 
     /**

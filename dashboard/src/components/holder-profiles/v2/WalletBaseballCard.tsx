@@ -6,7 +6,6 @@ import { ExitTimingDrilldownPanel } from './ExitTimingDrilldownPanel';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { TransactionDateRange } from './TransactionDateRange';
 import { WalletBadge } from '@/components/shared/WalletBadge';
-import { InfoIcon } from 'lucide-react';
 
 const formatBalanceCompact = (value: number | null | undefined) => {
   if (value === null || value === undefined) return '–';
@@ -191,7 +190,6 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
                   <div
                     className="flex-1 h-3 bg-muted/20 rounded-full overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
                     onClick={(e) => rawValue > 0 && onBucketClick(bucket.bucket, bucket.label, { x: e.clientX, y: e.clientY })}
-                    title={rawValue > 0 ? `Click to see ${label} tokens in ${bucket.label} range` : undefined}
                   >
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 via-teal-400/70 to-sky-500/80"
@@ -208,13 +206,7 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-xs" side="left">
                 <p className="font-semibold mb-1">{bucketInfo.title}</p>
-                <p className="text-muted-foreground mb-2">{bucketInfo.description}</p>
-                <p className="text-xs text-primary font-medium">{bucketInfo.tradingStyle}</p>
-                {rawValue > 0 && (
-                  <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
-                    💡 Click the bar to see specific tokens in this timeframe
-                  </p>
-                )}
+                <p className="text-muted-foreground">{bucketInfo.tradingStyle}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -227,13 +219,13 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
 function getQualityIndicator(tier?: string) {
   switch (tier) {
     case 'GOLD':
-      return { dot: 'bg-yellow-500', panel: 'bg-yellow-500/10', label: 'Gold quality' };
+      return { dot: 'bg-yellow-500', panel: 'bg-yellow-500/10', label: 'Gold' };
     case 'SILVER':
-      return { dot: 'bg-gray-400', panel: 'bg-gray-400/10', label: 'Silver quality' };
+      return { dot: 'bg-gray-400', panel: 'bg-gray-400/10', label: 'Silver' };
     case 'BRONZE':
-      return { dot: 'bg-orange-700', panel: 'bg-orange-700/10', label: 'Bronze quality' };
+      return { dot: 'bg-orange-700', panel: 'bg-orange-700/10', label: 'Bronze' };
     case 'INSUFFICIENT':
-      return { dot: 'bg-red-500', panel: 'bg-red-500/10', label: 'Insufficient data' };
+      return { dot: 'bg-red-500', panel: 'bg-red-500/10', label: 'Insufficient' };
     default:
       return { dot: 'bg-gray-400', panel: 'bg-muted', label: 'Unknown' };
   }
@@ -261,6 +253,8 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
   const totalTokens = profile.totalTokensTraded ?? profile.completedCycleCount ?? 0;
   const heldTokens = profile.currentHoldingsCount ?? 0;
   const exitedTokens = profile.completedCycleCount ?? 0;
+  const exitCount = exitedTokens;
+  const lowExitSample = exitCount > 0 && exitCount < 3;
   const percentHeldValue = profile.percentValueInCurrentHoldings ?? 0;
   const behaviorDisplayType = profile.behaviorType ?? (heldTokens > 0 ? 'HODLER' : null);
   const currentHoldingsList = useMemo(
@@ -279,10 +273,13 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
         ? Math.max(1, Math.round((percentHeldValue / 100) * Math.max(totalTokens, 1)))
         : 0;
   const activeTokens = heldTokens > 0 ? heldTokens : estimatedHeld;
-  const heldDisplay = activeTokens > 0 ? activeTokens.toLocaleString() : '0';
   const unresolvedTokens = Math.max(totalTokens - exitedTokens - activeTokens, 0);
-  const tokensSummary = `${totalTokens.toLocaleString()} tokens`;
-  const exitHoldSummary = `Exited: ${exitedTokens.toLocaleString()} · Active: ${heldDisplay}${unresolvedTokens ? ` · Other: ${unresolvedTokens.toLocaleString()}` : ''}`;
+  const tokenBreakdown = [
+    { label: 'Analyzed', value: totalTokens },
+    { label: 'Exited', value: exitedTokens },
+    { label: 'Active', value: activeTokens },
+    ...(unresolvedTokens ? [{ label: 'Other', value: unresolvedTokens }] : []),
+  ];
 
   const toggleHoldingsVisibility = () => {
     if (!hasHoldingsList) return;
@@ -314,19 +311,6 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
       <div className={`p-3 border-b ${qualityIndicator.panel}`}>
         <div className="flex items-center justify-between mb-2">
           <WalletBadge address={walletAddress} className="text-sm font-semibold" />
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className={`w-2.5 h-2.5 rounded-full ${qualityIndicator.dot} ring-2 ring-background`} />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs font-semibold">{qualityIndicator.label}</p>
-                <p className="text-xs text-muted-foreground">
-                  {profile.completedCycleCount} completed tokens
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
 
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -334,7 +318,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span 
+                  <span
                     className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-help ${getBehaviorColor(behaviorDisplayType).className}`}
                     style={getBehaviorColor(behaviorDisplayType).style}
                   >
@@ -343,32 +327,24 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                       ?? 'Unclassified'}
                   </span>
                 </TooltipTrigger>
-                <TooltipContent className="max-w-sm text-xs">
-                  <p className="font-semibold mb-2">
+                <TooltipContent className="max-w-xs text-xs">
+                  <p className="font-semibold mb-1">
                     {getBehaviorMeta(profile.behaviorType)?.label
                       ?? (heldTokens > 0 ? 'Holder (no exits yet)' : profile.behaviorType)
                       ?? 'Unclassified'}
                   </p>
-                  <p className="text-muted-foreground mb-2">
+                  <p className="text-muted-foreground">
                     {getBehaviorMeta(profile.behaviorType)?.timeframe
-                      ? `Typical hold time: ${getBehaviorMeta(profile.behaviorType)?.timeframe}`
+                      ? `Typical hold: ${getBehaviorMeta(profile.behaviorType)?.timeframe}`
                       : heldTokens > 0
-                        ? 'Not enough completed exits to classify speed'
-                        : 'No exit data available'}
+                        ? 'No exits yet'
+                        : 'No exit data'}
                   </p>
-                  <div className="text-xs text-muted-foreground border-t border-border pt-2 mt-2">
-                    <p className="font-medium mb-1">Speed Categories:</p>
-                    <ul className="space-y-0.5 text-[10px]">
-                      <li>• SNIPER: &lt;1 min exits</li>
-                      <li>• SCALPER: 1-5 min exits</li>
-                      <li>• MOMENTUM: 5-30 min exits</li>
-                      <li>• INTRADAY: 30min-4h exits</li>
-                      <li>• DAY_TRADER: 4-24h exits</li>
-                      <li>• SWING: 1-7 day holds</li>
-                      <li>• POSITION: 7-30 day holds</li>
-                      <li>• HODLER: 30+ day holds (crypto spelling)</li>
-                    </ul>
-                  </div>
+                  {exitCount > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Sample: {exitCount} exits{lowExitSample ? ' - low sample' : ''}
+                    </p>
+                  )}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -380,34 +356,32 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                   </span>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
-                  <p className="font-semibold mb-1">Classification Confidence</p>
-                  <p className="text-muted-foreground">
-                    Statistical confidence in the behavior classification. Higher confidence means more consistent trading patterns with sufficient data points.
-                  </p>
+                  <p className="text-muted-foreground">Confidence in behavior classification.</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="text-[10px] font-semibold text-muted-foreground cursor-help">
-                  {tokensSummary} / {exitHoldSummary}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                <p className="font-semibold mb-1">Token accounting</p>
-                <p className="text-muted-foreground">
-                Total analyzed / fully exited / active holdings. "Other" covers dust/spam/partial data, not classify as active or exited.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
         <TransactionDateRange
           oldestTimestamp={profile.oldestTransactionTimestamp}
           newestTimestamp={profile.newestTransactionTimestamp}
         />
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
+          <div className="inline-flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${qualityIndicator.dot} ring-1 ring-background`} />
+            <span>Quality: {qualityIndicator.label}</span>
+            <span className="text-foreground/40">
+              ({profile.completedCycleCount ?? 0} completed)
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {tokenBreakdown.map((item) => (
+              <span key={item.label} className="text-foreground/60">
+                {item.label}: {item.value.toLocaleString()}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="p-3">
@@ -420,14 +394,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                 </p>
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-xs">
-                <p className="font-semibold mb-1">Exit Timing Distribution</p>
-                <p className="text-muted-foreground mb-2">
-                  Shows how long this holder typically keeps positions before exiting.
-                  Each bar represents the proportion of exits within that timeframe.
-                </p>
-                <p className="text-xs text-primary font-medium">
-                  Hover over time ranges for detailed descriptions
-                </p>
+                <p className="text-muted-foreground">Exit timing distribution from completed exits.</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

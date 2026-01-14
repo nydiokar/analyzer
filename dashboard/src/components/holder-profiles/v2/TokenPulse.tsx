@@ -2,13 +2,11 @@ import type { HolderProfilesResult } from '../types';
 import { getSpeedPrimitive, getConsistencyPrimitive } from './utils/cognitive-primitives';
 import { getMeanBehaviorSimilarity } from './utils/behavior-similarity';
 import { TraderDistributionBar } from './TraderDistributionBar';
-import { ApproachingHoldTimePanel } from './ApproachingHoldTimePanel';
 import { MinimalHoldersTable } from './MinimalHoldersTable';
 import { getTokenOutcome } from './utils/outcome-logic';
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { WalletBaseballCard } from './WalletBaseballCard';
 import { createPortal } from 'react-dom';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { SimilaritySidebar, type SimilarityGraphAnalysis, type SimilarityStatus } from './SimilaritySidebar';
 import { OutcomeStrip } from './OutcomeStrip';
@@ -45,6 +43,16 @@ export function TokenPulse({
   const totalHolders = result.metadata.totalHoldersRequested || result.profiles.length;
   const qualityValue = `${qualityCount}/${totalHolders || result.profiles.length}`;
   const similarityValue = meanBehaviorSimilarity === null ? '—' : `${Math.round(meanBehaviorSimilarity)}%`;
+  const similarityCategory = meanBehaviorSimilarity === null
+    ? 'Unknown'
+    : meanBehaviorSimilarity >= 75
+      ? 'Very high'
+      : meanBehaviorSimilarity >= 50
+        ? 'High'
+        : meanBehaviorSimilarity >= 25
+          ? 'Moderate'
+          : 'Low';
+  const similarityDescription = 'Average pairwise behavior overlap';
   const [selectedProfile, setSelectedProfile] = useState<HolderProfilesResult['profiles'][number] | null>(null);
 
   // Track which wallets are highlighted from similarity pair or cluster selection
@@ -160,8 +168,8 @@ export function TokenPulse({
             id: 'similarity',
             label: 'Mean Similarity',
             value: similarityValue,
-            category: 'Behavior',
-            description: 'Behavior similarity across holders',
+            category: similarityCategory,
+            description: similarityDescription,
             color: 'text-sky-500',
           }}
         />
@@ -169,23 +177,13 @@ export function TokenPulse({
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4">
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
-            <TraderDistributionBar profiles={result.profiles} />
-            <ApproachingHoldTimePanel profiles={result.profiles} tokenMint={result.tokenMint} />
+          <div className="grid grid-cols-1">
+            <div className="w-full max-w-2xl">
+              <TraderDistributionBar profiles={result.profiles} />
+            </div>
           </div>
           <div>
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p className="text-sm font-medium mb-3 cursor-help w-fit">Supporting evidence</p>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-sm text-xs">
-                  <p className="text-muted-foreground">
-                    Individual holder profiles that make up this analysis. Click any row to see detailed trading patterns for that wallet.
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <p className="text-sm font-medium mb-3">Supporting evidence</p>
             <MinimalHoldersTable
               profiles={result.profiles}
               mode="token"

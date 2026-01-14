@@ -85,7 +85,6 @@ export function SimilarityPairRibbon({ pair, rank, walletRanks, isSelected, onCl
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs">
                   <p className="font-mono text-xs">{pair.walletA}</p>
-                  {rankA && <p className="text-muted-foreground mt-1">Rank #{rankA} in holders table</p>}
                 </TooltipContent>
               </Tooltip>
               <span className="text-foreground/30 shrink-0">↔</span>
@@ -97,7 +96,6 @@ export function SimilarityPairRibbon({ pair, rank, walletRanks, isSelected, onCl
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs">
                   <p className="font-mono text-xs">{pair.walletB}</p>
-                  {rankB && <p className="text-muted-foreground mt-1">Rank #{rankB} in holders table</p>}
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -108,10 +106,7 @@ export function SimilarityPairRibbon({ pair, rank, walletRanks, isSelected, onCl
                 </span>
               </TooltipTrigger>
               <TooltipContent side="left" className="text-xs max-w-xs">
-                <p className="font-medium">Overall Similarity</p>
-                <p className="text-muted-foreground mt-1">
-                  Weighted average: 60% behavioral + 40% capital
-                </p>
+                <p className="text-muted-foreground">Overall similarity = 0.6 behavior + 0.4 capital.</p>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -156,25 +151,12 @@ export function SimilarityPairRibbon({ pair, rank, walletRanks, isSelected, onCl
                 </span>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs max-w-xs">
-                <p className="font-medium">Shared Tokens</p>
-                <p className="text-muted-foreground mt-1">
-                  Both wallets traded {pair.sharedTokensCount} of the same tokens. Higher overlap suggests coordinated trading or following similar strategies.
-                </p>
+                <p className="text-muted-foreground">Tokens traded by both wallets.</p>
               </TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="text-foreground/40 cursor-help">
-                  {pair.uniqueTokensA} + {pair.uniqueTokensB} unique
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs max-w-xs">
-                <p className="font-medium">Unique Tokens</p>
-                <p className="text-muted-foreground mt-1">
-                  First wallet traded {pair.uniqueTokensA} tokens the second didn't, and the second wallet traded {pair.uniqueTokensB} tokens the first didn't. Lower unique counts indicate more focused overlap.
-                </p>
-              </TooltipContent>
-            </Tooltip>
+            <span className="text-foreground/40">
+              {pair.uniqueTokensA} + {pair.uniqueTokensB} unique
+            </span>
           </div>
         </div>
       </div>

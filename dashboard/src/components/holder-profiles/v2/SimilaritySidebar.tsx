@@ -269,7 +269,6 @@ export function SimilaritySidebar({
             clusters={graphAnalysis.clusters}
             selectedClusterId={selectedClusterId}
             onClusterSelect={handleClusterSelect}
-            walletRanks={walletRanks}
           />
         )}
 
@@ -307,14 +306,13 @@ export function SimilaritySidebar({
                     <div className="h-2 w-2 rounded-full bg-emerald-500" />
                     <span className="text-xs">
                       <span className="font-semibold text-emerald-400">{stats.highSimilarityCount}</span>
-                      <span className="text-foreground/50"> pairs ≥80%</span>
+                      <span className="text-foreground/50"> pairs `&gt;`= 80%</span>
                     </span>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs max-w-xs">
-                  <p className="font-medium">High Similarity Pairs</p>
-                  <p className="text-muted-foreground mt-1">
-                    Wallet pairs with ≥80% overall similarity. These wallets likely share significant portfolio overlap or trading patterns.
+                                    <p className="text-muted-foreground mt-1">
+                    Overall similarity `&gt;`= 80% (0.6 behavior, 0.4 capital).
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -331,9 +329,8 @@ export function SimilaritySidebar({
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-xs max-w-xs">
-                    <p className="font-medium">Moderate Similarity</p>
-                    <p className="text-muted-foreground mt-1">
-                      Pairs with 50-79% similarity. Some shared holdings but not strongly correlated.
+                                        <p className="text-muted-foreground mt-1">
+                      Overall similarity 50-79%.
                     </p>
                   </TooltipContent>
                 </Tooltip>
@@ -341,7 +338,7 @@ export function SimilaritySidebar({
             </div>
 
             <p className="text-[10px] text-foreground/40">
-              {stats.totalPairs} total {pluralize(stats.totalPairs, 'pair', 'pairs')} • Click to highlight in table
+              {stats.totalPairs} total {pluralize(stats.totalPairs, 'pair', 'pairs')}. Click to highlight in table
             </p>
           </div>
         )}

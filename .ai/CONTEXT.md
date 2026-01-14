@@ -8,8 +8,6 @@
 
 **Frontend Polish & Math Validation** - Fixing calculation errors, demonstrating system reliability through dashboard components, and tuning API behavior.
 
-**Next Up:** Final glance at Holder Profiles → Similarity Lab bug fixes
-
 ---
 
 ## 📋 Active Work
@@ -17,6 +15,8 @@
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
+| 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable |
+| 📝 | Introduce wallet registry for better management of types of wallets | 🔸 | see .ai\context\classification\wallet_registry.md - introduce wallet registry to mark correctly wallets that can skip expensive operations but show in lists |
 | 📝 | Holder Profiles final review | 🔹 | One more pass before complete |
 | 📝 | Similarity Lab bug fixes | 🔸 | Ready to start after Holder Profiles |
 
@@ -32,10 +32,14 @@
 
 ## 📅 Recent Activity
 
+
+
 ### January 13, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
+| 13.9 | ?o. | Holder Profiles: Tooltip overhaul | dY"1 | `holder-profiles/v2` tooltips, copy cleanup, redundancy removal |
+| 13.8 | dY"' | Holder Profiles: Bucket drilldown alignment plan | dY", | Align bucket stats + token lists; TokenPerformanceTab-style lazy loading & pagination |
 | 13.7 | ✅ | Mapper: Stable USD value attribution & USD1 integration | 🔶", | `helius-transaction-mapper.ts`, `swap/analyzer.ts`, `token-metadata.ts`, `behavior/analyzer.ts`, `helius-transaction-mapper.test.ts` |
 | 13.1 | 🔧 | Queue Stability: Orphaned Lock Cleanup on Startup | 🔶 | `queue.module.ts`, `redis-lock.service.ts` |
 | 13.2 | 🔧 | Queue Stability: Fail-Fast Lock Acquisition | 🔶 | `*-operations.processor.ts` |

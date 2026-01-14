@@ -1,5 +1,5 @@
 import type { HolderProfile } from '../types';
-import { formatHoldTime, formatPercentage, formatSol, formatUsd } from './utils/formatters';
+import { formatHoldTime, formatPercentage, formatSol } from './utils/formatters';
 import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
@@ -100,7 +100,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs text-xs">
                     <p className="text-muted-foreground">
-                      Position based on holding value and behavioral similarity.
+                      Rank by holdings value + behavior similarity.
                     </p>
                   </TooltipContent>
                 </Tooltip>
@@ -120,7 +120,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
                   <p className="text-muted-foreground">
-                    Total value and Hold time (median) for all currently held tokens across all positions with value ≥ 0.3 SOL.
+                    Total value + median hold for current positions `&gt;` = 0.3 SOL.
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -153,6 +153,8 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
               ? (profile.currentHoldMedianHours ?? profile.currentHoldAverageHours)
               : null;
             const isHighlighted = highlightedWallets?.has(profile.walletAddress);
+            const exitCount = profile.completedCycleCount ?? 0;
+            const lowExitSample = exitCount > 0 && exitCount < 3;
 
             // Only trigger row select if clicking directly on the row, not on interactive elements
             const handleRowClick = (e: React.MouseEvent) => {
@@ -196,7 +198,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                         <TooltipContent side="right" className="text-xs max-w-xs">
                           <p className="font-medium">Connected Wallets</p>
                           <p className="text-muted-foreground mt-1">
-                            This wallet has ≥{Math.round(CONNECTION_THRESHOLD * 100)}% similarity with {connectionCounts.get(profile.walletAddress)} other {connectionCounts.get(profile.walletAddress) === 1 ? 'wallet' : 'wallets'} in this set.
+                            Similarity `&gt;`= {Math.round(CONNECTION_THRESHOLD * 100)}% with {connectionCounts.get(profile.walletAddress)} other {connectionCounts.get(profile.walletAddress) === 1 ? 'wallet' : 'wallets'} in this set.
                           </p>
                         </TooltipContent>
                       </Tooltip>
@@ -235,11 +237,17 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                           if (!info) {
                             return <p className="text-muted-foreground">No behavior classification yet.</p>;
                           }
+                          const timeframe = (info as { timeframe?: string }).timeframe;
                           return (
-                            <div className="space-y-2">
-                              <p className="font-semibold">{'title' in info ? info.title : info.label}</p>
-                              <p className="text-muted-foreground">{info.description}</p>
-                              <p className="text-primary font-medium">{info.timeframe}</p>
+                            <div className="space-y-0.5">
+                              <p className="text-muted-foreground">
+                                {timeframe ? `Typical hold: ${timeframe}` : 'No exit data'}
+                              </p>
+                              {exitCount > 0 && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  Sample: {exitCount} exits{lowExitSample ? ' - low sample' : ''}
+                                </p>
+                              )}
                             </div>
                           );
                         })()}
