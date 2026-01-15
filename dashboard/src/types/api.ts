@@ -1,6 +1,17 @@
 // Based on docs/1. scaling_plan.md section 4.3.1
 // GET /wallets/{walletAddress}/summary
 
+/** Known wallet types from the backend registry */
+export type KnownWalletType =
+  | 'BURN'
+  | 'LP'
+  | 'RAYDIUM'
+  | 'ORCA'
+  | 'JUPITER'
+  | 'PROTOCOL'
+  | 'EXCHANGE'
+  | 'SYSTEM';
+
 // Minimal AdvancedStatsResult structure for the card
 export interface AdvancedStatsResult {
   latestPnl: number | null;
@@ -17,7 +28,7 @@ export interface BehaviorMetrics {
 export interface WalletSummaryData {
   status?: 'ok' | 'unanalyzed' | 'restricted';
   walletAddress: string;
-  knownType?: string | null;
+  knownType?: string | null; // Backend sends as string, WalletBadge accepts string | KnownWalletType
   knownLabel?: string | null;
   isFavorite: boolean;
   totalPnl: number;
@@ -364,7 +375,7 @@ export interface PnlOverviewResponse {
 // Simple structure for favorite wallet entries with JSON-based tags/collections
 export interface FavoriteWallet {
   walletAddress: string;
-  knownType?: string;
+  knownType?: string; // Backend sends as string, WalletBadge accepts string | KnownWalletType
   knownLabel?: string;
   nickname?: string;
   collections?: string[];
@@ -454,6 +465,8 @@ export interface TopHolderItem {
   uiAmount: number | null;
   uiAmountString: string;
   rank: number;
+  knownType?: string; // Backend sends as string, WalletBadge accepts string | KnownWalletType
+  knownLabel?: string;
 }
 
 export interface TopHoldersResponse {

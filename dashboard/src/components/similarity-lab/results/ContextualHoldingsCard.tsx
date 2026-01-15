@@ -53,6 +53,7 @@ const formatUsdValue = (value: number | null | undefined) => {
 export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefreshPrices, isRefreshing }: ContextualHoldingsCardProps) => {
   const balancesSource = enrichedBalances || results.walletBalances;
   const { uniqueTokensPerWallet } = results;
+  const getWalletLabel = (address: string) => results.walletLabels?.[address];
   
   // Simplified state management - always show top 10, allow expansion
   const [expandedWallets, setExpandedWallets] = useState<Set<string>>(new Set());

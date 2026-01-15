@@ -7,12 +7,14 @@ import { Info, Users, ArrowRight, Wallet, Sigma, TrendingUp, User } from 'lucide
 import EChartComponent from '@/components/charts/EChartComponent';
 import { formatToMillion } from '@/lib/utils';
 import { WalletBadge } from "@/components/shared/WalletBadge";
+import type { KnownWalletType } from '@/types/api';
 
 interface GlobalMetricsCardProps {
   metrics: GlobalMetrics;
   pairwiseSimilarities: CombinedPairwiseSimilarity[];
   walletBalances?: Record<string, any> | null;
   uniqueTokensPerWallet?: Record<string, { binary: number; capital: number }>;
+  walletLabels?: Record<string, { knownType?: KnownWalletType; knownLabel?: string }>;
   summary?: {
     walletCount: number;
     uniqueTokensTotal: number;
@@ -59,7 +61,8 @@ const getSimilarityStatus = (avgSim: number) => {
   }
 };
 
-const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, summary }: GlobalMetricsCardProps) => {
+const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, walletLabels, summary }: GlobalMetricsCardProps) => {
+  const getWalletLabel = (address: string) => walletLabels?.[address];
 
   const content = useMemo(() => {
     if (!metrics) return null;

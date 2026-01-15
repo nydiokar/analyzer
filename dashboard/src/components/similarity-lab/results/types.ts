@@ -3,6 +3,8 @@
 
 // Based on src/types/similarity.ts and src/core/analysis/similarity/similarity-service.ts
 
+import type { KnownWalletType } from '@/types/api';
+
 export type SimilarityVectorType = 'capital' | 'binary';
 
 export interface CorePairwiseResult {
@@ -111,7 +113,7 @@ export interface CombinedSimilarityResult {
     totalValueUsd: number;
     tokenBalances: (TokenInfo & { uiBalance: number; valueUsd: number | null })[];
   }>;
-  walletLabels?: Record<string, { knownType?: string; knownLabel?: string }>;
+  walletLabels?: Record<string, { knownType?: KnownWalletType; knownLabel?: string }>;
   vectorTypeUsed: 'combined';
   sharedTokenCountsMatrix?: Record<string, Record<string, number>>;
   jaccardSimilarityMatrix?: Record<string, Record<string, number>>;

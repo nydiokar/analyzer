@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { Copy, ExternalLink, Info, Wallet, User, Star, StarOff, Edit2 } from "lucide-react";
 import { memo, MouseEvent } from "react";
 import { format, formatDistanceToNow } from "date-fns";
-import { FavoriteWallet } from "@/types/api";
+import { FavoriteWallet, type KnownWalletType } from "@/types/api";
 
 export interface WalletMetrics {
   totalBuys?: number | null;
@@ -24,17 +24,6 @@ export interface WalletMetrics {
   winRatePercent?: number | null;
   lastActiveAt?: string | null;
 }
-
-/** Known wallet types from the backend registry */
-export type KnownWalletType =
-  | 'BURN'
-  | 'LP'
-  | 'RAYDIUM'
-  | 'ORCA'
-  | 'JUPITER'
-  | 'PROTOCOL'
-  | 'EXCHANGE'
-  | 'SYSTEM';
 
 type WalletBadgeSize = "s" | "m" | "l" | "xl" | "sm" | "md" | "lg";
 type WalletBadgeVariant = "card" | "inline" | "minimal";
@@ -51,8 +40,8 @@ interface WalletBadgeProps {
   onFavoriteToggle?: () => void;
   onEdit?: () => void;
   favoriteData?: FavoriteWallet;
-  /** Known wallet type from registry (e.g., BURN, LP, JUPITER) */
-  knownType?: KnownWalletType;
+  /** Known wallet type from registry (e.g., BURN, LP, JUPITER). Accepts string for flexibility. */
+  knownType?: string | KnownWalletType;
   /** Display label for known wallets (e.g., "🔥 Burn Address") */
   knownLabel?: string;
 }
@@ -150,8 +139,14 @@ const WalletBadge = memo(({
   knownType,
   knownLabel,
 }: WalletBadgeProps) => {
+  // Normalize knownType - accept string for flexibility, validate internally
+  const normalizedKnownType: KnownWalletType | undefined = knownType && 
+    (['BURN', 'LP', 'RAYDIUM', 'ORCA', 'JUPITER', 'PROTOCOL', 'EXCHANGE', 'SYSTEM'] as const).includes(knownType as KnownWalletType)
+      ? (knownType as KnownWalletType)
+      : undefined;
+  
   // Check if this is a known/system wallet that shouldn't show trading metrics
-  const isKnownWallet = Boolean(knownType || knownLabel);
+  const isKnownWallet = Boolean(normalizedKnownType || knownLabel);
   const shouldDimMetrics = isKnownWallet;
   const displayLabel = favoriteData?.nickname ?? knownLabel ?? truncateAddress(address);
   const showSecondaryLabel = Boolean(favoriteData?.nickname || knownLabel);

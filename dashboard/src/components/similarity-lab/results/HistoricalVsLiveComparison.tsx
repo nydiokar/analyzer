@@ -22,6 +22,8 @@ interface ComparisonPair {
 }
 
 export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparisonProps) {
+  const getWalletLabel = (address: string) => results.walletLabels?.[address];
+  
   const comparisonData = useMemo(() => {
     if (!results.jaccardSimilarityMatrix || !results.holdingsPresenceJaccardMatrix) {
       return null;

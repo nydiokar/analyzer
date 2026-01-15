@@ -1,3 +1,5 @@
+import type { KnownWalletType } from '@/types/api';
+
 export type DataQualityTier = 'GOLD' | 'SILVER' | 'BRONZE' | 'INSUFFICIENT';
 export type HoldTimeSource = 'CURRENT' | 'EXITED' | 'MIXED';
 
@@ -38,7 +40,7 @@ export interface HolderProfile {
   supplyPercent: number;
   tokenHoldingValueSol?: number | null;
   // Known wallet registry info (when analysisSkipped=true)
-  knownType?: string;                   // BURN, LP, JUPITER, RAYDIUM, etc.
+  knownType?: KnownWalletType;          // BURN, LP, JUPITER, RAYDIUM, etc.
   knownLabel?: string;                  // Display label (e.g., "🔥 Burn Address")
   analysisSkipped?: boolean;            // true when wallet is known non-trader
   // Smart fallback metrics (typical → realized → current)

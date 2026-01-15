@@ -2,7 +2,7 @@ import type { HolderProfile } from '../types';
 import { formatHoldTime, formatPercentage, formatSol } from './utils/formatters';
 import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { WalletBadge, type KnownWalletType } from '@/components/shared/WalletBadge';
+import { WalletBadge } from '@/components/shared/WalletBadge';
 import { InfoIcon, Link2 } from 'lucide-react';
 import { CONNECTION_THRESHOLD } from './SimilaritySidebar';
 
@@ -189,7 +189,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                     <WalletBadge
                       address={profile.walletAddress}
                       variant="minimal"
-                      knownType={profile.knownType as KnownWalletType | undefined}
+                      knownType={profile.knownType}
                       knownLabel={profile.knownLabel}
                     />
                     {connectionCounts && connectionCounts.get(profile.walletAddress) ? (

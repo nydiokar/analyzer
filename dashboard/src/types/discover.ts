@@ -1,4 +1,4 @@
-import { SpeedCategory, FlowPattern, StrategyType } from './api';
+import { SpeedCategory, FlowPattern, StrategyType, type KnownWalletType } from './api';
 
 export interface DiscoverWalletMetrics {
   realizedPnl?: number | null;
@@ -37,7 +37,7 @@ export interface DiscoverWalletMetrics {
 
 export interface DiscoverWallet {
   walletAddress: string;
-  knownType?: string | null;
+  knownType?: string | null; // Backend sends as string, WalletBadge accepts string | KnownWalletType
   knownLabel?: string | null;
   reason: string;
   reasonCode: string;

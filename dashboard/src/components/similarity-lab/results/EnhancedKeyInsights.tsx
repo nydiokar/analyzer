@@ -334,6 +334,9 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
   const { insight, pair } = processedPair;
   const { binaryScore, capitalScore, sharedTokens, capitalAllocation, binarySharedTokenCount, capitalSharedTokenCount } = pair;
   
+  const labelA = results.walletLabels?.[pair.walletA];
+  const labelB = results.walletLabels?.[pair.walletB];
+  
   const overallScore = calculateOverallScore(binaryScore, capitalScore);
   const overallScoreInfo = getScoreLevel(overallScore);
   const binaryScoreInfo = getScoreLevel(binaryScore);
