@@ -86,6 +86,8 @@ export class UserFavoritesService {
 
       return {
         walletAddress: fav.walletAddress,
+        knownType: fav.wallet?.knownType ?? undefined,
+        knownLabel: fav.wallet?.knownLabel ?? undefined,
         nickname: fav.nickname,
         collections: collections,
         metadata: fav.metadata,

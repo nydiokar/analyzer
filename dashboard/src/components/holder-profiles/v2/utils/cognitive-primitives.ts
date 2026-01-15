@@ -30,6 +30,7 @@ function calculateMedian(values: number[]) {
 export function getSpeedPrimitive(profiles: HolderProfile[]): CognitivePrimitive {
   // Use only realized median (completed exits) to show actual exit behavior
   // Not mixed values that include current holdings
+  // Note: Known wallets have null metrics, so they're naturally excluded by the filter
   const holds = profiles
     .map((profile) => {
       return profile.realizedMedianHoldTimeHours ?? null;
@@ -53,6 +54,7 @@ export function getSpeedPrimitive(profiles: HolderProfile[]): CognitivePrimitive
 }
 
 export function getConvictionPrimitive(profiles: HolderProfile[]): CognitivePrimitive {
+  // Note: Known wallets have null metrics, so they're naturally excluded by the filter
   const flips = profiles
     .map((p) => (typeof p.dailyFlipRatio === 'number' ? p.dailyFlipRatio : null))
     .filter((v): v is number => v !== null);
@@ -83,6 +85,7 @@ export function getConvictionPrimitive(profiles: HolderProfile[]): CognitivePrim
 }
 
 export function getConsistencyPrimitive(profiles: HolderProfile[]): CognitivePrimitive {
+  // Note: Known wallets have dataQualityTier='INSUFFICIENT', naturally excluded from high quality count
   if (!profiles.length) {
     return {
       id: 'consistency',

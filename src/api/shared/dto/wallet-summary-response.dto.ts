@@ -14,6 +14,18 @@ export class WalletSummaryResponse {
   })
   walletAddress: string;
 
+  @ApiPropertyOptional({
+    description: 'Known wallet type from registry (if applicable).',
+    example: 'LP',
+  })
+  knownType?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Known wallet display label from registry (if applicable).',
+    example: '💧 LP',
+  })
+  knownLabel?: string | null;
+
   @ApiPropertyOptional({ 
     description: 'ISO 8601 timestamp of when the wallet was last analyzed.',
     example: '2023-05-21T10:00:00.000Z' 

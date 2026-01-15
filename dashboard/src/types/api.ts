@@ -17,6 +17,8 @@ export interface BehaviorMetrics {
 export interface WalletSummaryData {
   status?: 'ok' | 'unanalyzed' | 'restricted';
   walletAddress: string;
+  knownType?: string | null;
+  knownLabel?: string | null;
   isFavorite: boolean;
   totalPnl: number;
   winRate: number;
@@ -362,6 +364,8 @@ export interface PnlOverviewResponse {
 // Simple structure for favorite wallet entries with JSON-based tags/collections
 export interface FavoriteWallet {
   walletAddress: string;
+  knownType?: string;
+  knownLabel?: string;
   nickname?: string;
   collections?: string[];
   metadata?: any;

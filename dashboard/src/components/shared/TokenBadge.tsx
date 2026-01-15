@@ -27,6 +27,7 @@ interface TokenMetadata {
   twitterUrl?: string;
   telegramUrl?: string;
   marketCapUsd?: number | null;
+  priceUsd?: string | number | null;
 
   // Onchain fields (immutable, authoritative - fallback)
   onchainName?: string;

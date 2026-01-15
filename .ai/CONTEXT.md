@@ -6,13 +6,11 @@
 
 ## 🎯 Current Focus
 
-**Frontend Polish & Math Validation** - Fixing calculation errors, demonstrating system reliability through dashboard components, and tuning API behavior.
+**Token price freshness & wallet identity hygiene** - Ensure holder profiles and similarity jobs always rehydrate prices/labels with the registry-backed wallet badge logic while keeping dashboard components in sync.
 
 ---
 
 ## 📋 Active Work
-
-Question not to forget! How can we "hide" the results from the frontend dev tools, currently in network calls we publish the results, is it necessary fro the frontend to populate or we can not send the whole results only "ok" or finished or something like that. Currently similarity is sending the whole analysis in the response 
 
 Check this token + wallet - we showed no buy and sell amounts but "fixed" the swap analyzer, verify kapD6ok2UTZsCLeqvuykmN7UE6wWBsLEfct9861esrh 2TsmuYUrsctE57VLckZBYEEzdokUF8j8e1GavekWBAGS 
 
@@ -21,9 +19,10 @@ Check this token + wallet - we showed no buy and sell amounts but "fixed" the sw
 |:------:|:-----|:-----:|:------|
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable |
-| 📝 | Introduce wallet registry for better management of types of wallets | 🔸 | see .ai\context\classification\wallet_registry.md - introduce wallet registry to mark correctly wallets that can skip expensive operations but show in lists |
+| ✅ | Introduce wallet registry for better management of types of wallets | 🔶 | Registry now lives in src/config/known-wallets.ts and drives the central wallet-type plumbing so PnL, similarity, and holder profiles respect known wallets while still surfacing labels. |
 | 📝 | Holder Profiles final review | 🔹 | One more pass before complete |
 | 📝 | Similarity Lab bug fixes | 🔸 | Ready to start after Holder Profiles |
+| 🔄 | Token price refresh + wallet labels unification | 🔸 | Holder profiles and similarity now pull fresh token prices, recompute holdings, and route registry labels through wallet badges |
 
 <details>
 <summary><b>Legend</b></summary>
@@ -37,6 +36,14 @@ Check this token + wallet - we showed no buy and sell amounts but "fixed" the sw
 
 ## 📅 Recent Activity
 
+### January 15, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 15.1 | dY"' | Holder Profiles & Similarity: fresh prices + wallet labels | dY", | `analysis-operations.processor.ts`, `token-info.service.ts`, `similarity.service.ts`, `dashboard/src/components/shared/WalletBadge.tsx`, `dashboard/src/hooks/useTokenMetadata.ts` |
+| 15.2 | dY"' | Wallet registry rollout | dY", | `src/config/known-wallets.ts`, `core/services/pnl-analysis-service.ts`, `queues/processors/similarity-operations.processor.ts`, `dashboard/src/components/shared/WalletBadge.tsx` |
+
+**Summary:** Holder profiles now rehydrate token prices and recompute holding values during analysis, known wallets reuse the registry labels in every flow, similarity frontend cards display the updated wallet badges, and the registry now drives PnL/similarity exclusions as intended.
 
 
 ### January 13, 2026
@@ -54,6 +61,7 @@ Check this token + wallet - we showed no buy and sell amounts but "fixed" the sw
 | 13.6 | ✅ | Holder Profiles: Approaching Hold Time Panel | 🔸 | `ApproachingHoldTimePanel.tsx` |
 
 **Summary:** Queue stability architecture complete. Holder Profiles v2 UX refinements complete (pending final review). Mapper now treats stable USD (USDC/USDT/USD1) as a single value source to avoid double counting; USD1 fully integrated. Added fixture regression coverage for real txs.
+
 
 ### January 12, 2026
 
@@ -243,3 +251,4 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 ---
 
 **Last Updated:** 2026-01-13 • **Branch:** `discover-analytics-ux`
+

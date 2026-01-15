@@ -209,6 +209,12 @@ export class DiscoverWalletDto {
   @ApiProperty()
   walletAddress!: string;
 
+  @ApiProperty({ required: false, nullable: true })
+  knownType?: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  knownLabel?: string | null;
+
   @ApiProperty()
   reason!: string;
 

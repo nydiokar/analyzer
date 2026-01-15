@@ -17,9 +17,11 @@ import { WalletBalanceService } from '../../core/services/wallet-balance-service
 import { SyncOptions } from '../../core/services/helius-sync-service';
 import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { TokenInfoService } from '../../api/services/token-info.service';
-import { TokenHoldersService } from '../../api/services/token-holders.service';
+import { TokenHoldersService, HolderWithLabel } from '../../api/services/token-holders.service';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
 import { SystemWalletDetectionService } from '../../api/services/system-wallet-detection.service';
+import { SKIP_BEHAVIOR_ANALYSIS, getKnownWallet } from '../../config/known-wallets';
+import type { KnownWalletType } from '../../config/known-wallets';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
@@ -864,9 +866,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       let tokenPriceUsd: number | null = null;
       let solPriceUsd: number | null = null;
       try {
-        const tokenInfoList = await this.tokenInfoService.findMany([tokenMint]);
-        const tokenInfo = tokenInfoList[0];
-        tokenPriceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
+        const prices = await this.tokenInfoService.getTokenPrices([tokenMint]);
+        tokenPriceUsd = prices.get(tokenMint) ?? null;
       } catch (priceError) {
         this.logger.warn(`Failed to load token price for ${tokenMint}:`, priceError);
       }
@@ -878,11 +879,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       const holderMetadataByWallet = new Map<string, { rank: number; supplyPercent: number; tokenHoldingValueSol: number | null }>();
       const walletAddresses: string[] = [];
+      const knownWalletProfiles: HolderProfile[] = []; // Pre-built profiles for known wallets (skip analysis)
+
       holderEntries.forEach((holder, index) => {
         if (!holder.ownerAccount) {
           return;
         }
-        walletAddresses.push(holder.ownerAccount);
         const rank = typeof holder.rank === 'number' ? holder.rank : index + 1;
         const supplyPercent =
           actualTotalSupply > 0 && typeof holder.uiAmount === 'number'
@@ -892,12 +894,65 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           tokenPriceUsd && solPriceUsd && solPriceUsd > 0 && typeof holder.uiAmount === 'number'
             ? (holder.uiAmount * tokenPriceUsd) / solPriceUsd
             : null;
-        holderMetadataByWallet.set(holder.ownerAccount, {
-          rank,
-          supplyPercent,
-          tokenHoldingValueSol,
-        });
+
+        // Check if this is a known wallet that should skip expensive analysis
+        const holderWithLabel = holder as HolderWithLabel;
+        const shouldSkipAnalysis = holderWithLabel.knownType &&
+          SKIP_BEHAVIOR_ANALYSIS.has(holderWithLabel.knownType as KnownWalletType);
+
+        if (shouldSkipAnalysis) {
+          const uiAmount = typeof holder.uiAmount === 'number' ? holder.uiAmount : null;
+          const valueUsd =
+            tokenPriceUsd && tokenPriceUsd > 0 && typeof holder.uiAmount === 'number'
+              ? holder.uiAmount * tokenPriceUsd
+              : null;
+          const currentHoldings = uiAmount !== null
+            ? [{
+                tokenAddress: tokenMint,
+                uiBalance: uiAmount,
+                decimals: holder.decimals ?? null,
+                valueSol: tokenHoldingValueSol ?? null,
+                valueUsd,
+              }]
+            : [];
+          // Create stub profile for known wallets - no expensive analysis needed
+          knownWalletProfiles.push({
+            walletAddress: holder.ownerAccount,
+            rank,
+            supplyPercent,
+            tokenHoldingValueSol,
+            knownType: holderWithLabel.knownType,
+            knownLabel: holderWithLabel.knownLabel,
+            analysisSkipped: true,
+            // Null out behavioral metrics - not applicable to system wallets
+            medianHoldTimeHours: null,
+            avgHoldTimeHours: null,
+            dailyFlipRatio: null,
+            behaviorType: null,
+            exitPattern: null,
+            dataQualityTier: 'INSUFFICIENT',
+            completedCycleCount: 0,
+            confidence: 0,
+            insufficientDataReason: `Known ${holderWithLabel.knownType} wallet - analysis skipped`,
+            processingTimeMs: 0,
+            currentHoldingsCount: currentHoldings.length,
+            currentHoldings,
+          });
+          this.logger.debug(`Skipping analysis for known wallet ${holder.ownerAccount} (${holderWithLabel.knownType})`);
+        } else {
+          // Normal wallet - queue for analysis
+          walletAddresses.push(holder.ownerAccount);
+          holderMetadataByWallet.set(holder.ownerAccount, {
+            rank,
+            supplyPercent,
+            tokenHoldingValueSol,
+          });
+        }
       });
+
+      if (knownWalletProfiles.length > 0) {
+        this.logger.log(`Skipped analysis for ${knownWalletProfiles.length} known wallets (${tokenMint})`);
+      }
 
       const cachedResult = await this.holderProfilesCacheService.getTokenResult(tokenMint, topN);
       if (cachedResult) {
@@ -1123,16 +1178,18 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         this.logger.log('All holder profiles served from cache; no wallet jobs queued');
       }
 
-      await job.updateProgress(Math.min(95, 20 + Math.floor((aggregatedProfiles.size / walletAddresses.length) * 70)));
+      const totalWalletsToProcess = walletAddresses.length + knownWalletProfiles.length;
+      await job.updateProgress(Math.min(95, 20 + Math.floor((aggregatedProfiles.size / Math.max(1, walletAddresses.length)) * 70)));
 
       const processingTimeMs = Date.now() - startTime;
-      const finalProfiles = [...aggregatedProfiles.values()].sort(
-        (a, b) => (orderLookup.get(a.walletAddress) ?? 0) - (orderLookup.get(b.walletAddress) ?? 0),
+      // Merge analyzed profiles with pre-built known wallet profiles, sorted by holder rank
+      const allProfiles = [...aggregatedProfiles.values(), ...knownWalletProfiles].sort(
+        (a, b) => a.rank - b.rank,
       );
-      const hydratedFinalProfiles = await this.hydrateHoldingsValues(finalProfiles);
-      const analyzedCount = finalProfiles.length;
-      const totalRequested = walletAddresses.length;
-      const failedCount = Math.max(failedWallets.size, totalRequested - analyzedCount);
+      const hydratedFinalProfiles = await this.hydrateHoldingsValues(allProfiles);
+      const analyzedCount = aggregatedProfiles.size;
+      const skippedCount = knownWalletProfiles.length;
+      const failedCount = Math.max(failedWallets.size, walletAddresses.length - analyzedCount);
 
       const result: HolderProfilesResult = {
         success: true,
@@ -1140,7 +1197,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         tokenMint,
         profiles: hydratedFinalProfiles,
         metadata: {
-          totalHoldersRequested: totalRequested,
+          totalHoldersRequested: totalWalletsToProcess,
           totalHoldersAnalyzed: analyzedCount,
           totalProcessingTimeMs: processingTimeMs,
           avgProcessingTimePerWalletMs: analyzedCount > 0 ? Math.round(processingTimeMs / analyzedCount) : 0,
@@ -1157,7 +1214,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // No need to manually publish here to avoid duplicate events
       // await this.jobProgressGateway.publishCompletedEvent(job.id!, job.queueName, result, processingTimeMs);
       this.logger.log(
-        `Token holder orchestration for ${tokenMint} completed: ${analyzedCount}/${walletAddresses.length} profiles in ${processingTimeMs}ms`,
+        `Token holder orchestration for ${tokenMint} completed: ${analyzedCount} analyzed, ${skippedCount} skipped (known wallets), ${failedCount} failed in ${processingTimeMs}ms`,
       );
 
       return result;
@@ -1185,6 +1242,47 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const holderContext = job.data._holderContext;
     const inferredRank = holderContext?.rank ?? 1;
     const inferredSupplyPercent = holderContext?.supplyPercent ?? 0;
+    const knownEntry = getKnownWallet(walletAddress);
+    if (knownEntry && SKIP_BEHAVIOR_ANALYSIS.has(knownEntry.type)) {
+      const profile: HolderProfile = {
+        walletAddress,
+        rank: inferredRank,
+        supplyPercent: inferredSupplyPercent,
+        knownType: knownEntry.type,
+        knownLabel: knownEntry.label,
+        analysisSkipped: true,
+        medianHoldTimeHours: null,
+        avgHoldTimeHours: null,
+        dailyFlipRatio: null,
+        behaviorType: null,
+        exitPattern: null,
+        dataQualityTier: 'INSUFFICIENT',
+        completedCycleCount: 0,
+        confidence: 0,
+        insufficientDataReason: `Known ${knownEntry.type} wallet - analysis skipped`,
+        processingTimeMs: 0,
+        currentHoldingsCount: 0,
+        currentHoldings: [],
+      };
+      const processingTimeMs = Date.now() - startTime;
+      const result: HolderProfilesResult = {
+        success: true,
+        mode: 'wallet',
+        targetWallet: walletAddress,
+        profiles: [profile],
+        metadata: {
+          totalHoldersRequested: 1,
+          totalHoldersAnalyzed: 0,
+          totalProcessingTimeMs: processingTimeMs,
+          avgProcessingTimePerWalletMs: processingTimeMs,
+        },
+        timestamp: Date.now(),
+        processingTimeMs,
+      };
+      await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
+      await job.updateProgress(100);
+      return result;
+    }
 
     // Try Tier 1 cache (Redis) first
     const cached = await this.holderProfilesCacheService.getWalletResult(walletAddress);
@@ -1386,8 +1484,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const missingMints = new Set<string>();
     for (const profile of profiles) {
       for (const holding of profile.currentHoldings ?? []) {
-        if ((holding.uiBalance ?? 0) > 0 && (holding.valueSol === null || holding.valueSol === undefined) &&
-            (holding.valueUsd === null || holding.valueUsd === undefined)) {
+        if ((holding.uiBalance ?? 0) > 0 && holding.tokenAddress) {
           if (holding.tokenAddress) {
             missingMints.add(holding.tokenAddress);
           }
@@ -1420,10 +1517,6 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
         const updatedHoldings = holdings.map((holding) => {
           if ((holding.uiBalance ?? 0) <= 0) {
-            return holding;
-          }
-          if ((holding.valueSol !== null && holding.valueSol !== undefined) ||
-              (holding.valueUsd !== null && holding.valueUsd !== undefined)) {
             return holding;
           }
           const priceUsd = pricesByMint.get(holding.tokenAddress) ?? null;

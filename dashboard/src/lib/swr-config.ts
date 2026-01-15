@@ -20,6 +20,9 @@ export const CACHE_DURATIONS = {
   
   // Search results - moderate caching
   SEARCH: 2 * 60 * 1000, // 2 minutes
+
+  // Token metadata - align with backend price cache (30s)
+  TOKEN_METADATA: 30 * 1000, // 30 seconds
 };
 
 // Optimized SWR configuration for performance

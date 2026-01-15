@@ -5,6 +5,12 @@ export class FavoriteWalletDetailDto {
   @ApiProperty({ description: 'Wallet address', example: 'So11111111111111111111111111111111111111112' })
   walletAddress: string;
 
+  @ApiProperty({ description: 'Known wallet type from registry (if applicable).', required: false })
+  knownType?: string;
+
+  @ApiProperty({ description: 'Known wallet display label from registry (if applicable).', required: false })
+  knownLabel?: string;
+
   @ApiProperty({ description: 'User-defined nickname for the wallet', example: 'DeFi Whale #1', required: false })
   nickname?: string;
 

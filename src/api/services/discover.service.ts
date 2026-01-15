@@ -388,6 +388,8 @@ export class DiscoverService {
 
     return {
       walletAddress: wallet.address,
+      knownType: wallet.knownType ?? null,
+      knownLabel: wallet.knownLabel ?? null,
       reason: reason.text,
       reasonCode: reason.code,
       lastUpdatedAt,

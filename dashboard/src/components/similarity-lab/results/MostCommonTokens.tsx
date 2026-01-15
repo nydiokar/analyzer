@@ -80,6 +80,7 @@ const buildTokenMetadataMap = (enrichedBalances: Record<string, any> | null) => 
 // Wrap the component in React.memo
 export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonTokensProps) => {
     const tokenMetadataMap = buildTokenMetadataMap(enrichedBalances);
+    const getWalletLabel = (address: string) => results.walletLabels?.[address];
 
     const commonTokens = useMemo(() => {
         const tokenMap = new Map<string, Set<string>>();
@@ -150,7 +151,14 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
                                                     <div className="flex flex-col gap-2 p-2 max-w-xs">
                                                         <p className="font-bold">Shared by:</p>
                                                         <div className="flex flex-wrap gap-2">
-                                                            {token.wallets.map(w => <WalletBadge key={w} address={w} />)}
+                                                            {token.wallets.map(w => (
+                                                                <WalletBadge
+                                                                    key={w}
+                                                                    address={w}
+                                                                    knownType={getWalletLabel(w)?.knownType}
+                                                                    knownLabel={getWalletLabel(w)?.knownLabel}
+                                                                />
+                                                            ))}
                                                         </div>
                                                     </div>
                                                 </TooltipContent>

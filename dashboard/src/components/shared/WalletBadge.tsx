@@ -25,6 +25,17 @@ export interface WalletMetrics {
   lastActiveAt?: string | null;
 }
 
+/** Known wallet types from the backend registry */
+export type KnownWalletType =
+  | 'BURN'
+  | 'LP'
+  | 'RAYDIUM'
+  | 'ORCA'
+  | 'JUPITER'
+  | 'PROTOCOL'
+  | 'EXCHANGE'
+  | 'SYSTEM';
+
 type WalletBadgeSize = "s" | "m" | "l" | "xl" | "sm" | "md" | "lg";
 type WalletBadgeVariant = "card" | "inline" | "minimal";
 
@@ -40,6 +51,10 @@ interface WalletBadgeProps {
   onFavoriteToggle?: () => void;
   onEdit?: () => void;
   favoriteData?: FavoriteWallet;
+  /** Known wallet type from registry (e.g., BURN, LP, JUPITER) */
+  knownType?: KnownWalletType;
+  /** Display label for known wallets (e.g., "🔥 Burn Address") */
+  knownLabel?: string;
 }
 
 const sizeConfig = {
@@ -132,7 +147,16 @@ const WalletBadge = memo(({
   onFavoriteToggle,
   onEdit,
   favoriteData,
+  knownType,
+  knownLabel,
 }: WalletBadgeProps) => {
+  // Check if this is a known/system wallet that shouldn't show trading metrics
+  const isKnownWallet = Boolean(knownType || knownLabel);
+  const shouldDimMetrics = isKnownWallet;
+  const displayLabel = favoriteData?.nickname ?? knownLabel ?? truncateAddress(address);
+  const showSecondaryLabel = Boolean(favoriteData?.nickname || knownLabel);
+  const secondaryLabel = showSecondaryLabel ? truncateAddress(address) : null;
+  const isKnownLabelOnly = Boolean(knownLabel) && !favoriteData?.nickname;
 
   const normalizedSize =
     size === "sm" ? "s" : size === "md" ? "m" : size === "lg" ? "l" : size;
@@ -183,15 +207,31 @@ const WalletBadge = memo(({
             <Wallet className="h-3 w-3 text-muted-foreground" />
           </div>
 
-          {/* Address - clickable to copy */}
+          {/* Name/Address - clickable to copy */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 onClick={handleCopyAddress}
-                className="font-mono text-sm text-foreground hover:text-primary transition-colors"
+                className={cn(
+                  "flex flex-col items-start text-sm transition-colors",
+                  isKnownWallet ? "text-muted-foreground" : "text-foreground hover:text-primary"
+                )}
               >
-                {truncateAddress(address)}
+                <span
+                  className={cn(
+                    "font-semibold",
+                    showSecondaryLabel ? "text-foreground" : "font-mono",
+                    isKnownLabelOnly ? "text-xs font-medium" : "text-sm"
+                  )}
+                >
+                  {displayLabel}
+                </span>
+                {secondaryLabel && (
+                  <span className="font-mono text-[0.7em] text-muted-foreground">
+                    {secondaryLabel}
+                  </span>
+                )}
               </button>
             </TooltipTrigger>
             <TooltipContent>
@@ -270,30 +310,31 @@ const WalletBadge = memo(({
                 </AvatarFallback>
               </Avatar>
 
-              {/* Nickname + Address (clickable to copy) */}
+              {/* Name + Address (clickable to copy) */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     onClick={handleCopyAddress}
                     className={cn(
-                      "flex flex-col items-start min-w-0 transition-colors hover:text-primary",
+                      "flex flex-col items-start min-w-0 transition-colors",
+                      isKnownWallet ? "" : "hover:text-primary",
                       resolvedSize.address
                     )}
                     title={address}
                   >
-                    {favoriteData?.nickname ? (
-                      <>
-                        <span className="font-semibold text-foreground truncate max-w-full">
-                          {favoriteData.nickname}
-                        </span>
-                        <span className="font-mono text-[0.7em] text-muted-foreground truncate max-w-full">
-                          {truncateAddress(address)}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="font-mono font-semibold text-foreground">
-                        {truncateAddress(address)}
+                    <span
+                      className={cn(
+                        "truncate max-w-full",
+                        isKnownWallet ? "text-muted-foreground" : "text-foreground",
+                        isKnownLabelOnly ? resolvedSize.metric : "font-semibold"
+                      )}
+                    >
+                      {displayLabel}
+                    </span>
+                    {secondaryLabel && (
+                      <span className="font-mono text-[0.7em] text-muted-foreground truncate max-w-full">
+                        {secondaryLabel}
                       </span>
                     )}
                   </button>
@@ -405,7 +446,8 @@ const WalletBadge = memo(({
           </div>
 
           {/* Row 2: Trades + WR + Last Active (tight on the left) */}
-          {showMetrics && (
+          {/* Hide trading metrics for known system wallets - they're not traders */}
+          {showMetrics && !isKnownWallet && (
             <div className="flex items-center gap-1.5 text-xs -mt-0.5 text-muted-foreground">
               {/* Trades */}
               {hasBuySellData && (
@@ -482,14 +524,17 @@ const WalletBadge = memo(({
               </AvatarFallback>
             </Avatar>
             <div className="flex min-w-0 flex-col gap-1">
-              {favoriteData?.nickname ? (
+              {showSecondaryLabel ? (
                 <>
                   <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    <span className={cn(
-                      "font-bold text-foreground truncate",
-                      resolvedSize.address
-                    )}>
-                      {favoriteData.nickname}
+                    <span
+                      className={cn(
+                        "truncate",
+                        isKnownWallet ? "text-muted-foreground" : "text-foreground",
+                        isKnownLabelOnly ? resolvedSize.metric : `font-bold ${resolvedSize.address}`
+                      )}
+                    >
+                      {displayLabel}
                     </span>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -552,7 +597,8 @@ const WalletBadge = memo(({
           </div>
         </div>
 
-        {showMetrics && (
+        {/* Hide trading metrics for known system wallets */}
+        {showMetrics && !isKnownWallet && (
           <div className="flex flex-col gap-2 pt-1 border-t border-border/40" style={{ marginTop: "-4px" }}>
             {/* Metrics row */}
             <div className="flex items-center gap-3 flex-wrap text-sm">

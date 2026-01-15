@@ -8,6 +8,7 @@ import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 import { TokenInfoService } from '../services/token-info.service';
 import { CombinedSimilarityResult } from '@/types/similarity';
 import { WalletBalance } from '@/types/wallet';
+import { getKnownWallet } from '../../config/known-wallets';
 
 const logger = createLogger('SimilarityApiService');
 
@@ -99,6 +100,24 @@ export class SimilarityApiService {
                 };
             });
 
+            const walletRecords = await this.databaseService.getWallets(dto.walletAddresses, true) as Array<{ address: string; knownType?: string | null; knownLabel?: string | null }>;
+            const walletRecordMap = new Map(walletRecords.map(wallet => [wallet.address, wallet]));
+            const walletLabels: Record<string, { knownType?: string; knownLabel?: string }> = {};
+
+            for (const address of dto.walletAddresses) {
+                const walletRecord = walletRecordMap.get(address);
+                const knownEntry = getKnownWallet(address);
+                const knownType = walletRecord?.knownType ?? knownEntry?.type ?? undefined;
+                const knownLabel = walletRecord?.knownLabel ?? knownEntry?.label ?? undefined;
+
+                if (knownType || knownLabel) {
+                    walletLabels[address] = {
+                        knownType,
+                        knownLabel: knownLabel ?? knownType,
+                    };
+                }
+            }
+
             const combinedResults: CombinedSimilarityResult = {
                 vectorTypeUsed: 'combined',
                 pairwiseSimilarities: binaryResults.pairwiseSimilarities.map(binaryPair => {
@@ -137,6 +156,7 @@ export class SimilarityApiService {
                 holdingsPresenceCosineMatrix: capitalResults.holdingsPresenceCosineMatrix,
                 holdingsPresenceJaccardMatrixAllTokens: capitalResults.holdingsPresenceJaccardMatrix,
                 summary: capitalResults.summary,
+                walletLabels: Object.keys(walletLabels).length > 0 ? walletLabels : undefined,
             };
 
             if (includeVectors && capitalResults.walletVectorsUsed) {

@@ -82,6 +82,7 @@ export interface CombinedSimilarityResult {
     walletVectorsUsed?: Record<string, TokenVector>;
     uniqueTokensPerWallet: Record<string, { binary: number; capital: number }>;
     walletBalances?: Record<string, WalletBalance>;
+    walletLabels?: Record<string, { knownType?: string; knownLabel?: string }>;
     vectorTypeUsed: 'combined';
     sharedTokenCountsMatrix?: Record<string, Record<string, number>>;
     jaccardSimilarityMatrix?: Record<string, Record<string, number>>;

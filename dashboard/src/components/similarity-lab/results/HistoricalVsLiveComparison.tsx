@@ -209,9 +209,9 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
                 <TableRow key={`${pair.walletA}-${pair.walletB}`}>
                   <TableCell>
                     <div className="flex items-center gap-1 text-xs">
-                      <WalletBadge address={pair.walletA} />
+                      <WalletBadge address={pair.walletA} knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} />
                       <span className="text-muted-foreground">↔</span>
-                      <WalletBadge address={pair.walletB} />
+                      <WalletBadge address={pair.walletB} knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} />
                     </div>
                   </TableCell>
                   <TableCell className="text-center text-xs">
@@ -251,9 +251,9 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
                 <div className="space-y-1">
                   {insights.topConvergences.map((pair, i) => (
                     <div key={i} className="text-xs text-green-700 flex items-center gap-1">
-                      <WalletBadge address={pair.walletA} />
+                      <WalletBadge address={pair.walletA} knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} />
                       <span>↔</span>
-                      <WalletBadge address={pair.walletB} />:
+                      <WalletBadge address={pair.walletB} knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} />:
                       <span className="font-medium ml-1">{formatPercentage(pair.shift)}</span>
                     </div>
                   ))}
@@ -270,9 +270,9 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
                 <div className="space-y-1">
                   {insights.topDivergences.map((pair, i) => (
                     <div key={i} className="text-xs text-red-700 flex items-center gap-1">
-                      <WalletBadge address={pair.walletA} />
+                      <WalletBadge address={pair.walletA} knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} />
                       <span>↔</span>
-                      <WalletBadge address={pair.walletB} />:
+                      <WalletBadge address={pair.walletB} knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} />:
                       <span className="font-medium ml-1">{formatPercentage(pair.shift)}</span>
                     </div>
                   ))}

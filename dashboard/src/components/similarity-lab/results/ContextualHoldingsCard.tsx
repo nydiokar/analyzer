@@ -143,7 +143,7 @@ export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefre
                     return (
                         <div key={walletAddress} className="border rounded-lg p-3 space-y-2 flex flex-col">
                             <div className="flex justify-between items-center">
-                                <WalletBadge address={walletAddress} />
+                                <WalletBadge address={walletAddress} knownType={getWalletLabel(walletAddress)?.knownType} knownLabel={getWalletLabel(walletAddress)?.knownLabel} />
                                 <div className="flex items-center gap-2">
                                   <Badge variant="outline">
                                       {uniqueCounts.capital} Tokens

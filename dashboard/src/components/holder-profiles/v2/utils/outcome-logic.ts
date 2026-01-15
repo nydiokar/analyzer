@@ -111,6 +111,7 @@ function calculateWeightedMedian(values: Array<{ value: number; weight: number }
 }
 
 export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
+  // Note: Known wallets have null metrics, so they're naturally excluded by downstream filters
   if (!profiles.length) {
     return {
       verdict: 'Insufficient data',
@@ -134,6 +135,7 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
 
   // Calculate PnL variance score (0-10 scale) with quality weighting
   // Lower variance = more stable = higher score
+  // Note: Known wallets have null PnL, naturally excluded by the filter
   const pnlData = profiles
     .map((p) => ({
       value: p.walletPnlSol ?? null,
@@ -167,6 +169,7 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
   })();
 
   // Calculate weighted average tokens held (diversification indicator)
+  // Note: Known wallets have INSUFFICIENT tier (weight=0.1), minimal impact on weighted avg
   const avgTokensHeld = (() => {
     const tokenData = profiles
       .map((p) => ({

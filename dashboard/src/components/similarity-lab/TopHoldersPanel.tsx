@@ -177,7 +177,11 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
                   <div key={key} className={`grid grid-cols-[60px_1fr_120px_28px] items-center gap-3 px-3 py-2 border-b text-sm ${isUnknown ? 'opacity-70' : ''}`}>
                     <div className="text-muted-foreground">{h.rank}</div>
                     <div className="truncate" title={h.ownerAccount || h.tokenAccount}>
-                      <WalletBadge address={h.ownerAccount || h.tokenAccount} />
+                      <WalletBadge
+                        address={h.ownerAccount || h.tokenAccount}
+                        knownType={h.knownType}
+                        knownLabel={h.knownLabel}
+                      />
                     </div>
                     <div className="text-right tabular-nums">{formatAmount(h.uiAmountString, h.amount)}</div>
                     <input type="checkbox" checked={checked} onChange={() => setSelected(s => ({ ...s, [key]: !checked }))} disabled={isUnknown} />

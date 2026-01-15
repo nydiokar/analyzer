@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
-import { WalletBadge } from "@/components/shared/WalletBadge";
+import { KnownWalletType, WalletBadge } from "@/components/shared/WalletBadge";
 import { useFavorites } from "@/hooks/useFavorites";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1363,6 +1363,8 @@ function WalletRow({
               lastActiveAt: wallet.metrics.lastActiveAt,
             }}
             showActions={true}
+            knownType={wallet.knownType as KnownWalletType ?? undefined}
+            knownLabel={wallet.knownLabel ?? undefined}
           />
           {isStale && stalenessHours !== null && (
             <TooltipProvider>

@@ -1052,6 +1052,8 @@ export default function WalletProfileLayout({
                       onEdit={openEditModal}
                       showActions={true}
                       showMetrics={false}
+                      knownType={walletSummary?.knownType ?? undefined}
+                      knownLabel={walletSummary?.knownLabel ?? undefined}
                     />
 
                     {/* High-frequency wallet indicator */}

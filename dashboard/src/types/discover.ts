@@ -37,6 +37,8 @@ export interface DiscoverWalletMetrics {
 
 export interface DiscoverWallet {
   walletAddress: string;
+  knownType?: string | null;
+  knownLabel?: string | null;
   reason: string;
   reasonCode: string;
   lastUpdatedAt?: string | null;

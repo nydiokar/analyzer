@@ -51,7 +51,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { WalletBadge } from '@/components/shared/WalletBadge';
+import { KnownWalletType, WalletBadge } from '@/components/shared/WalletBadge';
 import { CollectionAnalytics, CollectionStat } from '@/components/trackers/CollectionAnalytics';
 
 // Helper function to format SOL values
@@ -805,6 +805,8 @@ export default function TrackersPage() {
                               onFavoriteToggle={() => setDeletingWallet(wallet)}
                               onEdit={() => setEditingWallet(wallet)}
                               favoriteData={wallet}
+                              knownType={wallet.knownType as KnownWalletType}
+                              knownLabel={wallet.knownLabel}
                             />
                             {wallet.collections && wallet.collections.length > 0 && (
                               <Tooltip>

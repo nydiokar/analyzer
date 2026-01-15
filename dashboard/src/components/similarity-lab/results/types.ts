@@ -111,6 +111,7 @@ export interface CombinedSimilarityResult {
     totalValueUsd: number;
     tokenBalances: (TokenInfo & { uiBalance: number; valueUsd: number | null })[];
   }>;
+  walletLabels?: Record<string, { knownType?: string; knownLabel?: string }>;
   vectorTypeUsed: 'combined';
   sharedTokenCountsMatrix?: Record<string, Record<string, number>>;
   jaccardSimilarityMatrix?: Record<string, Record<string, number>>;

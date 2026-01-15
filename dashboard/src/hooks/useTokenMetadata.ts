@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetcher } from '@/lib/fetcher';
+import { CACHE_DURATIONS } from '@/lib/swr-config';
 
 interface TokenMetadata {
   name?: string;
@@ -9,6 +10,7 @@ interface TokenMetadata {
   twitterUrl?: string;
   telegramUrl?: string;
   marketCapUsd?: number | null;
+  priceUsd?: string | number | null;
   onchainName?: string;
   onchainSymbol?: string;
   onchainImageUrl?: string;
@@ -21,11 +23,12 @@ interface TokenMetadata {
 class TokenMetadataBatcher {
   private queue: Set<string> = new Set();
   private callbacks: Map<string, Array<(metadata: TokenMetadata | null) => void>> = new Map();
-  private cache: Map<string, TokenMetadata | null> = new Map();
+  private cache: Map<string, { data: TokenMetadata | null; fetchedAt: number }> = new Map();
   private timeoutId: NodeJS.Timeout | null = null;
   private isFetching = false;
   // Track active subscriptions for auto-refresh
   private subscribers: Map<string, Set<(metadata: TokenMetadata | null) => void>> = new Map();
+  private readonly CACHE_TTL_MS = CACHE_DURATIONS.TOKEN_METADATA;
 
   // Add a token to the batch queue
   request(mint: string, callback: (metadata: TokenMetadata | null) => void) {
@@ -36,9 +39,13 @@ class TokenMetadataBatcher {
     this.subscribers.get(mint)!.add(callback);
 
     // Check cache first
-    if (this.cache.has(mint)) {
-      callback(this.cache.get(mint)!);
-      return;
+    const cached = this.cache.get(mint);
+    if (cached) {
+      callback(cached.data);
+      const cacheAge = Date.now() - cached.fetchedAt;
+      if (cacheAge < this.CACHE_TTL_MS) {
+        return;
+      }
     }
 
     // Add to queue
@@ -110,6 +117,7 @@ class TokenMetadataBatcher {
         symbol: tokenData.symbol,
         imageUrl: tokenData.imageUrl,
         marketCapUsd: tokenData.marketCapUsd,
+        priceUsd: tokenData.priceUsd,
         onchainName: tokenData.onchainName,
         onchainSymbol: tokenData.onchainSymbol,
         onchainImageUrl: tokenData.onchainImageUrl,
@@ -120,8 +128,9 @@ class TokenMetadataBatcher {
             onchainTwitterUrl: tokenData.onchainTwitterUrl,
             onchainTelegramUrl: tokenData.onchainTelegramUrl,
           };
-          resultMap.set(tokenData.tokenAddress || tokenData.mint, metadata);
-          this.cache.set(tokenData.tokenAddress || tokenData.mint, metadata);
+          const mintKey = tokenData.tokenAddress || tokenData.mint;
+          resultMap.set(mintKey, metadata);
+          this.cache.set(mintKey, { data: metadata, fetchedAt: Date.now() });
         });
       }
 
@@ -132,7 +141,7 @@ class TokenMetadataBatcher {
 
         // Cache even if null (token doesn't exist)
         if (!this.cache.has(mint)) {
-          this.cache.set(mint, metadata);
+          this.cache.set(mint, { data: metadata, fetchedAt: Date.now() });
         }
 
         callbacks.forEach(cb => cb(metadata));
@@ -178,6 +187,7 @@ class TokenMetadataBatcher {
         symbol: tokenData.symbol,
         imageUrl: tokenData.imageUrl,
         marketCapUsd: tokenData.marketCapUsd,
+        priceUsd: tokenData.priceUsd,
         onchainName: tokenData.onchainName,
         onchainSymbol: tokenData.onchainSymbol,
         onchainImageUrl: tokenData.onchainImageUrl,
@@ -191,7 +201,7 @@ class TokenMetadataBatcher {
           const mintKey = tokenData.tokenAddress || tokenData.mint;
 
           // Update cache
-          this.cache.set(mintKey, metadata);
+          this.cache.set(mintKey, { data: metadata, fetchedAt: Date.now() });
 
           // Notify ALL active subscribers (triggers React re-render)
           const subscribers = this.subscribers.get(mintKey);
@@ -235,17 +245,8 @@ export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata)
     // Skip batch request if provided metadata is "complete enough"
     // Complete = has name/symbol (essential fields)
     const isMetadataComplete = providedMetadata && (providedMetadata.name || providedMetadata.onchainName);
-
-    if (isMetadataComplete) {
-      // Metadata provided and sufficient - skip fetch, just subscribe for enrichment updates
-      setIsLoading(false);
-      // Still subscribe for potential enrichment updates (but don't trigger initial fetch)
-      globalBatcher.subscribeOnly(mint, updateCallback);
-    } else {
-      // No metadata or incomplete - request from API (will be batched automatically)
-      setIsLoading(!providedMetadata);
-      globalBatcher.request(mint, updateCallback);
-    }
+    setIsLoading(!isMetadataComplete && !providedMetadata);
+    globalBatcher.request(mint, updateCallback);
 
     // Cleanup: unsubscribe on unmount
     return () => {

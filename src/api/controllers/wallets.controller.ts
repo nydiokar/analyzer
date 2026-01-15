@@ -170,6 +170,8 @@ export class WalletsController {
         const response = {
           status: 'unanalyzed' as const,
           walletAddress: walletAddress,
+          knownType: wallet?.knownType ?? null,
+          knownLabel: wallet?.knownLabel ?? null,
         };
         return response;
       }
@@ -243,6 +245,8 @@ export class WalletsController {
       const response: WalletSummaryResponse = {
         status: 'ok' as const,
         walletAddress,
+        knownType: wallet?.knownType ?? null,
+        knownLabel: wallet?.knownLabel ?? null,
         lastAnalyzedAt: lastAnalyzedAt.toISOString(),
         lastActiveTimestamp: finalLastActiveTimestamp,
         daysActive: finalDaysActive,

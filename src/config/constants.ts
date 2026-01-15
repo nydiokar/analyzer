@@ -259,40 +259,17 @@ export const METADATA_FETCHING_CONFIG = {
   }
 } as const;
 
-// Known system/bot/exchange wallets that should be tagged instead of analyzed
-export const KNOWN_SYSTEM_WALLETS = [
-// most of these are jupiter accounts
-  '2MFoS3MPtvyQ4Wh4M9pdfPjz6UhVoNbFbGJAskCPCj3h', 
-  '3CgvbiM3op4vjrrjH2zcrQUwsqh5veNVRjFCB9N6sRoD',  
-  '3LoAYHuSd7Gh8d7RTFnhvYtiTiefdZ5ByamU42vkzd76', 
-  '4xDsmeTWPNjgSVSS1VTfzFq3iHZhp77ffPkAmkZkdu71', 
-  '69yhtoJR4JYPPABZcSNkzuqbaFbwHsCkja1sP1Q2aVT5', 
-  '6LXutJvKUw8Q5ue2gCgKHQdAN4suWW8awzFVC6XCguFx', 
-  '6U91aKa8pmMxkJwBCfPTmUEfZi6dHe7DcFq2ALvB2tbB',  
-  '7iWnBRRhBCiNXXPhqiGzvvBkKrvFSWqqmxRyu9VyYBxE', 
-  '9nnLbotNTcUhvbrsA6Mdkx45Sm82G35zo28AqUvjExn8', 
-  'BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV', 
-  'CapuXNQoDviLvU1PxFiizLgPNQCxrsag1uMeyk6zLVps', 
-  'D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf', 
-  'DSN3j1ykL3obAVNv7ZX49VsFCPe4LqzxHnmtLiPwY6xg', 
-  'GGztQqQ6pCPaJQnNpXBgELr5cs3WwDakRbh1iEMzjgSJ', 
-  'GP8StUXNYSZjPikyRsvkTbvRV1GBxMErb59cpeCJnDf1', 
-  'HFqp6ErWHY6Uzhj8rFyjYuDya2mXUpYEk8VW75K9PSiY',
-  'HU23r7UoZbqTUuh3vA7emAGztFtqwTeVips789vqxxBw',
-  'Jx2c1k5iYrtk52KeBPSykEutbUMfS4Sjv9kmZm33LKn',
-  'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA',
-  '45ruCyfdRkWpRNGEqWzjCiXRHkZs8WXCLQ67Pnpye7Hp', // jupiter partner referral fee vault
-  'HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC', // jupiter partner referral fee vault
-  'FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM',
-  // Large system accounts (over 10k tokens but not necessarily Jupiter)
-  'GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL', // Raydium Vault Authority #2
-  '34FKjAdVcTax2DHqV2XnbXa9J3zmyKcFuFKWbcmgxjgm', // 5.5k tokens - system account
-  'ZG98FUCjb8mJ824Gbs6RsgVmr1FhXb2oNiJHa2dwmPd', // 5.5k tokens - system account
-  '8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf', // 5.5k tokens - system account
-
-  
-  // Add more as they're discovered
-] as const;
+// =============================================================================
+// KNOWN WALLETS REGISTRY
+// ✅ MOVED to src/config/known-wallets.ts (single source of truth)
+// =============================================================================
+// All known wallet definitions (burn addresses, Jupiter accounts, LP vaults, etc.)
+// have been consolidated into the known-wallets module with typed entries.
+// Import from: src/config/known-wallets.ts
+//
+// Re-export for backwards compatibility:
+export { KNOWN_WALLETS as KNOWN_SYSTEM_WALLETS_MAP } from './known-wallets';
+export { getKnownWallet, isKnownWallet, type KnownWalletType } from './known-wallets';
 
 // =============================================================================
 // BEHAVIORAL ANALYSIS CONFIGURATION

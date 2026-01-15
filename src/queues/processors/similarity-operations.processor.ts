@@ -23,6 +23,7 @@ import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/const
 import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import Redis from 'ioredis';
+import { EXCLUDE_FROM_SIMILARITY, getKnownWallet } from '../../config/known-wallets';
 
 @Injectable()
 export class SimilarityOperationsProcessor implements OnModuleDestroy {
@@ -487,8 +488,32 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
   }> {
     this.logger.log(`🔍 System wallet detection: Using SystemWalletDetectionService (thresholds: 15k LARGE, 35k INVALID)`);
 
-    // Use the centralized detection service
-    const { valid, filtered, largeWallets } = await this.systemWalletDetection.filterSystemWallets(walletAddresses);
+    const excludedByRegistry = new Map<string, string>();
+    const knownAllowed: string[] = [];
+    const unknownWallets: string[] = [];
+
+    for (const address of walletAddresses) {
+      const knownEntry = getKnownWallet(address);
+      if (!knownEntry) {
+        unknownWallets.push(address);
+        continue;
+      }
+      if (EXCLUDE_FROM_SIMILARITY.has(knownEntry.type)) {
+        excludedByRegistry.set(address, `Known wallet: ${knownEntry.shortLabel} (${knownEntry.type})`);
+      } else {
+        knownAllowed.push(address);
+      }
+    }
+
+    const { valid, filtered, largeWallets } = await this.systemWalletDetection.filterSystemWallets(unknownWallets);
+    const validWallets = [...knownAllowed, ...valid];
+
+    if (excludedByRegistry.size > 0) {
+      this.logger.warn(`dYs? Filtered ${excludedByRegistry.size} known wallet(s) via registry for similarity analysis`);
+      for (const [address, reason] of excludedByRegistry) {
+        this.logger.debug(`  - ${address}: ${reason}`);
+      }
+    }
 
     if (filtered.size > 0) {
       this.logger.warn(`🚫 Filtered ${filtered.size} system wallet(s) from similarity analysis`);
@@ -501,11 +526,11 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-35k tokens)`);
     }
 
-    this.logger.log(`System wallet detection complete: ${valid.length} valid wallets, ${filtered.size} system wallets filtered`);
+    this.logger.log(`System wallet detection complete: ${validWallets.length} valid wallets, ${filtered.size + excludedByRegistry.size} wallets filtered`);
 
     return {
-      validWallets: valid,
-      systemWallets: Array.from(filtered.keys()),
+      validWallets: validWallets,
+      systemWallets: [...Array.from(excludedByRegistry.keys()), ...Array.from(filtered.keys())],
     };
   }
 

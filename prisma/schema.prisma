@@ -19,6 +19,8 @@ model Wallet {
   classificationConfidence     Float?
   classificationUpdatedAt      DateTime?
   classificationMethod         String?
+  knownType                    String?                 // From registry or dynamic detection (BURN, LP, JUPITER, etc.)
+  knownLabel                   String?                 // Display label for UI (e.g., "🔥 Burn Address")
   isVerifiedBot                Boolean                 @default(false)
   botType                      String?
   botPatternTags               Json?
@@ -30,10 +32,11 @@ model Wallet {
   walletNotes                  WalletNote[]
   pnlSummary                   WalletPnlSummary?
   TokenLot                     TokenLot[]
-  
+
   @@index([classification])
   @@index([classificationConfidence])
   @@index([isVerifiedBot])
+  @@index([knownType])
 }
 
 model HeliusTransactionCache {

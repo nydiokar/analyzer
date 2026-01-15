@@ -6,9 +6,14 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
 import {
   WALLET_CLASSIFICATIONS,
   SYSTEM_WALLET_DETECTION_CONFIG,
-  KNOWN_SYSTEM_WALLETS,
   SPL_TOKEN_PROGRAM_ID,
 } from '../../config/constants';
+import {
+  KNOWN_WALLETS,
+  getKnownWallet,
+  isKnownWallet,
+  type KnownWalletType,
+} from '../../config/known-wallets';
 
 export interface SystemWalletDetectionResult {
   address: string;
@@ -20,6 +25,8 @@ export interface SystemWalletDetectionResult {
   reason: string;               // Human-readable reason
   method: string;               // Detection method
   confidence: number;           // 0.0-1.0 confidence
+  knownType?: KnownWalletType;  // Registry type if this is a known wallet
+  knownLabel?: string;          // Display label for UI
 }
 
 export interface FilterResult {
@@ -48,23 +55,23 @@ export interface FilterResult {
 export class SystemWalletDetectionService {
   private readonly logger = new Logger(SystemWalletDetectionService.name);
   private readonly memoryCache = new Map<string, SystemWalletDetectionResult>();
-  private readonly knownSystemSet = new Set<string>(KNOWN_SYSTEM_WALLETS as readonly string[]);
+  private readonly knownWalletCount: number;
 
   constructor(
     private readonly heliusClient: HeliusApiClient,
     private readonly databaseService: DatabaseService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
-    // Load known system wallets into memory on startup
-    this.logger.log(`Initialized with ${KNOWN_SYSTEM_WALLETS.length} known system wallets`);
+    this.knownWalletCount = Object.keys(KNOWN_WALLETS).length;
+    this.logger.log(`Initialized with ${this.knownWalletCount} known wallets from registry`);
   }
 
   /**
-   * TIER 1: Fast check - is this a known system wallet?
+   * TIER 1: Fast check - is this a known wallet from the registry?
    * O(1) lookup, no I/O. Returns immediately.
    */
   isKnownSystemWallet(address: string): boolean {
-    return this.knownSystemSet.has(address);
+    return isKnownWallet(address);
   }
 
   /**
@@ -79,17 +86,20 @@ export class SystemWalletDetectionService {
       return this.memoryCache.get(address)!;
     }
 
-    // Tier 1.5: Known static list
-    if (this.isKnownSystemWallet(address)) {
+    // Tier 1.5: Known wallet from registry
+    const knownEntry = getKnownWallet(address);
+    if (knownEntry) {
       const result: SystemWalletDetectionResult = {
         address,
         isSystemWallet: true,
         isLargeWallet: false,
         shouldBlock: true,
         shouldLog: true,
-        reason: 'Known system wallet (static list)',
-        method: 'static_list',
+        reason: `Known wallet: ${knownEntry.shortLabel} (${knownEntry.type})`,
+        method: 'registry',
         confidence: 1.0,
+        knownType: knownEntry.type,
+        knownLabel: knownEntry.label,
       };
       this.cacheResult(result);
       return result;
@@ -232,17 +242,20 @@ export class SystemWalletDetectionService {
       return this.memoryCache.get(address)!;
     }
 
-    // Check static list
-    if (this.isKnownSystemWallet(address)) {
+    // Check registry
+    const knownEntry = getKnownWallet(address);
+    if (knownEntry) {
       return {
         address,
         isSystemWallet: true,
         isLargeWallet: false,
         shouldBlock: true,
         shouldLog: false,
-        reason: 'Known system wallet',
-        method: 'static_list',
+        reason: `Known wallet: ${knownEntry.shortLabel}`,
+        method: 'registry',
         confidence: 1.0,
+        knownType: knownEntry.type,
+        knownLabel: knownEntry.label,
       };
     }
 
@@ -381,6 +394,8 @@ export class SystemWalletDetectionService {
         classificationConfidence: result.confidence,
         classificationMethod: result.method,
         classificationUpdatedAt: new Date(),
+        knownType: result.knownType,
+        knownLabel: result.knownLabel,
       });
 
       const emoji = result.isSystemWallet ? '🚫' : '⚠️';
@@ -428,10 +443,10 @@ export class SystemWalletDetectionService {
   /**
    * Get detection stats (for debugging)
    */
-  getStats(): { memoryCacheSize: number; knownSystemWallets: number } {
+  getStats(): { memoryCacheSize: number; knownWalletsInRegistry: number } {
     return {
       memoryCacheSize: this.memoryCache.size,
-      knownSystemWallets: this.knownSystemSet.size,
+      knownWalletsInRegistry: this.knownWalletCount,
     };
   }
 }

@@ -372,6 +372,8 @@ export class DatabaseService {
             botType?: string;
             botPatternTags?: string[];
             isVerifiedBot?: boolean;
+            knownType?: string;
+            knownLabel?: string;
         }
     ): Promise<Wallet> {
         const updateData: any = {
@@ -397,6 +399,14 @@ export class DatabaseService {
 
         if (classificationData.isVerifiedBot !== undefined) {
             updateData.isVerifiedBot = classificationData.isVerifiedBot;
+        }
+
+        if (classificationData.knownType) {
+            updateData.knownType = classificationData.knownType;
+        }
+
+        if (classificationData.knownLabel) {
+            updateData.knownLabel = classificationData.knownLabel;
         }
 
         return await this.prismaClient.wallet.upsert({

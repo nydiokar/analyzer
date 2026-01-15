@@ -11,6 +11,7 @@ import { WalletBalance } from '@/types/wallet';
 import { Injectable } from '@nestjs/common';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
+import { getKnownWallet, SKIP_PNL_CALCULATION } from '../../config/known-wallets';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -84,6 +85,30 @@ export class PnlAnalysisService {
         timeRange?: { startTs?: number; endTs?: number },
         options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean, solPriceUsd?: number }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
+        const knownEntry = getKnownWallet(walletAddress);
+        if (knownEntry && SKIP_PNL_CALCULATION.has(knownEntry.type)) {
+            logger.info(`[PnlAnalysis] Skipping PnL for known wallet ${walletAddress} (${knownEntry.type})`);
+            return {
+                totalVolume: 0,
+                totalFees: 0,
+                realizedPnl: 0,
+                unrealizedPnl: 0,
+                netPnl: 0,
+                stablecoinNetFlow: 0,
+                averageSwapSize: 0,
+                profitableTokensCount: 0,
+                unprofitableTokensCount: 0,
+                totalExecutedSwapsCount: 0,
+                averageRealizedPnlPerExecutedSwap: 0,
+                realizedPnlToTotalVolumeRatio: 0,
+                results: [],
+                totalSignaturesProcessed: 0,
+                overallFirstTimestamp: 0,
+                overallLastTimestamp: 0,
+                analysisSkipped: true,
+            };
+        }
+
         let estimatedSolPriceUsd = options?.solPriceUsd || 0;
         if ((!estimatedSolPriceUsd || estimatedSolPriceUsd <= 0) && this.tokenInfoService) {
             try {

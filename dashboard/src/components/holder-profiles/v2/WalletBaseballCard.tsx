@@ -310,7 +310,12 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
     <div className="rounded-lg border bg-card hover:shadow-md transition-shadow overflow-hidden">
       <div className={`p-3 border-b ${qualityIndicator.panel}`}>
         <div className="flex items-center justify-between mb-2">
-          <WalletBadge address={walletAddress} className="text-sm font-semibold" />
+          <WalletBadge
+            address={walletAddress}
+            className="text-sm font-semibold"
+            knownType={profile.knownType}
+            knownLabel={profile.knownLabel}
+          />
         </div>
 
         <div className="flex items-center justify-between gap-2 flex-wrap">

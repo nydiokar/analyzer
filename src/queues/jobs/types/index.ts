@@ -211,6 +211,10 @@ export interface HolderProfile {
   rank: number;
   supplyPercent: number;
   tokenHoldingValueSol?: number | null;
+  // Known wallet registry info (when analysisSkipped=true)
+  knownType?: string;                   // BURN, LP, JUPITER, RAYDIUM, etc.
+  knownLabel?: string;                  // Display label (e.g., "🔥 Burn Address")
+  analysisSkipped?: boolean;            // true when wallet is known non-trader
   // Smart fallback metrics (typical → realized → current) - NOT deprecated
   medianHoldTimeHours: number | null;
   avgHoldTimeHours: number | null;
