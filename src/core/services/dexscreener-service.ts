@@ -423,7 +423,7 @@ export class DexscreenerService {
             })
             : tokenAddresses;
         
-        logger.info(`dY"? Pre-filter: After scam filter - ${validTokens.length} tokens remain (${tokenAddresses.length - validTokens.length} filtered as scam)`);
+        logger.info(`Pre-filter: After scam filter - ${validTokens.length} tokens remain (${tokenAddresses.length - validTokens.length} filtered as scam)`);
         
         // FILTER 2: Prioritize tokens by wallet activity (if enabled)
         if (METADATA_FETCHING_CONFIG.filtering.enableActivityPrioritization) {

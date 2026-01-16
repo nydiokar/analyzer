@@ -141,6 +141,10 @@ export interface AnalysisResult extends JobResult {
   walletAddress: string;
   analysisType: 'pnl' | 'behavior';
   resultId?: string; // Reference to stored analysis result
+  analysisSkipped?: boolean; // True if analysis was skipped (e.g., system wallet)
+  skipReason?: string; // Reason for skipping
+  knownType?: string; // Wallet type if detected (e.g., 'SYSTEM', 'BURN')
+  knownLabel?: string; // Display label for known wallet type
 }
 
 export interface SimilarityFlowResult extends JobResult {

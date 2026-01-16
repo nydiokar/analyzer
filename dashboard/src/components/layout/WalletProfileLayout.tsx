@@ -325,13 +325,17 @@ export default function WalletProfileLayout({
         ? resultData.followUpJobsQueued
         : [];
 
+      // Check if analysis was skipped (known wallet)
+      const wasSkipped = resultData?.analysisSkipped === true;
+      const finalStatus = wasSkipped ? 'skipped' : 'completed';
+
       setScopeProgress((prev) => ({ ...prev, [scope]: 100 }));
       setScopeStates((prev) => {
         const nextState: typeof prev = {
           ...prev,
           [scope]: {
             ...prev[scope],
-            status: 'completed',
+            status: finalStatus,
             jobId: null,
             lastCompletedAt: new Date(data.timestamp),
             errorMessage: undefined,

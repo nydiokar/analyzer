@@ -140,8 +140,8 @@ const WalletBadge = memo(({
   knownLabel,
 }: WalletBadgeProps) => {
   // Normalize knownType - accept string for flexibility, validate internally
-  const normalizedKnownType: KnownWalletType | undefined = knownType && 
-    (['BURN', 'LP', 'RAYDIUM', 'ORCA', 'JUPITER', 'PROTOCOL', 'EXCHANGE', 'SYSTEM'] as const).includes(knownType as KnownWalletType)
+  const normalizedKnownType: KnownWalletType | undefined = knownType &&
+    (['BURN', 'LP', 'PROTOCOL', 'EXCHANGE', 'SYSTEM'] as const).includes(knownType as KnownWalletType)
       ? (knownType as KnownWalletType)
       : undefined;
   

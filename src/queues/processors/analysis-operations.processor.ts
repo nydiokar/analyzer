@@ -20,7 +20,7 @@ import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenHoldersService, HolderWithLabel } from '../../api/services/token-holders.service';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
 import { SystemWalletDetectionService } from '../../api/services/system-wallet-detection.service';
-import { SKIP_BEHAVIOR_ANALYSIS, getKnownWallet } from '../../config/known-wallets';
+import { SKIP_BEHAVIOR_ANALYSIS, SKIP_PNL_CALCULATION, getKnownWallet } from '../../config/known-wallets';
 import type { KnownWalletType } from '../../config/known-wallets';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
@@ -141,13 +141,40 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(5);
       this.logger.log(`Starting PnL analysis for ${walletAddress}`);
 
+      // 🚨 EARLY DETECTION: Skip expensive operations for system wallets
+      this.logger.debug(`Checking if ${walletAddress} is a system wallet...`);
+      const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
+
+      if (detection.knownType && SKIP_PNL_CALCULATION.has(detection.knownType)) {
+        this.logger.log(
+          `⏭️ Skipping PnL analysis for known wallet ${walletAddress} ` +
+          `(${detection.knownType}: ${detection.knownLabel || 'N/A'})`
+        );
+
+        await job.updateProgress(100);
+
+        return {
+          success: true,
+          walletAddress,
+          analysisType: 'pnl',
+          timestamp: Date.now(),
+          processingTimeMs: Date.now() - startTime,
+          analysisSkipped: true,
+          skipReason: `Known wallet type: ${detection.knownType}`,
+          knownType: detection.knownType,
+          knownLabel: detection.knownLabel,
+        };
+      }
+
+      this.logger.debug(`${walletAddress} is not a system wallet, proceeding with PnL analysis`);
+
       // Idempotency check
       if (!forceRefresh) {
         const wallet = await this.databaseService.getWallet(walletAddress);
-        const lastAnalysisAge = wallet?.analyzedTimestampEnd 
+        const lastAnalysisAge = wallet?.analyzedTimestampEnd
           ? Date.now() - wallet.analyzedTimestampEnd * 1000
           : Infinity;
-        
+
         if (lastAnalysisAge < 10 * 60 * 1000) { // 10 minutes idempotency threshold
           await job.updateProgress(100);
           this.logger.log(`Skipping PnL analysis for ${walletAddress} as recent data exists.`);
@@ -231,6 +258,33 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(5);
       this.logger.log(`Starting behavior analysis for ${walletAddress}`);
 
+      // 🚨 EARLY DETECTION: Skip expensive operations for system wallets
+      this.logger.debug(`Checking if ${walletAddress} is a system wallet...`);
+      const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
+
+      if (detection.knownType && SKIP_BEHAVIOR_ANALYSIS.has(detection.knownType)) {
+        this.logger.log(
+          `⏭️ Skipping behavior analysis for known wallet ${walletAddress} ` +
+          `(${detection.knownType}: ${detection.knownLabel || 'N/A'})`
+        );
+
+        await job.updateProgress(100);
+
+        return {
+          success: true,
+          walletAddress,
+          analysisType: 'behavior',
+          timestamp: Date.now(),
+          processingTimeMs: Date.now() - startTime,
+          analysisSkipped: true,
+          skipReason: `Known wallet type: ${detection.knownType}`,
+          knownType: detection.knownType,
+          knownLabel: detection.knownLabel,
+        };
+      }
+
+      this.logger.debug(`${walletAddress} is not a system wallet, proceeding with behavior analysis`);
+
       // Execute analysis
       await job.updateProgress(20);
       this.checkTimeout(startTime, timeoutMs, 'Starting behavior analysis');
@@ -242,7 +296,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         } : undefined,
         excludedMints: config.excludeMints || []
       } : this.behaviorService.getDefaultBehaviorAnalysisConfig();
-      
+
       const timeRange = behaviorConfig.timeRange;
 
       await job.updateProgress(40);
@@ -357,6 +411,60 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       this.logger.log(
         `Starting dashboard analysis for wallet ${walletAddress} [scope=${scope}, trigger=${triggerSource}]`,
       );
+
+      // 🚨 EARLY DETECTION: Defense Layer 1 - Entry Point Filtering
+      //
+      // Why: Prevents queueing expensive jobs (sync, PnL, behavior) for system wallets
+      // How: Uses 3-tier detection (memory → Redis → DB → RPC)
+      //      - Registry wallets: O(1) instant lookup
+      //      - Previously tagged: Cached in Redis/memory
+      //      - Unknown wallets: RPC call to count tokens (slow, but ONE TIME)
+      //
+      // If knownType exists (registry OR 70k+ tokens detected), skip ALL analysis
+      // because dashboard does both PnL + behavior. Detection result is cached
+      // for future requests, so RPC call only happens ONCE per wallet.
+      this.logger.debug(`Checking if ${walletAddress} is a system wallet...`);
+      const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
+
+      if (detection.knownType) {
+        this.logger.log(
+          `⏭️ Skipping dashboard analysis for known wallet ${walletAddress} ` +
+          `(${detection.knownType}: ${detection.knownLabel || 'N/A'})`
+        );
+
+        // Return stub result with wallet info for UI display (includes badge labels)
+        return {
+          walletAddress,
+          scope,
+          requestId: job.data.requestId,
+          knownType: detection.knownType,
+          knownLabel: detection.knownLabel,
+          analysisSkipped: true,
+          skipReason: `Known wallet type: ${detection.knownType}`,
+          pnl: {
+            totalVolume: 0,
+            totalFees: 0,
+            realizedPnl: 0,
+            unrealizedPnl: 0,
+            netPnl: 0,
+            stablecoinNetFlow: 0,
+            averageSwapSize: 0,
+            profitableTokensCount: 0,
+            unprofitableTokensCount: 0,
+            totalExecutedSwapsCount: 0,
+            averageRealizedPnlPerExecutedSwap: 0,
+            realizedPnlToTotalVolumeRatio: 0,
+            results: [],
+            totalSignaturesProcessed: 0,
+            overallFirstTimestamp: 0,
+            overallLastTimestamp: 0,
+          },
+          behavior: null,
+          completedAt: new Date().toISOString(),
+        };
+      }
+
+      this.logger.debug(`${walletAddress} is not a system wallet, proceeding with analysis`);
 
       await job.updateProgress(10);
       const walletStatuses = await this.databaseService.getWalletsStatus([walletAddress]);
@@ -1072,7 +1180,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
 
       if (largeWallets.length > 0) {
-        this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-35k tokens)`);
+        this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-70k tokens)`);
       }
 
       const walletsNeedingJobs = validWallets.filter(addr => holderMetadataByWallet.has(addr));
@@ -1229,6 +1337,62 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
+   * Create stub holder profile for system wallets
+   */
+  private async createStubHolderProfile(
+    walletAddress: string,
+    knownType: string,
+    knownLabel: string | undefined,
+    rank: number,
+    supplyPercent: number,
+    reason: string,
+    startTime: number,
+    job: Job<AnalyzeHolderProfilesJobData>
+  ): Promise<HolderProfilesResult> {
+    const profile: HolderProfile = {
+      walletAddress,
+      rank,
+      supplyPercent,
+      knownType,
+      knownLabel,
+      analysisSkipped: true,
+      medianHoldTimeHours: null,
+      avgHoldTimeHours: null,
+      dailyFlipRatio: null,
+      behaviorType: null,
+      exitPattern: null,
+      dataQualityTier: 'INSUFFICIENT',
+      completedCycleCount: 0,
+      confidence: 0,
+      insufficientDataReason: reason,
+      processingTimeMs: 0,
+      currentHoldingsCount: 0,
+      currentHoldings: [],
+    };
+
+    const processingTimeMs = Date.now() - startTime;
+    const result: HolderProfilesResult = {
+      success: true,
+      mode: 'wallet',
+      targetWallet: walletAddress,
+      profiles: [profile],
+      metadata: {
+        totalHoldersRequested: 1,
+        totalHoldersAnalyzed: 0,
+        totalProcessingTimeMs: processingTimeMs,
+        avgProcessingTimePerWalletMs: processingTimeMs,
+      },
+      timestamp: Date.now(),
+      processingTimeMs,
+    };
+
+    await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
+    await job.updateProgress(100);
+    this.logger.log(`⏭️ Skipped holder profile for ${walletAddress} (${knownType})`);
+    return result;
+  }
+
+  /**
    * Analyze holder profile for a single wallet (wallet mode)
    */
   private async processSingleHolderProfile(
@@ -1242,46 +1406,30 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const holderContext = job.data._holderContext;
     const inferredRank = holderContext?.rank ?? 1;
     const inferredSupplyPercent = holderContext?.supplyPercent ?? 0;
+
+    // Layer 1: Check registry (O(1), fast path)
     const knownEntry = getKnownWallet(walletAddress);
     if (knownEntry && SKIP_BEHAVIOR_ANALYSIS.has(knownEntry.type)) {
-      const profile: HolderProfile = {
-        walletAddress,
-        rank: inferredRank,
-        supplyPercent: inferredSupplyPercent,
-        knownType: knownEntry.type,
-        knownLabel: knownEntry.label,
-        analysisSkipped: true,
-        medianHoldTimeHours: null,
-        avgHoldTimeHours: null,
-        dailyFlipRatio: null,
-        behaviorType: null,
-        exitPattern: null,
-        dataQualityTier: 'INSUFFICIENT',
-        completedCycleCount: 0,
-        confidence: 0,
-        insufficientDataReason: `Known ${knownEntry.type} wallet - analysis skipped`,
-        processingTimeMs: 0,
-        currentHoldingsCount: 0,
-        currentHoldings: [],
-      };
-      const processingTimeMs = Date.now() - startTime;
-      const result: HolderProfilesResult = {
-        success: true,
-        mode: 'wallet',
-        targetWallet: walletAddress,
-        profiles: [profile],
-        metadata: {
-          totalHoldersRequested: 1,
-          totalHoldersAnalyzed: 0,
-          totalProcessingTimeMs: processingTimeMs,
-          avgProcessingTimePerWalletMs: processingTimeMs,
-        },
-        timestamp: Date.now(),
-        processingTimeMs,
-      };
-      await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
-      await job.updateProgress(100);
-      return result;
+      return this.createStubHolderProfile(walletAddress, knownEntry.type, knownEntry.label, inferredRank, inferredSupplyPercent, `Known ${knownEntry.type} wallet - analysis skipped`, startTime, job);
+    }
+
+    // Layer 2: Check DB knownType (safety net for dynamically detected wallets)
+    try {
+      const wallet = await this.databaseService.getWallet(walletAddress);
+      if (wallet?.knownType && SKIP_BEHAVIOR_ANALYSIS.has(wallet.knownType as KnownWalletType)) {
+        return this.createStubHolderProfile(
+          walletAddress,
+          wallet.knownType,
+          wallet.knownLabel || undefined,
+          inferredRank,
+          inferredSupplyPercent,
+          `Detected ${wallet.knownType} wallet - analysis skipped`,
+          startTime,
+          job
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to check wallet knownType for ${walletAddress}:`, error);
     }
 
     // Try Tier 1 cache (Redis) first

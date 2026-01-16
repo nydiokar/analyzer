@@ -130,7 +130,7 @@ Unify on registry + dynamic tagging. Same treatment whether wallet is in registr
 - `SYSTEM_WALLET_DETECTION_CONFIG.BLOCK_SYSTEM_WALLETS`
 
 **DYNAMIC TAGGING:**
-- 70k+ tokens → `classification='SYSTEM'`, `knownType='SYSTEM'`, `knownLabel='⚙️ System Account'`
+- 70k+ tokens → `classification='SYSTEM'`, `knownType='SYSTEM'`, `knownLabel='System Account ⚙️'`
 - 15k-70k tokens → `classification='LARGE'` only (NO knownType, still analyzed)
 
 **UNIFIED RULE:**

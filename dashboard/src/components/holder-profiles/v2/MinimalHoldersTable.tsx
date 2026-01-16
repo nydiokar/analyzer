@@ -120,7 +120,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
                   <p className="text-muted-foreground">
-                    Total value + median hold for current positions `&gt;` = 0.3 SOL.
+                    Total value + median hold for current positions &gt;= 0.3 SOL.
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -203,7 +203,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                         <TooltipContent side="right" className="text-xs max-w-xs">
                           <p className="font-medium">Connected Wallets</p>
                           <p className="text-muted-foreground mt-1">
-                            Similarity `&gt;`= {Math.round(CONNECTION_THRESHOLD * 100)}% with {connectionCounts.get(profile.walletAddress)} other {connectionCounts.get(profile.walletAddress) === 1 ? 'wallet' : 'wallets'} in this set.
+                            Similarity &gt;= {Math.round(CONNECTION_THRESHOLD * 100)}% with {connectionCounts.get(profile.walletAddress)} other {connectionCounts.get(profile.walletAddress) === 1 ? 'wallet' : 'wallets'} in this set.
                           </p>
                         </TooltipContent>
                       </Tooltip>

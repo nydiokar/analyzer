@@ -11,7 +11,7 @@ import { WalletBalance } from '@/types/wallet';
 import { Injectable } from '@nestjs/common';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
-import { getKnownWallet, SKIP_PNL_CALCULATION } from '../../config/known-wallets';
+import { getKnownWallet, SKIP_PNL_CALCULATION, type KnownWalletType } from '../../config/known-wallets';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -68,6 +68,31 @@ export class PnlAnalysisService {
     }
 
     /**
+     * Creates a stub PnL result for system wallets that should be skipped
+     */
+    private createStubResult(meta: { analysisSkipped: boolean; skipReason: string }): SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean } {
+        return {
+            totalVolume: 0,
+            totalFees: 0,
+            realizedPnl: 0,
+            unrealizedPnl: 0,
+            netPnl: 0,
+            stablecoinNetFlow: 0,
+            averageSwapSize: 0,
+            profitableTokensCount: 0,
+            unprofitableTokensCount: 0,
+            totalExecutedSwapsCount: 0,
+            averageRealizedPnlPerExecutedSwap: 0,
+            realizedPnlToTotalVolumeRatio: 0,
+            results: [],
+            totalSignaturesProcessed: 0,
+            overallFirstTimestamp: 0,
+            overallLastTimestamp: 0,
+            analysisSkipped: meta.analysisSkipped,
+        };
+    }
+
+    /**
      * Performs P/L and advanced stats analysis for a given wallet, optionally within a time range.
      *
      * @param walletAddress The wallet address to analyze.
@@ -85,28 +110,30 @@ export class PnlAnalysisService {
         timeRange?: { startTs?: number; endTs?: number },
         options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean, solPriceUsd?: number }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
+        // 🛡️ DEFENSE LAYER 3: Service-Level Safety Net
+        //
+        // This is a redundant check in case a wallet slips through entry point detection.
+        // Entry points (dashboard, analyze-pnl job) should have already filtered these out,
+        // but we check again here for defense in depth.
+        //
+        // Layer 1: Check static registry (O(1), no I/O, instant)
         const knownEntry = getKnownWallet(walletAddress);
         if (knownEntry && SKIP_PNL_CALCULATION.has(knownEntry.type)) {
-            logger.info(`[PnlAnalysis] Skipping PnL for known wallet ${walletAddress} (${knownEntry.type})`);
-            return {
-                totalVolume: 0,
-                totalFees: 0,
-                realizedPnl: 0,
-                unrealizedPnl: 0,
-                netPnl: 0,
-                stablecoinNetFlow: 0,
-                averageSwapSize: 0,
-                profitableTokensCount: 0,
-                unprofitableTokensCount: 0,
-                totalExecutedSwapsCount: 0,
-                averageRealizedPnlPerExecutedSwap: 0,
-                realizedPnlToTotalVolumeRatio: 0,
-                results: [],
-                totalSignaturesProcessed: 0,
-                overallFirstTimestamp: 0,
-                overallLastTimestamp: 0,
-                analysisSkipped: true,
-            };
+            logger.info(`[PnlAnalysis] Skipping PnL for registry wallet ${walletAddress} (${knownEntry.type})`);
+            return this.createStubResult({ analysisSkipped: true, skipReason: 'registry' });
+        }
+
+        // Layer 2: Check DB knownType (catches dynamically detected wallets)
+        // This handles wallets tagged as SYSTEM by other flows (e.g., holder profiles detected 70k+ tokens)
+        try {
+            const wallet = await this.databaseService.getWallet(walletAddress);
+            if (wallet?.knownType && SKIP_PNL_CALCULATION.has(wallet.knownType as KnownWalletType)) {
+                logger.info(`[PnlAnalysis] Skipping PnL for detected system wallet ${walletAddress} (${wallet.knownType})`);
+                return this.createStubResult({ analysisSkipped: true, skipReason: 'dynamic_detection' });
+            }
+        } catch (error) {
+            // Non-critical, proceed with analysis if check fails
+            logger.warn(`Failed to check wallet knownType for ${walletAddress}:`, error);
         }
 
         let estimatedSolPriceUsd = options?.solPriceUsd || 0;

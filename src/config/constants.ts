@@ -282,19 +282,17 @@ export { getKnownWallet, isKnownWallet, type KnownWalletType } from './known-wal
 // Wallet classification types for database tagging
 export const WALLET_CLASSIFICATIONS = {
   NORMAL: 'NORMAL',           // Regular user wallet
-  SYSTEM: 'SYSTEM',           // System/protocol account
-  JUPITER: 'JUPITER',         // Jupiter aggregator account
+  SYSTEM: 'SYSTEM',           // System/protocol account (70k+ tokens OR in registry)
   EXCHANGE: 'EXCHANGE',       // CEX deposit/withdrawal account
   BOT: 'BOT',                 // Trading bot account
-  INVALID: 'INVALID',         // Invalid/empty/system wallet - DO NOT PROCESS
-  LARGE: 'LARGE',             // Large wallet (15k-35k tokens) - PROCESS but monitor
+  LARGE: 'LARGE',             // Large wallet (15k-70k tokens) - PROCESS but monitor
 } as const;
 
 // System wallet detection thresholds
 export const SYSTEM_WALLET_DETECTION_CONFIG = {
   // Token count thresholds
-  GRAY_ZONE_THRESHOLD: 15000,        // 15k tokens - Mark as LARGE, process anyway
-  CERTAIN_SYSTEM_THRESHOLD: 70000,  // 70k tokens - Mark as INVALID, skip processing
+  GRAY_ZONE_THRESHOLD: 15000,        // 15k tokens - Mark as LARGE, monitor but process
+  CERTAIN_SYSTEM_THRESHOLD: 70000,  // 70k tokens - Mark as SYSTEM, skip processing
 
   // Caching
   REDIS_CACHE_KEY_PREFIX: 'system-wallet:',
@@ -302,8 +300,7 @@ export const SYSTEM_WALLET_DETECTION_CONFIG = {
   ENABLE_MEMORY_CACHE: true,         // In-process cache for known system wallets
 
   // Behavior
-  AUTO_TAG_DATABASE: true,           // Automatically update Wallet.classification
-  BLOCK_SYSTEM_WALLETS: true,        // Skip processing wallets marked as INVALID
+  AUTO_TAG_DATABASE: true,           // Automatically update Wallet.classification + knownType
 } as const;
 
 // Wallet data staleness configuration

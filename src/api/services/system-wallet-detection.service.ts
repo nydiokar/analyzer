@@ -17,16 +17,14 @@ import {
 
 export interface SystemWalletDetectionResult {
   address: string;
-  isSystemWallet: boolean;      // Is this a system wallet (INVALID)?
-  isLargeWallet: boolean;       // Is this a large wallet (LARGE)?
-  shouldBlock: boolean;         // Should we skip processing?
   shouldLog: boolean;           // Should we log this?
   tokenCount?: number;          // Token count if detected dynamically
   reason: string;               // Human-readable reason
   method: string;               // Detection method
   confidence: number;           // 0.0-1.0 confidence
-  knownType?: KnownWalletType;  // Registry type if this is a known wallet
+  knownType?: KnownWalletType;  // Registry type OR dynamic detection (70k+ tokens) → skip analysis
   knownLabel?: string;          // Display label for UI
+  isLarge?: boolean;            // 15k-70k tokens → monitor but still analyze
 }
 
 export interface FilterResult {
@@ -45,9 +43,11 @@ export interface FilterResult {
  * Tier 2: Redis cache (50ms, fast)
  * Tier 3: Database + Dynamic detection (500ms, thorough)
  *
- * Thresholds:
- * - 15k tokens: Mark as LARGE, process anyway (gray zone)
- * - 35k tokens: Mark as INVALID, skip processing (certain system wallet)
+ * Unified Classification:
+ * - Registry wallets → knownType set → skip analysis (based on service exclusion sets)
+ * - 70k+ tokens → knownType='SYSTEM' → skip analysis
+ * - 15k-70k tokens → isLarge=true → monitor but analyze normally
+ * - <15k tokens → normal wallet → analyze fully
  *
  * All detections are automatically cached and stored in the database.
  */
@@ -91,9 +91,6 @@ export class SystemWalletDetectionService {
     if (knownEntry) {
       const result: SystemWalletDetectionResult = {
         address,
-        isSystemWallet: true,
-        isLargeWallet: false,
-        shouldBlock: true,
         shouldLog: true,
         reason: `Known wallet: ${knownEntry.shortLabel} (${knownEntry.type})`,
         method: 'registry',
@@ -101,6 +98,13 @@ export class SystemWalletDetectionService {
         knownType: knownEntry.type,
         knownLabel: knownEntry.label,
       };
+
+      // Auto-tag registry wallets in database (same as RPC-detected wallets)
+      // This ensures DB has knownType/knownLabel for API responses
+      if (SYSTEM_WALLET_DETECTION_CONFIG.AUTO_TAG_DATABASE) {
+        await this.tagWallet(result);
+      }
+
       this.cacheResult(result);
       return result;
     }
@@ -121,16 +125,32 @@ export class SystemWalletDetectionService {
     // Tier 3: Database check
     try {
       const wallet = await this.databaseService.getWallet(address);
-      if (wallet?.classification === WALLET_CLASSIFICATIONS.INVALID) {
+
+      // Check if wallet has knownType from registry
+      if (wallet?.knownType) {
         const result: SystemWalletDetectionResult = {
           address,
-          isSystemWallet: true,
-          isLargeWallet: false,
-          shouldBlock: true,
+          shouldLog: false, // Already tagged, don't spam logs
+          reason: `Database knownType: ${wallet.knownType}`,
+          method: wallet.classificationMethod || 'database',
+          confidence: wallet.classificationConfidence || 0.9,
+          knownType: wallet.knownType as KnownWalletType,
+          knownLabel: wallet.knownLabel || undefined,
+        };
+        this.cacheResult(result);
+        return result;
+      }
+
+      // Handle legacy INVALID classification (treat as SYSTEM)
+      if (wallet?.classification === 'INVALID' || wallet?.classification === WALLET_CLASSIFICATIONS.SYSTEM) {
+        const result: SystemWalletDetectionResult = {
+          address,
           shouldLog: false, // Already tagged, don't spam logs
           reason: `Database classification: ${wallet.classification}`,
           method: wallet.classificationMethod || 'database',
           confidence: wallet.classificationConfidence || 0.9,
+          knownType: 'SYSTEM',
+          knownLabel: 'System Account ⚙️',
         };
         this.cacheResult(result);
         return result;
@@ -139,13 +159,11 @@ export class SystemWalletDetectionService {
       if (wallet?.classification === WALLET_CLASSIFICATIONS.LARGE) {
         const result: SystemWalletDetectionResult = {
           address,
-          isSystemWallet: false,
-          isLargeWallet: true,
-          shouldBlock: false, // Process anyway
           shouldLog: true,    // Log for monitoring
           reason: `Large wallet (database classification)`,
           method: wallet.classificationMethod || 'database',
           confidence: wallet.classificationConfidence || 0.8,
+          isLarge: true,
         };
         this.cacheResult(result);
         return result;
@@ -160,7 +178,7 @@ export class SystemWalletDetectionService {
       const result = this.classifyByTokenCount(address, tokenCount);
 
       // Auto-tag in database if configured
-      if (SYSTEM_WALLET_DETECTION_CONFIG.AUTO_TAG_DATABASE && (result.isSystemWallet || result.isLargeWallet)) {
+      if (SYSTEM_WALLET_DETECTION_CONFIG.AUTO_TAG_DATABASE && (result.knownType || result.isLarge)) {
         await this.tagWallet(result);
       }
 
@@ -173,9 +191,6 @@ export class SystemWalletDetectionService {
       // Fail open - assume it's NOT a system wallet
       return {
         address,
-        isSystemWallet: false,
-        isLargeWallet: false,
-        shouldBlock: false,
         shouldLog: false,
         reason: 'Detection failed, processing anyway',
         method: 'error_fallback',
@@ -218,12 +233,15 @@ export class SystemWalletDetectionService {
       );
 
       results.forEach(result => {
-        if (result.isSystemWallet && result.shouldBlock) {
+        if (result.knownType) {
+          // Wallet has knownType → skip based on service exclusion sets
           filtered.set(result.address, result.reason);
-        } else if (result.isLargeWallet) {
+        } else if (result.isLarge) {
+          // Large wallet (15k-70k tokens) → monitor but analyze
           largeWallets.push(result.address);
-          valid.push(result.address); // Process large wallets
+          valid.push(result.address);
         } else {
+          // Normal wallet → analyze fully
           valid.push(result.address);
         }
       });
@@ -247,9 +265,6 @@ export class SystemWalletDetectionService {
     if (knownEntry) {
       return {
         address,
-        isSystemWallet: true,
-        isLargeWallet: false,
-        shouldBlock: true,
         shouldLog: false,
         reason: `Known wallet: ${knownEntry.shortLabel}`,
         method: 'registry',
@@ -272,28 +287,41 @@ export class SystemWalletDetectionService {
     // Check database
     try {
       const wallet = await this.databaseService.getWallet(address);
-      if (wallet?.classification === WALLET_CLASSIFICATIONS.INVALID) {
+
+      // Check knownType from database
+      if (wallet?.knownType) {
         return {
           address,
-          isSystemWallet: true,
-          isLargeWallet: false,
-          shouldBlock: true,
           shouldLog: false,
-          reason: 'Database: INVALID',
+          reason: `Database knownType: ${wallet.knownType}`,
           method: 'database',
           confidence: 0.9,
+          knownType: wallet.knownType as KnownWalletType,
+          knownLabel: wallet.knownLabel || undefined,
         };
       }
+
+      // Handle legacy INVALID or SYSTEM classification
+      if (wallet?.classification === 'INVALID' || wallet?.classification === WALLET_CLASSIFICATIONS.SYSTEM) {
+        return {
+          address,
+          shouldLog: false,
+          reason: `Database: ${wallet.classification}`,
+          method: 'database',
+          confidence: 0.9,
+          knownType: 'SYSTEM',
+          knownLabel: 'System Account ⚙️',
+        };
+      }
+
       if (wallet?.classification === WALLET_CLASSIFICATIONS.LARGE) {
         return {
           address,
-          isSystemWallet: false,
-          isLargeWallet: true,
-          shouldBlock: false,
           shouldLog: true,
           reason: 'Database: LARGE',
           method: 'database',
           confidence: 0.8,
+          isLarge: true,
         };
       }
     } catch (error) {
@@ -303,9 +331,6 @@ export class SystemWalletDetectionService {
     // Not found - assume valid
     return {
       address,
-      isSystemWallet: false,
-      isLargeWallet: false,
-      shouldBlock: false,
       shouldLog: false,
       reason: 'No detection data, processing normally',
       method: 'none',
@@ -339,38 +364,32 @@ export class SystemWalletDetectionService {
     const { CERTAIN_SYSTEM_THRESHOLD, GRAY_ZONE_THRESHOLD } = SYSTEM_WALLET_DETECTION_CONFIG;
 
     if (tokenCount >= CERTAIN_SYSTEM_THRESHOLD) {
-      // Definitely a system wallet
+      // 70k+ tokens → auto-tag as SYSTEM (skip analysis)
       return {
         address,
-        isSystemWallet: true,
-        isLargeWallet: false,
-        shouldBlock: true,
         shouldLog: true,
         tokenCount,
         reason: `${tokenCount.toLocaleString()} tokens (threshold: ${CERTAIN_SYSTEM_THRESHOLD.toLocaleString()})`,
         method: 'token_count_dynamic',
         confidence: 0.95,
+        knownType: 'SYSTEM',
+        knownLabel: 'System Account ⚙️',
       };
     } else if (tokenCount >= GRAY_ZONE_THRESHOLD) {
-      // Large wallet - process but monitor
+      // 15k-70k tokens → mark as LARGE (monitor but analyze)
       return {
         address,
-        isSystemWallet: false,
-        isLargeWallet: true,
-        shouldBlock: false,
         shouldLog: true,
         tokenCount,
         reason: `${tokenCount.toLocaleString()} tokens (gray zone: ${GRAY_ZONE_THRESHOLD.toLocaleString()}-${CERTAIN_SYSTEM_THRESHOLD.toLocaleString()})`,
         method: 'token_count_dynamic',
         confidence: 0.7,
+        isLarge: true,
       };
     } else {
       // Normal wallet
       return {
         address,
-        isSystemWallet: false,
-        isLargeWallet: false,
-        shouldBlock: false,
         shouldLog: false,
         tokenCount,
         reason: `Normal wallet (${tokenCount.toLocaleString()} tokens)`,
@@ -385,8 +404,8 @@ export class SystemWalletDetectionService {
    */
   private async tagWallet(result: SystemWalletDetectionResult): Promise<void> {
     try {
-      const classification = result.isSystemWallet
-        ? WALLET_CLASSIFICATIONS.INVALID
+      const classification = result.knownType
+        ? WALLET_CLASSIFICATIONS.SYSTEM
         : WALLET_CLASSIFICATIONS.LARGE;
 
       await this.databaseService.updateWalletClassification(result.address, {
@@ -398,7 +417,7 @@ export class SystemWalletDetectionService {
         knownLabel: result.knownLabel,
       });
 
-      const emoji = result.isSystemWallet ? '🚫' : '⚠️';
+      const emoji = result.knownType ? '🚫' : '⚠️';
       this.logger.log(`${emoji} Auto-tagged ${result.address} as ${classification} (${result.reason})`);
     } catch (error) {
       this.logger.warn(`Failed to auto-tag ${result.address}:`, error);

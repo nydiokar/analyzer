@@ -139,7 +139,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
 
       // 🔍 SYSTEM WALLET DETECTION: Use centralized service for all wallets
       // The service handles 3-tier caching (memory → Redis → database) and RPC detection
-      // Thresholds: 15k tokens = LARGE (process with warning), 35k+ tokens = INVALID (skip)
+      // Thresholds: 15k tokens = LARGE (process with warning), 70k+ tokens = SYSTEM (skip)
       this.logger.log(`Running system wallet detection for ${walletAddresses.length} wallets...`);
 
       const detectionResult = await this.detectSystemWalletsEarly(walletAddresses);
@@ -477,8 +477,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
    * Detects and filters system wallets using the centralized SystemWalletDetectionService.
    *
    * Thresholds:
-   * - 15k-35k tokens: LARGE (processed with warning)
-   * - 35k+ tokens: INVALID (skipped entirely)
+   * - 15k-70k tokens: LARGE (processed with warning)
+   * - 70k+ tokens: SYSTEM (skipped entirely)
    *
    * The service handles 3-tier caching (memory → Redis → database) and dynamic RPC detection.
    */
@@ -486,7 +486,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     validWallets: string[];
     systemWallets: string[];
   }> {
-    this.logger.log(`🔍 System wallet detection: Using SystemWalletDetectionService (thresholds: 15k LARGE, 35k INVALID)`);
+    this.logger.log(`🔍 System wallet detection: Using SystemWalletDetectionService (thresholds: 15k LARGE, 70k SYSTEM)`);
 
     const excludedByRegistry = new Map<string, string>();
     const knownAllowed: string[] = [];
@@ -523,7 +523,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     }
 
     if (largeWallets.length > 0) {
-      this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-35k tokens)`);
+      this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-70k tokens)`);
     }
 
     this.logger.log(`System wallet detection complete: ${validWallets.length} valid wallets, ${filtered.size + excludedByRegistry.size} wallets filtered`);

@@ -3,6 +3,7 @@ import { DatabaseService as NestDatabaseService } from '../services/database.ser
 import { BehaviorService as OriginalBehaviorService } from '../../core/analysis/behavior/behavior-service';
 import { BehaviorAnalysisConfig } from '../../types/analysis'; // Corrected to use path alias
 import { BehavioralMetrics } from '../../types/behavior'; // Corrected to use path alias
+import { getKnownWallet, SKIP_BEHAVIOR_ANALYSIS, type KnownWalletType } from '../../config/known-wallets';
 
 @Injectable()
 export class BehaviorService {
@@ -25,6 +26,27 @@ export class BehaviorService {
   ): Promise<BehavioralMetrics | null> {
     this.logger.debug(`Getting wallet behavior for ${walletAddress}`);
 
+    // Layer 1: Check registry (O(1), no I/O)
+    const knownEntry = getKnownWallet(walletAddress);
+    if (knownEntry && SKIP_BEHAVIOR_ANALYSIS.has(knownEntry.type)) {
+      this.logger.log(`Skipping behavior analysis for registry wallet ${walletAddress} (${knownEntry.type})`);
+      return null;
+    }
+
+    // Layer 2: Fetch wallet ONCE and reuse for both knownType check and cache staleness check
+    // This avoids duplicate DB queries
+    let wallet: Awaited<ReturnType<typeof this.nestDatabaseService.getWallet>> | null = null;
+    try {
+      wallet = await this.nestDatabaseService.getWallet(walletAddress);
+      if (wallet?.knownType && SKIP_BEHAVIOR_ANALYSIS.has(wallet.knownType as KnownWalletType)) {
+        this.logger.log(`Skipping behavior analysis for detected system wallet ${walletAddress} (${wallet.knownType})`);
+        return null;
+      }
+    } catch (error) {
+      // Non-critical, proceed with analysis if check fails
+      this.logger.warn(`Failed to check wallet knownType for ${walletAddress}:`, error);
+    }
+
     // Feature flag: disable with DISABLE_BEHAVIOR_CACHE=true
     const cacheEnabled = process.env.DISABLE_BEHAVIOR_CACHE !== 'true';
 
@@ -35,7 +57,10 @@ export class BehaviorService {
 
         if (cachedProfile) {
           // Smart staleness check: Compare profile update time vs wallet last sync
-          const wallet = await this.nestDatabaseService.getWallet(walletAddress);
+          // Reuse wallet from earlier fetch to avoid duplicate DB query
+          if (!wallet) {
+            wallet = await this.nestDatabaseService.getWallet(walletAddress);
+          }
 
           if (wallet?.lastSuccessfulFetchTimestamp) {
             const profileUpdatedAt = cachedProfile.updatedAt.getTime();

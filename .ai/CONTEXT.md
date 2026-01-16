@@ -6,24 +6,23 @@
 
 ## 🎯 Current Focus
 
-**Token price freshness & wallet identity hygiene** - Ensure holder profiles and similarity jobs always rehydrate prices/labels with the registry-backed wallet badge logic while keeping dashboard components in sync.
+**Wallet classification UX polish & taxonomy refinement** - Dashboard UI fixes for known wallet display, WalletBadge label integration, and simplification of protocol wallet types.
 
 ---
 
 ## 📋 Active Work
 
-Check this token + wallet - we showed no buy and sell amounts but "fixed" the swap analyzer, verify kapD6ok2UTZsCLeqvuykmN7UE6wWBsLEfct9861esrh 2TsmuYUrsctE57VLckZBYEEzdokUF8j8e1GavekWBAGS 
-
+For some reason after some time the Summary card in wallet profile is turning into skeleton. 
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| 🔄 | Wallet classification system cleanup | 🔸 | Remove shouldBlock/INVALID redundancy, unify on knownType + dynamic tagging (70k+ tokens auto-tagged as SYSTEM) |
+| 🔄 | Wallet classification UX fixes | 🔸 | Dashboard shows "Analysis running..." for known wallets; WalletBadge not displaying labels; need completion state handling | - ONLY "Analysis running ..." is still not resolved - when the Refresh button in wallet profile is hit is stuck with loading. 
+| 🔄 | Wallet type taxonomy simplification | 🔹 | Merge ORCA/JUPITER/RAYDIUM/METEORA into PROTOCOL type with distinct labels; reduce type proliferation | - MARK AS DONE and move to recent activity 
+| 🔄 | LP vs Lock Vault classification | 🔹 | Holder profiles misclassify Streamflow lock vaults as LP; consider program registry or quick program ID check | - !! Streamflow lock vault is still considered as LP on the frontend - tackle it if trivial or dump fast, non-critical 
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable |
-| ✅ | Introduce wallet registry for better management of types of wallets | 🔶 | Registry now lives in src/config/known-wallets.ts and drives the central wallet-type plumbing so PnL, similarity, and holder profiles respect known wallets while still surfacing labels. |
-| 📝 | Holder Profiles final review | 🔹 | One more pass before complete |
+| 📝 | Holder Profiles final review | 🔹 | One more pass before complete | - THIS NEEDS TO BE MOVED TO RECENT ACTIVITY
 | 📝 | Similarity Lab bug fixes | 🔸 | Ready to start after Holder Profiles |
-| 🔄 | Token price refresh + wallet labels unification | 🔸 | Holder profiles and similarity now pull fresh token prices, recompute holdings, and route registry labels through wallet badges |
 
 <details>
 <summary><b>Legend</b></summary>
@@ -41,19 +40,23 @@ Check this token + wallet - we showed no buy and sell amounts but "fixed" the sw
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
-| 16.1 | 🔧 | Wallet classification system unification | 🔸 | `constants.ts`, `system-wallet-detection.service.ts`, `helius-sync-service.ts`, processors |
+| 16.1 | ✅ | Wallet classification system: Defense-in-depth architecture | 🔶 | `constants.ts`, `system-wallet-detection.service.ts`, `helius-sync-service.ts`, `analysis-operations.processor.ts`, `pnl-analysis-service.ts`, `behavior.service.ts`, `WALLET_CLASSIFICATION_SYSTEM.md` |
+| 16.2 | ✅ | Wallet registry integration & token price refresh | 🔶 | `known-wallets.ts`, `analysis-operations.processor.ts`, `token-info.service.ts`, `similarity.service.ts` |
 
-**Summary:** Removing shouldBlock/isSystemWallet/isLargeWallet flags in favor of unified knownType-based filtering. 70k+ token wallets now auto-tagged with knownType='SYSTEM' for consistent treatment with registry wallets. LARGE (15k-70k) remains classification-only for monitoring.
+**Summary:**
+
+**16.1:** Completed full defense-in-depth architecture for wallet detection. Removed shouldBlock/isSystemWallet/isLargeWallet boolean flags. Removed WALLET_CLASSIFICATIONS.INVALID and .JUPITER. Implemented three-layer protection: (1) Entry points do early RPC detection before queueing expensive jobs (dashboard, analyze-pnl, analyze-behavior processors); (2) Sync service checks DB knownType and skips; (3) PnL/Behavior services check registry + DB knownType as safety net. 70k+ tokens auto-tagged with knownType='SYSTEM' during CURRENT run via RPC call. LARGE (15k-70k) uses isLarge flag, analyzed normally. All layers use SKIP_* exclusion sets for consistency. Registry + dynamic detection unified - same treatment whether wallet is in static registry or detected via RPC. DB query optimization: behavior service now fetches wallet once and reuses for both knownType and staleness checks (50% reduction). Comprehensive documentation with flow diagrams added.
+
+**16.2:** Registry now lives in src/config/known-wallets.ts and drives central wallet-type filtering for PnL, similarity, and holder profiles. Holder profiles and similarity now pull fresh token prices during analysis and recompute holding values. Known wallet labels flow through backend analysis and are surfaced in holder profile results.
 
 ### January 15, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
-| 15.1 | 🔄 | Holder Profiles & Similarity: fresh prices + wallet labels | 🔸 | `analysis-operations.processor.ts`, `token-info.service.ts`, `similarity.service.ts`, `dashboard/src/components/shared/WalletBadge.tsx`, `dashboard/src/hooks/useTokenMetadata.ts` |
-| 15.2 | 🔄 | Wallet registry rollout | 🔸 | `src/config/known-wallets.ts`, `core/services/pnl-analysis-service.ts`, `queues/processors/similarity-operations.processor.ts`, `dashboard/src/components/shared/WalletBadge.tsx` |
+| 15.1 | ✅ | Holder Profiles & Similarity: fresh prices + wallet labels | 🔸 | `analysis-operations.processor.ts`, `token-info.service.ts`, `similarity.service.ts`, `dashboard/src/components/shared/WalletBadge.tsx`, `dashboard/src/hooks/useTokenMetadata.ts` |
+| 15.2 | ✅ | Wallet registry rollout | 🔸 | `src/config/known-wallets.ts`, `core/services/pnl-analysis-service.ts`, `queues/processors/similarity-operations.processor.ts`, `dashboard/src/components/shared/WalletBadge.tsx` |
 
 **Summary:** Holder profiles now rehydrate token prices and recompute holding values during analysis, known wallets reuse the registry labels in every flow, similarity frontend cards display the updated wallet badges, and the registry now drives PnL/similarity exclusions as intended.
-
 
 ### January 13, 2026
 
@@ -259,5 +262,5 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-01-13 • **Branch:** `discover-analytics-ux`
+**Last Updated:** 2026-01-16 • **Branch:** `discover-analytics-ux`
 

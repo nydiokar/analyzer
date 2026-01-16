@@ -5,9 +5,6 @@
 export type KnownWalletType =
   | 'BURN'
   | 'LP'
-  | 'RAYDIUM'
-  | 'ORCA'
-  | 'JUPITER'
   | 'PROTOCOL'
   | 'EXCHANGE'
   | 'SYSTEM';

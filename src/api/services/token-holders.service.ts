@@ -3,6 +3,9 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
 import type { GetTokenLargestAccountsResult, TokenLargestAccount, GetMultipleAccountsResult, RpcAccountInfo } from '../../types/helius-api';
 import { getKnownWallet, type KnownWalletType } from '../../config/known-wallets';
 
+// Known program IDs for special detection
+const STREAMFLOW_PROGRAM_ID = 'strmRqUCoQUgGUan5YhzUZa6KqdzwX5L6FpUxfmKg5m';
+
 export interface HolderWithLabel {
   tokenAccount: string;
   ownerAccount?: string;
@@ -95,17 +98,23 @@ export class TokenHoldersService {
           holder.knownType = knownEntry.type;
           holder.knownLabel = knownEntry.label;
         } else {
-          // Check if this is a program-owned account (AMM PDA, etc.)
+          // Check if this is a program-owned account (AMM PDA, lock vault, etc.)
           const info = ownerAccountInfo[owner];
           if (info) {
-            const isProgramOwned = info.owner && info.owner !== SYSTEM_PROGRAM_ID;
+            const programOwner = info.owner;
+            const isProgramOwned = programOwner && programOwner !== SYSTEM_PROGRAM_ID;
             const hasNonEmptyData = Array.isArray((info as any).data) && typeof (info as any).data[0] === 'string'
               ? (info as any).data[0].length > 0
               : false;
             const isExecutable = Boolean((info as any).executable);
 
-            // Mark program-owned accounts as LP/Protocol
-            if (isProgramOwned || hasNonEmptyData || isExecutable) {
+            // Check for specific programs first (Streamflow lock vaults, etc.)
+            if (programOwner === STREAMFLOW_PROGRAM_ID) {
+              holder.knownType = 'PROTOCOL';
+              holder.knownLabel = '🔒 Lock Vault';
+            }
+            // Generic program-owned accounts → treat as LP/Protocol
+            else if (isProgramOwned || hasNonEmptyData || isExecutable) {
               holder.knownType = 'LP';
               holder.knownLabel = 'LIQ POOL 💧';
             }
