@@ -107,7 +107,7 @@ export class TokenHoldersService {
             // Mark program-owned accounts as LP/Protocol
             if (isProgramOwned || hasNonEmptyData || isExecutable) {
               holder.knownType = 'LP';
-              holder.knownLabel = '💧 LP';
+              holder.knownLabel = 'LIQ POOL 💧';
             }
           }
         }

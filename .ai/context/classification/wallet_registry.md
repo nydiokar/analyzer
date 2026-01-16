@@ -106,3 +106,41 @@ Known Wallet Types - Implementation Outline
   └─────────┴───────────────┴───────────────┴──────────────────┴────────────┘
   ---
   Ready to start when you are.
+
+---
+## Cleanup Plan (2026-01-16)
+
+### Problem
+Three overlapping classification systems causing redundancy:
+1. `shouldBlock` flags (legacy patch)
+2. `classification` field (general categorization)
+3. `knownType` + SKIP_* sets (registry-based, best approach)
+
+### Goal
+Unify on registry + dynamic tagging. Same treatment whether wallet is in registry OR detected dynamically (70k+ tokens).
+
+### Changes
+
+**KILL:**
+- `WALLET_CLASSIFICATIONS.INVALID` → use SYSTEM
+- `WALLET_CLASSIFICATIONS.JUPITER` → redundant with knownType
+- `SystemWalletDetectionResult.shouldBlock`
+- `SystemWalletDetectionResult.isSystemWallet`
+- `SystemWalletDetectionResult.isLargeWallet`
+- `SYSTEM_WALLET_DETECTION_CONFIG.BLOCK_SYSTEM_WALLETS`
+
+**DYNAMIC TAGGING:**
+- 70k+ tokens → `classification='SYSTEM'`, `knownType='SYSTEM'`, `knownLabel='⚙️ System Account'`
+- 15k-70k tokens → `classification='LARGE'` only (NO knownType, still analyzed)
+
+**UNIFIED RULE:**
+- Any wallet with `knownType` → Skip sync, skip analysis, show with label
+- LARGE wallets → Tag for monitoring, analyze normally
+- Bot detection → Leave untouched (not integrated with knownType)
+
+**FILES TOUCHED:**
+1. `src/config/constants.ts` - Remove INVALID, JUPITER, BLOCK_SYSTEM_WALLETS
+2. `src/api/services/system-wallet-detection.service.ts` - Remove shouldBlock flags, add dynamic knownType tagging
+3. `src/core/services/helius-sync-service.ts` - Check knownType instead of classification='INVALID'
+4. `src/queues/processors/analysis-operations.processor.ts` - Verify knownType usage
+5. `src/queues/processors/similarity-operations.processor.ts` - Verify EXCLUDE_FROM_SIMILARITY usage

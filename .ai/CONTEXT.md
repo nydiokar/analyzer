@@ -1,6 +1,6 @@
 # Sova Intel - Project Context
 
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-13 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-16 • **Status:** 🟢 Active Development
 
 ---
 
@@ -17,6 +17,7 @@ Check this token + wallet - we showed no buy and sell amounts but "fixed" the sw
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| 🔄 | Wallet classification system cleanup | 🔸 | Remove shouldBlock/INVALID redundancy, unify on knownType + dynamic tagging (70k+ tokens auto-tagged as SYSTEM) |
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable |
 | ✅ | Introduce wallet registry for better management of types of wallets | 🔶 | Registry now lives in src/config/known-wallets.ts and drives the central wallet-type plumbing so PnL, similarity, and holder profiles respect known wallets while still surfacing labels. |
@@ -36,12 +37,20 @@ Check this token + wallet - we showed no buy and sell amounts but "fixed" the sw
 
 ## 📅 Recent Activity
 
+### January 16, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 16.1 | 🔧 | Wallet classification system unification | 🔸 | `constants.ts`, `system-wallet-detection.service.ts`, `helius-sync-service.ts`, processors |
+
+**Summary:** Removing shouldBlock/isSystemWallet/isLargeWallet flags in favor of unified knownType-based filtering. 70k+ token wallets now auto-tagged with knownType='SYSTEM' for consistent treatment with registry wallets. LARGE (15k-70k) remains classification-only for monitoring.
+
 ### January 15, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
-| 15.1 | dY"' | Holder Profiles & Similarity: fresh prices + wallet labels | dY", | `analysis-operations.processor.ts`, `token-info.service.ts`, `similarity.service.ts`, `dashboard/src/components/shared/WalletBadge.tsx`, `dashboard/src/hooks/useTokenMetadata.ts` |
-| 15.2 | dY"' | Wallet registry rollout | dY", | `src/config/known-wallets.ts`, `core/services/pnl-analysis-service.ts`, `queues/processors/similarity-operations.processor.ts`, `dashboard/src/components/shared/WalletBadge.tsx` |
+| 15.1 | 🔄 | Holder Profiles & Similarity: fresh prices + wallet labels | 🔸 | `analysis-operations.processor.ts`, `token-info.service.ts`, `similarity.service.ts`, `dashboard/src/components/shared/WalletBadge.tsx`, `dashboard/src/hooks/useTokenMetadata.ts` |
+| 15.2 | 🔄 | Wallet registry rollout | 🔸 | `src/config/known-wallets.ts`, `core/services/pnl-analysis-service.ts`, `queues/processors/similarity-operations.processor.ts`, `dashboard/src/components/shared/WalletBadge.tsx` |
 
 **Summary:** Holder profiles now rehydrate token prices and recompute holding values during analysis, known wallets reuse the registry labels in every flow, similarity frontend cards display the updated wallet badges, and the registry now drives PnL/similarity exclusions as intended.
 

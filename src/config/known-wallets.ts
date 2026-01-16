@@ -223,6 +223,7 @@ export const EXCLUDE_FROM_STATS: ReadonlySet<KnownWalletType> = new Set([
   'LP',
   'RAYDIUM',
   'ORCA',
+  'JUPITER',
   'SYSTEM',
 ]);
 
