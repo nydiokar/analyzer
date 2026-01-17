@@ -985,15 +985,18 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         this.logger.warn(`Failed to load SOL price for ${tokenMint} valuation:`, solError);
       }
 
-      const holderMetadataByWallet = new Map<string, { rank: number; supplyPercent: number; tokenHoldingValueSol: number | null }>();
-      const walletAddresses: string[] = [];
-      const knownWalletProfiles: HolderProfile[] = []; // Pre-built profiles for known wallets (skip analysis)
+        const holderMetadataByWallet = new Map<string, { rank: number; supplyPercent: number; tokenHoldingValueSol: number | null }>();
+        const walletAddresses: string[] = [];
+        const knownWalletProfiles: HolderProfile[] = []; // Pre-built profiles for known wallets (skip analysis)
+        const holderByWallet = new Map<string, HolderWithLabel>();
+        const externalTaggedWallets = new Map<string, HolderWithLabel>();
 
-      holderEntries.forEach((holder, index) => {
-        if (!holder.ownerAccount) {
-          return;
-        }
-        const rank = typeof holder.rank === 'number' ? holder.rank : index + 1;
+        holderEntries.forEach((holder, index) => {
+          if (!holder.ownerAccount) {
+            return;
+          }
+          holderByWallet.set(holder.ownerAccount, holder);
+          const rank = typeof holder.rank === 'number' ? holder.rank : index + 1;
         const supplyPercent =
           actualTotalSupply > 0 && typeof holder.uiAmount === 'number'
             ? (holder.uiAmount / actualTotalSupply) * 100
@@ -1008,12 +1011,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         const shouldSkipAnalysis = holderWithLabel.knownType &&
           SKIP_BEHAVIOR_ANALYSIS.has(holderWithLabel.knownType as KnownWalletType);
 
-        if (shouldSkipAnalysis) {
-          const uiAmount = typeof holder.uiAmount === 'number' ? holder.uiAmount : null;
-          const valueUsd =
-            tokenPriceUsd && tokenPriceUsd > 0 && typeof holder.uiAmount === 'number'
-              ? holder.uiAmount * tokenPriceUsd
-              : null;
+          if (shouldSkipAnalysis) {
+            externalTaggedWallets.set(holder.ownerAccount, holderWithLabel);
+            const uiAmount = typeof holder.uiAmount === 'number' ? holder.uiAmount : null;
+            const valueUsd =
+              tokenPriceUsd && tokenPriceUsd > 0 && typeof holder.uiAmount === 'number'
+                ? holder.uiAmount * tokenPriceUsd
+                : null;
           const currentHoldings = uiAmount !== null
             ? [{
                 tokenAddress: tokenMint,
@@ -1058,9 +1062,84 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
       });
 
-      if (knownWalletProfiles.length > 0) {
-        this.logger.log(`Skipped analysis for ${knownWalletProfiles.length} known wallets (${tokenMint})`);
-      }
+        if (knownWalletProfiles.length > 0) {
+          this.logger.log(`Skipped analysis for ${knownWalletProfiles.length} known wallets (${tokenMint})`);
+        }
+
+        for (const [address, holder] of externalTaggedWallets) {
+          if (!holder.knownType) {
+            continue;
+          }
+          await this.systemWalletDetection.registerExternalKnownWallet(
+            address,
+            holder.knownType as KnownWalletType,
+            holder.knownLabel,
+            `Top holder program-owned classification (${holder.knownType})`
+          );
+        }
+
+        const { valid: validWallets, filtered: systemWallets, filteredDetails, largeWallets } =
+          await this.systemWalletDetection.filterSystemWallets(walletAddresses);
+
+        if (systemWallets.size > 0) {
+          this.logger.warn(`🚫 Filtered ${systemWallets.size} system wallet(s) from holder profiles analysis`);
+          for (const [address, reason] of systemWallets) {
+            this.logger.debug(`  - ${address}: ${reason}`);
+          }
+        }
+
+        if (largeWallets.length > 0) {
+          this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-70k tokens)`);
+        }
+
+        for (const [address, detection] of filteredDetails) {
+          if (!detection.knownType || !holderMetadataByWallet.has(address)) {
+            continue;
+          }
+          const metadata = holderMetadataByWallet.get(address);
+          if (!metadata) {
+            continue;
+          }
+          const holder = holderByWallet.get(address);
+          const uiAmount = typeof holder?.uiAmount === 'number' ? holder.uiAmount : null;
+          const valueUsd =
+            tokenPriceUsd && tokenPriceUsd > 0 && typeof uiAmount === 'number'
+              ? uiAmount * tokenPriceUsd
+              : null;
+          const currentHoldings = uiAmount !== null
+            ? [{
+                tokenAddress: tokenMint,
+                uiBalance: uiAmount,
+                decimals: holder?.decimals ?? null,
+                valueSol: metadata.tokenHoldingValueSol ?? null,
+                valueUsd,
+              }]
+            : [];
+          knownWalletProfiles.push({
+            walletAddress: address,
+            rank: metadata.rank,
+            supplyPercent: metadata.supplyPercent,
+            tokenHoldingValueSol: metadata.tokenHoldingValueSol,
+            knownType: detection.knownType,
+            knownLabel: detection.knownLabel,
+            analysisSkipped: true,
+            medianHoldTimeHours: null,
+            avgHoldTimeHours: null,
+            dailyFlipRatio: null,
+            behaviorType: null,
+            exitPattern: null,
+            dataQualityTier: 'INSUFFICIENT',
+            completedCycleCount: 0,
+            confidence: 0,
+            insufficientDataReason: detection.reason,
+            processingTimeMs: 0,
+            currentHoldingsCount: currentHoldings.length,
+            currentHoldings,
+          });
+        }
+
+        walletAddresses.length = 0;
+        walletAddresses.push(...validWallets);
 
       const cachedResult = await this.holderProfilesCacheService.getTokenResult(tokenMint, topN);
       if (cachedResult) {
@@ -1144,10 +1223,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       await job.updateProgress(20);
 
-      const { snapshots, readyWallets, staleWallets } = await this.holderProfilesCacheService.getTokenSnapshots(
-        tokenMint,
-        walletAddresses,
-      );
+        const { snapshots, readyWallets, staleWallets } = await this.holderProfilesCacheService.getTokenSnapshots(
+          tokenMint,
+          walletAddresses,
+        );
 
       if (readyWallets.length > 0) {
         this.logger.log(`Streaming ${readyWallets.length} cached holder profiles immediately`);
@@ -1168,22 +1247,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
       }
 
-      // 🚨 Filter out system wallets before queueing jobs
-      const { valid: validWallets, filtered: systemWallets, largeWallets } =
-        await this.systemWalletDetection.filterSystemWallets(staleWallets);
-
-      if (systemWallets.size > 0) {
-        this.logger.warn(`🚫 Filtered ${systemWallets.size} system wallet(s) from holder profiles analysis`);
-        for (const [address, reason] of systemWallets) {
-          this.logger.debug(`  - ${address}: ${reason}`);
-        }
-      }
-
-      if (largeWallets.length > 0) {
-        this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-70k tokens)`);
-      }
-
-      const walletsNeedingJobs = validWallets.filter(addr => holderMetadataByWallet.has(addr));
+        const walletsNeedingJobs = staleWallets.filter(addr => holderMetadataByWallet.has(addr));
 
       const childJobIds: string[] = [];
       const jobIdToWallet = new Map<string, string>();
@@ -1403,34 +1467,23 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   ): Promise<HolderProfilesResult> {
     this.logger.log(`Starting holder profile analysis for wallet ${walletAddress}`);
 
-    const holderContext = job.data._holderContext;
-    const inferredRank = holderContext?.rank ?? 1;
-    const inferredSupplyPercent = holderContext?.supplyPercent ?? 0;
+      const holderContext = job.data._holderContext;
+      const inferredRank = holderContext?.rank ?? 1;
+      const inferredSupplyPercent = holderContext?.supplyPercent ?? 0;
 
-    // Layer 1: Check registry (O(1), fast path)
-    const knownEntry = getKnownWallet(walletAddress);
-    if (knownEntry && SKIP_BEHAVIOR_ANALYSIS.has(knownEntry.type)) {
-      return this.createStubHolderProfile(walletAddress, knownEntry.type, knownEntry.label, inferredRank, inferredSupplyPercent, `Known ${knownEntry.type} wallet - analysis skipped`, startTime, job);
-    }
-
-    // Layer 2: Check DB knownType (safety net for dynamically detected wallets)
-    try {
-      const wallet = await this.databaseService.getWallet(walletAddress);
-      if (wallet?.knownType && SKIP_BEHAVIOR_ANALYSIS.has(wallet.knownType as KnownWalletType)) {
+      const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
+      if (detection.knownType && SKIP_BEHAVIOR_ANALYSIS.has(detection.knownType)) {
         return this.createStubHolderProfile(
           walletAddress,
-          wallet.knownType,
-          wallet.knownLabel || undefined,
+          detection.knownType,
+          detection.knownLabel,
           inferredRank,
           inferredSupplyPercent,
-          `Detected ${wallet.knownType} wallet - analysis skipped`,
+          detection.reason,
           startTime,
           job
         );
       }
-    } catch (error) {
-      this.logger.warn(`Failed to check wallet knownType for ${walletAddress}:`, error);
-    }
 
     // Try Tier 1 cache (Redis) first
     const cached = await this.holderProfilesCacheService.getWalletResult(walletAddress);

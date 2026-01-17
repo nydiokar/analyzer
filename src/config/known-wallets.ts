@@ -165,6 +165,12 @@ export const KNOWN_WALLETS: Record<string, KnownWalletEntry> = {
     shortLabel: 'Raydium',
   },
 
+ // '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1': {
+   // type: 'SYSTEM',
+   // label: 'Raydium Auth',
+   // shortLabel: 'Raydium',
+    // },
+
   // ═══════════════════════════════════════════════════════════════════════════
   // SYSTEM / LARGE TOKEN ACCOUNTS
   // ═══════════════════════════════════════════════════════════════════════════

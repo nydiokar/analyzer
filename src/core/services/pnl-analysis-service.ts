@@ -462,7 +462,7 @@ export class PnlAnalysisService {
                 // FIFO only tracks economic swaps, not program deposits
                 // So we accept mismatch and show PnL if FIFO itself succeeded
                 if (hasHoldingsMismatch) {
-                    logger.debug(`[PnlAnalysis] Holdings mismatch for ${result.tokenAddress}: currentUiBalance=${currentUiBalance}, fifoRemainingAmount=${remainingAmount}, diff=${currentUiBalance !== null && remainingAmount !== undefined ? currentUiBalance - remainingAmount : 'N/A'} (expected for DCA/escrow)`);
+                    // logger.debug(`[PnlAnalysis] Holdings mismatch for ${result.tokenAddress}: currentUiBalance=${currentUiBalance}, fifoRemainingAmount=${remainingAmount}, diff=${currentUiBalance !== null && remainingAmount !== undefined ? currentUiBalance - remainingAmount : 'N/A'} (expected for DCA/escrow)`);
                 }
 
                 // Calculate PnL metrics for both complete and incomplete history

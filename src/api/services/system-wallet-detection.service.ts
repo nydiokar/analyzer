@@ -30,6 +30,7 @@ export interface SystemWalletDetectionResult {
 export interface FilterResult {
   valid: string[];              // Wallets safe to process
   filtered: Map<string, string>; // Filtered wallets → reason
+  filteredDetails: Map<string, SystemWalletDetectionResult>; // Filtered wallets → full detection result
   largeWallets: string[];        // Large wallets (processed but monitored)
 }
 
@@ -214,11 +215,12 @@ export class SystemWalletDetectionService {
     options?: { skipDynamic?: boolean }
   ): Promise<FilterResult> {
     if (addresses.length === 0) {
-      return { valid: [], filtered: new Map(), largeWallets: [] };
+      return { valid: [], filtered: new Map(), filteredDetails: new Map(), largeWallets: [] };
     }
 
     const valid: string[] = [];
     const filtered = new Map<string, string>();
+    const filteredDetails = new Map<string, SystemWalletDetectionResult>();
     const largeWallets: string[] = [];
 
     // Process in parallel with concurrency limit
@@ -236,6 +238,7 @@ export class SystemWalletDetectionService {
         if (result.knownType) {
           // Wallet has knownType → skip based on service exclusion sets
           filtered.set(result.address, result.reason);
+          filteredDetails.set(result.address, result);
         } else if (result.isLarge) {
           // Large wallet (15k-70k tokens) → monitor but analyze
           largeWallets.push(result.address);
@@ -247,7 +250,7 @@ export class SystemWalletDetectionService {
       });
     }
 
-    return { valid, filtered, largeWallets };
+    return { valid, filtered, filteredDetails, largeWallets };
   }
 
   /**
@@ -343,18 +346,48 @@ export class SystemWalletDetectionService {
    */
   private async getTokenCount(address: string): Promise<number> {
     try {
-      const result = await this.heliusClient.getTokenAccountsByOwner(
+      // Count-only path with early exit to avoid pulling full token account payloads.
+      const { CERTAIN_SYSTEM_THRESHOLD } = SYSTEM_WALLET_DETECTION_CONFIG;
+      const result = await this.heliusClient.getTokenAccountsByOwnerCount(
         address,
-        undefined, // All tokens
         SPL_TOKEN_PROGRAM_ID,
         undefined, // Default commitment
-        'base64' // Lightweight - we only need count
+        CERTAIN_SYSTEM_THRESHOLD
       );
-      return result.value.length;
+      return result.count;
     } catch (error) {
       this.logger.warn(`Failed to get token count for ${address}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Register a system wallet classification discovered by another heuristic
+   * (e.g., program-owned LP/Protocol detection from top holders).
+   * This persists to DB + cache so other flows can skip it consistently.
+   */
+  async registerExternalKnownWallet(
+    address: string,
+    knownType: KnownWalletType,
+    knownLabel: string | undefined,
+    reason: string,
+    method: string = 'external_heuristic'
+  ): Promise<SystemWalletDetectionResult> {
+    const result: SystemWalletDetectionResult = {
+      address,
+      shouldLog: false,
+      reason,
+      method,
+      confidence: 0.9,
+      knownType,
+      knownLabel,
+    };
+
+    if (SYSTEM_WALLET_DETECTION_CONFIG.AUTO_TAG_DATABASE) {
+      await this.tagWallet(result);
+    }
+    this.cacheResult(result);
+    return result;
   }
 
   /**

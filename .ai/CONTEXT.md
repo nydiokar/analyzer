@@ -6,7 +6,7 @@
 
 ## 🎯 Current Focus
 
-**Dashboard stability & UX polish** - Fixing wallet profile refresh behavior and Summary card skeleton issues.
+**System wallet detection wiring** - Ensuring holder profiles/similarity skip system wallets early and persist LP/Protocol tagging.
 
 ---
 
@@ -38,12 +38,15 @@
 | 17.1 | ✅ | Wallet type taxonomy simplification | 🔹 | Protocol wallet types (ORCA/JUPITER/RAYDIUM/METEORA) merged into unified PROTOCOL type with distinct labels |
 | 17.2 | ✅ | Holder Profiles v2 final review | 🔹 | Complete UX polish and validation of holder profiles feature |
 | 17.3 | ✅| Wallet refresh completion handling | ?? | `dashboard/src/components/layout/WalletProfileLayout.tsx`, `src/api/controllers/analyses.controller.ts`, `src/core/services/database-service.ts`, `dashboard/src/hooks/useTokenMetadata.ts` |
+| 17.4 | 🔧 | System wallet detection wiring + holder profiles filtering | 🔸 | `src/queues/processors/analysis-operations.processor.ts`, `src/api/services/system-wallet-detection.service.ts`, `src/core/services/helius-api-client.ts` |
 
 **Summary:**
 
 **17.1:** Simplified wallet classification taxonomy by merging specialized DEX protocol types (ORCA, JUPITER, RAYDIUM, METEORA) into a single PROTOCOL wallet type. Each maintains distinct labels for identification while reducing type proliferation in the system.
 
 **17.2:** Completed final review and validation of Holder Profiles v2 feature. All UX refinements, tooltip improvements, and bucket alignment work verified and ready for production use.
+
+**17.4:** Wired dynamic system wallet detection into holder profile wallet-mode entry, filtered all holders before queueing jobs, and persisted LP/Protocol tags from top holders into DB/Redis so similarity can skip them consistently. Added thin count-only helper in Helius API client for early-exit detection and documented its use in system wallet detection.
 
 ### January 16, 2026
 

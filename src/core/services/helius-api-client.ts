@@ -1368,7 +1368,7 @@ export class HeliusApiClient {
     commitment?: string,
     encoding: string = 'jsonParsed', // Default and recommended for token accounts
     dataSlice?: { offset: number; length: number } // Optional: for lightweight checks
-  ): Promise<GetTokenAccountsByOwnerResult> {
+    ): Promise<GetTokenAccountsByOwnerResult> {
     if (!ownerPubkey) {
       throw new Error('ownerPubkey is required for get.TokenAccountsByOwner.');
     }
@@ -1441,6 +1441,72 @@ export class HeliusApiClient {
   }
 
   /**
+   * Fetch token account count for an owner with optional early stop.
+   * This is only for classification/detection flows; do not use for balances.
+   */
+  public async getTokenAccountsByOwnerCount(
+    ownerPubkey: string,
+    programId: string = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+    commitment?: string,
+    maxAccounts?: number,
+  ): Promise<{ count: number; capped: boolean }> {
+    if (!ownerPubkey) {
+      throw new Error('ownerPubkey is required for getTokenAccountsByOwnerCount.');
+    }
+
+    const cap = Number.isFinite(maxAccounts) && (maxAccounts as number) > 0 ? (maxAccounts as number) : undefined;
+
+    // Prefer V2 cursor-based pagination if enabled and not tripped
+    if (HELIUS_V2_CONFIG.enablePagination && !this.disableV2ForProcess) {
+      try {
+        return await this.fetchTokenAccountCountV2(ownerPubkey, {
+          programId,
+          commitment,
+          maxAccounts: cap,
+        });
+      } catch (e: any) {
+        const code = e?.code as number | undefined;
+        const hardFail = Boolean(e?.hardFail);
+        if (hardFail && !this.loggedV2DisableOnce) {
+          this.loggedV2DisableOnce = true;
+          this.disableV2ForProcess = true;
+          logger.warn(`Helius V2 disabled for this process due to hard failure (code=${code ?? 'n/a'}): ${e?.message}`);
+        }
+        // Fall back to V1
+      }
+    }
+
+    const programFilter = { programId };
+    const params: any[] = [ownerPubkey, programFilter];
+    const options: { commitment?: string; encoding?: string; dataSlice?: { offset: number; length: number } } = {
+      encoding: 'base64',
+      dataSlice: { offset: 0, length: 0 },
+    };
+    if (commitment) {
+      options.commitment = commitment;
+    }
+    params.push(options);
+
+    try {
+      const result = await this.makeRpcRequest<GetTokenAccountsByOwnerResult>(
+        'getTokenAccountsByOwner',
+        params
+      );
+      const count = result.value.length;
+      return {
+        count: cap && count >= cap ? cap : count,
+        capped: Boolean(cap && count >= cap),
+      };
+    } catch (error) {
+      logger.error(
+        `Failed to fetch token account count for owner ${ownerPubkey}`,
+        { error: this.sanitizeError(error), ownerPubkey, programFilter, options }
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Internal V2 cursor-based pagination fetch for token accounts.
    *
    * IMPORTANT: Helius V2 API response structure (corrected 2024):
@@ -1465,7 +1531,7 @@ export class HeliusApiClient {
       dataSlice?: { offset: number; length: number };
       changedSinceSlot?: number; // reserved for incremental mode
     }
-  ): Promise<GetTokenAccountsByOwnerResult> {
+    ): Promise<GetTokenAccountsByOwnerResult> {
     const limit = HELIUS_V2_CONFIG.pageLimit;
     let paginationKey: string | undefined;
     const aggregated: any[] = [];
@@ -1538,6 +1604,65 @@ export class HeliusApiClient {
     } while (paginationKey);
 
     return { context: { slot: contextSlot }, value: aggregated };
+  }
+
+  /**
+   * Internal V2 pagination for token account counts with early stop support.
+   */
+  private async fetchTokenAccountCountV2(
+    ownerPubkey: string,
+    args: {
+      programId?: string;
+      commitment?: string;
+      maxAccounts?: number;
+    }
+  ): Promise<{ count: number; capped: boolean }> {
+    const limit = HELIUS_V2_CONFIG.pageLimit;
+    let paginationKey: string | undefined;
+    let count = 0;
+
+    const base: any = {
+      encoding: 'base64',
+      limit,
+      dataSlice: { offset: 0, length: 0 },
+    };
+    if (args.commitment) base.commitment = args.commitment;
+
+    do {
+      const options: any = { ...base };
+      if (paginationKey) options.paginationKey = paginationKey;
+      const filter = { programId: args.programId || 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' };
+
+      const { result, error } = await this.postRpcRaw('getTokenAccountsByOwnerV2', [ownerPubkey, filter, options]);
+      if (error) {
+        const code = (error as any).code;
+        const msg = String((error as any).message || '').toLowerCase();
+        const isHard = code === -32601 || code === -32602 || msg.includes('method not found') || msg.includes('invalid param');
+        const err: any = new Error(`V2 token account count fetch failed: ${error.message || 'unknown'}`);
+        err.code = code;
+        if (isHard) err.hardFail = true;
+        throw err;
+      }
+
+      const page = result as {
+        value?: {
+          accounts?: any[];
+          paginationKey?: string;
+        };
+      };
+
+      const fetchedCount = page?.value?.accounts?.length || 0;
+      count += fetchedCount;
+      paginationKey = page?.value?.paginationKey;
+
+      if (args.maxAccounts && count >= args.maxAccounts) {
+        return { count: args.maxAccounts, capped: true };
+      }
+
+      await delay(0);
+    } while (paginationKey);
+
+    return { count, capped: false };
   }
 
   /**
