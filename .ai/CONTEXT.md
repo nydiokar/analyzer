@@ -1,6 +1,6 @@
 # Sova Intel - Project Context
 
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-16 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-17 • **Status:** 🟢 Active Development
 
 ---
 
@@ -16,7 +16,6 @@
 |:------:|:-----|:-----:|:------|
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
-| 🔄 | Wallet refresh loading stuck | 🔸 | When Refresh button in wallet profile is hit, gets stuck with "Analysis running..." - fix completion state handling |
 | 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable |
 | 📝 | Similarity Lab bug fixes | 🔸 | Ready to start |
 
@@ -38,6 +37,7 @@
 |:--:|:-:|:------|:-----:|:-----------|
 | 17.1 | ✅ | Wallet type taxonomy simplification | 🔹 | Protocol wallet types (ORCA/JUPITER/RAYDIUM/METEORA) merged into unified PROTOCOL type with distinct labels |
 | 17.2 | ✅ | Holder Profiles v2 final review | 🔹 | Complete UX polish and validation of holder profiles feature |
+| 17.3 | ✅| Wallet refresh completion handling | ?? | `dashboard/src/components/layout/WalletProfileLayout.tsx`, `src/api/controllers/analyses.controller.ts`, `src/core/services/database-service.ts`, `dashboard/src/hooks/useTokenMetadata.ts` |
 
 **Summary:**
 

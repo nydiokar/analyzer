@@ -649,7 +649,6 @@ export class DatabaseService {
     async countAnalysisResults(params: {
         where?: Prisma.AnalysisResultWhereInput;
     }): Promise<number> {
-        this.logger.debug(`Counting AnalysisResults with params: ${JSON.stringify(params)}`);
         return this.executeWithRetry('analysisResult.count', async () => {
             return await this.prismaClient.analysisResult.count(params);
         });

@@ -100,8 +100,6 @@ class TokenMetadataBatcher {
     this.queue.clear();
 
     try {
-      console.log(`[TokenMetadataBatcher] Fetching metadata for ${mints.length} tokens in ONE batch`);
-
       // PHASE 1: Fetch immediate cached data from database
       const response = await fetcher('/token-info', {
         method: 'POST',
@@ -172,8 +170,6 @@ class TokenMetadataBatcher {
   // Refresh data after enrichment completes
   private async refreshEnrichedData(mints: string[]) {
     try {
-      console.log(`[TokenMetadataBatcher] Refreshing enriched metadata for ${mints.length} tokens`);
-
       const response = await fetcher('/token-info', {
         method: 'POST',
         body: JSON.stringify({ tokenAddresses: mints }),

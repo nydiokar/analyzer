@@ -341,7 +341,7 @@ export class AnalysesController {
         const knownType = registryEntry?.type ?? walletRecord?.knownType;
         const knownLabel = registryEntry?.label ?? walletRecord?.knownLabel;
         skipReason = knownType ? `known-${knownType}` : 'known-wallet';
-        this.logger.log(
+        this.logger.debug(
           `Skipping dashboard analysis for ${dto.walletAddress} [scope=${scope}] due to ${skipReason}${
             knownLabel ? ` (${knownLabel})` : ''
           }`,

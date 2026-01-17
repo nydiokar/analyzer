@@ -232,14 +232,11 @@ export default function WalletProfileLayout({
 
   const handleTokenPerformanceMutateReady = useCallback((mutate: () => Promise<void>) => {
     tokenPerformanceMutateRef.current = mutate;
-    // console.log('[WalletProfile] 📌 TokenPerformance mutate function registered');
   }, []);
 
   const registerJobSubscription = useCallback(
     async (scope: DashboardAnalysisScope, jobId: string) => {
-      console.log(`[WalletProfile] Registering job subscription - scope: ${scope}, jobId: ${jobId}`);
       jobIdToScopeRef.current[jobId] = scope;
-      console.log(`[WalletProfile] jobIdToScopeRef after registration:`, Object.keys(jobIdToScopeRef.current));
 
       setScopeStates((prev) => ({
         ...prev,
@@ -254,33 +251,29 @@ export default function WalletProfileLayout({
 
       const subscribeFn = subscribeToJobRef.current;
       if (!subscribeFn) {
-        console.warn('[WalletProfile] subscribeToJob not ready when registering job subscription', jobId);
+        console.error('[WalletProfile] subscribeToJob not ready when registering job subscription', jobId);
         return;
       }
 
       await subscribeFn(jobId);
-      console.log(`[WalletProfile] Successfully subscribed to job: ${jobId}`);
     },
     [],
   );
   const clearJobSubscription = useCallback(
     async (jobId: string) => {
-      console.log(`[WalletProfile] Clearing job subscription - jobId: ${jobId}`);
       const hadScope = !!jobIdToScopeRef.current[jobId];
       if (jobIdToScopeRef.current[jobId]) {
         delete jobIdToScopeRef.current[jobId];
       }
-      console.log(`[WalletProfile] Removed from ref (was present: ${hadScope}). Remaining:`, Object.keys(jobIdToScopeRef.current));
 
       const unsubscribeFn = unsubscribeFromJobRef.current;
       if (!unsubscribeFn) {
-        console.warn(`[WalletProfile] unsubscribeFromJob not available for jobId: ${jobId}`);
+        console.error(`[WalletProfile] unsubscribeFromJob not available for jobId: ${jobId}`);
         return;
       }
 
       try {
         unsubscribeFn(jobId);
-        console.log(`[WalletProfile] Successfully unsubscribed from job: ${jobId}`);
       } catch (err) {
         console.error(`[WalletProfile] Error unsubscribing from job ${jobId}:`, err);
       }
@@ -328,7 +321,7 @@ export default function WalletProfileLayout({
       await clearJobSubscription(data.jobId);
 
       if (!scope) {
-        console.warn(
+        console.error(
           `[WalletProfile] Job completed but scope not found in ref. JobId: ${data.jobId}`,
           `Available scopes in ref:`,
           Object.keys(jobIdToScopeRef.current),
@@ -341,7 +334,6 @@ export default function WalletProfileLayout({
         )?.[0] as DashboardAnalysisScope | undefined;
 
         if (matchingScope) {
-          console.log(`[WalletProfile] Found matching scope by jobId in state: ${matchingScope}`);
           // Update the found scope's state
           const resultData = data.result;
           const wasSkipped = resultData?.analysisSkipped === true;
@@ -456,14 +448,12 @@ export default function WalletProfileLayout({
       // CHANGED: Direct mutate call instead of global cache invalidation
       // This ensures TokenPerformanceTab immediately refetches data
       if (scope === 'flash' || scope === 'working' || scope === 'deep') {
-        // console.log(`[WalletProfile] ???? Triggering TokenPerformance refetch after ${scope} completion`);
         try {
           const mutateFn = tokenPerformanceMutateRef.current;
           if (mutateFn) {
             await mutateFn();
-            // console.log(`[WalletProfile] ??? TokenPerformance refetch complete for ${scope}`);
           } else {
-            console.warn(`[WalletProfile] ?????? TokenPerformance mutate function not available yet`);
+            console.error(`[WalletProfile] TokenPerformance mutate function not available yet`);
           }
         } catch (error) {
           console.error('Error refreshing token performance after scope completion', error);
@@ -492,16 +482,12 @@ export default function WalletProfileLayout({
       });
     },
     onEnrichmentComplete: async () => {
-      // console.log(`[WalletProfile] 🎨 Enrichment complete - triggering TokenPerformance refetch for images`);
       setEnrichmentJobId(null);
       // CHANGED: Direct mutate call for immediate image refresh
       try {
         const mutateFn = tokenPerformanceMutateRef.current;
         if (mutateFn) {
           await mutateFn();
-          // console.log(`[WalletProfile] ✅ TokenPerformance refetch complete after enrichment`);
-        } else {
-          console.warn(`[WalletProfile] ⚠️ TokenPerformance mutate function not available for enrichment`);
         }
         // Enrichment completes quietly without notification
       } catch (error) {
@@ -513,11 +499,6 @@ export default function WalletProfileLayout({
       toast.error("Token enrichment failed", {
         description: error || "An unexpected error occurred during enrichment.",
       });
-    },
-    onConnectionChange: (connected) => {
-      if (!connected) {
-        console.warn('WebSocket disconnected; awaiting reconnection for live job updates.');
-      }
     },
     onJobQueueToStart: (data: JobQueueToStartData) => {
       const scope = jobIdToScopeRef.current[data.jobId];
@@ -785,9 +766,17 @@ export default function WalletProfileLayout({
             },
           }));
           if (options.triggerSource !== 'auto') {
-            toast.info(`${scopeLabels[scope]} already fresh`, {
-              description: response.skipReason ? response.skipReason.replace(/-/g, ' ') : 'No new data detected.',
-            });
+            const skipReason = response.skipReason ?? '';
+            if (skipReason.startsWith('known-') || skipReason === 'known-wallet') {
+              const knownLabel = skipReason.startsWith('known-') ? skipReason.slice('known-'.length) : 'Known wallet';
+              toast.info('Analysis skipped', {
+                description: knownLabel ? `Known wallet: ${knownLabel}` : 'Known wallet.',
+              });
+            } else {
+              toast.info(`${scopeLabels[scope]} already fresh`, {
+                description: skipReason ? skipReason.replace(/-/g, ' ') : 'No new data detected.',
+              });
+            }
           }
         } else if (response.jobId) {
           await registerJobSubscription(scope, response.jobId);
