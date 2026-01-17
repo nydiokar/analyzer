@@ -15,7 +15,8 @@ import { generateJobId } from '../../queues/utils/job-id-generator';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
 import { JobPayloadCacheService } from '../services/job-payload-cache.service';
 import { JobPriority } from '../../queues/config/queue.config';
-import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
+import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIFICATIONS } from '../../config/constants';
+import { getKnownWallet } from '../../config/known-wallets';
 import { Request } from 'express';
 import { User } from '@prisma/client';
 
@@ -327,6 +328,38 @@ export class AnalysesController {
       let skipReason: string | undefined;
       let skipped = false;
 
+      const requestId = `dashboard-${scope}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const registryEntry = getKnownWallet(dto.walletAddress);
+      const walletRecord = await this.databaseService.getWallet(dto.walletAddress);
+      const isKnownWallet =
+        !!registryEntry ||
+        !!walletRecord?.knownType ||
+        walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
+        walletRecord?.classification === 'INVALID';
+
+      if (isKnownWallet) {
+        const knownType = registryEntry?.type ?? walletRecord?.knownType;
+        const knownLabel = registryEntry?.label ?? walletRecord?.knownLabel;
+        skipReason = knownType ? `known-${knownType}` : 'known-wallet';
+        this.logger.log(
+          `Skipping dashboard analysis for ${dto.walletAddress} [scope=${scope}] due to ${skipReason}${
+            knownLabel ? ` (${knownLabel})` : ''
+          }`,
+        );
+        return {
+          jobId: null,
+          requestId,
+          status: 'queued',
+          queueName: 'analysis-operations',
+          analysisScope: scope,
+          estimatedProcessingTime: '0 minutes',
+          monitoringUrl: '',
+          skipped: true,
+          skipReason,
+          queuedFollowUpScopes: [],
+        };
+      }
+
       if (!dto.forceRefresh && freshnessMinutes > 0) {
         const latestRun = await this.databaseService.getLatestDashboardAnalysisRun(dto.walletAddress, scope);
         if (latestRun) {
@@ -338,8 +371,6 @@ export class AnalysesController {
           }
         }
       }
-
-      const requestId = `dashboard-${scope}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       if (skipped) {
         this.logger.log(

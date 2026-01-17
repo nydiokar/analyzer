@@ -237,7 +237,10 @@ export default function WalletProfileLayout({
 
   const registerJobSubscription = useCallback(
     async (scope: DashboardAnalysisScope, jobId: string) => {
+      console.log(`[WalletProfile] Registering job subscription - scope: ${scope}, jobId: ${jobId}`);
       jobIdToScopeRef.current[jobId] = scope;
+      console.log(`[WalletProfile] jobIdToScopeRef after registration:`, Object.keys(jobIdToScopeRef.current));
+
       setScopeStates((prev) => ({
         ...prev,
         [scope]: {
@@ -251,30 +254,35 @@ export default function WalletProfileLayout({
 
       const subscribeFn = subscribeToJobRef.current;
       if (!subscribeFn) {
-        console.warn('subscribeToJob not ready when registering job subscription', jobId);
+        console.warn('[WalletProfile] subscribeToJob not ready when registering job subscription', jobId);
         return;
       }
 
       await subscribeFn(jobId);
+      console.log(`[WalletProfile] Successfully subscribed to job: ${jobId}`);
     },
     [],
   );
-
   const clearJobSubscription = useCallback(
     async (jobId: string) => {
+      console.log(`[WalletProfile] Clearing job subscription - jobId: ${jobId}`);
+      const hadScope = !!jobIdToScopeRef.current[jobId];
       if (jobIdToScopeRef.current[jobId]) {
         delete jobIdToScopeRef.current[jobId];
       }
+      console.log(`[WalletProfile] Removed from ref (was present: ${hadScope}). Remaining:`, Object.keys(jobIdToScopeRef.current));
 
       const unsubscribeFn = unsubscribeFromJobRef.current;
       if (!unsubscribeFn) {
+        console.warn(`[WalletProfile] unsubscribeFromJob not available for jobId: ${jobId}`);
         return;
       }
 
       try {
         unsubscribeFn(jobId);
+        console.log(`[WalletProfile] Successfully unsubscribed from job: ${jobId}`);
       } catch (err) {
-        // ignore unsubscribe failures
+        console.error(`[WalletProfile] Error unsubscribing from job ${jobId}:`, err);
       }
     },
     [],
@@ -314,11 +322,47 @@ export default function WalletProfileLayout({
     },
     onJobCompleted: async (data: JobCompletionData) => {
       const scope = jobIdToScopeRef.current[data.jobId];
+
+      // ALWAYS clean up the subscription, even if we can't find the scope
+      // This prevents orphaned subscriptions and stuck loading states
+      await clearJobSubscription(data.jobId);
+
       if (!scope) {
+        console.warn(
+          `[WalletProfile] Job completed but scope not found in ref. JobId: ${data.jobId}`,
+          `Available scopes in ref:`,
+          Object.keys(jobIdToScopeRef.current),
+          `Current scopeStates:`,
+          Object.entries(scopeStates).map(([s, state]) => ({ scope: s, status: state.status, jobId: state.jobId }))
+        );
+        // Still try to find which scope this job belongs to by matching jobId in scopeStates
+        const matchingScope = Object.entries(scopeStates).find(
+          ([_, state]) => state.jobId === data.jobId
+        )?.[0] as DashboardAnalysisScope | undefined;
+
+        if (matchingScope) {
+          console.log(`[WalletProfile] Found matching scope by jobId in state: ${matchingScope}`);
+          // Update the found scope's state
+          const resultData = data.result;
+          const wasSkipped = resultData?.analysisSkipped === true;
+          const finalStatus = wasSkipped ? 'skipped' : 'completed';
+
+          setScopeProgress((prev) => ({ ...prev, [matchingScope]: 100 }));
+          setScopeStates((prev) => ({
+            ...prev,
+            [matchingScope]: {
+              ...prev[matchingScope],
+              status: finalStatus,
+              jobId: null,
+              lastCompletedAt: new Date(data.timestamp),
+              errorMessage: undefined,
+            },
+          }));
+          setLastAnalysisStatus('success');
+          setLastAnalysisTimestamp(new Date(data.timestamp));
+        }
         return;
       }
-
-      await clearJobSubscription(data.jobId);
 
       const resultData = data.result;
       const followUpQueue = Array.isArray(resultData?.followUpJobsQueued)
@@ -412,14 +456,14 @@ export default function WalletProfileLayout({
       // CHANGED: Direct mutate call instead of global cache invalidation
       // This ensures TokenPerformanceTab immediately refetches data
       if (scope === 'flash' || scope === 'working' || scope === 'deep') {
-        // console.log(`[WalletProfile] 🔄 Triggering TokenPerformance refetch after ${scope} completion`);
+        // console.log(`[WalletProfile] ???? Triggering TokenPerformance refetch after ${scope} completion`);
         try {
           const mutateFn = tokenPerformanceMutateRef.current;
           if (mutateFn) {
             await mutateFn();
-            // console.log(`[WalletProfile] ✅ TokenPerformance refetch complete for ${scope}`);
+            // console.log(`[WalletProfile] ??? TokenPerformance refetch complete for ${scope}`);
           } else {
-            console.warn(`[WalletProfile] ⚠️ TokenPerformance mutate function not available yet`);
+            console.warn(`[WalletProfile] ?????? TokenPerformance mutate function not available yet`);
           }
         } catch (error) {
           console.error('Error refreshing token performance after scope completion', error);
@@ -525,7 +569,11 @@ export default function WalletProfileLayout({
     walletSummaryKey,
     fetcher,
     {
-      refreshInterval: isConnected ? 0 : 15000,
+      // No polling - we rely on WebSocket events and manual cache invalidation
+      refreshInterval: 0,
+      // Keep data fresh but don't auto-revalidate on every focus/reconnect
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
       // Use global SWR config for all other settings
     }
   );
