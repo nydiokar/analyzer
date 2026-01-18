@@ -1066,11 +1066,36 @@ export function mapHeliusTransactionsToIntermediateRecords(
                                }
 
                                // 3. Fallback: Total Movement Heuristic
+                               // SANITY CHECK: If WSOL movement is suspiciously small compared to net SOL change,
+                               // it's likely routing overhead, not the actual economic value. Use net SOL change instead.
+                               // This handles DFLOW and similar DEXs that wrap/unwrap SOL during swaps.
                                if (!eventValueApplied && associatedSolValue === 0 && associatedUsdcValue === 0) {
-                                const wsolMoveIsSignificant = totalWsolMovement >= movementSignificanceThreshold;
+                                const absSolChange = Math.abs(finalNetUserSolChange);
+                                const absStableChange = Math.abs(finalNetUserStableChange);
+
+                                // Sanity check: If WSOL movement is < 10% of net SOL change AND net change is significant,
+                                // the WSOL transfer is likely routing overhead, not the actual swap value
+                                const WSOL_ROUTING_THRESHOLD = 0.1; // 10% threshold
+                                const netChangeIsSignificant = absSolChange >= movementSignificanceThreshold;
+                                const wsolLooksLikeRouting = netChangeIsSignificant &&
+                                                            totalWsolMovement > 0 &&
+                                                            totalWsolMovement < (absSolChange * WSOL_ROUTING_THRESHOLD);
+
+                                // Choose the appropriate SOL value source
+                                let effectiveSolMovement = totalWsolMovement;
+                                if (wsolLooksLikeRouting) {
+                                    // WSOL movement is too small - use net SOL change as the real economic value
+                                    effectiveSolMovement = absSolChange;
+                                } else if (absSolChange > totalWsolMovement && netChangeIsSignificant) {
+                                    // Net SOL change is larger and significant - prefer it over WSOL movement
+                                    effectiveSolMovement = absSolChange;
+                                }
+
+                                const wsolMoveIsSignificant = effectiveSolMovement >= movementSignificanceThreshold;
                                 const stableMoveIsSignificant = totalStableMovement >= movementSignificanceThreshold;
+
                                 if (wsolMoveIsSignificant && !stableMoveIsSignificant) {
-                                    associatedSolValue = totalWsolMovement;
+                                    associatedSolValue = effectiveSolMovement;
                                     mappingStats.associatedValueFromTotalMovement++;
                                 } else if (stableMoveIsSignificant && !wsolMoveIsSignificant) {
                                     associatedUsdcValue = totalStableMovement;

@@ -391,10 +391,10 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
       assert.ok(Math.abs(tokenA_row.associatedSolValue - USER_WSOL) < 0.0001, `TOKEN_A should have ~${USER_WSOL} SOL value, got ${tokenA_row.associatedSolValue}`);
     });
 
-    it('uses net user SOL change as a final fallback', () => {
+    it('uses net user SOL change when no WSOL movement exists', () => {
       const NET_SOL_CHANGE = -0.8; // User's SOL balance decreased
       const txn = {
-        description: 'Swap without any other clear signals, relying on net SOL change',
+        description: 'Swap without any WSOL movement, relying on net SOL change',
         type: 'SWAP',
         source: 'UNKNOWN',
         fee: 0.000005,
@@ -403,7 +403,7 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
         slot: 6,
         timestamp: 6,
         tokenTransfers: [
-          // This time user *receives* the token, so the SOL cost is the net change
+          // User *receives* the token, so the SOL cost is the net change
           makeTokenTransfer('SomeAccount', WALLET, 20, TOKEN_A_MINT),
         ],
         nativeTransfers: [],
@@ -422,9 +422,48 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
       const { analysisInputs, stats } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
       const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
 
-      assert.strictEqual(stats.associatedValueFromNetChange, 1, 'Value should be derived from net change heuristic');
+      // Net SOL change is picked up in "Total Movement" heuristic (step 3) when there's no WSOL movement
+      assert.strictEqual(stats.associatedValueFromTotalMovement, 1, 'Value should be derived from total movement heuristic (includes net change)');
       assert.ok(tokenA_row, 'Should have a record for TOKEN_A');
       assert.ok(Math.abs(tokenA_row.associatedSolValue - Math.abs(NET_SOL_CHANGE)) < 0.0001, `TOKEN_A should have ~${Math.abs(NET_SOL_CHANGE)} SOL value, got ${tokenA_row.associatedSolValue}`);
+    });
+
+    it('skips net SOL change when it equals just the fee (airdrop scenario)', () => {
+      const SMALL_FEE = 0.000005;
+      const txn = {
+        description: 'Airdrop where user only pays fee, no economic value exchanged',
+        type: 'SWAP',
+        source: 'UNKNOWN',
+        fee: SMALL_FEE,
+        feePayer: WALLET,
+        signature: 'TestSignatureAirdrop',
+        slot: 7,
+        timestamp: 7,
+        tokenTransfers: [
+          // User receives tokens for free (airdrop)
+          makeTokenTransfer('AirdropAccount', WALLET, 1000, TOKEN_A_MINT),
+        ],
+        nativeTransfers: [],
+        accountData: [
+          {
+            account: WALLET,
+            // Net change is approximately just the fee (user paid fee but got free tokens)
+            nativeBalanceChange: -SMALL_FEE * 1e9,
+            tokenBalanceChanges: [],
+          },
+        ],
+        events: {},
+        instructions: [],
+        transactionError: undefined,
+      } as unknown as HeliusTransaction;
+
+      const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+      const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+
+      // The net SOL change is just the fee, so it shouldn't be used as economic value
+      // This is an airdrop with zero cost basis
+      assert.ok(tokenA_row, 'Should have a record for TOKEN_A');
+      assert.strictEqual(tokenA_row.associatedSolValue, 0, 'Airdrop should have 0 SOL cost basis, not the fee amount');
     });
   });
 
