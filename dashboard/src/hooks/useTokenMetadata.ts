@@ -146,12 +146,18 @@ class TokenMetadataBatcher {
         this.callbacks.delete(mint);
       });
 
-      // PHASE 2: Auto-refresh after 2 seconds to get enriched data
+      // PHASE 2: Auto-refresh after enrichment completes
       // Backend triggers enrichment (fire-and-forget), enrichment typically completes in ~200-500ms
-      // DexScreener stage takes longer, so we wait 2s then re-fetch
+      // DexScreener stage can take longer (especially for new tokens), so we:
+      // - First retry after 2s (catches most enrichments)
+      // - Second retry after 5s (catches slower DexScreener responses)
       setTimeout(() => {
         this.refreshEnrichedData(mints);
       }, 2000);
+
+      setTimeout(() => {
+        this.refreshEnrichedData(mints);
+      }, 5000);
 
     } catch (error) {
       console.error('[TokenMetadataBatcher] Failed to fetch batch:', error);

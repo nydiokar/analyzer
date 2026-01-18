@@ -176,7 +176,7 @@ export default function AccountSummaryCard({
           <div className="flex items-start gap-4">
             <SearchX className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
             <div>
-              <h3 className="text-lg font-semibold text-foreground">Not Yet Analyzed</h3>
+              <h3 className="text-lg font-semibold text-foreground"></h3>
               <p className="text-sm text-muted-foreground">Trigger an analysis to get started.</p>
             </div>
           </div>

@@ -1898,16 +1898,17 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       });
 
       if (pnlResults.length > 0) {
+        // Include ALL tokens from AnalysisResult, even those with incomplete history
+        // This ensures alignment with lifecyclesByToken used in behavior analysis
+        // Tokens with hasIncompleteHistory=true still have derived PnL (best effort FIFO calculation)
         pnlMap = new Map(
-          pnlResults
-            .filter(r => !r.hasIncompleteHistory)
-            .map(r => [
-              r.tokenAddress,
-              {
-                pnl: r.realizedPnlSol ?? r.totalPnlSol ?? r.netSolProfitLoss,
-                capital: r.totalSolSpent,
-              },
-            ])
+          pnlResults.map(r => [
+            r.tokenAddress,
+            {
+              pnl: r.realizedPnlSol ?? r.totalPnlSol ?? r.netSolProfitLoss,
+              capital: r.totalSolSpent,
+            },
+          ])
         );
         currentHoldings = pnlResults
           .filter(r => typeof r.currentUiBalance === 'number' && (r.currentUiBalance ?? 0) > 0)

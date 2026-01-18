@@ -111,7 +111,7 @@ export function ExitTimingDrilldownPanel({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
           {error && (
             <div className="m-4 rounded-md border border-red-500/20 bg-red-500/10 p-4">
               <p className="text-sm text-red-500">Error: {error}</p>

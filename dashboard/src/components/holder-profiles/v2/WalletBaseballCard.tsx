@@ -77,76 +77,84 @@ interface ExitTimingBreakdownProps {
     position: number;
   };
   enrichedDistribution?: {
-    instant: { count: number; winRate: number; roiPercent: number };
-    ultraFast: { count: number; winRate: number; roiPercent: number };
-    fast: { count: number; winRate: number; roiPercent: number };
-    momentum: { count: number; winRate: number; roiPercent: number };
-    intraday: { count: number; winRate: number; roiPercent: number };
-    day: { count: number; winRate: number; roiPercent: number };
-    swing: { count: number; winRate: number; roiPercent: number };
-    position: { count: number; winRate: number; roiPercent: number };
+    instant: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    ultraFast: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    fast: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    momentum: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    intraday: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    day: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    swing: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    position: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
   };
   walletAddress: string;
   onBucketClick: (bucket: TimeBucket, label: string, anchor: { x: number; y: number }) => void;
 }
 
 function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress, onBucketClick }: ExitTimingBreakdownProps) {
-  const buckets: Array<{ label: string; count: number; bucket: TimeBucket; winRate?: number; roiPercent?: number }> = [
+  const buckets: Array<{ label: string; count: number; bucket: TimeBucket; winRate?: number; roiPercent?: number; totalCapitalSol?: number }> = [
     {
       label: '<1 sec',
       count: distribution.instant ?? 0,
       bucket: 'instant',
       winRate: enrichedDistribution?.instant.winRate,
-      roiPercent: enrichedDistribution?.instant.roiPercent
+      roiPercent: enrichedDistribution?.instant.roiPercent,
+      totalCapitalSol: enrichedDistribution?.instant.totalCapitalSol
     },
     {
       label: '<1 min',
       count: distribution.ultraFast ?? 0,
       bucket: 'ultraFast',
       winRate: enrichedDistribution?.ultraFast.winRate,
-      roiPercent: enrichedDistribution?.ultraFast.roiPercent
+      roiPercent: enrichedDistribution?.ultraFast.roiPercent,
+      totalCapitalSol: enrichedDistribution?.ultraFast.totalCapitalSol
     },
     {
       label: '1-5 min',
       count: distribution.fast ?? 0,
       bucket: 'fast',
       winRate: enrichedDistribution?.fast.winRate,
-      roiPercent: enrichedDistribution?.fast.roiPercent
+      roiPercent: enrichedDistribution?.fast.roiPercent,
+      totalCapitalSol: enrichedDistribution?.fast.totalCapitalSol
     },
     {
       label: '5-30 min',
       count: distribution.momentum ?? 0,
       bucket: 'momentum',
       winRate: enrichedDistribution?.momentum.winRate,
-      roiPercent: enrichedDistribution?.momentum.roiPercent
+      roiPercent: enrichedDistribution?.momentum.roiPercent,
+      totalCapitalSol: enrichedDistribution?.momentum.totalCapitalSol
     },
     {
       label: '30 min-4h',
       count: distribution.intraday ?? 0,
       bucket: 'intraday',
       winRate: enrichedDistribution?.intraday.winRate,
-      roiPercent: enrichedDistribution?.intraday.roiPercent
+      roiPercent: enrichedDistribution?.intraday.roiPercent,
+      totalCapitalSol: enrichedDistribution?.intraday.totalCapitalSol
     },
     {
       label: '4-24h',
       count: distribution.day ?? 0,
       bucket: 'day',
       winRate: enrichedDistribution?.day.winRate,
-      roiPercent: enrichedDistribution?.day.roiPercent
+      roiPercent: enrichedDistribution?.day.roiPercent,
+      totalCapitalSol: enrichedDistribution?.day.totalCapitalSol
     },
     {
       label: '1-7d',
       count: distribution.swing ?? 0,
       bucket: 'swing',
       winRate: enrichedDistribution?.swing.winRate,
-      roiPercent: enrichedDistribution?.swing.roiPercent
+      roiPercent: enrichedDistribution?.swing.roiPercent,
+      totalCapitalSol: enrichedDistribution?.swing.totalCapitalSol
     },
     {
       label: '7+d',
       count: distribution.position ?? 0,
       bucket: 'position',
       winRate: enrichedDistribution?.position.winRate,
-      roiPercent: enrichedDistribution?.position.roiPercent
+      roiPercent: enrichedDistribution?.position.roiPercent,
+      totalCapitalSol: enrichedDistribution?.position.totalCapitalSol
     },
   ];
 
@@ -207,6 +215,19 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
               <TooltipContent className="max-w-sm text-xs" side="left">
                 <p className="font-semibold mb-1">{bucketInfo.title}</p>
                 <p className="text-muted-foreground">{bucketInfo.tradingStyle}</p>
+                {rawValue > 0 && bucket.totalCapitalSol !== undefined && (
+                  <div className="mt-2 pt-2 border-t border-border/50">
+                    {bucket.totalCapitalSol > 0 ? (
+                      <p className="text-emerald-400">
+                        {rawValue} {rawValue === 1 ? 'token' : 'tokens'} with economic activity (swaps)
+                      </p>
+                    ) : (
+                      <p className="text-amber-400">
+                        {rawValue} {rawValue === 1 ? 'token' : 'tokens'} received via transfer (no cost basis)
+                      </p>
+                    )}
+                  </div>
+                )}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
