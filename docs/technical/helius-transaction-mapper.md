@@ -188,6 +188,8 @@ For each SPL token transfer involving the user:
 
 **Note**: `associatedUsdcValue` represents a generic stable USD value (USDC/USDT/USD1). The mapper selects at most one stable value per leg within tolerance to avoid double-counting when routes hop across multiple stables.
 
+**Value Preference**: SOL is always preferred over stable when both are significant, as SOL is the single source of truth for transaction value.
+
 ```typescript
 if (isWsol) {
     // Apply self-healing bug mitigation (see section 4)
@@ -205,13 +207,22 @@ if (isWsol) {
     else if (eventResult.solValue > 0 && matchesPrimaryMints) {
         associatedSolValue = eventResult.solValue;
     }
-    // Tier 3: Total movement heuristic
-    else if (totalWsolMovement >= threshold) {
+    // Tier 3: Total movement heuristic (prefers SOL over stable)
+    else if (totalWsolMovement >= SOL_SIGNIFICANCE_THRESHOLD) {
         associatedSolValue = totalWsolMovement;
+    } else if (totalStableMovement >= STABLE_SIGNIFICANCE_THRESHOLD) {
+        associatedUsdcValue = totalStableMovement;
     }
-    // Tier 4: Net user change fallback
-    else {
+    // Tier 3.5: Gross native SOL outflow (pump.fun pattern)
+    // When net change is near zero but user spent significant SOL
+    else if (netIsNearZero && grossNativeSolOut >= 0.001) {
+        associatedSolValue = grossNativeSolOut;
+    }
+    // Tier 4: Net user change fallback (prefers SOL over stable)
+    else if (Math.abs(finalNetUserSolChange) >= SOL_SIGNIFICANCE_THRESHOLD) {
         associatedSolValue = Math.abs(finalNetUserSolChange);
+    } else if (Math.abs(finalNetUserStableChange) >= STABLE_SIGNIFICANCE_THRESHOLD) {
+        associatedUsdcValue = Math.abs(finalNetUserStableChange);
     }
 }
 ```
@@ -285,10 +296,13 @@ row.associatedSolValue = Math.abs(row.amount) * valuePerToken;
 | Constant | Value | Purpose |
 |----------|-------|---------|
 | `NATIVE_SOL_LAMPORT_THRESHOLD` | Configurable | Minimum lamports for native transfer to be recorded |
+| `SOL_SIGNIFICANCE_THRESHOLD` | 0.0001 SOL | Minimum SOL value to be considered significant (~$0.02 at $200/SOL) |
+| `STABLE_SIGNIFICANCE_THRESHOLD` | 1.0 USDC | Minimum stable value to be considered significant ($1.00) |
 | `FEE_PRECISION_THRESHOLD` | 0.000000001 | Avoid assigning near-zero fees |
 | `FEE_TRANSFER_THRESHOLD_SOL` | 0.1 SOL | Native transfers OUT below this = likely fees/tips |
 | `TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD` | 0.05 (5%) | Small outgoing transfer detection |
 | `FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL` | 0.1 SOL | Min SOL value for fee-payer heuristic |
+| `FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC` | 1.0 USDC | Min USDC value for fee-payer heuristic |
 | `SOL_DUST_TRANSFER_THRESHOLD` | Configurable | Min SOL for standalone transfer record |
 
 ## Statistics Tracked
@@ -392,6 +406,28 @@ npm run debug:mapper -- <txId> -w <wallet>
 ```
 
 ## Changelog
+
+### January 18, 2026 - Gross Native SOL Outflow & Significance Thresholds
+- **Issue #1**: Pump.fun transactions with zero net SOL change (SOL in = SOL out) had no `associatedSolValue`
+  - Example: User receives 0.404 SOL then spends 0.395 SOL to buy token → net change ~0, but token has value
+  - Previous logic only checked net change, missed gross outflow
+- **Solution #1**: Added Tier 3.5 - Gross Native SOL Outflow detection
+  - Tracks total SOL sent OUT by user in native transfers
+  - When net change < 0.001 SOL but gross outflow >= 0.001 SOL, use gross outflow as value
+  - Handles pump.fun and similar patterns where SOL is received and immediately spent
+- **Issue #2**: Significance thresholds were universal (0.0001) causing problems
+  - For SOL: 0.0001 SOL = ~$0.02 (reasonable)
+  - For USDC: 0.0001 USDC = $0.0001 (essentially dust, too low!)
+  - Small USDC values (e.g., $2.30) were being preferred over large SOL values (e.g., 1.5 SOL)
+- **Solution #2**: Separate significance thresholds for SOL vs stables
+  - `SOL_SIGNIFICANCE_THRESHOLD` = 0.0001 SOL (~$0.02)
+  - `STABLE_SIGNIFICANCE_THRESHOLD` = 1.0 USDC ($1.00 minimum)
+  - SOL is **always** preferred over stable when both are significant (SOL is single source of truth)
+- **Impact**:
+  - Fixes pump.fun transactions that previously had zero value
+  - Prevents tiny USDC routing values from being mistakenly used as primary value
+  - Ensures SOL is consistently preferred as the authoritative value source
+- **Files Modified**: Lines 629-643 (gross outflow tracking), 91-92 (threshold constants), 1121-1259 (tier logic), 1201-1202 (SOL preference)
 
 ### January 2025 - Improved WSOL Self-Healing
 - **Issue**: Previous 100k threshold was too high, allowing values like 80730 to slip through
