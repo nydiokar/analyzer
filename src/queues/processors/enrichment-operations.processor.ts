@@ -257,49 +257,86 @@ export class EnrichmentOperationsProcessor {
    * Uses proper database-first approach to avoid creating "Unknown Token" placeholders
    */
   private async enrichBalancesWithSophisticatedLogic(
-    walletBalances: Record<string, any>, 
+    walletBalances: Record<string, any>,
     job: Job
   ): Promise<{ enrichedBalances: Record<string, any>; summary: { newTokensFetched: number } }> {
     // Extract all unique token addresses
     const allTokens = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
     const uniqueTokens = [...new Set(allTokens)];
-    
+
     // For dashboard analysis, we should only process the tokens that were actually analyzed
     // The walletBalances object should already contain only the analyzed tokens
     const jobData = job.data as any;
     const isDashboardAnalysis = jobData?.enrichmentContext === 'dashboard-analysis';
-    
+
     if (isDashboardAnalysis) {
       this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} mapped tokens (dashboard analysis context)`);
     } else {
       this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} unique tokens`);
     }
-    
+
+    // 🚨 GUARDRAIL: Protect against whale wallets with 10k+ shitcoins
+    const MAX_TOKENS_PER_ENRICHMENT = 5000;
+    const MIN_BALANCE_THRESHOLD = 1000; // Minimum UI balance to consider (filters dust)
+
+    if (uniqueTokens.length > MAX_TOKENS_PER_ENRICHMENT) {
+      this.logger.warn(`⚠️ Whale wallet detected! ${uniqueTokens.length} tokens found. Applying aggressive filtering to prevent system overload.`);
+    }
+
     // For dashboard analysis, process ALL tokens that are mapped to this wallet
     // For other contexts, filter tokens that are likely to have metadata
-    const meaningfulTokens = uniqueTokens.filter(tokenAddress => {
+    let meaningfulTokens = uniqueTokens.filter(tokenAddress => {
       // For dashboard analysis, include ALL tokens regardless of current balance
       if (isDashboardAnalysis) {
         return true; // Include all mapped tokens for dashboard analysis
       }
-      
+
       // For other contexts, check if token has a meaningful balance
       const hasMeaningfulBalance = Object.values(walletBalances).some(wallet => {
         const tokenBalance = wallet.tokenBalances?.find(t => t.mint === tokenAddress);
         if (!tokenBalance) return false;
-        
+
         // Check if token has a meaningful balance (not zero or very small)
         const uiBalance = tokenBalance.uiBalance || 0;
         const rawBalance = tokenBalance.balance || '0';
-        
+
         // Skip only if both UI and raw balance are explicitly zero
         if (uiBalance === 0 && rawBalance === '0') return false;
-        
+
+        // For whale wallets, apply stricter threshold to filter dust
+        if (uniqueTokens.length > MAX_TOKENS_PER_ENRICHMENT) {
+          return uiBalance >= MIN_BALANCE_THRESHOLD;
+        }
+
         return true;
       });
-      
+
       return hasMeaningfulBalance;
     });
+
+    // 🚨 FINAL GUARDRAIL: Hard cap on enrichment
+    if (meaningfulTokens.length > MAX_TOKENS_PER_ENRICHMENT) {
+      this.logger.warn(`⚠️ Still ${meaningfulTokens.length} tokens after filtering. Sorting by balance and capping at ${MAX_TOKENS_PER_ENRICHMENT}.`);
+
+      // Sort tokens by total balance across all wallets (highest first)
+      const tokenBalanceSums = new Map<string, number>();
+      meaningfulTokens.forEach(tokenAddress => {
+        let totalBalance = 0;
+        Object.values(walletBalances).forEach(wallet => {
+          const tokenBalance = wallet.tokenBalances?.find(t => t.mint === tokenAddress);
+          if (tokenBalance) {
+            totalBalance += tokenBalance.uiBalance || 0;
+          }
+        });
+        tokenBalanceSums.set(tokenAddress, totalBalance);
+      });
+
+      meaningfulTokens = meaningfulTokens
+        .sort((a, b) => (tokenBalanceSums.get(b) || 0) - (tokenBalanceSums.get(a) || 0))
+        .slice(0, MAX_TOKENS_PER_ENRICHMENT);
+
+      this.logger.warn(`✂️ Capped to top ${meaningfulTokens.length} tokens by balance. Whale wallet protection activated.`);
+    }
     
     if (isDashboardAnalysis) {
       this.logger.log(`Processing ${meaningfulTokens.length} mapped tokens for dashboard analysis (all tokens included)`);

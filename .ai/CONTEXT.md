@@ -17,7 +17,8 @@
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
 | 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable |
-| 📝 | Similarity Lab bug fixes | 🔸 | Ready to start |
+| 📝 | Similarity Lab bug fixes | 🔸 | Ready to start | - PARTIALLY REFACTORED; NEED MORE WORK: make Most Common Tokens less fat and give more space to Historical vs Live Holdings Analysis; Strongest Convergences is awful with white background and white wallet 
+
 
 <details>
 <summary><b>Legend</b></summary>
@@ -39,7 +40,7 @@
 
 **Summary:**
 
-**22.1:** Fixed cascading logger failures caused by circular references in error objects. Added `safeStringify()` to logger and auto-sanitization of error metadata. Created `error-utils.ts` for clean error messages. Automated cleanup of 88 error logs across 15 critical user-facing files (similarity, PnL, holder profiles, API controllers, queue processors). Logs reduced from 50+ lines per error to single actionable lines.
+**22.1:** Fixed cascading logger failures caused by circular references in error objects. Added `safeStringify()` to logger and auto-sanitization of error metadata. Created `error-utils.ts` for clean error messages. Automated cleanup of 88 error logs across 15 critical user-facing files (similarity, PnL, holder profiles, API controllers, queue processors). Logs reduced from 50+ lines per error to single actionable lines. Added whale wallet protection in enrichment processor: 5k token hard cap, 0.01 minimum balance threshold, balance-sorted prioritization to prevent system overload from wallets with 20k+ dust tokens.
 
 ### January 17, 2026
 
