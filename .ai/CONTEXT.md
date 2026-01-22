@@ -16,8 +16,17 @@
 |:------:|:-----|:-----:|:------|
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
-| 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable |
-| 📝 | Similarity Lab bug fixes | 🔸 | Ready to start | - PARTIALLY REFACTORED; NEED MORE WORK: make Most Common Tokens less fat and give more space to Historical vs Live Holdings Analysis; FIgure out how to show which ones are the wallets holding specific token in Most Common Tokens - current tooltip is idiotic and we can't see the wallets themselves.  Strongest Convergences is awful with white background and white wallet; Wallet Pairs seems endless, it should be contained earlier on, around how much the top 10 tokens might expand. currently is scrolling for several pages ..
+
+CHECK what else needs alignment wiht the logs - when redis is down more components are logging full errors - HolderProfilesCacheService, Refresh prices cache, processors, etc. Build a script to find and eliminate all places that are stll showin the full erorr instead of using the utility;  
+
+
+| 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable | --- SHOULD BE FIXED - CHECK;
+| 📝 | Similarity Lab bug fixes | 🔸 | Ready to start | - PARTIALLY REFACTORED; NEED MORE WORK: make Most Common Tokens less fat and give more space to Historical vs Live Holdings Analysis; FIgure out how to show which ones are the wallets holding specific token in Most Common Tokens - current tooltip is idiotic and we can't see the wallets themselves.  Strongest Convergences is awful with white background and white wallet; Check what Key Insights & Pairwise Deep Dive
+Automatically generated insights from the similarity analysis, with a detailed breakdown for each pair.
+Wallet Pairs are actually showing when saying 1 shared out of .... because tooltip is currently showing 1 tokens held, but it shoudl be historical analysis of tokens traded not currently holding. Verify!
+
+
+Wallet Pairs seems endless, it should be contained earlier on, around how much the top 10 tokens might expand. currently is scrolling for several pages ..
 
 Something is doing several enrichments, we see these logs: 
 
