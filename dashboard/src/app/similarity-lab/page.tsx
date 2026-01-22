@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; // Import the new form
-import { TopHoldersPanel } from '@/components/similarity-lab/TopHoldersPanel';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
+import { Card } from '@/components/ui/card';
 import { ArrowUp } from 'lucide-react';
 
+import { SmartWalletInput } from '@/components/similarity-lab/SmartWalletInput';
+import { TokenHolderPicker } from '@/components/similarity-lab/TokenHolderPicker';
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
 import { CombinedSimilarityResult, TokenInfo } from '@/components/similarity-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
@@ -25,27 +25,58 @@ const MemoizedSimilarityResultDisplay = memo(SimilarityResultDisplay);
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 
 export default function AnalysisLabPage() {
+  // Core state management - textarea + selected holders are source of truth
+  const [inputText, setInputText] = useState<string>('');
+  const [detectedToken, setDetectedToken] = useState<string | null>(null);
+  const [selectedHolderAddresses, setSelectedHolderAddresses] = useState<string[]>([]);
+  const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
+
+  // Job status
   const [jobStatuses, setJobStatuses] = useState<{ analysis: JobStatus, enrichment: JobStatus }>({
     analysis: 'idle',
     enrichment: 'idle',
   });
-  const [walletList, setWalletList] = useState<string[]>([]); // State to hold the final list of wallets
-  const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
-
   const [syncMessage, setSyncMessage] = useState('');
   const [, setError] = useState<string | null>(null);
-  
+
   // Job tracking for analysis
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  
+
   // Back to top button state
   const [showBackToTop, setShowBackToTop] = useState(false);
 
   // toast is now imported directly from sonner
   const jobSocketDebug = process.env.NEXT_PUBLIC_JOB_SOCKET_DEBUG === 'true';
+
+  // Handle token detection from textarea
+  const handleTokenDetected = useCallback((token: string) => {
+    // Only set if it's a new token (not already set) OR no token set yet
+    setDetectedToken(prev => {
+      // If we already have a token, only change if it's explicitly removed and a new one appears
+      if (prev && prev !== token) {
+        // Don't switch tokens - user needs to explicitly remove the old one first
+        return prev;
+      }
+      return token;
+    });
+  }, []);
+
+  // When textarea changes, check if token line was removed
+  useEffect(() => {
+    if (!detectedToken) return;
+
+    const lines = inputText.split(/[\n,\s]+/).map(l => l.trim()).filter(Boolean);
+    const hasToken = lines.some(l => l === detectedToken);
+
+    if (!hasToken) {
+      // Token was removed from textarea, clear holder selection
+      setDetectedToken(null);
+      setSelectedHolderAddresses([]);
+    }
+  }, [inputText, detectedToken]);
 
   // Simple WebSocket callbacks that DON'T depend on changing state
   const {
@@ -270,10 +301,6 @@ export default function AnalysisLabPage() {
     }
   }, [enrichmentJobId, wsConnected, subscribeToJob, jobSocketDebug]);
 
-  // This callback will be passed to the new form component
-  const handleWalletsChange = useCallback((wallets: string[]) => {
-    setWalletList(wallets);
-  }, []);
 
   // Back to top functionality - listen to the main container scroll
   useEffect(() => {
@@ -340,7 +367,28 @@ export default function AnalysisLabPage() {
       }
       return;
     }
-    
+
+    // Combine wallets from textarea + selected holders
+    const textareaLines = inputText.split('\n').map(l => l.trim()).filter(Boolean);
+    const textareaWallets = textareaLines.filter(w => isValidSolanaAddress(w) && w !== detectedToken);
+
+    // Merge with holder selections
+    const allWallets = [...new Set([...textareaWallets, ...selectedHolderAddresses])];
+
+    if (allWallets.length === 0) {
+      toast.error("No Valid Wallets", {
+        description: "Please enter at least two valid wallet addresses or select holders.",
+      });
+      return;
+    }
+
+    if (allWallets.length < 2) {
+      toast.error("Insufficient Wallets", {
+        description: "Please enter at least two wallet addresses for comparison.",
+      });
+      return;
+    }
+
     setJobStatuses({ analysis: 'running', enrichment: 'idle' });
     // Only clear result if we're starting a new analysis (not if one just completed)
     if (jobStatuses.analysis !== 'completed') {
@@ -350,43 +398,8 @@ export default function AnalysisLabPage() {
     setCurrentJobId(null);
     setJobProgress(0);
 
-    if (walletList.length === 0) {
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast.error("No Wallets Provided", {
-        description: "Please enter at least two wallet addresses.",
-      });
-      return;
-    }
-
-    if (walletList.length < 2) {
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast.error("Insufficient Wallets", {
-        description: "Please enter at least two wallet addresses for comparison.",
-      });
-      return;
-    }
-
-    const invalidWallets = walletList.filter(w => !isValidSolanaAddress(w.trim()));
-    if (invalidWallets.length > 0) {
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast.error("Invalid Wallet Addresses", {
-        description: `Found ${invalidWallets.length} invalid address(es). Please ensure all addresses are correctbefore proceeding.`,
-      });
-      return;
-    }
-
-    // Final validation: ensure all wallets are valid
-    const validatedWallets = walletList.map(w => w.trim()).filter(w => isValidSolanaAddress(w));
-    if (validatedWallets.length !== walletList.length) {
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast.error("Validation Error", {
-        description: "Some addresses failed validation. Please check all entries.",
-      });
-      return;
-    }
-
     // Skip status checking - let the similarity processor handle sync intelligently
-    await runAnalysis(validatedWallets);
+    await runAnalysis(allWallets);
   };
 
 
@@ -529,97 +542,80 @@ export default function AnalysisLabPage() {
 
   return (
     <AppShell>
-      <div className="container mx-auto p-4 md:p-5">
-        <header className="mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
-            Similarity LAB <span className="text-muted-foreground">- discover hidden connections</span>
-          </h1>
-        </header>
-      
-      <div className="bg-card p-6 rounded-lg shadow-sm border">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold mb-2">Wallet Group Similarity</h2>
-            <p className="text-muted-foreground mb-4">
-              Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
-            </p>
-          </div>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button
-                variant="outline"
-                className="relative border-primary/40 text-primary bg-gradient-to-r from-primary/5 via-indigo-500/5 to-fuchsia-500/5 shadow-[0_0_0_1px_rgba(59,130,246,0.35)] hover:shadow-[0_0_18px_rgba(99,102,241,0.35)] hover:border-primary/60 transition-all duration-300 hover:-translate-y-0.5"
-              >
-                Add from token holders
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-5xl">
-              <DialogHeader>
-                <DialogTitle>Add wallets from token top holders</DialogTitle>
-                <DialogDescription>
-                  Enter a token mint, inspect the top holders, then add selected owners to your similarity set.
-                </DialogDescription>
-              </DialogHeader>
-              <TopHoldersPanel
-                maxHeightClass="h-[70vh]"
-                onAddToSet={(owners) => setWalletList(prev => Array.from(new Set([...prev, ...owners])))}
-              />
-            </DialogContent>
-          </Dialog>
+      <div className="w-full px-4 md:px-6 lg:px-10 space-y-8 pb-8">
+        {/* Header */}
+        <div className="max-w-6xl mx-auto space-y-1">
+          <h1 className="text-2xl font-semibold">Similarity Lab</h1>
+          <p className="text-sm text-muted-foreground">
+            Discover hidden connections between wallets through trading behavior and capital allocation patterns.
+          </p>
         </div>
-        
-        <WalletInputForm
-          onWalletsChange={handleWalletsChange}
-          onAnalyze={handleAnalyze}
-          isRunning={isRunning}
-          jobProgress={jobProgress}
-          progressMessage={syncMessage || ''}
-          externalWallets={walletList}
-        />
-        {/* Removed separate similarity set counter/clear to avoid confusion since we write directly into the textarea */}
-      </div>
 
-      {/* Lightweight launcher to the standalone Top Holders page */}
-      <div className="mt-2 text-xs text-muted-foreground/90">
-        Prefer a dedicated tool?{' '}
-        <a
-          href="/tools/top-holders"
-          className="underline decoration-primary/40 underline-offset-2 hover:decoration-primary text-foreground/90 hover:text-foreground transition-colors"
-        >
-          Open the standalone Top Holders utility
-        </a>
-      </div>
+        {/* Main Input Card - Side by Side Layout */}
+        <Card className="max-w-6xl mx-auto p-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+            {/* Left: Wallet Input */}
+            <SmartWalletInput
+              value={inputText}
+              onChange={setInputText}
+              onAnalyze={handleAnalyze}
+              isAnalyzing={jobStatuses.analysis === 'running'}
+              onTokenDetected={handleTokenDetected}
+              selectedHolderCount={selectedHolderAddresses.length}
+            />
 
-      {analysisResult && (
-        <div className="mt-6">
-          <MemoizedSimilarityResultDisplay 
-            results={analysisResult} 
+            {/* Right: Token Holder Picker (when token detected) */}
+            {detectedToken && (
+              <div className="border-l pl-4 hidden lg:block">
+                <TokenHolderPicker
+                  tokenMint={detectedToken}
+                  selectedAddresses={selectedHolderAddresses}
+                  onSelectionChange={setSelectedHolderAddresses}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Mobile: Show holder picker below on small screens */}
+          {detectedToken && (
+            <div className="mt-4 pt-4 border-t lg:hidden">
+              <TokenHolderPicker
+                tokenMint={detectedToken}
+                selectedAddresses={selectedHolderAddresses}
+                onSelectionChange={setSelectedHolderAddresses}
+              />
+            </div>
+          )}
+        </Card>
+
+        {/* Results Display */}
+        {analysisResult && (
+          <MemoizedSimilarityResultDisplay
+            results={analysisResult}
             onRefreshPrices={handleRefreshPrices}
             isRefreshing={isRefreshing}
           />
-        </div>
-      )}
-      {!analysisResult && jobStatuses.analysis === 'completed' && (
-        <div className="mt-6 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
-          <p>⚠️ Analysis completed but no results to display. This might be a data issue.</p>
-          <p>Debug info: analysisResult is {analysisResult ? 'truthy' : 'falsy'}</p>
-          <p>Job status: {jobStatuses.analysis}</p>
-          <p>Current job ID: {currentJobId || 'none'}</p>
-        </div>
-      )}
+        )}
 
+        {!analysisResult && jobStatuses.analysis === 'completed' && (
+          <div className="max-w-6xl mx-auto p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
+            <p>⚠️ Analysis completed but no results to display. This might be a data issue.</p>
+            <p>Debug info: analysisResult is {analysisResult ? 'truthy' : 'falsy'}</p>
+            <p>Job status: {jobStatuses.analysis}</p>
+            <p>Current job ID: {currentJobId || 'none'}</p>
+          </div>
+        )}
 
-      {/* Back to Top Button - Enhanced Visibility */}
-      {showBackToTop && (
-        <Button
-          onClick={scrollToTop}
-          className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-2xl z-[100] bg-blue-600 hover:bg-blue-700 border-2 border-white/20 backdrop-blur-sm"
-          size="icon"
-        >
-          <ArrowUp className="h-5 w-5 text-white" />
-        </Button>
-      )}
-
+        {/* Back to Top Button */}
+        {showBackToTop && (
+          <Button
+            onClick={scrollToTop}
+            className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-2xl z-[100] bg-blue-600 hover:bg-blue-700 border-2 border-white/20 backdrop-blur-sm"
+            size="icon"
+          >
+            <ArrowUp className="h-5 w-5 text-white" />
+          </Button>
+        )}
       </div>
     </AppShell>
   );
