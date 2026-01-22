@@ -43,6 +43,7 @@ import { CreateNoteDto } from '../shared/dto/create-note.dto';
 import { UpdateNoteDto } from '../shared/dto/update-note.dto';
 import { WalletSearchQueryDto } from '../shared/dto/wallet-search-query.dto';
 import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../shared/dto/wallet-search-result.dto';
+import { getErrorMessage } from 'core/utils/error-utils';
 @ApiTags('Wallets')
 @Controller('wallets')
 export class WalletsController {
@@ -84,7 +85,7 @@ export class WalletsController {
 
     if (userId) {
       this.databaseService.logActivity(userId, actionType, requestParameters, 'INITIATED', undefined, undefined, sourceIp)
-        .catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}:`, err));
+        .catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}: ${getErrorMessage(err)}`));
     }
 
     try {
@@ -94,7 +95,7 @@ export class WalletsController {
       if (userId) {
         const durationMs = Date.now() - startTime;
         this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp)
-          .catch(err => this.logger.error(`Failed to log SUCCESS activity for ${actionType}:`, err));
+          .catch(err => this.logger.error(`Failed to log SUCCESS activity for ${actionType}: ${getErrorMessage(err)}`));
       }
       return { wallets: mappedResults };
     } catch (error) {
@@ -102,9 +103,9 @@ export class WalletsController {
       const errorMessage = error instanceof Error ? error.message : 'Unknown internal server error';
       if (userId) {
         this.databaseService.logActivity(userId, actionType, { ...requestParameters, errorDetails: errorMessage }, 'FAILURE', durationMs, errorMessage, sourceIp)
-          .catch(err => this.logger.error(`Failed to log FAILURE activity for ${actionType}:`, err));
+          .catch(err => this.logger.error(`Failed to log FAILURE activity for ${actionType}: ${getErrorMessage(err)}`));
       }
-      this.logger.error(`Error searching wallets with query "${queryDto.query}":`, error);
+      this.logger.error(`Error searching wallets with query "${queryDto.query}": ${getErrorMessage(error)}`);
       if (error instanceof InternalServerErrorException) { // From DatabaseService
           throw error;
       }
@@ -155,7 +156,7 @@ export class WalletsController {
 
     if (userId) {
       await this.databaseService.logActivity(userId, actionType, requestParameters, 'INITIATED', undefined, undefined, sourceIp)
-        .catch(err => this.logger.error('Failed to log INITIATED activity:', err));
+        .catch(err => this.logger.error(`Failed to log INITIATED activity: ${getErrorMessage(err)}`));
     }
 
     try {
@@ -277,7 +278,7 @@ export class WalletsController {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Error fetching summary for wallet ${walletAddress}:`, error);
+      this.logger.error(`Error fetching summary for wallet ${walletAddress}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to retrieve wallet summary.');
     }
   }
@@ -318,7 +319,7 @@ export class WalletsController {
         undefined,
         undefined,
         sourceIp
-      ).catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}:`, err));
+      ).catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}: ${getErrorMessage(err)}`));
     }
 
     try {
@@ -327,7 +328,7 @@ export class WalletsController {
       if (userId) {
         const durationMs = Date.now() - startTime;
         this.databaseService.logActivity(userId, actionType, requestParameters, 'SUCCESS', durationMs, undefined, sourceIp)
-          .catch(err => this.logger.error(`Failed to log SUCCESS activity for ${actionType}:`, err));
+          .catch(err => this.logger.error(`Failed to log SUCCESS activity for ${actionType}: ${getErrorMessage(err)}`));
       }
       return result;
     } catch (error) {
@@ -336,13 +337,13 @@ export class WalletsController {
       
       if (userId) {
         this.databaseService.logActivity(userId, actionType, { ...requestParameters, errorDetails: errorMessage }, 'FAILURE', durationMs, errorMessage, sourceIp)
-          .catch(err => this.logger.error(`Failed to log FAILURE activity for ${actionType}:`, err));
+          .catch(err => this.logger.error(`Failed to log FAILURE activity for ${actionType}: ${getErrorMessage(err)}`));
       }
 
       if (error instanceof NotFoundException || error instanceof InternalServerErrorException) {
           throw error;
       }
-      this.logger.error(`Error fetching latest token performance for wallet ${walletAddress}:`, error);
+      this.logger.error(`Error fetching latest token performance for wallet ${walletAddress}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to retrieve token performance data.');
     }
   }
@@ -385,7 +386,7 @@ export class WalletsController {
         undefined,
         undefined,
         sourceIp
-      ).catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}:`, err));
+      ).catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}: ${getErrorMessage(err)}`));
     }
 
     try {
@@ -417,7 +418,7 @@ export class WalletsController {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Error fetching PNL overview for wallet ${walletAddress}:`, error);
+      this.logger.error(`Error fetching PNL overview for wallet ${walletAddress}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to retrieve PNL overview.');
     }
   }
@@ -470,7 +471,7 @@ export class WalletsController {
         undefined,
         undefined,
         sourceIp
-      ).catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}:`, err));
+      ).catch(err => this.logger.error(`Failed to log INITIATED activity for ${actionType}: ${getErrorMessage(err)}`));
     }
 
     try {
@@ -502,7 +503,7 @@ export class WalletsController {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Error fetching behavior analysis for wallet ${walletAddress}:`, error);
+      this.logger.error(`Error fetching behavior analysis for wallet ${walletAddress}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to retrieve behavior analysis.');
     }
   }
@@ -545,7 +546,7 @@ export class WalletsController {
       undefined,
       undefined,
       sourceIp
-    ).catch(err => this.logger.error('Failed to log INITIATED activity for createWalletNote:', err));
+    ).catch(err => this.logger.error(`Failed to log INITIATED activity for createWalletNote: ${getErrorMessage(err)}`));
 
     try {
       // First, check if the wallet exists to provide a clear 404 if not.
@@ -573,7 +574,7 @@ export class WalletsController {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Error creating note for wallet ${walletAddress} by user ${userId}:`, error);
+      this.logger.error(`Error creating note for wallet ${walletAddress} by user ${userId}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to create note.');
     }
   }
@@ -614,7 +615,7 @@ export class WalletsController {
       undefined,
       undefined,
       sourceIp
-    ).catch(err => this.logger.error('Failed to log INITIATED activity for getWalletNotes:', err));
+    ).catch(err => this.logger.error(`Failed to log INITIATED activity for getWalletNotes: ${getErrorMessage(err)}`));
 
     try {
       // Check if wallet exists first for a cleaner 404 if it doesn't, though getWalletNotes might also handle this implicitly
@@ -642,7 +643,7 @@ export class WalletsController {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Error retrieving notes for wallet ${walletAddress} by user ${userId}:`, error);
+      this.logger.error(`Error retrieving notes for wallet ${walletAddress} by user ${userId}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to retrieve notes.');
     }
   }
@@ -686,7 +687,7 @@ export class WalletsController {
       undefined,
       undefined,
       sourceIp
-    ).catch(err => this.logger.error('Failed to log INITIATED activity for deleteWalletNote:', err));
+    ).catch(err => this.logger.error(`Failed to log INITIATED activity for deleteWalletNote: ${getErrorMessage(err)}`));
 
     try {
       const deletedNote = await this.databaseService.deleteWalletNote(noteId, userId);
@@ -713,7 +714,7 @@ export class WalletsController {
         throw error; // Re-throw to send 404 or appropriate status defined by service error
       }
       // For other errors from service or unexpected errors here
-      this.logger.error(`Error deleting note ${noteId} for wallet ${walletAddress} by user ${userId}:`, error);
+      this.logger.error(`Error deleting note ${noteId} for wallet ${walletAddress} by user ${userId}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to delete note.');
     }
   }
@@ -766,7 +767,7 @@ export class WalletsController {
       undefined,
       undefined,
       sourceIp
-    ).catch(err => this.logger.error('Failed to log INITIATED activity for updateWalletNote:', err));
+    ).catch(err => this.logger.error(`Failed to log INITIATED activity for updateWalletNote: ${getErrorMessage(err)}`));
 
     try {
       const updatedNote = await this.databaseService.updateWalletNote(
@@ -788,7 +789,7 @@ export class WalletsController {
       if (error instanceof NotFoundException || error instanceof InternalServerErrorException) {
         throw error; 
       }
-      this.logger.error(`Error updating note ${noteId} for wallet ${walletAddress} by user ${userId}:`, error);
+      this.logger.error(`Error updating note ${noteId} for wallet ${walletAddress} by user ${userId}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to update note.');
     }
   }
@@ -836,7 +837,7 @@ export class WalletsController {
           : 'Normal transaction analysis applied.',
       };
     } catch (error) {
-      this.logger.error(`Error getting classification for wallet ${walletAddress}:`, error);
+      this.logger.error(`Error getting classification for wallet ${walletAddress}: ${getErrorMessage(error)}`);
       
       // Log failed activity
       await this.databaseService.logActivity(
@@ -888,7 +889,7 @@ export class WalletsController {
 
       this.tokenInfoService.triggerTokenInfoEnrichment(tokenAddresses, userId);
     } catch (error) {
-      this.logger.error(`Background enrichment process for wallet ${walletAddress} failed:`, error);
+      this.logger.error(`Background enrichment process for wallet ${walletAddress} failed: ${getErrorMessage(error)}`);
     }
   }
 
@@ -950,7 +951,7 @@ export class WalletsController {
         count: mints.length
       };
     } catch (error) {
-      this.logger.error(`Failed to fetch exit timing tokens for wallet ${walletAddress}:`, error);
+      this.logger.error(`Failed to fetch exit timing tokens for wallet ${walletAddress}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to fetch exit timing tokens');
     }
   }

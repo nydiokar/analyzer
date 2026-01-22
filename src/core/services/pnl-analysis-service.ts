@@ -12,6 +12,7 @@ import { Injectable } from '@nestjs/common';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 import { getKnownWallet, SKIP_PNL_CALCULATION, type KnownWalletType } from '../../config/known-wallets';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -133,7 +134,7 @@ export class PnlAnalysisService {
             }
         } catch (error) {
             // Non-critical, proceed with analysis if check fails
-            logger.warn(`Failed to check wallet knownType for ${walletAddress}:`, error);
+            logger.warn(`Failed to check wallet knownType for ${walletAddress}: ${getErrorMessage(error)}`);
         }
 
         let estimatedSolPriceUsd = options?.solPriceUsd || 0;
@@ -747,7 +748,7 @@ export class PnlAnalysisService {
                 await prisma.analysisRun.update({
                     where: { id: runId },
                     data: { status: analysisRunStatus, errorMessage: analysisRunErrorMessage, durationMs: Date.now() - startTimeMs },
-                }).catch(err => logger.error(`[PnlAnalysis] FAILED to update AnalysisRun ${runId} to FAILED status:`, err));
+                }).catch(err => logger.error(`[PnlAnalysis] FAILED to update AnalysisRun ${runId} to FAILED status: ${getErrorMessage(err)}`));
             }
             // Propagate a typed error instead of returning null, to avoid silent failures.
             throw new PnlAnalysisError(analysisRunErrorMessage ?? 'PNL analysis failed', error);
@@ -760,7 +761,7 @@ export class PnlAnalysisService {
                         errorMessage: analysisRunErrorMessage ?? (analysisRunStatus === 'IN_PROGRESS' ? 'Unknown error, service exited prematurely' : null),
                         durationMs: Date.now() - startTimeMs,
                     },
-                }).catch(err => logger.error(`[PnlAnalysis] Error in finally block updating AnalysisRun ${runId}:`, err));
+                }).catch(err => logger.error(`[PnlAnalysis] Error in finally block updating AnalysisRun ${runId}: ${getErrorMessage(err)}`));
             }
         }
     }

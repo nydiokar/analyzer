@@ -6,6 +6,7 @@ import type { HolderProfileSnapshot, Wallet as PrismaWallet } from '@prisma/clie
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import { ANALYSIS_EXECUTION_CONFIG, WALLET_STALENESS_CONFIG } from '../../config/constants';
 import type { TopHoldersResponse } from './token-holders.service';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 /**
  * TWO-TIER CACHE SERVICE: Manages both Redis (Tier 1) and PostgreSQL (Tier 2) caching
@@ -216,7 +217,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
         this.logger.log(`Invalidated ${keys.length} holder profile cache(s) for token ${tokenMint}`);
       }
     } catch (error) {
-      this.logger.error(`Error invalidating cache for token ${tokenMint}:`, error);
+      this.logger.error(`Error invalidating cache for token ${tokenMint}: ${getErrorMessage(error)}`);
     }
   }
 
@@ -228,7 +229,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
         this.logger.log(`Cleared ${keys.length} holder profile cache entries`);
       }
     } catch (error) {
-      this.logger.error('Error clearing holder profile caches:', error);
+      this.logger.error(`Error clearing holder profile caches: ${getErrorMessage(error)}`);
     }
   }
 
@@ -245,7 +246,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
         sampleKeys: keys.slice(0, 5),
       };
     } catch (error) {
-      this.logger.error('Error getting holder profile cache stats:', error);
+      this.logger.error(`Error getting holder profile cache stats: ${getErrorMessage(error)}`);
       return { totalKeys: 0, sampleKeys: [] };
     }
   }

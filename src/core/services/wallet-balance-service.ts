@@ -7,6 +7,7 @@ import { formatLargeNumber } from 'core/utils/number-formatting';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenInfo } from '@prisma/client';
 import { DatabaseService } from './database-service';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 const logger = createLogger('WalletBalanceService');
 const SOL_DECIMALS = 9;
@@ -98,7 +99,7 @@ export class WalletBalanceService {
           }
         });
       } catch (error: any) {
-        logger.warn(`Error fetching SOL balances for batch (offset ${i}, ${batchAddresses.length} addresses):`, error);
+        logger.warn(`Error fetching SOL balances for batch (offset ${i}, ${batchAddresses.length} addresses): ${getErrorMessage(error)}`);
         // For addresses in this failed batch, SOL balance will remain 0 or its default
       }
     }
@@ -151,7 +152,7 @@ export class WalletBalanceService {
               currentTokenAccounts.push(...token2022AccountsResult.value);
             }
           } catch (error) {
-            logger.warn(`Address ${address}: Failed to fetch Token-2022 accounts:`, error);
+            logger.warn(`Address ${address}: Failed to fetch Token-2022 accounts: ${getErrorMessage(error)}`);
           }
         }
 
@@ -248,7 +249,7 @@ export class WalletBalanceService {
                 }
               }
             } catch (error) {
-              logger.warn(`Address ${address}: Failed to recover missing token ${missingToken.tokenAddress}:`, error);
+              logger.warn(`Address ${address}: Failed to recover missing token ${missingToken.tokenAddress}: ${getErrorMessage(error)}`);
             }
           }
           
@@ -272,7 +273,7 @@ export class WalletBalanceService {
           logger.warn(`🚨 SYSTEM WALLET DETECTED: ${address} caused ${errorMessage} - likely has excessive tokens`);
           // Keep empty token balances for this wallet
         } else {
-          logger.warn(`Error fetching token balances for address ${address}:`, error);
+          logger.warn(`Error fetching token balances for address ${address}: ${getErrorMessage(error)}`);
         }
         // Token balances for this address will remain empty []
       }
@@ -319,7 +320,7 @@ export class WalletBalanceService {
 
       return missingTokens;
     } catch (error) {
-      logger.warn(`Error finding missing tokens for ${walletAddress}:`, error);
+      logger.warn(`Error finding missing tokens for ${walletAddress}: ${getErrorMessage(error)}`);
       return [];
     }
   }

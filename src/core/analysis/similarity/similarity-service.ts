@@ -6,6 +6,7 @@ import { TransactionData } from '@/types/correlation';
 import { createLogger } from 'core/utils/logger';
 import { WalletBalance } from '@/types/wallet';
 import { DEFAULT_EXCLUDED_MINTS } from '../../../config/constants';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 const logger = createLogger('SimilarityService');
 
@@ -423,7 +424,7 @@ export class SimilarityService {
                         finalResult['holdingsPresenceFilteredJaccardMatrix'] = filteredSimilarityMatrix;
                         
                     } catch (error) {
-                        logger.error('[Holdings Filtered] Error calculating filtered holdings similarity:', error);
+                        logger.error(`[Holdings Filtered] Error calculating filtered holdings similarity: ${getErrorMessage(error)}`);
                     }
                     
                 } else {

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createLogger } from '../utils/logger';
 import { PrismaClient, Wallet, MappingActivityLog } from '@prisma/client';
 import { prisma } from '../../core/services/database-service';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 const logger = createLogger('WalletClassificationService');
 
@@ -50,7 +51,7 @@ export class WalletClassificationService {
         take: limit,
       });
     } catch (error) {
-      logger.error(`Error fetching mapping activity logs for ${walletAddress}:`, error);
+      logger.error(`Error fetching mapping activity logs for ${walletAddress}: ${getErrorMessage(error)}`);
       return [];
     }
   }
@@ -86,7 +87,7 @@ export class WalletClassificationService {
         avgUnknownSkipped: log.unknownTxSkippedNoJito || 0,
       }));
     } catch (error) {
-      logger.error('Error fetching high volume wallets:', error);
+      logger.error(`Error fetching high volume wallets: ${getErrorMessage(error)}`);
       return [];
     }
   }
@@ -155,7 +156,7 @@ export class WalletClassificationService {
         reason: 'Normal transaction volume',
       };
     } catch (error) {
-      logger.error(`Error getting fetch recommendation for ${walletAddress}:`, error);
+      logger.error(`Error getting fetch recommendation for ${walletAddress}: ${getErrorMessage(error)}`);
       return {
         shouldLimitFetch: false,
         maxSignatures: 10000,
@@ -182,7 +183,7 @@ export class WalletClassificationService {
         logger.debug(`Updated ${walletAddress} classification to ${classification}: ${reason}`);
       }
     } catch (error) {
-      logger.error(`Error updating classification for ${walletAddress}:`, error);
+      logger.error(`Error updating classification for ${walletAddress}: ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -199,7 +200,7 @@ export class WalletClassificationService {
       
       return wallet?.classification || null;
     } catch (error) {
-      logger.error(`Error getting classification for ${walletAddress}:`, error);
+      logger.error(`Error getting classification for ${walletAddress}: ${getErrorMessage(error)}`);
       return null;
     }
   }

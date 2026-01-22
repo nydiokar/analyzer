@@ -24,6 +24,7 @@ import { SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import Redis from 'ioredis';
 import { EXCLUDE_FROM_SIMILARITY, getKnownWallet } from '../../config/known-wallets';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 @Injectable()
 export class SimilarityOperationsProcessor implements OnModuleDestroy {
@@ -73,11 +74,11 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     });
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Job ${job?.id} failed:`, err);
+      this.logger.error(`Job ${job?.id} failed: ${getErrorMessage(err)}`);
     });
 
     this.worker.on('error', (err) => {
-      this.logger.error('Worker error:', err);
+      this.logger.error(`Worker error: ${getErrorMessage(err)}`);
     });
   }
 
@@ -241,7 +242,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           // DON'T wait for enrichment - keep it truly parallel!
           }
         } catch (error) {
-          this.logger.warn(`Failed to queue enrichment job, continuing without enrichment:`, error);
+          this.logger.warn(`Failed to queue enrichment job, continuing without enrichment: ${getErrorMessage(error)}`);
         }
       } else if (process.env.DISABLE_ENRICHMENT === 'true') {
         this.logger.log(`Enrichment disabled by DISABLE_ENRICHMENT environment variable`);
@@ -265,7 +266,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           }
           this.logger.log(`Verified ${walletsWithData.length} wallets have transaction data for similarity analysis`);
         } catch (error: any) {
-          this.logger.error(`Error verifying transaction data:`, error);
+          this.logger.error(`Error verifying transaction data: ${getErrorMessage(error)}`);
           throw new Error(`Failed to verify transaction data for similarity analysis: ${error.message || 'Unknown error'}`);
         }
       } else {
@@ -345,7 +346,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       return result;
 
     } catch (error) {
-      this.logger.error(`Similarity analysis failed for requestId ${requestId}:`, error);
+      this.logger.error(`Similarity analysis failed for requestId ${requestId}: ${getErrorMessage(error)}`);
       
       // Cancel any running enrichment job to prevent orphaned processes
       if (enrichmentJob) {
@@ -423,7 +424,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           return { walletAddress, status: 'completed' };
 
         } catch (error) {
-          this.logger.error(`Deep sync failed for wallet ${walletAddress}`, error);
+          this.logger.error(`Deep sync failed for wallet ${walletAddress}: ${getErrorMessage(error)}`);
           // Throw to ensure the entire job fails if one wallet cannot be synced,
           // guaranteeing data integrity for the final similarity analysis.
           throw new Error(`Failed to sync and analyze wallet: ${walletAddress}`);

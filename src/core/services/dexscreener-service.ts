@@ -5,6 +5,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { METADATA_FETCHING_CONFIG } from '@config/constants';
 import { isWellKnownToken, getWellKnownTokenMetadata } from 'core/utils/token-metadata';
+import { getErrorMessage, getErrorSummary } from 'core/utils/error-utils';
 
 const logger = createLogger('DexscreenerService');
 
@@ -109,7 +110,7 @@ export class DexscreenerService {
                     const result = await this.fetchTokensFromDexScreener(chunk);
                     return result;
                 } catch (error) {
-                    logger.error(`❌ Chunk ${actualIndex + 1}/${chunks.length} failed:`, error);
+                    logger.error(`❌ Chunk ${actualIndex + 1}/${chunks.length} failed: ${getErrorMessage(error)}`);
                     return 0; // Return 0 on failure for counting
                 }
             });
@@ -152,7 +153,7 @@ export class DexscreenerService {
                 logger.debug(`Updated metadataSource to 'hybrid' for ${count} tokens with both data sources`);
             }
         } catch (error) {
-            logger.error('Failed to update metadataSource to hybrid:', error);
+            logger.error(`Failed to update metadataSource to hybrid: ${getErrorMessage(error)}`);
             // Non-critical error, don't throw
         }
     }
@@ -239,7 +240,7 @@ export class DexscreenerService {
                     logger.warn(`${source.name} returned no price data, trying next source`);
                 }
             } catch (error) {
-                logger.warn(`Failed to fetch SOL price from ${source.name}: ${error instanceof Error ? error.message : error}, trying next source`);
+                logger.warn(`Failed to fetch SOL price from ${source.name}: ${getErrorMessage(error)}, trying next source`);
             }
         }
 
@@ -444,33 +445,35 @@ export class DexscreenerService {
      * Retry helper for DexScreener API calls with exponential backoff
      */
     private async fetchWithRetry<T>(
-        operation: () => Promise<T>, 
+        operation: () => Promise<T>,
         description: string
     ): Promise<T> {
-        let lastError: Error;
-        
+        let lastError: unknown;
+
         for (let attempt = 1; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
             try {
                 return await operation();
             } catch (error) {
-                lastError = error as Error;
-                
+                lastError = error;
+
                 if (attempt === RETRY_CONFIG.maxRetries) {
-                    logger.error(`Failed to fetch ${description} after ${RETRY_CONFIG.maxRetries} attempts:`, lastError);
-                    throw lastError;
+                    const errorMsg = getErrorMessage(error);
+                    logger.error(`Failed to fetch ${description} after ${RETRY_CONFIG.maxRetries} attempts: ${errorMsg}`);
+                    throw error;
                 }
-                
+
                 // Calculate exponential backoff delay
                 const delay = Math.min(
                     RETRY_CONFIG.baseDelay * Math.pow(2, attempt - 1),
                     RETRY_CONFIG.maxDelay
                 );
-                
-                logger.warn(`Attempt ${attempt}/${RETRY_CONFIG.maxRetries} failed for ${description}, retrying in ${delay}ms:`, lastError.message);
+
+                const errorMsg = getErrorMessage(error);
+                logger.warn(`Attempt ${attempt}/${RETRY_CONFIG.maxRetries} failed for ${description}, retrying in ${delay}ms: ${errorMsg}`);
                 await sleep(delay);
             }
         }
-        
+
         throw lastError!;
     }
 } 

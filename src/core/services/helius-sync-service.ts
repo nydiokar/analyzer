@@ -1,4 +1,5 @@
 import { createLogger } from 'core/utils/logger';
+import { getErrorMessage } from 'core/utils/error-utils';
 import { HeliusApiClient } from 'core/services/helius-api-client';
 import { DatabaseService } from '../../api/services/database.service';
 import {
@@ -103,7 +104,7 @@ export class HeliusSyncService {
             }
         } catch (error) {
             // If we can't check, proceed with normal flow
-            logger.warn(`[Sync] Could not check wallet classification for ${walletAddress}, proceeding:`, error);
+            logger.warn(`[Sync] Could not check wallet classification for ${walletAddress}, proceeding: ${getErrorMessage(error)}`);
         }
 
         // Ensure wallet exists in the DB before starting sync operations
@@ -157,7 +158,7 @@ export class HeliusSyncService {
                 logger.debug(`✅ [SmartFetch] Normal fetch recommended for ${walletAddress}: ${fetchRecommendation.reason}`);
             }
         } catch (error) {
-            logger.warn(`[SmartFetch] Failed to get smart fetch recommendation for ${walletAddress}, using original options:`, error);
+            logger.warn(`[SmartFetch] Failed to get smart fetch recommendation for ${walletAddress}, using original options: ${getErrorMessage(error)}`);
             // Continue with original options if smart fetch fails
         }
         */

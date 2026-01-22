@@ -9,6 +9,7 @@ import { RedisLockService } from '../services/redis-lock.service';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import Redis from 'ioredis';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 @Injectable()
 export class EnrichmentOperationsProcessor {
@@ -35,11 +36,11 @@ export class EnrichmentOperationsProcessor {
     });
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Job ${job?.id} failed:`, err);
+      this.logger.error(`Job ${job?.id} failed: ${getErrorMessage(err)}`);
     });
 
     this.worker.on('error', (err) => {
-      this.logger.error('Worker error:', err);
+      this.logger.error(`Worker error: ${getErrorMessage(err)}`);
     });
 
     this.logger.debug('EnrichmentOperationsProcessor initialized with worker');
@@ -126,7 +127,7 @@ export class EnrichmentOperationsProcessor {
       return { enrichedBalances };
       
     } catch (error) {
-      this.logger.error(`Parallel enrichment failed for requestId: ${requestId}`, error);
+      this.logger.error(`Parallel enrichment failed for requestId: ${requestId}: ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -243,7 +244,7 @@ export class EnrichmentOperationsProcessor {
         return result;
 
     } catch (error) {
-      this.logger.error(`Token enrichment failed for request ${requestId}:`, error);
+      this.logger.error(`Token enrichment failed for request ${requestId}: ${getErrorMessage(error)}`);
       throw error;
     } finally {
       // Always release lock
@@ -356,7 +357,7 @@ export class EnrichmentOperationsProcessor {
         throw error; // Re-throw cancellation errors
       }
       
-      this.logger.warn(`Failed to enrich batch starting at index ${i}:`, error);
+      this.logger.warn(`Failed to enrich batch starting at index ${i}: ${getErrorMessage(error)}`);
       // Continue with other batches instead of failing the entire job
     }
   }
@@ -395,7 +396,7 @@ export class EnrichmentOperationsProcessor {
               const numericBalance = Number(rawBalance) / Number(divisor);
               valueUsd = numericBalance * priceUsd;
             } catch (error) {
-              this.logger.warn(`Failed to calculate USD value for token ${token.mint}:`, error);
+              this.logger.warn(`Failed to calculate USD value for token ${token.mint}: ${getErrorMessage(error)}`);
             }
           }
           
@@ -440,7 +441,7 @@ export class EnrichmentOperationsProcessor {
         // Small delay between batches
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
-        this.logger.warn(`Background enrichment failed for batch of ${batch.length} tokens:`, error);
+        this.logger.warn(`Background enrichment failed for batch of ${batch.length} tokens: ${getErrorMessage(error)}`);
         // Continue with other batches
       }
     }

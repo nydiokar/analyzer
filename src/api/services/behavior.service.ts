@@ -4,6 +4,7 @@ import { BehaviorService as OriginalBehaviorService } from '../../core/analysis/
 import { BehaviorAnalysisConfig } from '../../types/analysis'; // Corrected to use path alias
 import { BehavioralMetrics } from '../../types/behavior'; // Corrected to use path alias
 import { getKnownWallet, SKIP_BEHAVIOR_ANALYSIS, type KnownWalletType } from '../../config/known-wallets';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 @Injectable()
 export class BehaviorService {
@@ -44,7 +45,7 @@ export class BehaviorService {
       }
     } catch (error) {
       // Non-critical, proceed with analysis if check fails
-      this.logger.warn(`Failed to check wallet knownType for ${walletAddress}:`, error);
+      this.logger.warn(`Failed to check wallet knownType for ${walletAddress}: ${getErrorMessage(error)}`);
     }
 
     // Feature flag: disable with DISABLE_BEHAVIOR_CACHE=true
@@ -99,7 +100,7 @@ export class BehaviorService {
     try {
       return await originalService.analyzeWalletBehavior(walletAddress, timeRange || config.timeRange, pnlMap);
     } catch (error) {
-      this.logger.error(`Error in getWalletBehavior for ${walletAddress}:`, error);
+      this.logger.error(`Error in getWalletBehavior for ${walletAddress}: ${getErrorMessage(error)}`);
       throw error;
     }
   }

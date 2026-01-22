@@ -9,6 +9,7 @@ import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../c
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import { TOKEN_INFO_REFRESH_CONFIG } from '../../config/constants';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 /**
  * TokenInfoService - Unified Token Information & Price Management
@@ -59,7 +60,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     try {
       price = await this.priceProvider.fetchSolPrice();
     } catch (err) {
-      this.logger.error(`[SOL Price] Provider fetch failed`, err);
+      this.logger.error(`[SOL Price] Provider fetch failed: ${getErrorMessage(err)}`);
       throw err;
     }
     
@@ -116,7 +117,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       this.logger.warn(`[Token Supply] No supply data for ${tokenMint}`);
       return undefined;
     } catch (error) {
-      this.logger.error(`[Token Supply] Failed to fetch for ${tokenMint}:`, error);
+      this.logger.error(`[Token Supply] Failed to fetch for ${tokenMint}: ${getErrorMessage(error)}`);
       return undefined;
     }
   }
@@ -323,7 +324,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
           // this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
         }
       } catch (error) {
-        this.logger.error('Stage 1 (DAS) failed:', error);
+        this.logger.error(`Stage 1 (DAS) failed: ${getErrorMessage(error)}`);
         // Continue anyway - DexScreener might still work
       }
     }
@@ -339,7 +340,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
           await this.priceProvider.fetchAndSaveTokenInfo(needsPriceData);
           this.logger.log(`DexScreener Stage complete: ${needsPriceData.length} tokens processed - Frontend can refresh to see updated images`);
         } catch (err) {
-          this.logger.error('Stage 2 (DexScreener) failed:', err);
+          this.logger.error(`Stage 2 (DexScreener) failed: ${getErrorMessage(err)}`);
         }
       });
     }
@@ -355,7 +356,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     if (tokensWithUris.length > 0) {
       this.fetchAndSaveSocialLinks(tokensWithUris)
         .catch(err => {
-          this.logger.error('Stage 3 (Social links) failed:', err);
+          this.logger.error(`Stage 3 (Social links) failed: ${getErrorMessage(err)}`);
         });
     }
 
@@ -483,7 +484,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       if (error instanceof Error) {
         this.logger.error('Error during bulk upsert of token info:', error.message, error.stack);
       } else {
-        this.logger.error('An unknown error occurred during bulk upsert of token info:', error);
+        this.logger.error(`An unknown error occurred during bulk upsert of token info: ${getErrorMessage(error)}`);
       }
     }
   }

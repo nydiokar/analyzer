@@ -31,6 +31,16 @@
 
 ## 📅 Recent Activity
 
+### January 22, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 22.1 | 🔧 | Error logging cleanup & circular reference fix | 🔸 | Logger crash prevention + clean error messages in user-facing flows |
+
+**Summary:**
+
+**22.1:** Fixed cascading logger failures caused by circular references in error objects. Added `safeStringify()` to logger and auto-sanitization of error metadata. Created `error-utils.ts` for clean error messages. Automated cleanup of 88 error logs across 15 critical user-facing files (similarity, PnL, holder profiles, API controllers, queue processors). Logs reduced from 50+ lines per error to single actionable lines.
+
 ### January 17, 2026
 
 | ID | T | Title | Scope | Components |

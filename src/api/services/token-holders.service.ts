@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import type { GetTokenLargestAccountsResult, TokenLargestAccount, GetMultipleAccountsResult, RpcAccountInfo } from '../../types/helius-api';
 import { getKnownWallet, type KnownWalletType } from '../../config/known-wallets';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 // Known program IDs for special detection
 const STREAMFLOW_PROGRAM_ID = 'strmRqUCoQUgGUan5YhzUZa6KqdzwX5L6FpUxfmKg5m';
@@ -45,7 +46,7 @@ export class TokenHoldersService {
       const supplyResult = await this.heliusClient.getTokenSupply(mint, commitment);
       supply = supplyResult.value;
     } catch (error) {
-      this.logger.warn(`Failed to fetch token supply for ${mint}, percentages will not be available`, error);
+      this.logger.warn(`Failed to fetch token supply for ${mint}, percentages will not be available: ${getErrorMessage(error)}`);
     }
 
     const tokenAccountPubkeys = rpcResult.value.map((v) => v.address);

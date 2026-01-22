@@ -19,6 +19,7 @@ import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIF
 import { getKnownWallet } from '../../config/known-wallets';
 import { Request } from 'express';
 import { User } from '@prisma/client';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -136,7 +137,7 @@ export class AnalysesController {
       };
 
     } catch (error) {
-      this.logger.error(`Failed to queue balance enrichment:`, error);
+      this.logger.error(`Failed to queue balance enrichment: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to queue balance enrichment job');
     }
   }
@@ -252,7 +253,7 @@ export class AnalysesController {
       };
 
     } catch (error) {
-      this.logger.error(`Failed to queue similarity analysis:`, error);
+      this.logger.error(`Failed to queue similarity analysis: ${getErrorMessage(error)}`);
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -509,7 +510,7 @@ export class AnalysesController {
         queuedFollowUpScopes,
       };
     } catch (error) {
-      this.logger.error(`Failed to queue dashboard analysis:`, error);
+      this.logger.error(`Failed to queue dashboard analysis: ${getErrorMessage(error)}`);
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -610,7 +611,7 @@ export class AnalysesController {
         monitoringUrl: `/jobs/${job.id}`,
       };
     } catch (error) {
-      this.logger.error(`Failed to queue holder profiles analysis:`, error);
+      this.logger.error(`Failed to queue holder profiles analysis: ${getErrorMessage(error)}`);
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -665,7 +666,7 @@ export class AnalysesController {
         monitoringUrl: `/jobs/${job.id}`,
       };
     } catch (error) {
-      this.logger.error(`Failed to queue wallet holder profile analysis:`, error);
+      this.logger.error(`Failed to queue wallet holder profile analysis: ${getErrorMessage(error)}`);
       if (error instanceof BadRequestException) {
         throw error;
       }

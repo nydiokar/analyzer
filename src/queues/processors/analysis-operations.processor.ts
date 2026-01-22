@@ -29,6 +29,7 @@ import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../sh
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
 import { MetricsService } from '../../api/services/metrics.service';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 @Injectable()
 export class AnalysisOperationsProcessor implements OnModuleDestroy {
@@ -68,12 +69,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       if (err instanceof UnrecoverableError) {
         this.logger.warn(`Job ${job?.id} from queue ${job?.queueName} failed: ${err.message}`);
       } else {
-        this.logger.error(`Job ${job?.id} from queue ${job?.queueName} failed:`, err);
+        this.logger.error(`Job ${job?.id} from queue ${job?.queueName} failed: ${getErrorMessage(err)}`);
       }
     });
 
     this.worker.on('error', (err) => {
-      this.logger.error('Worker error in AnalysisOperationsProcessor:', err);
+      this.logger.error(`Worker error in AnalysisOperationsProcessor: ${getErrorMessage(err)}`);
     });
 
     this.logger.log('AnalysisOperationsProcessor has been initialized');
@@ -210,7 +211,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       return result;
 
     } catch (error) {
-      this.logger.error(`PnL analysis failed for ${walletAddress}:`, error);
+      this.logger.error(`PnL analysis failed for ${walletAddress}: ${getErrorMessage(error)}`);
       throw error;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
@@ -327,7 +328,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       return result;
 
     } catch (error) {
-      this.logger.error(`Behavior analysis failed for ${walletAddress}:`, error);
+      this.logger.error(`Behavior analysis failed for ${walletAddress}: ${getErrorMessage(error)}`);
       throw error;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
@@ -687,7 +688,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           await this.balanceCacheService.clearCache(walletAddress);
           this.logger.debug(`Cleared balance cache for ${walletAddress} after deep scope completion`);
         } catch (error) {
-          this.logger.warn(`Failed to clear balance cache for ${walletAddress}:`, error);
+          this.logger.warn(`Failed to clear balance cache for ${walletAddress}: ${getErrorMessage(error)}`);
           // Non-critical, don't fail the job
         }
       }
@@ -721,7 +722,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       return result;
     } catch (error) {
-      this.logger.error(`Dashboard analysis for ${walletAddress} [scope=${scope}] failed:`, error);
+      this.logger.error(`Dashboard analysis for ${walletAddress} [scope=${scope}] failed: ${getErrorMessage(error)}`);
 
       await this.databaseService.recordDashboardAnalysisRun({
         walletAddress,
@@ -1242,7 +1243,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             const withFinancials = await this.hydrateWalletFinancials(hydrated, solPriceUsd);
             await streamProfile(wallet, withFinancials);
           } catch (error) {
-            this.logger.warn(`Failed to hydrate cached holder profile for ${wallet}:`, error);
+            this.logger.warn(`Failed to hydrate cached holder profile for ${wallet}: ${getErrorMessage(error)}`);
           }
         }
       }
@@ -1394,7 +1395,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       if (error instanceof UnrecoverableError) {
         this.logger.warn(`Holder profiles analysis failed for ${tokenMint}: ${error.message}`);
       } else {
-        this.logger.error(`Holder profiles analysis failed for ${tokenMint}:`, error);
+        this.logger.error(`Holder profiles analysis failed for ${tokenMint}: ${getErrorMessage(error)}`);
       }
       throw error;
     }
@@ -2160,7 +2161,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         newestTransactionTimestamp,
       };
     } catch (error) {
-      this.logger.warn(`Error analyzing wallet ${walletAddress}:`, error);
+      this.logger.warn(`Error analyzing wallet ${walletAddress}: ${getErrorMessage(error)}`);
       return {
         walletAddress,
         rank,

@@ -26,6 +26,7 @@ import { NotFoundException, InternalServerErrorException, Injectable, ConflictEx
 import { WalletAnalysisStatus } from '@/types/wallet';
 import { DB_CONFIG } from '../../config/constants';
 import type { DashboardAnalysisScope } from '../../shared/dashboard-analysis.types';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -352,7 +353,7 @@ export class DatabaseService {
                 take: limit,
             });
         } catch (error) {
-            this.logger.error(`Error fetching mapping activity logs for ${walletAddress}:`, error);
+            this.logger.error(`Error fetching mapping activity logs for ${walletAddress}: ${getErrorMessage(error)}`);
             return [];
         }
     }
@@ -460,7 +461,7 @@ export class DatabaseService {
                 data: { classification },
             });
         } catch (error) {
-            this.logger.error(`Error updating simple classification for ${walletAddress}:`, error);
+            this.logger.error(`Error updating simple classification for ${walletAddress}: ${getErrorMessage(error)}`);
             throw error;
         }
     }
@@ -710,7 +711,7 @@ export class DatabaseService {
             this.logger.warn('API key validation failed: No matching active user found for the provided key.');
             return null;
         } catch (error) {
-            this.logger.error('Error during API key validation:', error);
+            this.logger.error(`Error during API key validation: ${getErrorMessage(error)}`);
             throw new Error('Could not validate API key due to a server error.'); // Generic error to client
         }
     }
@@ -774,7 +775,7 @@ export class DatabaseService {
                 this.logger.warn(`User ${userId} not found or already active.`);
                 return null; 
             }
-            this.logger.error(`Error activating user ${userId}:`, error);
+            this.logger.error(`Error activating user ${userId}: ${getErrorMessage(error)}`);
             throw new Error('Could not activate user due to a server error.');
         }
     }
@@ -799,7 +800,7 @@ export class DatabaseService {
                 this.logger.warn(`User ${userId} not found or already inactive.`);
                 return null;
             }
-            this.logger.error(`Error deactivating user ${userId}:`, error);
+            this.logger.error(`Error deactivating user ${userId}: ${getErrorMessage(error)}`);
             throw new Error('Could not deactivate user due to a server error.');
         }
     }
@@ -859,7 +860,7 @@ export class DatabaseService {
                 this.logger.warn(`User ${userId} not found for deletion.`);
                 return null;
             }
-            this.logger.error(`Error deleting user ${userId}:`, error);
+            this.logger.error(`Error deleting user ${userId}: ${getErrorMessage(error)}`);
             throw new Error('Could not delete user due to a server error.');
         }
     }
@@ -884,7 +885,7 @@ export class DatabaseService {
                 this.logger.warn(`User with ID ${userId} not found for updating demo status.`);
                 return null;
             }
-            this.logger.error(`Error setting demo status for user ${userId}:`, error);
+            this.logger.error(`Error setting demo status for user ${userId}: ${getErrorMessage(error)}`);
             throw new Error('Could not set demo status due to a server error.');
         }
     }
