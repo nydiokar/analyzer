@@ -17,7 +17,38 @@
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
 | 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable |
-| 📝 | Similarity Lab bug fixes | 🔸 | Ready to start | - PARTIALLY REFACTORED; NEED MORE WORK: make Most Common Tokens less fat and give more space to Historical vs Live Holdings Analysis; Strongest Convergences is awful with white background and white wallet 
+| 📝 | Similarity Lab bug fixes | 🔸 | Ready to start | - PARTIALLY REFACTORED; NEED MORE WORK: make Most Common Tokens less fat and give more space to Historical vs Live Holdings Analysis; FIgure out how to show which ones are the wallets holding specific token in Most Common Tokens - current tooltip is idiotic and we can't see the wallets themselves.  Strongest Convergences is awful with white background and white wallet; Wallet Pairs seems endless, it should be contained earlier on, around how much the top 10 tokens might expand. currently is scrolling for several pages ..
+
+Something is doing several enrichments, we see these logs: 
+
+[DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 0 tokens processed out of 1 requested
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:43:38    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=1, refresh=1
+ [DexscreenerService] Pre-filter: After scam filter - 1 tokens remain (0 filtered as scam)
+ [DexscreenerService] DexScreener progress: 200.0% (1/1 tokens)
+ [DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 1 tokens processed out of 1 requested
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:43:40    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=0, refresh=0
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:43:43    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=0, refresh=0
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:44:27    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=1, refresh=1
+ [DexscreenerService] Pre-filter: After scam filter - 1 tokens remain (0 filtered as scam)
+ [DexscreenerService] DexScreener progress: 200.0% (1/1 tokens)
+ [DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 1 tokens processed out of 1 requested
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:44:29    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=0, refresh=0
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:44:32    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=0, refresh=0
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:45:02    WARN [TokenInfoService] Token enrichment plan: total=39, new=0, stale=39, refresh=39
+ [DexscreenerService] Pre-filter: After scam filter - 39 tokens remain (0 filtered as scam)
+ [DexscreenerService] DexScreener progress: 100.0% (39/39 tokens)
+ [DexscreenerService] 🔍 DexScreener: Final results - 2 API calls made, 39 tokens processed out of 39 requested
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:45:04    WARN [TokenInfoService] Token enrichment plan: total=39, new=0, stale=0, refresh=0
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:45:07    WARN [TokenInfoService] Token enrichment plan: total=39, new=0, stale=0, refresh=0
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:52:44    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=1, refresh=1
+ [DexscreenerService] Pre-filter: After scam filter - 1 tokens remain (0 filtered as scam)
+0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:52:44    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=1, refresh=1
+ [DexscreenerService] Pre-filter: After scam filter - 1 tokens remain (0 filtered as scam)
+ [DexscreenerService] DexScreener progress: 200.0% (1/1 tokens)
+ [DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 1 tokens processed out of 1 requested
+ [DexscreenerService] DexScreener progress: 200.0% (1/1 tokens)
+ [DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 1 tokens processed out of 1 requested
+
 
 
 <details>
