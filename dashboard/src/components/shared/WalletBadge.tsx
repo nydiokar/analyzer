@@ -17,6 +17,7 @@ import { Copy, ExternalLink, Info, Wallet, User, Star, StarOff, Edit2 } from "lu
 import { memo, MouseEvent } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { FavoriteWallet, type KnownWalletType } from "@/types/api";
+import { useFavorites } from "@/hooks/useFavorites";
 
 export interface WalletMetrics {
   totalBuys?: number | null;
@@ -36,6 +37,12 @@ interface WalletBadgeProps {
   variant?: WalletBadgeVariant;
   showMetrics?: boolean;
   showActions?: boolean;
+  /** Fine-grained control over which action icons to show. Only applies when showActions is true or undefined. */
+  visibleActions?: {
+    copy?: boolean;
+    solscan?: boolean;
+    profile?: boolean;
+  };
   isFavorite?: boolean;
   onFavoriteToggle?: () => void;
   onEdit?: () => void;
@@ -132,19 +139,25 @@ const WalletBadge = memo(({
   variant = "inline",
   showMetrics = true,
   showActions = true,
+  visibleActions = { copy: true, solscan: true, profile: true },
   isFavorite = false,
   onFavoriteToggle,
   onEdit,
-  favoriteData,
+  favoriteData: externalFavoriteData,
   knownType,
   knownLabel,
 }: WalletBadgeProps) => {
+  // Fetch favorites internally if not provided externally
+  const { favorites } = useFavorites();
+  const internalFavoriteData = favorites.find(fav => fav.address === address);
+  const favoriteData = externalFavoriteData ?? internalFavoriteData;
+
   // Normalize knownType - accept string for flexibility, validate internally
   const normalizedKnownType: KnownWalletType | undefined = knownType &&
     (['BURN', 'LP', 'PROTOCOL', 'EXCHANGE', 'SYSTEM'] as const).includes(knownType as KnownWalletType)
       ? (knownType as KnownWalletType)
       : undefined;
-  
+
   // Check if this is a known/system wallet that shouldn't show trading metrics
   const isKnownWallet = Boolean(normalizedKnownType || knownLabel);
   const shouldDimMetrics = isKnownWallet;
@@ -388,26 +401,28 @@ const WalletBadge = memo(({
               )}
 
               {/* Copy icon */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleCopyAddress}
-                    className={cn(
-                      "inline-flex items-center gap-0.5 rounded-md bg-background/70 px-1.5 py-0.5 text-foreground transition hover:bg-accent/70 flex-shrink-0",
-                      resolvedSize.metric
-                    )}
-                  >
-                    <Copy className={cn(resolvedSize.icon)} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Copy address</p>
-                </TooltipContent>
-              </Tooltip>
+              {showActions && visibleActions.copy && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleCopyAddress}
+                      className={cn(
+                        "inline-flex items-center gap-0.5 rounded-md bg-background/70 px-1.5 py-0.5 text-foreground transition hover:bg-accent/70 flex-shrink-0",
+                        resolvedSize.metric
+                      )}
+                    >
+                      <Copy className={cn(resolvedSize.icon)} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Copy address</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
 
               {/* Solscan link */}
-              {showActions && (
+              {showActions && visibleActions.solscan && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
@@ -423,7 +438,7 @@ const WalletBadge = memo(({
               )}
 
               {/* Profile link */}
-              {showActions && (
+              {showActions && visibleActions.profile && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-6 w-6" asChild>

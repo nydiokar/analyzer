@@ -158,6 +158,7 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
                                                                     size="s"
                                                                     knownType={getWalletLabel(w)?.knownType}
                                                                     knownLabel={getWalletLabel(w)?.knownLabel}
+                                                                    visibleActions={{ copy: false, solscan: false, profile: true }}
                                                                 />
                                                             ))}
                                                         </div>

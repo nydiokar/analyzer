@@ -22,6 +22,12 @@ export interface TopHoldersResponse {
   mint: string;
   context: { slot: number; apiVersion?: string };
   holders: HolderWithLabel[];
+  supply?: {
+    amount: string;
+    decimals: number;
+    uiAmount: number | null;
+    uiAmountString: string;
+  };
 }
 
 @Injectable()
@@ -32,6 +38,15 @@ export class TokenHoldersService {
 
   async getTopHolders(mint: string, commitment?: string): Promise<TopHoldersResponse> {
     const rpcResult: GetTokenLargestAccountsResult = await this.heliusClient.getTokenLargestAccounts(mint, commitment);
+
+    // Fetch token supply for percentage calculations
+    let supply: { amount: string; decimals: number; uiAmount: number | null; uiAmountString: string } | undefined;
+    try {
+      const supplyResult = await this.heliusClient.getTokenSupply(mint, commitment);
+      supply = supplyResult.value;
+    } catch (error) {
+      this.logger.warn(`Failed to fetch token supply for ${mint}, percentages will not be available`, error);
+    }
 
     const tokenAccountPubkeys = rpcResult.value.map((v) => v.address);
 
@@ -129,6 +144,7 @@ export class TokenHoldersService {
       mint,
       context: rpcResult.context,
       holders: holdersWithLabels,
+      supply,
     };
   }
 }

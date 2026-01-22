@@ -141,10 +141,11 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
       <div className="border rounded-md flex-1 min-h-0 overflow-y-auto">
         <div className="min-w-full">
           {/* Minimal Header */}
-          <div className="sticky top-0 grid grid-cols-[24px_28px_1fr] gap-1 px-1.5 py-1 text-[10px] font-medium text-muted-foreground border-b bg-muted/90 backdrop-blur">
+          <div className="sticky top-0 grid grid-cols-[24px_28px_1fr_60px] gap-1 px-1.5 py-1 text-[10px] font-medium text-muted-foreground border-b bg-muted/90 backdrop-blur">
             <div></div>
             <div>#</div>
             <div>Wallet</div>
+            <div className="text-right">% Hold</div>
           </div>
 
           {/* Ultra Compact Rows */}
@@ -153,10 +154,15 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
             const checked = selectedAddresses.includes(key);
             const isUnknown = !h.ownerAccount;
 
+            // Calculate percentage of holdings using actual total supply from API
+            const totalSupply = holdersData?.supply?.uiAmount || 0;
+            const holderAmount = h.uiAmount || 0;
+            const percentHolding = totalSupply > 0 ? (holderAmount / totalSupply) * 100 : 0;
+
             return (
               <div
                 key={key}
-                className={`grid grid-cols-[24px_28px_1fr] items-center gap-1 px-1.5 py-1 border-b last:border-0 text-[10px] hover:bg-muted/30 transition-colors ${
+                className={`grid grid-cols-[24px_28px_1fr_60px] items-center gap-1 px-1.5 py-1 border-b last:border-0 text-[10px] hover:bg-muted/30 transition-colors ${
                   isUnknown ? 'opacity-50' : ''
                 }`}
               >
@@ -177,6 +183,9 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
                     variant="minimal"
                     showActions={false}
                   />
+                </div>
+                <div className="text-right font-mono text-[10px] font-medium">
+                  {percentHolding >= 0.01 ? `${percentHolding.toFixed(2)}%` : '<0.01%'}
                 </div>
               </div>
             );

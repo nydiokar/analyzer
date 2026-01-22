@@ -3,7 +3,7 @@
 import { useMemo, useEffect, useRef } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search, X } from 'lucide-react';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 
 interface SmartWalletInputProps {
@@ -123,9 +123,23 @@ export function SmartWalletInput({
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <label htmlFor="walletInput" className="text-sm font-medium">
-          Wallet Addresses
-        </label>
+        <div className="flex items-center justify-between">
+          <label htmlFor="walletInput" className="text-sm font-medium">
+            Wallet Addresses
+          </label>
+          {value && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onChange('')}
+              disabled={isAnalyzing}
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3 w-3 mr-1" />
+              Clear All
+            </Button>
+          )}
+        </div>
         <Textarea
           id="walletInput"
           placeholder="Paste wallet or token addresses&#10;Accepts: comma-separated, space-separated, or one per line&#10;Token addresses will show holder selection on the right"

@@ -470,6 +470,12 @@ export interface TopHoldersResponse {
   mint: string;
   context: { slot: number; apiVersion?: string };
   holders: TopHolderItem[];
+  supply?: {
+    amount: string;
+    decimals: number;
+    uiAmount: number | null;
+    uiAmountString: string;
+  };
 }
 
 // --- Exit Timing Tokens Response ---

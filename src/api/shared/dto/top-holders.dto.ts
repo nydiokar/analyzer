@@ -43,6 +43,17 @@ export class TopHoldersResponseDto {
 
   @ApiProperty({ type: () => [TopHolderItemDto] })
   holders: TopHolderItemDto[];
+
+  @ApiPropertyOptional({
+    type: () => Object,
+    description: 'Token supply information for percentage calculations'
+  })
+  supply?: {
+    amount: string;
+    decimals: number;
+    uiAmount: number | null;
+    uiAmountString: string;
+  };
 }
 
 

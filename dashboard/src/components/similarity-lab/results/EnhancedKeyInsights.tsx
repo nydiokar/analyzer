@@ -153,9 +153,21 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
 
         {/* Wallet Pair */}
         <div className="flex items-center justify-center gap-2 py-2 px-3 bg-muted/30 rounded">
-          <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} />
+          <WalletBadge
+            address={pair.walletA}
+            size="s"
+            knownType={labelA?.knownType}
+            knownLabel={labelA?.knownLabel}
+            visibleActions={{ copy: false, solscan: false, profile: true }}
+          />
           <div className="text-muted-foreground">↔</div>
-          <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} />
+          <WalletBadge
+            address={pair.walletB}
+            size="s"
+            knownType={labelB?.knownType}
+            knownLabel={labelB?.knownLabel}
+            visibleActions={{ copy: false, solscan: false, profile: true }}
+          />
         </div>
 
         {/* Overall Score Indicator */}
@@ -441,9 +453,9 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
         
         {/* Compact Wallet Pair */}
         <div className="flex items-center gap-2 mb-3 text-sm">
-          <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} />
+          <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
           <div className="text-muted-foreground">↔</div>
-          <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} />
+          <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
         </div>
         
         {/* Clean prominent insight */}
@@ -594,10 +606,10 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                 <TableRow className="border-border">
                   <TableHead className="text-sm font-semibold">Token</TableHead>
                   <TableHead className="text-right text-sm font-semibold">
-                    <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} />
+                    <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
                   </TableHead>
                   <TableHead className="text-right text-sm font-semibold">
-                    <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} />
+                    <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -671,7 +683,7 @@ PairDetail.displayName = 'PairDetail';
 export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsightsProps & { isLoading?: boolean }) => {
   const [sortKey, setSortKey] = useState<SortKey>('binaryScore');
   const [selectedPairId, setSelectedPairId] = useState<string | null>(null);
-  
+
   const walletLabels = useMemo(() => {
     const walletKeys = results.uniqueTokensPerWallet ? Object.keys(results.uniqueTokensPerWallet) : [];
     if (walletKeys.length === 0) {
