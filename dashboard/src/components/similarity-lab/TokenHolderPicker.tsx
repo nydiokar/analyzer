@@ -94,9 +94,9 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
   }
 
   return (
-    <div className="flex flex-col h-full space-y-2">
+    <div className="flex flex-col space-y-2 max-h-[400px]">
       {/* Compact Header */}
-      <div className="space-y-2">
+      <div className="space-y-2 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium"></span>
@@ -137,8 +137,8 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
         )}
       </div>
 
-      {/* Ultra Compact Holder Table */}
-      <div className="border rounded-md flex-1 overflow-y-auto">
+      {/* Ultra Compact Holder Table - Now Scrollable */}
+      <div className="border rounded-md flex-1 min-h-0 overflow-y-auto">
         <div className="min-w-full">
           {/* Minimal Header */}
           <div className="sticky top-0 grid grid-cols-[24px_28px_1fr] gap-1 px-1.5 py-1 text-[10px] font-medium text-muted-foreground border-b bg-muted/90 backdrop-blur">
@@ -173,6 +173,9 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
                     address={key}
                     knownType={h.knownType}
                     knownLabel={h.knownLabel}
+                    size="s"
+                    variant="minimal"
+                    showActions={false}
                   />
                 </div>
               </div>

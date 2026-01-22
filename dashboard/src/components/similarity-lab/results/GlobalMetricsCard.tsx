@@ -253,9 +253,9 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                           return (
                               <div key={index} className="card flex items-center justify-between px-2 py-1.5">
                                   <div className="flex items-center space-x-2">
-                                      <WalletBadge address={pair.walletA} knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} />
+                                      <WalletBadge address={pair.walletA} size="s" knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} />
                                       <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                                      <WalletBadge address={pair.walletB} knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} />
+                                      <WalletBadge address={pair.walletB} size="s" knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} />
                                   </div>
                                   <div className="flex items-center gap-2">
                                       <Badge className={`text-xs ${status.className}`}>

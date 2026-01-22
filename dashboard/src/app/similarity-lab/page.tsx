@@ -553,7 +553,7 @@ export default function AnalysisLabPage() {
 
         {/* Main Input Card - Side by Side Layout */}
         <Card className="max-w-6xl mx-auto p-4">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_380px] gap-4">
             {/* Left: Wallet Input */}
             <SmartWalletInput
               value={inputText}

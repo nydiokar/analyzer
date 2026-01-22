@@ -144,9 +144,9 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
               <div className="flex items-center gap-3">
                 <span className="text-xs text-muted-foreground font-mono w-6">#{index + 1}</span>
                 <div className="flex items-center gap-2">
-                  <WalletBadge address={connection.walletA} knownType={getWalletLabel(connection.walletA)?.knownType} knownLabel={getWalletLabel(connection.walletA)?.knownLabel} />
+                  <WalletBadge address={connection.walletA} size="s" knownType={getWalletLabel(connection.walletA)?.knownType} knownLabel={getWalletLabel(connection.walletA)?.knownLabel} />
                   <span className="text-muted-foreground text-sm">shares with</span>
-                  <WalletBadge address={connection.walletB} knownType={getWalletLabel(connection.walletB)?.knownType} knownLabel={getWalletLabel(connection.walletB)?.knownLabel} />
+                  <WalletBadge address={connection.walletB} size="s" knownType={getWalletLabel(connection.walletB)?.knownType} knownLabel={getWalletLabel(connection.walletB)?.knownLabel} />
                 </div>
               </div>
               <Badge 

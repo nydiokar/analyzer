@@ -45,7 +45,7 @@ export function SmartWalletInput({
   }, [wallets]);
 
   // Track last detected token to prevent re-triggering onTokenDetected
-  const lastDetectedTokenRef = useRef<string | undefined>();
+  const lastDetectedTokenRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (detectedToken && detectedToken !== lastDetectedTokenRef.current && onTokenDetected) {
@@ -132,8 +132,8 @@ export function SmartWalletInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={isAnalyzing}
-          className="min-h-[320px] font-mono text-sm resize-y"
-          rows={15}
+          className="min-h-[180px] max-h-[400px] font-mono text-sm resize-y"
+          rows={8}
         />
       </div>
 

@@ -153,9 +153,9 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
 
         {/* Wallet Pair */}
         <div className="flex items-center justify-center gap-2 py-2 px-3 bg-muted/30 rounded">
-          <WalletBadge address={pair.walletA} className="text-xs" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} />
+          <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} />
           <div className="text-muted-foreground">↔</div>
-          <WalletBadge address={pair.walletB} className="text-xs" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} />
+          <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} />
         </div>
 
         {/* Overall Score Indicator */}
@@ -441,9 +441,9 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
         
         {/* Compact Wallet Pair */}
         <div className="flex items-center gap-2 mb-3 text-sm">
-          <WalletBadge address={pair.walletA} className="text-xs" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} />
+          <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} />
           <div className="text-muted-foreground">↔</div>
-          <WalletBadge address={pair.walletB} className="text-xs" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} />
+          <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} />
         </div>
         
         {/* Clean prominent insight */}
@@ -594,10 +594,10 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                 <TableRow className="border-border">
                   <TableHead className="text-sm font-semibold">Token</TableHead>
                   <TableHead className="text-right text-sm font-semibold">
-                    <WalletBadge address={pair.walletA} knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} />
+                    <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} />
                   </TableHead>
                   <TableHead className="text-right text-sm font-semibold">
-                    <WalletBadge address={pair.walletB} knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} />
+                    <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} />
                   </TableHead>
                 </TableRow>
               </TableHeader>

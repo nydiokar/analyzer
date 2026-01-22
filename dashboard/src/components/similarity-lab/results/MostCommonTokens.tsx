@@ -155,6 +155,7 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
                                                                 <WalletBadge
                                                                     key={w}
                                                                     address={w}
+                                                                    size="s"
                                                                     knownType={getWalletLabel(w)?.knownType}
                                                                     knownLabel={getWalletLabel(w)?.knownLabel}
                                                                 />

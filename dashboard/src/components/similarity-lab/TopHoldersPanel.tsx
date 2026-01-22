@@ -181,6 +181,9 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
                         address={h.ownerAccount || h.tokenAccount}
                         knownType={h.knownType}
                         knownLabel={h.knownLabel}
+                        size="s"
+                        variant="minimal"
+                        showActions={false}
                       />
                     </div>
                     <div className="text-right tabular-nums">{formatAmount(h.uiAmountString, h.amount)}</div>
