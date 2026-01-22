@@ -588,6 +588,27 @@ export default function AnalysisLabPage() {
           )}
         </Card>
 
+        {/* Analysis Progress Indicator */}
+        {jobStatuses.analysis === 'running' && (
+          <Card className="max-w-6xl mx-auto p-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Analyzing Similarities...</h3>
+                <span className="text-sm font-mono text-muted-foreground">{jobProgress.toFixed(0)}%</span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{ width: `${jobProgress}%` }}
+                />
+              </div>
+              {syncMessage && (
+                <p className="text-xs text-muted-foreground">{syncMessage}</p>
+              )}
+            </div>
+          </Card>
+        )}
+
         {/* Results Display */}
         {analysisResult && (
           <MemoizedSimilarityResultDisplay

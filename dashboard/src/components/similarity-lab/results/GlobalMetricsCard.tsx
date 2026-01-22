@@ -77,14 +77,15 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
     const avgSim = metrics.averageSimilarity > 1 ? metrics.averageSimilarity / 100 : metrics.averageSimilarity;
     const similarityStatus = getSimilarityStatus(avgSim);
 
-    const capitalScores = pairwiseSimilarities.map(p => p.capitalScore);
-    const sortedCapitalScores = [...capitalScores].sort((a, b) => a - b);
-    const minScore = sortedCapitalScores[0] ?? 0;
-    const maxScore = sortedCapitalScores[sortedCapitalScores.length - 1] ?? 0;
-    const mid = Math.floor(sortedCapitalScores.length / 2);
-    const medianScore = sortedCapitalScores.length % 2 === 0 ? (sortedCapitalScores[mid - 1] + sortedCapitalScores[mid]) / 2 : sortedCapitalScores[mid] ?? 0;
-    
-    const variance = capitalScores.reduce((acc, score) => acc + Math.pow(score - avgSim, 2), 0) / capitalScores.length;
+    // Use binaryScore (behavioral) for statistics since globalMetrics is now based on binary
+    const binaryScores = pairwiseSimilarities.map(p => p.binaryScore);
+    const sortedBinaryScores = [...binaryScores].sort((a, b) => a - b);
+    const minScore = sortedBinaryScores[0] ?? 0;
+    const maxScore = sortedBinaryScores[sortedBinaryScores.length - 1] ?? 0;
+    const mid = Math.floor(sortedBinaryScores.length / 2);
+    const medianScore = sortedBinaryScores.length % 2 === 0 ? (sortedBinaryScores[mid - 1] + sortedBinaryScores[mid]) / 2 : sortedBinaryScores[mid] ?? 0;
+
+    const variance = binaryScores.reduce((acc, score) => acc + Math.pow(score - avgSim, 2), 0) / binaryScores.length;
 
     const topPairs = [...pairwiseSimilarities]
       .sort((a, b) => ((b.capitalScore + b.binaryScore) / 2) - ((a.capitalScore + a.binaryScore) / 2))
@@ -158,7 +159,8 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
     });
     
     const totalPairs = pairwiseSimilarities.length;
-    const cumulativeCounts = capitalDist.map((sum => value => sum += value)(0));
+    // Use behavioral (binary) for cumulative since that's what the mean is based on
+    const cumulativeCounts = binaryDist.map((sum => value => sum += value)(0));
     const cumulativeLine = totalPairs > 0 ? cumulativeCounts.map(c => (c / totalPairs)) : [];
 
     const chartOption = {
@@ -202,8 +204,8 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                 icon={<User className="h-6 w-6" strokeWidth={1.5} />} 
                 tooltipContent="The total number of unique wallets included in this analysis."
               />
-              <StatCard 
-                title="Mean Capital Similarity" 
+              <StatCard
+                title="Mean Behavioral Similarity"
                 value={
                   <div className="flex items-center gap-2">
                     <span>{percentFormatter.format(avgSim)}</span>
@@ -212,9 +214,9 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                     </Badge>
                   </div>
                 }
-                icon={<Users className="h-6 w-6" strokeWidth={1.5} />} 
+                icon={<Users className="h-6 w-6" strokeWidth={1.5} />}
                 details={<>Median: {percentFormatter.format(medianScore)}<br/>Min: {percentFormatter.format(minScore)}, Max: {percentFormatter.format(maxScore)}</>}
-                tooltipContent="Average capital similarity score across all pairs. Higher value indicates more similar wallets pairs in the set."
+                tooltipContent="Average behavioral similarity (token overlap) across all wallet pairs. Higher values indicate wallets hold similar sets of tokens."
               />
               <StatCard 
                 title="Total Value Holdings" 
@@ -241,8 +243,8 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
               />
           </div>
           
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-1 flex flex-col">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="flex flex-col">
                   <h3 className="font-semibold mb-2 text-lg flex items-center flex-shrink-0">
                       <span>Top 5 Most Similar Pairs</span>
                   </h3>
@@ -252,16 +254,14 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                           const status = getSimilarityStatus(avgScore);
                           return (
                               <div key={index} className="card flex items-center justify-between px-2 py-1.5">
-                                  <div className="flex items-center space-x-2">
+                                  <div className="flex items-center gap-2 min-w-0 flex-1">
                                       <WalletBadge address={pair.walletA} size="s" knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-                                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                                      <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
                                       <WalletBadge address={pair.walletB} size="s" knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                      <Badge className={`text-xs ${status.className}`}>
+                                      <Badge className={`text-xs ml-1 shrink-0 ${status.className}`}>
                                           {status.label}
                                       </Badge>
-                                      <Badge variant="outline" className="font-semibold">
+                                      <Badge variant="outline" className="font-semibold text-xs shrink-0">
                                           {percentFormatter.format(avgScore)}
                                       </Badge>
                                   </div>
@@ -270,9 +270,9 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                       })}
                   </div>
               </div>
-              <div className="lg:col-span-2 flex flex-col">
-                   <h3 className="font-semibold mb-2 text-lg flex items-center flex-shrink-0">
-                      Similarity Score Distribution
+              <div className="flex flex-col">
+                   <h3 className="font-semibold mb-2 text-base flex items-center flex-shrink-0">
+                      Score Distribution
                       <TooltipProvider>
                           <Tooltip delayDuration={200}>
                               <TooltipTrigger asChild>
@@ -284,7 +284,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                           </Tooltip>
                       </TooltipProvider>
                   </h3>
-                  <div className="flex-grow h-72">
+                  <div className="flex-grow h-64">
                       <EChartComponent option={chartOption} style={{ height: '100%', width: '100%' }} />
                   </div>
               </div>

@@ -149,7 +149,7 @@ const WalletBadge = memo(({
 }: WalletBadgeProps) => {
   // Fetch favorites internally if not provided externally
   const { favorites } = useFavorites();
-  const internalFavoriteData = favorites.find(fav => fav.address === address);
+  const internalFavoriteData = favorites.find(fav => fav.walletAddress === address);
   const favoriteData = externalFavoriteData ?? internalFavoriteData;
 
   // Normalize knownType - accept string for flexibility, validate internally

@@ -96,6 +96,7 @@ interface PairCardProps {
   isSelected: boolean;
   onSelect: () => void;
   walletLabels?: CombinedSimilarityResult['walletLabels'];
+  uniqueTokensPerWallet?: Record<string, { binary: number; capital: number }>;
 }
 
 // Fix insight generation for low similarity pairs
@@ -113,77 +114,157 @@ const generateRealisticInsight = (pair: CombinedPairwiseSimilarity, overallScore
   }
 };
 
-// Simplified PairCard focusing on overall assessment
-const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLabels }: PairCardProps) => {
+// Simplified PairCard using SimilarityPairRibbon design language
+const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLabels, uniqueTokensPerWallet }: PairCardProps) => {
   const { insight, pair } = processedPair;
   const overallScore = calculateOverallScore(pair.binaryScore, pair.capitalScore);
   const scoreInfo = getScoreLevel(overallScore);
   const labelA = walletLabels?.[pair.walletA];
   const labelB = walletLabels?.[pair.walletB];
 
+  const uniqueTokensA = uniqueTokensPerWallet?.[pair.walletA]?.binary ?? 0;
+  const uniqueTokensB = uniqueTokensPerWallet?.[pair.walletB]?.binary ?? 0;
+
+  const overallPercent = overallScore * 100;
+  const behavioralPercent = pair.binaryScore * 100;
+  const capitalPercent = pair.capitalScore * 100;
+
+  function getScoreGradient(score: number): string {
+    if (score >= 0.7) return 'from-emerald-500/15 via-emerald-500/5 to-transparent';
+    if (score >= 0.5) return 'from-blue-500/15 via-blue-500/5 to-transparent';
+    if (score >= 0.3) return 'from-amber-500/15 via-amber-500/5 to-transparent';
+    return 'from-zinc-500/15 via-zinc-500/5 to-transparent';
+  }
+
+  function getScoreBarColor(score: number): string {
+    if (score >= 0.7) return 'bg-emerald-500';
+    if (score >= 0.5) return 'bg-blue-500';
+    if (score >= 0.3) return 'bg-amber-500';
+    return 'bg-zinc-500';
+  }
+
   return (
-    <Card 
-      className={cn(
-        "p-4 cursor-pointer transition-all duration-200 hover:bg-muted/30 border",
-        isSelected ? "ring-2 ring-blue-500 border-blue-500/50 bg-blue-500/5" : "border-border hover:border-border/70"
-      )}
-      onClick={onSelect}
-    >
-      <div className="space-y-3">
-        {/* Header: Insight Type & Overall Assessment */}
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded bg-muted/50">
-              {getInsightIcon(insight.type)}
+    <TooltipProvider delayDuration={150}>
+      <div
+        onClick={onSelect}
+        className={cn(
+          'group relative rounded-lg border overflow-hidden cursor-pointer',
+          'bg-gradient-to-r',
+          getScoreGradient(overallScore),
+          'transition-all duration-200',
+          isSelected
+            ? 'border-primary/60 ring-1 ring-inset ring-primary/40 shadow-sm'
+            : 'border-border/40 hover:border-border/70 hover:shadow-sm'
+        )}
+      >
+        {/* Main content */}
+        <div className="px-3 py-2.5 space-y-2.5">
+          {/* Header: Wallets + Overall Score + Insight Type */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs min-w-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className={cn("text-xs shrink-0 cursor-help", INSIGHT_COLORS[insight.type])}>
+                    {insight.type}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs max-w-xs">
+                  <p>{insight.text || generateRealisticInsight(pair, overallScore)}</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
-            <div>
-              <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>
-                {insight.type}
-              </Badge>
-              <div className={cn("text-xs mt-0.5 font-medium", scoreInfo.color)}>
-                {scoreInfo.level} Similarity
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className={cn('text-lg font-semibold tabular-nums cursor-help shrink-0', scoreInfo.color)}>
+                  {overallPercent.toFixed(0)}%
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="text-xs max-w-xs">
+                <p className="text-muted-foreground">Higher percentages - more similar investment patterns.</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Wallet Pair */}
+          <div className="flex items-center gap-1.5 text-xs">
+            <WalletBadge
+              address={pair.walletA}
+              size="s"
+              knownType={labelA?.knownType}
+              knownLabel={labelA?.knownLabel}
+              visibleActions={{ copy: false, solscan: false, profile: true }}
+            />
+            <span className="text-foreground/30 shrink-0">↔</span>
+            <WalletBadge
+              address={pair.walletB}
+              size="s"
+              knownType={labelB?.knownType}
+              knownLabel={labelB?.knownLabel}
+              visibleActions={{ copy: false, solscan: false, profile: true }}
+            />
+          </div>
+
+          {/* Score bars */}
+          <div className="flex gap-3">
+            {/* Behavioral */}
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center justify-between text-[10px]">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-foreground/50 uppercase tracking-wide font-medium cursor-help">Behavior</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs max-w-xs">
+                    <p>Behavioral similarity based on shared tokens (asset overlap)</p>
+                  </TooltipContent>
+                </Tooltip>
+                <span className="tabular-nums text-foreground/70 font-medium">{behavioralPercent.toFixed(0)}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
+                <div
+                  className={cn('h-full rounded-full transition-all duration-300', getScoreBarColor(pair.binaryScore))}
+                  style={{ width: `${behavioralPercent}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Capital */}
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center justify-between text-[10px]">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-foreground/50 uppercase tracking-wide font-medium cursor-help">Capital</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs max-w-xs">
+                    <p>Capital similarity based on portfolio allocation weights</p>
+                  </TooltipContent>
+                </Tooltip>
+                <span className="tabular-nums text-foreground/70 font-medium">{capitalPercent.toFixed(0)}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
+                <div
+                  className={cn('h-full rounded-full transition-all duration-300', getScoreBarColor(pair.capitalScore))}
+                  style={{ width: `${capitalPercent}%` }}
+                />
               </div>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold">{(overallScore * 100).toFixed(0)}%</div>
-            <div className="text-xs text-muted-foreground">Overall</div>
-          </div>
-        </div>
 
-        {/* Wallet Pair */}
-        <div className="flex items-center justify-center gap-2 py-2 px-3 bg-muted/30 rounded">
-          <WalletBadge
-            address={pair.walletA}
-            size="s"
-            knownType={labelA?.knownType}
-            knownLabel={labelA?.knownLabel}
-            visibleActions={{ copy: false, solscan: false, profile: true }}
-          />
-          <div className="text-muted-foreground">↔</div>
-          <WalletBadge
-            address={pair.walletB}
-            size="s"
-            knownType={labelB?.knownType}
-            knownLabel={labelB?.knownLabel}
-            visibleActions={{ copy: false, solscan: false, profile: true }}
-          />
-        </div>
-
-        {/* Overall Score Indicator */}
-        <div className="space-y-1">
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div 
-              className={cn("h-full transition-all duration-500", scoreInfo.bgColor)}
-              style={{ width: `${Math.min(overallScore * 100, 100)}%` }}
-            />
-          </div>
-          <div className="text-xs text-center text-muted-foreground">
-            {pair.sharedTokens.length} shared tokens
+          {/* Shared tokens footer with connected context */}
+          <div className="text-[10px] pt-0.5 text-center">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-foreground/50 cursor-help">
+                  <span className="font-semibold text-foreground/70">{pair.sharedTokens.length}</span> shared <span className="text-foreground/30 mx-1">of</span> <span className="font-semibold text-foreground/60">{uniqueTokensA}</span> & <span className="font-semibold text-foreground/60">{uniqueTokensB}</span> total
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs max-w-xs">
+                <p className="text-muted-foreground">{pair.sharedTokens.length} tokens held by both wallets out of {uniqueTokensA} and {uniqueTokensB} total tokens respectively</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>
-    </Card>
+    </TooltipProvider>
   );
 });
 PairCard.displayName = 'PairCard';
@@ -286,17 +367,19 @@ interface PairGridProps {
   sortKey: SortKey;
   selectedPairId: string | null;
   onSelectPair: (pairId: string) => void;
+  walletLabels?: CombinedSimilarityResult['walletLabels'];
+  uniqueTokensPerWallet?: Record<string, { binary: number; capital: number }>;
 }
 
-const PairGrid = memo(({ processedPairs, sortKey, selectedPairId, onSelectPair, isLoading }: PairGridProps & { isLoading?: boolean }) => {
+const PairGrid = memo(({ processedPairs, sortKey, selectedPairId, onSelectPair, walletLabels, uniqueTokensPerWallet, isLoading }: PairGridProps & { isLoading?: boolean }) => {
   if (isLoading) {
     return <PairGridSkeleton />;
   }
 
   return (
-    <div className="space-y-2">
-      <h3 className="text-lg font-semibold">Wallet Pairs</h3>
-      <ScrollArea className="h-[60vh] lg:h-[600px]">
+    <div className="flex flex-col h-full">
+      <h3 className="text-lg font-semibold mb-2">Wallet Pairs</h3>
+      <ScrollArea className="flex-1">
         <div className="grid gap-3 pr-4">
           {processedPairs.map((processedPair) => {
             const pairId = generatePairId(processedPair.pair.walletA, processedPair.pair.walletB);
@@ -307,6 +390,8 @@ const PairGrid = memo(({ processedPairs, sortKey, selectedPairId, onSelectPair, 
                 sortKey={sortKey}
                 isSelected={selectedPairId === pairId}
                 onSelect={() => onSelectPair(pairId)}
+                walletLabels={walletLabels}
+                uniqueTokensPerWallet={uniqueTokensPerWallet}
               />
             );
           })}
@@ -423,181 +508,19 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
   }, [sharedTokens, capitalAllocation, sortKey]);
 
   return (
-    <div className="space-y-4">
-      {/* Compact Header Section */}
-      <Card className="p-4 border-2 border-slate-600">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <h2 className="text-lg font-semibold mb-2">Pair Analysis</h2>
-            <Badge variant="outline" className={cn("text-xs", INSIGHT_COLORS[insight.type])}>
-              {insight.type}
-            </Badge>
-          </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold">{(overallScore * 100).toFixed(0)}%</div>
-            <div className={cn("text-sm", overallScoreInfo.color)}>{overallScoreInfo.level}</div>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="text-xs text-muted-foreground mt-1 cursor-help border-b border-dotted">
-                    Overall Similarity
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
-                  <p>Weighted combination of assets (40%) and capital (60%) similarity scores. Higher percentages indicate more similar investment patterns.</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-        </div>
-        
-        {/* Compact Wallet Pair */}
-        <div className="flex items-center gap-2 mb-3 text-sm">
-          <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-          <div className="text-muted-foreground">↔</div>
-          <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-        </div>
-        
-        {/* Clean prominent insight */}
-        <div className="bg-muted/30 border-2 border-slate-600 rounded-lg p-4 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-blue-500 to-emerald-500 rounded-l-lg"></div>
-          <p className="text-base text-foreground font-semibold leading-relaxed pl-3">
-            {realisticInsight}
-          </p>
-        </div>
-      </Card>
-
-      {/* Enhanced Similarity Breakdown with Capital Color Coding */}
-      <Card className="p-6 border-2 border-slate-600">
-        <h3 className="text-xl font-semibold mb-6">Similarity Breakdown</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Behavioral Score */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                <span className="text-base font-semibold">Behavioral</span>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-blue-400">{(binaryScore * 100).toFixed(0)}%</div>
-                <div className={cn("text-sm font-medium", binaryScoreInfo.color)}>{binaryScoreInfo.level}</div>
-              </div>
-            </div>
-            
-            <div className="h-3 bg-muted rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-blue-500 transition-all duration-300"
-                style={{ width: `${Math.min(binaryScore * 100, 100)}%` }}
-              />
-            </div>
-            
-            <div className="bg-muted/30 rounded-lg p-3 text-sm">
-              <div className="text-muted-foreground">
-                <strong>{binarySharedTokenCount} shared tokens / {totalUniqueBinaryTokens} unique tokens</strong> 
-                <br />
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-help border-b border-dotted">
-                        Portfolio overlap: <span className={cn(
-                          "font-mono",
-                          sharedBehavioralPctA >= 60 ? "text-blue-300 font-bold" : ""
-                        )}>{sharedBehavioralPctA.toFixed(1)}%</span> & <span className={cn(
-                          "font-mono",
-                          sharedBehavioralPctB >= 60 ? "text-blue-300 font-bold" : ""
-                        )}>{sharedBehavioralPctB.toFixed(1)}%</span>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-sm">
-                      <p>
-                        Portfolio overlap shows what percentage of each wallet&apos;s invested capital is in these shared tokens
-                        (<strong>{totalBinaryTokensA}</strong> and <strong>{totalBinaryTokensB}</strong> tokens respectively).
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            </div>
-          </div>
-
-          {/* Enhanced Capital Score with Color Coding */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 bg-emerald-500 rounded-full"></div>
-                <span className="text-base font-semibold">Capital</span>
-              </div>
-              <div className="text-right">
-                <div className={cn(
-                  "text-2xl font-bold",
-                  capitalScore >= 0.6 ? "text-emerald-300" : "text-emerald-400"
-                )}>{(capitalScore * 100).toFixed(0)}%</div>
-                <div className={cn("text-sm font-medium", capitalScoreInfo.color)}>{capitalScoreInfo.level}</div>
-              </div>
-            </div>
-            
-            <div className="h-3 bg-muted rounded-full overflow-hidden">
-              <div 
-                className={cn(
-                  "h-full transition-all duration-300",
-                  capitalScore >= 0.6 ? "bg-emerald-400" : "bg-emerald-500"
-                )}
-                style={{ width: `${Math.min(capitalScore * 100, 100)}%` }}
-              />
-            </div>
-            
-            <div className="bg-muted/30 rounded-lg p-3 text-sm">
-              <div className="text-muted-foreground">
-              <strong>{capitalSharedTokenCount} shared positions / {totalUniqueCapitalTokens} unique positions</strong> 
-              <br />
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-help border-b border-dotted">
-                        Capital overlap: <span className={cn(
-                          "font-mono",
-                          capitalOverlapPctA >= 60 ? "text-emerald-200 font-bold" : ""
-                        )}>{capitalOverlapPctA.toFixed(1)}%</span> & <span className={cn(
-                          "font-mono", 
-                          capitalOverlapPctB >= 60 ? "text-emerald-200 font-bold" : ""
-                        )}>{capitalOverlapPctB.toFixed(1)}%</span>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-sm">
-                      <p>
-                        Capital overlap shows what percentage of each wallet&apos;s capital is allocated into these shared tokens
-                        (<strong>{totalCapitalTokensA}</strong> and <strong>{totalCapitalTokensB}</strong> tokens respectively).
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/* Shared Tokens Table with Local Sort Controls */}
-      {sortedSharedTokens.length > 0 && (
-        <Card className="p-6 border-2 border-slate-600">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-4">
-              <h3 className="text-xl font-semibold">Top 10 Shared Tokens</h3>
-              {/* Local Sort Controls */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Sort by:</span>
-                <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-auto">
-                  <TabsList className="h-8 p-1 bg-muted/50">
-                    <TabsTrigger value="binaryScore" className="text-xs px-3 py-1">Assets</TabsTrigger>
-                    <TabsTrigger value="capitalScore" className="text-xs px-3 py-1">Capital</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-              </div>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              {sharedTokens.length}/{Math.max(totalUniqueBinaryTokens, totalUniqueCapitalTokens)} tokens analyzed
-            </div>
+    <div className="space-y-3">
+      {/* ONLY the Shared Tokens Table - everything else is already on the left */}
+      {sortedSharedTokens.length > 0 ? (
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold">Shared Tokens Breakdown</h3>
+            {/* Local Sort Controls */}
+            <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-auto">
+              <TabsList className="h-7 p-0.5 bg-muted/50">
+                <TabsTrigger value="binaryScore" className="text-xs px-2 py-1">Assets</TabsTrigger>
+                <TabsTrigger value="capitalScore" className="text-xs px-2 py-1">Capital</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
           
           <div className="rounded-lg border border-border overflow-hidden">
@@ -673,6 +596,10 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
             </Table>
           </div>
         </Card>
+      ) : (
+        <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-border rounded-lg">
+          <p className="text-sm text-muted-foreground">No shared tokens to display</p>
+        </div>
       )}
     </div>
   );
@@ -773,23 +700,25 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
             <p className="text-muted-foreground">No significant pairs identified based on the current thresholds (score &gt; 0.1).</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[600px]">
             {/* Master: Pair Grid */}
-            <div className="lg:col-span-5">
+            <div className="lg:col-span-5 flex flex-col">
               <PairGrid
                 processedPairs={processedPairs}
                 sortKey={sortKey}
                 selectedPairId={selectedPairId}
                 onSelectPair={setSelectedPairId}
+                walletLabels={results.walletLabels}
+                uniqueTokensPerWallet={results.uniqueTokensPerWallet}
                 isLoading={false}
               />
             </div>
-            
+
             {/* Detail: Selected Pair Analysis */}
             <div className="lg:col-span-7">
-              <PairDetail 
-                processedPair={selectedPair} 
-                results={results} 
+              <PairDetail
+                processedPair={selectedPair}
+                results={results}
                 sortKey={sortKey}
                 setSortKey={setSortKey}
                 isLoading={false}

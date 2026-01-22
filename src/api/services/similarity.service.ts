@@ -121,7 +121,7 @@ export class SimilarityApiService {
             const combinedResults: CombinedSimilarityResult = {
                 vectorTypeUsed: 'combined',
                 pairwiseSimilarities: binaryResults.pairwiseSimilarities.map(binaryPair => {
-                    const capitalPair = capitalResults.pairwiseSimilarities.find(p => 
+                    const capitalPair = capitalResults.pairwiseSimilarities.find(p =>
                         (p.walletA === binaryPair.walletA && p.walletB === binaryPair.walletB) ||
                         (p.walletA === binaryPair.walletB && p.walletB === binaryPair.walletA)
                     );
@@ -138,7 +138,7 @@ export class SimilarityApiService {
                         capitalScore: capitalPair?.similarityScore || 0,
                         sharedTokens: binaryPair.sharedTokens.map(t => ({ mint: t.mint })),
                         capitalAllocation: capitalAllocation || {},
-                        
+
                         binarySharedTokenCount: binaryPair.sharedTokenCount,
                         binaryUniqueTokenCountA: binaryPair.uniqueTokenCountA,
                         binaryUniqueTokenCountB: binaryPair.uniqueTokenCountB,
@@ -148,7 +148,7 @@ export class SimilarityApiService {
                         capitalUniqueTokenCountB: capitalPair?.uniqueTokenCountB || 0,
                     };
                 }),
-                globalMetrics: capitalResults.globalMetrics,
+                globalMetrics: binaryResults.globalMetrics,
                 uniqueTokensPerWallet: combinedUniqueTokens,
                 sharedTokenCountsMatrix: capitalResults.sharedTokenCountsMatrix,
                 jaccardSimilarityMatrix: capitalResults.jaccardSimilarityMatrix,
