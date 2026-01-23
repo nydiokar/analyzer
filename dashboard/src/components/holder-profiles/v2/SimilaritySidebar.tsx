@@ -1,7 +1,6 @@
 import { useMemo, useEffect } from 'react';
 import { Loader2, RefreshCw, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { SimilarityPairRibbon, type SimilarityPairData } from './SimilarityPairRibbon';
 import { ClusterIndicator } from './ClusterIndicator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';

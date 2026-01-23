@@ -172,7 +172,7 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
             {duplicateWarning && (
               <div className="pl-[112px]">
                 <p className="text-xs text-amber-600 dark:text-amber-500 animate-in fade-in duration-200">
-                  Collection "{formData.newCollection.trim()}" already exists
+                  Collection &quot;{formData.newCollection.trim()}&quot; already exists
                 </p>
               </div>
             )}
@@ -195,7 +195,7 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
 
             {/* Hint Text */}
             <p className="text-xs text-muted-foreground pl-[112px]">
-              Organize your tracked wallets into collections (e.g., "Main Portfolio", "Watchlist", "Research")
+              Organize your tracked wallets into collections (e.g., &quot;Main Portfolio&quot;, &quot;Watchlist&quot;, &quot;Research&quot;)
             </p>
           </div>
         </div>
@@ -205,7 +205,7 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
           <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
             <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
             <AlertDescription className="text-sm text-amber-800 dark:text-amber-300">
-              <p className="font-medium mb-2">You have unsaved collection text: "{formData.newCollection.trim()}"</p>
+              <p className="font-medium mb-2">You have unsaved collection text: &quot;{formData.newCollection.trim()}&quot;</p>
               <p className="text-xs mb-3">Did you forget to click the Add button?</p>
               <div className="flex gap-2">
                 <Button

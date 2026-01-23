@@ -1,4 +1,4 @@
-import { SpeedCategory, FlowPattern, StrategyType, type KnownWalletType } from './api';
+import { SpeedCategory, FlowPattern, StrategyType } from './api';
 
 export interface DiscoverWalletMetrics {
   realizedPnl?: number | null;

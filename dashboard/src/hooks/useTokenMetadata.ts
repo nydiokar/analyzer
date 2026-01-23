@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { fetcher } from '@/lib/fetcher';
 import { CACHE_DURATIONS } from '@/lib/swr-config';
 interface TokenMetadata {

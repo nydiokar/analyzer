@@ -173,7 +173,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
                 {showForgotPassword && (
                   <div className="mt-4 p-4 border border-slate-700 rounded-lg bg-slate-800/50">
                     <p className="text-sm text-slate-300 mb-3">
-                      Enter your email address and we'll send you a link to reset your password.
+                      Enter your email address and we&apos;ll send you a link to reset your password.
                     </p>
                     <Button
                       type="button"

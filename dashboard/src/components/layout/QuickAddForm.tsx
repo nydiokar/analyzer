@@ -226,7 +226,7 @@ const QuickAddForm = React.memo(({
             </div>
             {duplicateWarning && (
               <p className="text-xs text-amber-600 dark:text-amber-500 animate-in fade-in duration-200">
-                Collection "{formData.newCollection.trim()}" already exists
+                Collection &quot;{formData.newCollection.trim()}&quot; already exists
               </p>
             )}
           </div>

@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Copy, ExternalLink, Info, Wallet, User, Star, StarOff, Edit2 } from "lucide-react";
+import { Copy, ExternalLink, Info, Wallet, User, Star, Edit2 } from "lucide-react";
 import { memo, MouseEvent } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { FavoriteWallet, type KnownWalletType } from "@/types/api";

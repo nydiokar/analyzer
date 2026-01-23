@@ -4,7 +4,6 @@ import React, { useMemo } from "react";
 import { AlertTriangle, CalendarDays, RefreshCcw, SearchX, ShieldAlert } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
-import { Metric } from "@/components/ui/metric";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";

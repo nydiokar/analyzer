@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { PnlOverviewResponse, PnlOverviewResponseData } from '@/types/api'; 
-import { useToast } from "@/hooks/use-toast";
 import { fetcher } from '@/lib/fetcher';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { HelpCircle, TrendingUp, AlertTriangle, Info, SearchX } from "lucide-react";

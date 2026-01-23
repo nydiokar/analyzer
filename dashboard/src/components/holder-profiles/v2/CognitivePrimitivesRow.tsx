@@ -1,7 +1,6 @@
 import type { HolderProfile } from '../../holder-profiles/types';
 import { CognitiveMetricCard } from './CognitiveMetricCard';
 import { getCognitivePrimitives } from './utils/cognitive-primitives';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface Props {
   profiles: HolderProfile[];

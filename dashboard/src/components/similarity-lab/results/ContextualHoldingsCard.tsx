@@ -9,7 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from "@/components/ui/button";
 import { RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useMemo, useCallback } from 'react';
+import { useCallback } from 'react';
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { TokenHoldingRow } from './TokenHoldingRow'; // Import the new component
 

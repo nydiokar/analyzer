@@ -1,6 +1,5 @@
 import type { HolderProfile } from '../../../holder-profiles/types';
-import { getCognitivePrimitives, getSpeedPrimitive, getConvictionPrimitive, getConsistencyPrimitive } from './cognitive-primitives';
-import { getDominantBehavior } from './formatters';
+import { getSpeedPrimitive, getConsistencyPrimitive } from './cognitive-primitives';
 
 export interface OutcomeVerdict {
   verdict: string;

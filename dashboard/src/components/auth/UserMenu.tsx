@@ -78,7 +78,7 @@ export function UserMenu({ className }: UserMenuProps) {
 
           <DropdownMenuItem disabled className="cursor-not-allowed opacity-50">
             <Sparkles className="w-4 h-4 mr-2" />
-            What's New
+            What&apos;s New
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />

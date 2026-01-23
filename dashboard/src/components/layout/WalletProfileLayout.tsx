@@ -10,16 +10,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import EmptyState from '@/components/shared/EmptyState'
 import {
-  CopyIcon,
-  WalletIcon,
   ListChecks,      // Token Performance
   Calculator,      // Account Stats & PNL
   Users,           // Behavioral Patterns
   FileText,        // Notes
-  RefreshCw,       // Refresh button
-  Star,            // Favorites icon
-  FolderOpen,
-  Edit2,
+  RefreshCw,
   Bot,             // Edit icon for wallet data
   Loader2
 } from 'lucide-react' 
@@ -35,11 +30,11 @@ import { cn } from '@/lib/utils';
 import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
 import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse, DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '@/types/api';
-import { createCacheKey, invalidateWalletCache } from '@/lib/swr-config';
+import { createCacheKey } from '@/lib/swr-config';
 import { useFavorites } from '@/hooks/useFavorites';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { useJobProgress, UseJobProgressCallbacks } from '@/hooks/useJobProgress';
-import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData, JobQueueToStartData } from '@/types/websockets';
+import { JobProgressData, JobCompletionData, JobFailedData, JobQueueToStartData } from '@/types/websockets';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,7 +53,6 @@ import type { BehavioralPatternsTabProps } from '@/components/dashboard/Behavior
 import type { TokenPerformanceTabProps } from '@/components/dashboard/TokenPerformanceTab';
 import type { AccountStatsPnlTabProps } from '@/components/dashboard/AccountStatsPnlTab';
 import type { ReviewerLogTabProps } from '@/components/dashboard/ReviewerLogTab';
-import { ThemeToggleButton } from "@/components/theme-toggle-button";
 import { WalletEditForm } from './WalletEditForm';
 import QuickAddForm from './QuickAddForm';
 import LazyTabContent from './LazyTabContent';

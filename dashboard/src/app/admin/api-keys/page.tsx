@@ -215,7 +215,7 @@ export default function AdminApiKeysPage() {
                 New API Key Created!
               </CardTitle>
               <CardDescription>
-                Copy this key now - you won't be able to see it again!
+                Copy this key now - you won&apos;t be able to see it again!
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -234,7 +234,7 @@ export default function AdminApiKeysPage() {
                 variant="outline"
                 onClick={() => setNewApiKey(null)}
               >
-                I've copied the key
+                I&apos;ve copied the key
               </Button>
             </CardContent>
           </Card>

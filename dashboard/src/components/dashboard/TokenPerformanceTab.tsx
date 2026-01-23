@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, useEffect, memo, startTransition, useDeferredValue, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, memo, useDeferredValue, useRef } from 'react';
 import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { Card } from "@/components/ui/card";
@@ -26,13 +26,8 @@ import {
 } from '@tanstack/react-table';
 import {
   InfoIcon,
-  ArrowUpRight,
-  ArrowDownRight,
-  HelpCircle as HelpCircleIcon,
   ChevronUp,
   ChevronDown,
-  ChevronsLeft,
-  ChevronsRight,
   Loader2,
   RefreshCwIcon,
   BarChartBig,
