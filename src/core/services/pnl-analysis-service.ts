@@ -365,6 +365,10 @@ export class PnlAnalysisService {
             let profitableTradesCount = 0;
 
             for (const result of swapAnalysisResultsFromAnalyzer) {
+                // CRITICAL: Skip excluded mints (wrapped BTC, stablecoins, etc.) from volume/fee calculations
+                if (DEFAULT_EXCLUDED_MINTS.includes(result.tokenAddress)) {
+                    continue;
+                }
                 totalVolume += (result.totalSolSpent || 0) + (result.totalSolReceived || 0);
                 totalFees += result.totalFeesPaidInSol || 0;
             }
@@ -437,6 +441,11 @@ export class PnlAnalysisService {
                 }
             }
             for (const result of enrichedSwapAnalysisResults) {
+                // CRITICAL: Skip excluded mints (wrapped BTC, stablecoins, etc.) from ALL PnL calculations
+                if (DEFAULT_EXCLUDED_MINTS.includes(result.tokenAddress)) {
+                    continue;
+                }
+
                 if (result.isValuePreservation) {
                     if (result.estimatedPreservedValue) {
                         unrealizedPnl += result.estimatedPreservedValue;
@@ -512,6 +521,11 @@ export class PnlAnalysisService {
             }
 
             for (const result of enrichedSwapAnalysisResults) {
+                // CRITICAL: Skip excluded mints (wrapped BTC, stablecoins, etc.) from token counts
+                if (DEFAULT_EXCLUDED_MINTS.includes(result.tokenAddress)) {
+                    continue;
+                }
+
                 if (result.isValuePreservation) {
                     continue;
                 }
@@ -540,6 +554,8 @@ export class PnlAnalysisService {
             let advancedStatsData: PrismaAdvancedTradeStats | null = null;
             try {
                 const resultsForAdvancedStats = swapAnalysisResultsFromAnalyzer.filter(r => {
+                    // CRITICAL: Skip excluded mints (wrapped BTC, stablecoins, etc.) from advanced stats
+                    if (DEFAULT_EXCLUDED_MINTS.includes(r.tokenAddress)) return false;
                     if (r.isValuePreservation) return false;
                     const isMeaningful =
                         (r.totalSolSpent ?? 0) >= MIN_MEANINGFUL_SOL ||
