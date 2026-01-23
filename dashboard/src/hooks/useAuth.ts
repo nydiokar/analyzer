@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
-import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
 interface LoginCredentials {
   email: string;
   password: string;
@@ -72,7 +71,7 @@ export const useAuth = () => {
       toast.success('Account created successfully!');
       return true;
     } catch (error) {
-      console.error('Registration error:', getErrorMessage(error));
+      console.error('Registration error:', error);
       toast.error('Registration failed. Please check your connection and try again.');
       return false;
     } finally {
@@ -129,7 +128,7 @@ export const useAuth = () => {
       toast.success('Successfully logged in!');
       return true;
     } catch (error) {
-      console.error('Login error:', getErrorMessage(error));
+      console.error('Login error:', error);
       toast.error('Login failed. Please check your connection and try again.');
       return false;
     } finally {
@@ -175,7 +174,7 @@ export const useAuth = () => {
       authStore.updateUser(userData);
       return true;
     } catch (error) {
-      console.error('Failed to refresh user profile:', getErrorMessage(error));
+      console.error('Failed to refresh user profile:', error);
       return false;
     }
   }, [authStore]);
@@ -203,7 +202,7 @@ export const useAuth = () => {
       toast.success(data.message, { duration: 10000 });
       return true;
     } catch (error) {
-      console.error('Failed to request email verification:', getErrorMessage(error));
+      console.error('Failed to request email verification:', error);
       toast.error('Failed to request email verification. Please try again.');
       return false;
     }
@@ -236,7 +235,7 @@ export const useAuth = () => {
       await refreshUserProfile();
       return true;
     } catch (error) {
-      console.error('Failed to verify email:', getErrorMessage(error));
+      console.error('Failed to verify email:', error);
       toast.error('Failed to verify email. Please try again.');
       return false;
     }
@@ -273,7 +272,7 @@ export const useAuth = () => {
       });
       return true;
     } catch (error) {
-      console.error('Failed to request password reset:', getErrorMessage(error));
+      console.error('Failed to request password reset:', error);
       toast.error('Failed to request password reset. Please try again.');
       return false;
     } finally {
@@ -310,7 +309,7 @@ export const useAuth = () => {
       toast.success(data.message || 'Password reset successfully! Please log in with your new password.');
       return true;
     } catch (error) {
-      console.error('Failed to reset password:', getErrorMessage(error));
+      console.error('Failed to reset password:', error);
       toast.error('Failed to reset password. Please try again.');
       return false;
     } finally {

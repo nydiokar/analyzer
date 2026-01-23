@@ -1,6 +1,5 @@
 import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
-import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
 // Build auth headers from stores (JWT preferred, API key fallback)
 const buildAuthHeaders = () => {
   const authState = useAuthStore.getState();
@@ -115,7 +114,7 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     // Don't emit session expired events - let automatic refresh handle it
     // Only show user-facing error for non-auth issues
     if (res.status !== 401) {
-      console.error('API Error:', getErrorMessage(error));
+      console.error('API Error:', error);
     }
 
     throw error;
