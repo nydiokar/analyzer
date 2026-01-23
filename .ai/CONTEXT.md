@@ -1,10 +1,143 @@
 # Sova Intel - Project Context
 
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-17 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-23 • **Status:** 🟢 Active Development
 
 ---
 
 ## 🎯 Current Focus
+
+**Similarity Lab UX Overhaul - Frame-by-Frame Design Refinement**
+
+Working through Similarity Lab in detailed "frames" - treating each major section as a cohesive visual and functional unit. Each frame contains clusters of related components that must be understood holistically, not just as individual files.
+
+### Frame Structure (Current Work)
+
+**Frame 1: Wallet Input Area** ✅ In Progress
+- Textarea for wallet/token addresses
+- Token holder picker (top holders table)
+- Loading animation component
+- 10-15% side margins, 2-column layout (desktop), stacked (mobile)
+- **Progress:** ✅ Loading animation | ⏳ Table refinements pending
+
+**Frame 2: Global Analysis Metrics** 📝 Next
+- Wallets analyzed count
+- Mean similarity score
+- Top 5 most similar pairs
+- Score distribution visualization
+- **Status:** Ready to start - identify existing components first
+
+**Frame 3: Pair Insights** (renamed from "Key Insights & Pairwise Deep Dive") 📝 Planned
+- Wallet pairs list with improved color schema
+- Better alignment with score distribution
+- Deep dive functionality (currently only shows shared tokens)
+- Color contradictions to be resolved
+- **Issues:** Color schema alignment, enhance beyond shared tokens
+
+**Frame 4: Token Analysis** 📝 Planned
+- Most Common Tokens component
+- Historical vs Live Holdings (2 components, 1 frame)
+- **Goal:** Balanced horizontal space, proper visual separation
+
+**Frame 5: Contextual Holdings** 📝 Planned
+- Standalone contextual holdings component
+- **Goal:** Review & ensure consistency with other frames
+
+### Working Protocol for Frames
+
+**When discussing a frame, AI must:**
+1. Visualize the complete component cluster
+2. Understand spatial relationships and layout
+3. Think about the frame as a cohesive unit, not individual files
+4. Create ASCII/text visualization before implementing
+5. Confirm understanding if anything is unclear
+
+**Implementation approach:**
+- Transform existing code (don't multiply/create redundant)
+- Align explicitly with the vision
+- Check holistically - not components, but clusters
+- Maintain visual consistency across frames
+
+### Detailed Frame Progress Tracker
+
+**Frame 1: Wallet Input Area** - Status: 🔄 In Progress
+```
+Component Graph:
+page.tsx (lines 554-591)
+├─ Card container with flex layout
+│  ├─ LEFT: SmartWalletInput.tsx (lg:w-[500px])
+│  │  ├─ Label + "Clear All" button
+│  │  ├─ Textarea (min-h-[180px], font-mono, resize-y)
+│  │  └─ Status Row (status message + [ANALYZE] button)
+│  └─ RIGHT: TokenHolderPicker.tsx (when token detected)
+│     ├─ Token Badge header
+│     ├─ Selection controls (count + All/Clear)
+│     ├─ System wallet warning
+│     └─ Scrollable table (checkbox | # | Wallet | % Hold)
+└─ LOADING STATE (page.tsx lines 593-632)
+   └─ ✅ Modern pulsing animation with shimmer effect
+
+What's Done:
+✅ Modern loading animation (pulsing borders, shimmer, gradient)
+✅ Placeholder text verified ("Paste wallet or token addresses...")
+✅ Instructions display working (status message lines 74-108)
+✅ Checkbox column exists (TokenHolderPicker.tsx line 169)
+
+What's Pending:
+⏳ Table text size review (currently text-[10px], may be too small)
+⏳ Color schema refinement for better contrast
+⏳ Verify 10-15% side margins properly applied
+⏳ Test responsive behavior (desktop 2-column → mobile stacked)
+```
+
+**Frame 2: Global Analysis Metrics** - Status: 📝 Ready to Start
+```
+Next Steps:
+1. Locate SimilarityResultDisplay component
+2. Identify existing metric components (wallets analyzed, mean sim, etc.)
+3. Map current layout and visual structure
+4. Design improvements as cohesive unit
+5. Implement with styling consistent with Frame 1
+```
+
+**Frame 3: Pair Insights** - Status: 📝 Planned
+```
+Known Issues:
+- Color schema contradicts score distribution
+- Deep dive only shows shared tokens
+- Needs rename from "Key Insights & Pairwise Deep Dive"
+
+Next Steps:
+1. Identify pairwise comparison components
+2. Understand color logic mapping
+3. Design enhanced deep dive functionality
+4. Align colors with distribution visualization
+```
+
+**Frame 4: Token Analysis** - Status: 📝 Planned
+```
+Components:
+- Most Common Tokens
+- Historical vs Live Holdings
+
+Goal: Balance layout treating both as unified frame
+```
+
+**Frame 5: Contextual Holdings** - Status: 📝 Planned
+```
+Goal: Review standalone component for consistency
+```
+
+### Task List Reference
+
+The following tasks are created to track frame-by-frame work:
+- **Task #6:** METHODOLOGY - Frame-by-frame explanation (reference doc)
+- **Task #2:** Frame 1 - Complete refinements (table styling, margins, text size)
+- **Task #1:** Frame 2 - Design and implement Global Analysis Metrics
+- **Task #4:** Frame 3 - Redesign Pair Insights with better colors
+- **Task #5:** Frame 4 - Optimize Token Analysis layout
+- **Task #3:** Frame 5 - Review Contextual Holdings
+
+Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` to mark progress.
 
 ---
 
@@ -12,15 +145,16 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| 🔄 | Similarity Lab Frame 1: Wallet Input Area | 🔸 | Modern loading animation implemented, next: table styling refinement |
 | 🔄 | React hydration error in wallet profile | 🔹 | Radix Dialog aria-controls mismatch between SSR/client |
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
 | 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |
-| 🔄 | Most Common Tokens layout improvement | 🔹 | Reduce component width to give more space to Historical vs Live Holdings Analysis |
 | 📝 | Error logging cleanup audit | 🔸 | Build script to find remaining components showing full errors instead of using utility (HolderProfilesCacheService, Refresh prices cache, processors) |
 | 📝 | Holder Profiles bucket alignment verification | 🔸 | Verify WR/ROI + token lists working correctly after fixes |
 
 **Completed:**
+- ✅ Similarity Lab Frame 1: Modern pulsing loading animation (replaces generic progress bar)
 - ✅ Similarity Lab: Wallet visibility (white on white) fixed
 - ✅ Similarity Lab: Endless scrolling in Wallet Pairs resolved
 - ⏸️ Similarity Lab: Tooltip improvements (ongoing as new issues emerge)
@@ -38,6 +172,16 @@
 ---
 
 ## 📅 Recent Activity
+
+### January 23, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 23.1 | 🔵 | Similarity Lab Frame 1: Modern loading animation | 🔹 | `similarity-lab/page.tsx`, `globals.css` |
+
+**Summary:**
+
+**23.1:** Replaced generic progress bar with modern multi-layer animated loading component. Features: (1) Dual pulsing borders with staggered timing (30%/50% opacity); (2) Pulsing dot indicator with ping effect; (3) Gradient progress bar with shimmer sweep animation; (4) Custom shimmer keyframe in globals.css; (5) Backdrop blur effects and tabular-nums for no layout shift. Component positioned below wallet input area as specified in Frame 1 design. Established "frame-by-frame" approach for Similarity Lab UX overhaul - treating each major section as cohesive visual/functional clusters rather than isolated components.
 
 ### January 22, 2026
 
