@@ -23,13 +23,20 @@ const attemptRefreshAndRetry = async (
 ) => {
   const authStore = useAuthStore.getState();
 
+  // Double-check we still have a token before attempting refresh
+  // (could have been cleared by another concurrent request)
+  if (!authStore.token || authStore.isUsingApiKey) {
+    const error = new Error('No valid session to refresh');
+    Object.defineProperty(error, 'status', { value: 401 });
+    Object.defineProperty(error, 'code', { value: 'NO_SESSION' });
+    throw error;
+  }
+
   console.log('Access token expired, attempting automatic refresh...');
   const refreshed = await authStore.refreshToken();
 
   if (!refreshed) {
     console.log('Automatic refresh failed - refresh token may be expired');
-    // Don't throw error immediately - let the 401 propagate naturally
-    // The logout will be handled by the auth store if refresh token is truly expired
     const error = new Error('Unable to refresh session. Please log in again.');
     Object.defineProperty(error, 'status', { value: 401 });
     Object.defineProperty(error, 'code', { value: 'REFRESH_FAILED' });
@@ -82,15 +89,16 @@ export const fetcher = async (url: string, options?: RequestInit) => {
       res = await attemptRefreshAndRetry(absoluteUrl, options);
     } catch (refreshError) {
       // If refresh fails, show login modal instead of redirecting
-      const authStore = useAuthStore.getState();
-
-      // Clear authentication state
-      authStore.logout();
-
-      // Show auth modal with session expired reason
+      // Note: logout() is already called by refreshToken() in auth-store when it gets 401
+      // We just need to show the UI feedback here
       if (typeof window !== 'undefined') {
-        useUIStore.getState().setShowAuthModal(true, 'session_expired');
-        toast.error('Your session has expired. Please log in to continue.');
+        const uiStore = useUIStore.getState();
+
+        // Only show modal if not already showing (prevent multiple modals from concurrent requests)
+        if (!uiStore.showAuthModal) {
+          uiStore.setShowAuthModal(true, 'session_expired');
+          toast.error('Your session has expired. Please log in to continue.');
+        }
       }
 
       throw refreshError;

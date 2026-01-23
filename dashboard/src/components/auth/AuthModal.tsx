@@ -15,14 +15,17 @@ interface AuthModalProps {
   onOpenChange: (open: boolean) => void;
   defaultTab?: 'login' | 'register';
   onSuccess?: () => void;
+  reason?: 'session_expired' | 'unauthorized' | 'manual';
 }
 
-export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess }: AuthModalProps) {
+export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess, reason }: AuthModalProps) {
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '' });
   const { login, register, forgotPassword, loading } = useAuth();
+
+  const isSessionExpired = reason === 'session_expired';
 
   const handleSubmit = async (e: React.FormEvent, isLogin: boolean) => {
     e.preventDefault();
@@ -92,12 +95,16 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess 
       <DialogContent className="sm:max-w-[420px]">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
-            {activeTab === 'login' ? 'Welcome Back' : 'Create Account'}
+            {isSessionExpired
+              ? 'Session Expired'
+              : activeTab === 'login' ? 'Welcome Back' : 'Create Account'}
           </DialogTitle>
           <DialogDescription className="text-sm">
-            {activeTab === 'login'
-              ? 'Sign in to access wallet analytics'
-              : 'Sign up to start analyzing wallets'}
+            {isSessionExpired
+              ? 'Your session has expired. Please log in again to continue.'
+              : activeTab === 'login'
+                ? 'Sign in to access wallet analytics'
+                : 'Sign up to start analyzing wallets'}
           </DialogDescription>
         </DialogHeader>
 

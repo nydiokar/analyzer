@@ -12,6 +12,7 @@ import { defaultSWRConfig } from '@/lib/swr-config';
 import { AppCacheProvider } from '@/lib/cache-provider';
 import { useProactiveRefresh } from '@/hooks/useProactiveRefresh';
 import { useAuth } from '@/hooks/useAuth';
+import { useUIStore } from '@/store/ui-store';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Star, Menu } from 'lucide-react';
@@ -48,8 +49,10 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
-  const [showAuthModal, setShowAuthModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Use global UI store for auth modal (can be triggered from anywhere)
+  const { showAuthModal, authModalReason, setShowAuthModal } = useUIStore();
 
   // Create cache provider once and reuse it
   const cacheProvider = useMemo(() => new AppCacheProvider(), []);
@@ -178,7 +181,7 @@ export function AppShell({ children }: AppShellProps) {
                 ) : (
                   <div className="flex items-center gap-2">
                     <Button
-                      onClick={() => setShowAuthModal(true)}
+                      onClick={() => setShowAuthModal(true, 'manual')}
                       variant="ghost"
                       size="sm"
                       className="hidden sm:flex text-white/70 hover:text-white"
@@ -186,7 +189,7 @@ export function AppShell({ children }: AppShellProps) {
                       Log In
                     </Button>
                     <Button
-                      onClick={() => setShowAuthModal(true)}
+                      onClick={() => setShowAuthModal(true, 'manual')}
                       size="sm"
                       className="bg-blue-600 hover:bg-blue-700 text-white"
                     >
@@ -209,10 +212,14 @@ export function AppShell({ children }: AppShellProps) {
         {/* Auth Modal */}
         <AuthModal
           open={showAuthModal}
-          onOpenChange={setShowAuthModal}
+          onOpenChange={(open) => setShowAuthModal(open, open ? authModalReason : undefined)}
+          reason={authModalReason}
           onSuccess={() => {
             setShowAuthModal(false);
-            router.push('/discover');
+            // Don't redirect if session expired - keep user on current page
+            if (authModalReason !== 'session_expired') {
+              router.push('/discover');
+            }
           }}
         />
       </ThemeProvider>

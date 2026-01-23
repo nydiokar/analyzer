@@ -42,9 +42,14 @@ export const useProactiveRefresh = () => {
             const refreshToken = proactiveTokenManager.getRefreshToken();
             if (!refreshToken) {
               // Show auth modal instead of redirecting
-              useAuthStore.getState().logout();
-              useUIStore.getState().setShowAuthModal(true, 'session_expired');
-              toast.error("Your session has expired. Please log in to continue.");
+              // Note: logout() is already called by refreshToken() when it gets 401
+              const uiStore = useUIStore.getState();
+
+              // Only show modal if not already showing
+              if (!uiStore.showAuthModal) {
+                uiStore.setShowAuthModal(true, 'session_expired');
+                toast.error("Your session has expired. Please log in to continue.");
+              }
             }
             // For network errors, we'll retry on next focus/visibility change
           } else {
