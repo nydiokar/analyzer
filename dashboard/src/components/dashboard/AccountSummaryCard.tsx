@@ -258,7 +258,7 @@ export default function AccountSummaryCard({
         >
           <div className="text-center space-y-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
-              Total PNL
+              Realized PNL
             </p>
             <div className="text-sm font-bold">
               <span className={cn(

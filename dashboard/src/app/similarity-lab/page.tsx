@@ -551,22 +551,24 @@ export default function AnalysisLabPage() {
           </p>
         </div>
 
-        {/* Main Input Card - Side by Side Layout */}
+        {/* Main Input Card - Natural Width Layout */}
         <Card className="p-4">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-4">
-            {/* Left: Wallet Input */}
-            <SmartWalletInput
-              value={inputText}
-              onChange={setInputText}
-              onAnalyze={handleAnalyze}
-              isAnalyzing={jobStatuses.analysis === 'running'}
-              onTokenDetected={handleTokenDetected}
-              selectedHolderCount={selectedHolderAddresses.length}
-            />
+          <div className="flex flex-col lg:flex-row gap-4">
+            {/* Left: Wallet Input - Fixed reasonable width */}
+            <div className="lg:w-[500px] flex-shrink-0">
+              <SmartWalletInput
+                value={inputText}
+                onChange={setInputText}
+                onAnalyze={handleAnalyze}
+                isAnalyzing={jobStatuses.analysis === 'running'}
+                onTokenDetected={handleTokenDetected}
+                selectedHolderCount={selectedHolderAddresses.length}
+              />
+            </div>
 
-            {/* Right: Token Holder Picker (when token detected) */}
+            {/* Right: Token Holder Picker (when token detected) - Takes remaining space */}
             {detectedToken && (
-              <div className="border-l pl-4 hidden lg:block">
+              <div className="border-l pl-4 hidden lg:block flex-1 min-w-0">
                 <TokenHolderPicker
                   tokenMint={detectedToken}
                   selectedAddresses={selectedHolderAddresses}

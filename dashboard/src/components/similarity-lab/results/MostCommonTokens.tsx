@@ -156,29 +156,28 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
                                     {/* Token Header - Always Visible */}
                                     <div
                                         onClick={() => toggleToken(token.mint)}
-                                        className="w-full flex items-center gap-3 p-2.5 bg-card hover:bg-muted/20 transition-colors cursor-pointer"
+                                        className="w-full flex items-center justify-between gap-3 p-2.5 bg-card hover:bg-muted/20 transition-colors cursor-pointer"
                                     >
-                                        <div className="shrink-0">
-                                            {isExpanded ? (
-                                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                            ) : (
-                                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                            )}
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <div className="shrink-0">
+                                                {isExpanded ? (
+                                                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                                ) : (
+                                                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                                )}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <TokenBadgeWithFallback
+                                                    mint={token.mint}
+                                                    metadata={metadata}
+                                                    size="sm"
+                                                />
+                                            </div>
                                         </div>
-                                        <div className="min-w-0 flex-1">
-                                            <TokenBadgeWithFallback
-                                                mint={token.mint}
-                                                metadata={metadata}
-                                                size="sm"
-                                            />
-                                        </div>
-                                        <div className="flex items-center gap-1.5 shrink-0">
-                                            <Badge variant="secondary" className="text-xs font-semibold">
-                                                {token.count}/{totalWallets}
-                                            </Badge>
-                                            <Badge variant="outline" className="text-xs font-mono">
-                                                {percentage}%
-                                            </Badge>
+                                        <div className="flex items-center gap-1.5 flex-shrink-0 text-xs font-semibold">
+                                            <span className="text-foreground/70">{token.count}/{totalWallets}</span>
+                                            <span className="text-muted-foreground">•</span>
+                                            <span className="text-foreground/70">{percentage}%</span>
                                         </div>
                                     </div>
 

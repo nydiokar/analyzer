@@ -46,8 +46,8 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
         </Alert>
       )}
 
-      {/* Most Common Tokens and Historical vs Live - Balanced Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Most Common Tokens and Historical vs Live - Auto-fit Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(400px,1fr))] gap-4">
         <MostCommonTokens results={results} enrichedBalances={enrichedBalances} />
         <HistoricalVsLiveComparison results={results} />
       </div>

@@ -204,19 +204,19 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
           </div>
 
           {/* Score bars */}
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             {/* Behavioral */}
             <div className="flex-1 space-y-1">
-              <div className="flex items-center justify-between text-[10px]">
+              <div className="flex items-center text-[10px]">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="text-foreground/50 uppercase tracking-wide font-medium cursor-help">Behavior</span>
+                    <span className="text-foreground/50 uppercase tracking-wide font-medium cursor-help w-16">Behavior</span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-xs max-w-xs">
                     <p>Behavioral similarity based on shared tokens (asset overlap)</p>
                   </TooltipContent>
                 </Tooltip>
-                <span className="tabular-nums text-foreground/70 font-medium">{behavioralPercent.toFixed(0)}%</span>
+                <span className="ml-auto tabular-nums text-foreground/70 font-medium">{behavioralPercent.toFixed(0)}%</span>
               </div>
               <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
                 <div
@@ -228,16 +228,16 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
 
             {/* Capital */}
             <div className="flex-1 space-y-1">
-              <div className="flex items-center justify-between text-[10px]">
+              <div className="flex items-center text-[10px]">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="text-foreground/50 uppercase tracking-wide font-medium cursor-help">Capital</span>
+                    <span className="text-foreground/50 uppercase tracking-wide font-medium cursor-help w-16">Capital</span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-xs max-w-xs">
                     <p>Capital similarity based on portfolio allocation weights</p>
                   </TooltipContent>
                 </Tooltip>
-                <span className="tabular-nums text-foreground/70 font-medium">{capitalPercent.toFixed(0)}%</span>
+                <span className="ml-auto tabular-nums text-foreground/70 font-medium">{capitalPercent.toFixed(0)}%</span>
               </div>
               <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
                 <div
@@ -512,7 +512,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
   return (
     <div className="space-y-3">
       {sortedSharedTokens.length > 0 ? (
-        <div className="border border-border rounded-lg p-3">
+        <div className="border border-border rounded-lg p-3 max-w-2xl">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold">Shared Tokens</h3>
             <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-auto">
@@ -529,30 +529,24 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
               const metadata = getTokenMetadata(token.mint, results.walletBalances);
 
               return (
-                <div key={token.mint} className="flex items-center gap-3 p-2 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
-                  <div className="min-w-0 flex-1">
-                    <TokenBadge
-                      mint={token.mint}
-                      metadata={metadata}
-                      variant="inline"
-                      size="sm"
-                    />
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                <div key={token.mint} className="flex items-center gap-2 p-2 rounded hover:bg-muted/30 transition-colors">
+                  <TokenBadge
+                    mint={token.mint}
+                    metadata={metadata}
+                    variant="inline"
+                    size="sm"
+                  />
+                  <div className="flex items-center gap-1.5 text-xs font-mono">
                     {allocation?.weightA !== undefined ? (
-                      <Badge variant="outline" className="text-xs font-mono">
-                        {(allocation.weightA * 100).toFixed(1)}%
-                      </Badge>
+                      <span className="text-foreground/70">{(allocation.weightA * 100).toFixed(1)}%</span>
                     ) : (
-                      <Badge variant="secondary" className="text-xs">Held</Badge>
+                      <span className="text-muted-foreground">—</span>
                     )}
-                    <span className="text-muted-foreground text-xs">•</span>
+                    <span className="text-muted-foreground">•</span>
                     {allocation?.weightB !== undefined ? (
-                      <Badge variant="outline" className="text-xs font-mono">
-                        {(allocation.weightB * 100).toFixed(1)}%
-                      </Badge>
+                      <span className="text-foreground/70">{(allocation.weightB * 100).toFixed(1)}%</span>
                     ) : (
-                      <Badge variant="secondary" className="text-xs">Held</Badge>
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </div>
                 </div>
@@ -664,9 +658,9 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
             <p className="text-muted-foreground">No significant pairs identified based on the current thresholds (score &gt; 0.1).</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Master: Compact Pair Grid - 1/3 width with fixed height scroll */}
-            <div className="lg:col-span-1">
+          <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-4">
+            {/* Master: Compact Pair Grid */}
+            <div>
               <PairGrid
                 processedPairs={processedPairs}
                 sortKey={sortKey}
@@ -678,8 +672,8 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
               />
             </div>
 
-            {/* Detail: Selected Pair Analysis - 2/3 width */}
-            <div className="lg:col-span-2">
+            {/* Detail: Selected Pair Analysis */}
+            <div className="min-w-0">
               <PairDetail
                 processedPair={selectedPair}
                 results={results}
