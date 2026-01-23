@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/store/auth-store';
+import { useUIStore } from '@/store/ui-store';
 import { toast } from 'sonner';
 // Build auth headers from stores (JWT preferred, API key fallback)
 const buildAuthHeaders = () => {
@@ -80,15 +81,18 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     try {
       res = await attemptRefreshAndRetry(absoluteUrl, options);
     } catch (refreshError) {
-      // If refresh fails, show a user-friendly toast and redirect to login
+      // If refresh fails, show login modal instead of redirecting
       const authStore = useAuthStore.getState();
-      if (!authStore.isAuthenticated) {
-        // Already logged out by refresh logic, just redirect
-        toast.error('Your session has expired. Please log in again.');
-        if (typeof window !== 'undefined') {
-          window.location.href = '/';
-        }
+
+      // Clear authentication state
+      authStore.logout();
+
+      // Show auth modal with session expired reason
+      if (typeof window !== 'undefined') {
+        useUIStore.getState().setShowAuthModal(true, 'session_expired');
+        toast.error('Your session has expired. Please log in to continue.');
       }
+
       throw refreshError;
     }
   }

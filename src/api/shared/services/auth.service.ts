@@ -543,14 +543,19 @@ export class AuthService {
    * Refresh access token using refresh token
    */
   async refreshAccessToken(refreshToken: string): Promise<AuthResponse> {
+    const requestId = crypto.randomBytes(4).toString('hex');
+    this.logger.debug(`[${requestId}] Starting token refresh`);
+
     try {
       // Rotate the refresh token and get new session
       const rotationResult = await this.refreshTokenService.rotateRefreshToken(refreshToken);
-      
+
       if (!rotationResult) {
-        this.logger.warn('Invalid or expired refresh token');
+        this.logger.warn(`[${requestId}] Invalid or expired refresh token`);
         throw new UnauthorizedException('Invalid or expired refresh token');
       }
+
+      this.logger.debug(`[${requestId}] Token rotation successful for user ${rotationResult.session.userId}`);
 
       const { newRefreshToken, session } = rotationResult;
 
@@ -568,7 +573,7 @@ export class AuthService {
       };
       const access_token = this.signJwtWithEnhancedSecurity(payload);
 
-      this.logger.log(`Access token refreshed for user: ${user.id}`);
+      this.logger.log(`[${requestId}] Access token refreshed for user: ${user.id}`);
 
       return {
         access_token,
@@ -584,9 +589,10 @@ export class AuthService {
       };
     } catch (error) {
       if (error instanceof UnauthorizedException) {
+        this.logger.warn(`[${requestId}] Token refresh failed: ${error.message}`);
         throw error;
       }
-      this.logger.error('Failed to refresh access token:', getErrorMessage(error));
+      this.logger.error(`[${requestId}] Failed to refresh access token:`, getErrorMessage(error));
       throw new UnauthorizedException('Token refresh failed');
     }
   }

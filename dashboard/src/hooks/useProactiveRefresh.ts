@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useAuthStore } from "@/store/auth-store";
+import { useUIStore } from "@/store/ui-store";
 import { createSecureStorage, TokenManager } from "@/lib/secure-storage";
 import { toast } from "sonner";
 
@@ -29,13 +30,21 @@ export const useProactiveRefresh = () => {
         const msUntilRefresh = Math.max(secondsUntilRefresh * 1000, minDelayMs);
         if (timeout) clearTimeout(timeout);
         timeout = setTimeout(async () => {
-          const ok = await useAuthStore.getState().refreshToken();
+          // Check if still authenticated before attempting refresh
+          const authState = useAuthStore.getState();
+          if (!authState.isAuthenticated || authState.isUsingApiKey) {
+            return; // Skip proactive refresh if not authenticated or using API key
+          }
+
+          const ok = await authState.refreshToken();
           if (!ok) {
             // Only show error if refresh token is actually expired (not just network issues)
             const refreshToken = proactiveTokenManager.getRefreshToken();
             if (!refreshToken) {
-              toast.error("Your session has expired. Please log in again.");
+              // Show auth modal instead of redirecting
               useAuthStore.getState().logout();
+              useUIStore.getState().setShowAuthModal(true, 'session_expired');
+              toast.error("Your session has expired. Please log in to continue.");
             }
             // For network errors, we'll retry on next focus/visibility change
           } else {

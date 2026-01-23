@@ -95,23 +95,27 @@ export class RefreshTokenService {
    * Validate and rotate refresh token
    */
   async rotateRefreshToken(refreshToken: string): Promise<{ newRefreshToken: string; session: RefreshSession } | null> {
+    const tokenHash = this.hashToken(refreshToken);
+    const rotationId = crypto.randomBytes(4).toString('hex');
+
     try {
       // Get session ID from hashed refresh token
-      const tokenHash = this.hashToken(refreshToken);
       const tokenKey = this.tokenKey(tokenHash);
       const sessionId = await this.redis.get(tokenKey);
-      
+
       if (!sessionId) {
-        this.logger.warn('Invalid or expired refresh token');
+        this.logger.warn(`[${rotationId}] Invalid or expired refresh token`);
         return null;
       }
+
+      this.logger.debug(`[${rotationId}] Attempting to rotate session ${sessionId}`);
 
       // Get session data
       const sessionKey = this.sessionKey(sessionId);
       const sessionData = await this.redis.get(sessionKey);
-      
+
       if (!sessionData) {
-        this.logger.warn(`Session not found for ID: ${sessionId}`);
+        this.logger.warn(`[${rotationId}] Session not found for ID: ${sessionId}`);
         return null;
       }
 
@@ -119,7 +123,8 @@ export class RefreshTokenService {
 
       // Detect reuse/replay quickly
       if (session.status !== 'active') {
-        this.logger.error(`Refresh token reuse detected for user ${session.userId} (session ${session.sessionId})`);
+        this.logger.error(`[${rotationId}] Refresh token reuse detected for user ${session.userId} (session ${session.sessionId}, status: ${session.status})`);
+        this.logger.error(`[${rotationId}] This suggests either: 1) Concurrent refresh requests, 2) Replay attack, or 3) Client not updating tokens`);
         await this.handleReplay(session);
         return null;
       }
@@ -166,11 +171,11 @@ export class RefreshTokenService {
       await this.redis.setex(sessionKey, this.REFRESH_TTL, JSON.stringify({ ...session, status: 'rotated' }));
       await this.redis.setex(tokenKey, this.REFRESH_TTL, sessionId); // keep mapping to detect replay
 
-      this.logger.log(`Rotated refresh token for user ${session.userId}: ${sessionId} -> ${newSessionId}`);
-      
+      this.logger.log(`[${rotationId}] Rotated refresh token for user ${session.userId}: ${sessionId} -> ${newSessionId}`);
+
       return { newRefreshToken, session: newSession };
     } catch (error) {
-      this.logger.error('Error rotating refresh token:', getErrorMessage(error));
+      this.logger.error(`[${rotationId}] Error rotating refresh token:`, getErrorMessage(error));
       return null;
     }
   }
