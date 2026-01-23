@@ -12,49 +12,18 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| 🔄 | React hydration error in wallet profile | 🔹 | Radix Dialog aria-controls mismatch between SSR/client |
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
+| 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |
+| 🔄 | Most Common Tokens layout improvement | 🔹 | Reduce component width to give more space to Historical vs Live Holdings Analysis |
+| 📝 | Error logging cleanup audit | 🔸 | Build script to find remaining components showing full errors instead of using utility (HolderProfilesCacheService, Refresh prices cache, processors) |
+| 📝 | Holder Profiles bucket alignment verification | 🔸 | Verify WR/ROI + token lists working correctly after fixes |
 
-CHECK what else needs alignment wiht the logs - when redis is down more components are logging full errors - HolderProfilesCacheService, Refresh prices cache, processors, etc. Build a script to find and eliminate all places that are stll showin the full erorr instead of using the utility;  
-
-
-| 📝 | Holder Profiles bucket alignment (WR/ROI + token lists) | 🔸 | Single source of truth: analyzer outputs stats + tokenMap together; cache must persist both; drilldown endpoint reads same cache with pagination; UI hides WR/ROI if bucket has 0 tokens or token list unavailable | --- SHOULD BE FIXED - CHECK;
-| 📝 | Similarity Lab bug fixes | 🔸 | Ready to start | - PARTIALLY REFACTORED; NEED MORE WORK: make Most Common Tokens less fat and give more space to Historical vs Live Holdings Analysis; FIgure out how to show which ones are the wallets holding specific token in Most Common Tokens - current tooltip is idiotic and we can't see the wallets themselves.  Strongest Convergences is awful with white background and white wallet; Check what Key Insights & Pairwise Deep Dive
-Automatically generated insights from the similarity analysis, with a detailed breakdown for each pair.
-Wallet Pairs are actually showing when saying 1 shared out of .... because tooltip is currently showing 1 tokens held, but it shoudl be historical analysis of tokens traded not currently holding. Verify!
-
-
-Wallet Pairs seems endless, it should be contained earlier on, around how much the top 10 tokens might expand. currently is scrolling for several pages ..
-
-Something is doing several enrichments, we see these logs: 
-
-[DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 0 tokens processed out of 1 requested
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:43:38    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=1, refresh=1
- [DexscreenerService] Pre-filter: After scam filter - 1 tokens remain (0 filtered as scam)
- [DexscreenerService] DexScreener progress: 200.0% (1/1 tokens)
- [DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 1 tokens processed out of 1 requested
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:43:40    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=0, refresh=0
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:43:43    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=0, refresh=0
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:44:27    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=1, refresh=1
- [DexscreenerService] Pre-filter: After scam filter - 1 tokens remain (0 filtered as scam)
- [DexscreenerService] DexScreener progress: 200.0% (1/1 tokens)
- [DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 1 tokens processed out of 1 requested
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:44:29    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=0, refresh=0
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:44:32    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=0, refresh=0
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:45:02    WARN [TokenInfoService] Token enrichment plan: total=39, new=0, stale=39, refresh=39
- [DexscreenerService] Pre-filter: After scam filter - 39 tokens remain (0 filtered as scam)
- [DexscreenerService] DexScreener progress: 100.0% (39/39 tokens)
- [DexscreenerService] 🔍 DexScreener: Final results - 2 API calls made, 39 tokens processed out of 39 requested
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:45:04    WARN [TokenInfoService] Token enrichment plan: total=39, new=0, stale=0, refresh=0
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:45:07    WARN [TokenInfoService] Token enrichment plan: total=39, new=0, stale=0, refresh=0
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:52:44    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=1, refresh=1
- [DexscreenerService] Pre-filter: After scam filter - 1 tokens remain (0 filtered as scam)
-0|sova-backend-api  | [Nest] 15912  - 22/01/2026, 17:52:44    WARN [TokenInfoService] Token enrichment plan: total=1, new=0, stale=1, refresh=1
- [DexscreenerService] Pre-filter: After scam filter - 1 tokens remain (0 filtered as scam)
- [DexscreenerService] DexScreener progress: 200.0% (1/1 tokens)
- [DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 1 tokens processed out of 1 requested
- [DexscreenerService] DexScreener progress: 200.0% (1/1 tokens)
- [DexscreenerService] 🔍 DexScreener: Final results - 1 API calls made, 1 tokens processed out of 1 requested
+**Completed:**
+- ✅ Similarity Lab: Wallet visibility (white on white) fixed
+- ✅ Similarity Lab: Endless scrolling in Wallet Pairs resolved
+- ⏸️ Similarity Lab: Tooltip improvements (ongoing as new issues emerge)
 
 
 

@@ -142,7 +142,7 @@ export function SmartWalletInput({
         </div>
         <Textarea
           id="walletInput"
-          placeholder="Paste wallet or token addresses&#10;Accepts: comma-separated, space-separated, or one per line&#10;Token addresses will show holder selection on the right"
+          placeholder="Paste wallet or token addresses&#10; Accepts: comma-separated, space-separated, or one per line&#10;Token addresses will show holder selection on the right"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={isAnalyzing}

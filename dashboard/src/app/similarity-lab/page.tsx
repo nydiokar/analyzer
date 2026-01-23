@@ -590,20 +590,40 @@ export default function AnalysisLabPage() {
           )}
         </Card>
 
-        {/* Analysis Progress Indicator */}
+        {/* Analysis Progress Indicator - Modern Pulsing Animation */}
         {jobStatuses.analysis === 'running' && (
-          <Card className="p-4">
-            <div className="space-y-2">
+          <Card className="relative p-6 overflow-hidden">
+            {/* Animated pulsing border effect */}
+            <div className="absolute inset-0 rounded-lg">
+              <div className="absolute inset-0 rounded-lg border-2 border-primary/30 animate-pulse" />
+              <div className="absolute inset-0 rounded-lg border-2 border-primary/50 animate-[pulse_2s_ease-in-out_infinite]" style={{ animationDelay: '0.5s' }} />
+            </div>
+
+            {/* Content */}
+            <div className="relative space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Analyzing Similarities...</h3>
-                <span className="text-sm font-mono text-muted-foreground">{jobProgress.toFixed(0)}%</span>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    {/* Pulsing dot indicator */}
+                    <div className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
+                    <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-primary/40 animate-ping" />
+                  </div>
+                  <h3 className="text-sm font-semibold">Analyzing Similarities</h3>
+                </div>
+                <span className="text-sm font-mono text-muted-foreground tabular-nums">{jobProgress.toFixed(0)}%</span>
               </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
+
+              {/* Progress bar with gradient */}
+              <div className="h-1.5 bg-muted/50 rounded-full overflow-hidden backdrop-blur-sm">
                 <div
-                  className="h-full bg-primary transition-all duration-300"
+                  className="h-full bg-gradient-to-r from-primary via-primary/80 to-primary transition-all duration-500 ease-out relative"
                   style={{ width: `${jobProgress}%` }}
-                />
+                >
+                  {/* Shimmer effect on progress bar */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_2s_infinite]" />
+                </div>
               </div>
+
               {syncMessage && (
                 <p className="text-xs text-muted-foreground">{syncMessage}</p>
               )}

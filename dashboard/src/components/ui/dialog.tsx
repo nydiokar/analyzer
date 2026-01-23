@@ -8,7 +8,13 @@ import { cn } from "@/lib/utils"
 
 const Dialog = DialogPrimitive.Root
 
-const DialogTrigger = DialogPrimitive.Trigger
+const DialogTrigger = React.forwardRef<
+  React.ComponentRef<typeof DialogPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Trigger>
+>((props, ref) => (
+  <DialogPrimitive.Trigger ref={ref} {...props} suppressHydrationWarning />
+))
+DialogTrigger.displayName = "DialogTrigger"
 
 const DialogPortal = DialogPrimitive.Portal
 
