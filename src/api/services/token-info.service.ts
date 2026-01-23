@@ -10,6 +10,7 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import { TOKEN_INFO_REFRESH_CONFIG } from '../../config/constants';
 import { getErrorMessage } from 'core/utils/error-utils';
+import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 
 /**
  * TokenInfoService - Unified Token Information & Price Management
@@ -198,6 +199,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
    * Used by background workers and processors
    */
   async enrichTokensBackground(tokenAddresses: string[]): Promise<void> {
+    tokenAddresses = tokenAddresses.filter(isValidSolanaAddress);
     if (tokenAddresses.length === 0) {
       return;
     }
@@ -210,7 +212,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
   }
 
   async getTokenEnrichmentPlan(tokenAddresses: string[]): Promise<TokenEnrichmentPlan> {
-    const deduped = [...new Set(tokenAddresses)];
+    const deduped = [...new Set(tokenAddresses)].filter(isValidSolanaAddress);
     const existingTokens = await this.findMany(deduped);
     return this.buildTokenEnrichmentPlan(deduped, existingTokens);
   }
@@ -291,7 +293,10 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     const startTime = Date.now();
 
     // Deduplicate input to avoid processing same token multiple times
-    tokenAddresses = [...new Set(tokenAddresses)];
+    tokenAddresses = [...new Set(tokenAddresses)].filter(isValidSolanaAddress);
+    if (tokenAddresses.length === 0) {
+      return;
+    }
 
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
       tokenCount: tokenAddresses.length,

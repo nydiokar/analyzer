@@ -60,6 +60,19 @@ export class HeliusApiClient {
   private loggedV2DisableOnce: boolean = false;
   private disableV2TxForAddressForProcess: boolean = false; // circuit breaker for getTransactionsForAddress if hard-fails
   private loggedV2TxForAddressDisableOnce: boolean = false;
+
+  private isInvalidRpcInputErrorMessage(message: string): boolean {
+    const lowered = message.toLowerCase();
+    return (
+      lowered.includes('wrongsize') ||
+      lowered.includes('pubkey validation err') ||
+      lowered.includes('invalid param') ||
+      lowered.includes('not a token mint') ||
+      lowered.includes('invalid token mint') ||
+      lowered.includes('account not found') ||
+      lowered.includes('could not find account')
+    );
+  }
   
   // Global rate limiter - shared across all instances to prevent overwhelming API
   private static globalLastRequestTime: number = 0;
@@ -1244,8 +1257,14 @@ export class HeliusApiClient {
       } catch (error) {
         retries++;
         const sanitizedError = this.sanitizeError(error);
+        const isInvalidInput = this.isInvalidRpcInputErrorMessage(sanitizedError.message || '');
 
         if (!this.isRetryableError(error) || retries >= MAX_RETRIES) {
+          if (isInvalidInput) {
+            const invalidError = new Error(sanitizedError.message || 'Invalid RPC input');
+            invalidError.name = 'InvalidRpcInputError';
+            throw invalidError;
+          }
           const logLevel = this.isRetryableError(error) ? 'error' : 'warn';
           logger[logLevel](
             `RPC method ${method} failed${this.isRetryableError(error) ? ' after retries' : ''}.`,
@@ -1697,6 +1716,9 @@ export class HeliusApiClient {
       logger.debug(`Successfully fetched ${result.value.length} largest token accounts for mint ${mintPubkey}`);
       return result;
     } catch (error) {
+      if ((error as Error)?.name === 'InvalidRpcInputError') {
+        throw error;
+      }
       const message = String((error as Error)?.message || '').toLowerCase();
       if (message.includes('invalid token mint') || message.includes('not a token mint') || message.includes('invalid param')) {
         logger.warn(`Invalid token mint provided for getTokenLargestAccounts`, { mintPubkey });
@@ -1740,6 +1762,9 @@ export class HeliusApiClient {
       logger.debug(`Successfully fetched token supply for mint ${mintPubkey}: ${result.value.uiAmount}`);
       return result;
     } catch (error) {
+      if ((error as Error)?.name === 'InvalidRpcInputError') {
+        throw error;
+      }
       logger.error(
         `Failed to fetch token supply for mint ${mintPubkey}`,
         { error: this.sanitizeError(error), mintPubkey, options }
@@ -1784,6 +1809,9 @@ export class HeliusApiClient {
 
       return result || [];
     } catch (error) {
+      if ((error as Error)?.name === 'InvalidRpcInputError') {
+        return [];
+      }
       logger.error(`Failed to fetch asset batch for ${uniqueIds.length} assets`, {
         error: this.sanitizeError(error),
       });

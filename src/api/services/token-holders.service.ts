@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import type { GetTokenLargestAccountsResult, TokenLargestAccount, GetMultipleAccountsResult, RpcAccountInfo } from '../../types/helius-api';
 import { getKnownWallet, type KnownWalletType } from '../../config/known-wallets';
@@ -38,7 +38,15 @@ export class TokenHoldersService {
   constructor(private readonly heliusClient: HeliusApiClient) {}
 
   async getTopHolders(mint: string, commitment?: string): Promise<TopHoldersResponse> {
-    const rpcResult: GetTokenLargestAccountsResult = await this.heliusClient.getTokenLargestAccounts(mint, commitment);
+    let rpcResult: GetTokenLargestAccountsResult;
+    try {
+      rpcResult = await this.heliusClient.getTokenLargestAccounts(mint, commitment);
+    } catch (error) {
+      if ((error as Error)?.name === 'InvalidRpcInputError') {
+        throw new NotFoundException(`Token mint not found: ${mint}`);
+      }
+      throw error;
+    }
 
     // Fetch token supply for percentage calculations
     let supply: { amount: string; decimals: number; uiAmount: number | null; uiAmountString: string } | undefined;
@@ -46,7 +54,11 @@ export class TokenHoldersService {
       const supplyResult = await this.heliusClient.getTokenSupply(mint, commitment);
       supply = supplyResult.value;
     } catch (error) {
+      if ((error as Error)?.name === 'InvalidRpcInputError') {
+        supply = undefined;
+      } else {
       this.logger.warn(`Failed to fetch token supply for ${mint}, percentages will not be available: ${getErrorMessage(error)}`);
+      }
     }
 
     const tokenAccountPubkeys = rpcResult.value.map((v) => v.address);

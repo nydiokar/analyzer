@@ -111,9 +111,16 @@ export const fetcher = async (url: string, options?: RequestInit) => {
       }
     }
 
+    const message = String(errorPayload.message || '');
+    const isExpectedValidationError =
+      res.status === 400 &&
+      (message.startsWith('Invalid Solana address') || message.startsWith('Invalid token mint address'));
+    const isExpectedNotFound =
+      res.status === 404 && message.startsWith('Token mint not found');
+
     // Don't emit session expired events - let automatic refresh handle it
-    // Only show user-facing error for non-auth issues
-    if (res.status !== 401) {
+    // Only log unexpected errors to avoid console spam during typing.
+    if (res.status !== 401 && !isExpectedValidationError && !isExpectedNotFound) {
       console.error('API Error:', error);
     }
 
