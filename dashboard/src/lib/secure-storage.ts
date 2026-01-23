@@ -1,9 +1,5 @@
 import { getCookie, setCookie, deleteCookie } from 'cookies-next';
 import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
-import logger from '../../../src/core/utils/logger';
-
-
-
 export interface SecureStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -92,7 +88,7 @@ class SecureLocalStorage implements SecureStorage {
 
       return parsed.data;
     } catch (error) {
-      logger.error('Error reading from secure localStorage:', getErrorMessage(error));
+      console.error('Error reading from secure localStorage:', getErrorMessage(error));
       this.removeItem(key);
       return null;
     }
@@ -109,7 +105,7 @@ class SecureLocalStorage implements SecureStorage {
       };
       localStorage.setItem(key, JSON.stringify(wrapped));
     } catch (error) {
-      logger.error('Error writing to secure localStorage:', getErrorMessage(error));
+      console.error('Error writing to secure localStorage:', getErrorMessage(error));
     }
   }
 
