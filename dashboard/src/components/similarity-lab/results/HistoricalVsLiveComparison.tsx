@@ -155,8 +155,8 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          Historical vs Live Holdings Analysis
+        <CardTitle className="flex items-center gap-2 text-sm">
+          Historical vs Live Holdings
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -168,121 +168,74 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
             </Tooltip>
           </TooltipProvider>
         </CardTitle>
-        <CardDescription>
-          Strategic evolution analysis • {comparisonData.length} wallet pairs analyzed • Filtered data (excluded possible spam)
+        <CardDescription className="text-xs">
+          Strategic evolution • {comparisonData.length} pairs
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Summary Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center p-3 bg-muted/50 rounded-lg">
-            <div className="text-2xl font-bold text-green-600">{insights.convergences}</div>
-            <div className="text-xs text-muted-foreground">Converging Pairs</div>
+      <CardContent className="space-y-4">
+        {/* Compact Summary Stats */}
+        <div className="grid grid-cols-4 gap-2">
+          <div className="text-center p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+            <div className="text-xl font-bold text-emerald-400">{insights.convergences}</div>
+            <div className="text-[10px] text-muted-foreground">Converging</div>
           </div>
-          <div className="text-center p-3 bg-muted/50 rounded-lg">
-            <div className="text-2xl font-bold text-red-600">{insights.divergences}</div>
-            <div className="text-xs text-muted-foreground">Diverging Pairs</div>
+          <div className="text-center p-2 rounded-lg bg-red-500/10 border border-red-500/20">
+            <div className="text-xl font-bold text-red-400">{insights.divergences}</div>
+            <div className="text-[10px] text-muted-foreground">Diverging</div>
           </div>
-          <div className="text-center p-3 bg-muted/50 rounded-lg">
-            <div className="text-2xl font-bold">{formatPercentage(insights.avgHistorical)}</div>
-            <div className="text-xs text-muted-foreground">Avg Historical</div>
+          <div className="text-center p-2 rounded-lg bg-muted/50">
+            <div className="text-xl font-bold">{formatPercentage(insights.avgHistorical)}</div>
+            <div className="text-[10px] text-muted-foreground">Avg Historical</div>
           </div>
-          <div className="text-center p-3 bg-muted/50 rounded-lg">
-            <div className="text-2xl font-bold">{formatPercentage(insights.avgCurrent)}</div>
-            <div className="text-xs text-muted-foreground">Avg Current (Filtered)</div>
+          <div className="text-center p-2 rounded-lg bg-muted/50">
+            <div className="text-xl font-bold">{formatPercentage(insights.avgCurrent)}</div>
+            <div className="text-[10px] text-muted-foreground">Avg Current</div>
           </div>
         </div>
 
-        {/* Detailed Comparison Table */}
-        <div className="space-y-3">
-          <h4 className="text-sm font-medium">Most Significant Strategic Shifts</h4>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Wallet Pair</TableHead>
-                <TableHead className="text-center">Historical</TableHead>
-                <TableHead className="text-center">Current (Filtered)</TableHead>
-                <TableHead className="text-center">Shift</TableHead>
-                <TableHead className="text-center">Type</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {comparisonData.slice(0, 8).map((pair, index) => (
-                <TableRow key={`${pair.walletA}-${pair.walletB}`}>
-                  <TableCell>
-                    <div className="flex items-center gap-1 text-xs">
-                      <WalletBadge address={pair.walletA} size="s" knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-                      <span className="text-muted-foreground">↔</span>
-                      <WalletBadge address={pair.walletB} size="s" knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-center text-xs">
-                    {formatPercentage(pair.historicalSimilarity)}
-                  </TableCell>
-                  <TableCell className="text-center text-xs">
-                    {formatPercentage(pair.currentSimilarity)}
-                  </TableCell>
-                  <TableCell className="text-center text-xs">
-                    <div className="flex items-center justify-center gap-1">
-                      {getShiftIcon(pair.shiftType)}
-                      <span className={pair.shift > 0 ? 'text-green-600' : 'text-red-600'}>
-                        {pair.shift > 0 ? '+' : ''}{formatPercentage(pair.shift)}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Badge variant={getShiftBadgeVariant(pair.shiftType)} className="text-xs">
-                      {pair.shiftType}
-                    </Badge>
-                  </TableCell>
+        {/* Compact Comparison Table */}
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Top Strategic Shifts</h4>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border">
+                  <TableHead className="text-xs">Pair</TableHead>
+                  <TableHead className="text-center text-xs">Historical</TableHead>
+                  <TableHead className="text-center text-xs">Current</TableHead>
+                  <TableHead className="text-center text-xs">Shift</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-
-        {/* Key Insights */}
-        {(insights.topConvergences.length > 0 || insights.topDivergences.length > 0) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {insights.topConvergences.length > 0 && (
-              <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                <h5 className="text-sm font-medium text-green-800 mb-2 flex items-center gap-1">
-                  <TrendingUp className="h-4 w-4" />
-                  Strongest Convergences
-                </h5>
-                <div className="space-y-1">
-                  {insights.topConvergences.map((pair, i) => (
-                    <div key={i} className="text-xs text-green-700 flex items-center gap-1">
-                      <WalletBadge address={pair.walletA} size="s" knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-                      <span>↔</span>
-                      <WalletBadge address={pair.walletB} size="s" knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />:
-                      <span className="font-medium ml-1">{formatPercentage(pair.shift)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {insights.topDivergences.length > 0 && (
-              <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-                <h5 className="text-sm font-medium text-red-800 mb-2 flex items-center gap-1">
-                  <TrendingDown className="h-4 w-4" />
-                  Strongest Divergences
-                </h5>
-                <div className="space-y-1">
-                  {insights.topDivergences.map((pair, i) => (
-                    <div key={i} className="text-xs text-red-700 flex items-center gap-1">
-                      <WalletBadge address={pair.walletA} size="s" knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-                      <span>↔</span>
-                      <WalletBadge address={pair.walletB} size="s" knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />:
-                      <span className="font-medium ml-1">{formatPercentage(pair.shift)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              </TableHeader>
+              <TableBody>
+                {comparisonData.slice(0, 6).map((pair, index) => (
+                  <TableRow key={`${pair.walletA}-${pair.walletB}`} className="border-border">
+                    <TableCell className="py-2">
+                      <div className="flex items-center gap-1 text-xs">
+                        <WalletBadge address={pair.walletA} size="s" knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
+                        <span className="text-muted-foreground">↔</span>
+                        <WalletBadge address={pair.walletB} size="s" knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-center text-xs py-2">
+                      {formatPercentage(pair.historicalSimilarity)}
+                    </TableCell>
+                    <TableCell className="text-center text-xs py-2">
+                      {formatPercentage(pair.currentSimilarity)}
+                    </TableCell>
+                    <TableCell className="text-center py-2">
+                      <div className="flex items-center justify-center gap-1">
+                        {getShiftIcon(pair.shiftType)}
+                        <span className={`text-xs font-semibold ${pair.shift > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {pair.shift > 0 ? '+' : ''}{formatPercentage(pair.shift)}
+                        </span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
-        )}
+        </div>
       </CardContent>
     </Card>
   );

@@ -542,9 +542,9 @@ export default function AnalysisLabPage() {
 
   return (
     <AppShell>
-      <div className="w-full px-4 md:px-6 lg:px-10 space-y-8 pb-8">
+      <div className="w-full max-w-[1600px] mx-auto px-4 md:px-6 lg:px-8 space-y-6 pb-8">
         {/* Header */}
-        <div className="max-w-6xl mx-auto space-y-1">
+        <div className="space-y-1">
           <h1 className="text-2xl font-semibold">Similarity Lab</h1>
           <p className="text-sm text-muted-foreground">
             Discover hidden connections between wallets through trading behavior and capital allocation patterns.
@@ -552,8 +552,8 @@ export default function AnalysisLabPage() {
         </div>
 
         {/* Main Input Card - Side by Side Layout */}
-        <Card className="max-w-6xl mx-auto p-4">
-          <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_380px] gap-4">
+        <Card className="p-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-4">
             {/* Left: Wallet Input */}
             <SmartWalletInput
               value={inputText}
@@ -590,7 +590,7 @@ export default function AnalysisLabPage() {
 
         {/* Analysis Progress Indicator */}
         {jobStatuses.analysis === 'running' && (
-          <Card className="max-w-6xl mx-auto p-4">
+          <Card className="p-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">Analyzing Similarities...</h3>
@@ -619,7 +619,7 @@ export default function AnalysisLabPage() {
         )}
 
         {!analysisResult && jobStatuses.analysis === 'completed' && (
-          <div className="max-w-6xl mx-auto p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
+          <div className="p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
             <p>⚠️ Analysis completed but no results to display. This might be a data issue.</p>
             <p>Debug info: analysisResult is {analysisResult ? 'truthy' : 'falsy'}</p>
             <p>Job status: {jobStatuses.analysis}</p>

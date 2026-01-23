@@ -2,6 +2,7 @@
 
 import { useMemo, useState, memo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { CombinedSimilarityResult, KeyInsight, InsightType, CombinedPairwiseSimilarity } from "./types";
 import { generateKeyInsights } from '@/lib/similarity-report-parser';
 import { Badge } from '@/components/ui/badge';
@@ -254,11 +255,11 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="text-foreground/50 cursor-help">
-                  <span className="font-semibold text-foreground/70">{pair.sharedTokens.length}</span> shared <span className="text-foreground/30 mx-1">of</span> <span className="font-semibold text-foreground/60">{uniqueTokensA}</span> & <span className="font-semibold text-foreground/60">{uniqueTokensB}</span> total
+                  <span className="font-semibold text-foreground/70">{pair.binarySharedTokenCount}</span> shared <span className="text-foreground/30 mx-1">of</span> <span className="font-semibold text-foreground/60">{uniqueTokensA}</span> & <span className="font-semibold text-foreground/60">{uniqueTokensB}</span> total
                 </span>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs max-w-xs">
-                <p className="text-muted-foreground">{pair.sharedTokens.length} tokens held by both wallets out of {uniqueTokensA} and {uniqueTokensB} total tokens respectively</p>
+                <p className="text-muted-foreground">{pair.binarySharedTokenCount} shared tokens out of {uniqueTokensA} and {uniqueTokensB} unique tokens traded respectively</p>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -378,9 +379,12 @@ const PairGrid = memo(({ processedPairs, sortKey, selectedPairId, onSelectPair, 
 
   return (
     <div className="flex flex-col h-full">
-      <h3 className="text-lg font-semibold mb-2">Wallet Pairs</h3>
-      <ScrollArea className="flex-1">
-        <div className="grid gap-3 pr-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold">Wallet Pairs</h3>
+        <span className="text-[10px] text-muted-foreground">{processedPairs.length} pairs</span>
+      </div>
+      <ScrollArea className="h-[600px]">
+        <div className="grid gap-2 pr-3">
           {processedPairs.map((processedPair) => {
             const pairId = generatePairId(processedPair.pair.walletA, processedPair.pair.walletB);
             return (
@@ -509,12 +513,10 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
 
   return (
     <div className="space-y-3">
-      {/* ONLY the Shared Tokens Table - everything else is already on the left */}
       {sortedSharedTokens.length > 0 ? (
-        <Card className="p-4">
+        <div className="border border-border rounded-lg p-3">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold">Shared Tokens Breakdown</h3>
-            {/* Local Sort Controls */}
+            <h3 className="text-sm font-semibold">Shared Tokens</h3>
             <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-auto">
               <TabsList className="h-7 p-0.5 bg-muted/50">
                 <TabsTrigger value="binaryScore" className="text-xs px-2 py-1">Assets</TabsTrigger>
@@ -522,83 +524,47 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
               </TabsList>
             </Tabs>
           </div>
-          
-          <div className="rounded-lg border border-border overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-border">
-                  <TableHead className="text-sm font-semibold">Token</TableHead>
-                  <TableHead className="text-right text-sm font-semibold">
-                    <WalletBadge address={pair.walletA} size="s" knownType={labelA?.knownType} knownLabel={labelA?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-                  </TableHead>
-                  <TableHead className="text-right text-sm font-semibold">
-                    <WalletBadge address={pair.walletB} size="s" knownType={labelB?.knownType} knownLabel={labelB?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sortedSharedTokens.map((token, index) => {
-                  const allocation = capitalAllocation?.[token.mint];
-                  return (
-                    <TableRow key={token.mint} className="border-border">
-                      <TableCell className="font-medium">
-                        <TokenBadge
-                          mint={token.mint}
-                          metadata={getTokenMetadata(token.mint, results.walletBalances)}
-                          variant="inline"
-                          size="sm"
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {allocation?.weightA !== undefined ? (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="font-mono text-xs text-emerald-400 cursor-help border-b border-dotted border-emerald-400/30">
-                                  {(allocation.weightA * 100).toFixed(2)}%
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Percentage of wallet's total capital allocated to this token</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        ) : (
-                          <span className="text-blue-400 text-xs px-2 py-1 bg-blue-500/10 rounded">
-                            Held
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {allocation?.weightB !== undefined ? (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="font-mono text-xs text-emerald-400 cursor-help border-b border-dotted border-emerald-400/30">
-                                  {(allocation.weightB * 100).toFixed(2)}%
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Percentage of wallet's total capital allocated to this token</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        ) : (
-                          <span className="text-blue-400 text-xs px-2 py-1 bg-blue-500/10 rounded">
-                            Held
-                          </span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+
+          <div className="space-y-1">
+            {sortedSharedTokens.map((token) => {
+              const allocation = capitalAllocation?.[token.mint];
+              const metadata = getTokenMetadata(token.mint, results.walletBalances);
+
+              return (
+                <div key={token.mint} className="flex items-center gap-3 p-2 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <TokenBadge
+                      mint={token.mint}
+                      metadata={metadata}
+                      variant="inline"
+                      size="sm"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {allocation?.weightA !== undefined ? (
+                      <Badge variant="outline" className="text-xs font-mono">
+                        {(allocation.weightA * 100).toFixed(1)}%
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs">Held</Badge>
+                    )}
+                    <span className="text-muted-foreground text-xs">•</span>
+                    {allocation?.weightB !== undefined ? (
+                      <Badge variant="outline" className="text-xs font-mono">
+                        {(allocation.weightB * 100).toFixed(1)}%
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs">Held</Badge>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </Card>
+        </div>
       ) : (
-        <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-border rounded-lg">
-          <p className="text-sm text-muted-foreground">No shared tokens to display</p>
+        <div className="flex flex-col items-center justify-center h-32 border border-dashed border-border rounded-lg">
+          <p className="text-sm text-muted-foreground">No shared tokens</p>
         </div>
       )}
     </div>
@@ -700,9 +666,9 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
             <p className="text-muted-foreground">No significant pairs identified based on the current thresholds (score &gt; 0.1).</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[600px]">
-            {/* Master: Pair Grid */}
-            <div className="lg:col-span-5 flex flex-col">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Master: Compact Pair Grid - 1/3 width with fixed height scroll */}
+            <div className="lg:col-span-1">
               <PairGrid
                 processedPairs={processedPairs}
                 sortKey={sortKey}
@@ -714,8 +680,8 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
               />
             </div>
 
-            {/* Detail: Selected Pair Analysis */}
-            <div className="lg:col-span-7">
+            {/* Detail: Selected Pair Analysis - 2/3 width */}
+            <div className="lg:col-span-2">
               <PairDetail
                 processedPair={selectedPair}
                 results={results}

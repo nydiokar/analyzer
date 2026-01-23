@@ -1,14 +1,13 @@
 'use client';
 
-import { useMemo, memo, useState, useEffect } from 'react'; // Import memo
+import { useMemo, memo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback,  } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { WalletBadge } from "@/components/shared/WalletBadge";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { CombinedSimilarityResult } from "./types";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { TokenBadge } from "@/components/shared/TokenBadge";
 
 interface MostCommonTokensProps {
@@ -82,6 +81,12 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
     const tokenMetadataMap = buildTokenMetadataMap(enrichedBalances);
     const getWalletLabel = (address: string) => results.walletLabels?.[address];
 
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+        console.log('[MostCommonTokens] enrichedBalances:', enrichedBalances ? Object.keys(enrichedBalances).length + ' wallets' : 'null');
+        console.log('[MostCommonTokens] tokenMetadataMap size:', tokenMetadataMap.size);
+    }
+
     const commonTokens = useMemo(() => {
         const tokenMap = new Map<string, Set<string>>();
 
@@ -119,72 +124,88 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
         );
     }
     
+    const [expandedTokens, setExpandedTokens] = useState<Set<string>>(new Set());
+
+    const toggleToken = (mint: string) => {
+        const newExpanded = new Set(expandedTokens);
+        if (newExpanded.has(mint)) {
+            newExpanded.delete(mint);
+        } else {
+            newExpanded.add(mint);
+        }
+        setExpandedTokens(newExpanded);
+    };
+
     return (
         <Card className="border w-full">
-            <CardHeader>
-              <div>
-                <CardTitle>Most Common Tokens</CardTitle>
-                <CardDescription>Top tokens shared across the wallet set.</CardDescription>
-              </div>
+            <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Most Common Tokens</CardTitle>
+                <CardDescription className="text-xs">Click to expand and view holders</CardDescription>
             </CardHeader>
-            <CardContent>
-                <ScrollArea className="max-h-[600px]">
-                    <ul className="space-y-3">
+            <CardContent className="pt-0">
+                <ScrollArea className="h-[450px]">
+                    <div className="space-y-1.5 pr-3">
                         {commonTokens.map((token) => {
                             const metadata = tokenMetadataMap.get(token.mint);
+                            const totalWallets = results.summary?.walletCount || Object.keys(results.uniqueTokensPerWallet || {}).length;
+                            const percentage = totalWallets > 0 ? ((token.count / totalWallets) * 100).toFixed(0) : 0;
+                            const isExpanded = expandedTokens.has(token.mint);
 
                             return (
-                                <li key={token.mint} className="text-sm flex justify-between items-center border-b pb-2">
-                                    <div className="flex items-center gap-3 flex-grow min-w-0">
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <div className="flex-1 min-w-0">
-                                                        <TokenBadgeWithFallback 
-                                                            mint={token.mint} 
-                                                            metadata={metadata} 
-                                                            size="lg" 
+                                <div key={token.mint} className="border border-border/40 rounded-lg overflow-hidden hover:border-border/70 transition-colors">
+                                    {/* Token Header - Always Visible */}
+                                    <div
+                                        onClick={() => toggleToken(token.mint)}
+                                        className="w-full flex items-center gap-3 p-2.5 bg-card hover:bg-muted/20 transition-colors cursor-pointer"
+                                    >
+                                        <div className="shrink-0">
+                                            {isExpanded ? (
+                                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                            ) : (
+                                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                            )}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <TokenBadgeWithFallback
+                                                mint={token.mint}
+                                                metadata={metadata}
+                                                size="sm"
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <Badge variant="secondary" className="text-xs font-semibold">
+                                                {token.count}/{totalWallets}
+                                            </Badge>
+                                            <Badge variant="outline" className="text-xs font-mono">
+                                                {percentage}%
+                                            </Badge>
+                                        </div>
+                                    </div>
+
+                                    {/* Expandable Wallet List */}
+                                    {isExpanded && (
+                                        <div className="p-2.5 bg-muted/20 border-t border-border/40">
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {token.wallets.map(w => {
+                                                    const walletLabel = getWalletLabel(w);
+                                                    return (
+                                                        <WalletBadge
+                                                            key={w}
+                                                            address={w}
+                                                            size="s"
+                                                            knownType={walletLabel?.knownType}
+                                                            knownLabel={walletLabel?.knownLabel}
+                                                            visibleActions={{ copy: true, solscan: true, profile: true }}
                                                         />
-                                                    </div>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <div className="flex flex-col gap-2 p-2 max-w-xs">
-                                                        <p className="font-bold">Shared by:</p>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {token.wallets.map(w => (
-                                                                <WalletBadge
-                                                                    key={w}
-                                                                    address={w}
-                                                                    size="s"
-                                                                    knownType={getWalletLabel(w)?.knownType}
-                                                                    knownLabel={getWalletLabel(w)?.knownLabel}
-                                                                    visibleActions={{ copy: false, solscan: false, profile: true }}
-                                                                />
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
-                                    </div>
-                                    <div className="flex items-center gap-2 ml-4">
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Badge variant="secondary" className="cursor-help">
-                                                        {token.count} wallets
-                                                    </Badge>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>Number of wallets holding this token</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
-                                    </div>
-                                </li>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             );
                         })}
-                    </ul>
+                    </div>
                 </ScrollArea>
             </CardContent>
         </Card>

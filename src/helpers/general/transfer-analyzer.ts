@@ -7,8 +7,7 @@ import Papa from 'papaparse';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
-
-// import logger from '../utils/logger'; 
+import logger from '../../core/utils/logger'; 
 
 // Define the expected structure of a row in the CSV
 interface TransferRecord {

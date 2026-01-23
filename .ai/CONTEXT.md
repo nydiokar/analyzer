@@ -6,8 +6,6 @@
 
 ## 🎯 Current Focus
 
-**System wallet detection wiring** - Ensuring holder profiles/similarity skip system wallets early and persist LP/Protocol tagging.
-
 ---
 
 ## 📋 Active Work
