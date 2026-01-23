@@ -7,6 +7,8 @@ import { RedisLockService } from './redis-lock.service';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import { Redis } from 'ioredis';
 import { sanitizeErrorMessage } from '../utils/error-sanitizer';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 @Injectable()
 export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
@@ -47,7 +49,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
             errorMessage.includes('writeable')) {
           this.logger.warn('⚠️  Redis not ready for cleanup - skipping. Make sure Redis is running for lock management.');
         } else {
-          this.logger.error('Error during startup lock cleanup:', error);
+          this.logger.error('Error during startup lock cleanup:', getErrorMessage(error));
         }
       }
     }, 10000); // Wait 10 seconds for Redis to be fully ready
@@ -145,7 +147,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     });
 
     queueEvents.on('error', (err) => {
-      this.logger.error(`Queue events error for ${queueName}:`, err);
+      this.logger.error(`Queue events error for ${queueName}:`, getErrorMessage(err));
     });
 
     this.queueEventsMap.set(queueName, queueEvents);

@@ -10,6 +10,8 @@ import { BehaviorAnalyzer } from '../core/analysis/behavior/analyzer';
 import { BehaviorAnalysisConfig } from '../types/analysis';
 import { DatabaseService } from '../core/services/database-service';
 import { createLogger } from '../core/utils/logger';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 const logger = createLogger('ValidateHolderRisk');
 
@@ -206,7 +208,7 @@ async function validateWallet(walletAddress: string) {
     }
 
   } catch (error) {
-    console.error('\n❌ ERROR:', error);
+    logger.error('\n❌ ERROR:', getErrorMessage(error));
     throw error;
   }
 }

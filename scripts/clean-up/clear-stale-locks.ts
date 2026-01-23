@@ -1,4 +1,8 @@
 import Redis from 'ioredis';
+import { getErrorMessage, getErrorDetails } from '../../src/core/utils/error-utils';
+import logger from '../../src/core/utils/logger';
+
+
 
 async function clearStaleLocks() {
   console.log('🔓 Starting stale lock cleanup...');
@@ -42,7 +46,7 @@ async function clearStaleLocks() {
     }
     
   } catch (error) {
-    console.error('❌ Error clearing stale locks:', error);
+    logger.error('❌ Error clearing stale locks:', getErrorMessage(error));
     throw error;
   } finally {
     await redis.quit();
@@ -56,6 +60,6 @@ clearStaleLocks()
     process.exit(0);
   })
   .catch((error) => {
-    console.error('💥 Stale lock cleanup failed:', error);
+    logger.error('💥 Stale lock cleanup failed:', getErrorMessage(error));
     process.exit(1);
   }); 

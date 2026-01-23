@@ -4,6 +4,8 @@ import { DatabaseService } from '../services/database.service'; // Assuming this
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 @Controller('test-auth') // This will be accessible at /api/v1/test-auth
 @UseGuards(CompositeAuthGuard)
@@ -87,7 +89,7 @@ export class TestController {
       }
       return response;
     } catch (error) {
-      this.logger.error(`Error in ${actionType} for user ${userId}:`, error);
+      this.logger.error(`Error in ${actionType} for user ${userId}:`, getErrorMessage(error));
       if (userId) {
         const durationMs = Date.now() - startTime;
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';

@@ -1,4 +1,8 @@
 import { PrismaClient } from '@prisma/client';
+import { getErrorMessage, getErrorDetails } from '../src/core/utils/error-utils';
+import logger from '../src/core/utils/logger';
+
+
 
 const prisma = new PrismaClient();
 
@@ -74,7 +78,7 @@ async function checkDatabaseSize(showIndexes = false) {
     }
 
   } catch (error) {
-    console.error('Error checking database size:', error);
+    logger.error('Error checking database size:', getErrorMessage(error));
   } finally {
     await prisma.$disconnect();
   }

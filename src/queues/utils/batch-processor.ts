@@ -1,4 +1,6 @@
 import { Logger } from '@nestjs/common';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 export interface BatchProcessingOptions {
   failureThreshold?: number;    // Default 0.8 (80% success rate required)
@@ -213,7 +215,7 @@ export class BatchProcessor {
             pendingJobs.delete(jobId);
           }
         } catch (error) {
-          this.logger.warn(`Error checking job ${jobId}:`, error);
+          this.logger.warn(`Error checking job ${jobId}:`, getErrorMessage(error));
         }
       });
 

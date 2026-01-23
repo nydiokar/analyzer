@@ -8,6 +8,10 @@ import * as ts from 'typescript';
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
+import { getErrorMessage, getErrorDetails } from '../src/core/utils/error-utils';
+import logger from '../src/core/utils/logger';
+
+
 
 interface LogStatement {
   component: string;
@@ -258,7 +262,7 @@ async function main() {
         }
       } catch (error) {
         const relativePath = path.relative(process.cwd(), file);
-        console.error(`    ✗ Error processing ${relativePath}:`, error);
+        logger.error(`    ✗ Error processing ${relativePath}:`, getErrorMessage(error));
       }
     }
   }

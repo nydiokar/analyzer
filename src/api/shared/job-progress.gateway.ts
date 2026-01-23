@@ -9,6 +9,8 @@ import { Server, Socket } from 'socket.io';
 import { Inject, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 // --- Event Interfaces ---
 interface JobProgressEvent {
@@ -109,7 +111,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     
     // Set up server-level event handlers (only once)
     this.server.on('connection_error', (err) => {
-      this.logger.error(`Socket.IO connection error: ${err.message}`, err);
+      this.logger.error(`Socket.IO connection error: ${err.message}`, getErrorMessage(err));
     });
     
     // Set up Redis subscriptions with delay to ensure Redis connection is established
@@ -154,7 +156,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
           if (errorMessage.includes('enableOfflineQueue') || errorMessage.includes('writeable')) {
             this.logger.warn(`⚠️  Redis not ready for WebSocket subscriptions. Make sure Redis is running.`);
           } else {
-            this.logger.error(`Failed to subscribe to ${pattern}:`, err);
+            this.logger.error(`Failed to subscribe to ${pattern}:`, getErrorMessage(err));
           }
         } else {
           this.logger.log(`📡 Subscribed to Redis pattern: ${pattern}`);
@@ -165,7 +167,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
       if (errorMessage.includes('enableOfflineQueue') || errorMessage.includes('writeable')) {
         this.logger.warn(`⚠️  Cannot setup Redis subscriptions - Redis not connected. Will retry later.`);
       } else {
-        this.logger.error(`Failed to setup Redis subscriptions:`, error);
+        this.logger.error(`Failed to setup Redis subscriptions:`, getErrorMessage(error));
       }
     }
 
@@ -173,7 +175,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
       try {
         this.handleRedisMessage(channel, message);
       } catch (error) {
-        this.logger.error(`Error handling Redis message from ${channel}:`, error);
+        this.logger.error(`Error handling Redis message from ${channel}:`, getErrorMessage(error));
       }
     });
   }
@@ -191,7 +193,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
         this.broadcastToSubscribers('job-queue-to-start', data, data.jobId, data.queue);
       }
     } catch (error) {
-      this.logger.warn(`Failed to parse Redis message from ${channel}:`, error);
+      this.logger.warn(`Failed to parse Redis message from ${channel}:`, getErrorMessage(error));
     }
   }
 

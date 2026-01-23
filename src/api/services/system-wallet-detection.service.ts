@@ -14,6 +14,7 @@ import {
   isKnownWallet,
   type KnownWalletType,
 } from '../../config/known-wallets';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
 
 export interface SystemWalletDetectionResult {
   address: string;
@@ -120,7 +121,7 @@ export class SystemWalletDetectionService {
         return result;
       }
     } catch (error) {
-      this.logger.debug(`Redis cache lookup failed for ${address}:`, error);
+      this.logger.debug(`Redis cache lookup failed for ${address}:`, getErrorMessage(error));
     }
 
     // Tier 3: Database check
@@ -170,7 +171,7 @@ export class SystemWalletDetectionService {
         return result;
       }
     } catch (error) {
-      this.logger.debug(`Database lookup failed for ${address}:`, error);
+      this.logger.debug(`Database lookup failed for ${address}:`, getErrorMessage(error));
     }
 
     // Tier 4: Dynamic detection via RPC (token count)
@@ -188,7 +189,7 @@ export class SystemWalletDetectionService {
 
       return result;
     } catch (error) {
-      this.logger.warn(`Failed to detect system wallet ${address}:`, error);
+      this.logger.warn(`Failed to detect system wallet ${address}:`, getErrorMessage(error));
       // Fail open - assume it's NOT a system wallet
       return {
         address,
@@ -356,7 +357,7 @@ export class SystemWalletDetectionService {
       );
       return result.count;
     } catch (error) {
-      this.logger.warn(`Failed to get token count for ${address}:`, error);
+      this.logger.warn(`Failed to get token count for ${address}:`, getErrorMessage(error));
       throw error;
     }
   }
@@ -453,7 +454,7 @@ export class SystemWalletDetectionService {
       const emoji = result.knownType ? '🚫' : '⚠️';
       this.logger.log(`${emoji} Auto-tagged ${result.address} as ${classification} (${result.reason})`);
     } catch (error) {
-      this.logger.warn(`Failed to auto-tag ${result.address}:`, error);
+      this.logger.warn(`Failed to auto-tag ${result.address}:`, getErrorMessage(error));
     }
   }
 
@@ -470,7 +471,7 @@ export class SystemWalletDetectionService {
     const cacheKey = this.buildCacheKey(result.address);
     const ttlSeconds = SYSTEM_WALLET_DETECTION_CONFIG.REDIS_TTL_DAYS * 24 * 60 * 60;
     this.redis.set(cacheKey, JSON.stringify(result), 'EX', ttlSeconds).catch(error => {
-      this.logger.debug(`Failed to cache detection result for ${result.address}:`, error);
+      this.logger.debug(`Failed to cache detection result for ${result.address}:`, getErrorMessage(error));
     });
   }
 

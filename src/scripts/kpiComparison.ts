@@ -23,6 +23,8 @@ import { KPIComparisonAnalyzer } from 'core/analysis/behavior/kpi_analyzer'; // 
 import { WalletInfo } from '@/types/wallet';
 import { BehaviorAnalysisConfig } from '@/types/analysis'; // Import specific config
 import { parseTimeRange } from 'core/utils/cliUtils';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 
 // Initialize logger
@@ -112,7 +114,7 @@ async function main() {
 
     } catch (error) {
          if (error instanceof Error) {
-             logger.error(`An error occurred during KPI comparison report generation: ${error.message}`, { stack: error.stack });
+             logger.error(`An error occurred during KPI comparison report generation: ${error.message}`, getErrorDetails(error));
         } else {
              logger.error('An unknown error occurred during KPI comparison report generation:', error);
         }
@@ -126,7 +128,7 @@ async function main() {
 // Execute main function
 main().catch((error) => {
     if (error instanceof Error) {
-        logger.error(`Unhandled error in main execution: ${error.message}`, { stack: error.stack });
+        logger.error(`Unhandled error in main execution: ${error.message}`, getErrorDetails(error));
     } else {
         logger.error('Unhandled unknown error in main execution:', error);
     }

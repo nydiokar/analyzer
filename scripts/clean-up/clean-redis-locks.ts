@@ -4,6 +4,10 @@
  */
 
 import Redis from 'ioredis';
+import { getErrorMessage, getErrorDetails } from '../../src/core/utils/error-utils';
+import logger from '../../src/core/utils/logger';
+
+
 
 class RedisLockCleaner {
   private redis: Redis;
@@ -45,7 +49,7 @@ class RedisLockCleaner {
       console.log(`✅ Cleaned ${totalCleaned} locks total`);
       
     } catch (error) {
-      console.error('❌ Error cleaning locks:', error);
+      logger.error('❌ Error cleaning locks:', getErrorMessage(error));
     } finally {
       await this.redis.disconnect();
     }
@@ -69,7 +73,7 @@ class RedisLockCleaner {
       }
       
     } catch (error) {
-      console.error('❌ Error listing locks:', error);
+      logger.error('❌ Error listing locks:', getErrorMessage(error));
     } finally {
       await this.redis.disconnect();
     }

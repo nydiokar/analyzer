@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetcher } from '@/lib/fetcher';
 import { CACHE_DURATIONS } from '@/lib/swr-config';
+import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
+import logger from '../../../src/core/utils/logger';
+
+
 
 interface TokenMetadata {
   name?: string;
@@ -160,7 +164,7 @@ class TokenMetadataBatcher {
       }, 5000);
 
     } catch (error) {
-      console.error('[TokenMetadataBatcher] Failed to fetch batch:', error);
+      logger.error('[TokenMetadataBatcher] Failed to fetch batch:', getErrorMessage(error));
 
       // Notify callbacks with null
       mints.forEach(mint => {
@@ -213,7 +217,7 @@ class TokenMetadataBatcher {
         });
       }
     } catch (error) {
-      console.error('[TokenMetadataBatcher] Failed to refresh enriched data:', error);
+      logger.error('[TokenMetadataBatcher] Failed to refresh enriched data:', getErrorMessage(error));
     }
   }
 

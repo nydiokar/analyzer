@@ -3,6 +3,10 @@
 import { HeliusApiClient } from '@/core/services/helius-api-client';
 import { DatabaseService } from '../api/services/database.service';
 import { HELIUS_CONFIG } from '../config/constants';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import logger from '../core/utils/logger';
+
+
 
 async function testGetAllTransactionsForMint() {
   // Check if API key is available
@@ -145,7 +149,7 @@ async function testGetAllTransactionsForMint() {
       .forEach(([wallet, sol]) => console.log(`  ${wallet}: ${sol.toFixed(4)} SOL`));
 
   } catch (error) {
-    console.error('❌ Error fetching transactions:', error);
+    logger.error('❌ Error fetching transactions:', getErrorMessage(error));
   }
 }
 

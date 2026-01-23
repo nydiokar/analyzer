@@ -11,6 +11,10 @@ import {
   JobQueueToStartData
 } from '@/types/websockets';
 import { useAuthStore } from '@/store/auth-store';
+import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
+import logger from '../../../src/core/utils/logger';
+
+
 import type { JobResult } from '@/types/websockets';
 
 // Define proper error types
@@ -217,12 +221,12 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleError = (error: Error) => {
-      console.error('🔌 WebSocket error:', error);
+      logger.error('🔌 WebSocket error:', getErrorMessage(error));
       setError(error.message || 'WebSocket error');
     };
 
     const handleConnectError = (error: Error) => {
-      console.error('🔌 WebSocket connection error:', error);
+      logger.error('🔌 WebSocket connection error:', getErrorMessage(error));
       setError(`Connection failed: ${error.message || 'Unknown error'}`);
     };
 
@@ -400,7 +404,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       } catch (error: unknown) {
         const apiError = error as ApiError;
         if (apiError.status !== 404) {
-          console.error(`Error polling job status for ${jobId}:`, error);
+          logger.error(`Error polling job status for ${jobId}:`, getErrorMessage(error));
           toast({
             title: 'Could not get job status',
             description: 'Network error: Unable to connect to the server. Please check your connection.',

@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 @Injectable()
 export class CsrfService {
@@ -68,7 +70,7 @@ export class CsrfService {
 
       return true;
     } catch (error) {
-      this.logger.error('CSRF token validation error:', error);
+      this.logger.error('CSRF token validation error:', getErrorMessage(error));
       return false;
     }
   }

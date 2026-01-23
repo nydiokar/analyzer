@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 /**
  * Service for caching large job payloads in Redis to avoid bloating BullMQ job data.
@@ -60,7 +62,7 @@ export class JobPayloadCacheService {
 
       return key;
     } catch (error) {
-      this.logger.error(`Failed to store payload for ${requestId}:`, error);
+      this.logger.error(`Failed to store payload for ${requestId}:`, getErrorMessage(error));
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Failed to cache job payload: ${errorMessage}`);
     }
@@ -86,7 +88,7 @@ export class JobPayloadCacheService {
 
       return data as T;
     } catch (error) {
-      this.logger.error(`Failed to retrieve payload for ${key}:`, error);
+      this.logger.error(`Failed to retrieve payload for ${key}:`, getErrorMessage(error));
       return null;
     }
   }
@@ -108,7 +110,7 @@ export class JobPayloadCacheService {
       }
     } catch (error) {
       // Non-critical: TTL will clean up eventually
-      this.logger.warn(`Failed to delete payload ${key}:`, error);
+      this.logger.warn(`Failed to delete payload ${key}:`, getErrorMessage(error));
     }
   }
 
@@ -131,7 +133,7 @@ export class JobPayloadCacheService {
       const exists = await this.redis.exists(key);
       return exists === 1;
     } catch (error) {
-      this.logger.error(`Failed to check existence for ${key}:`, error);
+      this.logger.error(`Failed to check existence for ${key}:`, getErrorMessage(error));
       return false;
     }
   }
@@ -146,7 +148,7 @@ export class JobPayloadCacheService {
     try {
       return await this.redis.ttl(key);
     } catch (error) {
-      this.logger.error(`Failed to get TTL for ${key}:`, error);
+      this.logger.error(`Failed to get TTL for ${key}:`, getErrorMessage(error));
       return -1;
     }
   }

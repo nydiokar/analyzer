@@ -1,5 +1,9 @@
 import { Queue } from 'bullmq';
 import { redisConfig } from '../../src/queues/config/redis.config';
+import { getErrorMessage, getErrorDetails } from '../../src/core/utils/error-utils';
+import logger from '../../src/core/utils/logger';
+
+
 
 async function clearAllQueues() {
   console.log('🧹 Starting queue cleanup...');
@@ -32,7 +36,7 @@ async function clearAllQueues() {
       
       await queue.close();
     } catch (error) {
-      console.error(`   ❌ Error clearing queue ${queueName}:`, error);
+      logger.error(`   ❌ Error clearing queue ${queueName}:`, getErrorMessage(error));
     }
   }
   

@@ -12,6 +12,8 @@ import { ALLOW_UNVERIFIED_EMAIL_KEY } from '../decorators/allow-unverified.decor
 import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 interface AuthenticatedRequest extends Request {
   user?: User;
@@ -259,7 +261,7 @@ export class CompositeAuthGuard implements CanActivate {
       const headerJson = Buffer.from(headerB64, 'base64url').toString();
       return JSON.parse(headerJson);
     } catch (error) {
-      this.logger.warn('Failed to decode JWT header:', error);
+      this.logger.warn('Failed to decode JWT header:', getErrorMessage(error));
       return null;
     }
   }

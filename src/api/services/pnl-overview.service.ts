@@ -3,6 +3,8 @@ import { PnlAnalysisService } from './pnl-analysis.service';
 import { TokenInfoService } from './token-info.service';
 import { DexscreenerService } from './dexscreener.service';
 import { SwapAnalysisSummary } from '../../types/helius-api';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 // Updated PnlOverviewResponse to include more fields
 export class PnlOverviewResponseData {
@@ -133,7 +135,7 @@ export class PnlOverviewService {
       solPriceUsd = await this.tokenInfoService.getSolPrice();
       // this.logger.log(`[PnlOverview] Fetched SOL price: $${solPriceUsd}`);
     } catch (error) {
-      this.logger.warn(`[PnlOverview] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
+      this.logger.warn(`[PnlOverview] Failed to fetch SOL price: ${getErrorMessage(error)}. Unrealized PNL calculation will be skipped.`);
     }
 
     // Fetch all-time data with SOL price for unrealized PNL calculation
@@ -182,7 +184,7 @@ export class PnlOverviewService {
       solPriceUsd = await this.tokenInfoService.getSolPrice();
       // this.logger.log(`[PnlAnalysisForSummary] Fetched SOL price: $${solPriceUsd}`);
     } catch (error) {
-      // this.logger.warn(`[PnlAnalysisForSummary] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
+      // this.logger.warn(`[PnlAnalysisForSummary] Failed to fetch SOL price: ${getErrorMessage(error)}. Unrealized PNL calculation will be skipped.`);
     }
 
     const analysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(

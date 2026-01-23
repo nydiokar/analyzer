@@ -41,6 +41,8 @@ import { BalanceCacheModule } from '../api/modules/balance-cache.module';
 import { HolderProfilesCacheModule } from '../api/modules/holder-profiles-cache.module';
 import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 @Global()
 @Module({
@@ -193,7 +195,7 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log('✅ Queue module shutdown completed successfully');
     } catch (error) {
-      this.logger.error('⚠️ Queue module shutdown encountered errors:', error);
+      this.logger.error('⚠️ Queue module shutdown encountered errors:', getErrorMessage(error));
       // Force close queues to prevent hanging
       await Promise.allSettled([
         this.walletOperationsQueue.getQueue().close(),

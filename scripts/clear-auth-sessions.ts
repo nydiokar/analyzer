@@ -1,4 +1,8 @@
 import Redis from 'ioredis';
+import { getErrorMessage, getErrorDetails } from '../src/core/utils/error-utils';
+import logger from '../src/core/utils/logger';
+
+
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const redis = new Redis(redisUrl, { maxRetriesPerRequest: 3 });
@@ -45,7 +49,7 @@ async function run() {
 
 run()
   .catch((err) => {
-    console.error('Failed to clean auth session keys:', err);
+    logger.error('Failed to clean auth session keys:', getErrorMessage(err));
     process.exitCode = 1;
   })
   .finally(() => redis.disconnect());

@@ -1,6 +1,8 @@
 import { FactoryProvider, Logger } from '@nestjs/common';
 import Redis, { RedisOptions } from 'ioredis';
 import { redisConfig } from './redis.config';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 export const REDIS_CLIENT = 'REDIS_CLIENT';
 
@@ -107,7 +109,7 @@ export const redisProvider: FactoryProvider<Redis> = {
         await client.quit();
         logger.log('Redis connection closed gracefully.');
       } catch (error) {
-        logger.error('Error closing Redis connection:', error);
+        logger.error('Error closing Redis connection:', getErrorMessage(error));
       }
     });
 

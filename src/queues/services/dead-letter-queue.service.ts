@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { Queue, QueueEvents, Job } from 'bullmq';
 import { redisConfig } from '../config/redis.config';
 import { AlertingService } from './alerting.service';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 export interface FailedJobMetrics {
   queueName: string;
@@ -74,7 +76,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.handleFailedJob(queueName, jobId, failedReason, prev);
       } catch (error) {
-        this.logger.error(`Error handling failed job ${jobId} from ${queueName}:`, error);
+        this.logger.error(`Error handling failed job ${jobId} from ${queueName}:`, getErrorMessage(error));
       }
     });
 
@@ -83,12 +85,12 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.handleCompletedJob(queueName, jobId, returnvalue, prev);
       } catch (error) {
-        this.logger.error(`Error tracking completed job ${jobId} from ${queueName}:`, error);
+        this.logger.error(`Error tracking completed job ${jobId} from ${queueName}:`, getErrorMessage(error));
       }
     });
 
     queueEvents.on('error', (err) => {
-      this.logger.error(`Queue events error for ${queueName}:`, err);
+      this.logger.error(`Queue events error for ${queueName}:`, getErrorMessage(err));
     });
 
     this.queueEvents.set(queueName, queueEvents);
@@ -142,7 +144,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
         this.logger.debug(`Retrieved job details for failed job ${jobId} from previous state`);
       }
     } catch (error) {
-      this.logger.warn(`Could not retrieve details for failed job ${jobId}:`, error);
+      this.logger.warn(`Could not retrieve details for failed job ${jobId}:`, getErrorMessage(error));
       jobDetails = { error: 'Could not parse job details', rawPrev: prev };
     }
 
@@ -297,7 +299,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.monitorQueue(queueName);
       } catch (error) {
-        this.logger.error(`Failed to setup monitoring for queue ${queueName}:`, error);
+        this.logger.error(`Failed to setup monitoring for queue ${queueName}:`, getErrorMessage(error));
       }
     }
   }
@@ -358,7 +360,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
         await queueEvents.close();
         this.logger.log(`Closed monitoring for queue: ${queueName}`);
       } catch (error) {
-        this.logger.error(`Error closing queue events for ${queueName}:`, error);
+        this.logger.error(`Error closing queue events for ${queueName}:`, getErrorMessage(error));
       }
     }
 

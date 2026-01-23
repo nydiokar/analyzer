@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import { AuthService, JwtPayload } from '../services/auth.service';
 import { JwtKeyRotationService } from '../services/jwt-key-rotation.service';
 import { User } from '@prisma/client';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -43,7 +45,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             done(new UnauthorizedException('JWT key not found'), null);
           }
         } catch (error) {
-          this.logger.error('Error in JWT key resolution:', error);
+          this.logger.error('Error in JWT key resolution:', getErrorMessage(error));
           done(new UnauthorizedException('JWT key resolution failed'), null);
         }
       },
@@ -56,7 +58,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       const headerJson = Buffer.from(headerB64, 'base64url').toString();
       return JSON.parse(headerJson);
     } catch (error) {
-      this.logger.warn('Failed to decode JWT header:', error);
+      this.logger.warn('Failed to decode JWT header:', getErrorMessage(error));
       return null;
     }
   }

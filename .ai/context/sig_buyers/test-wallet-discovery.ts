@@ -5,6 +5,10 @@ import { DatabaseService } from '../../../src/api/services/database.service';
 import { mapHeliusTransactionsToIntermediateRecords } from '../../../src/core/services/helius-transaction-mapper';
 import { HELIUS_CONFIG } from '../../../src/config/constants';
 import { HeliusTransaction } from '../../../src/types/helius-api';
+import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
+import logger from '../../../src/core/utils/logger';
+
+
 
 /**
  * WORKING VERSION: Time-based wallet discovery using RPC approach
@@ -414,7 +418,7 @@ async function discoverSignificantWallets() {
         }
 
       } catch (error) {
-        console.warn(`❌ Failed to analyze wallet ${walletAddress}:`, error);
+        logger.warn(`❌ Failed to analyze wallet ${walletAddress}:`, getErrorMessage(error));
       }
     }
 
@@ -465,7 +469,7 @@ async function discoverSignificantWallets() {
     }
 
   } catch (error) {
-    console.error('❌ Error:', error);
+    logger.error('❌ Error:', getErrorMessage(error));
   }
 }
 
@@ -776,7 +780,7 @@ async function testEnhancedApiTimeFiltering() {
       }
 
     } catch (error) {
-      console.error(`❌ Error with ${approach.name}:`, error);
+      logger.error(`❌ Error with ${approach.name}:`, getErrorMessage(error));
     }
   }
 
@@ -952,7 +956,7 @@ async function quickBondingCurveTest() {
     }
 
   } catch (error) {
-    console.error('❌ Error testing bonding curve:', error);
+    logger.error('❌ Error testing bonding curve:', getErrorMessage(error));
   }
 }
 

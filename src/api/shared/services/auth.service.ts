@@ -11,6 +11,8 @@ import { RefreshTokenService } from './refresh-token.service';
 import { JwtKeyRotationService } from './jwt-key-rotation.service';
 import { EmailService } from './email.service';
 import { generateUniqueDisplayName } from '../utils/display-name-generator';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 export interface RegisterDto {
   email: string;
@@ -146,7 +148,7 @@ export class AuthService {
         },
       };
     } catch (error) {
-      this.logger.error('Registration failed:', error);
+      this.logger.error('Registration failed:', getErrorMessage(error));
       throw new UnauthorizedException('Registration failed');
     }
   }
@@ -205,7 +207,7 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      this.logger.error('Login failed:', error);
+      this.logger.error('Login failed:', getErrorMessage(error));
       throw new UnauthorizedException('Login failed');
     }
   }
@@ -215,7 +217,7 @@ export class AuthService {
       const user = await this.databaseService.findActiveUserById(userId);
       return user;
     } catch (error) {
-      this.logger.error(`Failed to validate user by ID: ${userId}`, error);
+      this.logger.error(`Failed to validate user by ID: ${userId}`, getErrorMessage(error));
       return null;
     }
   }
@@ -224,7 +226,7 @@ export class AuthService {
     try {
       await this.databaseService.updateUserLastSeen(userId);
     } catch (error) {
-      this.logger.warn(`Failed to update last seen for user: ${userId}`, error);
+      this.logger.warn(`Failed to update last seen for user: ${userId}`, getErrorMessage(error));
     }
   }
 
@@ -340,7 +342,7 @@ export class AuthService {
     try {
       return await bcrypt.hash(passwordWithPepper, this.PASSWORD_SALT_ROUNDS);
     } catch (error) {
-      this.logger.error('Failed to hash password', error);
+      this.logger.error('Failed to hash password', getErrorMessage(error));
       throw new UnauthorizedException('Password processing failed');
     }
   }
@@ -352,7 +354,7 @@ export class AuthService {
     try {
       return await bcrypt.compare(passwordWithPepper, hash);
     } catch (error) {
-      this.logger.error('Failed to verify password', error);
+      this.logger.error('Failed to verify password', getErrorMessage(error));
       return false;
     }
   }
@@ -364,7 +366,7 @@ export class AuthService {
     try {
       return await bcrypt.hash(apiKey, this.API_KEY_SALT_ROUNDS);
     } catch (error) {
-      this.logger.error('Failed to hash API key', error);
+      this.logger.error('Failed to hash API key', getErrorMessage(error));
       throw new UnauthorizedException('API key processing failed');
     }
   }
@@ -376,7 +378,7 @@ export class AuthService {
     try {
       return await bcrypt.compare(apiKey, hash);
     } catch (error) {
-      this.logger.error('Failed to verify API key', error);
+      this.logger.error('Failed to verify API key', getErrorMessage(error));
       return false;
     }
   }
@@ -584,7 +586,7 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      this.logger.error('Failed to refresh access token:', error);
+      this.logger.error('Failed to refresh access token:', getErrorMessage(error));
       throw new UnauthorizedException('Token refresh failed');
     }
   }

@@ -9,6 +9,8 @@ import { HeliusTransaction } from '@/types/helius-api';
 import * as path from 'path';
 import * as fs from 'fs';
 import pLimit from 'p-limit';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 // ANSI escape codes for progress display
 const ESC = '\x1b[';
@@ -906,7 +908,7 @@ async function fetchEnhancedTransactionsForMintWindowByType(
 // Run the script
 if (require.main === module) {
   main().catch(error => {
-    console.error('Unhandled error:', error);
+    logger.error('Unhandled error:', getErrorMessage(error));
     process.exit(1);
   });
 }

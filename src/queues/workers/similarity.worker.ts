@@ -3,6 +3,10 @@ import { Job } from 'bullmq';
 import { AppModule } from '../../app.module';
 import { SimilarityOperationsProcessor } from '../processors/similarity-operations.processor';
 import { ComprehensiveSimilarityFlowData, SimilarityFlowResult } from '../jobs/types';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+import logger from '../../core/utils/logger';
+
+
 
 // This is the sandboxed process entry point
 async function run(job: Job<ComprehensiveSimilarityFlowData>): Promise<SimilarityFlowResult> {
@@ -25,7 +29,7 @@ async function run(job: Job<ComprehensiveSimilarityFlowData>): Promise<Similarit
     return result;
   } catch (error) {
     // Log the error for debugging but don't let it crash the process
-    console.error('Similarity worker error:', error);
+    logger.error('Similarity worker error:', getErrorMessage(error));
     
     // Give time for failure events to be published before shutting down
     await new Promise(resolve => setTimeout(resolve, 200));

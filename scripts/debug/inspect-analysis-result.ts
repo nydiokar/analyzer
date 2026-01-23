@@ -1,5 +1,9 @@
 import * as dotenv from 'dotenv';
 import { DatabaseService } from '../../src/api/services/database.service';
+import { getErrorMessage, getErrorDetails } from '../../src/core/utils/error-utils';
+import logger from '../../src/core/utils/logger';
+
+
 
 dotenv.config();
 
@@ -47,6 +51,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error(err);
+  logger.error('Error occurred:', getErrorMessage(err));
   process.exit(1);
 });

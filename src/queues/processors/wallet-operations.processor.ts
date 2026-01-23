@@ -10,6 +10,8 @@ import { DatabaseService } from '../../api/services/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 @Injectable()
 export class WalletOperationsProcessor implements OnModuleDestroy {
@@ -36,11 +38,11 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
     });
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Job ${job?.id} failed:`, err);
+      this.logger.error(`Job ${job?.id} failed:`, getErrorMessage(err));
     });
 
     this.worker.on('error', (err) => {
-      this.logger.error('Worker error:', err);
+      this.logger.error('Worker error:', getErrorMessage(err));
     });
 
           this.logger.debug('WalletOperationsProcessor initialized with worker');
@@ -159,7 +161,7 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
       return result;
 
     } catch (error) {
-      this.logger.error(`Wallet sync failed for ${walletAddress}:`, error);
+      this.logger.error(`Wallet sync failed for ${walletAddress}:`, getErrorMessage(error));
       
       const result: WalletSyncResult = {
         success: false,
@@ -212,7 +214,7 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
       return result;
 
     } catch (error) {
-      this.logger.error(`Balance fetch failed for ${walletAddress}:`, error);
+      this.logger.error(`Balance fetch failed for ${walletAddress}:`, getErrorMessage(error));
       throw error;
     }
   }

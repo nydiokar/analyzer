@@ -200,7 +200,7 @@ export class PnlAnalysisService {
                     logger.debug(`[PnlAnalysis] No stored balance data found for ${walletAddress}`);
                 }
             } catch (error) {
-                logger.warn(`[PnlAnalysis] Failed to retrieve stored balance data for ${walletAddress}: ${error}`);
+                logger.warn(`[PnlAnalysis] Failed to retrieve stored balance data for ${walletAddress}: ${getErrorMessage(error)}`);
             }
         } else {
             // Use pre-fetched balances if provided, otherwise fetch them
@@ -433,7 +433,7 @@ export class PnlAnalysisService {
                     
                     logger.debug(`[PnlAnalysis] Prepared holdings valuation for ${walletAddress} (FIFO unrealized computed later).`);
                 } catch (error) {
-                    logger.warn(`[PnlAnalysis] Failed to calculate unrealized PNL for ${walletAddress}: ${error}`);
+                    logger.warn(`[PnlAnalysis] Failed to calculate unrealized PNL for ${walletAddress}: ${getErrorMessage(error)}`);
                 }
             }
             for (const result of enrichedSwapAnalysisResults) {

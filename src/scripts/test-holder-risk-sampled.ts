@@ -70,6 +70,8 @@ import { HeliusSyncService } from '../core/services/helius-sync-service';
 import { BehaviorAnalyzer } from '../core/analysis/behavior/analyzer';
 import { BehaviorAnalysisConfig } from '../types/analysis';
 import { createLogger } from '../core/utils/logger';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 dotenv.config();
 
@@ -220,7 +222,7 @@ async function testWallet(
     return result;
 
   } catch (error) {
-    console.error(`\n❌ Error testing wallet:`, error);
+    logger.error(`\n❌ Error testing wallet:`, getErrorMessage(error));
     throw error;
   }
 }

@@ -5,6 +5,8 @@ import { EmailEventService } from './email-event.service';
 import { Resend } from 'resend';
 import { render } from '@react-email/render';
 import { VerificationEmail } from '../../../emails/VerificationEmail';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 @Injectable()
 export class EmailService {
@@ -65,7 +67,7 @@ export class EmailService {
       this.isConfigured = true;
       this.logger.log('Email service configured successfully (SMTP)');
     } catch (error) {
-      this.logger.error('Failed to configure email service:', error);
+      this.logger.error('Failed to configure email service:', getErrorMessage(error));
     }
   }
 
@@ -208,7 +210,7 @@ If you didn't create an account, you can safely ignore this email.`.trim();
       this.logger.error('Email provider configured but transporter missing');
       return false;
     } catch (error) {
-      this.logger.error(`Failed to send email to ${params.to}:`, error);
+      this.logger.error(`Failed to send email to ${params.to}:`, getErrorMessage(error));
       return false;
     }
   }

@@ -6,6 +6,10 @@ import { hideBin } from 'yargs/helpers';
 import * as fs from 'fs';
 import { ConfigService } from '@nestjs/config';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import logger from '../core/utils/logger';
+
+
 
 dotenv.config();
 
@@ -83,7 +87,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Fatal error:', err);
+  logger.error('Fatal error:', getErrorMessage(err));
   process.exit(1);
 });
 

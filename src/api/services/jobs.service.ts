@@ -23,6 +23,8 @@ import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../c
 import { JobPriority } from '../../queues/config/queue.config';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import Redis from 'ioredis';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 @Injectable()
 export class JobsService {
@@ -293,7 +295,7 @@ export class JobsService {
           return this.formatJobResponse(job, name);
         }
       } catch (error) {
-        this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, error);
+        this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, getErrorMessage(error));
       }
     }
 
@@ -326,7 +328,7 @@ export class JobsService {
             this.logger.log(`Successfully cancelled and removed job ${jobId} from queue ${name}.`);
             return { success: true, message: `Job ${jobId} was successfully cancelled.` };
           } catch (error) {
-            this.logger.error(`Error cancelling job ${jobId} from queue ${name}:`, error);
+            this.logger.error(`Error cancelling job ${jobId} from queue ${name}:`, getErrorMessage(error));
             throw new Error(`Failed to cancel job ${jobId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
         } else {
@@ -423,7 +425,7 @@ export class JobsService {
       };
 
     } catch (error) {
-      this.logger.error(`Error fetching jobs for queue ${queueName}:`, error);
+      this.logger.error(`Error fetching jobs for queue ${queueName}:`, getErrorMessage(error));
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new BadRequestException(`Error fetching jobs: ${errorMessage}`);
     }
@@ -438,7 +440,7 @@ export class JobsService {
         try {
           return await this.getQueueStats(queueName);
         } catch (error) {
-          this.logger.warn(`Error fetching stats for queue ${queueName}:`, error);
+          this.logger.warn(`Error fetching stats for queue ${queueName}:`, getErrorMessage(error));
           return null;
         }
       })
@@ -492,7 +494,7 @@ export class JobsService {
           };
         }
       } catch (error) {
-        this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, error);
+        this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, getErrorMessage(error));
       }
     }
 
@@ -546,7 +548,7 @@ export class JobsService {
           };
         }
       } catch (error) {
-        this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, error);
+        this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, getErrorMessage(error));
       }
     }
 

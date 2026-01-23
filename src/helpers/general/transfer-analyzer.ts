@@ -6,6 +6,8 @@ import path from 'path';
 import Papa from 'papaparse';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 // import logger from '../utils/logger'; 
 
 // Define the expected structure of a row in the CSV
@@ -314,7 +316,7 @@ function writeMultiTokenResultsToCsv(results: AnalysisResults[], inputFile: stri
         fs.writeFileSync(outputPath, csvString, 'utf8');
         console.log('Successfully wrote multi-token CSV report.');
     } catch (error) {
-        console.error('Error writing multi-token CSV report:', error);
+        logger.error('Error writing multi-token CSV report:', getErrorMessage(error));
     }
 }
 
@@ -374,7 +376,7 @@ function writeMultiTokenResultsToCsv(results: AnalysisResults[], inputFile: stri
         
         console.log(`\nAnalysis complete. CSV report saved to ./analysis_reports/`);
     } catch (error) {
-        console.error('Error during analysis:', error);
+        logger.error('Error during analysis:', getErrorMessage(error));
         process.exit(1);
     }
 })(); 

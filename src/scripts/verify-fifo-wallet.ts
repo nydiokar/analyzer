@@ -12,6 +12,10 @@ import { DexscreenerService } from '../api/services/dexscreener.service';
 import { DexscreenerPriceProvider } from '../api/services/dexscreener-price-provider';
 import { OnchainMetadataService } from '../core/services/onchain-metadata.service';
 import { TokenInfoService } from '../api/services/token-info.service';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import logger from '../core/utils/logger';
+
+
 
 dotenv.config();
 
@@ -269,6 +273,6 @@ async function main(): Promise<void> {
 }
 
 main().catch(error => {
-  console.error(error);
+  logger.error('Error occurred:', getErrorMessage(error));
   process.exit(1);
 });

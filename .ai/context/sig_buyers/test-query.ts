@@ -1,4 +1,8 @@
 import { PrismaClient } from '@prisma/client';
+import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
+import logger from '../../../src/core/utils/logger';
+
+
 
 const prisma = new PrismaClient();
 
@@ -24,7 +28,7 @@ async function testQuery() {
     console.table(result);
 
   } catch (error) {
-    console.error('Error:', error);
+    logger.error('Error:', getErrorMessage(error));
   } finally {
     await prisma.$disconnect();
   }

@@ -7,6 +7,8 @@ import { prisma } from '../../core/services/database-service';
 import { Public } from '../shared/decorators/public.decorator';
 import { AdminOnly } from '../shared/decorators/admin-only.decorator';
 import { QueueHealthService, OverallHealthStatus } from '../../queues/services/queue-health.service';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 @ApiTags('Health')
 @Controller('health')
@@ -45,7 +47,7 @@ export class HealthController {
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      this.logger.error('Basic health check failed:', error);
+      this.logger.error('Basic health check failed:', getErrorMessage(error));
       return {
         status: 'down',
         timestamp: new Date().toISOString(),
@@ -88,7 +90,7 @@ export class HealthController {
               },
             } as HealthIndicatorResult;
           } catch (error) {
-            this.logger.error('Database health check failed:', error);
+            this.logger.error('Database health check failed:', getErrorMessage(error));
             const responseTime = Date.now() - dbStartTime;
             return {
               database: {
@@ -121,7 +123,7 @@ export class HealthController {
               },
             } as HealthIndicatorResult;
           } catch (error) {
-            this.logger.error('Holder profile cache health check failed:', error);
+            this.logger.error('Holder profile cache health check failed:', getErrorMessage(error));
             return {
               holderProfileCache: {
                 status: 'down',
@@ -141,7 +143,7 @@ export class HealthController {
       };
     } catch (error) {
       const totalResponseTime = Date.now() - startTime;
-      this.logger.error(`Detailed health check failed after ${totalResponseTime}ms:`, error);
+      this.logger.error(`Detailed health check failed after ${totalResponseTime}ms:`, getErrorMessage(error));
       throw error;
     }
   }
@@ -193,7 +195,7 @@ export class HealthController {
       return healthStatus;
     } catch (error) {
       const responseTime = Date.now() - startTime;
-      this.logger.error(`Queue health check failed after ${responseTime}ms:`, error);
+      this.logger.error(`Queue health check failed after ${responseTime}ms:`, getErrorMessage(error));
       throw error;
     }
   }
@@ -237,7 +239,7 @@ export class HealthController {
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      this.logger.error('Failed to retrieve cache metrics:', error);
+      this.logger.error('Failed to retrieve cache metrics:', getErrorMessage(error));
       throw error;
     }
   }
@@ -311,7 +313,7 @@ export class HealthController {
           metrics.push(`sova_queue_${queueName}_failed ${queue.stats.failed}`);
         });
       } catch (error) {
-        this.logger.error('Failed to get queue metrics:', error);
+        this.logger.error('Failed to get queue metrics:', getErrorMessage(error));
       }
 
       // Cache metrics
@@ -323,7 +325,7 @@ export class HealthController {
           metrics.push('# TYPE sova_cache_holder_profiles_total gauge');
           metrics.push(`sova_cache_holder_profiles_total ${cacheStats.totalKeys}`);
         } catch (error) {
-          this.logger.error('Failed to get cache metrics:', error);
+          this.logger.error('Failed to get cache metrics:', getErrorMessage(error));
         }
       }
 
@@ -334,7 +336,7 @@ export class HealthController {
 
       return metrics.join('\n') + '\n';
     } catch (error) {
-      this.logger.error('Failed to generate Prometheus metrics:', error);
+      this.logger.error('Failed to generate Prometheus metrics:', getErrorMessage(error));
       throw error;
     }
   }

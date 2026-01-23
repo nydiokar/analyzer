@@ -5,6 +5,8 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { WalletBalance } from '../../types/wallet';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 @Injectable()
 export class BalanceCacheService {
@@ -55,7 +57,7 @@ export class BalanceCacheService {
     
       return balances;
     } catch (error) {
-      this.logger.error(`Error fetching balances for ${walletAddress} in BalanceCacheService:`, error);
+      this.logger.error(`Error fetching balances for ${walletAddress} in BalanceCacheService:`, getErrorMessage(error));
       return null;
     }
   }

@@ -528,7 +528,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         solPriceUsd = await this.tokenInfoService.getSolPrice();
         // this.logger.log(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
       } catch (error) {
-        // this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
+        // this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${getErrorMessage(error)}`);
       }
       if (!solPriceUsd || solPriceUsd <= 0) {
         try {

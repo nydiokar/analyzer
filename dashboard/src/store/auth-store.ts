@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createSecureStorage, TokenManager } from '../lib/secure-storage';
+import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
+import logger from '../../../src/core/utils/logger';
+
+
 
 export interface User {
   id: string;
@@ -107,7 +111,7 @@ export const useAuthStore = create<AuthStore>()(
           },
           body: JSON.stringify({ refresh_token: refreshToken }), // ✅ Send refresh token to revoke session
         }).catch(error => {
-          console.error('Logout API call failed:', error);
+          logger.error('Logout API call failed:', getErrorMessage(error));
         });
 
         // Clear tokens securely
@@ -162,7 +166,7 @@ export const useAuthStore = create<AuthStore>()(
             });
           }
         } catch (error) {
-          console.error('Failed to validate API key:', error);
+          logger.error('Failed to validate API key:', getErrorMessage(error));
           set({
             apiKey: null,
             isUsingApiKey: false,
@@ -292,7 +296,7 @@ export const useAuthStore = create<AuthStore>()(
             console.log('Token refreshed successfully');
             return true;
           } catch (error) {
-            console.error('Token refresh failed with error:', error);
+            logger.error('Token refresh failed with error:', getErrorMessage(error));
             return false;
           } finally {
             isRefreshing = false;

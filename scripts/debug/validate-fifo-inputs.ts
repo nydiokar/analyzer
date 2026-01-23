@@ -1,6 +1,10 @@
 import * as dotenv from 'dotenv';
 import { DatabaseService } from '../../src/api/services/database.service';
 import { SwapAnalyzer } from '../../src/core/analysis/swap/analyzer';
+import { getErrorMessage, getErrorDetails } from '../../src/core/utils/error-utils';
+import logger from '../../src/core/utils/logger';
+
+
 
 dotenv.config();
 
@@ -199,7 +203,7 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error('Error:', error);
+  logger.error('Error:', getErrorMessage(error));
   process.exit(1);
 });
 

@@ -3,6 +3,8 @@ import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { redisConfig } from '../config/redis.config';
 import { REDIS_CLIENT } from '../config/redis.provider';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 export interface QueueHealthStatus {
   queueName: string;
@@ -179,7 +181,7 @@ export class QueueHealthService implements OnModuleInit {
       };
 
     } catch (error) {
-      this.logger.error(`Error checking health for queue ${queueName}:`, error);
+      this.logger.error(`Error checking health for queue ${queueName}:`, getErrorMessage(error));
       return {
         queueName,
         status: 'unhealthy',
@@ -264,7 +266,7 @@ export class QueueHealthService implements OnModuleInit {
       };
 
     } catch (error) {
-      this.logger.error('Redis health check failed:', error);
+      this.logger.error('Redis health check failed:', getErrorMessage(error));
       return {
         status: 'unhealthy',
         connectionStatus: 'error',
@@ -359,7 +361,7 @@ export class QueueHealthService implements OnModuleInit {
         message,
       };
     } catch (error) {
-      this.logger.error('Simple health check failed:', error);
+      this.logger.error('Simple health check failed:', getErrorMessage(error));
       return {
         status: 'unhealthy',
         message: `Health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`,

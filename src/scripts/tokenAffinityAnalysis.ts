@@ -7,6 +7,8 @@ import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as Papa from 'papaparse';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 dotenv.config();
 
@@ -803,7 +805,7 @@ if (require.main === module) {
                 fs.writeFileSync(reportPath, markdownReport);
                 console.log(`\n📄 Markdown report saved: ${reportPath}`);
             } catch (error) {
-                console.error(`Failed to save markdown report:`, error);
+                logger.error(`Failed to save markdown report:`, getErrorMessage(error));
             }
 
             // Show wallet similarities if we have them
