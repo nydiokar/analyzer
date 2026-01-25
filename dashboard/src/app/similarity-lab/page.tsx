@@ -31,6 +31,15 @@ export default function AnalysisLabPage() {
   const [selectedHolderAddresses, setSelectedHolderAddresses] = useState<string[]>([]);
   const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
 
+  // SINGLE SOURCE OF TRUTH: Parse wallets from textarea once, reuse everywhere
+  const parsedTextareaWallets = useMemo(() => {
+    return inputText
+      .split(/[\n,\s]+/) // Split by newlines, commas, or spaces
+      .map(l => l.trim())
+      .filter(Boolean)
+      .filter(w => isValidSolanaAddress(w) && w !== detectedToken);
+  }, [inputText, detectedToken]);
+
   // Job status
   const [jobStatuses, setJobStatuses] = useState<{ analysis: JobStatus, enrichment: JobStatus }>({
     analysis: 'idle',
@@ -64,12 +73,13 @@ export default function AnalysisLabPage() {
     });
   }, []);
 
-  // When textarea changes, check if token line was removed
+  // When textarea changes, check if token was removed
   useEffect(() => {
     if (!detectedToken) return;
 
-    const lines = inputText.split(/[\n,\s]+/).map(l => l.trim()).filter(Boolean);
-    const hasToken = lines.some(l => l === detectedToken);
+    // Check if token still exists in textarea (using same parsing as everywhere else)
+    const allTextareaAddresses = inputText.split(/[\n,\s]+/).map(l => l.trim()).filter(Boolean);
+    const hasToken = allTextareaAddresses.some(l => l === detectedToken);
 
     if (!hasToken) {
       // Token was removed from textarea, clear holder selection
@@ -368,12 +378,8 @@ export default function AnalysisLabPage() {
       return;
     }
 
-    // Combine wallets from textarea + selected holders
-    const textareaLines = inputText.split('\n').map(l => l.trim()).filter(Boolean);
-    const textareaWallets = textareaLines.filter(w => isValidSolanaAddress(w) && w !== detectedToken);
-
-    // Merge with holder selections
-    const allWallets = [...new Set([...textareaWallets, ...selectedHolderAddresses])];
+    // Merge parsed textarea wallets with selected holders (single source of truth)
+    const allWallets = [...new Set([...parsedTextareaWallets, ...selectedHolderAddresses])];
 
     if (allWallets.length === 0) {
       toast.error("No Valid Wallets", {
@@ -542,7 +548,7 @@ export default function AnalysisLabPage() {
 
   return (
     <AppShell>
-      <div className="w-full max-w-[1600px] mx-auto px-4 md:px-6 lg:px-8 space-y-6 pb-8">
+      <div className="w-full px-[10%] lg:px-[15%] space-y-6 pb-8">
         {/* Header */}
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold">Similarity Lab</h1>
@@ -551,10 +557,10 @@ export default function AnalysisLabPage() {
           </p>
         </div>
 
-        {/* Main Input Card - Natural Width Layout */}
+        {/* Main Input Card - 2-column layout with controlled widths */}
         <Card className="p-4">
           <div className="flex flex-col lg:flex-row gap-4">
-            {/* Left: Wallet Input - Fixed reasonable width */}
+            {/* Left: Wallet Input - Fixed width */}
             <div className="lg:w-[500px] flex-shrink-0">
               <SmartWalletInput
                 value={inputText}
@@ -566,7 +572,7 @@ export default function AnalysisLabPage() {
               />
             </div>
 
-            {/* Right: Token Holder Picker (when token detected) - Takes remaining space */}
+            {/* Right: Token Holder Picker (when token detected) - Fills remaining space */}
             {detectedToken && (
               <div className="border-l pl-4 hidden lg:block flex-1 min-w-0">
                 <TokenHolderPicker

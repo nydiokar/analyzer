@@ -6,6 +6,45 @@
 
 ## 🎯 Current Focus
 
+
+P0: 
+ [DexscreenerService] Pre-filter: After scam filter - 60 tokens remain (0 filtered as scam)
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error
+0|sova-backend-api  | Invalid `prisma.tokenInfo.upsert()` invocation:
+0|sova-backend-api  | Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
+0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
+0|sova-backend-api  | prisma:error Error in batch request 12: Error occur
+
 **Similarity Lab UX Overhaul - Frame-by-Frame Design Refinement**
 
 Working through Similarity Lab in detailed "frames" - treating each major section as a cohesive visual and functional unit. Each frame contains clusters of related components that must be understood holistically, not just as individual files.
@@ -146,7 +185,6 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
 | 🔄 | Similarity Lab Frame 1: Wallet Input Area | 🔸 | Modern loading animation implemented, next: table styling refinement |
-| 🔄 | React hydration error in wallet profile | 🔹 | Radix Dialog aria-controls mismatch between SSR/client |
 | 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
 | 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |

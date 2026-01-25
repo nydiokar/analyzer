@@ -28,6 +28,8 @@ class TokenMetadataBatcher {
   // Track active subscriptions for auto-refresh
   private subscribers: Map<string, Set<(metadata: TokenMetadata | null) => void>> = new Map();
   private readonly CACHE_TTL_MS = CACHE_DURATIONS.TOKEN_METADATA;
+  // Track pending refresh timers for each batch
+  private refreshTimers: Map<string, NodeJS.Timeout[]> = new Map();
 
   // Add a token to the batch queue
   request(mint: string, callback: (metadata: TokenMetadata | null) => void) {
@@ -150,13 +152,23 @@ class TokenMetadataBatcher {
       // DexScreener stage can take longer (especially for new tokens), so we:
       // - First retry after 2s (catches most enrichments)
       // - Second retry after 5s (catches slower DexScreener responses)
-      setTimeout(() => {
-        this.refreshEnrichedData(mints);
-      }, 2000);
 
-      setTimeout(() => {
-        this.refreshEnrichedData(mints);
+      // Create batch key for tracking timers
+      const batchKey = mints.sort().join(',');
+      const timers: NodeJS.Timeout[] = [];
+
+      const timer1 = setTimeout(() => {
+        this.refreshEnrichedData(mints, batchKey);
+      }, 2000);
+      timers.push(timer1);
+
+      const timer2 = setTimeout(() => {
+        this.refreshEnrichedData(mints, batchKey);
       }, 5000);
+      timers.push(timer2);
+
+      // Store timers for potential cancellation
+      this.refreshTimers.set(batchKey, timers);
 
     } catch (error) {
       console.error('[TokenMetadataBatcher] Failed to fetch batch:', error);
@@ -173,15 +185,35 @@ class TokenMetadataBatcher {
   }
 
   // Refresh data after enrichment completes
-  private async refreshEnrichedData(mints: string[]) {
+  private async refreshEnrichedData(mints: string[], batchKey?: string) {
     try {
+      // CRITICAL FIX: Check if any tokens are actually stale before making API call
+      const now = Date.now();
+      const staleMints = mints.filter(mint => {
+        const cached = this.cache.get(mint);
+        if (!cached) return true; // Not cached = fetch it
+        const age = now - cached.fetchedAt;
+        return age >= this.CACHE_TTL_MS; // Stale = fetch it
+      });
+
+      // Skip API call if nothing is stale
+      if (staleMints.length === 0) {
+        // Cancel remaining timers for this batch since everything is fresh
+        if (batchKey) {
+          this.cancelRefreshTimers(batchKey);
+        }
+        return;
+      }
+
       const response = await fetcher('/token-info', {
         method: 'POST',
-        body: JSON.stringify({ tokenAddresses: mints }),
+        body: JSON.stringify({ tokenAddresses: staleMints }),
       });
 
       // Update cache with enriched data AND notify all subscribers
       if (response && Array.isArray(response)) {
+        let allFresh = true; // Track if all tokens are now fresh
+
         response.forEach((tokenData: any) => {
       const metadata: TokenMetadata = {
         name: tokenData.name,
@@ -210,9 +242,31 @@ class TokenMetadataBatcher {
             subscribers.forEach(callback => callback(metadata));
           }
         });
+
+        // Check if ALL original mints are now fresh (not just the ones we fetched)
+        allFresh = mints.every(mint => {
+          const cached = this.cache.get(mint);
+          if (!cached) return false;
+          const age = Date.now() - cached.fetchedAt;
+          return age < this.CACHE_TTL_MS;
+        });
+
+        // If all tokens are fresh, cancel remaining refresh timers
+        if (allFresh && batchKey) {
+          this.cancelRefreshTimers(batchKey);
+        }
       }
     } catch (error) {
       console.error('[TokenMetadataBatcher] Failed to refresh enriched data:', error);
+    }
+  }
+
+  // Cancel all pending refresh timers for a batch
+  private cancelRefreshTimers(batchKey: string) {
+    const timers = this.refreshTimers.get(batchKey);
+    if (timers) {
+      timers.forEach(timer => clearTimeout(timer));
+      this.refreshTimers.delete(batchKey);
     }
   }
 
@@ -247,7 +301,14 @@ export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata)
     // Complete = has name/symbol (essential fields)
     const isMetadataComplete = providedMetadata && (providedMetadata.name || providedMetadata.onchainName);
     setIsLoading(!isMetadataComplete && !providedMetadata);
-    globalBatcher.request(mint, updateCallback);
+
+    // CRITICAL FIX: Only request if metadata is incomplete
+    // If metadata is complete, just subscribe for future enrichment updates (no fetch)
+    if (!isMetadataComplete) {
+      globalBatcher.request(mint, updateCallback);
+    } else {
+      globalBatcher.subscribeOnly(mint, updateCallback);
+    }
 
     // Cleanup: unsubscribe on unmount
     return () => {
