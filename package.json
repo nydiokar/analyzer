@@ -32,7 +32,7 @@
     "clear:wallet": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clear-wallet-data.ts",
     "clear:queues": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clear-all-queues.ts",
     "clear:locks": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clear-stale-locks.ts",
-    "clean:cache": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clean-wallet-cache.ts",
+    "clear:cache": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clear-wallet-cache.ts",
     "clean:logs": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clean-logs.ts",
     "auth:reset-sessions": "npx ts-node -r tsconfig-paths/register scripts/clear-auth-sessions.ts",
     "emergency-stop": "pm2 stop all && npm run clear:queues && npm run clear:locks",

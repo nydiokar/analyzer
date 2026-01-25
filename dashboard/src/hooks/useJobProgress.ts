@@ -368,23 +368,27 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {
-    // Don't clear completed jobs when subscribing to new jobs
-    // This prevents duplicate processing of job completion events
-    // setCompletedJobs(new Set()); // ❌ REMOVED: This was causing duplicate events
+    // Track active job for debugging/monitoring purposes
+    //
+    // IMPORTANT: No per-job WebSocket subscription is needed because the backend uses
+    // user-scoped room broadcasting. When the WebSocket connects, the client automatically
+    // joins a room (user-{userId}) and receives ALL job events for that user.
+    //
+    // Previously, this code emitted 'subscribe-to-job' events, but the backend has NO handler
+    // for these events - they were legacy code from an old per-job subscription system.
+    // The room-based system is simpler and prevents race conditions where jobs complete
+    // before the frontend can register individual subscriptions.
+    activeJobIdsRef.current.add(jobId);
+    incrementDebugCounter(jobId, 'subscribe', { socketConnected: !!socket?.connected });
 
-    // Subscribe to WebSocket to catch live events.
-    if (socket?.connected) {
-      console.log(`🔔 Subscribing to WebSocket for job: ${jobId}`);
-      debugLog('job-subscribe', { jobId });
-      socket.emit('subscribe-to-job', { jobId });
-      activeJobIdsRef.current.add(jobId);
-      incrementDebugCounter(jobId, 'subscribe', { socketConnected: true });
-      // That's it! WebSocket will handle all updates (progress, completion, failure)
-      // No HTTP polling needed - avoids browser connection limits
-    } else {
+    console.log(`📋 Tracking job: ${jobId} (auto-broadcast via user room)`);
+    debugLog('job-track', { jobId, roomBased: true });
+
+    // If WebSocket is not connected, poll via HTTP as fallback
+    if (!socket?.connected) {
       console.warn(`⚠️ WebSocket not connected for job ${jobId}. Falling back to HTTP polling.`);
       incrementDebugCounter(jobId, 'httpFallbacks', { socketConnected: false });
-      // Fallback: If WebSocket is not connected, poll via HTTP
+
       try {
         const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
         if (job) {
@@ -399,7 +403,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
         }
       } catch (error: unknown) {
         const apiError = error as ApiError;
-        if (apiError.status !== 404) {
+        if (apiError.status === 404) {
+          console.warn(`Job ${jobId} not found - may have already completed or never existed`);
+        } else if (apiError.status !== 404) {
           console.error(`Error polling job status for ${jobId}:`, error);
           toast({
             title: 'Could not get job status',
@@ -412,14 +418,18 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp, incrementDebugCounter, debugLog]);
 
   const unsubscribeFromJob = useCallback((jobId: string) => {
-    if (socket?.connected) {
-      console.log(`🔕 Unsubscribing from job: ${jobId}`);
-      debugLog('job-unsubscribe', { jobId });
-      socket.emit('unsubscribe-from-job', { jobId });
-      activeJobIdsRef.current.delete(jobId);
-      incrementDebugCounter(jobId, 'unsubscribe');
-    }
-  }, [socket, incrementDebugCounter, debugLog]);
+    // Remove from active tracking
+    //
+    // NOTE: Like subscribe, this does NOT emit any WebSocket events. Previously emitted
+    // 'unsubscribe-from-job' which had no backend handler. The room-based system means
+    // we simply stop tracking this jobId locally - the server continues broadcasting
+    // all events to the user room, but we ignore events for jobs not in activeJobIdsRef.
+    activeJobIdsRef.current.delete(jobId);
+    incrementDebugCounter(jobId, 'unsubscribe');
+
+    console.log(`📋 Stopped tracking job: ${jobId}`);
+    debugLog('job-untrack', { jobId, roomBased: true });
+  }, [incrementDebugCounter, debugLog]);
 
   const cleanup = useCallback(() => {
     if (socket) {

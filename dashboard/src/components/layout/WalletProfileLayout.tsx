@@ -280,9 +280,26 @@ export default function WalletProfileLayout({
   useEffect(() => {
     const jobIdFromUrl = searchParams.get('jobId');
     if (jobIdFromUrl && !jobIdToScopeRef.current[jobIdFromUrl]) {
-      registerJobSubscription('deep', jobIdFromUrl).catch((error) =>
-        console.error('Failed to subscribe to job from URL', error),
-      );
+      // Validate job exists before subscribing (prevents phantom job subscriptions)
+      const validateAndSubscribe = async () => {
+        try {
+          const job = await fetcher(`/jobs/${jobIdFromUrl}`);
+          if (job && (job.status === 'running' || job.status === 'queued')) {
+            // Job exists and is active - subscribe to it
+            await registerJobSubscription('deep', jobIdFromUrl);
+          } else if (job && (job.status === 'completed' || job.status === 'failed')) {
+            console.log(`[WalletProfile] Job ${jobIdFromUrl} from URL already ${job.status} - skipping subscription`);
+          }
+        } catch (error: any) {
+          if (error.status === 404) {
+            console.warn(`[WalletProfile] Job ${jobIdFromUrl} from URL not found - may have expired or never existed`);
+          } else {
+            console.error('Failed to validate job from URL', error);
+          }
+        }
+      };
+
+      validateAndSubscribe();
     }
   }, [searchParams, registerJobSubscription]);
 
@@ -308,27 +325,29 @@ export default function WalletProfileLayout({
       }));
     },
     onJobCompleted: async (data: JobCompletionData) => {
+      // Read scope reference BEFORE cleanup to avoid race condition
       const scope = jobIdToScopeRef.current[data.jobId];
 
-      // ALWAYS clean up the subscription, even if we can't find the scope
-      // This prevents orphaned subscriptions and stuck loading states
-      await clearJobSubscription(data.jobId);
-
       if (!scope) {
-        console.error(
+        console.warn(
           `[WalletProfile] Job completed but scope not found in ref. JobId: ${data.jobId}`,
           `Available scopes in ref:`,
           Object.keys(jobIdToScopeRef.current),
           `Current scopeStates:`,
           Object.entries(scopeStates).map(([s, state]) => ({ scope: s, status: state.status, jobId: state.jobId }))
         );
-        // Still try to find which scope this job belongs to by matching jobId in scopeStates
+
+        // Fallback: try to find scope by matching jobId in scopeStates
         const matchingScope = Object.entries(scopeStates).find(
           ([_, state]) => state.jobId === data.jobId
         )?.[0] as DashboardAnalysisScope | undefined;
 
+        // Clean up subscription even if scope wasn't found
+        await clearJobSubscription(data.jobId);
+
         if (matchingScope) {
-          // Update the found scope's state
+          console.log(`[WalletProfile] Recovered scope from state: ${matchingScope}`);
+
           const resultData = data.result;
           const wasSkipped = resultData?.analysisSkipped === true;
           const finalStatus = wasSkipped ? 'skipped' : 'completed';
@@ -453,6 +472,10 @@ export default function WalletProfileLayout({
           console.error('Error refreshing token performance after scope completion', error);
         }
       }
+
+      // Clean up subscription after all processing is complete
+      // This ensures we don't lose the scope reference during processing
+      await clearJobSubscription(data.jobId);
     },
     onJobFailed: (data: JobFailedData) => {
       const scope = jobIdToScopeRef.current[data.jobId];
@@ -704,11 +727,8 @@ export default function WalletProfileLayout({
         return;
       }
 
-      setScopeStates((prev) => ({
-        ...prev,
-        [scope]: { ...prev[scope], status: 'queued', errorMessage: undefined },
-      }));
-      setScopeProgress((prev) => ({ ...prev, [scope]: 0 }));
+      // Don't set status='queued' yet - wait for backend response
+      // This prevents phantom "queued" states when analysis is skipped
 
       try {
         const payload: DashboardAnalysisRequest = {
@@ -762,9 +782,14 @@ export default function WalletProfileLayout({
           if (options.triggerSource !== 'auto') {
             const skipReason = response.skipReason ?? '';
             if (skipReason.startsWith('known-') || skipReason === 'known-wallet') {
-              const knownLabel = skipReason.startsWith('known-') ? skipReason.slice('known-'.length) : 'Known wallet';
-              toast.info('Analysis skipped', {
-                description: knownLabel ? `Known wallet: ${knownLabel}` : 'Known wallet.',
+              const knownLabel = skipReason.startsWith('known-') && skipReason !== 'known-wallet'
+                ? skipReason.slice('known-'.length)
+                : '';
+              toast.warning('Analysis Blocked', {
+                description: knownLabel
+                  ? `This wallet is classified as a known ${knownLabel} and cannot be analyzed.`
+                  : 'This is a known system or protocol wallet and cannot be analyzed.',
+                duration: 5000,
               });
             } else {
               toast.info(`${scopeLabels[scope]} already fresh`, {
@@ -773,6 +798,7 @@ export default function WalletProfileLayout({
             }
           }
         } else if (response.jobId) {
+          // NOW set status='queued' with the actual jobId
           await registerJobSubscription(scope, response.jobId);
           if (options.triggerSource !== 'auto') {
             toast.info(`${scopeLabels[scope]} queued`, {
@@ -786,6 +812,7 @@ export default function WalletProfileLayout({
                 [followUpScope]: {
                   ...prev[followUpScope],
                   status: 'queued',
+                  jobId: null,
                   errorMessage: undefined,
                 },
               }));

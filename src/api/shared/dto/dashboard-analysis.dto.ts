@@ -120,8 +120,8 @@ export class DashboardAnalysisResponseDto {
   @ApiProperty({ description: 'Request identifier for this analysis' })
   requestId: string;
   
-  @ApiProperty({ description: 'Initial job status', enum: ['queued', 'running'] })
-  status: 'queued' | 'running';
+  @ApiProperty({ description: 'Initial job status', enum: ['queued', 'running', 'skipped'] })
+  status: 'queued' | 'running' | 'skipped';
   
   @ApiProperty({ description: 'Queue name', example: 'analysis-operations' })
   queueName: string;
@@ -131,9 +131,9 @@ export class DashboardAnalysisResponseDto {
   
   @ApiProperty({ description: 'Estimated processing time' })
   estimatedProcessingTime: string;
-  
-  @ApiProperty({ description: 'URL to monitor job status' })
-  monitoringUrl: string;
+
+  @ApiProperty({ description: 'URL to monitor job status', nullable: true })
+  monitoringUrl: string | null;
 
   @ApiProperty({
     description: 'Indicates the request was skipped due to freshness or policy',
