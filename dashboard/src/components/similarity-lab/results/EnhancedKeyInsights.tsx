@@ -124,6 +124,12 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
   const uniqueTokensA = uniqueTokensPerWallet?.[pair.walletA]?.binary ?? 0;
   const uniqueTokensB = uniqueTokensPerWallet?.[pair.walletB]?.binary ?? 0;
 
+  // Calculate overlap ratios to show significance
+  const overlapRatioA = uniqueTokensA > 0 ? (pair.binarySharedTokenCount / uniqueTokensA) * 100 : 0;
+  const overlapRatioB = uniqueTokensB > 0 ? (pair.binarySharedTokenCount / uniqueTokensB) * 100 : 0;
+  const maxOverlapRatio = Math.max(overlapRatioA, overlapRatioB);
+  const minOverlapRatio = Math.min(overlapRatioA, overlapRatioB);
+
   const overallPercent = overallScore * 100;
   const behavioralPercent = pair.binaryScore * 100;
   const capitalPercent = pair.capitalScore * 100;
@@ -158,9 +164,9 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
       >
         {/* Main content */}
         <div className="px-3 py-2.5 space-y-2.5">
-          {/* Header: Wallets + Overall Score + Insight Type */}
+          {/* Header: Insight Type + Overlap Badge + Overall Score */}
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-xs min-w-0">
+            <div className="flex items-center gap-1.5 text-xs min-w-0 flex-wrap">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Badge variant="outline" className={cn("text-xs shrink-0 cursor-help", INSIGHT_COLORS[insight.type])}>
@@ -171,6 +177,32 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
                   <p>{insight.text || generateRealisticInsight(pair, overallScore)}</p>
                 </TooltipContent>
               </Tooltip>
+
+              {/* Overlap significance badge - MOVED TO HEADER */}
+              {maxOverlapRatio >= 60 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="text-[10px] shrink-0 cursor-help bg-emerald-500/15 text-emerald-400 border-emerald-500/40">
+                      High Overlap
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs max-w-xs">
+                    <p>Very high portfolio overlap - these wallets trade very similar assets</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {maxOverlapRatio >= 30 && maxOverlapRatio < 60 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="text-[10px] shrink-0 cursor-help bg-blue-500/15 text-blue-400 border-blue-500/40">
+                      Moderate
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs max-w-xs">
+                    <p>Moderate overlap - some shared investment strategy</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -248,18 +280,43 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
             </div>
           </div>
 
-          {/* Shared tokens footer with connected context */}
-          <div className="text-[10px] pt-0.5 text-center">
+          {/* PROMINENT Shared Token Count - matching similarity % importance */}
+          <div className="flex items-center justify-center gap-2 pt-1 border-t border-border/30">
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="text-foreground/50 cursor-help">
-                  <span className="font-semibold text-foreground/70">{pair.binarySharedTokenCount}</span> shared <span className="text-foreground/30 mx-1">of</span> <span className="font-semibold text-foreground/60">{uniqueTokensA}</span> & <span className="font-semibold text-foreground/60">{uniqueTokensB}</span> total
-                </span>
+                <div className="flex items-center gap-2 cursor-help">
+                  <span className={cn('text-base font-bold tabular-nums shrink-0', scoreInfo.color)}>
+                    {pair.binarySharedTokenCount}
+                  </span>
+                  <span className="text-xs text-foreground/60 font-medium">shared</span>
+                </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs max-w-xs">
-                <p className="text-muted-foreground">{pair.binarySharedTokenCount} shared tokens out of {uniqueTokensA} and {uniqueTokensB} unique tokens traded respectively</p>
+                <div className="space-y-1">
+                  <p className="font-semibold text-foreground">{pair.binarySharedTokenCount} tokens held by both wallets</p>
+                  <p className="text-muted-foreground">Out of {uniqueTokensA} & {uniqueTokensB} unique tokens total</p>
+                  <p className="text-muted-foreground">Represents {overlapRatioA.toFixed(1)}% of Wallet A's portfolio</p>
+                  <p className="text-muted-foreground">Represents {overlapRatioB.toFixed(1)}% of Wallet B's portfolio</p>
+                </div>
               </TooltipContent>
             </Tooltip>
+            <span className="text-foreground/30 text-xs">of</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1 cursor-help">
+                  <span className="text-sm font-semibold text-foreground/70 tabular-nums">{uniqueTokensA}</span>
+                  <span className="text-foreground/30">&</span>
+                  <span className="text-sm font-semibold text-foreground/70 tabular-nums">{uniqueTokensB}</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                <p>Wallet A has {uniqueTokensA} unique tokens</p>
+                <p>Wallet B has {uniqueTokensB} unique tokens</p>
+              </TooltipContent>
+            </Tooltip>
+            <span className="text-[10px] text-muted-foreground">
+              ({overlapRatioA.toFixed(0)}% • {overlapRatioB.toFixed(0)}%)
+            </span>
           </div>
         </div>
       </div>
@@ -475,83 +532,272 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
   // Generate realistic insight text
   const realisticInsight = generateRealisticInsight(pair, overallScore);
 
-  // Filter and sort tokens based on sortKey for the table - show only tokens with meaningful allocations
-  const sortedSharedTokens = useMemo(() => {
-    const filtered = (sharedTokens || []).filter(token => {
+  // Get wallet total values for calculating USD amounts
+  const walletATotalValue = results.walletBalances?.[pair.walletA]?.totalValueUsd ?? 0;
+  const walletBTotalValue = results.walletBalances?.[pair.walletB]?.totalValueUsd ?? 0;
+
+  // Process and group tokens by significance
+  const { majorHoldings, meaningfulHoldings, minorHoldings } = useMemo(() => {
+    const tokensWithData = (sharedTokens || []).map(token => {
       const allocation = capitalAllocation?.[token.mint];
-      if (sortKey === 'capitalScore') {
-        // For capital sort, show only tokens with actual capital allocation
-        return allocation && (allocation.weightA > 0.001 || allocation.weightB > 0.001);
-      } else {
-        // For asset sort, show all shared tokens
-        return true;
-      }
+      const weightA = allocation?.weightA ?? 0;
+      const weightB = allocation?.weightB ?? 0;
+      const valueA = walletATotalValue * weightA;
+      const valueB = walletBTotalValue * weightB;
+      const maxWeight = Math.max(weightA, weightB);
+
+      return {
+        ...token,
+        weightA,
+        weightB,
+        valueA,
+        valueB,
+        maxWeight,
+        totalValue: valueA + valueB,
+      };
     });
 
-    const sorted = [...filtered];
-    if (sortKey === 'capitalScore' && capitalAllocation) {
-      // Sort by total capital allocation (combined weight)
-      sorted.sort((a, b) => {
-        const allocA = capitalAllocation[a.mint];
-        const allocB = capitalAllocation[b.mint];
-        const scoreA = allocA ? allocA.weightA + allocA.weightB : 0;
-        const scoreB = allocB ? allocB.weightA + allocB.weightB : 0;
-        return scoreB - scoreA;
-      });
-    } else {
-      // Sort by alphabetical order for assets (consistent ordering)
-      sorted.sort((a, b) => {
-        const nameA = getTokenMetadata(a.mint, results.walletBalances)?.symbol || a.mint;
-        const nameB = getTokenMetadata(b.mint, results.walletBalances)?.symbol || b.mint;
-        return nameA.localeCompare(nameB);
-      });
-    }
-    return sorted.slice(0, 10);
-  }, [sharedTokens, capitalAllocation, sortKey]);
+    // Group by significance based on max allocation in either wallet
+    const major = tokensWithData.filter(t => t.maxWeight >= 0.05);
+    const meaningful = tokensWithData.filter(t => t.maxWeight >= 0.01 && t.maxWeight < 0.05);
+    const minor = tokensWithData.filter(t => t.maxWeight < 0.01);
 
-  return (
-    <div className="space-y-3">
-      {sortedSharedTokens.length > 0 ? (
-        <div className="border border-border rounded-lg p-3 max-w-2xl">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Shared Tokens</h3>
-            <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-auto">
-              <TabsList className="h-7 p-0.5 bg-muted/50">
-                <TabsTrigger value="binaryScore" className="text-xs px-2 py-1">Assets</TabsTrigger>
-                <TabsTrigger value="capitalScore" className="text-xs px-2 py-1">Capital</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
+    // Sort each group by total value (descending)
+    const sortByValue = (a: typeof tokensWithData[0], b: typeof tokensWithData[0]) => {
+      if (sortKey === 'capitalScore') {
+        return b.totalValue - a.totalValue;
+      } else {
+        // For assets view, sort by symbol
+        const symbolA = getTokenMetadata(a.mint, results.walletBalances)?.symbol || a.mint;
+        const symbolB = getTokenMetadata(b.mint, results.walletBalances)?.symbol || b.mint;
+        return symbolA.localeCompare(symbolB);
+      }
+    };
 
-          <div className="space-y-1">
-            {sortedSharedTokens.map((token) => {
-              const allocation = capitalAllocation?.[token.mint];
-              const metadata = getTokenMetadata(token.mint, results.walletBalances);
+    return {
+      majorHoldings: major.sort(sortByValue),
+      meaningfulHoldings: meaningful.sort(sortByValue),
+      minorHoldings: minor.sort(sortByValue),
+    };
+  }, [sharedTokens, capitalAllocation, sortKey, walletATotalValue, walletBTotalValue, results.walletBalances]);
 
-              return (
-                <div key={token.mint} className="flex items-center gap-2 p-2 rounded hover:bg-muted/30 transition-colors">
+  // Helper to format USD values
+  const formatUSD = (value: number) => {
+    if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+    if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
+    if (value >= 1) return `$${value.toFixed(0)}`;
+    if (value > 0) return `$${value.toFixed(2)}`;
+    return null; // Return null for zero values instead of "$0.00"
+  };
+
+  // Render token group section
+  const renderTokenGroup = (
+    tokens: typeof majorHoldings,
+    title: string,
+    description: string,
+    badgeColor: string
+  ) => {
+    if (tokens.length === 0) return null;
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <h4 className="text-xs font-semibold text-foreground/80">{title}</h4>
+          <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-medium", badgeColor)}>
+            {tokens.length}
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-[10px] text-muted-foreground cursor-help">ⓘ</span>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="text-xs max-w-xs">
+              <p>{description}</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <div className="space-y-1">
+          {tokens.map((token) => {
+            const metadata = getTokenMetadata(token.mint, results.walletBalances);
+
+            return (
+              <div key={token.mint} className="flex items-center gap-2 p-2 rounded-md bg-muted/20 hover:bg-muted/40 transition-colors border border-border/40">
+                <div className="flex-1 min-w-0">
                   <TokenBadge
                     mint={token.mint}
                     metadata={metadata}
                     variant="inline"
                     size="sm"
                   />
-                  <div className="flex items-center gap-1.5 text-xs font-mono">
-                    {allocation?.weightA !== undefined ? (
-                      <span className="text-foreground/70">{(allocation.weightA * 100).toFixed(1)}%</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs font-mono shrink-0">
+                  {/* Wallet A */}
+                  <div className="flex flex-col items-end gap-0.5 min-w-[60px]">
+                    {token.weightA > 0 ? (
+                      <>
+                        <span className="text-foreground/70 font-semibold">
+                          {(token.weightA * 100).toFixed(1)}%
+                        </span>
+                        <span className="text-muted-foreground text-[10px]">
+                          {formatUSD(token.valueA) || (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-orange-400 cursor-help">No data</span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">
+                                <p>Allocation % exists but no USD value available</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </span>
+                      </>
                     ) : (
-                      <span className="text-muted-foreground">—</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-muted-foreground/40 text-[10px] cursor-help">Exited</span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          <p>Wallet A no longer holds this token</p>
+                        </TooltipContent>
+                      </Tooltip>
                     )}
-                    <span className="text-muted-foreground">•</span>
-                    {allocation?.weightB !== undefined ? (
-                      <span className="text-foreground/70">{(allocation.weightB * 100).toFixed(1)}%</span>
+                  </div>
+
+                  <span className="text-muted-foreground/50">•</span>
+
+                  {/* Wallet B */}
+                  <div className="flex flex-col items-end gap-0.5 min-w-[60px]">
+                    {token.weightB > 0 ? (
+                      <>
+                        <span className="text-foreground/70 font-semibold">
+                          {(token.weightB * 100).toFixed(1)}%
+                        </span>
+                        <span className="text-muted-foreground text-[10px]">
+                          {formatUSD(token.valueB) || (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-orange-400 cursor-help">No data</span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">
+                                <p>Allocation % exists but no USD value available</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </span>
+                      </>
                     ) : (
-                      <span className="text-muted-foreground">—</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-muted-foreground/40 text-[10px] cursor-help">Exited</span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          <p>Wallet B no longer holds this token</p>
+                        </TooltipContent>
+                      </Tooltip>
                     )}
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const totalSharedTokens = majorHoldings.length + meaningfulHoldings.length + minorHoldings.length;
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <div className="space-y-4">
+      {totalSharedTokens > 0 ? (
+        <div className="border border-border rounded-lg p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold">Shared Tokens</h3>
+              <span className="text-xs text-muted-foreground">
+                {totalSharedTokens} total
+              </span>
+            </div>
+            <Tabs value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)} className="w-auto">
+              <TabsList className="h-7 p-0.5 bg-muted/50">
+                <TabsTrigger value="binaryScore" className="text-xs px-2 py-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>Assets</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      <p>Sort alphabetically by token symbol</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TabsTrigger>
+                <TabsTrigger value="capitalScore" className="text-xs px-2 py-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>Capital</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      <p>Sort by total $ value (combined holdings)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
+          {/* Column headers with wallet labels */}
+          <div className="flex items-center justify-between px-2 pb-1 border-b border-border/50">
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Token</span>
+            <div className="flex items-center gap-3 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="w-16 text-right cursor-help">Wallet A</span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs max-w-xs">
+                  <WalletBadge
+                    address={pair.walletA}
+                    size="s"
+                    knownType={labelA?.knownType}
+                    knownLabel={labelA?.knownLabel}
+                  />
+                </TooltipContent>
+              </Tooltip>
+              <span className="text-muted-foreground/50">•</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="w-16 text-right cursor-help">Wallet B</span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs max-w-xs">
+                  <WalletBadge
+                    address={pair.walletB}
+                    size="s"
+                    knownType={labelB?.knownType}
+                    knownLabel={labelB?.knownLabel}
+                  />
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+
+          {/* Grouped token lists */}
+          <div className="space-y-4">
+            {renderTokenGroup(
+              majorHoldings,
+              "Major Holdings",
+              "Tokens representing ≥5% of portfolio value in at least one wallet",
+              "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+            )}
+            {renderTokenGroup(
+              meaningfulHoldings,
+              "Meaningful Holdings",
+              "Tokens representing 1-5% of portfolio value",
+              "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+            )}
+            {renderTokenGroup(
+              minorHoldings.slice(0, 10),
+              "Minor Holdings",
+              "Tokens representing <1% of portfolio value (showing top 10)",
+              "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30"
+            )}
           </div>
         </div>
       ) : (
@@ -559,7 +805,8 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
           <p className="text-sm text-muted-foreground">No shared tokens</p>
         </div>
       )}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 });
 PairDetail.displayName = 'PairDetail';

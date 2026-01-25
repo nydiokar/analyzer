@@ -425,6 +425,7 @@ export default function AnalysisLabPage() {
           failureThreshold: 0.8,
           timeoutMinutes: 30,
           enrichMetadata: true,
+          includeBalances: true, // CRITICAL: Include wallet balances for USD value calculations
         }),
       });
 

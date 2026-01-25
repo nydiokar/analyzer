@@ -65,12 +65,16 @@ Working through Similarity Lab in detailed "frames" - treating each major sectio
 - Score distribution visualization
 - **Status:** Ready to start - identify existing components first
 
-**Frame 3: Pair Insights** (renamed from "Key Insights & Pairwise Deep Dive") 📝 Planned
+**Frame 3: Pair Insights** (renamed from "Key Insights & Pairwise Deep Dive") 🔄 In Progress
 - Wallet pairs list with improved color schema
 - Better alignment with score distribution
 - Deep dive functionality (currently only shows shared tokens)
 - Color contradictions to be resolved
-- **Issues:** Color schema alignment, enhance beyond shared tokens
+- **Issues:**
+  - Wallet pairs not clearly indicating high shared token count vs high ratio
+  - Shared tokens display lacks structure (tokens "hanging in air")
+  - Token prices appearing stale/not using already-fetched metadata
+  - Need better visual hierarchy and context for shared tokens
 
 **Frame 4: Token Analysis** 📝 Planned
 - Most Common Tokens component
@@ -138,18 +142,33 @@ Next Steps:
 5. Implement with styling consistent with Frame 1
 ```
 
-**Frame 3: Pair Insights** - Status: 📝 Planned
+**Frame 3: Pair Insights** - Status: 🔄 In Progress
 ```
-Known Issues:
-- Color schema contradicts score distribution
-- Deep dive only shows shared tokens
-- Needs rename from "Key Insights & Pairwise Deep Dive"
+Component Graph (To Be Discovered):
+- Wallet Pairs list component
+- Shared Tokens deep dive component
+- Color/category labeling logic
+
+Critical Issues to Fix:
+1. Wallet pairs expansion indicator unclear
+   - High number of shared tokens vs high ratio (% of portfolio)
+   - Need visual cue: "14 of 48 total" vs "14 of 15 total" = very different
+2. Shared tokens structure problems
+   - Tokens appear unstructured ("hanging in air")
+   - Percentages lack context (0.3% • 0.3% - of what?)
+   - No grouping/sorting/hierarchy
+   - Missing token metadata (prices appear stale)
+3. Token price staleness
+   - Already-fetched token metadata not being reused
+   - Need to trace data flow from analysis → display
 
 Next Steps:
-1. Identify pairwise comparison components
-2. Understand color logic mapping
-3. Design enhanced deep dive functionality
-4. Align colors with distribution visualization
+1. ✅ Update CONTEXT.md status
+2. Find wallet pairs component
+3. Find shared tokens component
+4. Trace token price data flow
+5. Design improved UX (visual hierarchy, ratio indicators)
+6. Implement improvements
 ```
 
 **Frame 4: Token Analysis** - Status: 📝 Planned
