@@ -240,7 +240,7 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
     try {
       await this.shutdown();
     } catch (err) {
-      this.logger.warn('Error shutting down WalletOperationsProcessor worker', err as Error);
+      this.logger.warn(`Error shutting down WalletOperationsProcessor worker: ${getErrorMessage(err)}`);
     }
   }
 } 

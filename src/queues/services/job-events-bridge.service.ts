@@ -64,7 +64,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       try {
         await queue.close();
       } catch (error) {
-        this.logger.warn(`Error closing queue ${queue.name} during shutdown`, error as Error);
+        this.logger.warn(`Error closing queue ${queue.name} during shutdown: ${getErrorMessage(error)}`);
       }
     }
     this.queueEventsMap.clear();
@@ -163,7 +163,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const cached = await this.redisClient.get(`job:user:${jobId}`);
       return cached || undefined;
     } catch (error) {
-      this.logger.warn(`Failed to resolve userId for job ${jobId}:`, error as Error);
+      this.logger.warn(`Failed to resolve userId for job ${jobId}: ${getErrorMessage(error)}`);
       return undefined;
     }
   }
@@ -172,7 +172,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.redisClient.del(`job:user:${jobId}`);
     } catch (error) {
-      this.logger.warn(`Failed to clean user mapping for job ${jobId}:`, error as Error);
+      this.logger.warn(`Failed to clean user mapping for job ${jobId}: ${getErrorMessage(error)}`);
     }
   }
 }

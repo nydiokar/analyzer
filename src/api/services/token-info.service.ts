@@ -486,11 +486,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       await this.db.upsertManyTokenInfo(data);
       this.logger.log(`Successfully upserted ${data.length} token info records.`);
     } catch (error) {
-      if (error instanceof Error) {
-        this.logger.error('Error during bulk upsert of token info:', error.message, error.stack);
-      } else {
-        this.logger.error(`An unknown error occurred during bulk upsert of token info: ${getErrorMessage(error)}`);
-      }
+      this.logger.error(`Error during bulk upsert of token info: ${getErrorMessage(error)}`);
     }
   }
 

@@ -2361,7 +2361,7 @@ export class DatabaseService {
         this.logger.verbose(`CoreService: Note created with ID: ${note.id} for wallet ${walletAddress}`);
         return note;
       } catch (error: any) {
-        this.logger.error(`CoreService: Error creating wallet note for ${walletAddress}: ${error.message}`, error.stack);
+        this.logger.error(`CoreService: Error creating wallet note for ${walletAddress}: ${error.message}`);
         if (error instanceof Prisma.PrismaClientKnownRequestError) {
           // Example: Foreign key constraint failed (e.g., walletAddress or userId doesn't exist)
           if (error.code === 'P2003' || error.code === 'P2025') { 
@@ -2393,7 +2393,7 @@ export class DatabaseService {
         this.logger.verbose(`CoreService: Found ${notes.length} notes for wallet ${walletAddress} authored by user ${userId}`);
         return notes;
       } catch (error: any) {
-        this.logger.error(`CoreService: Error fetching wallet notes for ${walletAddress} by user ${userId}: ${error.message}`, error.stack);
+        this.logger.error(`CoreService: Error fetching wallet notes for ${walletAddress} by user ${userId}: ${error.message}`);
         throw new InternalServerErrorException('Could not retrieve wallet notes due to a database error.');
       }
     }
@@ -2435,8 +2435,8 @@ export class DatabaseService {
         return deletedNote;
       } catch (error: any) {
         if (error instanceof NotFoundException) throw error;
-        
-        this.logger.error(`CoreService: Error deleting note ${noteId} by user ${userId}: ${error.message}`, error.stack);
+
+        this.logger.error(`CoreService: Error deleting note ${noteId} by user ${userId}: ${error.message}`);
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
           // Record to delete does not exist - already handled by the explicit findUnique check above, but good fallback.
           throw new NotFoundException(`Note with ID ${noteId} not found for deletion.`);
@@ -2490,8 +2490,8 @@ export class DatabaseService {
         return updatedNote;
       } catch (error: any) {
         if (error instanceof NotFoundException) throw error;
-        
-        this.logger.error(`CoreService: Error updating note ${noteId} by user ${userId}: ${error.message}`, error.stack);
+
+        this.logger.error(`CoreService: Error updating note ${noteId} by user ${userId}: ${error.message}`);
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
           throw new NotFoundException(`Note with ID ${noteId} not found for update.`);
         }

@@ -550,7 +550,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     try {
       await this.shutdown();
     } catch (err) {
-      this.logger.warn('Error shutting down SimilarityOperationsProcessor worker', err as Error);
+      this.logger.warn(`Error shutting down SimilarityOperationsProcessor worker: ${getErrorMessage(err)}`);
     }
   }
 

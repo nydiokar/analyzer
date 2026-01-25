@@ -100,7 +100,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
         }
       } else {
         // Non-connection errors still get full logging
-        this.logger.error(`🔥 Redis subscriber error: ${errorMessage}`, err.stack);
+        this.logger.error(`🔥 Redis subscriber error: ${errorMessage}`);
       }
     });
   }

@@ -1825,7 +1825,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await job.updateProgress(100);
       return { success: true, written: result.writtenCount, zeroDayAlerts: alertCount, processingTimeMs: Date.now() - startTime };
     } catch (err) {
-      this.logger.error(`mint-participants-run failed for ${mint}@${cutoffTs}`, err as Error);
+      this.logger.error(`mint-participants-run failed for ${mint}@${cutoffTs}: ${getErrorMessage(err)}`);
       throw err;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
@@ -2361,7 +2361,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     try {
       await this.shutdown();
     } catch (err) {
-      this.logger.warn('Error shutting down AnalysisOperationsProcessor worker', err as Error);
+      this.logger.warn(`Error shutting down AnalysisOperationsProcessor worker: ${getErrorMessage(err)}`);
     }
   }
 } 
