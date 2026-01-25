@@ -318,7 +318,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
           </div>
 
           {/* Two sections side by side */}
-          <div className="grid grid-cols-1 lg:grid-cols-[0.75fr_1.25fr] gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[0.6fr_1.4fr] gap-4">
               {/* Top 5 Pairs */}
               <div className="border border-border rounded-lg p-4">
                   <h3 className="font-semibold mb-3 text-sm">Top 5 Most Similar Pairs</h3>
@@ -326,18 +326,33 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                       {topPairs.map((pair, index) => {
                           const avgScore = calculateOverallScore(pair.binaryScore, pair.capitalScore);
                           const status = getSimilarityStatus(avgScore);
+                          const labelA = getWalletLabel(pair.walletA);
+                          const labelB = getWalletLabel(pair.walletB);
+
                           return (
-                              <div key={index} className="flex items-center gap-2 p-2 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
+                              <div key={index} className="flex items-center justify-between gap-2 p-1.5 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
                                   <div className="flex items-center gap-1.5 min-w-0">
-                                      <WalletBadge address={pair.walletA} size="s" knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
+                                      <WalletBadge
+                                          address={pair.walletA}
+                                          variant="compact"
+                                          knownType={labelA?.knownType}
+                                          knownLabel={labelA?.knownLabel}
+                                          visibleActions={{ copy: true, solscan: true, profile: true }}
+                                      />
                                       <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                                      <WalletBadge address={pair.walletB} size="s" knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
+                                      <WalletBadge
+                                          address={pair.walletB}
+                                          variant="compact"
+                                          knownType={labelB?.knownType}
+                                          knownLabel={labelB?.knownLabel}
+                                          visibleActions={{ copy: true, solscan: true, profile: true }}
+                                      />
                                   </div>
-                                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                                  <div className="flex items-center gap-1 shrink-0">
                                       <TooltipProvider>
                                           <Tooltip delayDuration={200}>
                                               <TooltipTrigger asChild>
-                                                  <Badge className={`text-[10px] cursor-help ${status.className}`}>{status.label}</Badge>
+                                                  <Badge className={`text-[9px] cursor-help px-1.5 py-0 ${status.className}`}>{status.label}</Badge>
                                               </TooltipTrigger>
                                               <TooltipContent>
                                                   <p>Similarity level: {status.label} ({avgScore >= 0.6 ? '≥60%' : avgScore >= 0.2 ? '20-60%' : '<20%'})</p>
@@ -347,10 +362,10 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                                       <TooltipProvider>
                                           <Tooltip delayDuration={200}>
                                               <TooltipTrigger asChild>
-                                                  <Badge variant="outline" className="font-semibold text-xs cursor-help">{percentFormatter.format(avgScore)}</Badge>
+                                                  <Badge variant="outline" className="font-semibold text-[10px] cursor-help px-1.5 py-0">{percentFormatter.format(avgScore)}</Badge>
                                               </TooltipTrigger>
                                               <TooltipContent>
-                                                  <p>Combined similarity score (average of capital-weighted: {percentFormatter.format(pair.capitalScore)} and behavioral: {percentFormatter.format(pair.binaryScore)})</p>
+                                                  <p>Combined: {percentFormatter.format(avgScore)} (capital: {percentFormatter.format(pair.capitalScore)}, behavioral: {percentFormatter.format(pair.binaryScore)})</p>
                                               </TooltipContent>
                                           </Tooltip>
                                       </TooltipProvider>

@@ -11,10 +11,12 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Copy, ExternalLink, Info, Wallet, User, Star, Edit2 } from "lucide-react";
 import { memo, MouseEvent } from "react";
+import Link from "next/link";
 import { format, formatDistanceToNow } from "date-fns";
 import { FavoriteWallet, type KnownWalletType } from "@/types/api";
 import { useFavorites } from "@/hooks/useFavorites";
@@ -27,7 +29,7 @@ export interface WalletMetrics {
 }
 
 type WalletBadgeSize = "s" | "m" | "l" | "xl" | "sm" | "md" | "lg";
-type WalletBadgeVariant = "card" | "inline" | "minimal";
+type WalletBadgeVariant = "card" | "inline" | "minimal" | "compact" | "micro" | "stacked";
 
 interface WalletBadgeProps {
   address: string;
@@ -293,6 +295,237 @@ const WalletBadge = memo(({
               <TooltipContent><p>Wallet Profile</p></TooltipContent>
             </Tooltip>
           </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
+
+  // ===== RENDER COMPACT VARIANT (dense list, icons below) =====
+  if (variant === "compact") {
+    return (
+      <TooltipProvider>
+        <div className={cn("inline-flex flex-col items-center gap-0.5 p-1 rounded border border-border/40 hover:border-border transition-colors", className)}>
+          {/* Address on top - clickable to copy */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleCopyAddress}
+                className={cn(
+                  "text-xs font-mono cursor-pointer transition-colors hover:text-primary",
+                  isKnownWallet && "text-muted-foreground"
+                )}
+              >
+                {displayLabel}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="font-mono text-xs">{address}</p>
+              {secondaryLabel && <p className="text-muted-foreground text-xs">{secondaryLabel}</p>}
+              <p className="text-muted-foreground text-xs mt-1">Click to copy</p>
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Icons below horizontally */}
+          {showActions && (
+            <div className="flex items-center gap-0.5">
+              {visibleActions.copy && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleCopyAddress}
+                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                    >
+                      <Copy className="h-2.5 w-2.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Copy</p></TooltipContent>
+                </Tooltip>
+              )}
+
+              {visibleActions.solscan && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <a
+                      href={`https://solscan.io/account/${address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                    >
+                      <ExternalLink className="h-2.5 w-2.5" />
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Solscan</p></TooltipContent>
+                </Tooltip>
+              )}
+
+              {visibleActions.profile && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={`/wallet/${address}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                    >
+                      <User className="h-2.5 w-2.5" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Profile</p></TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          )}
+        </div>
+      </TooltipProvider>
+    );
+  }
+
+  // ===== RENDER MICRO VARIANT (ultra compact, click to expand) =====
+  if (variant === "micro") {
+    return (
+      <TooltipProvider>
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono",
+                    "border border-border/40 hover:border-border transition-colors cursor-pointer",
+                    isKnownWallet && "text-muted-foreground",
+                    className
+                  )}
+                >
+                  {displayLabel.length > 8 ? `${displayLabel.slice(0, 4)}...` : displayLabel}
+                </button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent><p>Click for actions</p></TooltipContent>
+          </Tooltip>
+
+          <PopoverContent className="w-64 p-3" align="start">
+            <div className="space-y-2">
+              <div className="font-mono text-xs break-all">{address}</div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyAddress}
+                  className="flex-1 h-7"
+                >
+                  <Copy className="h-3 w-3 mr-1" />
+                  Copy
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  className="flex-1 h-7"
+                >
+                  <a href={`https://solscan.io/account/${address}`} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-3 w-3 mr-1" />
+                    Solscan
+                  </a>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  className="flex-1 h-7"
+                >
+                  <Link href={`/wallet/${address}`}>
+                    <User className="h-3 w-3 mr-1" />
+                    Profile
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </TooltipProvider>
+    );
+  }
+
+  // ===== RENDER STACKED VARIANT (quadratic with icons stacked below) =====
+  if (variant === "stacked") {
+    return (
+      <TooltipProvider>
+        <div className={cn("inline-flex flex-col rounded border border-border/40 hover:border-border transition-colors overflow-hidden", className)}>
+          {/* Address section - clickable to copy */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleCopyAddress}
+                className={cn(
+                  "px-2 py-1.5 bg-card text-xs font-mono cursor-pointer text-center transition-colors hover:bg-muted/20",
+                  isKnownWallet && "text-muted-foreground"
+                )}
+              >
+                {displayLabel}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="font-mono text-xs">{address}</p>
+              {secondaryLabel && <p className="text-muted-foreground text-xs">{secondaryLabel}</p>}
+              <p className="text-muted-foreground text-xs mt-1">Click to copy</p>
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Icons section stacked below */}
+          {showActions && (
+            <div className="flex items-center justify-center gap-1 px-2 py-1 bg-muted/20 border-t border-border/40">
+              {visibleActions.copy && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleCopyAddress}
+                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Copy</p></TooltipContent>
+                </Tooltip>
+              )}
+
+              {visibleActions.solscan && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <a
+                      href={`https://solscan.io/account/${address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Solscan</p></TooltipContent>
+                </Tooltip>
+              )}
+
+              {visibleActions.profile && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={`/wallet/${address}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                    >
+                      <User className="h-3 w-3" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Profile</p></TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          )}
         </div>
       </TooltipProvider>
     );
