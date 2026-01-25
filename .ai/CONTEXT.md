@@ -45,6 +45,43 @@ P0:
 0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
 0|sova-backend-api  | prisma:error Error in batch request 12: Error occur
 
+P1:
+
+ What I Recommend for Your System
+
+  Based on your codebase, here's the pragmatic solution:
+
+  Phase 1: Quick Win (Implement This Week)
+
+  1. Enable changedSinceSlot in your V2 API calls
+    - Store last checkpoint slot in Redis per wallet
+    - Only fetch changed accounts on subsequent calls
+    - Falls back to full fetch if slot too old
+  2. Transaction-triggered cache invalidation
+    - Your HeliusSyncService already processes transactions
+    - When new transaction arrives, invalidate affected token accounts
+    - Next balance request fetches only invalidated accounts
+
+  Phase 2: Proper Solution (Next Month)
+
+  3. Helius Webhooks for account changes
+    - Subscribe to account change webhooks (not just transaction webhooks)
+    - Real-time balance updates
+    - No polling needed
+  4. WebSocket subscriptions for active wallets
+    - For wallets being actively monitored, open WebSocket connections
+    - Close connections when no longer needed
+    - Instant updates for tracked wallets
+
+  Want me to implement Phase 1 for you? I can:
+  1. Add changedSinceSlot support to your balance fetching
+  2. Add transaction-triggered cache invalidation to HeliusSyncService
+  3. Add slot-based checkpointing to Redis
+
+  This would reduce your 29k account fetches to ~10-50 accounts per check (95%+ reduction) without major architectural
+  changes.
+
+
 **Similarity Lab UX Overhaul - Frame-by-Frame Design Refinement**
 
 Working through Similarity Lab in detailed "frames" - treating each major section as a cohesive visual and functional unit. Each frame contains clusters of related components that must be understood holistically, not just as individual files.
