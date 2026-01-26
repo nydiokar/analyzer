@@ -83,7 +83,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
   ) {
     this.redis = redisClient;
 
-    this.redis.on('error', (err) => this.logger.error('Redis connection error (holder profiles cache):', err.message));
+    this.redis.on('error', (err) => this.logger.error(`Redis connection error (holder profiles cache): ${err.message}`));
     this.redis.on('connect', () => this.logger.log('Redis connected for holder profiles cache'));
     this.redis.on('ready', () => this.logger.log('Redis ready for holder profiles cache operations'));
     this.redis.on('close', () => this.logger.warn('Redis connection closed for holder profiles cache'));

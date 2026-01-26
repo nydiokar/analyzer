@@ -71,8 +71,8 @@ export const redisProvider: FactoryProvider<Redis> = {
       } else if (errorMessage.includes('LOADING')) {
         logger.warn('⏳ Redis is loading data into memory. Waiting for it to be ready...');
       } else {
-        // Non-connection errors should still be logged with full details
-        logger.error(`🔥 Redis error: ${errorMessage}`, err.stack);
+        // Non-connection errors should be logged cleanly
+        logger.error(`🔥 Redis error: ${errorMessage}`);
       }
     });
 

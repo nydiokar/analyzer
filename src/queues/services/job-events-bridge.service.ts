@@ -147,7 +147,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     });
 
     queueEvents.on('error', (err) => {
-      this.logger.error(`Queue events error for ${queueName}:`, getErrorMessage(err));
+      this.logger.error(`Queue events error for ${queueName}: ${getErrorMessage(err)}`);
     });
 
     this.queueEventsMap.set(queueName, queueEvents);

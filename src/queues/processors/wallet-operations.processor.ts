@@ -38,11 +38,11 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
     });
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Job ${job?.id} failed:`, getErrorMessage(err));
+      this.logger.error(`Job ${job?.id} failed: ${getErrorMessage(err)}`);
     });
 
     this.worker.on('error', (err) => {
-      this.logger.error('Worker error:', getErrorMessage(err));
+      this.logger.error(`Worker error: ${getErrorMessage(err)}`);
     });
 
           this.logger.debug('WalletOperationsProcessor initialized with worker');

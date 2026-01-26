@@ -2604,22 +2604,58 @@ export class DatabaseService {
     async upsertManyTokenInfo(data: Prisma.TokenInfoCreateInput[]): Promise<void> {
         if (data.length === 0) return;
 
-        const operations = data.map(tokenData => {
-            return this.prismaClient.tokenInfo.upsert({
-                where: { tokenAddress: tokenData.tokenAddress },
-                update: { ...tokenData, updatedAt: new Date() },
-                create: tokenData,
-            });
-        });
+        const MAX_RETRIES = 3;
+        const BASE_DELAY_MS = 100;
 
-        try {
-            // Execute all upsert operations in a transaction
-            await this.prismaClient.$transaction(operations);
-            this.logger.debug(`Successfully upserted ${data.length} token info records.`);
-        } catch (error) {
-            this.logger.error('Error in upsertManyTokenInfo transaction', { error });
-            // Depending on requirements, you might want to re-throw or handle differently
-            throw new InternalServerErrorException('Failed to save token information.');
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                // Sort token addresses to ensure consistent lock acquisition order
+                // This significantly reduces deadlock probability
+                const sortedData = [...data].sort((a, b) =>
+                    a.tokenAddress.localeCompare(b.tokenAddress)
+                );
+
+                const operations = sortedData.map(tokenData => {
+                    return this.prismaClient.tokenInfo.upsert({
+                        where: { tokenAddress: tokenData.tokenAddress },
+                        update: { ...tokenData, updatedAt: new Date() },
+                        create: tokenData,
+                    });
+                });
+
+                // Execute all upsert operations in a transaction
+                await this.prismaClient.$transaction(operations);
+
+                if (attempt > 1) {
+                    this.logger.info(`Successfully upserted ${data.length} token info records after ${attempt} attempts.`);
+                } else {
+                    this.logger.debug(`Successfully upserted ${data.length} token info records.`);
+                }
+
+                return; // Success - exit retry loop
+
+            } catch (error) {
+                // Check if this is a deadlock error (PostgreSQL code 40P01)
+                const isDeadlock = (typeof error === 'object' && error !== null) && (
+                    ('code' in error && (error.code === '40P01' || error.code === 'P2034')) ||
+                    ('meta' in error && typeof error.meta === 'object' && error.meta !== null && 'code' in error.meta && error.meta.code === '40P01')
+                );
+
+                if (isDeadlock && attempt < MAX_RETRIES) {
+                    // Exponential backoff with jitter to reduce retry collision
+                    const delayMs = BASE_DELAY_MS * Math.pow(2, attempt - 1) + Math.random() * 50;
+                    this.logger.warn(
+                        `Deadlock detected in upsertManyTokenInfo (attempt ${attempt}/${MAX_RETRIES}), ` +
+                        `retrying in ${delayMs.toFixed(0)}ms...`
+                    );
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                    continue; // Retry
+                }
+
+                // Non-deadlock error or max retries exceeded
+                this.logger.error('Error in upsertManyTokenInfo transaction', { error });
+                throw new InternalServerErrorException('Failed to save token information.');
+            }
         }
     }
 

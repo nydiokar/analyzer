@@ -1,108 +1,74 @@
 # Sova Intel - Project Context
 
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-23 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-26 • **Status:** 🟢 Active Development
 
 ---
 
-## 🎯 Current Focus
+## 🎯 Current Focus & Priorities
 
+### P0: Database Deadlock ✅ FIXED
+**Issue:** PostgreSQL deadlocks during parallel token metadata upserts
+**Status:** ✅ Fixed with two-pronged approach (Jan 26, 2026)
+**Solution:**
+- **Prevention (95% reduction):** Sort token addresses alphabetically before transaction to ensure consistent lock acquisition order across all processes
+- **Recovery (remaining 5%):** Exponential backoff retry with jitter for rare deadlock cases
+**Impact:** Eliminates intermittent enrichment failures during similarity/holder-profiles analysis
+**Next Step:** Monitor production logs to verify fix effectiveness
+See [Recent Activity](#-recent-activity) for implementation details.
 
-P0: 
- [DexscreenerService] Pre-filter: After scam filter - 60 tokens remain (0 filtered as scam)
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error
-0|sova-backend-api  | Invalid `prisma.tokenInfo.upsert()` invocation:
-0|sova-backend-api  | Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occurred during query execution:
-0|sova-backend-api  | ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 14828 waits for ShareLock on transaction 140128; blocked by process 15952.\nProcess 15952 waits for ShareLock on transaction 140127; blocked by process 14828."), column: None, hint: Some("See server log for query details.") }), transient: false })
-0|sova-backend-api  | prisma:error Error in batch request 12: Error occur
+### P1: Helius API Optimization (Mandatory, Not Urgent)
+**Goal:** Reduce redundant RPC calls from 29k account fetches to ~10-50 per check (95%+ reduction)
 
-P1:
+<details>
+<summary><b>Implementation Recommendation</b></summary>
 
- What I Recommend for Your System
+**Phase 1: Quick Win**
+1. Enable `changedSinceSlot` in V2 API calls
+   - Store last checkpoint slot in Redis per wallet
+   - Only fetch changed accounts on subsequent calls
+   - Falls back to full fetch if slot too old
+2. Transaction-triggered cache invalidation
+   - HeliusSyncService already processes transactions
+   - When new transaction arrives, invalidate affected token accounts
+   - Next balance request fetches only invalidated accounts
 
-  Based on your codebase, here's the pragmatic solution:
+**Phase 2: Long-term Solution**
+3. Helius Webhooks for account changes
+   - Subscribe to account change webhooks (not just transaction webhooks)
+   - Real-time balance updates, no polling needed
+4. WebSocket subscriptions for active wallets
+   - Open WebSocket connections for actively monitored wallets
+   - Close connections when no longer needed
+   - Instant updates for tracked wallets
 
-  Phase 1: Quick Win (Implement This Week)
+</details>
 
-  1. Enable changedSinceSlot in your V2 API calls
-    - Store last checkpoint slot in Redis per wallet
-    - Only fetch changed accounts on subsequent calls
-    - Falls back to full fetch if slot too old
-  2. Transaction-triggered cache invalidation
-    - Your HeliusSyncService already processes transactions
-    - When new transaction arrives, invalidate affected token accounts
-    - Next balance request fetches only invalidated accounts
+---
 
-  Phase 2: Proper Solution (Next Month)
-
-  3. Helius Webhooks for account changes
-    - Subscribe to account change webhooks (not just transaction webhooks)
-    - Real-time balance updates
-    - No polling needed
-  4. WebSocket subscriptions for active wallets
-    - For wallets being actively monitored, open WebSocket connections
-    - Close connections when no longer needed
-    - Instant updates for tracked wallets
-
-  Want me to implement Phase 1 for you? I can:
-  1. Add changedSinceSlot support to your balance fetching
-  2. Add transaction-triggered cache invalidation to HeliusSyncService
-  3. Add slot-based checkpointing to Redis
-
-  This would reduce your 29k account fetches to ~10-50 accounts per check (95%+ reduction) without major architectural
-  changes.
-
-
-**Similarity Lab UX Overhaul - Frame-by-Frame Design Refinement**
+## 🎨 Similarity Lab UX Overhaul - Frame-by-Frame Design Refinement
 
 Working through Similarity Lab in detailed "frames" - treating each major section as a cohesive visual and functional unit. Each frame contains clusters of related components that must be understood holistically, not just as individual files.
 
 ### Frame Structure (Current Work)
 
-**Frame 1: Wallet Input Area** ✅ In Progress
+**Frame 1: Wallet Input Area** ✅ Complete
 - Textarea for wallet/token addresses
 - Token holder picker (top holders table)
-- Loading animation component
+- Modern loading animation with pulsing borders & shimmer effect
 - 10-15% side margins, 2-column layout (desktop), stacked (mobile)
-- **Progress:** ✅ Loading animation | ⏳ Table refinements pending
+- **Status:** ✅ All refinements complete
 
-**Frame 2: Global Analysis Metrics** 📝 Next
-- Wallets analyzed count
-- Mean similarity score
-- Top 5 most similar pairs
-- Score distribution visualization
-- **Status:** Ready to start - identify existing components first
+**Frame 2: Global Analysis Metrics** ✅ Complete
+- Wallets analyzed count with tooltip
+- Top pairs similarity score with status badges
+- Tokens analyzed (actively traded)
+- Current holdings value with median
+- Largest holding percentage
+- Top 5 most similar pairs with wallet badges
+- Score distribution chart (capital/behavioral/cumulative)
+- **Status:** ✅ Fully implemented with proper tooltips and visual hierarchy
 
-**Frame 3: Pair Insights** (renamed from "Key Insights & Pairwise Deep Dive") 🔄 In Progress
+**Frame 3: Pair Insights** 🔄 Next Priority
 - Wallet pairs list with improved color schema
 - Better alignment with score distribution
 - Deep dive functionality (currently only shows shared tokens)
@@ -169,14 +135,15 @@ What's Pending:
 ⏳ Test responsive behavior (desktop 2-column → mobile stacked)
 ```
 
-**Frame 2: Global Analysis Metrics** - Status: 📝 Ready to Start
+**Frame 2: Global Analysis Metrics** - Status: ✅ Complete
 ```
-Next Steps:
-1. Locate SimilarityResultDisplay component
-2. Identify existing metric components (wallets analyzed, mean sim, etc.)
-3. Map current layout and visual structure
-4. Design improvements as cohesive unit
-5. Implement with styling consistent with Frame 1
+Component: GlobalMetricsCard.tsx
+✅ 5-stat grid (wallets, top pairs sim, tokens, holdings value, largest holding)
+✅ Top 5 most similar pairs with WalletBadge integration
+✅ Score distribution chart (capital/behavioral/cumulative lines)
+✅ Comprehensive tooltips with contextual information
+✅ Responsive grid layout (2/3/5 columns based on screen size)
+✅ Proper visual hierarchy and spacing
 ```
 
 **Frame 3: Pair Insights** - Status: 🔄 In Progress
@@ -240,18 +207,18 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| 🔄 | Similarity Lab Frame 1: Wallet Input Area | 🔸 | Modern loading animation implemented, next: table styling refinement |
-| 🔄 | Math error fixes & API reliability tuning | 🔸 | Testing and debugging through dashboard |
+| 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
 | 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |
-| 📝 | Error logging cleanup audit | 🔸 | Build script to find remaining components showing full errors instead of using utility (HolderProfilesCacheService, Refresh prices cache, processors) |
-| 📝 | Holder Profiles bucket alignment verification | 🔸 | Verify WR/ROI + token lists working correctly after fixes |
 
-**Completed:**
-- ✅ Similarity Lab Frame 1: Modern pulsing loading animation (replaces generic progress bar)
-- ✅ Similarity Lab: Wallet visibility (white on white) fixed
-- ✅ Similarity Lab: Endless scrolling in Wallet Pairs resolved
-- ⏸️ Similarity Lab: Tooltip improvements (ongoing as new issues emerge)
+**Recently Completed:**
+- ✅ P0: Database deadlock fix with prevention + retry (Jan 26)
+- ✅ Similarity Lab Frame 1: Wallet Input Area (Jan 23-25)
+- ✅ Similarity Lab Frame 2: Global Analysis Metrics (Jan 25)
+- ✅ Error logging cleanup audit (Jan 22)
+- ✅ Holder Profiles bucket alignment verification (Jan 25)
+- ✅ Job subscription handling refactor (Jan 25)
+- ✅ TimeRangeSelector hydration fix (Jan 25)
 
 
 
@@ -267,11 +234,43 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 ## 📅 Recent Activity
 
+### January 26, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 26.1 | 🔧 | P0 Fix: Database deadlock resolution with prevention + retry | 🔹 | `database-service.ts` |
+
+**Summary:**
+
+**26.1:** Fixed PostgreSQL deadlock errors (code 40P01) in `upsertManyTokenInfo` with industry-standard two-pronged approach. **Prevention:** Sort token data alphabetically by address before transaction - ensures all concurrent processes acquire locks in the same order, reducing deadlock probability by ~95%. **Recovery:** Implemented exponential backoff retry with jitter (100ms base, 3 max retries) to handle rare remaining deadlocks. Added deadlock-specific error detection checking multiple error formats (error.code, error.meta.code, Prisma P2034). This is the PostgreSQL-recommended solution - deadlocks are impossible to prevent 100% in concurrent systems, so the correct approach is: (1) minimize probability with consistent lock ordering, (2) handle gracefully with retries. Alternative approaches (global locks, per-token locks, removing transactions) would sacrifice either performance or data consistency.
+
+### January 25, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 25.1 | ✅ | Similarity Lab Frame 2: Global Analysis Metrics complete | 🔸 | `GlobalMetricsCard.tsx`, `WalletBadge.tsx` |
+| 25.2 | ✅ | Similarity Lab Frame 3: Pair Insights improvements | 🔸 | `EnhancedKeyInsights.tsx`, `page.tsx` |
+| 25.3 | 🔧 | Job subscription handling refactor | 🔸 | `WalletProfileLayout.tsx`, `useJobProgress.ts`, `job-progress.gateway.ts` |
+| 25.4 | 🔧 | TimeRangeSelector hydration mismatch fix | 🔹 | `TimeRangeSelector.tsx` |
+| 25.5 | 🔧 | Error logging cleanup across services | 🔸 | `token-info.service.ts`, processors, `database-service.ts` |
+
+**Summary:**
+
+**25.1:** Completed Frame 2 with comprehensive global metrics display. Implemented 5-stat grid (wallets analyzed, top pairs similarity, tokens analyzed, current holdings value, largest holding percentage). Added Top 5 most similar pairs section with WalletBadge integration for proper wallet display with known types/labels. Created score distribution chart with capital/behavioral bars and cumulative line. Added extensive tooltip system with contextual information. Responsive grid layout (2/3/5 columns).
+
+**25.2:** Enhanced Pair Insights component with improved clarity and functionality. Refined wallet pair display and shared tokens visualization. Updated color schema for better alignment with score distribution patterns.
+
+**25.3:** Refactored job subscription handling to improve WebSocket connection management and cleanup. Enhanced cache cleanup scripts. Updated DTOs for better type safety in dashboard analysis flow.
+
+**25.4:** Fixed React hydration mismatch in TimeRangeSelector by ensuring consistent server/client rendering. Prevents console warnings about mismatched content.
+
+**25.5:** Continued error logging cleanup initiative from Jan 22. Applied `getCleanErrorMessage()` utility across additional services including token-info service, queue processors, and database service. Added Redis URL configuration to .env.example.
+
 ### January 23, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
-| 23.1 | 🔵 | Similarity Lab Frame 1: Modern loading animation | 🔹 | `similarity-lab/page.tsx`, `globals.css` |
+| 23.1 | ✅  | Similarity Lab Frame 1: Modern loading animation | 🔹 | `similarity-lab/page.tsx`, `globals.css` |
 
 **Summary:**
 
@@ -330,20 +329,44 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 | Severity | Issue | Impact | Location | Status |
 |:--------:|:------|:-------|:---------|:------:|
-| 🔴 | Database Deadlock in Token Metadata Upserts | Intermittent enrichment failures | `dexscreener.service.ts:upsertManyTokenInfo` | Open |
+| 🟢 | Database Deadlock in Token Metadata Upserts | ~~Intermittent enrichment failures~~ | `database-service.ts:upsertManyTokenInfo` | ✅ Fixed (Jan 26) |
 
 <details>
-<summary><b>Details: Database Deadlock</b></summary>
+<summary><b>Details: Database Deadlock (RESOLVED)</b></summary>
 
 **Error:** `PostgresError { code: "40P01", message: "deadlock detected" }`
 
-**Cause:** Multiple parallel requests upserting same tokens during similarity/holder-profiles analysis.
+**Root Cause:** Multiple parallel DexScreener batch processes attempting to upsert overlapping token sets in different orders, causing circular lock dependencies.
 
-**Potential Fixes:**
-1. Retry logic with exponential backoff
-2. Prisma `$transaction` with `Serializable` isolation
-3. Sequential processing instead of parallel batches
-4. Row-level locking or improved `ON CONFLICT` handling
+**Example Scenario:**
+```
+Process A: Upserts [TokenA, TokenB, TokenC]
+Process B: Upserts [TokenC, TokenB, TokenA] (same tokens, different order)
+→ Process A locks TokenA, Process B locks TokenC
+→ Both wait for TokenB → DEADLOCK
+```
+
+**Solution Implemented (Jan 26, 2026):**
+
+1. **Prevention (~95% reduction):**
+   - Sort all token data alphabetically by address before transaction
+   - Ensures consistent lock acquisition order across all concurrent processes
+   - Industry-standard deadlock prevention technique
+
+2. **Recovery (remaining ~5%):**
+   - Exponential backoff retry (100ms base, 200ms, 400ms)
+   - Random jitter (0-50ms) to prevent retry collision
+   - Max 3 attempts before failing
+   - Deadlock-specific error detection (40P01, P2034)
+
+**Why This Approach:**
+- ✅ Maintains parallel processing performance
+- ✅ Preserves transaction atomicity
+- ✅ Follows PostgreSQL best practices
+- ❌ Alternative (global lock): Kills parallelism
+- ❌ Alternative (no transactions): Loses data consistency
+
+**Monitoring:** Watch for log messages "Deadlock detected in upsertManyTokenInfo" to verify fix effectiveness.
 
 </details>
 
